@@ -3,9 +3,12 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Offline flavor: foreground service + notifications only. No gameplay
-         INTERNET permission. See schemas/flavor.json excludes_from_release_artifact. -->
+         INTERNET permission. See schemas/flavor.json excludes_from_release_artifact.
+         The realm uses FGS type specialUse, NOT dataSync: dataSync is capped at
+         6h on Android 15 and is intended for finite syncs, whereas the realm is
+         a persistent long-running process spanning multi-hour play sessions. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -35,7 +38,11 @@
         <service
             android:name=".service.RealmService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Hosts a long-running local game realm server (offline PvE) that must persist across multi-hour play sessions for the duration the user is playing." />
+        </service>
 
         <receiver
             android:name=".service.SaveExitReceiver"

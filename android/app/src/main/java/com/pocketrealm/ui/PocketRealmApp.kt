@@ -1,6 +1,5 @@
 package com.pocketrealm.ui
 
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Home
@@ -51,11 +50,10 @@ fun PocketRealmApp() {
         NavHost(
             navController = navController,
             startDestination = Screen.Home.route,
-            modifier = Modifier.padding(inner),
         ) {
-            composable(Screen.Home.route) { HomeScreen() }
-            composable(Screen.Settings.route) { SettingsScreen() }
-            composable(Screen.Diagnostics.route) { DiagnosticsScreen() }
+            composable(Screen.Home.route) { HomeScreen(contentPadding = inner) }
+            composable(Screen.Settings.route) { SettingsScreen(contentPadding = inner) }
+            composable(Screen.Diagnostics.route) { DiagnosticsScreen(contentPadding = inner) }
         }
     }
 }

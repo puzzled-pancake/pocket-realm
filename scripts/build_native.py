@@ -7,8 +7,9 @@ pinned NDK.
 
 Environment requirements (Windows host):
   - Android NDK (found via ANDROID_SDK_ROOT/ANDROID_HOME under SDK/ndk)
-  - MSYS2 at G:\\msys64 (provides a complete Unix-style perl for OpenSSL and a
-    host gcc for the Boost b2 bootstrap). Install with:
+  - MSYS2 (found via MSYS2_ROOT/MSYS_HOME env, default G:\\msys64). Provides a
+    complete Unix-style perl for OpenSSL and a host gcc for the Boost b2
+    bootstrap. Install with:
       pacman -S --noconfirm make gcc
   - The SDK-bundled CMake + Ninja
 
@@ -35,7 +36,9 @@ ROOT = Path(__file__).resolve().parents[1]
 NATIVE = ROOT / "native"
 DEPS_SRC = NATIVE / ".deps" / "src"
 PREFIX = NATIVE / ".deps" / "prefix-arm64"
-MSYS2 = Path("G:/msys64")
+# MSYS2 location is environment-overridable so the build is not pinned to one
+# developer's machine. Default kept as the documented install path.
+MSYS2 = Path(os.environ.get("MSYS2_ROOT") or os.environ.get("MSYS_HOME") or "G:/msys64")
 MSYS_BASH = MSYS2 / "usr" / "bin" / "bash.exe"
 
 SDK = Path(os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or "")
@@ -46,6 +49,14 @@ if not SDK.is_dir():
 _NDK_DIR = SDK / "ndk"
 NDK_VERSIONS = sorted([p.name for p in _NDK_DIR.iterdir()]) if _NDK_DIR.is_dir() else []
 NDK = _NDK_DIR / NDK_VERSIONS[-1] if NDK_VERSIONS else None
+if NDK is None or not NDK.is_dir():
+    print(f"ERROR: no NDK found under {_NDK_DIR}. Install an NDK via the SDK "
+          f"manager (e.g. ndk;30.0.15729638).", file=sys.stderr)
+    sys.exit(2)
+# The playerbots source lives in its own submodule; CMaNGOS's FetchContent
+# expects it pre-populated at src/modules/PlayerBots (SOURCE_DIR form).
+PLAYERBOTS_SUBMODULE = NATIVE / "playerbots"
+PLAYERBOTS_IN_TREE = NATIVE / "cmangos" / "src" / "modules" / "PlayerBots"
 # An NDK junction with a simple name avoids Windows 8.3 short-name path issues
 # in OpenSSL's toolchain detection. Created if missing.
 NDK_LINK = SDK / "ndk-link"
@@ -80,11 +91,56 @@ def run_msys(script: str) -> int:
 
 
 def ensure_ndk_link():
-    """Create the simple-name NDK junction if it doesn't exist."""
+    """Create the simple-name NDK junction, or recreate it if it points at a
+    stale NDK (e.g. after an NDK upgrade changed which version sorts last).
+
+    A junction that exists but targets the wrong NDK would silently build against
+    an older toolchain than `NDK` while the build log claims the new one, so we
+    resolve the current target rather than trusting existence alone.
+    """
+    expected = os.path.realpath(NDK)
     if NDK_LINK.exists():
-        return
+        actual = os.path.realpath(NDK_LINK)
+        if os.path.normcase(actual) == os.path.normcase(expected):
+            return
+        print(f"NDK junction points at {actual}, expected {expected}; recreating")
+        # Remove the stale junction. rmdir works for junctions and does not
+        # descend into the target tree.
+        NDK_LINK.unlink() if NDK_LINK.is_symlink() else _remove_junction(NDK_LINK)
     print(f"Creating NDK junction {NDK_LINK} -> {NDK}")
     subprocess.run(["cmd", "/c", "mklink", "/J", str(NDK_LINK), str(NDK)], check=True)
+
+
+def _remove_junction(path: Path):
+    """Remove a directory junction without recursing into its target."""
+    subprocess.run(["cmd", "/c", "rmdir", str(path)], check=True)
+
+
+def ensure_playerbots():
+    """Populate CMaNGOS's in-tree modules/PlayerBots from the playerbots
+    submodule so its FetchContent (SOURCE_DIR form) finds the pinned source.
+
+    CMaNGOS's src/CMakeLists.txt declares PlayerBots with
+    `SOURCE_DIR=.../modules/PlayerBots`; FetchContent copies from there rather
+    than cloning. On a clean checkout the directory is absent (gitignored by the
+    cmangos submodule under src/modules/), so we mirror the pinned submodule
+    here to make the playerbots build reproducible.
+    """
+    if not PLAYERBOTS_SUBMODULE.is_dir():
+        print(f"ERROR: playerbots submodule missing at {PLAYERBOTS_SUBMODULE}. "
+              f"Run `git submodule update --init`.", file=sys.stderr)
+        sys.exit(2)
+    # A marker file makes re-runs idempotent without a full content compare of a
+    # 365 MB tree. If the marker is absent or names a different source, refresh.
+    marker = PLAYERBOTS_IN_TREE / ".pocket-realm-source"
+    if marker.exists() and marker.read_text().strip() == str(PLAYERBOTS_SUBMODULE):
+        return
+    if PLAYERBOTS_IN_TREE.exists():
+        shutil.rmtree(PLAYERBOTS_IN_TREE)
+    PLAYERBOTS_IN_TREE.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Populating {PLAYERBOTS_IN_TREE} from {PLAYERBOTS_SUBMODULE}")
+    shutil.copytree(PLAYERBOTS_SUBMODULE, PLAYERBOTS_IN_TREE)
+    marker.write_text(str(PLAYERBOTS_SUBMODULE))
 
 
 def openssl() -> int:
@@ -147,6 +203,10 @@ def sqlite() -> int:
 
 
 def cmangos() -> int:
+    # The playerbots source must be in-tree before configure so CMaNGOS's
+    # FetchContent (SOURCE_DIR form) finds it. This makes the playerbots build
+    # reproducible from a clean checkout rather than relying on a manual copy.
+    ensure_playerbots()
     build = NATIVE / ".build-arm64"
     src = NATIVE / "cmangos"
     cmd = [str(CMAKE_BIN), "-S", str(src), "-B", str(build),
@@ -159,6 +219,7 @@ def cmangos() -> int:
            f"-DBOOST_ROOT={PREFIX}",
            "-DSQLITE=ON", "-DBUILD_EXTRACTORS=OFF",
            "-DBUILD_GAME_SERVER=ON", "-DBUILD_LOGIN_SERVER=ON",
+           "-DBUILD_PLAYERBOTS=ON",
            "-DCMAKE_BUILD_TYPE=Release"]
     if run(cmd) != 0:
         return 1
@@ -173,12 +234,20 @@ def main() -> int:
         print("Stages:", ", ".join(STAGES))
         print(f"NDK: {NDK}")
         print(f"NDK link: {NDK_LINK}")
-        print(f"MSYS2: {MSYS2}")
+        print(f"MSYS2: {MSYS2} ({'found' if MSYS_BASH.is_file() else 'NOT FOUND'})")
         print(f"Prefix: {PREFIX}")
         return 0
 
     ensure_ndk_link()
     PREFIX.mkdir(parents=True, exist_ok=True)
+    # Stages openssl/boost run inside MSYS2; fail early with a clear message
+    # rather than a cryptic missing-bash error deep in the build.
+    needs_msys = args.stage in ("all", "openssl", "boost")
+    if needs_msys and not MSYS_BASH.is_file():
+        print(f"ERROR: MSYS2 bash not found at {MSYS_BASH}. Install MSYS2 and "
+              f"set MSYS2_ROOT (or MSYS_HOME), then `pacman -S --noconfirm "
+              f"make gcc`.", file=sys.stderr)
+        return 2
     print(f"NDK: {NDK}\nNDK link: {NDK_LINK}\nMSYS2: {MSYS2}\nPrefix: {PREFIX}")
 
     stages = STAGES if args.stage == "all" else [args.stage]

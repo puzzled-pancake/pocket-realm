@@ -3,7 +3,7 @@
   "description": "Pinned upstream sources for the Pocket Realm offline build. Every entry has an exact commit, a license, and a redistribution verdict. Update only via a reviewed change that re-runs verification. This file is the source of truth referenced by the build/import tools.",
   "updated": "2026-07-31",
   "toolchain": {
-    "android_sdk_root": "C:\\Users\\David\\AppData\\Local\\Android\\Sdk",
+    "android_sdk_root_env": "ANDROID_SDK_ROOT / ANDROID_HOME (machine-local; not pinned here)",
     "ndk": { "version": "30.0.15729638", "release": "r30-beta2", "page_size_16k_compatible": true },
     "cmake": { "version": "4.1.2", "bundled_in_sdk": true },
     "build_tools": "36.0.0",
@@ -12,14 +12,15 @@
     "jdk": "Eclipse Temurin 17.0.20 (JDK 17)",
     "python": "3.13.12",
     "native_build_host": {
-      "msys2": "G:\\msys64 (complete Unix-style perl for OpenSSL, gcc for Boost b2 bootstrap)",
-      "ndk_junction": "SDK\\ndk-link -> SDK\\ndk\\30.0.15729638 (avoids Windows 8.3 short-name path mismatch in OpenSSL toolchain detection)",
+      "msys2_env": "MSYS2_ROOT / MSYS_HOME (machine-local; default G:\\msys64). Complete Unix-style perl for OpenSSL, gcc for Boost b2 bootstrap.",
+      "ndk_junction": "SDK\\ndk-link -> currently-selected SDK\\ndk\\<version>, recreated if stale (avoids Windows 8.3 short-name path mismatch in OpenSSL toolchain detection)",
       "dependencies_built": {
         "openssl": "3.4.3 (libcrypto.a, libssl.a; static, no-asm)",
         "boost": "1.86.0 (program_options, thread, regex, serialization, filesystem, system; static runtime)",
         "sqlite": "3.46.1 amalgamation (libsqlite3.a; FTS5/RTREE/WAL)"
       },
-      "patches": "native/.deps/patches/README.md"
+      "playerbots_integration": "BUILD_PLAYERBOTS=ON; cmangos FetchContent (SOURCE_DIR form) reads native/playerbots mirrored into native/cmangos/src/modules/PlayerBots by build_native.py ensure_playerbots()",
+      "patches": "docs/patches/native-source-patches.md"
     }
   },
   "sources": [
@@ -75,7 +76,7 @@
   ],
   "verification": {
     "commit_pin_command": "git submodule status",
-    "license_review_command": "See scripts/check_sources.py (added with O01 tooling)",
+    "license_review_command": "python3 tools/check_sources.py",
     "rule": "A firmware, driver, NDK, or upstream change invalidates affected qualification and requires a new reviewed entry with re-verification."
   }
 }

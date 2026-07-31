@@ -67,21 +67,32 @@ class RealmService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Always promote to foreground immediately. This service is only ever
+        // started via startForegroundService (RealmService.start); promoting
+        // unconditionally also covers a system-recreated entry (null intent)
+        // before the ~5s FGS-promotion deadline.
+        //
+        // We return START_NOT_STICKY: if the system kills the process we do NOT
+        // want a half-state resurrection. Per the durability model, dirty-start
+        // recovery (O08) — not service recreation — is the real safety boundary,
+        // and the next user launch drives a clean restart.
+        startForeground(NOTIF_ID, buildNotification(supervisor.state.value))
         when (intent?.action) {
             ACTION_START -> startRealm()
             ACTION_SAVE_EXIT -> saveExit()
             ACTION_STOP -> stopRealm(forced = false)
         }
-        // Keep running; abrupt termination is handled by recovery on next start.
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     private fun startRealm() {
-        startForeground(NOTIF_ID, buildNotification(supervisor.state.value))
-        scope.launch {
+        // Cancel any in-flight (simulated) bring-up before launching a new one,
+        // and remember the Job so a later teardown can actually cancel it.
+        startupSim?.cancel()
+        startupSim = scope.launch {
             transitionLock.withLock {
                 if (!supervisor.requestStart()) return@withLock
-                // Placeholder startup sequence. O03-O05 will replace this with the
+                // Placeholder startup sequence. O04-O05 will replace this with the
                 // real native realm bring-up; the state transitions stay identical.
                 bringUpHealthSimulated()
             }
@@ -91,11 +102,13 @@ class RealmService : Service() {
     private fun saveExit() {
         scope.launch {
             transitionLock.withLock {
-                if (supervisor.requestSave(SaveReason.USER_SAVE_EXIT)) {
-                    delay(SAVE_SIM_MS) // O06+ replaces with real durable write.
-                    supervisor.markIdle()
-                    stopRealm(forced = false)
-                }
+                if (!supervisor.requestSave(SaveReason.USER_SAVE_EXIT)) return@withLock
+                delay(SAVE_SIM_MS) // O06+ replaces with real durable write.
+                // Save complete: flow Saving -> Stopping -> Idle so the
+                // notification reflects teardown before the foreground slot is
+                // released. Do NOT markIdle() first, or requestStop() rejects and
+                // the Stopping state is never observed.
+                teardownLocked(forced = false)
             }
         }
     }
@@ -103,13 +116,23 @@ class RealmService : Service() {
     private fun stopRealm(forced: Boolean) {
         scope.launch {
             transitionLock.withLock {
-                supervisor.requestStop(forced)
-                startupSim?.cancel()
-                supervisor.markIdle()
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                teardownLocked(forced)
             }
         }
+    }
+
+    /**
+     * Tear down the realm and stop the service. Caller MUST hold
+     * [transitionLock]. Transitions the current non-Idle state -> Stopping ->
+     * Idle, cancels any in-flight bring-up, then releases the foreground slot.
+     */
+    private suspend fun teardownLocked(forced: Boolean) {
+        supervisor.requestStop(forced) // -> Stopping (no-op if already Idle)
+        startupSim?.cancel()
+        startupSim = null
+        supervisor.markIdle()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     /**

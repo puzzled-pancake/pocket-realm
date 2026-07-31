@@ -30,7 +30,8 @@
     "hidden_online_switch": "No runtime flag re-enables connected behavior"
   },
   "android_permissions": {
-    "required": ["FOREGROUND_SERVICE", "POST_NOTIFICATIONS", "WAKE_LOCK"],
+    "required": ["FOREGROUND_SERVICE", "FOREGROUND_SERVICE_SPECIAL_USE", "POST_NOTIFICATIONS", "WAKE_LOCK"],
+    "foreground_service_type": "specialUse (long-running local realm server; dataSync is capped at 6h on Android 15 and unsuitable for multi-hour play)",
     "storage": "Scoped storage / SAF for client import and exports only",
     "prohibited_in_offline_flavor": ["INTERNET used for gameplay authority", "ACCESS_NETWORK_STATE for realm decisions"]
   },

@@ -1,7 +1,7 @@
 # Current project state
 
-Last verified commit: `O03 native ARM64 build (pending commit)`
-Active feature: `none` (O03 marked done)
+Last verified commit: `O03 review fixes`
+Active feature: `none` (O03 marked done; review fixes applied)
 Current milestone: `A2 — native ARM64 realm runtime (O04 next)`
 
 ## Last successful checks
@@ -11,18 +11,23 @@ Current milestone: `A2 — native ARM64 realm runtime (O04 next)`
 - ELF LOAD segments aligned to 0x4000 (16 KB page-size compatible)
 - No -mcpu/-mtune core-type flags (portable across heterogeneous cores)
 - Dynamic deps: only libdl/libm/libc++_shared/libc (Boost/OpenSSL/SQLite statically linked)
+- `:app:compileDebugKotlin` passes after the review fixes
 
 ## Current state
 - External dependencies cross-compiled for arm64-v8a into native/.deps/prefix-arm64:
   OpenSSL 3.4.3, Boost 1.86.0 (6 libs), SQLite 3.46.1 — all verified aarch64.
 - CMaNGOS Classic + Playerbots build against the pinned NDK with SQLite backend.
-- Three documented patches (native/.deps/patches/README.md): gsoap sys/timeb.h
-  (Android Bionic), Playerbots TestAction.cpp format-security (NDK -Werror),
-  and the FetchContent modules/PlayerBots source location.
-- Environment: MSYS2 installed at G:\msys64 (perl/make/gcc); NDK junction at
-  SDK/ndk-link. build_native.py encodes the reproducible flow.
+- Three documented patches (docs/patches/native-source-patches.md): gsoap
+  sys/timeb.h (Android Bionic), Playerbots TestAction.cpp format-security
+  (NDK -Werror), and the FetchContent modules/PlayerBots source integration.
+- Environment: MSYS2 via MSYS2_ROOT (default G:\msys64, perl/make/gcc); NDK
+  junction at SDK/ndk-link (validated against the current NDK each run).
+  build_native.py encodes the reproducible flow including
+  -DBUILD_PLAYERBOTS=ON and ensure_playerbots() source mirroring.
 - Startup sequence in RealmService is still simulated; O04-O05 swap in the
   embeddable lifecycle facade and real native bring-up against these binaries.
+- RealmService uses START_NOT_STICKY + unconditional startForeground; FGS type
+  is specialUse (persistent local realm; dataSync's 6h cap is unsuitable).
 
 ## Blockers
 - None. (mangosd is 496 MB unstripped; a strip step is appropriate before packaging.)
