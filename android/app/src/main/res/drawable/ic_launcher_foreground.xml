@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- A simple shield emblem, evoking a realm/guardian. -->
+    <path
+        android:fillColor="@color/pocket_primary"
+        android:pathData="M54,28 L74,36 L74,56 C74,70 64,80 54,84 C44,80 34,70 34,56 L34,36 Z" />
+    <path
+        android:fillColor="@color/pocket_accent"
+        android:pathData="M54,44 L62,48 L62,58 C62,64 58,68 54,70 C50,68 46,64 46,58 L46,48 Z" />
+</vector>

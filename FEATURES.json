@@ -36,7 +36,7 @@
       "track": "offline",
       "priority": 20,
       "title": "Android Compose shell, supervisor state model, storage roots, and foreground service",
-      "status": "pending",
+      "status": "done",
       "depends": [
         "O01"
       ],
@@ -46,8 +46,14 @@
         "Supervisor states and foreground notification are visible",
         "Internal mutable storage and import/export roots are separated"
       ],
-      "notes": "",
-      "evidence": []
+      "notes": "Kotlin/Compose shell with typed supervisor state machine, dataSync foreground service (notification reflects state + Save & Exit), separated storage roots, DataStore settings, structured logging, Home/Settings/Diagnostics nav. Startup sequence is simulated; O03-O05 swaps in the real native bring-up.",
+      "evidence": [
+        "./gradlew :app:assembleDebug -> BUILD SUCCESSFUL (valid 17 MB APK, minSdk26/targetSdk35, no INTERNET perm)",
+        "Installed+launched on emulator-5554 (API 35); Home/Settings/Diagnostics render",
+        "Lifecycle on device: Idle->Starting->Running->Saving->Idle verified via UI tree",
+        "dumpsys notification: FOREGROUND_SERVICE, title='Pocket Realm', text='Running | tap to play', action='Save & Exit'",
+        "adb run-as: files/realm/{db,generations}+content+runtime internal; only exports on external"
+      ]
     },
     {
       "id": "O03",

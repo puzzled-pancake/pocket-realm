@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Pocket Realm</string>
+    <string name="notification_channel_realm">Realm status</string>
+    <string name="notification_channel_desc">Shows current realm status and Save &amp; Exit while playing.</string>
+    <string name="action_save_exit">Save &amp; Exit</string>
+    <string name="action_stop">Stop</string>
+    <string name="action_start">Start Adventure</string>
+    <string name="action_continue">Continue</string>
+</resources>

@@ -1,32 +1,31 @@
 # Current project state
 
-Last verified commit: `O01 bootstrap (initial commit pending)`
-Active feature: `none` (O01 marked done)
-Current milestone: `A1 — reproducible source and Android shell`
+Last verified commit: `O02 Android shell (pending commit)`
+Active feature: `none` (O02 marked done)
+Current milestone: `A2 — native ARM64 realm runtime`
 
 ## Last successful checks
-- `python3 scripts/bootstrap.py` → BOOTSTRAP OK
-- `python3 tools/check_sources.py` → All pinned sources verified
-- NDK arm64-v8a native build smoke (libhello.so, API 26) → ok
-- Android Compose debug APK build (smoke, not committed) → 8.7 MB valid APK
-- `.gitignore` proprietary-data leak test → clean
+- `./gradlew.bat :app:assembleDebug` → BUILD SUCCESSFUL (AGP 9.3.1, Kotlin 2.0.21, Compose BOM 2024.12.01)
+- APK installed + launched on emulator-5554 (API 35, x86_64) → Home/Settings/Diagnostics render
+- Supervisor lifecycle verified on device: Idle → Starting → Running → Saving → Idle
+- Foreground notification verified via dumpsys: FOREGROUND_SERVICE flag, title "Pocket Realm", text "Running · tap to play", action "Save & Exit"
+- Storage separation verified via adb: mutable `files/realm/{db,generations}` internal-only; only `exports` on external; no realm-data leak
 
 ## Current state
-- Repository initialized on `main` with monorepo layout from PLAN.md §2.
-- Upstream sources pinned as git submodules at exact commits:
-  - `native/cmangos` → cmangos/mangos-classic@de8f7299 (GPL-2.0)
-  - `native/classic-db` → cmangos/classic-db@be1a5206 (GPL-3.0; content = Blizzard proprietary)
-  - `native/playerbots` → cmangos/playerbots@01c621f1 (GPL-2.0)
-- Source pinning, licenses, and redistribution status recorded in `schemas/sources.json`.
-- Offline Vanilla 1.12 flavor contract recorded in `schemas/flavor.json`.
-- Proprietary client/data/game-data paths excluded from source control (`.gitignore`, tested).
-- Environment fixed for this machine: `python3` resolves to real Python 3.13 (Store stub bypassed); `ANDROID_SDK_ROOT` set.
+- Android Compose shell complete under `android/`.
+  - `RealmSupervisor`: typed state machine (Idle/Starting/Running/Saving/Stopping/Recovering/Failed) with a legal-transition table; `Running` reachable only after all `HealthCondition`s hold.
+  - `RealmService`: foreground service (dataSync type); notification reflects state + offers Save & Exit; onDestroy intentionally does NOT save (dirty-start recovery is the real boundary).
+  - `StorageRoots`: separated roots — internal mutable realm/content/runtime, external exports only.
+  - `Settings` (DataStore): bounded advanced presets (provider/renderer/FPS/bots); generation-managed settings stay out of here.
+  - `AppLog`: structured, redact-safe logging ring feeding the Diagnostics screen.
+  - UI: Home (primary action + live status), Settings (bounded), Diagnostics (storage/provenance/log).
+- Offline flavor honored: no gameplay INTERNET permission; only FOREGROUND_SERVICE/POST_NOTIFICATIONS/WAKE_LOCK.
 
 ## Blockers
-- None.
+- None. (Native realm bring-up in O03-O05 will replace the simulated health sequence in RealmService.)
 
 ## Next action
-- Run `python3 scripts/next_feature.py --activate` to select **O02** (Android Compose shell, supervisor state model, storage roots, foreground service).
+- Run `python3 scripts/next_feature.py --activate` to select **O03** (portable ARM64 CMaNGOS + Playerbots build).
 
 ## Session note
 Replace this file with the current state; do not append a permanent diary. Git history is the durable record.
