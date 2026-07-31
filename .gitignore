@@ -20,7 +20,11 @@ cmake-build-*/
 native/*/build/
 native/.deps/
 native/.build-*/
+native/.smoke-stage-*/
 output/
+
+# ZCode local session data
+.zcode/
 
 # Kotlin / Java
 *.class

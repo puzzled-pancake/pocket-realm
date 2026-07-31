@@ -4,8 +4,15 @@
   "updated": "2026-07-31",
   "toolchain": {
     "android_sdk_root_env": "ANDROID_SDK_ROOT / ANDROID_HOME (machine-local; not pinned here)",
-    "ndk": { "version": "30.0.15729638", "release": "r30-beta2", "page_size_16k_compatible": true },
-    "cmake": { "version": "4.1.2", "bundled_in_sdk": true },
+    "ndk": {
+      "version": "30.0.15729638",
+      "release": "r30-beta2",
+      "page_size_16k_compatible": true
+    },
+    "cmake": {
+      "version": "4.1.2",
+      "bundled_in_sdk": true
+    },
     "build_tools": "36.0.0",
     "gradle": "9.5.0",
     "android_gradle_plugin": "9.3.1",
@@ -20,6 +27,7 @@
         "sqlite": "3.46.1 amalgamation (libsqlite3.a; FTS5/RTREE/WAL)"
       },
       "playerbots_integration": "BUILD_PLAYERBOTS=ON; cmangos FetchContent (SOURCE_DIR form) reads native/playerbots mirrored into native/cmangos/src/modules/PlayerBots by build_native.py ensure_playerbots()",
+      "emulator_test_abi": "x86_64 is supported via build_native.py --abi x86_64 and smoke_native.py --abi x86_64 --device as an EMULATOR-ONLY test target (runtime execution smoke). The product ABI remains arm64-v8a per .claude/rules/native.md; x86_64 is never shipped.",
       "patches": "docs/patches/native-source-patches.md"
     }
   },
@@ -30,8 +38,8 @@
       "kind": "git-submodule",
       "upstream_url": "https://github.com/cmangos/mangos-classic.git",
       "branch": "master",
-      "commit": "658c5b0decd2f0c867753ad817153f54d001b813",
-      "commit_date": "2026-06-18 (+ Pocket Realm Android patch)",
+      "commit": "edf89d3e641c235943308597206cfe8d6e8df207",
+      "commit_date": "2026-06-18 (+ Pocket Realm Android patches: gsoap, FetchContent pin)",
       "role": "Vanilla 1.12 game server core (mangosd + realmd). Cross-compiled to arm64-v8a; refactored into an embeddable lifecycle in O04.",
       "license": "GPL-2.0-or-later",
       "license_file": "native/cmangos/LICENSE",

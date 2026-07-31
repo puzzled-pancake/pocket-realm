@@ -42,6 +42,23 @@ enters the build (see next item): once in the submodule at
 `native/playerbots/.../TestAction.cpp`, and once in the in-tree mirror at
 `native/cmangos/src/modules/PlayerBots/.../TestAction.cpp`.
 
+### cmangos — `src/CMakeLists.txt:28` FetchContent pinning (reproducibility)
+
+**Change:** remove the `GIT_REPOSITORY`/`GIT_TAG` lines from the PlayerBots
+`FetchContent_Declare`, leaving it SOURCE_DIR-only.
+
+CMaNGOS declares PlayerBots with both `SOURCE_DIR=.../modules/PlayerBots` and
+`GIT_REPOSITORY=github.com/cmangos/playerbots.git` (`GIT_TAG=master`). When
+FetchContent_Populate runs it honors the GIT_REPOSITORY and **re-clones upstream
+`master` at whatever the latest commit is**, overwriting the pinned submodule
+mirror with unpinned, unpatched upstream code. The build then links an
+unaudited commit and (because the local patches are absent) hits the format-
+security `-Werror`.
+
+With GIT_REPOSITORY removed, FetchContent uses the SOURCE_DIR we mirror from
+the pinned submodule verbatim. This is the change that actually makes the
+playerbots build reproducible and pinned to the audited commit.
+
 ### playerbots — FetchContent `modules/PlayerBots` source location (build-time integration)
 
 **Not a code patch; a reproducibility step encoded in `build_native.py`.**
@@ -54,12 +71,13 @@ cmangos submodule under `src/modules/`).
 
 `build_native.py ensure_playerbots()` mirrors the pinned `native/playerbots`
 submodule into `native/cmangos/src/modules/PlayerBots` (idempotent via a
-`.pocket-realm-source` marker) and `cmangos()` passes `-DBUILD_PLAYERBOTS=ON`.
-This makes the playerbots build reproducible from a clean checkout instead of
-relying on a one-time manual copy. Because FetchContent *copies* from the
-SOURCE_DIR rather than symlinking it, the source patch above must land in both
-trees (the mirror is refreshed from the submodule, so editing the submodule copy
-and re-running propagates it).
+`.pocket-realm-source` marker; `.git` is excluded so it is a plain source tree,
+and a force-remove handler clears the read-only bit on git pack files during a
+refresh) and `cmangos()` passes `-DBUILD_PLAYERBOTS=ON`. Combined with the
+FetchContent pinning patch above, this makes the playerbots build reproducible
+from a clean checkout at the audited commit. Because the mirror is refreshed
+from the submodule, the source patch above must land in the submodule copy
+(re-running `ensure_playerbots()` propagates it into the mirror).
 
 ## Reproduction
 

@@ -16,7 +16,7 @@
       "title": "Repository bootstrap, source pinning, licensing, and flavor manifest",
       "status": "done",
       "depends": [],
-      "plan": "PLAN.md — Milestone A1",
+      "plan": "PLAN.md \u2014 Milestone A1",
       "acceptance": [
         "A clean checkout reproduces the host/Android bootstrap build",
         "Pinned upstream commits and license/distribution status are recorded",
@@ -40,7 +40,7 @@
       "depends": [
         "O01"
       ],
-      "plan": "PLAN.md — Milestone A1",
+      "plan": "PLAN.md \u2014 Milestone A1",
       "acceptance": [
         "APK starts on the reference device",
         "Supervisor states and foreground notification are visible",
@@ -64,20 +64,25 @@
       "depends": [
         "O01"
       ],
-      "plan": "PLAN.md — Milestone A2",
+      "plan": "PLAN.md \u2014 Milestone A2",
       "acceptance": [
         "Release ARM64 libraries/binaries build with the pinned NDK",
         "Build is compatible with the device page size and does not assume one core type",
         "Host/unit smoke tests pass"
       ],
-      "notes": "CMaNGOS Classic + Playerbots cross-compiled for arm64-v8a with NDK r30, SQLite backend (interim per plan). Dependencies (OpenSSL 3.4.3, Boost 1.86.0, SQLite 3.46.1) built from source into native/.deps/prefix-arm64. Three documented patches for Android (gsoap sys/timeb.h, playerbots format-security, FetchContent source path). build_native.py encodes the reproducible flow via MSYS2.",
+      "notes": "CMaNGOS Classic + Playerbots cross-compiled for arm64-v8a with NDK r30, SQLite backend (interim per plan). Dependencies (OpenSSL 3.4.3, Boost 1.86.0, SQLite 3.46.1) built from source into native/.deps/prefix-arm64. Three documented patches for Android (gsoap sys/timeb.h, playerbots format-security, FetchContent source path). build_native.py encodes the reproducible flow via MSYS2. x86_64 is an emulator-only test target (product ABI stays arm64-v8a per .claude/rules/native.md); enables runtime execution smoke the arm64 build cannot do on an x86 host.",
       "evidence": [
         "mangosd + realmd: elf64-littleaarch64, link with no unresolved symbols",
         "libplayerbots.a (816 MB unstripped) linked into mangosd - bot subsystem present",
         "ELF LOAD segment alignment 0x4000 = 16 KB page-size compatible",
         "No -mcpu/-mtune flags in compile_commands.json - portable across cores",
         "Dynamic deps only libdl/libm/libc++_shared/libc (deps statically linked)",
-        "scripts/build_native.py stages openssl/boost/sqlite/cmangos all pass"
+        "scripts/build_native.py stages openssl/boost/sqlite/cmangos all pass",
+        "scripts/smoke_native.py --abi arm64-v8a -> SMOKE OK (mangosd+realmd ELF64/AArch64, 16KB align, expected deps only)",
+        "scripts/smoke_native.py --abi x86_64 --device -> SMOKE OK; mangosd --version runs on emulator (exit 0, \"Boost version 10.86.0\"); realmd executes (reaches config-load)",
+        "x86_64 native build (build_native.py --abi x86_64) -> elf64-x86-64, links with no unresolved symbols",
+        "connectedDebugAndroidTest on emulator-5554 (API35 x86_64) -> 12 tests, 0 failures, 0 errors (RealmSupervisorTest x10 + RealmServiceLifecycleTest x2)",
+        "instrumented: Saving->Stopping->Idle round-trip + FGS foreground importance while Running"
       ]
     },
     {
@@ -89,7 +94,7 @@
       "depends": [
         "O03"
       ],
-      "plan": "PLAN.md — Milestone A2",
+      "plan": "PLAN.md \u2014 Milestone A2",
       "acceptance": [
         "Realm can create/start/health/save/stop/destroy twice in one process",
         "No process exit or console-only control is required",
@@ -108,7 +113,7 @@
         "O02",
         "O04"
       ],
-      "plan": "PLAN.md — Milestone A2",
+      "plan": "PLAN.md \u2014 Milestone A2",
       "acceptance": [
         "Supervisor starts and stops native realm",
         "Health waits for database/auth/world readiness",
@@ -126,7 +131,7 @@
       "depends": [
         "O04"
       ],
-      "plan": "PLAN.md — Milestone A3",
+      "plan": "PLAN.md \u2014 Milestone A3",
       "acceptance": [
         "Pinned schemas install and migrate deterministically",
         "A reference character/item/quest/mail/auction fixture passes",
@@ -144,7 +149,7 @@
       "depends": [
         "O06"
       ],
-      "plan": "PLAN.md — Milestone A3",
+      "plan": "PLAN.md \u2014 Milestone A3",
       "acceptance": [
         "Core persistence fixtures match reference behavior",
         "Transactions and prepared statements pass retry/concurrency tests",
@@ -162,7 +167,7 @@
       "depends": [
         "O07"
       ],
-      "plan": "PLAN.md — Milestone A3",
+      "plan": "PLAN.md \u2014 Milestone A3",
       "acceptance": [
         "Kills at each lifecycle transition recover deterministically",
         "Item/gold/claim invariants remain true",
@@ -180,7 +185,7 @@
       "depends": [
         "O08"
       ],
-      "plan": "PLAN.md — Milestone A3",
+      "plan": "PLAN.md \u2014 Milestone A3",
       "acceptance": [
         "At least two verified generations are retained",
         "Backup health includes disposable restore and realm start",
@@ -199,7 +204,7 @@
         "O02",
         "O06"
       ],
-      "plan": "PLAN.md — Milestone A4",
+      "plan": "PLAN.md \u2014 Milestone A4",
       "acceptance": [
         "Supported build/locale is identified by manifest/hash",
         "Malicious/invalid archives and unsupported clients are rejected safely",
@@ -218,7 +223,7 @@
         "O05",
         "O10"
       ],
-      "plan": "PLAN.md — Milestone A5",
+      "plan": "PLAN.md \u2014 Milestone A5",
       "acceptance": [
         "Provider components and prefix/cache generation are isolated and pinned",
         "Client reaches world through loopback and exits cleanly",
@@ -237,7 +242,7 @@
         "O11",
         "O13"
       ],
-      "plan": "PLAN.md — Milestone A5",
+      "plan": "PLAN.md \u2014 Milestone A5",
       "acceptance": [
         "FEX uses an isolated rootfs/prefix/cache",
         "Non-root Android, Wine, graphics, audio/input, lifecycle, and page-size results are explicit",
@@ -256,7 +261,7 @@
       "depends": [
         "O11"
       ],
-      "plan": "PLAN.md — Milestone A5",
+      "plan": "PLAN.md \u2014 Milestone A5",
       "acceptance": [
         "DXVK and WineD3D are separately selectable and diagnosed",
         "30/40/60 FPS profiles are measured on 120 Hz output",
@@ -275,7 +280,7 @@
         "O02",
         "O11"
       ],
-      "plan": "PLAN.md — Milestone A6",
+      "plan": "PLAN.md \u2014 Milestone A6",
       "acceptance": [
         "All first-run and gameplay-critical flows are controller accessible",
         "Dead zones/mappings survive restart and controller reconnect",
@@ -293,7 +298,7 @@
       "depends": [
         "O14"
       ],
-      "plan": "PLAN.md — Milestone A6",
+      "plan": "PLAN.md \u2014 Milestone A6",
       "acceptance": [
         "Required addons load without Lua errors on supported builds",
         "Combat/cursor/chat/bot modes work with controller",
@@ -317,7 +322,7 @@
         "O14",
         "O15"
       ],
-      "plan": "PLAN.md — Milestone A6",
+      "plan": "PLAN.md \u2014 Milestone A6",
       "acceptance": [
         "Every wizard stage resumes after process death",
         "Random local credentials are protected and not shown as reusable plaintext",
@@ -336,7 +341,7 @@
         "O12",
         "O16"
       ],
-      "plan": "PLAN.md — Milestone A6",
+      "plan": "PLAN.md \u2014 Milestone A6",
       "acceptance": [
         "Primary flow is Start/Continue/Save & Exit/Recovery",
         "Advanced changes are generation-managed and rollbackable",
@@ -355,7 +360,7 @@
         "O05",
         "O15"
       ],
-      "plan": "PLAN.md — Milestone A7",
+      "plan": "PLAN.md \u2014 Milestone A7",
       "acceptance": [
         "Protected/resident/elastic/latent classes are measurable",
         "Visible population changes naturally and scarce objectives prioritize the human",
@@ -374,7 +379,7 @@
         "O13",
         "O17"
       ],
-      "plan": "PLAN.md — Milestone A6",
+      "plan": "PLAN.md \u2014 Milestone A6",
       "acceptance": [
         "Only verified 1.12 settings are applied",
         "Optional packs are scanned, isolated, benchmarked, and reversible",
@@ -394,7 +399,7 @@
         "O18",
         "O19"
       ],
-      "plan": "PLAN.md — Milestone A7",
+      "plan": "PLAN.md \u2014 Milestone A7",
       "acceptance": [
         "Degradation order protects correctness and visible/party/resident bots",
         "Controller responds to CPU/GPU/server/thermal bottlenecks without oscillation",
@@ -413,7 +418,7 @@
         "O09",
         "O17"
       ],
-      "plan": "PLAN.md — Upgrade and update policy",
+      "plan": "PLAN.md \u2014 Upgrade and update policy",
       "acceptance": [
         "Updates stage and smoke-test a candidate generation",
         "Previous accepted generation remains recoverable",
@@ -433,7 +438,7 @@
         "O20",
         "O21"
       ],
-      "plan": "PLAN.md — Milestone A7",
+      "plan": "PLAN.md \u2014 Milestone A7",
       "acceptance": [
         "Complete first-run-to-play and controller-only flows pass",
         "Save/kill/power-loss/backup/restore/runtime/addon rollback campaigns pass",
@@ -451,7 +456,7 @@
       "depends": [
         "O22"
       ],
-      "plan": "PLAN.md — Milestone B1",
+      "plan": "PLAN.md \u2014 Milestone B1",
       "acceptance": [
         "Storage, IDs, keys, accounts, characters, backups, and services are separate",
         "Offline data cannot be mounted or merged as connected progress",
@@ -469,7 +474,7 @@
       "depends": [
         "C01"
       ],
-      "plan": "PLAN.md — Milestone B1",
+      "plan": "PLAN.md \u2014 Milestone B1",
       "acceptance": [
         "Two Android devices connect on LAN, Internet/NAT, and relay paths",
         "Route/IP exposure is visible",
@@ -487,7 +492,7 @@
       "depends": [
         "C02"
       ],
-      "plan": "PLAN.md — Milestone B1",
+      "plan": "PLAN.md \u2014 Milestone B1",
       "acceptance": [
         "Private invite/revoke flow works without pretending to prove host honesty",
         "Strict role certificate binds app/device key, realm, mesh identity, policy, role, expiry, and revocation",
@@ -505,7 +510,7 @@
       "depends": [
         "C02"
       ],
-      "plan": "PLAN.md — Milestone B2",
+      "plan": "PLAN.md \u2014 Milestone B2",
       "acceptance": [
         "Typed bounded commands replace remote SQL/admin console",
         "Global ID/name/session/lease conflicts resolve canonically",
@@ -523,7 +528,7 @@
       "depends": [
         "C04"
       ],
-      "plan": "PLAN.md — Milestone B2",
+      "plan": "PLAN.md \u2014 Milestone B2",
       "acceptance": [
         "Idempotent retry returns one stable outcome",
         "Ownership/balance/claim invariants hold under disconnect and replay",
@@ -541,7 +546,7 @@
       "depends": [
         "C05"
       ],
-      "plan": "PLAN.md — Milestone B2",
+      "plan": "PLAN.md \u2014 Milestone B2",
       "acceptance": [
         "Checkpoint restore reproduces the committed state root",
         "Old authority output/writes are rejected after promotion",
@@ -559,7 +564,7 @@
       "depends": [
         "C06"
       ],
-      "plan": "PLAN.md — Milestone B3",
+      "plan": "PLAN.md \u2014 Milestone B3",
       "acceptance": [
         "All peers offline stops simulation and produces a canonical dormant record",
         "Return selects the highest valid history and applies bounded catch-up once",
@@ -578,7 +583,7 @@
         "C04",
         "O22"
       ],
-      "plan": "PLAN.md — Milestone B3",
+      "plan": "PLAN.md \u2014 Milestone B3",
       "acceptance": [
         "Gameplay/economy/protocol invariants remain enforced under Box64/FEX/Wine",
         "Unreliable memory/renderer/timing checks are disabled or evidence-only, not global anti-cheat",
@@ -597,7 +602,7 @@
         "C04",
         "O18"
       ],
-      "plan": "PLAN.md — Milestone B3",
+      "plan": "PLAN.md \u2014 Milestone B3",
       "acceptance": [
         "Elastic bots yield gradually to unique active humans while resident floors remain",
         "Alts/zone hopping cannot rapidly manipulate density",
@@ -616,7 +621,7 @@
         "C02",
         "C04"
       ],
-      "plan": "PLAN.md — Milestone B4",
+      "plan": "PLAN.md \u2014 Milestone B4",
       "acceptance": [
         "Client remains on one local TCP/header-crypt session while backend route changes",
         "Anchor owns sequencing/bounds but no gameplay authority",
@@ -635,7 +640,7 @@
         "C06",
         "C10"
       ],
-      "plan": "PLAN.md — Milestone B4",
+      "plan": "PLAN.md \u2014 Milestone B4",
       "acceptance": [
         "No raw pointer/process image/socket/database connection is serialized",
         "Baseline+deltas converge to equal semantic state roots",
@@ -653,7 +658,7 @@
       "depends": [
         "C11"
       ],
-      "plan": "PLAN.md — Milestone B4",
+      "plan": "PLAN.md \u2014 Milestone B4",
       "acceptance": [
         "Standby applies authoritative deltas rather than simulating a second world",
         "Qualified crash promotes through a higher epoch and replays input once",
@@ -671,7 +676,7 @@
       "depends": [
         "C11"
       ],
-      "plan": "PLAN.md — Milestone B4",
+      "plan": "PLAN.md \u2014 Milestone B4",
       "acceptance": [
         "Ordinary zones/cities remain within one authority",
         "Continent/dungeon/raid transfers use normal loading screen and atomic state transfer",
@@ -693,7 +698,7 @@
         "C12",
         "C13"
       ],
-      "plan": "PLAN.md — Milestone B5",
+      "plan": "PLAN.md \u2014 Milestone B5",
       "acceptance": [
         "LAN/NAT/relay/partition/stale/clock/crash/dormancy/restore/migration tests pass",
         "One canonical economy and explicit degraded behavior hold",

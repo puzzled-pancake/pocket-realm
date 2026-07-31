@@ -34,6 +34,12 @@ android {
         compose = true
         buildConfig = true
     }
+
+    testOptions {
+        // Instrumented tests run against the real supervisor/service on-device;
+        // animations are disabled for deterministic lifecycle observation.
+        animationsDisabled = true
+    }
 }
 
 kotlin {
@@ -57,4 +63,9 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.navigation.compose)
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.kotlinx.coroutines.test)
 }
