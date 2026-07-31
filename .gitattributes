@@ -1,0 +1,29 @@
+# Normalize text files to LF in the repo; OS-native on checkout.
+* text=auto eol=lf
+
+# Windows-native scripts keep CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary types — never diff/merge
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.icns binary
+*.apk binary
+*.jar binary
+*.so binary
+*.a binary
+*.db binary
+*.db-wal binary
+*.db-shm binary
+*.mpq binary
+*.dbc binary
+*.m2 binary
+*.blp binary
+*.wmo binary
+*.adt binary
+*.wdt binary
+
+# Generated lockfiles — merge=ours to avoid spurious conflicts
+Cargo.lock merge=ours

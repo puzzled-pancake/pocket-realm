@@ -1,0 +1,12 @@
+[submodule "native/cmangos"]
+	path = native/cmangos
+	url = https://github.com/cmangos/mangos-classic.git
+	branch = master
+[submodule "native/classic-db"]
+	path = native/classic-db
+	url = https://github.com/cmangos/classic-db.git
+	branch = master
+[submodule "native/playerbots"]
+	path = native/playerbots
+	url = https://github.com/cmangos/playerbots.git
+	branch = master

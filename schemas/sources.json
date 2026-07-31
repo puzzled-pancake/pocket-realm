@@ -1,0 +1,71 @@
+{
+  "schema": 1,
+  "description": "Pinned upstream sources for the Pocket Realm offline build. Every entry has an exact commit, a license, and a redistribution verdict. Update only via a reviewed change that re-runs verification. This file is the source of truth referenced by the build/import tools.",
+  "updated": "2026-07-31",
+  "toolchain": {
+    "android_sdk_root": "C:\\Users\\David\\AppData\\Local\\Android\\Sdk",
+    "ndk": { "version": "30.0.15729638", "release": "r30-beta2", "page_size_16k_compatible": true },
+    "cmake": { "version": "4.1.2", "bundled_in_sdk": true },
+    "build_tools": "36.0.0",
+    "gradle": "9.5.0",
+    "android_gradle_plugin": "9.3.1",
+    "jdk": "Eclipse Temurin 17.0.20 (JDK 17)",
+    "python": "3.13.12"
+  },
+  "sources": [
+    {
+      "id": "cmangos-core",
+      "path": "native/cmangos",
+      "kind": "git-submodule",
+      "upstream_url": "https://github.com/cmangos/mangos-classic.git",
+      "branch": "master",
+      "commit": "de8f72993b9e1faa1bf92dd5505f3daec5cea3ce",
+      "commit_date": "2026-06-18",
+      "role": "Vanilla 1.12 game server core (mangosd + realmd). Cross-compiled to arm64-v8a; refactored into an embeddable lifecycle in O04.",
+      "license": "GPL-2.0-or-later",
+      "license_file": "native/cmangos/LICENSE",
+      "redistribution": {
+        "verdict": "source-redistributable",
+        "notes": "GPL-2.0 source may be redistributed. Compiled server binaries are linked by the Android app under GPL terms. The server is never translated; only the user-supplied client runs under translation."
+      }
+    },
+    {
+      "id": "cmangos-db",
+      "path": "native/classic-db",
+      "kind": "git-submodule",
+      "upstream_url": "https://github.com/cmangos/classic-db.git",
+      "branch": "master",
+      "commit": "be1a5206bedccc8dc088b7c79dae31fcf3dbbfce",
+      "commit_date": "2026-07-26",
+      "role": "Reference database schemas/fixtures used to establish known-correct behavior before SQLite translation (O06-O07).",
+      "license": "GPL-3.0-or-later (code); content is Blizzard copyrighted material",
+      "license_file": "native/classic-db/LICENSE.md",
+      "copyright_file": "native/classic-db/COPYRIGHT.md",
+      "redistribution": {
+        "verdict": "source-redistributable-as-fair-use-claim",
+        "notes": "The SQL/code is GPL-3.0. The game CONTENT in this database is Blizzard's copyrighted material; CMaNGOS asserts a non-commercial fair-use claim. Pocket Realm treats all derived data as non-redistributable proprietary material: it is generated on-device from the user's own client (O10) and never shipped in source control or the release artifact. See DECISIONS.md #1."
+      }
+    },
+    {
+      "id": "playerbots",
+      "path": "native/playerbots",
+      "kind": "git-submodule",
+      "upstream_url": "https://github.com/cmangos/playerbots.git",
+      "branch": "master",
+      "commit": "01c621f19e537bec4706738e1a66d0b105d9ff05",
+      "commit_date": "2026-07-27",
+      "role": "Bot subsystem populating the offline PvE world (protected/resident/elastic/latent classes, O18).",
+      "license": "GPL-2.0-or-later",
+      "license_file": "native/playerbots/CMakeLists.txt (header)",
+      "redistribution": {
+        "verdict": "source-redistributable",
+        "notes": "GPL-2.0, inherits CMaNGOS licensing. Built as part of the native realm library."
+      }
+    }
+  ],
+  "verification": {
+    "commit_pin_command": "git submodule status",
+    "license_review_command": "See scripts/check_sources.py (added with O01 tooling)",
+    "rule": "A firmware, driver, NDK, or upstream change invalidates affected qualification and requires a new reviewed entry with re-verification."
+  }
+}

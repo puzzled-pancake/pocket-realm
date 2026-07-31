@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "flavor": "offline-vanilla-1.12",
+  "description": "The first releasable product flavor: a self-contained, offline-only PvE Vanilla 1.12 realm on Android. This manifest is the contract the build, manifest merger, and release-acceptance checks enforce.",
+  "target_device_profile": {
+    "primary": "Retroid Pocket 6 12 GB",
+    "native_abi": "arm64-v8a",
+    "min_sdk": 26,
+    "target_sdk": 35,
+    "page_size": "16 KB compatible (no exclusive core-type assumptions)"
+  },
+  "game": {
+    "expansion": "Vanilla / Classic",
+    "client_version": "1.12.x (user-supplied, identified by manifest/hash in O10)",
+    "supported_client_builds": [],
+    "notes": "supported_client_builds is populated by O10 once exact build hashes are qualified. Empty here means 'not yet qualified' — the import path must reject until at least one entry exists."
+  },
+  "includes": {
+    "android_app": "Kotlin/Compose launcher, supervisor, wizard, foreground service, controller bridge",
+    "native_realm": "CMaNGOS mangosd+realmd and Playerbots as one embeddable arm64-v8a library (O03-O05)",
+    "persistence": "Generation-managed SQLite realm data with verified backups (O06-O09)",
+    "client_import": "On-device import + optional desktop companion data-pack path (O10)",
+    "runtime_provider": "Box64/Wine WoW64 candidate, FEX as Advanced/Laboratory (O11-O13)",
+    "addons": "Project-owned PocketCore/PocketController/PocketBots suite (O15)"
+  },
+  "excludes_from_release_artifact": {
+    "proprietary_client_files": "WoW.exe, MPQs, DBCs, maps, models, textures — never bundled; user imports them",
+    "connected_code": "No connected transport, Realm Kernel, replication, or membership code in the offline APK",
+    "connected_permissions": "No INTERNET-dependent authority, P2P, or relay permissions",
+    "hidden_online_switch": "No runtime flag re-enables connected behavior"
+  },
+  "android_permissions": {
+    "required": ["FOREGROUND_SERVICE", "POST_NOTIFICATIONS", "WAKE_LOCK"],
+    "storage": "Scoped storage / SAF for client import and exports only",
+    "prohibited_in_offline_flavor": ["INTERNET used for gameplay authority", "ACCESS_NETWORK_STATE for realm decisions"]
+  },
+  "release_acceptance_link": "FEATURES.json feature O22",
+  "rule": "The offline flavor is a hard boundary. Connected work (C-series) starts only after O22 is done and lives in a separate flavor/build type."
+}

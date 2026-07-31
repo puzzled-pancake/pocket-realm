@@ -1,0 +1,79 @@
+# ===== Build outputs =====
+# Gradle / Android
+**/build/
+.local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+.cxx/
+.gradle/
+
+# Native (CMake/NDK)
+build/
+*.o
+*.obj
+*.so
+*.a
+*.dylib
+cmake-build-*/
+native/*/build/
+output/
+
+# Kotlin / Java
+*.class
+hs_err_pid*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Rust
+target/
+**/Cargo.lock
+# (Cargo.lock is committed for connected binaries later; ignore until then)
+
+# ===== IDE / OS =====
+.idea/
+*.iml
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ===== Proprietary / user-supplied client data — NEVER commit =====
+# Per DECISIONS.md #1 and PLAN.md: no proprietary WoW executables, MPQs, DBCs,
+# maps, models, textures, or copyrighted addon assets enter source control.
+client_import/
+**/WoW*.exe
+**/*.mpq
+**/*.MPQ
+**/*.dbc
+*.adt
+*.wdt
+*.m2
+*.blp
+*.wmo
+extracted_data/
+data_packs/
+generations/content/
+generations/runtime/
+generations/prefix/
+
+# ===== Runtime state (never commit live realm data) =====
+*.db
+*.db-wal
+*.db-shm
+realm_data/
+backups/
+generations/realm/
+*.sqlite
+*.sqlite3
+
+# ===== Diagnostics / logs =====
+logs/
+*.log
+support_bundle/
+diagnostics/
