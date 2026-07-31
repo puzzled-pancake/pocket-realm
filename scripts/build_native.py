@@ -194,13 +194,16 @@ def ensure_ndk_link():
     A junction that exists but targets the wrong NDK would silently build against
     an older toolchain than `NDK` while the build log claims the new one, so we
     resolve the current target rather than trusting existence alone. Note
-    Path.exists() follows the target, so a BROKEN junction (target NDK
-    uninstalled) reports exists()==False; we must also check is_symlink() to
-    detect and recreate it, otherwise mklink fails on the existing name.
+    Path.exists() follows the junction target, so a BROKEN junction (target NDK
+    uninstalled) reports exists()==False; we must also check is_junction() to
+    detect and recreate it, otherwise mklink fails on the existing name. (Use
+    is_junction, NOT is_symlink: Windows directory junctions made by `mklink /J`
+    carry the mount-point reparse tag, so is_symlink() returns False for them.)
     """
     expected = os.path.realpath(NDK)
-    # exists() follows the junction target; is_symlink() catches a broken one.
-    if NDK_LINK.exists() or NDK_LINK.is_symlink():
+    # exists() follows the junction target; is_junction() catches a broken one
+    # (a junction with its target uninstalled).
+    if NDK_LINK.exists() or NDK_LINK.is_junction():
         actual = os.path.realpath(NDK_LINK)
         if NDK_LINK.exists() and os.path.normcase(actual) == os.path.normcase(expected):
             return

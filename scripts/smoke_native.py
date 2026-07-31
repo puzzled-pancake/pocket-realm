@@ -84,35 +84,24 @@ def elf_checks(binpath: Path, facts: dict) -> bool:
                   "Type:" in hdr and ("EXEC" in hdr or "DYN" in hdr))
 
     # 16 KB page-size compatibility: every PT_LOAD segment's alignment must be
-    # >= 0x4000. readelf -l is format-dependent: llvm-readelf prints each header
-    # on ONE line (Align is the trailing 0x... field), while GNU readelf prints
-    # LOAD across TWO lines (Align appears as "Align 0x..." on the continuation
-    # line, which has no "LOAD" token). Parse robustly: for each LOAD segment,
-    # take the alignment from its continuation line's "Align 0x..." if present,
-    # else the trailing hex on the LOAD line itself.
-    import re
+    # >= 0x4000. We require the NDK-bundled llvm-readelf, which prints each
+    # program header on ONE line with the alignment as the trailing 0x field,
+    # e.g. "LOAD 0x... 0x... 0x... 0x... 0x... R E 0x4000". We deliberately do
+    # NOT try to parse GNU readelf's two-line format (alignment is a bare
+    # decimal with no label on the continuation line) — a half-correct parser
+    # that silently misparses is worse than failing loudly, and the NDK readelf
+    # is always available where this build runs.
     segs = readelf(binpath, "-l")
     aligns = []
-    in_load = False
     for line in segs.splitlines():
         stripped = line.strip()
         if stripped.startswith("LOAD"):
-            in_load = True
-            # Single-line form (llvm-readelf): alignment is the last 0x field.
             parts = stripped.split()
             if len(parts) >= 2 and parts[-1].lower().startswith("0x"):
                 try:
                     aligns.append(int(parts[-1], 16))
-                    in_load = False  # consumed on the same line
                 except ValueError:
                     pass
-            continue
-        if in_load:
-            # Two-line form (GNU readelf): "Align 0x4000" on the continuation.
-            m = re.search(r"\bAlign\s+0x([0-9a-fA-F]+)", line)
-            if m:
-                aligns.append(int(m.group(1), 16))
-                in_load = False
     if not aligns:
         # Could not parse any LOAD alignment — fail loudly rather than report a
         # false min=0x0 pass. A readelf format change must surface as a failure.
@@ -221,6 +210,13 @@ def main() -> int:
 
     ok = True
     print(f"# smoke_native: {args.abi} (triple {facts['triple']})")
+    # The 16 KB alignment check assumes the NDK llvm-readelf one-line format (see
+    # elf_checks). Fail loudly if we somehow resolved a different readelf rather
+    # than silently misparse the GNU two-line format.
+    if not READELF or "llvm-readelf" not in str(READELF).lower():
+        print(f"FAIL  requires NDK llvm-readelf (got {READELF}); the alignment "
+              f"check assumes its one-line -l format", file=sys.stderr)
+        return 1
     for b in binaries:
         ok &= elf_checks(b, facts)
     if args.device:
