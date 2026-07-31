@@ -86,6 +86,21 @@ class RealmSupervisorTest {
     }
 
     @Test
+    fun requestStart_allowed_from_stopping_after_interrupted_teardown() {
+        // A teardown interrupted by process/service destruction can leave the
+        // supervisor in Stopping (requestStop ran, markIdle did not). The realm
+        // is not actually running, so a fresh start must be allowed — otherwise
+        // the user is stuck unable to restart until a full process restart.
+        val s = RealmSupervisor()
+        s.requestStart()
+        s.markRunning(fullHealth())
+        assertTrue(s.requestStop(forced = false))
+        assertTrue("left stuck in Stopping", s.state.value is RealmState.Stopping)
+        assertTrue("start allowed from Stopping", s.requestStart())
+        assertTrue(s.state.value is RealmState.Starting)
+    }
+
+    @Test
     fun full_round_trip_idle_starting_running_saving_stopping_idle() {
         // This is the core lifecycle the service drives, and it specifically
         // proves the M2 fix path: Saving -> Stopping -> Idle is a legal route

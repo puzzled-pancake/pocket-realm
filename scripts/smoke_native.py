@@ -83,19 +83,43 @@ def elf_checks(binpath: Path, facts: dict) -> bool:
     good &= check(f"{binpath.name}: is an executable (ET_EXEC/ET_DYN)",
                   "Type:" in hdr and ("EXEC" in hdr or "DYN" in hdr))
 
-    # 16 KB page-size compatibility: all PT_LOAD alignments >= 0x4000.
+    # 16 KB page-size compatibility: every PT_LOAD segment's alignment must be
+    # >= 0x4000. readelf -l is format-dependent: llvm-readelf prints each header
+    # on ONE line (Align is the trailing 0x... field), while GNU readelf prints
+    # LOAD across TWO lines (Align appears as "Align 0x..." on the continuation
+    # line, which has no "LOAD" token). Parse robustly: for each LOAD segment,
+    # take the alignment from its continuation line's "Align 0x..." if present,
+    # else the trailing hex on the LOAD line itself.
+    import re
     segs = readelf(binpath, "-l")
     aligns = []
+    in_load = False
     for line in segs.splitlines():
-        if "LOAD" in line:
-            # Align is the last hex field on the program-header line.
-            parts = line.split()
-            if parts:
+        stripped = line.strip()
+        if stripped.startswith("LOAD"):
+            in_load = True
+            # Single-line form (llvm-readelf): alignment is the last 0x field.
+            parts = stripped.split()
+            if len(parts) >= 2 and parts[-1].lower().startswith("0x"):
                 try:
                     aligns.append(int(parts[-1], 16))
+                    in_load = False  # consumed on the same line
                 except ValueError:
                     pass
-    min_align = min(aligns) if aligns else 0
+            continue
+        if in_load:
+            # Two-line form (GNU readelf): "Align 0x4000" on the continuation.
+            m = re.search(r"\bAlign\s+0x([0-9a-fA-F]+)", line)
+            if m:
+                aligns.append(int(m.group(1), 16))
+                in_load = False
+    if not aligns:
+        # Could not parse any LOAD alignment — fail loudly rather than report a
+        # false min=0x0 pass. A readelf format change must surface as a failure.
+        good &= check(f"{binpath.name}: 16 KB page align (parsed LOAD alignments)",
+                      False, "no LOAD alignments parsed")
+        return good
+    min_align = min(aligns)
     good &= check(f"{binpath.name}: 16 KB page align (min LOAD align >= 0x4000)",
                   min_align >= MIN_LOAD_ALIGN, f"min=0x{min_align:x}")
 
@@ -164,9 +188,14 @@ def device_checks(binpath: Path, facts: dict) -> bool:
     out = (r.stdout + r.stderr).strip()
     last = out.splitlines()[-1][:80] if out else "no output"
     if binpath.name == "realmd":
-        executed = ("Could not find configuration file" in out
-                    or "version" in out.lower())
-        ok = r.returncode in (0, 1) and executed
+        # realmd has NO early --version exit: it parses args then loads config
+        # before any version handling, so on a bare device it prints the
+        # config-not-found message and exits 1. Require that specific message
+        # (not a loose "version" substring, which a half-initialized or
+        # banner-spewing binary could emit before crashing). Signal death
+        # (returncode > 1, e.g. 139 for SEGV) is correctly rejected here.
+        executed = "Could not find configuration file" in out
+        ok = r.returncode == 1 and executed
         return check(f"realmd executes on device (exit {r.returncode})", ok, last)
     ok = r.returncode == 0 and bool(out)
     return check(f"{binpath.name} --version runs on device (exit {r.returncode})",

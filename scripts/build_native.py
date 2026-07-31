@@ -142,16 +142,23 @@ def _mark_target(src: Path, target: str) -> None:
 
 
 def to_msys_path(p: Path) -> str:
-    """Convert a Windows path to its MSYS2 mount form so it matches what MSYS
-    `which` returns. e.g. C:\\Users\\X -> /c/Users/X. OpenSSL's android config
-    compares `which("clang")` against $ANDROID_NDK_ROOT with a regex anchored at
-    the start, so the two must use the same path form or the clang detection
-    fails and it falls back to a nonexistent NDK gcc.
+    r"""Convert a Windows drive-letter path to its MSYS2 mount form so it matches
+    what MSYS `which` returns. e.g. C:\Users\X -> /c/Users/X. OpenSSL's android
+    config compares `which("clang")` against $ANDROID_NDK_ROOT with a regex
+    anchored at the start, so the two must use the same path form or the clang
+    detection fails and it falls back to a nonexistent NDK gcc.
+
+    Only the drive-letter case is supported; a UNC or long (\\?\) path is
+    refused loudly rather than emitted half-converted (a silent mixed form is
+    exactly the failure mode the docstring above warns against).
     """
     s = str(p).replace("\\", "/")
     drive, rest = os.path.splitdrive(s)
-    if drive and drive[1] == ":":
+    if len(drive) == 2 and drive[1] == ":":
         return "/" + drive[0].lower() + rest
+    if drive:
+        raise ValueError(f"to_msys_path: unsupported path form for {p} (drive={drive!r}); "
+                         f"only drive-letter paths are supported")
     return s
 
 
@@ -181,21 +188,26 @@ def run_msys(script: str) -> int:
 
 def ensure_ndk_link():
     """Create the simple-name NDK junction, or recreate it if it points at a
-    stale NDK (e.g. after an NDK upgrade changed which version sorts last).
+    stale NDK (e.g. after an NDK upgrade changed which version sorts last, or
+    removed the old version leaving a broken junction).
 
     A junction that exists but targets the wrong NDK would silently build against
     an older toolchain than `NDK` while the build log claims the new one, so we
-    resolve the current target rather than trusting existence alone.
+    resolve the current target rather than trusting existence alone. Note
+    Path.exists() follows the target, so a BROKEN junction (target NDK
+    uninstalled) reports exists()==False; we must also check is_symlink() to
+    detect and recreate it, otherwise mklink fails on the existing name.
     """
     expected = os.path.realpath(NDK)
-    if NDK_LINK.exists():
+    # exists() follows the junction target; is_symlink() catches a broken one.
+    if NDK_LINK.exists() or NDK_LINK.is_symlink():
         actual = os.path.realpath(NDK_LINK)
-        if os.path.normcase(actual) == os.path.normcase(expected):
+        if NDK_LINK.exists() and os.path.normcase(actual) == os.path.normcase(expected):
             return
-        print(f"NDK junction points at {actual}, expected {expected}; recreating")
-        # Remove the stale junction. rmdir works for junctions and does not
-        # descend into the target tree.
-        NDK_LINK.unlink() if NDK_LINK.is_symlink() else _remove_junction(NDK_LINK)
+        print(f"NDK junction points at {actual} (expected {expected}); recreating")
+        # Directory junctions are not symlinks from Python's view; rmdir removes
+        # the junction without descending into the target tree.
+        _remove_junction(NDK_LINK)
     print(f"Creating NDK junction {NDK_LINK} -> {NDK}")
     subprocess.run(["cmd", "/c", "mklink", "/J", str(NDK_LINK), str(NDK)], check=True)
 

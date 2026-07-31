@@ -28,13 +28,17 @@ class RealmSupervisor {
 
     /**
      * Transition to [Starting]. Allowed from Idle, Recovering (resume),
-     * or Failed (retry). Rejects if already running.
+     * Failed (retry), or Stopping (a prior teardown was interrupted — e.g. the
+     * process/service was destroyed mid-teardown — so the realm is not actually
+     * running and a fresh start is valid). Rejects only if genuinely up:
+     * Starting or Running or Saving.
      */
     fun requestStart(): Boolean {
         val current = _state.value
         val allowed = current is RealmState.Idle ||
             current is RealmState.Recovering ||
-            current is RealmState.Failed
+            current is RealmState.Failed ||
+            current is RealmState.Stopping
         if (!allowed) {
             Log.w(TAG, "requestStart rejected in state $current")
             return false

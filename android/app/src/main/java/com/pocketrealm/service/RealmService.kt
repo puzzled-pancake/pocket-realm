@@ -205,8 +205,21 @@ class RealmService : Service() {
         // Intentionally NOT saving here. Activity/service destruction is not a
         // durability guarantee (android rules). The durable path is the
         // dirty-generation marker + recovery (O08).
+        //
+        // We DO finalize the in-memory state machine to Idle so a subsequent
+        // start (in this or a recreated instance) is not rejected as
+        // out-of-order. A teardown interrupted by scope.cancel() below can
+        // otherwise leave the supervisor stuck in Stopping; this is purely an
+        // in-memory reset, not a durable write.
         AppLog.i(TAG, "service destroyed (state=${supervisor.state.value})")
         scope.cancel()
+        if (supervisor.state.value !is RealmState.Idle) {
+            supervisor.markIdle()
+            // The state collector was just cancelled by scope.cancel(), so push
+            // the terminal Idle to the in-process bridge ourselves; otherwise a
+            // UI/test observer would keep seeing the pre-destroy state.
+            RealmBridge.publish(RealmState.Idle)
+        }
         super.onDestroy()
     }
 
