@@ -196,6 +196,9 @@ def main() -> int:
     ap.add_argument("--abi", required=True, choices=list(ABI_FACTS))
     ap.add_argument("--device", action="store_true",
                     help="also push + run on a connected device/emulator")
+    ap.add_argument("--runtime", action="store_true",
+                    help="also smoke libpocketrealm.so (O04); with --device, run "
+                         "the full on-device lifecycle test via run_realm_test.py")
     args = ap.parse_args()
     facts = ABI_FACTS[args.abi]
     build = NATIVE / f".build-{facts['triple']}"
@@ -222,6 +225,26 @@ def main() -> int:
     if args.device:
         for b in binaries:
             ok &= device_checks(b, facts)
+
+    # O04: the embeddable runtime facade. ELF-check libpocketrealm.so (it must
+    # be a position-independent shared lib with 16 KB-aligned LOAD segments,
+    # same as the standalone binaries), and with --device run the full on-device
+    # create/start/health/save/stop/destroy x2 lifecycle test.
+    if args.runtime:
+        rt_lib = build / "pocket-runtime-build" / "libpocketrealm.so"
+        if not rt_lib.is_file():
+            print(f"FAIL  missing libpocketrealm.so (run build_native.py --abi "
+                  f"{args.abi} --runtime)", file=sys.stderr)
+            ok = False
+        else:
+            print(f"\n# runtime smoke: libpocketrealm.so ({args.abi})")
+            ok &= elf_checks(rt_lib, facts)
+            if args.device:
+                print("\n# on-device lifecycle test (run_realm_test.py)")
+                r = run([sys.executable, str(ROOT / "tools" / "run_realm_test.py"),
+                         "--abi", args.abi])
+                ok &= check("pocket_lifecycle_test PASS on device", r.returncode == 0,
+                            f"exit {r.returncode}")
 
     print(f"\n{'SMOKE OK' if ok else 'SMOKE FAIL'} ({args.abi})")
     return 0 if ok else 1

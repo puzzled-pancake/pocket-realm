@@ -21,6 +21,11 @@ native/*/build/
 native/.deps/
 native/.build-*/
 native/.smoke-stage-*/
+native/.o4-stage-*/
+native/.o4-*.so
+native/.o04-*.log
+native/.x86_64-*.log
+native/.build.log
 output/
 
 # ZCode local session data

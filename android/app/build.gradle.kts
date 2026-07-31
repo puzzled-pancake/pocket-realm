@@ -68,4 +68,7 @@ dependencies {
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.kotlinx.coroutines.test)
+
+    // Host JVM unit tests (O04: RealmNative shim graceful-degradation test).
+    testImplementation(libs.junit)
 }

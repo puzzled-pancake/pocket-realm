@@ -79,6 +79,128 @@ from a clean checkout at the audited commit. Because the mirror is refreshed
 from the submodule, the source patch above must land in the submodule copy
 (re-running `ensure_playerbots()` propagates it into the mirror).
 
+## O04 — embeddable realm lifecycle facade (POCKET_EMBEDDED)
+
+O04 makes the CMaNGOS/Playerbots realm controllable in-process via a versioned
+C ABI (`schemas/abi/pocket_realm.h`), driven by the Android supervisor without
+process exit, console-only control, or signal-only shutdown (DECISIONS #7/#8).
+The patches below isolate every change to the pinned upstream trees so a re-pin
+re-applies them deliberately.
+
+### cmangos — `src/shared/Util/Errors.h` POCKET_FATAL macro
+
+**Change:** add a `POCKET_FATAL(msg)` macro. When `POCKET_EMBEDDED` is defined
+(only the `libpocketrealm.so` target defines it), it calls
+`pocket_realm::embed::throw_fatal(msg)` (defined in
+`native/pocket-runtime/src/embed.cpp`), which throws a `fatal_error` the facade
+catches at the ABI boundary and converts to a `realm_err`. When
+`POCKET_EMBEDDED` is **not** defined (the standalone `mangosd`/`realmd`
+executables), it expands to `::exit(1)` — bit-for-bit identical to the prior
+behavior.
+
+**Why:** CMaNGOS terminates the process on unrecoverable startup errors. That
+is correct for a standalone server whose process IS the failure domain, but a
+bad DB must not kill the host Android app. The embedded build routes those
+fatal paths into a catchable exception instead.
+
+### cmangos — 18 `exit(1)` startup sites → `POCKET_FATAL`
+
+**Change:** replace every `exit(1)`/`exit(-1)` in the startup path with
+`POCKET_FATAL("...")`. The 18 sites are in `game/Server/DBCStores.cpp` (×4:
+DBC directory/files/version gates), `game/Globals/ObjectMgr.cpp` (×7: pet
+stats, playercreateinfo, class/race level stats, xp tables),
+`game/World/World.cpp` (×3: map files, mangos_string, DBC locale),
+`shared/Database/SQLStorageImpl.h` (×2: missing/broken table),
+`shared/Database/DatabaseMysql.cpp` (×1: thread-unsafe lib — not compiled under
+DO_SQLITE but patched for consistency), and `mangosd/MaNGOSsoap.cpp` (×1: bind
+failure on the SOAP worker thread).
+
+**Why:** these are exactly the calls that would kill the host app process on bad
+data. Under `POCKET_EMBEDDED` they throw instead, classified by the facade as
+`REALM_E_FATAL_STARTUP` (or `REALM_E_BLOCKED_ON_CLIENT_DATA` for the `.map`/
+`.dbc` gates that indicate the O10 client-data import hasn't run).
+
+### cmangos — `src/mangosd/Master.{h,cpp}` embeddable lifecycle hooks
+
+**Change:** add `Master::StartDatabasesEmbedded()`, `InitWorldEmbedded(bool*)`,
+`StartNetworkEmbedded(uint32)`, `StopEmbedded()` public methods (and the
+`m_worldThread`/`m_worldListener`/`m_netThreads` members they own). Gate the
+standalone `Master::Run()` and the signal handlers (`_OnSignal`/`_HookSignals`/
+`_UnhookSignals`) under `#ifndef POCKET_EMBEDDED`.
+
+**Why:** `Run()` is a blocking monolith (PID file, DB, world init, signals, CLI
+thread, blocking wait, teardown) designed for a standalone process. The facade
+needs the same reusable phases but on its own worker thread, without signals,
+the console thread, the blocking wait, or process exit. The standalone path is
+unchanged (the gates exclude nothing when `POCKET_EMBEDDED` is off).
+
+### cmangos — `src/game/World/World.h` ResetForReinit
+
+**Change:** add a `static void World::ResetForReinit()` (under
+`#ifdef POCKET_EMBEDDED`) that clears the static `m_stopEvent`/`m_ExitCode`
+flags so a second realm generation can start in the same process.
+
+**Why:** the world stop gate is static; after a cooperative stop it stays set
+and a second `WorldRunnable` loop would exit immediately. Resetting it (called
+at the end of `StopEmbedded`) enables the Strategy A in-process re-entrancy the
+O04 acceptance criterion requires ("twice in one process").
+
+### cmangos — `src/mangosd/Main.cpp` gate `main()`
+
+**Change:** wrap `int main(int argc, char* argv[])` in
+`#ifndef POCKET_EMBEDDED`. The file-scope globals above `main`
+(`WorldDatabase`, `CharacterDatabase`, `LoginDatabase`, `LogsDatabase`,
+`realmID`, `m_ServiceStatus`) are **kept** so the embedded build has exactly one
+definition of each; the facade drives the lifecycle hooks instead of `main`.
+
+**Why:** `main()` is the standalone entry point (arg parsing, service dispatch,
+config load, OpenSSL providers, `sMaster.Run()`). The embedded runtime is
+driven by `realm_create`/`realm_start`; compiling `main()` into the shared
+library would collide with the host's `main` and pull in the standalone flow.
+
+### cmangos — `src/realmd/Main.cpp` gate globals + main + helpers
+
+**Change:** wrap realmd's file-scope globals (`stopEvent`, `restart`,
+`LoginDatabase`, the io_context), `int main(...)`, and the signal/DB helpers
+(`OnSignal`, `StartDB`, `HookSignals`, `UnhookSignals`) in
+`#ifndef POCKET_EMBEDDED`.
+
+**Why:** realmd's `LoginDatabase` would collide with mangosd's (both are
+`DatabaseType LoginDatabase;` in different TUs — a duplicate symbol once both
+compile into one shared library). The embedded runtime uses the single shared
+`LoginDatabase` from mangosd/Main.cpp; `lifecycle_realmd.cpp` drives the auth
+listener with a facade-owned io_context and stop flag instead of signals.
+
+### cmangos — `src/mangosd/CliRunnable.cpp` gate `run()`
+
+**Change:** wrap `CliRunnable::run()` (the console stdin loop) in
+`#ifndef POCKET_EMBEDDED`. The `ChatHandler::Handle*` command implementations
+above `run()` in the same file are **kept**.
+
+**Why:** the embedded path has no console (DECISIONS #8); commands go through
+`realm_command` → `sWorld.QueueCliCommand` directly. But `libgame`'s command
+table references the command implementations (`HandleServerExitCommand`,
+`HandleAccountCreateCommand`, etc.) that live in this TU, so the file must
+still compile — only the stdin-reading `run()` is excluded.
+
+### cmangos — `CMakeLists.txt` + `src/CMakeLists.txt` build hooks
+
+**Change:** in the root `CMakeLists.txt`, set
+`CMAKE_POSITION_INDEPENDENT_CODE ON` when `BUILD_POCKET_RUNTIME` is on (so
+libgame/libshared/libframework/libplayerbots compile PIC and can link into a
+shared library). In `src/CMakeLists.txt`, add the pocket-runtime subdir
+conditionally on `BUILD_POCKET_RUNTIME` + `POCKET_RUNTIME_DIR`. PIC objects
+link cleanly into executables too, so the standalone mangosd/realmd are
+unaffected.
+
+### build_native.py — PIC Boost + `--runtime` flag
+
+**Change:** Boost b2 now builds with `cxxflags=-fPIC cflags=-fPIC` (required to
+link the static Boost archives into libpocketrealm.so; the standalone
+executables accept PIC too). The stale-target guard key includes `+pic` so a
+re-run after this change cleans bin.v2. Added `--runtime`/`--runtime-tests`
+flags that pass `-DBUILD_POCKET_RUNTIME=ON -DPOCKET_RUNTIME_DIR=...`.
+
 ## Reproduction
 
 See `scripts/build_native.py` for the full reproducible build (stages:

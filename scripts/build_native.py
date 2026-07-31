@@ -71,6 +71,10 @@ PLAYERBOTS_IN_TREE = NATIVE / "cmangos" / "src" / "modules" / "PlayerBots"
 NDK_LINK = SDK / "ndk-link"
 TOOLCHAIN = NDK_LINK / "toolchains" / "llvm" / "prebuilt" / "windows-x86_64"
 API = 26
+# The embeddable realm lifecycle facade (O04). Built as libpocketrealm.so from
+# native/pocket-runtime, linked against the same game/shared/playerbots static
+# libraries as mangosd but with POCKET_EMBEDDED defined (exit->throw).
+POCKET_RUNTIME = NATIVE / "pocket-runtime"
 
 
 @dataclass(frozen=True)
@@ -117,6 +121,9 @@ NINJA = next((CMAKE_DIR / v / "bin" / "ninja.exe" for v in _CMAKE_VERSIONS
 TOOLCHAIN_FILE = NDK_LINK / "build" / "cmake" / "android.toolchain.cmake"
 
 STAGES = ["openssl", "boost", "sqlite", "cmangos"]
+# O04 flags (off by default so O03's exact build is the default behavior).
+BUILD_RUNTIME = False       # set by --runtime; builds libpocketrealm.so
+BUILD_RUNTIME_TESTS = False # set by --runtime-tests; builds pocket_lifecycle_test
 
 
 def run(cmd: list[str], cwd: Path | None = None, env: dict | None = None) -> int:
@@ -304,11 +311,14 @@ def boost() -> int:
         print(f"ERROR: {src} not present.", file=sys.stderr)
         return 1
     # b2 caches built artifacts in bin.v2 keyed loosely; an ABI switch can leave
-    # stale objects. Clean the boost build cache when the triple changed.
-    if _stale_target(src, ARCH.clang_prefix):
-        print(f"Boost tree was built for a different triple; cleaning bin.v2")
+    # stale objects. Clean the boost build cache when the triple changed OR when
+    # the PIC flag changed (PIC is required once libpocketrealm.so is built; a
+    # non-PIC Boost archive cannot link into a shared library).
+    boost_target = f"{ARCH.clang_prefix}+pic"
+    if _stale_target(src, boost_target):
+        print(f"Boost tree was built for a different triple/PIC config; cleaning bin.v2")
         shutil.rmtree(src / "bin.v2", ignore_errors=True)
-    _mark_target(src, ARCH.clang_prefix)
+    _mark_target(src, boost_target)
     tc = TOOLCHAIN.as_posix()
     prefix = prefix_dir(ARCH)
     msrc = to_msys_path(src)
@@ -331,6 +341,7 @@ cd {msrc}
 ./b2 --user-config=user-config.jam toolset=clang-android target-os=android \\
   address-model=64 {ARCH.boost_arch} \\
   link=static runtime-link=static threading=multi \\
+  cxxflags=-fPIC cflags=-fPIC \\
   --with-program_options --with-thread --with-regex --with-serialization --with-filesystem --with-system \\
   --prefix={mprefix} -j$(nproc) install
 """
@@ -380,21 +391,37 @@ def cmangos() -> int:
            "-DBUILD_GAME_SERVER=ON", "-DBUILD_LOGIN_SERVER=ON",
            "-DBUILD_PLAYERBOTS=ON",
            "-DCMAKE_BUILD_TYPE=Release"]
+    # O04: build the embeddable lifecycle facade (libpocketrealm.so). Gated by
+    # --runtime so a plain `cmangos` stage stays bit-for-bit identical to O03
+    # (the standalone mangosd/realmd are unaffected either way; POCKET_EMBEDDED
+    # is only defined inside the pocketrealm target).
+    if BUILD_RUNTIME:
+        cmd += [f"-DBUILD_POCKET_RUNTIME=ON",
+                f"-DPOCKET_RUNTIME_DIR={POCKET_RUNTIME}",
+                f"-DPOCKET_RUNTIME_DIR:PATH={POCKET_RUNTIME}"]
+    if BUILD_RUNTIME_TESTS:
+        cmd += ["-DBUILD_POCKET_RUNTIME_TESTS=ON"]
     if run(cmd) != 0:
         return 1
     return run([str(CMAKE_BIN), "--build", str(build), "-j", str(os.cpu_count() or 4)])
 
 
 def main() -> int:
-    global ARCH
+    global ARCH, BUILD_RUNTIME, BUILD_RUNTIME_TESTS
     ap = argparse.ArgumentParser()
     ap.add_argument("--abi", default="arm64-v8a", choices=list(ARCHES),
                     help="target ABI (default arm64-v8a, the product target; "
                          "x86_64 is an emulator-only test target)")
+    ap.add_argument("--runtime", action="store_true",
+                    help="also build libpocketrealm.so (O04 embeddable facade)")
+    ap.add_argument("--runtime-tests", action="store_true",
+                    help="also build the pocket_lifecycle_test native test binary")
     ap.add_argument("stages", nargs="*", default=["all"],
                     help="stage(s) to run (default all); pass e.g. 'boost sqlite cmangos'")
     args = ap.parse_args()
     ARCH = ARCHES[args.abi]
+    BUILD_RUNTIME = args.runtime or args.runtime_tests
+    BUILD_RUNTIME_TESTS = args.runtime_tests
     prefix = prefix_dir(ARCH)
 
     # Normalize the requested stages: resolve 'all'/'list', reject unknowns.
@@ -405,6 +432,8 @@ def main() -> int:
         print(f"NDK link: {NDK_LINK}")
         print(f"MSYS2: {MSYS2} ({'found' if MSYS_BASH.is_file() else 'NOT FOUND'})")
         print(f"Prefix: {prefix}")
+        print(f"Pocket runtime: {'build libpocketrealm.so' if BUILD_RUNTIME else 'OFF (pass --runtime)'}")
+        print(f"Pocket runtime tests: {'build pocket_lifecycle_test' if BUILD_RUNTIME_TESTS else 'OFF'}")
         return 0
     bad = [s for s in args.stages if s not in ("all", *STAGES)]
     if bad:
