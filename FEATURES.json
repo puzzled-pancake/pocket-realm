@@ -60,7 +60,7 @@
       "track": "offline",
       "priority": 30,
       "title": "Portable Android ARM64 CMaNGOS and Playerbots build",
-      "status": "pending",
+      "status": "done",
       "depends": [
         "O01"
       ],
@@ -70,8 +70,15 @@
         "Build is compatible with the device page size and does not assume one core type",
         "Host/unit smoke tests pass"
       ],
-      "notes": "",
-      "evidence": []
+      "notes": "CMaNGOS Classic + Playerbots cross-compiled for arm64-v8a with NDK r30, SQLite backend (interim per plan). Dependencies (OpenSSL 3.4.3, Boost 1.86.0, SQLite 3.46.1) built from source into native/.deps/prefix-arm64. Three documented patches for Android (gsoap sys/timeb.h, playerbots format-security, FetchContent source path). build_native.py encodes the reproducible flow via MSYS2.",
+      "evidence": [
+        "mangosd + realmd: elf64-littleaarch64, link with no unresolved symbols",
+        "libplayerbots.a (816 MB unstripped) linked into mangosd - bot subsystem present",
+        "ELF LOAD segment alignment 0x4000 = 16 KB page-size compatible",
+        "No -mcpu/-mtune flags in compile_commands.json - portable across cores",
+        "Dynamic deps only libdl/libm/libc++_shared/libc (deps statically linked)",
+        "scripts/build_native.py stages openssl/boost/sqlite/cmangos all pass"
+      ]
     },
     {
       "id": "O04",

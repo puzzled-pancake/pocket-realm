@@ -10,7 +10,17 @@
     "gradle": "9.5.0",
     "android_gradle_plugin": "9.3.1",
     "jdk": "Eclipse Temurin 17.0.20 (JDK 17)",
-    "python": "3.13.12"
+    "python": "3.13.12",
+    "native_build_host": {
+      "msys2": "G:\\msys64 (complete Unix-style perl for OpenSSL, gcc for Boost b2 bootstrap)",
+      "ndk_junction": "SDK\\ndk-link -> SDK\\ndk\\30.0.15729638 (avoids Windows 8.3 short-name path mismatch in OpenSSL toolchain detection)",
+      "dependencies_built": {
+        "openssl": "3.4.3 (libcrypto.a, libssl.a; static, no-asm)",
+        "boost": "1.86.0 (program_options, thread, regex, serialization, filesystem, system; static runtime)",
+        "sqlite": "3.46.1 amalgamation (libsqlite3.a; FTS5/RTREE/WAL)"
+      },
+      "patches": "native/.deps/patches/README.md"
+    }
   },
   "sources": [
     {
@@ -19,8 +29,8 @@
       "kind": "git-submodule",
       "upstream_url": "https://github.com/cmangos/mangos-classic.git",
       "branch": "master",
-      "commit": "de8f72993b9e1faa1bf92dd5505f3daec5cea3ce",
-      "commit_date": "2026-06-18",
+      "commit": "658c5b0decd2f0c867753ad817153f54d001b813",
+      "commit_date": "2026-06-18 (+ Pocket Realm Android patch)",
       "role": "Vanilla 1.12 game server core (mangosd + realmd). Cross-compiled to arm64-v8a; refactored into an embeddable lifecycle in O04.",
       "license": "GPL-2.0-or-later",
       "license_file": "native/cmangos/LICENSE",
@@ -52,8 +62,8 @@
       "kind": "git-submodule",
       "upstream_url": "https://github.com/cmangos/playerbots.git",
       "branch": "master",
-      "commit": "01c621f19e537bec4706738e1a66d0b105d9ff05",
-      "commit_date": "2026-07-27",
+      "commit": "1abeac646f4be02bfb47abcc779f3f9089d67f3e",
+      "commit_date": "2026-07-27 (+ Pocket Realm Android patch)",
       "role": "Bot subsystem populating the offline PvE world (protected/resident/elastic/latent classes, O18).",
       "license": "GPL-2.0-or-later",
       "license_file": "native/playerbots/CMakeLists.txt (header)",

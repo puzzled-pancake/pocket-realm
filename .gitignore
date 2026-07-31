@@ -18,6 +18,8 @@ build/
 *.dylib
 cmake-build-*/
 native/*/build/
+native/.deps/
+native/.build-*/
 output/
 
 # Kotlin / Java
