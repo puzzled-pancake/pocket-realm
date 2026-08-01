@@ -6,6 +6,8 @@ Captured 2026-08-01 via the reproducible serial+variant-specific host driver
 Per-lane evidence files in `evidence/` (timestamped):
 - `pkgExperiment-t2_*.log` — PKG-01 on the **experiment variant**
   (useLegacyPackaging=true; launcher extracted to nativeLibraryDir).
+- `debug-t2_*.log` — PKG-01 on the **production variant** (useLegacyPackaging=false;
+  `NO_EXECUTABLE_FS_PATH`, documented).
 - `debug-t1_*.log` — capability report (debug/production variant).
 - `debug-t3_*.log` — PKG-02 (debug/production variant).
 - `capability-report-debug-*.json` — pulled in-app CapabilityReport (app-side
@@ -19,9 +21,14 @@ the app linker namespace, so the launcher's `dlopen("libpocketrealm.so")` could
 not otherwise resolve the app libraries).
 - `extractNativeLibs=true`, `launcherCanExecute=true`, `exitCode=0`
 - `realmDladdrPath = .../lib/x86_64/libpocketrealm.so` (dlopen + dlsym + dladdr OK)
-- Result: `ok=true code=OK`
-- Production variant (debug, useLegacyPackaging=false): `NO_EXECUTABLE_FS_PATH`
-  (documented; the launcher has no fs exec path when stored uncompressed in APK).
+- Result: `variant=pkgExperiment ok=true code=OK`
+
+## PKG-01 (no executable filesystem path) — production variant
+The launcher `.so` is stored uncompressed/page-aligned in the APK and is **not**
+extracted to nativeLibraryDir, so it has no executable filesystem path.
+- `extractNativeLibs=false`, `nativeLibraryDir` present but launcher absent there
+- Result: `variant=debug ok=true code=NO_EXECUTABLE_FS_PATH` (see `debug-t2_*.log`).
+  This honest observed behavior is central evidence for selecting Lane A over Lane B.
 
 ## PKG-02 (isolated library-backed crash containment) — production variant
 `dlopen` of the real `libpocketrealm.so` by SONAME inside `:pkg`, then
@@ -29,10 +36,15 @@ deterministic `abort()`; `:main` survives, Binder death fires, restart → new P
 - Result: `ok=true code=CONTAINMENT_PROVEN` (see `debug-t3_*.log`).
 
 ## PKG-06 (startup + genuine 30-minute smoke) — production variant
-- Enumerates every packaged `.so` (`packagedLibCount`, `packagedLibs`); loads the
-  realm facade by SONAME (exercising `libc++_shared.so` as a DT_NEEDED).
+Under the production variant the libs are not extracted to nativeLibraryDir
+(`packagedLibCount=0`), so the smoke proves the closure by **directly** loading
+the realm facade by SONAME and **transitively** exercising its dependencies:
+`libpocketrealm.so` links `libc++_shared.so` (a `DT_NEEDED`), so a successful
+`dlopen("libpocketrealm.so")` proves both load and stay resident. The JNI shim
+`libpocketpkgtest.so` is exercised directly by PKG-02 in the same `:pkg` process.
 - `pageSize=4096`; every tick logged (`PKG-06 TICK tick=N ...`); `tickCount=30`
-  over ~30 min; stable `:pkg` PID throughout.
+  over ~30 min (1800.962s); stable `:pkg` PID throughout.
+- `realmDladdrPath = base.apk!/lib/x86_64/libpocketrealm.so` (APK-backed).
 - Full per-tick log in `evidence/debug-t4_*.log`.
 
 ## Capability (X0) — merged app + host comparison

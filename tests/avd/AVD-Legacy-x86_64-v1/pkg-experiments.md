@@ -9,8 +9,11 @@ This is the report's disposable **research lane** (§5.1); it is not a PKG-06 la
 
 ## PKG-01 (experiment variant)
 - `extractNativeLibs=true`, `exitCode=0`, `realmDladdrPath` resolved.
-  Result: `ok=true code=OK`.
-- Production variant: `NO_EXECUTABLE_FS_PATH` (documented).
+  Result: `variant=pkgExperiment ok=true code=OK` (see `evidence/pkgExperiment-t2_*.log`).
+
+## PKG-01 (production variant)
+- `extractNativeLibs=false`; launcher has no executable filesystem path.
+  Result: `variant=debug ok=true code=NO_EXECUTABLE_FS_PATH` (see `evidence/debug-t2_*.log`).
 
 ## PKG-02 (production variant)
 - `ok=true code=CONTAINMENT_PROVEN` (see `evidence/debug-t3_*.log`).

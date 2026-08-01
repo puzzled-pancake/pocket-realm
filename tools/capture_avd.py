@@ -243,16 +243,20 @@ def main() -> int:
         print(out)
 
     # Print a human-readable comparison summary to stdout for the driver log.
+    # Reuse the rows already computed+stored by merge_app_record (avoids a second
+    # compare() pass that would read the merged `guest` block instead of the
+    # original adb capture).
     if app_report is not None:
-        rows = compare(record, app_report)
+        rows = record.get("comparison", {}).get("fields", [])
         print("\n--- capability comparison (adb vs app) ---")
-        for field, adb_v, app_v, ok in rows:
-            print(f"  [{'OK ' if ok else 'MISMATCH'}] {field}: adb={adb_v!r} app={app_v!r}")
+        for row in rows:
+            print(f"  [{'OK ' if row.get('ok') else 'MISMATCH'}] "
+                  f"{row.get('field')}: adb={row.get('adb')!r} app={row.get('app')!r}")
         print("ALLOCATABLE (separate): df=%r storageManager=%r"
               % (record['guest']['df_data_line'], app_report.get('allocatableBytes')))
         print("GL (separate): host=%s app_vendor=%r"
               % (record['guest']['gl_host'], app_report.get('glVendor')))
-        return 0 if all(ok for _, _, _, ok in rows) else 1
+        return 0 if all(r.get("ok") for r in rows) else 1
     return 0
 
 

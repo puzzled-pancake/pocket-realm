@@ -88,3 +88,9 @@ logs/
 *.log
 support_bundle/
 diagnostics/
+
+# Exception: checked-in AVD experiment evidence (PKG-01/02/06 logcat captures,
+# per tests/avd/*/pkg-experiments.md and ADR-013). These .log/.logcat files are
+# the auditable artifacts the acceptance criteria require, not throwaway logs.
+!tests/avd/**/evidence/*.log
+!tests/avd/**/evidence/*.log.*

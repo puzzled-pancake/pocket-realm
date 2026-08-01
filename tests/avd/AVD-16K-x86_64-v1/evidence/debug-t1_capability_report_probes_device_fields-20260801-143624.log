@@ -1,0 +1,25 @@
+08-01 14:36:24.993  4324  4340 I System.out: PKG_CAPABILITY	api=35	page=16384	abilist=x86_64,arm64-v8a	allocatable=8195730842	glVendor=Google (NVIDIA Corporation)	glRenderer=Android Emulator OpenGL ES Translator (NVIDIA GeForce RTX 5060 Ti/PCIe/SSE2)	runId=111bd58c-cf02-449b-937f-7a10a2416c8f	reportPath=/data/user/0/com.pocketrealm/app_capability/capability-report.json
+--- instrument stdout ---
+INSTRUMENTATION_STATUS: class=com.pocketrealm.pkg.PackagingExperimentTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=
+com.pocketrealm.pkg.PackagingExperimentTest:
+INSTRUMENTATION_STATUS: test=t1_capability_report_probes_device_fields
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.pocketrealm.pkg.PackagingExperimentTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=t1_capability_report_probes_device_fields
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_RESULT: stream=
+
+Time: 0.308
+
+OK (1 test)
+
+
+INSTRUMENTATION_CODE: -1

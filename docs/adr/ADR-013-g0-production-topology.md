@@ -63,16 +63,18 @@ per-lane capability records in `tests/avd/<avd-id>.json`.
 | AVD-16K-x86_64-v1 | 35 | 16 KB | executed + documented | CONTAINMENT_PROVEN | 30-min run |
 
 ### PKG-01 — APK-owned native launcher execution
-- **Experiment variant** (`useLegacyPackaging=true`): the PIE launcher
-  (`libpocket_pkg_launcher.so`) is extracted with `rwxr-xr-x` into
-  `nativeLibraryDir` and executes there on **all three lanes**. Its
-  `/proc/self/exe` resolves to the nativeLibraryDir path; it reports the runtime
-  page size (4096 / 16384) and, with `LD_LIBRARY_PATH`, dlopens
-  `libpocketrealm.so` by SONAME and resolves `realm_err_str` via `dlsym`+`dladdr`.
-- **Production variant** (`useLegacyPackaging=false`): the launcher has **no
-  executable filesystem path** (`NO_EXECUTABLE_FS_PATH`). Native `.so` are stored
-  uncompressed/page-aligned in the APK and may be loaded directly from it; a
-  standalone exec is not the production model. This honest, observed behavior is
+- **Experiment variant** (`useLegacyPackaging=true`, evidence
+  `pkgExperiment-t2_*.log`): the PIE launcher (`libpocket_pkg_launcher.so`) is
+  extracted with `rwxr-xr-x` into `nativeLibraryDir` and executes there on **all
+  three lanes**. Its `/proc/self/exe` resolves to the nativeLibraryDir path; it
+  reports the runtime page size (4096 / 16384) and, with `LD_LIBRARY_PATH`,
+  dlopens `libpocketrealm.so` by SONAME and resolves `realm_err_str` via
+  `dlsym`+`dladdr`.
+- **Production variant** (`useLegacyPackaging=false`, evidence `debug-t2_*.log`):
+  the launcher has **no executable filesystem path**
+  (`code=NO_EXECUTABLE_FS_PATH`, `extractNativeLibs=false`). Native `.so` are
+  stored uncompressed/page-aligned in the APK and may be loaded directly from it;
+  a standalone exec is not the production model. This honest, observed behavior is
   central evidence for selecting Lane A over Lane B.
 
 ### PKG-02 — isolated library-backed crash containment (production variant)
@@ -88,11 +90,17 @@ This proves the library-backed, process-isolated component model works and that 
 component crash is contained without taking down the supervisor.
 
 ### PKG-06 — page-size compatibility (production variant)
-Every packaged `.so` (libpocketrealm.so, libpocketpkgtest.so,
-libpocket_pkg_launcher.so, libc++_shared.so) loads and runs on **both** the 4 KB
-and 16 KB page-size images. ELF `PT_LOAD` alignment is `0x4000` (16 KB
-compatible) and `zipalign -c -P 16 -v 4` passes. The two genuine 30-minute
-acceptance runs (4 KB and 16 KB) are captured by the host driver.
+Under the production variant (`useLegacyPackaging=false`), native libraries are
+not extracted to `nativeLibraryDir`, so the experiment proves the closure by
+**directly** loading the realm facade by SONAME and **transitively** exercising
+its dependencies: `libpocketrealm.so` links `libc++_shared.so` (a `DT_NEEDED`),
+so a successful `dlopen("libpocketrealm.so")` proves both the facade and the
+shared C++ runtime load and remain resident. (`libpocketpkgtest.so` is exercised
+directly by PKG-02 in the same `:pkg` process; `libpocket_pkg_launcher.so` is a
+PKG-01 artifact and not loaded on the production lane.) All four `.so` are 16 KB
+page-compatible: ELF `PT_LOAD` alignment is `0x4000` and `zipalign -c -P 16 -v 4`
+passes. The two genuine 30-minute acceptance runs (4 KB and 16 KB) are captured
+by the host driver; each logged 30 per-minute ticks with a stable `:pkg` PID.
 
 ### Capability records (X0)
 `tests/avd/AVD-Modern-x86_64-v1.json`, `AVD-16K-x86_64-v1.json`, and

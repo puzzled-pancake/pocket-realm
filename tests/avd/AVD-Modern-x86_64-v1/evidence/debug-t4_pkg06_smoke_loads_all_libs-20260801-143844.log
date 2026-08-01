@@ -1,0 +1,63 @@
+08-01 14:38:45.482  4905  4923 I System.out: PKG-06 TICK	tick=1	t=1785551925482	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 14:39:45.491  4905  4923 I System.out: PKG-06 TICK	tick=2	t=1785551985491	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 14:40:45.495  4905  4923 I System.out: PKG-06 TICK	tick=3	t=1785552045495	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 14:41:45.506  4905  4923 I System.out: PKG-06 TICK	tick=4	t=1785552105506	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 14:42:45.517  4905  4923 I System.out: PKG-06 TICK	tick=5	t=1785552165517	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 14:43:45.527  4905  4923 I System.out: PKG-06 TICK	tick=6	t=1785552225527	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 14:44:45.537  4905  4923 I System.out: PKG-06 TICK	tick=7	t=1785552285537	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 14:45:45.549  4905  4923 I System.out: PKG-06 TICK	tick=8	t=1785552345549	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 14:46:45.564  4905  4923 I System.out: PKG-06 TICK	tick=9	t=1785552405564	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 14:47:45.579  4905  4923 I System.out: PKG-06 TICK	tick=10	t=1785552465579	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 14:48:45.592  4905  4923 I System.out: PKG-06 TICK	tick=11	t=1785552525592	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 14:49:45.603  4905  4923 I System.out: PKG-06 TICK	tick=12	t=1785552585603	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 14:50:45.615  4905  4923 I System.out: PKG-06 TICK	tick=13	t=1785552645615	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 14:51:45.625  4905  4923 I System.out: PKG-06 TICK	tick=14	t=1785552705624	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 14:52:45.627  4905  4923 I System.out: PKG-06 TICK	tick=15	t=1785552765627	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 14:53:45.637  4905  4923 I System.out: PKG-06 TICK	tick=16	t=1785552825637	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 14:54:45.647  4905  4923 I System.out: PKG-06 TICK	tick=17	t=1785552885646	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 14:55:45.650  4905  4923 I System.out: PKG-06 TICK	tick=18	t=1785552945650	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 14:56:45.656  4905  4923 I System.out: PKG-06 TICK	tick=19	t=1785553005656	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 14:57:45.661  4905  4923 I System.out: PKG-06 TICK	tick=20	t=1785553065661	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 14:58:45.664  4905  4923 I System.out: PKG-06 TICK	tick=21	t=1785553125664	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 14:59:45.674  4905  4923 I System.out: PKG-06 TICK	tick=22	t=1785553185674	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 15:00:45.677  4905  4923 I System.out: PKG-06 TICK	tick=23	t=1785553245677	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 15:01:45.694  4905  4923 I System.out: PKG-06 TICK	tick=24	t=1785553305694	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 15:02:45.710  4905  4923 I System.out: PKG-06 TICK	tick=25	t=1785553365710	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 15:03:45.716  4905  4923 I System.out: PKG-06 TICK	tick=26	t=1785553425716	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 15:04:45.722  4905  4923 I System.out: PKG-06 TICK	tick=27	t=1785553485722	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 15:05:45.729  4905  4923 I System.out: PKG-06 TICK	tick=28	t=1785553545729	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 15:06:45.740  4905  4923 I System.out: PKG-06 TICK	tick=29	t=1785553605740	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 15:07:45.742  4905  4923 I System.out: PKG-06 TICK	tick=30	t=1785553665742	hello=pocket-realm-pkg-ok	pid=4925	pageSize=4096
+08-01 15:08:45.761  4905  4919 I System.out: PKG_EXPERIMENT_RESULT	PKG-06	ok=true	code=SMOKE_OK
+08-01 15:08:45.761  4905  4919 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	pageSize=4096
+08-01 15:08:45.761  4905  4919 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	packagedLibCount=0
+08-01 15:08:45.761  4905  4919 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	packagedLibs=
+08-01 15:08:45.761  4905  4919 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	realmLoaded=1
+08-01 15:08:45.761  4905  4919 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	realmSoname=libpocketrealm.so
+08-01 15:08:45.761  4905  4919 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	realmDladdrPath=/data/app/~~4njnhpiNMw--3nIxIL2pZQ==/com.pocketrealm-rdby7hXihEx3j_MPhxSEwQ==/base.apk!/lib/x86_64/libpocketrealm.so
+08-01 15:08:45.761  4905  4919 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	firstTick=tick=1 hello=pocket-realm-pkg-ok pid=4925
+08-01 15:08:45.761  4905  4919 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	tickCount=30
+--- instrument stdout ---
+INSTRUMENTATION_STATUS: class=com.pocketrealm.pkg.PackagingExperimentTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=
+com.pocketrealm.pkg.PackagingExperimentTest:
+INSTRUMENTATION_STATUS: test=t4_pkg06_smoke_loads_all_libs
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.pocketrealm.pkg.PackagingExperimentTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=t4_pkg06_smoke_loads_all_libs
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_RESULT: stream=
+
+Time: 1,800.962
+
+OK (1 test)
+
+
+INSTRUMENTATION_CODE: -1

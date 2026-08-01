@@ -4,7 +4,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
-import android.os.Build
 import android.os.IBinder
 import android.os.Process
 import android.os.SystemClock
@@ -139,8 +138,11 @@ class PackagingExperimentRunner(private val context: Context) {
             }
         }
 
-    private fun variantLabel(): String =
-        if (BuildConfig.DEBUG) "debug" else "release"
+    private fun variantLabel(): String = BuildConfig.BUILD_TYPE
+        // "debug"/"release" (production packaging, useLegacyPackaging=false) or
+        // "pkgExperiment" (launcher extraction, useLegacyPackaging=true). NOTE:
+        // BuildConfig.DEBUG is true for BOTH debug and pkgExperiment (the latter
+        // is initWith(debug)), so it cannot distinguish them — BUILD_TYPE can.
 
     /** PKG-02: isolated child loads real realm .so, crashes, and survives a restart. */
     suspend fun runPkg02(): ExperimentResult = withContext(Dispatchers.IO) {

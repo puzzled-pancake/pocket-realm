@@ -1,0 +1,37 @@
+08-01 14:37:06.882  3231  3247 I System.out: PKG_EXPERIMENT_RESULT	PKG-02	ok=true	code=CONTAINMENT_PROVEN
+08-01 14:37:06.882  3231  3247 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	mainPid=3231
+08-01 14:37:06.882  3231  3247 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	childPidBeforeCrash=3253
+08-01 14:37:06.882  3231  3247 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	realmLoaded=1
+08-01 14:37:06.882  3231  3247 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	realmErr=0
+08-01 14:37:06.882  3231  3247 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	realmSoname=libpocketrealm.so
+08-01 14:37:06.882  3231  3247 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	realmDladdrPath=/data/app/com.pocketrealm-jjH6mqYmbA-ZzNfiNfj-kQ==/base.apk!/lib/x86_64/libpocketrealm.so
+08-01 14:37:06.882  3231  3247 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	realmBaseAddr=126811772846080
+08-01 14:37:06.882  3231  3247 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	helloBeforeCrash=pocket-realm-pkg-ok
+08-01 14:37:06.882  3231  3247 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	binderDeathObserved=true
+08-01 14:37:06.882  3231  3247 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	mainPidStillAlive=true
+08-01 14:37:06.882  3231  3247 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	childPidAfterCrash=3280
+08-01 14:37:06.882  3231  3247 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	helloAfterRestart=pocket-realm-pkg-ok
+--- instrument stdout ---
+INSTRUMENTATION_STATUS: class=com.pocketrealm.pkg.PackagingExperimentTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=
+com.pocketrealm.pkg.PackagingExperimentTest:
+INSTRUMENTATION_STATUS: test=t3_pkg02_crash_containment_and_restart
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.pocketrealm.pkg.PackagingExperimentTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=t3_pkg02_crash_containment_and_restart
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_RESULT: stream=
+
+Time: 1.63
+
+OK (1 test)
+
+
+INSTRUMENTATION_CODE: -1
