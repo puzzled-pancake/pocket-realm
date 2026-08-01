@@ -28,6 +28,13 @@ native/.x86_64-*.log
 native/.build.log
 output/
 
+# O06 provider caches (populated by tools/fetch_provider.py; large prebuilt
+# archives + extracted trees, hash-verified, never committed).
+native/.providers/
+native/.providers-extracted/
+runtime/glibc-rootfs-x86_64/
+runtime/wine-x86/
+
 # ZCode local session data
 .zcode/
 

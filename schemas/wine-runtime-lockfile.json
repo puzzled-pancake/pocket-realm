@@ -21,9 +21,21 @@
       "upstream_source_url": "https://ftp.gnu.org/gnu/libc/glibc-2.43.tar.xz",
       "upstream_source_sha256": "d9c86c6b5dbddb43a3e08270c5844fc5177d19442cf5b8df4be7c07cd5fa3831",
       "license": "GPL-3.0-or-later / LGPL-3.0-or-later (build scripts MIT)",
-      "role": "the dynamic loader ld-linux-x86-64.so.2 + libc.so.6, libpthread.so.0, libdl.so.2, libm.so.6, librt.so.1. Android patch set (SysV SHM, fakesyscall, passwd/group) is the full termux-pacman set.",
-      "provides": ["ld-linux-x86-64.so.2", "libc.so.6", "libpthread.so.0", "libdl.so.2", "libm.so.6", "librt.so.1"],
+      "role": "the dynamic loader ld-linux-x86-64.so.2 + libc.so.6, libpthread.so.0, libdl.so.2, libm.so.6, librt.so.1, libresolv.so.2. Android patch set (SysV SHM, fakesyscall, passwd/group) is the full termux-pacman set.",
+      "provides": ["ld-linux-x86-64.so.2", "libc.so.6", "libpthread.so.0", "libdl.so.2", "libm.so.6", "librt.so.1", "libresolv.so.2"],
       "build_recipe": "gpkg/glibc/build.sh"
+    },
+    {
+      "name": "gcc-libs",
+      "gpkg_dir": "gpkg/gcc-libs",
+      "version": "14.2.1",
+      "upstream_source_url": "git+https://sourceware.org/git/gcc",
+      "upstream_source_sha256": "ee47c48b656c2fe6e937f99954303f07ef6eab26d40cf70401880cdc2c290b1c",
+      "license": "GPL-3.0-or-later WITH GCC Runtime Library Exception (the libgcc_s runtime is distributable under the exception)",
+      "role": "MANDATORY: libgcc_s.so.1 is a load-time DT_NEEDED of ntdll.so (Wine's core NTDLL, always loaded). Non-optional.",
+      "provides": ["libgcc_s.so.1"],
+      "depends_on": ["glibc"],
+      "build_recipe": "gpkg/gcc-libs/build.sh"
     },
     {
       "name": "libx11",
