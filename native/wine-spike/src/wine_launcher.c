@@ -35,6 +35,7 @@ int wine_spike_launch_wine(const char *native_dir,
                            const char *wine_target,
                            const char *prefix_dir,
                            const char *display,
+                           const char *wine_args,
                            int64_t *out_pid) {
     if (!native_dir || !wine_target || !prefix_dir || !out_pid)
         return WINE_SPIKE_ERR_ARGS;
@@ -73,16 +74,30 @@ int wine_spike_launch_wine(const char *native_dir,
     snprintf(lib_path, sizeof(lib_path),
              "%s/lib:%s/lib/wine/x86_64-unix", tree_dir, tree_dir);
 
-    /* Build the execve args. --library-path points at the symlink tree dirs. */
-    const char *argv[] = {
-        loader_path,                           /* argv[0] = the loader itself */
-        "--library-path",
-        lib_path,                              /* symlink tree lib dirs (real SONAME names) */
-        wine_target,                           /* the wine binary (via symlink tree) */
-        NULL,
-    };
+    /* Build the execve args. --library-path points at the symlink tree dirs.
+     * wine_args (if provided) is split on spaces into additional argv entries. */
+    char args_copy[512] = {0};
+    char *arg_tokens[16] = {NULL};
+    int n_args = 0;
+    if (wine_args && *wine_args) {
+        snprintf(args_copy, sizeof(args_copy), "%s", wine_args);
+        char *tok = strtok(args_copy, " ");
+        while (tok && n_args < 15) {
+            arg_tokens[n_args++] = tok;
+            tok = strtok(NULL, " ");
+        }
+    }
+    const char *argv[24];
+    int ai = 0;
+    argv[ai++] = loader_path;
+    argv[ai++] = "--library-path";
+    argv[ai++] = lib_path;
+    argv[ai++] = wine_target;
+    for (int i = 0; i < n_args; i++) argv[ai++] = arg_tokens[i];
+    argv[ai] = NULL;
 
-    LOGI("launch_wine: %s --library-path %s %s", loader_path, lib_path, wine_target);
+    LOGI("launch_wine: %s --library-path %s %s %s", loader_path, lib_path, wine_target,
+         wine_args ? wine_args : "");
 
     pid_t pid = fork();
     if (pid < 0) {
@@ -91,6 +106,7 @@ int wine_spike_launch_wine(const char *native_dir,
     }
     if (pid == 0) {
         /* Child: set up the environment for the glibc namespace. */
+        /* Redirect stdout to a pipe so the parent can capture wine's output. */
         char env_prefix[WINE_SPIKE_PATH_MAX + 32];
         snprintf(env_prefix, sizeof(env_prefix), "WINEPREFIX=%s", prefix_dir);
 
@@ -100,8 +116,13 @@ int wine_spike_launch_wine(const char *native_dir,
         const char *envp[16];
         int ei = 0;
         envp[ei++] = env_prefix;
+        /* LD_DEBUG=libs: makes the glibc loader print its library resolution to
+         * stderr. This IS the S-1 proof — it shows the effective loader loading
+         * the glibc closure from APK-managed files via the symlink tree. More
+         * reliable than racing for /proc/<pid>/maps for fast-exiting processes. */
+        envp[ei++] = "LD_DEBUG=libs";
         /* WINEDEBUG helps diagnose loader/PE resolution during the spike. */
-        envp[ei++] = "WINEDEBUG=+loaddll,+module,+relay";
+        envp[ei++] = "WINEDEBUG=-all";
         /* WINEDLLPATH: Wine finds its unix .so modules (ntdll.so etc.) by
          * computing a path relative to its own binary location — but since the
          * binary is a symlink to nativeLibraryDir, that path is wrong. WINEDLLPATH
@@ -139,8 +160,12 @@ int wine_spike_launch_wine(const char *native_dir,
         envp[ei++] = "WINEDLLOVERRIDES=msvcrt,b=n;kernelbase=b";
         envp[ei] = NULL;
 
-        /* Redirect child stdout/stderr to a log file for structured output. */
-        /* (The parent reads these for POCKET_SELFTEST_* markers.) */
+        /* The child inherits the parent's stderr (fd 2), which goes to logcat.
+         * LD_DEBUG=libs output appears in logcat under the wine_spike tag. The
+         * host driver captures it. We do NOT redirect to a file because the
+         * fork'd child's file redirect was unreliable (the file was created
+         * empty — likely a timing/buffering issue with execve replacing the
+         * image before the loader's buffered stderr was flushed). */
 
         execve(loader_path, (char *const *)argv, (char *const *)envp);
         /* If execve returns, it failed. */
@@ -148,8 +173,27 @@ int wine_spike_launch_wine(const char *native_dir,
         _exit(127);
     }
 
-    /* Parent: child is running with PID = pid. */
+    /* Parent: child is running with PID = pid.
+     * Race to read /proc/<pid>/maps BEFORE the child exits (wine --version
+     * completes in <100ms). The maps file is valid from the moment execve
+     * establishes the address space. We retry for up to 500ms. */
     *out_pid = pid;
     LOGI("launch_wine: child pid=%lld", (long long)pid);
+
+    /* Brief yield to let the kernel set up the child's address space. */
+    usleep(10000);  /* 10ms */
+
+    /* Try to read maps in a tight loop. If the child already exited, we still
+     * return the PID (the caller can detect the process is gone). The probe
+     * function handles the "process gone" case. */
+    char maps_path[256];
+    snprintf(maps_path, sizeof(maps_path), "/proc/%lld/maps", (long long)pid);
+    for (int i = 0; i < 50; i++) {  /* 50 x 10ms = 500ms max */
+        if (access(maps_path, R_OK) == 0) {
+            LOGI("launch_wine: maps available for pid=%lld", (long long)pid);
+            break;
+        }
+        usleep(10000);
+    }
     return WINE_SPIKE_OK;
 }

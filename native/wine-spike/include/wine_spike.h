@@ -80,6 +80,7 @@ int wine_spike_launch_wine(const char *native_dir,
                            const char *wine_target,
                            const char *prefix_dir,
                            const char *display,
+                           const char *wine_args,   /* extra args after wine_target (e.g. "--version") */
                            int64_t *out_pid);
 
 /*

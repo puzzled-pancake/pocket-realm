@@ -35,17 +35,20 @@ Java_com_pocketrealm_wine_WineSpikeNative_buildSymlinkTreeNative(
 JNIEXPORT jlong JNICALL
 Java_com_pocketrealm_wine_WineSpikeNative_launchWineNative(
         JNIEnv *env, jobject /*this*/,
-        jstring jNativeDir, jstring jWineTarget, jstring jPrefixDir, jstring jDisplay) {
+        jstring jNativeDir, jstring jWineTarget, jstring jPrefixDir, jstring jDisplay,
+        jstring jWineArgs) {
     const char *native_dir = env->GetStringUTFChars(jNativeDir, nullptr);
     const char *wine_target = env->GetStringUTFChars(jWineTarget, nullptr);
     const char *prefix_dir = env->GetStringUTFChars(jPrefixDir, nullptr);
     const char *display = jDisplay ? env->GetStringUTFChars(jDisplay, nullptr) : "";
+    const char *wine_args = jWineArgs ? env->GetStringUTFChars(jWineArgs, nullptr) : "";
     int64_t pid = -1;
-    int rc = wine_spike_launch_wine(native_dir, wine_target, prefix_dir, display, &pid);
+    int rc = wine_spike_launch_wine(native_dir, wine_target, prefix_dir, display, wine_args, &pid);
     env->ReleaseStringUTFChars(jNativeDir, native_dir);
     env->ReleaseStringUTFChars(jWineTarget, wine_target);
     env->ReleaseStringUTFChars(jPrefixDir, prefix_dir);
     if (jDisplay) env->ReleaseStringUTFChars(jDisplay, display);
+    if (jWineArgs) env->ReleaseStringUTFChars(jWineArgs, wine_args);
     if (rc != WINE_SPIKE_OK) return -1;
     return (jlong)pid;
 }

@@ -23,8 +23,12 @@ object WineSpikeNative {
     /**
      * Launch Wine via the APK-managed glibc loader. Returns the child PID, or -1 on failure.
      * [wineTarget] is the absolute path to the wine binary (via the symlink tree).
+     * [wineArgs] is a space-separated string of extra args (e.g. "--version").
      */
-    external fun launchWineNative(nativeDir: String, wineTarget: String, prefixDir: String, display: String): Long
+    external fun launchWineNative(
+        nativeDir: String, wineTarget: String, prefixDir: String, display: String,
+        wineArgs: String
+    ): Long
 
     /**
      * Probe /proc/<pid>/maps for the effective loader. Returns a structured string:
