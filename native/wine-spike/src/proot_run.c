@@ -470,7 +470,14 @@ int wine_spike_run_wine_via_proot(const char *native_dir,
     envp[ei++] = env_home;
     envp[ei++] = env_tmpdir;
     envp[ei++] = env_path;
-    envp[ei++] = "WINEDEBUG=-all";
+    /* If the caller's extra_env already supplies WINEDEBUG, don't override it
+     * with -all (the caller may want +module/+loaddll to prove PE resolution,
+     * or no suppression to see wineboot errors). Scan extra_env for it. */
+    int caller_has_winedebug = 0;
+    for (int i = 0; i < n_extra; i++) {
+        if (strncmp(extra_ptrs[i], "WINEDEBUG=", 10) == 0) { caller_has_winedebug = 1; break; }
+    }
+    if (!caller_has_winedebug) envp[ei++] = "WINEDEBUG=-all";
     envp[ei++] = "LD_DEBUG=libs";
     if (env_display[0]) envp[ei++] = env_display;
     for (int i = 0; i < n_extra && ei < 31; i++) envp[ei++] = extra_ptrs[i];

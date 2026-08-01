@@ -886,7 +886,7 @@ class WineSpikeRunner(private val context: Context) {
         val bootRaw = try {
             WineSpikeNative.runWineViaProotNative(
                 nativeDir, winebootTarget, "wineboot", prefixDir.absolutePath,
-                "", "--init", "WINEDEBUG=+module,+loaddll", 90_000)
+                "", "--init", "WINEDEBUG=+module,+loaddll", 60_000)
         } catch (e: Exception) {
             evidence["winebootRunException"] = "${e.javaClass.simpleName}: ${e.message}"
             ""
