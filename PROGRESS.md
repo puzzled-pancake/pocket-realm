@@ -75,19 +75,27 @@ Versioned C ABI + `libpocketrealm.so`; create/start/health/save/stop/destroy pro
 
 ## Blockers
 
-O06 Phase 1 has an **active blocker**: the production app-process execve of glibc
-ELFs returns EACCES (see below). A user-owned build-5875 client becomes required
-at O07; named AVD/device and physical qualification inputs are required at their
-later gates. **Outcome B is NOT yet proven** — the loader chain is demonstrated
-only under `run-as` (supporting evidence), not from the production app process.
-Downstream O06 implementation (the rootfs-bind / namespace strategy to satisfy
-S-1 from the app process) is **not authorized** until S-1 passes on 4KB.
+O06 Phase 1 S-3 has an **active item**: the vendored Winlator X-server compiles,
+but its I/O layer is native (libwinlator.so JNI: epoll accept loop +
+fd-passing SCM_RIGHTS read/write). The spike must reimplement that I/O layer in
+Java (LocalSocketServer + FileInputStream/FileOutputStream) or build the native
+module, then write the S-3 test harness. **S-1 and S-2 PASS on 4KB**; S-3 and the
+16K repeat remain. A user-owned build-5875 client becomes required at O07; named
+AVD/device and physical qualification inputs are required at their later gates.
+**Outcome is NOT yet determined** — S-1/S-2 pass from the production app process;
+S-3 + 16K remain. Downstream O06 implementation is **not authorized** until S-3
+passes on 4KB and the 16K repeat completes.
 
 ## O06 Phase 1 — Wine feasibility spike status (in progress)
 
-The S-1/S-2/S-3 on-device spike is running on the Modern lane (API 35, 4KB).
-S-1 acceptance (effective APK-managed loader proven for wine + wineserver + every
-native child, from the **production app process**) is NOT yet met. Findings:
+The S-1/S-2/S-3 on-device spike runs on the Modern lane (API 35, 4KB).
+
+**S-1 ACCEPTANCE MET** — `LOADER_PROVEN_VIA_PROOT`, from the production app
+process. See the S-5(b) finding below for the path.
+
+**S-2 ACCEPTANCE MET** — `PE_CACHE_VERIFIED`: 1626 PE modules materialized with
+SHA-256 verification + reverified (verifyRc=0); wineboot --init launched via
+proot. From the production app process.
 
 - **S-5(0) corrected diagnosis (a512b71 → S-5 correction commit):** the earlier
   "SELinux blocks execve" finding was based only on exit 159. A ptrace+siginfo
@@ -101,32 +109,33 @@ native child, from the **production app process**) is NOT yet met. Findings:
   block is on the glibc loader's syscalls, not on how we arrive at it.
 - **Narrow GLIBC_TUNABLES fallback:** does NOT apply — no tunable suppresses the
   loader's access() probing calls.
-- **S-5(b) proot (termux/proot@a89b3732, Bionic PIE, 295KB):** built from source
-  (Python reimplementation of the GNUmakefile — Windows has no make). proot
-  starts from the production app domain (`proot --version` → 5.1.107.89,
-  process_vm=yes, seccomp_filter=yes; runs `/system/bin/id` fine). Under `run-as`
-  the full loader chain is PROVEN under proot: `calling init: libld_linux_x86_64.so
-  / libc.so.6 / libdl.so.2 / libpthread.so.0 / libgcc_s.so.1` → `calling fini:
-  ntdll.so` → `wine-11.14`. No SIGSYS — proot's syscall interception defeats the
-  access() seccomp trap. The `-b <app_tmp>:/tmp` bind handles wineserver's
-  hardcoded `/tmp/.wine-<uid>` path.
-- **App-process exec restriction (remaining blocker):** in the production app
-  process, proot's execve of a glibc ELF (libwine_preloader.so / the loader)
-  returns `EACCES`. Bionic ELFs (libproot.so, libwine_trampoline.so) execve
-  freely in the same directory; glibc ELFs (PT_INTERP=/lib64/ld-linux-x86-64.so.2)
-  do not. proot cannot bypass this because it relies on the kernel's execve for
-  the initial program (ptrace interception applies only to syscalls AFTER exec).
-  The `run-as` path succeeds (different exec context) but is supporting evidence,
-  not acceptance.
+- **S-5(b) proot (termux/proot@a89b3732, Bionic PIE, 295KB) — S-1 PASSES via this
+  path:** built from source (Python reimplementation of the GNUmakefile — Windows
+  has no make). The key to the app-process pass was PROOT_LOADER pinning: staging
+  proot's in-tracee helper loader as APK-managed `libproot_loader.so`
+  (nativeLibraryDir, immutable +x) and pointing PROOT_LOADER at it. Without this,
+  proot extracted its embedded loader to PROOT_TMP_DIR (a noexec writable mount
+  in the app domain) and failed. With it, proot runs the APK glibc loader as the
+  guest command (`proot -v 5 -b <tmp>:/tmp -r / --link2symlink <apk-loader>
+  --library-path <tree-libs> <wine> --version`), ptrace-intercepts the child's
+  syscalls, translates access(2)→faccessat(2), and the loader chain resolves via
+  the symlink tree. Default proot mode sufficed (PROOT_NO_SECCOMP fallback was
+  not needed). The `-b <app_tmp>:/tmp` bind handles wineserver's hardcoded
+  `/tmp/.wine-<uid>` path. Direct + trampoline paths still fail
+  (SIGSYS_SECCOMP_ACCESS / EACCES) — proot is the working path.
+- **S-3 (in progress):** the Winlator X-server (ca3d735) is vendored, trimmed,
+  and COMPILES (6 app-shell couplings stubbed; provenance in
+  docs/patches/wine-provider-provenance.md). The remaining S-3 work is the I/O
+  layer: the X-server's socket accept + fd-passing read/write is native
+  (libwinlator.so JNI in XConnectorEpell/XInputStream/XOutputStream). The spike
+  must reimplement that in Java (LocalSocketServer + streams) or build the native
+  module, then write the test harness (start X-server → wine DISPLAY=:0 via proot
+  → verify a GDI window).
 
-**Spike outcome: NOT YET DETERMINED (not A, not B, not C).** No outcome is
-finalized. The Wine loader chain mechanism is demonstrated under proot via
-`run-as`, but the production app-process has an additional exec restriction on
-glibc ELFs that proot's ptrace model does not address. O06 stays active;
-acceptance is NOT weakened. The remaining work (PROOT_LOADER pinning, default vs
-PROOT_NO_SECCOMP, and if needed the glibc access→faccessat rebuild) is in-flight
-before any outcome (A/B/C) is recorded. S-2/S-3 are gated on S-1 passing from
-the production app process.
+**Spike outcome: NOT YET DETERMINED.** S-1 and S-2 PASS from the production app
+process via proot. S-3 (X-server I/O layer + harness) and the 16K lane repeat
+remain before any outcome (A/B/C) is recorded. O06 stays active; acceptance is
+NOT weakened.
 
 ## Next action
 
