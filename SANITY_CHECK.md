@@ -1,5 +1,7 @@
 # Compact handoff sanity check
 
+> Historical audit: this predates adoption of `docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx` as the canonical offline reference. The compact-harness conclusions still apply; current features use report section pointers and the report's MariaDB/multi-process/x86-first gates.
+
 ## Result
 
 The previous handoff was structurally sound but unsuitable as an always-available Claude Code prompt. It mixed product requirements, implementation detail, process enforcement, evidence schemas, threat catalogs, and hundreds of micro-packages into one large control system. That increased startup/context cost, repeated the same decisions, and made ordinary coding work carry release-audit overhead.
@@ -24,7 +26,7 @@ The replacement keeps the product scope while changing how Claude receives it:
 | Work units | 721 | 36 | 95.0% |
 | Always-loaded project instruction | Large imported control package | 63 lines / 754 words | Under Claude Code’s 200-line target |
 
-`PLAN.md`, `DECISIONS.md`, and `FEATURES.json` are not imported at startup. Claude reads one feature record and one plan section when needed.
+The canonical report, `PLAN.md`, `DECISIONS.md`, and `FEATURES.json` are not imported at startup. Claude reads one feature record, its named report sections, and one plan section when needed.
 
 ## Claude Code design audit
 
@@ -42,11 +44,11 @@ The replacement keeps the product scope while changing how Claude receives it:
 ### Offline foundation
 
 - Proprietary client/game assets are never part of the repository or release.
-- The server and bots are native ARM64; only the user’s x86 client is translated.
+- The server, MariaDB, and bots are native per Android ABI; direct x86 is the development gate and only the Windows client needs CPU translation on ARM.
 - The Android app assumes process death can occur at any instruction; Save & Exit is not the sole correctness boundary.
 - Mutable realm data stays on internal storage by default and uses dirty-state recovery, verified backups, and rollback generations.
-- Box64/Wine is the first production candidate. FEX is implemented behind the same provider interface but remains visibly Laboratory until physical RP6 qualification.
-- The advanced UI can select Box64 or FEX without allowing Automatic mode to choose an unqualified tuple.
+- Direct x86 Wine is proven first. Box64/64-bit Wine WoW64 is the first ARM candidate; FEX is outside the release critical path until a separate laboratory feature qualifies it.
+- Automatic mode never selects an unqualified runtime tuple or exposes an unimplemented laboratory backend as supported.
 - Controller input uses Android game-controller APIs plus a bundled Wine input bridge; it does not assume root, `/dev/uinput`, or Accessibility services.
 - Bot optimization protects visible, resident, grouped, combat, and instance bots before reducing distant or invisible work.
 
@@ -96,8 +98,8 @@ The final validation checks confirm:
 These are implementation risks, not reasons to enlarge the prompt:
 
 1. Actual RP6 firmware behavior: 32-bit userspace availability, Vulkan/driver behavior, 16 KiB page-size compatibility, controller identifiers, thermal policy, and background-process behavior.
-2. CMaNGOS lifecycle refactoring and SQLite parity may be larger than expected.
-3. Box64/Wine WoW64 and FEX must be qualified as complete tuples; component documentation alone cannot establish client support.
+2. Native MariaDB packaging, migrations, recovery, and CMaNGOS supervision may be larger than expected.
+3. Direct x86 Wine and the later Box64/Wine WoW64 tuple must be qualified end to end; component documentation alone cannot establish client support.
 4. Runtime, addon, and optional visual-pack licenses must be reviewed before redistribution.
 5. Hardware attestation limits admission but cannot prove an authoritative peer simulated honestly.
 6. Seamless backend migration requires typed state capture, pre-copy, fencing, and visibility continuity; it cannot be replaced by logout/relogin.

@@ -1,327 +1,206 @@
 # Pocket Realm implementation plan
 
-This document is the complete roadmap. It intentionally describes end states and important interfaces rather than thousands of micro-tasks. `FEATURES.json` is the execution order.
+This is the repository-specific execution overlay. The canonical offline engineering reference is
+[`docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx`](docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx); the adjacent PDF is its fixed-layout reading copy. `FEATURES.json` defines executable order and acceptance.
+
+## 0. Authority and reading order
+
+For the offline Android port, use this precedence:
+
+1. The research report's ADR-001 through ADR-012, component contracts, gates G0 through G6, test matrices, and stop conditions are normative.
+2. `PLAN.md` maps that reference to this repository and records the connected-realm extension.
+3. `DECISIONS.md` records project decisions and explicit, evidence-backed deltas. It may not silently contradict the report.
+4. `FEATURES.json` provides dependencies, acceptance, report section pointers, and status.
+5. `PROGRESS.md` records the current verified handoff; Git remains durable history.
+
+If implementation evidence requires a different offline architecture, add a superseding decision with the affected report ADR/section, rationale, migration impact, rollback, and tests before changing the plan. During ordinary feature work, read the report's document-control guidance plus only the sections named by the feature record.
 
 ## 1. Product definition
 
-Pocket Realm turns a supported, user-supplied Vanilla WoW 1.12 client into a handheld Android appliance. The user sees one polished application: import and configure once, press Start Adventure, play with a living bot-populated world, and use Save & Exit or automatic crash recovery.
+Pocket Realm is one installed Android application and coherent UX that imports a supported, user-supplied WoW 1.12.1 build 5875 client, supervises a native local realm, launches only the Windows client through a replaceable Wine backend, and owns setup, accounts, bots, controls, diagnostics, recovery, and updates.
 
-The same repository later adds a separate connected PvE realm. Connected play pools Android devices without a permanently designated game server while preserving one canonical economy and seamless client continuity. Offline and connected data never mix.
+"One application" does not mean one Linux process. The production baseline is an Android control plane supervising fault-isolated app processes or library-backed services for MariaDB, `realmd`, `mangosd`, and the Wine client. The server and database are native for the Android ABI; only `WoW.exe` uses Wine and, on ARM, CPU translation.
+
+The same repository may later add a permanently separate connected PvE realm. Connected and offline storage, identities, databases, backups, services, and release artifacts never merge.
 
 ### Non-goals
 
-- Redistributing the proprietary game client or game assets.
-- Supporting arbitrary Windows applications or arbitrary DLL injection.
-- Translating the native server.
-- Promising every Android device or every client build.
-- Fine-grained zone sharding before whole continents and instances work.
-- Per-tick consensus, blockchain gameplay, or merging divergent economies.
-- Competitive PvP on participant-controlled hosts at launch.
+- Redistributing the proprietary client, client-derived data, or unlicensed third-party assets.
+- Running the Windows SPP server stack under Wine or packaging SPP Classics itself.
+- Recompiling or rewriting the proprietary client.
+- Basing production on target-28 writable-directory execution, stock Winlator, arbitrary DLL injection, or arbitrary native payload downloads.
+- Enabling playerbots before a zero-bot realm passes persistence and forced-recovery gates.
+- Promising support for an unmeasured client build, device, GPU, ABI, RAM tier, or bot population.
+- Starting connected implementation before offline feature O22 is done.
 
-## 2. Repository and language layout
-
-The initializer should create a monorepo close to:
+## 2. Repository and implementation layout
 
 ```text
-android/app/                 Kotlin/Compose UI, wizard, service, input
-native/cmangos/              pinned upstream or submodule
-native/playerbots/           pinned upstream or submodule
-native/classic-db/           pinned database source
-native/pocket-runtime/       lifecycle facade, local gateway, persistence
-runtime/providers/           provider interface and tuple manifests
-runtime/box64/               Box64/Wine integration
-runtime/fex/                 FEX laboratory integration
-addons/pocket-core/          required Vanilla addon
-addons/pocket-bots/          controller/bot UI
-connected/kernel/            Rust Realm Kernel (after offline gate)
-connected/mesh/              Rust P2P transport and replication
-connected/session-anchor/    local legacy protocol anchor
-schemas/                     stable manifests and C ABI schemas
-tools/                       Python build/import/validation tools
-tests/                       host, Android, recovery, runtime, and connected tests
-docs/                        user and developer documentation
+android/app/                 Kotlin/Compose UI, supervisor, services, import, input
+native/cmangos/              pinned CMaNGOS Classic source
+native/playerbots/           pinned playerbots source
+native/classic-db/           pinned Classic-DB source and migration inputs
+native/mariadb/              Android MariaDB build/launcher integration
+native/pocket-runtime/       reusable C ABI/control/logging experiments
+runtime/providers/           ClientRuntime contract and tuple manifests
+runtime/wine-x86/            direct x86/x86-64 Wine development backend
+runtime/box64/               ARM translated-Wine backend
+addons/                      project-owned controller/status/bot UI addons
+schemas/                     compatibility, control, config, journal, and ABI schemas
+tools/                       deterministic build/import/validation tooling
+tests/                       component, contract, integration, fault, and soak tests
+connected/                   Rust connected expansion after O22
+docs/                        canonical report, patches, user and developer docs
 ```
 
-Pin every upstream source and generated input. Record license and redistribution status before packaging it. Keep proprietary client files outside source control and test artifacts.
+Pin every upstream source, SQL revision, toolchain, runtime tuple, and generated input. Keep executable native code in signed APK-managed locations and mutable data in app-private storage. Kotlin owns UI and supervision; C++ and upstream native code own the local realm; MariaDB remains the reference database; Rust is reserved for the connected expansion.
 
-## 3. Track A — offline product
+The app communicates with native components through narrow Binder/JNI/C ABI or versioned app-private control sockets. A C ABI is valuable for a library-backed component but is not evidence that all components belong in the UI or supervisor process.
 
-### Milestone A1: reproducible source and Android shell — O01–O02
+## 3. Reconciliation with completed work
 
-Create the repository, build scripts, source lock, license inventory, flavor manifest, and an Android application shell. The app should already have navigation, persistent settings, a foreground-service placeholder, structured logging, and a clear separation between immutable content, mutable realm data, runtime generations, and exports.
+The report changes the route, not the validity of already-proven artifacts:
 
-Use Kotlin/Compose for UI. Use a foreground service only while the realm or client is active. The notification must expose current state and Save & Exit. Do not implement durability through activity callbacks.
+| Work | Retained evidence | Status under the reference architecture |
+|---|---|---|
+| O01 repository, pins, licenses | Source locks, legal boundary, flavor manifest, build scripts | Retained; contributes to G0/A-001. |
+| O02 Android shell | Compose UI, foreground service, storage roots, supervisor state tests | Retained; the simulated runtime is replaced by report-aligned component states. |
+| O03 CMaNGOS/playerbots builds | Reproducible x86_64 and ARM64 builds, 16 KB ELF alignment, device smoke | Retained as downstream-port evidence; G2 must still prove x86 native MariaDB/realm with bots off. |
+| O04 `libpocketrealm.so` lifecycle | Versioned C ABI, fatal-path containment, re-entry tests, documented patches | Retained as PKG-02/library-lane evidence and reusable control code; it is not yet the chosen production topology. |
+| SQLite translation lane | Useful translation diagnostics and schema-gap evidence | Superseded for production. Do not continue SQLite parity unless a future explicit ADR overturns report section 12. |
 
-**Exit:** clean checkout can build the Android shell and host tools from documented commands; the app starts on RP6; source and artifact provenance are visible in diagnostics.
+No completed source is deleted merely because the critical path changed. Production integration must not depend on the in-process/SQLite combination until a superseding evidence-backed decision exists.
 
-### Milestone A2: native ARM64 realm runtime — O03–O05
+The project is currently at **G0 architecture proof**, not at a completed native-runtime milestone. The next feature is O05: production packaging, process-isolation, and capability experiments.
 
-Cross-compile CMaNGOS Classic and Playerbots for portable Android ARM64. Do not tune the binary for only Cortex-X3 or A715: the process migrates across heterogeneous cores. Use release optimization, LTO only after correctness, and current Android page-size compatibility.
+## 4. Track A - offline delivery gates
 
-Refactor process-global startup into an embeddable lifecycle:
+### Gate G0: architecture and production packaging - O05
 
-```c
-realm_create(config, callbacks, *handle)
-realm_start(handle)
-realm_health(handle, *status)
-realm_command(handle, command)
-realm_save(handle, save_mode)
-realm_checkpoint(handle)
-realm_request_stop(handle, reason)
-realm_join(handle, timeout)
-realm_destroy(handle)
-```
+Adopt report ADR-001 through ADR-012 and capture exact AVD/device capabilities. Run PKG-01, PKG-02, and PKG-06 first on the legacy research, current-target x86_64, and 16 KB lanes: prove APK-owned native execution, library-backed isolation with a deliberate crash, and page-size compatibility. Record whether `realmd`/`mangosd` use APK-native launchers or isolated library entry points; do not assume the O04 in-process facade is the answer.
 
-No `exit()`, console-only command, signal-only shutdown, global mutable singleton assumption, or C++ exception may cross the app boundary. `realmd` and `mangosd` functionality may initially remain separate internal components, but the Android supervisor controls them through typed calls.
+Also define the signed-code/mutable-data split required by PKG-03 through PKG-05, even though Wine and update implementation lands later.
 
-Bind authentication and world traffic to loopback. Provide explicit health conditions: database open, schema compatible, auth ready, world loop running, local endpoints listening, bot subsystem initialized.
+**Exit:** a current-target, production-compliant native/Wine packaging route is technically viable, component crashes are contained, and the ADR/compatibility record is checked in. If this fails, stop feature work and resolve packaging.
 
-**Exit:** on RP6, a native test realm can start, accept a local test login, save, stop, and repeat without process restart or leaked resources.
+### Gate G1: direct x86 client proof - O06-O07
 
-### Milestone A3: persistence, safe stop, and abrupt recovery — O06–O09
+Implement `ClientRuntime` and an `x86DirectWine` backend on a fixed x86/x86_64 AVD. Package a redistributable Windows self-test, initialize a dedicated prefix, present a surface, and prove input/audio lifecycle before importing proprietary content. Implement the SAF fast scan and PE/build-5875 validator without modifying the source tree.
 
-Begin with the upstream/reference database path to establish known-correct behavior. Port schemas and migrations deliberately rather than regex-rewriting SQL. Qualify SQLite only after differential tests cover account, character, inventory, item ownership, loot, quest rewards, mail, auction, guild, bot persistence, transactions, concurrency, and update migrations.
+Then launch the managed build-5875 `WoW.exe` with WineD3D, 1280x720 or lower, 30 FPS, audio off, minimal overlays, and no server. Preserve a deterministic client safe mode and exact Wine/prefix/runtime manifests.
 
-Use one controlled writer and bounded read connections. Review the exact bundled SQLite version and WAL behavior. Default to strong durability until physical power-loss tests justify a lower-power mode.
+**Exit:** the unmodified user-supplied client reaches a repeatable login screen on the fixed x86 AVD. Do not begin ARM translation if this gate fails.
 
-Before world mutation begins, persist:
+### Gate G2: native x86 realm and MariaDB baseline - O08-O09
 
-```text
-active_generation = N
-dirty = true
-last_clean_checkpoint = N-1
-```
+Cross-build MariaDB for x86_64 Android and run it as an app-private service with a Unix socket, strong durability defaults, an exclusive datadir owner, clean-shutdown marker, dirty recovery, and least-privilege core credentials. Import pinned realm/characters/logs/world/playerbot SQL through an ordered migration ledger with verified pre-migration snapshots.
 
-Graceful stop uses a world input barrier, saves human and protected bots, drains durable writes, stops bot maintenance, stops world/auth, checkpoints the database, builds and verifies a recovery generation, atomically activates it, then clears `dirty`.
+Run `realmd` and then `mangosd` natively with playerbots disabled. Add structured logging and a versioned app-private control channel for readiness, account creation, save, shutdown, world-tick metrics, and stable error codes. Corroborate ready events with loopback socket probes on 3724 and 8085.
 
-Dirty startup inspects the database and WAL, runs structural checks and game invariants, and either resumes, repairs, or presents a restore choice with exact progress loss. Never copy an active database file as a backup. Use a consistent backup API and verify the restore in a disposable realm.
+**Exit:** MariaDB initializes, queries, clean-stops, and recovers after a kill; the no-bot realm reaches world-ready, saves, stops, and survives forced-recovery tests without a client. Do not add bots if this gate fails.
 
-Test process kill and device power loss at every major start/save/stop transition. Keep at least two verified recovery generations and show their age in the UI.
+### Gate G3: integrated x86 application - O10-O12
 
-**Exit:** repeated kill/power-loss campaigns produce no duplicated item/gold claims, no silently corrupted realm, and a deterministic recovery UX.
+Replace the simulated supervisor with the report state machine and a durable atomic journal. Startup is dependency-gated: preflight -> database ready/schema compatible -> realmd ready -> world ready/data loaded -> client window ready. Component ownership uses session/instance tokens rather than stale PIDs. A client-only crash permits bounded relaunch; database/world failures are realm-fatal and preserve evidence.
 
-### Milestone A4: client import and game-data preparation — O10
+Complete resumable SAF managed-copy import and checkpointed DBC/maps/vmaps/mmaps preparation with storage preflight, immutable source, atomic manifests, and no silent degraded data mode. Provision accounts through the core command/control path; secrets never enter logs. Implement database-consistent backups, restore-to-fresh-datadir verification, support-bundle redaction, and the exact shutdown order from report section 18.3.
 
-The user selects a legal client directory or archive through Android storage access. Import is resumable and treats all files as untrusted data. Enforce path traversal, size, decompression-ratio, file-count, case-collision, and unexpected executable/DLL rules.
+**Exit:** one action completes local login, character creation, 30 minutes of play, save/stop/restart with exact character assertions, 20 clean cycles, forced recovery, and importer interruption tests on x86.
 
-Identify the exact client build and locale by manifest/hash, not filename. Initially recognize only explicitly supported Classic-DB builds. Store imported client and extracted data as immutable generations.
+### Gate G4: bots and mobile input UX - O13-O14
 
-CMaNGOS extractors may require desktop execution or ARM porting. Provide two supported paths:
+Enable playerbots only after G3. Begin at 25 bots; keep auction-house automation disabled until the base bot tier is stable. Instrument tick time, queues, memory, thermal state, login/generation storms, and an admission controller. Add 50/100 only as qualified profiles, never universal defaults. Project bot classes and human-first scarcity rules are allowed only when they preserve the report's measured-tier and persistence constraints.
 
-1. a desktop companion creates a signed/hash-manifested data pack from the user’s client;
-2. an on-device extractor path after ARM correctness and thermal/storage qualification.
+Implement touch, gamepad, keyboard/mouse, IME, focus, pointer capture, hot-plug, calibration, and stuck-key release through one logical input contract and Wine bridge. A minimal project-owned addon may provide action layers and bot UI, but it is not the input driver.
 
-Do not block first release on an unreliable on-device extractor if the companion path is polished.
+**Exit:** the 25-bot two-hour soak passes and UX-T01 through UX-T08 are completable without physical peripherals; supported controllers reconnect without stuck inputs.
 
-**Exit:** supported clients import reproducibly; unsupported or modified layouts fail with actionable errors; a verified maps/VMAP/MMAP/DBC/content generation starts the native realm.
+### Gate G5: ARM64 parity and device profiles - O15-O17
 
-### Milestone A5: translated client runtime — O11–O13
+Rebuild the same MariaDB/CMaNGOS/control contracts for `arm64-v8a`; world data, migrations, accounts, backups, and supervisor semantics remain ABI-independent. Prove the translated client with a non-proprietary self-test, then implement ARM-B (Box64 + 64-bit Wine WoW64 running 32-bit `WoW.exe`) first; add ARM-A/Box86 only if a qualified device path justifies it.
 
-Define `IClientRuntimeProvider` instead of hard-coding one emulator:
+Qualify renderer/driver/input/audio/display tuples by self-test and measured device profile. Start at safe mode, then test DXVK/Turnip on Adreno and a qualified system-Vulkan or WineD3D path on Mali. Keep prefixes and translator/shader caches isolated, bounded, and invalidated by compatibility IDs. Alternative runtimes such as FEX remain out of the release critical path until a separate laboratory feature and evidence exist.
 
-```text
-probe(device, firmware)
-install_or_verify_components()
-create_generation(tuple)
-launch(client, tuple, local_endpoints)
-request_graceful_exit()
-collect_diagnostics()
-kill_after_timeout()
-```
+**Exit:** the same managed client and MariaDB backup move between x86 development and ARM64 without destructive data migration; zero/25-bot sessions, lifecycle/recovery, and the required Adreno/Mali/64-bit-only matrix pass.
 
-A runtime tuple includes provider, translator build, Wine architecture/build, prefix generation, renderer, Vulkan/OpenGL driver, audio, input, display backend, client build/locale, addon profile, visual overlay, frame profile, and settings hash.
+### Gate G6: product and release qualification - O18-O22
 
-#### Box64 candidate
+Finish the resumable first-run wizard, local account flow, curated addons, main/recovery/settings screens, backups, safe mode, and bounded Advanced profiles. Implement signed APK/data updates with staged migrations and rollback, redacted diagnostics, SBOM/notices, native hardening, import/control fuzzing, and modern target/16 KB compliance.
 
-Use a pinned Box64 and Wine WoW64 path as the first candidate for a 64-bit-only Android userspace. Prove 32-bit client launch, process creation, exceptions/signals, TLS, memory mapping, filesystem/registry, fonts, Winsock loopback, DirectSound, DirectInput, D3D9, clean exit, and long zoning sessions. Community flag lists are hypotheses, not defaults. Every non-default translator setting needs an A/B result and rollback.
+Run the report's FUN, FLT, SOAK, compatibility, storage, audio, input, and security matrices. On Retroid Pocket 6 retain raw frame/world timing, PSS, cache, battery, thermal, audio, input, two-hour and long-session results. Firmware/runtime changes invalidate affected qualification.
 
-#### FEX laboratory provider
+**Offline acceptance:** fresh install through play requires no shell, SQL, manual config, console window, or external network; Save & Exit, client-only relaunch, force-stop recovery, backup/restore, update rollback, touch/controller UX, 0/25-bot profiles, and sustained RP6 performance pass. The release APK contains no connected permissions, transport, authority, or hidden online switch.
 
-FEX must remain Advanced/Laboratory until it works non-root on the actual Android environment with an integrity-checked guest rootfs, Wine, graphics thunking, page-size behavior, SELinux/namespaces, signals/futex/TLS, lifecycle, audio/input, and long-session stability. It uses an isolated rootfs, prefix, and caches. The UI may expose it, but Automatic never selects it before acceptance.
+## 5. Track B - connected realm expansion
 
-#### Renderers and pacing
+Connected work begins only after feature O22 is `done`. The research report is normative for the offline appliance and local component contracts; this section is the project-specific extension for connected play.
 
-Qualify DXVK with the exact Vulkan/driver tuple. Keep WineD3D as a visible compatibility fallback. Test cold/warm shader and dynarec caches, storage growth, invalidation after firmware/runtime update, and safe cache deletion.
-
-Provide 30, 40, and 60 FPS profiles. On 120 Hz, Balanced begins at 40 FPS. Resolution begins at 900p or device-tested equivalent; 1080p/60 is Quality only if sustained thermals allow it.
-
-**Exit:** at least one tuple completes login, character selection, world entry, twenty loading transitions, capital/outdoor scenes, audio/controller changes, Save & Exit, client crash recovery, and multi-hour RP6 sessions without corrupting realm or prefix state.
-
-### Milestone A6: controller, addons, graphics, and polished UX — O14–O17, O19
-
-Normalize Retroid controls through Android game-controller APIs. Maintain per-device calibration, dead zones, hot-plug state, vibration policy, and physical/virtual cursor support. Feed canonical actions into a bundled Wine input bridge (virtual keyboard, relative mouse, and optional virtual gamepad); do not require root, `/dev/uinput`, or Android Accessibility services.
-
-Create a small project-owned addon suite:
-
-- `PocketCore`: device/runtime status, safe UI hooks, profile/version reporting.
-- `PocketController`: combat, cursor, chat, and menu modes; action layers; prompts.
-- `PocketBots`: bot roster, party roles, radial commands, behavior presets, raid controls.
-
-Use established Vanilla addons only when licensing, memory, controller usability, and conflict tests pass. Offer curated Minimal, Essential, Guided, Modern, and Safe Mode profiles. Keep locale-specific quest data slim rather than loading every language.
-
-The setup wizard is resumable and covers device/storage, import, extraction, database, account, addons, controller, graphics/runtime profile, bots, and initial backup. Auto-create a local account with a random credential stored through Android Keystore-backed app storage. Inject it into the local login screen at launch; do not place the password in logs, exported diagnostics, or a shared client profile.
-
-The main screen has one primary action and concise status. Advanced screens expose bounded options: provider, Wine tuple, DXVK/WineD3D, resolution/FPS, audio, cache budgets, server threads, bot population/activity/density, logging, backups, and diagnostics. Advanced changes create a candidate generation, smoke-test it, and keep the previous accepted generation.
-
-Modernize graphics through the renderer, scaling, anisotropy, frame pacing, handheld UI, and a tested 1.12 CVar registry. Optional Vanilla fixes or HD packs are user-imported overlays with license/provenance checks, golden-scene tests, memory budgets, and Android-side rollback.
-
-**Exit:** a new user can complete setup and begin play without seeing SQL, Wine prefixes, console windows, raw environment variables, or manual account commands; all play-critical flows work on the controller.
-
-### Milestone A7: living bots, optimization, and offline release — O18, O20–O22
-
-Enforce a PvE-focused offline world. Distinguish:
-
-- protected bots: grouped, visible, combat, instance, durable interaction;
-- resident bots: social anchors in towns, roads, taverns, banks, auction areas, hubs;
-- elastic bots: ambient population that may change naturally;
-- latent bots: distant persistent characters updated coarsely or event-driven.
-
-Expose world population, active bots, local density, and party bots separately. Start RP6 calibration around hundreds of total bots rather than promising a fixed capacity. Preserve resident/local density while reducing distant activity. Bots should travel, hearth, mount, enter buildings, or log out off-screen rather than vanish.
-
-Give the human priority over named quest targets, rare nodes, limited vendors, escorts, and world events. Bound the auction/market helper by item classes, gold flow, supply/demand, provenance, and human activity. The offline world freezes when the app stops.
-
-Build one power/thermal controller from measured signals. It should reduce dashboard refresh, deferred compression, verbose logs, latent cadence, invisible elastic bots, distant clutter, optional visual quality, resolution, and FPS in that order. Protect correctness, party/visible/resident/combat bots, and current instance play.
-
-Measure on physical RP6 12 GB:
-
-- median/p95/p99 frame time and input latency;
-- server update delay and hitch distribution;
-- client/server PSS and cache growth;
-- CPU/GPU utilization and frequencies;
-- battery power and drain;
-- thermal state/headroom and fan mode;
-- audio underruns and renderer/device loss;
-- visible/active bot quality by scene;
-- two-hour and eight-hour stability;
-- repeated cold start, recovery, backup, restore, addon/runtime rollback.
-
-A firmware or driver change invalidates affected tuple qualification.
-
-**Offline acceptance:** the complete first-run-to-play journey, normal sessions, Save & Exit, sudden termination, recovery, controller-only play, runtime rollback, and sustained performance all pass on the reference device. The offline APK contains no connected permissions, transport, authority, or hidden online switch.
-
-## 4. Track B — connected realm expansion
-
-Connected work begins only after feature O22 is `done`.
-
-### Milestone B1: mode separation, transport, and membership — C01–C03
+### Milestone B1: mode separation, transport, and membership - C01-C03
 
 Create separate storage roots, databases, realm IDs, keys, accounts, characters, backups, services, and UI states. Never mount an offline database as connected. A user may create a new connected genesis from a chosen offline snapshot once; all future progress is separate.
 
-Add an embedded authenticated QUIC transport. Prefer direct LAN/IPv6/hole-punched routes and use relays when necessary. Show Direct, Relayed, and Relay-only Privacy states. Bound all streams and reconnect/backoff behavior. Keep gameplay, control, replication, and bulk snapshots on separate protocols/connections where congestion isolation matters.
-Bootstrap and relay services are replaceable connectivity aids only: they do not store the canonical economy, choose realm history, or become a permanently designated game host.
+Add an embedded authenticated QUIC transport. Prefer direct LAN/IPv6/hole-punched routes and use relays when necessary. Show Direct, Relayed, and Relay-only Privacy states. Bound streams, queues, reconnect/backoff, and snapshot bandwidth. Bootstrap and relay services are replaceable connectivity aids only; they do not choose realm history or own the economy.
 
-Support private invitations first. For stricter community roles, bind a short-lived membership certificate to an Android hardware-backed key, app identity, flavor/policy hash, mesh identity, role, expiry, and revocation epoch. Off-device verification may be required; devices that cannot attest remain eligible for private trust profiles, not silently elevated roles.
+Support private invitations first. Stricter community roles may bind a short-lived membership certificate to an Android hardware-backed key, app identity, flavor/policy hash, mesh identity, role, expiry, and revocation epoch.
 
-**Exit:** two supported Android devices can discover/invite, connect directly or through relay, authenticate, and tunnel a local test session with clear route status and bounded failure behavior.
+**Exit:** two supported Android devices discover/invite, connect directly or by relay, authenticate, and tunnel a local test session with clear route status and bounded failures.
 
-### Milestone B2: Realm Kernel and canonical economy — C04–C06
+### Milestone B2: Realm Kernel and canonical economy - C04-C06
 
-Implement the Realm Kernel as a small Rust service/API, not as unrestricted remote SQL. It owns global IDs, names, character-session leases, item/gold ownership transitions, auction escrow/settlement, mail/COD, trade, loot entitlement, progression claims, lockouts, authority leases, epochs, and checkpoint commit order.
+Implement the Realm Kernel as a small Rust service/API, not unrestricted remote SQL. It owns global IDs, names, character-session leases, item/gold ownership transitions, auction escrow/settlement, mail/COD, trade, loot entitlement, progression claims, lockouts, authority leases, epochs, and checkpoint commit order.
 
-Every durable command carries a unique idempotency key, actor/session identity, current authority epoch, expected entity versions, flavor/policy hashes, bounded payload, and signature/authentication. The response is stable on retry.
+Every durable command carries an idempotency key, actor/session identity, current authority epoch, expected entity versions, flavor/policy hashes, bounded payload, and authentication. Maintain one owner/location per item, checked balances, one terminal outcome per auction/mail/trade/loot claim, one active character session, one current authority epoch, and no accepted committed-event loss.
 
-Maintain invariants:
+Use signed/hash-chained journals, state roots, certified checkpoints, and replicas appropriate to the declared trust profile. Do not describe crash-fault consensus as malicious-host resistance.
 
-- one item, one owner, one location;
-- no double spend or negative/overflow balance;
-- one terminal auction/mail/trade/loot outcome;
-- one active character session;
-- one current authority epoch per unit;
-- no committed event loss across accepted failover.
+**Exit:** fault injection cannot duplicate or lose committed items/gold/claims; stale epochs and versions are rejected; snapshots restore the same state root.
 
-Use signed/hash-chained journal entries, state roots, certified checkpoints, and replicas appropriate to the trust profile. A private realm may trust one owner authority; friends may use crash-fault keepers; public/community operation needs a reviewed Byzantine-aware policy. Do not mislabel Raft-style crash tolerance as malicious-host resistance.
+### Milestone B3: dormancy, anti-cheat, and dynamic population - C07-C09
 
-**Exit:** fault-injection tests cannot duplicate or lose committed items/gold/claims; stale epochs and conflicting expected versions are rejected; snapshots restore and reproduce the same state root.
+Define simulation, service, market, calendar, played-time, authority, and dormancy clocks. When the last peer leaves, drain durable work, save, commit, replicate as policy allows, sign a dormant record, release authority, and stop simulation. Recovery chooses the highest valid certified history, applies bounded catch-up once, issues new epochs, and stops in `FORK_DETECTED` for competing certified roots.
 
-### Milestone B3: dormancy, translated-client anti-cheat, and dynamic population — C07–C09
+Keep movement, teleport, collision, transport, spell, inventory, economy, progression, and protocol validation server-authoritative. Treat client memory offsets, D3D hooks, Wine/Box presence, client clocks, and exact Warden timing as unreliable translated-client signals. Start observe-only before corrections or sanctions.
 
-Replace one host wall clock with explicit simulation, service, market, calendar, played-time, authority, and dormancy clocks. Default policy when the last peer leaves:
+Humans replace elastic bots gradually while resident floors remain. Cap alts, use hysteresis, retire only safe off-screen bots, preserve party/raid bots, and reduce bot competition for scarce objectives.
 
-1. drain new durable operations;
-2. save active state;
-3. commit journal/checkpoint;
-4. replicate as policy allows;
-5. issue a signed dormant record;
-6. release authority and stop all simulation.
+**Exit:** all-offline/return and partition tests preserve one history; translated clients play without broad anti-cheat disablement; zones remain lively as human count changes.
 
-When the first peer returns, gather reachable checkpoint headers, choose the highest valid certified history, verify hashes/invariants, establish reasonable time evidence, apply each bounded catch-up rule once, issue new epochs, then open login. Competing certified roots stop in `FORK_DETECTED`; never merge them. If all copies are lost, recovery requires an independent encrypted backup.
+### Milestone B4: Session Anchor and seamless migration - C10-C13
 
-Build a clean behavior/invariant anti-cheat. Keep movement, teleport, collision, transport, spell range/LOS/cooldown/resource, inventory, economy, progression, and protocol validation server-authoritative. Treat fixed client-memory offsets, D3D hooks, module layout, Wine/Box/FEX presence, client clock, and exact Warden timing as unreliable translated-client signals. Begin observe-only and calibrate corrections/kicks before automated sanctions.
+The unmodified client stays connected to a local Legacy Session Anchor that owns the client-side TCP connection, packet framing, header-cipher state, bounded sequencing, and backend route, but no gameplay/economy decisions.
 
-In connected zones, humans replace elastic bots gradually while resident floors remain. Count unique active memberships, cap alts, ramp arrivals, use hysteresis, and retire only safe off-screen bots. Protected party/raid bots are additional. Reduce bot competition for scarce objectives as humans increase.
+Refactor backend sessions to an abstract transport and typed versioned migration capsules. Never transfer pointers, locks, threads, sockets, database connections, allocator state, or process images. Initial authority units are whole continents and individual dungeon/raid instances.
 
-**Exit:** all-offline/return and partition scenarios preserve one history; translated clients play without broad anti-cheat disablement; populated test zones remain lively as human count changes.
+Planned handoff preconnects a target, copies a baseline, streams ordered deltas, establishes watermarks, quiesces at a tick boundary, resolves durable commands, compares semantic state roots, commits a higher epoch, atomically switches the Anchor route, activates the target, reconciles visibility, and fences the source. Crash failover promotes a current hot standby and replays unacknowledged input once; the standby does not independently simulate a second world.
 
-### Milestone B4: Session Anchor and seamless migration — C10–C13
+**Exit:** planned handoff preserves the client session within a measured stall target; qualified crash failover avoids relog/character selection and loses no committed durable state.
 
-The unmodified client remains connected to a local Legacy Session Anchor. The Anchor owns the client-side TCP connection, packet framing, header-cipher state, bounded input/output sequencing, and backend route. It does not decide gameplay or economy outcomes.
+### Milestone B5: connected release qualification - C14
 
-Refactor backend sessions to an abstract transport rather than direct `WorldSocket*` ownership. Define typed, versioned migration capsules; never transfer pointers, locks, threads, sockets, database connections, allocator state, or process images.
+Run multi-device LAN, Internet, CGNAT, relay, loss, partition, stale-peer, clock-shift, keeper-loss, malicious-input, host-crash, dormancy, restore, migration, power, and thermal tests. Require hard mode separation, one canonical economy, epoch fencing, explicit degraded behavior, translated-runtime-compatible anti-cheat, seamless qualified migration, bounded resource use, honest route/privacy labels, and independent backup recovery.
 
-Initial authority units are complete Eastern Kingdoms, complete Kalimdor, and each dungeon/raid instance. This keeps ordinary cities and zones seamless. Map/instance changes use the existing Vanilla loading flow.
+## 6. Verification strategy
 
-Planned handoff:
+Use the report's stable IDs in implementation notes, tests, error mappings, and support bundles.
 
-1. qualify/preconnect target;
-2. copy baseline while source runs;
-3. stream ordered deltas to a hot standby;
-4. establish input/output watermarks;
-5. quiesce at a tick boundary;
-6. resolve in-flight durable commands;
-7. compare semantic state roots;
-8. commit a higher authority epoch;
-9. atomically switch Anchor route;
-10. activate target at the next tick;
-11. reconcile bounded visibility/movement;
-12. fence the source.
+1. **Feature checks:** unit, component, contract, build, and UI checks for one feature.
+2. **Gate integration:** the applicable X/FUN/FLT/SOAK and exit-gate evidence.
+3. **Physical qualification:** named device/runtime/profile measurements; emulator performance is regression evidence only.
 
-Crash failover buffers bounded client input, promotes the current standby through a higher epoch, replays unacknowledged input once, and reconciles. The standby applies authoritative deltas; it does not independently simulate a second AI world.
+Persistence, import, control protocols, native loading, authentication, updates, and connected economy/migration require explicit invariants, adversarial or abrupt-stop tests, and focused review. Do not weaken durability, empty the visible world, or hide fallback to make a gate green.
 
-Migration state includes player and controlled entities, groups, bots, combat, auras/cooldowns, movement/transports, instances, spawns, timers/RNG where needed, visibility/known-object sets, pending output, and durable commit indexes. New mutable fields in migratable types require an explicit migration disposition and test.
+## 7. Upgrade and update policy
 
-**Exit:** planned continent/instance handoff keeps the client socket/session and meets an evidence-based short-stall target; accepted crash failover avoids relog/character selection and loses no committed durable state. Loss of the local client/Anchor is correctly reported as reconnect, not falsely called seamless.
-
-### Milestone B5: connected release qualification — C14
-
-Run multi-device LAN, Internet, CGNAT, relay, packet-loss, partition, stale-peer, clock-shift, keeper-loss, malicious-input, host-crash, all-offline, restore, migration, and battery/thermal tests. Validate private/friends/community trust labels against their actual threat tolerance.
-
-Connected release requires:
-
-- hard offline/connected separation;
-- one canonical economy under all accepted faults;
-- no stale-epoch writes or duplicate durable outcomes;
-- explicit degraded/provisional behavior when quorum is unavailable;
-- behavior anti-cheat compatible with qualified translated runtimes;
-- seamless planned migration and qualified crash failover;
-- dynamic bots that yield to humans without empty zones;
-- bounded CPU, memory, storage, bandwidth, and battery use on every node role;
-- clear privacy and relay/IP-exposure communication;
-- recovery from total dormancy and independent backup loss drills.
-
-## 5. Cross-cutting testing strategy
-
-Use three levels rather than hundreds of ceremonial gates:
-
-1. **Feature checks:** focused unit/property/build/UI checks while implementing one feature.
-2. **Milestone integration:** complete user flows and failure cases across the milestone.
-3. **Physical release qualification:** RP6 and multi-device tests with raw measurements retained.
-
-High-risk state transitions use property/fuzz/fault tests. User-facing screens use screenshot or device automation plus controller walkthroughs. Runtime providers use immutable benchmark matrices. Do not claim support or capacity from desktop emulation or SoC specifications alone.
-
-## 6. Upgrade and update policy
-
-Updates are signed, pinned, staged, and rollbackable. Source/core, database schema, extracted data, runtime tuple, prefix, addons, visual overlays, and device profile have explicit compatibility IDs. The updater never mutates the only good generation in place.
-
-A component update proceeds:
+Updates are signed, pinned, staged, and rollbackable. Core source, MariaDB/schema ledger, client-derived data, runtime tuple, Wine prefix, addons, visual overlays, and device profiles carry compatibility IDs. The updater never mutates the only good generation in place.
 
 ```text
-download/import candidate
-→ verify signature/hash/license
-→ build candidate generation
-→ migrate a copy
-→ smoke test
-→ activate atomically
-→ retain previous accepted generation
+verify candidate and license
+-> build/stage immutable code or data
+-> create a database-consistent pre-migration snapshot
+-> migrate a copy or stopped datadir with a ledger entry
+-> run component and world-ready smoke tests
+-> activate atomically
+-> retain the previous accepted generation
 ```
 
-Runtime and driver updates invalidate affected qualification. Database migrations are forward-tested and have a backup/restore path. Connected protocol changes use version negotiation and prohibit mixed writers when durable semantics differ.
+Native executable updates arrive only through the signed Android packaging route selected at G0. Database migrations run with realm/world stopped and a verified rollback point. Runtime/driver changes invalidate affected tuple qualification. Connected protocol changes use version negotiation and prohibit mixed writers when durable semantics differ.

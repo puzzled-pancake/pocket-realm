@@ -1,12 +1,14 @@
 # Why this handoff is smaller and more reliable in Claude Code
 
+> Historical harness-design note: the size figures below predate the canonical 80-page offline engineering report. Current sessions use that report through feature-level section pointers rather than loading it in full.
+
 The previous handoff put millions of characters, hundreds of work packages, and many repeated constraints in front of the agent. That conflicts with current Claude Code guidance: context is the limiting resource, long always-loaded instruction files reduce adherence, and imports do not reduce startup token usage.
 
 ## Applied Claude Code practices
 
 1. **Use the file Claude actually loads.** Claude Code reads `CLAUDE.md`, not `AGENTS.md` or `agent.md` automatically. This package keeps the requested `agent.md` and imports it from a one-line `CLAUDE.md`.
 2. **Keep always-on instructions concise.** Anthropic recommends specific, well-structured project instructions and targets fewer than 200 lines per `CLAUDE.md`. `agent.md` contains only rules needed in nearly every session.
-3. **Use progressive disclosure.** Technical details live in `PLAN.md` and `DECISIONS.md`; path-specific instructions live in `.claude/rules/`; multi-step procedures live in `.claude/skills/`. They load only when relevant.
+3. **Use progressive disclosure.** Offline technical authority lives in `docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx`; `FEATURES.json` points to only the relevant sections, while `PLAN.md` and `DECISIONS.md` provide the repository overlay. Path-specific instructions live in `.claude/rules/`; multi-step procedures live in `.claude/skills/`.
 4. **Track one feature at a time.** Anthropic’s long-running-agent work found that agents fail by attempting too much at once and by declaring the project done early. `FEATURES.json` contains 36 end-to-end features, and the agent selects one eligible feature per run.
 5. **Use Git plus a short current-state note.** `PROGRESS.md` stores only the active handoff; Git stores history. This avoids an ever-growing progress transcript.
 6. **Give every feature a verifiable end state.** Claude performs better when it can run a test/build/screenshot/device scenario and iterate. The feature list contains acceptance outcomes, not paperwork about evidence schemas.

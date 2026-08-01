@@ -9,18 +9,19 @@ Build one product in this fixed order:
 Do not start connected production code until offline feature `O22` is done.
 
 ## Sources of truth
-- `PLAN.md` defines architecture and milestone outcomes.
-- `DECISIONS.md` contains fixed decisions.
-- `FEATURES.json` defines order, dependencies, acceptance, and status.
+- `docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx` is the canonical offline engineering reference; the adjacent PDF is its fixed-layout reading copy.
+- `PLAN.md` is the repository execution overlay and connected-realm extension.
+- `DECISIONS.md` summarizes adopted decisions and explicit evidence-backed deltas from the report.
+- `FEATURES.json` defines order, dependencies, acceptance, report section pointers, and status.
 - `PROGRESS.md` is the current handoff; Git is the durable history.
 
-Read only the current feature, its plan section, matching `.claude/rules/`, and relevant code. Do not preload the whole plan or research.
+For ordinary feature work, read the report's document-control guidance and only the report sections named by the feature, then its plan section, matching `.claude/rules/`, decisions, and relevant code. Read report Sections 0-6 in full before changing architecture. Do not otherwise preload all 80 report pages.
 
 ## Start a coding session
 1. Run `pwd`, `git status --short`, and `git log --oneline -8`.
 2. Read `PROGRESS.md`; preserve any pre-existing user changes.
 3. Run `python3 scripts/next_feature.py --activate`. Continue the active feature or use the returned feature; the script marks a new selection `active`.
-4. Read that feature’s printed record and referenced plan section. Open `DECISIONS.md` only for decisions that affect it.
+4. Read that feature's printed record, named report sections, and referenced plan section. Open `DECISIONS.md` only for decisions that affect it.
 5. Run the smallest existing smoke check for the affected subsystem.
 6. Use Plan mode for cross-subsystem, persisted-data, protocol, security, or uncertain work. Implement clear local changes directly.
 
@@ -36,7 +37,8 @@ Read only the current feature, its plan section, matching `.claude/rules/`, and 
 
 ## Non-negotiable product rules
 - Never redistribute proprietary WoW client files or game data. Users import a supported client they are entitled to use.
-- Offline play has no Internet dependency. Game services bind to loopback; server, bots, and persistence are native ARM64; only the x86 client is translated.
+- Offline play has no Internet dependency. Realm services bind to loopback and MariaDB uses an app-private Unix socket where possible. Server, bots, and database are native for each Android ABI; only the Windows client uses Wine and, on ARM, CPU translation.
+- Prove current-target native/Wine packaging, direct x86 Wine, and native x86 MariaDB/zero-bot realm gates before ARM client translation or bots.
 - Android termination is normal. Correctness cannot depend on `onDestroy()`, a console window, or Save & Exit.
 - Mutable realm data defaults to internal storage. Realm, runtime, addon, and visual changes use verified, rollbackable generations.
 - The basic UI remains simple. Advanced runtime, renderer, bot, and diagnostic controls are bounded and clearly labeled.
@@ -46,7 +48,8 @@ Read only the current feature, its plan section, matching `.claude/rules/`, and 
 
 ## Implementation boundaries
 - Android app and UI: Kotlin, Compose, structured coroutines, foreground service.
-- Existing server/runtime integration: C++20 with RAII.
+- Existing server/runtime integration: C++20 with RAII; supervised fault-isolated components selected by the G0 packaging evidence.
+- Offline database: pinned native MariaDB with an app-private datadir/socket, migration ledger, and consistent backup/restore.
 - Connected transport, Realm Kernel, replication, and migration control: stable Rust after `O22`.
 - Cross-language calls: narrow versioned C ABI; opaque handles, explicit ownership, bounded buffers, error codes; no exception or panic crosses it.
 - Build/import/validation tools: Python 3.12+. Shell only for short wrappers.

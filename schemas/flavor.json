@@ -1,5 +1,6 @@
 {
   "schema": 1,
+  "reference_document": "docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx",
   "flavor": "offline-vanilla-1.12",
   "description": "The first releasable product flavor: a self-contained, offline-only PvE Vanilla 1.12 realm on Android. This manifest is the contract the build, manifest merger, and release-acceptance checks enforce.",
   "target_device_profile": {
@@ -7,33 +8,45 @@
     "native_abi": "arm64-v8a",
     "min_sdk": 26,
     "target_sdk": 35,
-    "page_size": "16 KB compatible (no exclusive core-type assumptions)"
+    "page_size": "16 KB compatible (no exclusive core-type assumptions)",
+    "development_abi": "x86_64 on fixed G0-G3 AVD lanes"
   },
   "game": {
     "expansion": "Vanilla / Classic",
-    "client_version": "1.12.x (user-supplied, identified by manifest/hash in O10)",
+    "client_version": "1.12.1 build 5875 (user-supplied; PE/build fast scan in O07 and full managed import in O11)",
     "supported_client_builds": [],
-    "notes": "supported_client_builds is populated by O10 once exact build hashes are qualified. Empty here means 'not yet qualified' — the import path must reject until at least one entry exists."
+    "notes": "supported_client_builds is populated by O07/O11 once exact hashes are qualified. Empty means not yet qualified; import must reject until at least one entry exists."
   },
   "includes": {
     "android_app": "Kotlin/Compose launcher, supervisor, wizard, foreground service, controller bridge",
-    "native_realm": "CMaNGOS mangosd+realmd and Playerbots as one embeddable arm64-v8a library (O03-O05)",
-    "persistence": "Generation-managed SQLite realm data with verified backups (O06-O09)",
-    "client_import": "On-device import + optional desktop companion data-pack path (O10)",
-    "runtime_provider": "Box64/Wine WoW64 candidate, FEX as Advanced/Laboratory (O11-O13)",
-    "addons": "Project-owned PocketCore/PocketController/PocketBots suite (O15)"
+    "native_realm": "Supervised native MariaDB, realmd, mangosd, and Playerbots components; x86_64 development then arm64-v8a parity (O08-O16)",
+    "persistence": "App-private MariaDB datadir/socket, migration ledger, dirty recovery, and database-consistent verified backups (O08-O12)",
+    "client_import": "Build-5875 validation plus resumable managed copy and checkpointed DBC/maps/vmaps/mmaps preparation (O07/O11)",
+    "runtime_provider": "x86DirectWine first; ARM-B Box64/Wine WoW64 after integrated x86; alternative runtimes are outside the release critical path (O06/O16-O17)",
+    "addons": "Minimal project-owned controller/status/bot UI plus curated reversible profiles (O14/O18)"
   },
   "excludes_from_release_artifact": {
-    "proprietary_client_files": "WoW.exe, MPQs, DBCs, maps, models, textures — never bundled; user imports them",
+    "proprietary_client_files": "WoW.exe, MPQs, DBCs, maps, models, textures â€” never bundled; user imports them",
     "connected_code": "No connected transport, Realm Kernel, replication, or membership code in the offline APK",
     "connected_permissions": "No INTERNET-dependent authority, P2P, or relay permissions",
     "hidden_online_switch": "No runtime flag re-enables connected behavior"
   },
   "android_permissions": {
-    "required": ["FOREGROUND_SERVICE", "FOREGROUND_SERVICE_SPECIAL_USE", "POST_NOTIFICATIONS", "WAKE_LOCK"],
+    "required": [
+      "INTERNET",
+      "FOREGROUND_SERVICE",
+      "FOREGROUND_SERVICE_SPECIAL_USE",
+      "POST_NOTIFICATIONS",
+      "WAKE_LOCK"
+    ],
     "foreground_service_type": "specialUse (long-running local realm server; dataSync is capped at 6h on Android 15 and unsuitable for multi-hour play)",
     "storage": "Scoped storage / SAF for client import and exports only",
-    "prohibited_in_offline_flavor": ["INTERNET used for gameplay authority", "ACCESS_NETWORK_STATE for realm decisions"]
+    "prohibited_in_offline_flavor": [
+      "External gameplay authority",
+      "P2P or relay transport",
+      "ACCESS_NETWORK_STATE used for realm decisions"
+    ],
+    "network_policy": "INTERNET permits app-local TCP sockets and optional explicitly configured update checks; offline play binds realm endpoints to 127.0.0.1 and has no external authority dependency."
   },
   "release_acceptance_link": "FEATURES.json feature O22",
   "rule": "The offline flavor is a hard boundary. Connected work (C-series) starts only after O22 is done and lives in a separate flavor/build type."

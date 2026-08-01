@@ -5,7 +5,7 @@ description: Implement exactly one eligible Pocket Realm feature from FEATURES.j
 
 1. Run the startup sequence in `agent.md`.
 2. Use `python3 scripts/next_feature.py --activate`; keep that feature active until done or genuinely blocked.
-3. Read only the referenced plan section, decisions, matching rules, and relevant code/tests.
+3. Read the canonical report's document-control guidance plus only the sections named by the feature, then the referenced plan section, decisions, matching rules, and relevant code/tests.
 4. If the work crosses subsystems or persisted/protocol state, create a short implementation plan before editing.
 5. Run the current subsystem smoke check.
 6. Implement the smallest complete solution and add/adjust tests that prove the feature’s acceptance criteria.

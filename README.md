@@ -22,9 +22,10 @@ Repeat for the next feature. `/goal` requires a current Claude Code release; use
 ## File map
 
 - `agent.md`: short always-on instructions.
-- `PLAN.md`: complete technical roadmap; read by section, not all at once.
-- `DECISIONS.md`: concise architecture decisions carried forward from earlier research.
-- `FEATURES.json`: 36 end-to-end features instead of hundreds of micro-packages.
+- `docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx`: canonical offline engineering reference; the adjacent PDF is the fixed-layout reading copy.
+- `PLAN.md`: repository execution overlay and connected-realm extension; read by section.
+- `DECISIONS.md`: concise adopted decisions and evidence-backed deltas from the report.
+- `FEATURES.json`: dependency-ordered features with report section pointers.
 - `PROGRESS.md`: current state for the next session.
 - `.claude/rules/`: path-specific instructions loaded only for relevant files.
 - `.claude/skills/`: on-demand workflows for a feature, runtime qualification, and milestone review.
@@ -32,4 +33,4 @@ Repeat for the next feature. `/goal` requires a current Claude Code release; use
 - `PROMPTING_REDESIGN.md`: why this structure fits current Claude Code guidance.
 - `SANITY_CHECK.md`: first-principles architecture and package validation review.
 
-The package is a plan and agent harness, not an implemented application. Runtime support and performance claims remain provisional until measured on physical Retroid Pocket 6 hardware.
+The repository now contains verified O01-O04 bootstrap, Android-shell, native-build, and lifecycle experiments. Production topology, Wine client, MariaDB realm, integration, and performance claims remain provisional until their report gates and physical-device checks pass.
