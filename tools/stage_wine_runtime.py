@@ -388,6 +388,12 @@ def main() -> int:
     manifest_path = OUTPUT / "staging-manifest.json"
     manifest_path.write_text(json.dumps(staging_manifest, indent=2) + "\n", encoding="utf-8")
 
+    # Also copy the staging manifest into assets/ so the on-device code can read
+    # it via AssetManager (it maps logical names -> APK-managed jniLib filenames).
+    assets_manifest = assets_dir / "staging-manifest.json"
+    shutil.copy2(manifest_path, assets_manifest)
+    print(f"  manifest  (assets copy): {assets_manifest.relative_to(ROOT)}")
+
     # Summary.
     jni_files = list(jni_dir.glob("*.so"))
     total_jni_size = sum(f.stat().st_size for f in jni_files)
