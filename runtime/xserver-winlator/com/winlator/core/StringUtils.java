@@ -1,6 +1,8 @@
 package com.winlator.core;
 
-import android.content.Context;
+// TRIMMED for O06 S-3: dropped the Context-based getString() resource helper
+// (not used by the vendored X-server; it pulls in android.content.Context +
+// the app-shell resource lookups). Source: winlator-app ca3d735 (LGPL-2.1).
 
 import java.nio.charset.Charset;
 import java.util.Arrays;
@@ -88,16 +90,8 @@ public class StringUtils {
         return !result.isEmpty() ? result : fallback;
     }
 
-    public static String getString(Context context, String resName) {
-        try {
-            resName = resName.toLowerCase(Locale.ENGLISH);
-            int resID = context.getResources().getIdentifier(resName, "string", context.getPackageName());
-            return context.getString(resID);
-        }
-        catch (Exception e) {
-            return null;
-        }
-    }
+    // getString(Context, String) removed for the S-3 spike (app-shell resource
+    // lookup; not referenced by the vendored X-server).
 
     public static String formatBytes(long bytes) {
         return formatBytes(bytes, true);

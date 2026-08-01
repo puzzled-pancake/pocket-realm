@@ -8,7 +8,6 @@ import android.opengl.GLSurfaceView;
 
 import androidx.core.graphics.ColorUtils;
 
-import com.winlator.R;
 import com.winlator.core.Bitmask;
 import com.winlator.core.Callback;
 import com.winlator.core.GPUHelper;
@@ -275,9 +274,15 @@ public class GLRenderer implements GLSurfaceView.Renderer, WindowManager.OnWindo
 
     private Drawable createRootCursorDrawable() {
         Context context = xServerView.getContext();
+        // TRIMMED for O06 S-3: upstream loads the cursor from R.drawable.cursor
+        // (a Winlator app resource). The spike has no such resource, so decode
+        // it by resource-name lookup; fall back to a 1x1 transparent cursor if
+        // the resource is absent (the spike does not exercise cursor rendering).
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inScaled = false;
-        Bitmap bitmap = BitmapFactory.decodeResource(context.getResources(), R.drawable.cursor, options);
+        int resId = context.getResources().getIdentifier("cursor", "drawable", context.getPackageName());
+        Bitmap bitmap = resId != 0 ? BitmapFactory.decodeResource(context.getResources(), resId, options)
+                                   : Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
         return Drawable.fromBitmap(bitmap);
     }
 
