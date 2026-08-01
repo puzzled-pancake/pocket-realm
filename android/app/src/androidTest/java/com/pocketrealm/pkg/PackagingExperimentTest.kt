@@ -60,11 +60,16 @@ class PackagingExperimentTest {
     fun t2_pkg01_launcher_executes_or_documents_no_path() {
         val r = kotlinx.coroutines.runBlocking { runner.runPkg01() }
         announce(r)
-        // PKG-01 must either execute (experiment variant) or document the
-        // production-variant no-executable-path behavior honestly. A genuine
-        // failure (exec error / nonzero exit) fails the test.
-        val acceptable = r.ok || r.code == "NO_EXECUTABLE_FS_PATH"
-        assertTrue("PKG-01 failed unexpectedly: ${r.detail} :: ${r.evidence}", acceptable)
+        // PKG-01 must PASS in one of two honest shapes:
+        //   - experiment variant: launcher executed  -> ok=true  code=OK
+        //   - production variant : no fs exec path    -> ok=true  code=NO_EXECUTABLE_FS_PATH
+        // A FAILED runPkg01 (ok=false) must fail the test even if it nominally
+        // reports NO_EXECUTABLE_FS_PATH — e.g. the experiment variant expected
+        // extraction but the launcher was missing. Gate on ok, not on the code.
+        assertTrue(
+            "PKG-01 did not pass: ok=${r.ok} code=${r.code} :: ${r.detail} :: ${r.evidence}",
+            r.ok && (r.code == "OK" || r.code == "NO_EXECUTABLE_FS_PATH")
+        )
     }
 
     @Test

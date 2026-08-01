@@ -2,10 +2,16 @@
   "schema": 1,
   "reference_document": "docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx",
   "avd_id": "AVD-Modern-x86_64-v1",
-  "system_image": "system-images;android-35;default;x86_64",
-  "captured_at_utc": "2026-08-01T02:38:02.248065+00:00",
+  "system_image": "Android/sdk_phone64_x86_64/emu64x:15/AE3A.240806.019/12368160:userdebug/test-keys",
+  "captured_at_utc": "2026-08-01T04:11:07.028682+00:00",
   "host": {
-    "emulator_version": "Android emulator version 36.6.11.0 (build_id 15507667) (CL:N/A)"
+    "emulator_version": "Android emulator version 36.6.11.0 (build_id 15507667) (CL:N/A)",
+    "platform": {
+      "guest_cpu": "x86_64",
+      "hw_accel": "",
+      "virtualization_backend": "",
+      "qemu_hardware": "ranchu"
+    }
   },
   "guest": {
     "api_level": 35,
@@ -15,23 +21,26 @@
     "page_size_bytes": 4096,
     "page_size_source": "getconf",
     "mem_total_kb": 2532436,
-    "df_data_line": "/dev/block/dm-43  10167132 1350224   8669452  14% /data/user/0",
+    "df_data_line": "/dev/block/dm-43  10167132 984804   9034872  10% /data/user/0",
     "gl_host": {
       "egl": "emulation",
       "vulkan": "ranchu",
-      "gralloc": "ranchu"
+      "gralloc": "ranchu",
+      "qemu_gles_transport": "",
+      "qemu_gles": "",
+      "opengles_version": "196609"
     },
     "build_id": "AE3A.240806.019",
     "avd_name": ""
   },
   "app": {
-    "testRunId": "ca7cc184-2851-4468-85aa-03dcecb7d339",
-    "allocatableBytes_storageManager": 8865254810,
+    "testRunId": "ca5643ee-812e-4a2c-ada5-846210a45c91",
+    "allocatableBytes_storageManager": 8864820634,
     "allocatableVolumeLabel": "noBackupFilesDir",
     "glVendor_app": "Google (NVIDIA Corporation)",
     "glRenderer_app": "Android Emulator OpenGL ES Translator (NVIDIA GeForce RTX 5060 Ti/PCIe/SSE2)",
     "glVersion_app": "OpenGL ES 3.1 (4.5.0 NVIDIA 610.47)",
-    "nativeLibraryDirObserved": "/data/app/~~PjiqNmJjCi9WprSvTaEmfQ==/com.pocketrealm-0-WqPwRlmQhyXtJnyj63WA==/lib/x86_64"
+    "nativeLibraryDirObserved": "/data/app/~~tqlqlrcLDn3h5eoOzIfRdw==/com.pocketrealm-arv0eOBrYnuLblhUBo8DGg==/lib/x86_64"
   },
   "comparison": {
     "status": "PASS",
@@ -49,9 +58,27 @@
         "ok": true
       },
       {
+        "field": "abilist",
+        "adb": "x86_64",
+        "app": "x86_64",
+        "ok": true
+      },
+      {
+        "field": "abilist32",
+        "adb": "",
+        "app": "",
+        "ok": true
+      },
+      {
         "field": "abilist64",
         "adb": "x86_64",
         "app": "x86_64",
+        "ok": true
+      },
+      {
+        "field": "totalRamBytes",
+        "adb": "2593214464",
+        "app": "2593214464",
         "ok": true
       }
     ],

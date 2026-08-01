@@ -1,0 +1,36 @@
+08-01 16:11:05.582  5854  5868 I System.out: PKG_EXPERIMENT_RESULT	PKG-01	ok=true	code=OK
+08-01 16:11:05.582  5854  5868 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-01	variant=pkgExperiment
+08-01 16:11:05.583  5854  5868 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-01	nativeLibraryDir=/data/app/~~DhFJZQAZ0myISKEHM4niDQ==/com.pocketrealm-m1fa5tIBuSoaX5Ur5zb88g==/lib/x86_64
+08-01 16:11:05.583  5854  5868 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-01	extractNativeLibs=true
+08-01 16:11:05.583  5854  5868 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-01	launcherPath=/data/app/~~DhFJZQAZ0myISKEHM4niDQ==/com.pocketrealm-m1fa5tIBuSoaX5Ur5zb88g==/lib/x86_64/libpocket_pkg_launcher.so
+08-01 16:11:05.583  5854  5868 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-01	launcherCanExecute=true
+08-01 16:11:05.583  5854  5868 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-01	ldLibraryPath=/data/app/~~DhFJZQAZ0myISKEHM4niDQ==/com.pocketrealm-m1fa5tIBuSoaX5Ur5zb88g==/lib/x86_64
+08-01 16:11:05.584  5854  5868 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-01	stdout=PKG_LAUNCHER_HELLO
+08-01 16:11:05.585  5854  5868 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-01	stderr=
+08-01 16:11:05.585  5854  5868 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-01	exitCode=0
+08-01 16:11:05.585  5854  5868 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-01	realmDladdrPath=/data/app/~~DhFJZQAZ0myISKEHM4niDQ==/com.pocketrealm-m1fa5tIBuSoaX5Ur5zb88g==/lib/x86_64/libpocketrealm.so
+08-01 16:11:05.585  5854  5868 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-01	launcherPageSize=4096
+--- instrument stdout ---
+INSTRUMENTATION_STATUS: class=com.pocketrealm.pkg.PackagingExperimentTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=
+com.pocketrealm.pkg.PackagingExperimentTest:
+INSTRUMENTATION_STATUS: test=t2_pkg01_launcher_executes_or_documents_no_path
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.pocketrealm.pkg.PackagingExperimentTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=t2_pkg01_launcher_executes_or_documents_no_path
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_RESULT: stream=
+
+Time: 0.22
+
+OK (1 test)
+
+
+INSTRUMENTATION_CODE: -1

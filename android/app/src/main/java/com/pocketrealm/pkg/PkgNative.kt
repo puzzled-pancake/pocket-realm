@@ -57,6 +57,14 @@ object PkgNative {
     external fun loadRealmSoBySonameNative(): RealmSoInfoParcelable
 
     /**
+     * PKG-06: probe ONE native library by SONAME (RTLD_NOLOAD then RTLD_NOW) and
+     * record the dl_iterate_phdr-resolved path/base. Used to prove every library
+     * packaged in the APK loads under the production variant, not just the ones
+     * another lib already pulled in transitively. [soname] e.g. "libc++_shared.so".
+     */
+    external fun probeSoBySonameNative(soname: String): RealmSoInfoParcelable
+
+    /**
      * PKG-02 deterministic native fault. [kind]: 0=abort(), 1=NULL-deref,
      * 2=stack-guard. Never returns for kind 0 (SIGABRT).
      */

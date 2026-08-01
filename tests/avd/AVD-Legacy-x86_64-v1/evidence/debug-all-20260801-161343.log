@@ -1,0 +1,102 @@
+08-01 16:13:44.824  3385  3401 I System.out: PKG_CAPABILITY	api=28	page=4096	abilist=x86_64,x86	allocatable=8653636813	glVendor=Google (NVIDIA Corporation)	glRenderer=Android Emulator OpenGL ES Translator (NVIDIA GeForce RTX 5060 Ti/PCIe/SSE2)	runId=4ea1ee71-79e2-43db-98cf-f8cda6610200	reportPath=/data/user/0/com.pocketrealm/app_capability/capability-report.json
+08-01 16:13:44.860  3385  3401 I System.out: PKG_EXPERIMENT_RESULT	PKG-01	ok=true	code=NO_EXECUTABLE_FS_PATH
+08-01 16:13:44.860  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-01	variant=debug
+08-01 16:13:44.860  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-01	nativeLibraryDir=/data/app/com.pocketrealm-ZVTFKbjjrIjMng_3PrKWbA==/lib/x86_64
+08-01 16:13:44.860  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-01	extractNativeLibs=false
+08-01 16:13:46.349  3385  3401 I System.out: PKG_EXPERIMENT_RESULT	PKG-02	ok=true	code=CONTAINMENT_PROVEN
+08-01 16:13:46.349  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	mainPid=3385
+08-01 16:13:46.349  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	childPidBeforeCrash=3407
+08-01 16:13:46.349  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	realmLoaded=1
+08-01 16:13:46.349  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	realmErr=0
+08-01 16:13:46.349  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	realmSoname=libpocketrealm.so
+08-01 16:13:46.349  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	realmDladdrPath=/data/app/com.pocketrealm-ZVTFKbjjrIjMng_3PrKWbA==/base.apk!/lib/x86_64/libpocketrealm.so
+08-01 16:13:46.349  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	realmBaseAddr=127494653235200
+08-01 16:13:46.349  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	helloBeforeCrash=pocket-realm-pkg-ok
+08-01 16:13:46.349  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	binderDeathObserved=true
+08-01 16:13:46.349  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	mainPidStillAlive=true
+08-01 16:13:46.349  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	childPidAfterCrash=3434
+08-01 16:13:46.349  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-02	helloAfterRestart=pocket-realm-pkg-ok
+08-01 16:13:46.441  3385  3405 I System.out: PKG-06 TICK	tick=1	t=1785557626441	hello=pocket-realm-pkg-ok	pid=3434	pageSize=4096
+08-01 16:14:46.444  3385  3401 I System.out: PKG_EXPERIMENT_RESULT	PKG-06	ok=true	code=SMOKE_OK
+08-01 16:14:46.444  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	pageSize=4096
+08-01 16:14:46.444  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	packagedLibCount=6
+08-01 16:14:46.444  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	packagedLibs=libandroidx.graphics.path.so,libc++_shared.so,libdatastore_shared_counter.so,libpocket_pkg_launcher.so,libpocketpkgtest.so,libpocketrealm.so
+08-01 16:14:46.444  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	excludedLibs=libpocket_pkg_launcher.so=EXCLUDED_EXECUTABLE
+08-01 16:14:46.444  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	excludedLibsNote=libpocket_pkg_launcher.so are PIE executables with no DT_SONAME; loadable libraries are probed, not these.
+08-01 16:14:46.444  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	perLibProbeCount=5
+08-01 16:14:46.444  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	lib:libandroidx.graphics.path.so=OK path=/data/app/com.pocketrealm-ZVTFKbjjrIjMng_3PrKWbA==/base.apk!/lib/x86_64/libandroidx.graphics.path.so base=0x73f4ac549000
+08-01 16:14:46.444  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	lib:libc++_shared.so=OK path=/data/app/com.pocketrealm-ZVTFKbjjrIjMng_3PrKWbA==/base.apk!/lib/x86_64/libc++_shared.so base=0x73f4ac69a000
+08-01 16:14:46.444  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	lib:libdatastore_shared_counter.so=OK path=/data/app/com.pocketrealm-ZVTFKbjjrIjMng_3PrKWbA==/base.apk!/lib/x86_64/libdatastore_shared_counter.so base=0x73f4ac531000
+08-01 16:14:46.444  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	lib:libpocketpkgtest.so=OK path=/data/app/com.pocketrealm-ZVTFKbjjrIjMng_3PrKWbA==/base.apk!/lib/x86_64/libpocketpkgtest.so base=0x73f4ac811000
+08-01 16:14:46.444  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	lib:libpocketrealm.so=OK path=/data/app/com.pocketrealm-ZVTFKbjjrIjMng_3PrKWbA==/base.apk!/lib/x86_64/libpocketrealm.so base=0x73f4a96c3000
+08-01 16:14:46.444  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	realmLoaded=1
+08-01 16:14:46.444  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	realmSoname=libpocketrealm.so
+08-01 16:14:46.444  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	realmDladdrPath=/data/app/com.pocketrealm-ZVTFKbjjrIjMng_3PrKWbA==/base.apk!/lib/x86_64/libpocketrealm.so
+08-01 16:14:46.444  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	firstTick=tick=1 hello=pocket-realm-pkg-ok pid=3434
+08-01 16:14:46.444  3385  3401 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	tickCount=1
+--- instrument stdout ---
+INSTRUMENTATION_STATUS: class=com.pocketrealm.pkg.PackagingExperimentTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=4
+INSTRUMENTATION_STATUS: stream=
+com.pocketrealm.pkg.PackagingExperimentTest:
+INSTRUMENTATION_STATUS: test=t1_capability_report_probes_device_fields
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.pocketrealm.pkg.PackagingExperimentTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=4
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=t1_capability_report_probes_device_fields
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=com.pocketrealm.pkg.PackagingExperimentTest
+INSTRUMENTATION_STATUS: current=2
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=4
+INSTRUMENTATION_STATUS: stream=
+INSTRUMENTATION_STATUS: test=t2_pkg01_launcher_executes_or_documents_no_path
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.pocketrealm.pkg.PackagingExperimentTest
+INSTRUMENTATION_STATUS: current=2
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=4
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=t2_pkg01_launcher_executes_or_documents_no_path
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=com.pocketrealm.pkg.PackagingExperimentTest
+INSTRUMENTATION_STATUS: current=3
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=4
+INSTRUMENTATION_STATUS: stream=
+INSTRUMENTATION_STATUS: test=t3_pkg02_crash_containment_and_restart
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.pocketrealm.pkg.PackagingExperimentTest
+INSTRUMENTATION_STATUS: current=3
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=4
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=t3_pkg02_crash_containment_and_restart
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_STATUS: class=com.pocketrealm.pkg.PackagingExperimentTest
+INSTRUMENTATION_STATUS: current=4
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=4
+INSTRUMENTATION_STATUS: stream=
+INSTRUMENTATION_STATUS: test=t4_pkg06_smoke_loads_all_libs
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.pocketrealm.pkg.PackagingExperimentTest
+INSTRUMENTATION_STATUS: current=4
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=4
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=t4_pkg06_smoke_loads_all_libs
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_RESULT: stream=
+
+Time: 61.748
+
+OK (4 tests)
+
+
+INSTRUMENTATION_CODE: -1

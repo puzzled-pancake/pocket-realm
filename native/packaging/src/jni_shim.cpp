@@ -66,6 +66,33 @@ Java_com_pocketrealm_pkg_PkgNative_loadRealmSoBySonameNative(JNIEnv* env, jclass
     return obj;
 }
 
+JNIEXPORT jobject JNICALL
+Java_com_pocketrealm_pkg_PkgNative_probeSoBySonameNative(JNIEnv* env, jclass, jstring jsoname)
+{
+    const char* soname = env->GetStringUTFChars(jsoname, nullptr);
+    pkg_realm_so_info info;
+    int rc = soname ? pkg_probe_so_by_soname(soname, &info) : 1;
+    if (soname) env->ReleaseStringUTFChars(jsoname, soname);
+
+    jclass cls = env->FindClass(kRealmInfoClass);
+    if (!cls) return nullptr;
+    jmethodID ctor = env->GetMethodID(
+        cls, "<init>",
+        "(IILjava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V");
+    if (!ctor) return nullptr;
+
+    jstring jpath = to_jstring(env, info.path);
+    jstring jsoname_out = to_jstring(env, info.soname);
+    jstring jsymbol = to_jstring(env, info.symbol);
+    jobject obj = env->NewObject(cls, ctor,
+        (jint)info.loaded, (jint)rc, jpath, jsoname_out, jsymbol,
+        (jlong)info.base_addr);
+    env->DeleteLocalRef(jpath);
+    env->DeleteLocalRef(jsoname_out);
+    env->DeleteLocalRef(jsymbol);
+    return obj;
+}
+
 JNIEXPORT void JNICALL
 Java_com_pocketrealm_pkg_PkgNative_crashNative(JNIEnv*, jclass, jint kind)
 {

@@ -16,5 +16,7 @@ interface IPkgIsolation {
     String hello();
     int probePageSize();
     RealmSoInfoParcelable loadRealmSoBySoname();
+    // PKG-06 per-lib probe (RTLD_NOLOAD then RTLD_NOW); proves every APK lib loads.
+    RealmSoInfoParcelable probeSoBySoname(String soname);
     void crash(int kind);  // PKG-02 deterministic fault; kind 0 = abort()
 }

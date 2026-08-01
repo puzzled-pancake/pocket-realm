@@ -89,18 +89,21 @@ a deterministic `abort()`. On all lanes:
 This proves the library-backed, process-isolated component model works and that a
 component crash is contained without taking down the supervisor.
 
-### PKG-06 — page-size compatibility (production variant)
+### PKG-06 — page-size compatibility + full APK closure (production variant)
 Under the production variant (`useLegacyPackaging=false`), native libraries are
-not extracted to `nativeLibraryDir`, so the experiment proves the closure by
-**directly** loading the realm facade by SONAME and **transitively** exercising
-its dependencies: `libpocketrealm.so` links `libc++_shared.so` (a `DT_NEEDED`),
-so a successful `dlopen("libpocketrealm.so")` proves both the facade and the
-shared C++ runtime load and remain resident. (`libpocketpkgtest.so` is exercised
-directly by PKG-02 in the same `:pkg` process; `libpocket_pkg_launcher.so` is a
-PKG-01 artifact and not loaded on the production lane.) All four `.so` are 16 KB
-page-compatible: ELF `PT_LOAD` alignment is `0x4000` and `zipalign -c -P 16 -v 4`
-passes. The two genuine 30-minute acceptance runs (4 KB and 16 KB) are captured
-by the host driver; each logged 30 per-minute ticks with a stable `:pkg` PID.
+not extracted to `nativeLibraryDir`, so PKG-06 enumerates the APK's own
+`lib/<abi>/*.so` entries directly and probes **each loadable library by SONAME**
+(`RTLD_NOLOAD` then `RTLD_NOW`). All six packaged `.so` are enumerated
+(`packagedLibCount=6`); the launcher (`libpocket_pkg_launcher.so`) is a PIE
+executable with no `DT_SONAME` and is explicitly excluded
+(`EXCLUDED_EXECUTABLE`); the remaining five — `libpocketrealm.so`,
+`libpocketpkgtest.so`, `libc++_shared.so`, `libandroidx.graphics.path.so`, and
+`libdatastore_shared_counter.so` — each load `OK` from `base.apk!/lib/x86_64/`
+(`perLibProbeCount=5`). This proves the **entire** APK native closure loads on
+both page sizes, not just the realm facade. All `.so` are 16 KB page-compatible
+(ELF `PT_LOAD` alignment `0x4000`, `zipalign -c -P 16 -v 4` passes). The two
+genuine 30-minute acceptance runs (4 KB and 16 KB) each logged 30 per-minute
+ticks with a stable `:pkg` PID.
 
 ### Capability records (X0)
 `tests/avd/AVD-Modern-x86_64-v1.json`, `AVD-16K-x86_64-v1.json`, and

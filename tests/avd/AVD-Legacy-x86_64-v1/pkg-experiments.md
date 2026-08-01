@@ -7,18 +7,24 @@ the fallback derives the page size from `/proc/self/maps`, reproducibly).
 
 This is the report's disposable **research lane** (§5.1); it is not a PKG-06 lane.
 
+Per-lane evidence files in `evidence/` (timestamped): same structure as the
+modern lane (`debug-all-*.log`, `pkgExperiment-t2_*.log`,
+`capability-report-debug-*.json`).
+
 ## PKG-01 (experiment variant)
-- `extractNativeLibs=true`, `exitCode=0`, `realmDladdrPath` resolved.
-  Result: `variant=pkgExperiment ok=true code=OK` (see `evidence/pkgExperiment-t2_*.log`).
+- `variant=pkgExperiment`, `extractNativeLibs=true`, `exitCode=0`,
+  `realmDladdrPath` resolved. Result: `ok=true code=OK`.
 
 ## PKG-01 (production variant)
-- `extractNativeLibs=false`; launcher has no executable filesystem path.
-  Result: `variant=debug ok=true code=NO_EXECUTABLE_FS_PATH` (see `evidence/debug-t2_*.log`).
+- `variant=debug`, `extractNativeLibs=false`; no executable fs path.
+- Result: `ok=true code=NO_EXECUTABLE_FS_PATH`.
 
 ## PKG-02 (production variant)
-- `ok=true code=CONTAINMENT_PROVEN` (see `evidence/debug-t3_*.log`).
+- `ok=true code=CONTAINMENT_PROVEN`.
 
 ## Capability (X0)
-`tests/avd/AVD-Legacy-x86_64-v1.json` carries adb + app + comparison.
-The host GL props are empty on this image; app GL (EGL context):
-`glVendor=Google (NVIDIA Corporation)`.
+`tests/avd/AVD-Legacy-x86_64-v1.json` — adb + app + comparison. Compared fields:
+sdkInt, pageSizeBytes, abilist, abilist32, abilist64, totalRamBytes (all OK).
+On this image `ro.kernel.qemu.gltransport=pipe`, `ro.kernel.qemu.gles=1`
+(captured under host GL, separately from the app EGL strings).
+App GL: `glVendor=Google (NVIDIA Corporation)`.

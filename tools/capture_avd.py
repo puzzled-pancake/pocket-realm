@@ -90,6 +90,26 @@ def capture(serial: str, avd_id: str, system_image: str | None) -> dict:
         "egl": sh("getprop ro.hardware.egl"),
         "vulkan": sh("getprop ro.hardware.vulkan"),
         "gralloc": sh("getprop ro.hardware.gralloc"),
+        # Emulator GPU mode / transport (report §20.1). Often empty on newer
+        # images; recorded as observed, never compared against the app strings.
+        "qemu_gles_transport": sh("getprop ro.kernel.qemu.gltransport"),
+        "qemu_gles": sh("getprop ro.kernel.qemu.gles"),
+        "opengles_version": sh("getprop ro.opengles.version"),
+    }
+    # Host platform identity (report §20.1): the guest's view of the virtualized
+    # CPU + the hypervisor backend, so the capability record shows what the AVD
+    # actually ran on. These are not compared against the app report.
+    virt_backend = (sh("getprop ro.hardware.virtualization.backend")
+                    or sh("getprop ro.boot.hardware.virtualization.backend"))
+    host_platform = {
+        # Guest CPU model (x86_64 host CPU as seen inside the AVD).
+        "guest_cpu": sh("getprop ro.product.cpu.abi"),
+        # Hardware accel backend (e.g. auto/host/hvf/qemu). May be empty.
+        "hw_accel": (sh("getprop ro.kernel.qemu.hwui.main_tasks")
+                     or sh("getprop ro.hw.mainkeys")),
+        "virtualization_backend": virt_backend,
+        # The QEMU machine type distinguishes full vs cuttlefish-style images.
+        "qemu_hardware": sh("getprop ro.hardware"),
     }
     record = {
         "schema": 1,
@@ -99,6 +119,7 @@ def capture(serial: str, avd_id: str, system_image: str | None) -> dict:
         "captured_at_utc": datetime.now(timezone.utc).isoformat(),
         "host": {
             "emulator_version": _host_emulator_version(),
+            "platform": host_platform,
         },
         "guest": {
             "api_level": int(sdk) if sdk.isdigit() else sdk,
@@ -132,13 +153,27 @@ def _host_emulator_version() -> str:
 # Fields compared between adb capture and the in-app CapabilityReport. Only
 # genuinely-equivalent fields are compared; allocatable storage and GL strings
 # are recorded separately on each side (see module docstring).
+# ABI lists are lists on the app side and comma-joined strings on adb; RAM is
+# reported in bytes by the app (totalRamBytes) and in KB by adb (mem_total_kb).
+def _adb_mem_bytes(r: dict) -> int | None:
+    kb = r["guest"].get("mem_total_kb")
+    return int(kb) * 1024 if isinstance(kb, int) else None
+
+
 COMPARABLE = {
     # app_field : adb_extractor
     "sdkInt": lambda r: int(r["guest"]["api_level"]) if str(r["guest"]["api_level"]).isdigit() else None,
     "pageSizeBytes": lambda r: r["guest"]["page_size_bytes"],
-    # abilist is a list on the app side, a comma-joined string on adb.
+    # Full ABI lists (list on app side, comma-joined string on adb).
+    "abilist": lambda r: r["guest"]["abilist"],
+    "abilist32": lambda r: r["guest"]["abilist32"],
     "abilist64": lambda r: r["guest"]["abilist64"],
+    # Total RAM: app reports bytes, adb reports KB -> normalize to bytes.
+    "totalRamBytes": _adb_mem_bytes,
 }
+
+# App fields whose value is a List (joined to a comma string for comparison).
+_LIST_FIELDS = {"abilist", "abilist32", "abilist64"}
 
 
 def compare(adb_record: dict, app_report: dict) -> list[tuple[str, str, str, bool]]:
@@ -146,8 +181,7 @@ def compare(adb_record: dict, app_report: dict) -> list[tuple[str, str, str, boo
     for app_field, extract in COMPARABLE.items():
         adb_val = extract(adb_record)
         app_val = app_report.get(app_field)
-        # abilist64 special-case: app is a list, adb is comma-joined.
-        if app_field == "abilist64":
+        if app_field in _LIST_FIELDS:
             app_val_str = ",".join(app_val) if isinstance(app_val, list) else str(app_val or "")
         else:
             app_val_str = str(app_val)

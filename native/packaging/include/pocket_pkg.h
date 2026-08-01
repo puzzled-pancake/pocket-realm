@@ -49,6 +49,16 @@ int32_t pkg_probe_page_size(void);
  * Returns 0 on success, non-zero on dlopen/dlsym failure (info->err set). */
 int32_t pkg_load_realm_so_by_soname(pkg_realm_so_info* info);
 
+/* PKG-06: probe ONE native library by SONAME (RTLD_NOW|RTLD_NOLOAD|RTLD_LOCAL).
+ * RTLD_NOLOAD means: if the linker already has it resident, return its handle
+ * without side effects; if not, attempt a real dlopen (some libs, e.g.
+ * libc++_shared.so, are already pulled in transitively). Fills *info with
+ * soname + the dladdr-resolved path/base of ANY exported symbol discovered via
+ * dlopen's handle (no prior knowledge of a specific symbol required). Returns
+ * 0 on success (info->loaded=1), non-zero otherwise. Used by PKG-06 to prove
+ * every library packaged in the APK loads under production packaging. */
+int32_t pkg_probe_so_by_soname(const char* soname, pkg_realm_so_info* info);
+
 /* PKG-02 deterministic crash. kind: 0=abort(), 1=NULL-deref, 2=stack-guard. */
 void pkg_crash(int32_t kind);
 

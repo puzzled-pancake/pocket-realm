@@ -29,6 +29,8 @@ class PkgIsolationService : Service() {
         override fun probePageSize(): Int = PkgNative.probePageSizeNative()
         override fun loadRealmSoBySoname(): RealmSoInfoParcelable =
             PkgNative.loadRealmSoBySonameNative()
+        override fun probeSoBySoname(soname: String): RealmSoInfoParcelable =
+            PkgNative.probeSoBySonameNative(soname)
         override fun crash(kind: Int) {
             AppLog.w(TAG, ":pkg pid=${Process.myPid()} triggering native crash kind=$kind (PKG-02)")
             PkgNative.crashNative(kind)
