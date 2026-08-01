@@ -6,11 +6,7 @@ import com.winlator.core.CursorLocker;
 import com.winlator.renderer.GLRenderer;
 import com.winlator.winhandler.WinHandler;
 import com.winlator.xserver.extensions.BigReqExtension;
-import com.winlator.xserver.extensions.DRI3Extension;
 import com.winlator.xserver.extensions.Extension;
-import com.winlator.xserver.extensions.GLXExtension;
-import com.winlator.xserver.extensions.MITSHMExtension;
-import com.winlator.xserver.extensions.PresentExtension;
 import com.winlator.xserver.extensions.SyncExtension;
 import com.winlator.xserver.extensions.XComposite;
 
@@ -184,14 +180,26 @@ public class XServer {
 
     private Extension[] setupExtensions() {
         byte opcode = Extension.START_MAJOR_OPCODE;
+        // O06 S-3 is GDI/X11-only. We advertise ONLY extensions whose native
+        // support is built into libwinlator.so OR that are pure-Java. Removed
+        // per the corrected scope:
+        //   - MITSHMExtension : needs the SysV SHM path (stubbed; no native
+        //     backing for the SHM segments in this spike).
+        //   - DRI3Extension   : needs dma-buf/native fd-passing not built.
+        //   - PresentExtension: needs the Present native path not built.
+        //   - GLXExtension    : its static loader loadLibrary("gladiorenderer")
+        //     would throw UnsatisfiedLinkError (libgladiorenderer.so is absent).
+        // Advertising an extension with a no-op/absent implementation would
+        // make Wine attempt GLX/SHM and fail at runtime; we do not advertise
+        // what we do not implement.
+        // Kept:
+        //   - BigReq (always safe, pure protocol)
+        //   - Sync  (pure-Java, counters only)
+        //   - XComposite (GDI window management references composited windows)
         return new Extension[]{
             new BigReqExtension(this, opcode--),
-            new MITSHMExtension(this, opcode--),
-            new DRI3Extension(this, opcode--),
-            new PresentExtension(this, opcode--),
             new SyncExtension(this, opcode--),
-            new XComposite(this, opcode--),
-            new GLXExtension(this, opcode--)
+            new XComposite(this, opcode--)
         };
     }
 

@@ -128,6 +128,7 @@ val stageNativeLibs by tasks.registering(Copy::class) {
     val rtBuild = File(repoRoot, "native/.build-x86_64/pocket-runtime-build")
     val pkgBuild = File(repoRoot, "native/.build-x86_64/packaging-build")
     val wineSpikeBuild = File(repoRoot, "native/.build-x86_64/wine-spike-build")
+    val xserverBuild = File(repoRoot, "native/.build-x86_64/xserver-winlator-build")
     val wineStaging = File(repoRoot, "native/.build-x86_64/wine-staging/jniLibs")
     val prootStage = File(repoRoot, "native/.build-x86_64/proot-stage")
     val stagedLib = layout.buildDirectory.dir("staged-jniLibs/x86_64")
@@ -140,11 +141,13 @@ val stageNativeLibs by tasks.registering(Copy::class) {
             File(pkgBuild, "libpocket_pkg_launcher.so"),
             File(wineSpikeBuild, "libwine_spike.so"),
             File(wineSpikeBuild, "libwine_trampoline.so"),
+            File(xserverBuild, "libwinlator.so"),
         )
         val missing = required.filter { !it.isFile }
         check(missing.isEmpty()) {
             "Missing staged native artifacts (run scripts/build_native.py --abi x86_64 all, " +
-                "tools/build_packaging.py, tools/build_wine_spike.py): " +
+                "tools/build_packaging.py, tools/build_wine_spike.py, " +
+                "tools/build_xserver_winlator.py): " +
                 missing.joinToString { it.name }
         }
         check(wineStaging.isDirectory) {
@@ -183,6 +186,13 @@ val stageNativeLibs by tasks.registering(Copy::class) {
     // one to writable PROOT_TMP_DIR (which the app domain forbids: noexec).
     from(File(prootStage, "libproot_loader.so"))
     from(File(prootStage, "libproot_loader32.so"))
+    // O06 S-3: Winlator X-server native transport (vendored source-matched from
+    // ca3d735). libwinlator.so provides the epoll accept loop, buffered X11
+    // input/output with SCM_RIGHTS fd-passing, and Drawable BGRA ops. JNI
+    // methods match the vendored Java classes' package paths exactly
+    // (com.winlator.xconnector.* + com.winlator.xserver.Drawable), so it is a
+    // drop-in for System.loadLibrary("winlator").
+    from(File(xserverBuild, "libwinlator.so"))
     // libc++_shared.so — the realm facade links ANDROID_STL=c++_shared, so its
     // runtime closure needs the shared C++ runtime. Sourced from the NDK, never
     // from a platform path. Platform libs (libc/libm/libdl/liblog) are excluded.

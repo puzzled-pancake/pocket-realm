@@ -76,6 +76,21 @@ public class WindowManager extends XResourceManager {
         return null;
     }
 
+    // POCKET REALM S-3 SPIKE ADDITION (not in upstream Winlator): expose the
+    // mapped client (non-root) windows so the spike harness can prove a GDI
+    // window was created + mapped by the self-test PE. Returns windows whose
+    // attributes.isMapped() is true and which are not the root window.
+    public ArrayList<Window> getMappedClientWindows() {
+        ArrayList<Window> result = new ArrayList<>();
+        for (int i = 0; i < windows.size(); i++) {
+            Window window = windows.valueAt(i);
+            if (window != null && window != rootWindow && window.attributes.isMapped()) {
+                result.add(window);
+            }
+        }
+        return result;
+    }
+
     public void destroyWindow(int id) {
         Window window = getWindow(id);
         if (window != null && rootWindow.id != id) {

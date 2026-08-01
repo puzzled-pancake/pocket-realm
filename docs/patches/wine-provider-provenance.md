@@ -4,11 +4,12 @@ This document records the source correspondence, license obligation, and trim
 list for the in-app X-server vendored from Winlator for the O06 Wine feasibility
 spike (S-3: X11/GDI window).
 
-**Status as of this revision:** only the Java X11 wire-protocol sources are
-vendored and they compile. The **native transport (`libwinlator.so`) is NOT yet
-built or committed.** No Java reimplementation of the native epoll/SCM_RIGHTS
-layer exists. S-3 is not yet runnable. This document describes what is actually
-present; counts below are accurate to the tree.
+**Status as of this revision:** the Java X11 wire-protocol sources are vendored
+and compile (143 `.java` files). The **native transport `libwinlator.so` is
+vendored, built, and packaged** into the APK (NDK build, 16 KB-aligned,
+413864 bytes). S-3 is now wired end-to-end (WineSpikeRunner.runS3 + the pinned
+connector/handlers). No Java reimplementation of the native epoll/SCM_RIGHTS
+layer was written.
 
 ## Source pin
 
@@ -49,27 +50,35 @@ present; counts below are accurate to the tree.
 | `com.winlator.inputcontrols` | 1 | stub (`ExternalController`) |
 | `com.winlator.sysvshm` | 1 | stub (`SysVSharedMemory`) |
 
-## What is NOT yet done (S-3 pending)
+## What is vendored + built
 
-1. **Native transport `libwinlator.so`** — the spike will vendor the minimum
-   source-matched subset from the pinned commit: `src/xconnector_epoll.c`,
-   `src/xinput_stream.c`, `src/xoutput_stream.c`, `src/arrays.c`,
-   `src/ring_buffer.c`, plus required headers and the drawable/native functions
-   actually reached by the GDI path. Packaged as an NDK-built, 16 KB-aligned JNI
-   library. **The pinned native code correctly handles filesystem-domain Unix
-   sockets, epoll, SCM_RIGHTS fd-passing, buffered X11 input/output, and JNI
-   callbacks — no Java rewrite is planned.** (Android supplies `LocalServerSocket`
-   but its simple constructor targets the abstract namespace, not Wine's
-   `/tmp/.X11-unix/X0` filesystem socket; the native implementation is the
-   correct match.)
-2. **GDI-only extension set** — the current `XServer.setupExtensions()`
-   constructs GLX, DRI3, MIT-SHM, Present, and Sync in addition to BigReq. GLX
-   loads `libgladiorenderer.so` (absent); DRI3/MIT-SHM/Present need native support
-   not built for this spike. These must be removed from the advertisement list so
-   no no-op extension is advertised to Wine. Only BigReq remains for GDI/X11.
-3. **S-3 harness** — `XServerComponent` wiring, `<appTmp>/.X11-unix/X0` creation,
-   self-test PE launch via the same PRoot/prefix/cache path, screenshot/PixelCopy
-   of non-background pixels, `POCKET_SELFTEST_OK` + exit zero.
+1. **Native transport `libwinlator.so`** — the COMPLETE pinned native source set
+   (9 `.c` + 17 headers, vendored UNMODIFIED into `native/xserver-winlator/cpp/`
+   from `app/src/main/cpp/winlator/`). It correctly handles filesystem-domain
+   Unix sockets, epoll, SCM_RIGHTS fd-passing, buffered X11 input/output, and JNI
+   callbacks. The JNI method names match the vendored Java classes' package paths
+   exactly (`Java_com_winlator_xconnector_{XConnectorEpoll,XInputStream,
+   XOutputStream}_*` + `Java_com_winlator_xserver_Drawable_*`), so it is a
+   drop-in for `System.loadLibrary("winlator")`. NO Java rewrite was written.
+   Build: `tools/build_xserver_winlator.py` (NDK, 16 KB-aligned). The only
+   build-time adaptation is a force-include header (`include/pocket_ndk_compat.h`)
+   that supplies `<stdlib.h>`/`<string.h>`/`<time.h>` the upstream Android Studio
+   build provides transitively; the `.c`/`.h` content is byte-identical to the
+   pinned commit. The EGL/GLES + jnigraphics deps are retained (the renderer
+   needs them; they are part of the same library).
+2. **GDI-only extension set** — `XServer.setupExtensions()` advertises ONLY
+   BigReq + Sync + XComposite. GLX (loads absent `libgladiorenderer.so`), DRI3,
+   MIT-SHM, and Present were removed — their native support is not exercised for
+   GDI, and advertising them with no-op/absent implementations would make Wine
+   attempt and fail at runtime.
+3. **S-3 harness** — `WineSpikeRunner.runS3`: creates `<appTmp>/.X11-unix/X0`,
+   starts the X-server (XConnectorEpoll + XClientConnectionHandler +
+   XClientRequestHandler, headless for the spike), launches the project-owned
+   32-bit self-test PE with DISPLAY=:0 via the synchronous proot run, requires
+   `POCKET_SELFTEST_WINDOW` + `POCKET_SELFTEST_OK` + exit zero, proves a mapped
+   client window via `WindowManager.getMappedClientWindows()`, and cleanly
+   shuts down wineserver + the X-server. A `getMappedClientWindows()` accessor
+   was added to WindowManager (clearly marked as a Pocket Realm spike addition).
 
 ## Trim list (couplings to Winlator's app shell — stubbed/replaced)
 
