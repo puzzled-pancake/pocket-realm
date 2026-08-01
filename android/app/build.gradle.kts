@@ -126,6 +126,7 @@ val stageNativeLibs by tasks.registering(Copy::class) {
     val pkgBuild = File(repoRoot, "native/.build-x86_64/packaging-build")
     val wineSpikeBuild = File(repoRoot, "native/.build-x86_64/wine-spike-build")
     val wineStaging = File(repoRoot, "native/.build-x86_64/wine-staging/jniLibs")
+    val prootStage = File(repoRoot, "native/.build-x86_64/proot-stage")
     val stagedLib = layout.buildDirectory.dir("staged-jniLibs/x86_64")
 
     // Require the native build to have run (O03/O04 + O05 packaging + O06 spike).
@@ -135,6 +136,7 @@ val stageNativeLibs by tasks.registering(Copy::class) {
             File(pkgBuild, "libpocketpkgtest.so"),
             File(pkgBuild, "libpocket_pkg_launcher.so"),
             File(wineSpikeBuild, "libwine_spike.so"),
+            File(wineSpikeBuild, "libwine_trampoline.so"),
         )
         val missing = required.filter { !it.isFile }
         check(missing.isEmpty()) {
@@ -144,6 +146,9 @@ val stageNativeLibs by tasks.registering(Copy::class) {
         }
         check(wineStaging.isDirectory) {
             "Wine staging not found at $wineStaging. Run: python tools/stage_wine_runtime.py"
+        }
+        check(prootStage.isDirectory) {
+            "proot staging not found at $prootStage. Run: python tools/build_proot.py --abi x86_64"
         }
     }
 
@@ -156,8 +161,25 @@ val stageNativeLibs by tasks.registering(Copy::class) {
     // experiment variant).
     from(File(pkgBuild, "libpocket_pkg_launcher.so"))
     // O06: Wine spike JNI helper (symlink-tree builder + loader launcher +
-    // /proc maps probe + PE cache). Runs in the Android/Bionic namespace.
+    // /proc maps probe + PE cache + S-5 SIGSYS diagnostic + trampoline launcher).
+    // Runs in the Android/Bionic namespace.
     from(File(wineSpikeBuild, "libwine_spike.so"))
+    // O06 S-5(a): APK-packaged Bionic trampoline PIE (re-execve's the glibc
+    // loader). Named lib*.so so AGP extracts it with the +x bit; it is a PIE
+    // executable, not a shared library.
+    from(File(wineSpikeBuild, "libwine_trampoline.so"))
+    // O06 S-5(b): proot fallback (termux/proot@a89b3732, Bionic PIE) + libtalloc.
+    // Required because Android's untrusted_app seccomp filter kills the glibc
+    // loader on its access(2) syscall (PROVEN via ptrace diagnostic). proot
+    // intercepts syscalls via ptrace and translates access->faccessat.
+    from(File(prootStage, "libproot.so"))
+    from(File(prootStage, "libtalloc.so"))
+    // O06 S-5(b): proot's in-tracee helper loader, staged APK-managed as
+    // libproot_loader.so. PROOT_LOADER=<nativeLibraryDir>/libproot_loader.so
+    // makes proot use this immutable +x copy directly instead of extracting
+    // one to writable PROOT_TMP_DIR (which the app domain forbids: noexec).
+    from(File(prootStage, "libproot_loader.so"))
+    from(File(prootStage, "libproot_loader32.so"))
     // libc++_shared.so — the realm facade links ANDROID_STL=c++_shared, so its
     // runtime closure needs the shared C++ runtime. Sourced from the NDK, never
     // from a platform path. Platform libs (libc/libm/libdl/liblog) are excluded.

@@ -391,6 +391,28 @@ def main() -> int:
         "has_pe_assets": pe_manifest is not None,
         "pe_module_count": pe_manifest["total_modules"] if pe_manifest else 0,
     }
+
+    # Record proot fallback artifacts if they were built (built separately by
+    # tools/build_proot.py; the proot path is selected only if S-1 direct fails).
+    # These are APK-managed (+x, immutable) so PROOT_LOADER can point at the
+    # libproot_loader.so here instead of proot extracting one to writable storage.
+    proot_stage = ROOT / "native" / ".build-x86_64" / "proot-stage"
+    if proot_stage.is_dir():
+        import hashlib as _hashlib
+        proot_artifacts = {}
+        for name in ("libproot.so", "libproot_loader.so",
+                     "libproot_loader32.so", "libtalloc.so"):
+            f = proot_stage / name
+            if f.is_file():
+                proot_artifacts[name] = {
+                    "sha256": _hashlib.sha256(f.read_bytes()).hexdigest(),
+                    "size": f.stat().st_size,
+                    "source": ("proot" if name.startswith("libproot") else "talloc"),
+                }
+        if proot_artifacts:
+            staging_manifest["proot_artifacts"] = proot_artifacts
+            staging_manifest["proot_loader_jnilib"] = "libproot_loader.so"
+            staging_manifest["proot_loader32_jnilib"] = "libproot_loader32.so"
     manifest_path = OUTPUT / "staging-manifest.json"
     manifest_path.write_text(json.dumps(staging_manifest, indent=2) + "\n", encoding="utf-8")
 

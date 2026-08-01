@@ -84,6 +84,20 @@ int wine_spike_launch_wine(const char *native_dir,
                            int64_t *out_pid);
 
 /*
+ * Extended launch with an optional extra_env string ("KEY=VAL;KEY=VAL;...").
+ * Used by the S-5 fallback to inject GLIBC_TUNABLES (e.g. to disable rseq or
+ * force clone→clone3 fallback) without widening the per-call env. The entries
+ * are copied into a stable child-stack buffer before execve. May be NULL/empty.
+ */
+int wine_spike_launch_wine_ex(const char *native_dir,
+                              const char *wine_target,
+                              const char *prefix_dir,
+                              const char *display,
+                              const char *wine_args,
+                              const char *extra_env,
+                              int64_t *out_pid);
+
+/*
  * Probe /proc/<pid>/maps to extract the effective dynamic loader path and
  * verify it is the APK-managed loader.
  *
@@ -146,6 +160,104 @@ int wine_spike_materialize_pe_cache(const char *cache_dir,
  * WINE_SPIKE_ERR_VERIFY if any mismatch (caller should re-materialize).
  */
 int wine_spike_verify_pe_cache(const char *cache_dir, const char *manifest_json);
+
+/*
+ * S-5(0) SIGSYS classification (see sigsys_diag.c).
+ *
+ * Exit code 159 (128 + SIGSYS) only proves the child was killed by signal 31.
+ * It does NOT establish WHICH mechanism raised the signal (a seccomp kill, an
+ * explicit tkill, or a bad syscall) or which syscall triggered it. The runner
+ * records the failure as SIGSYS_CAUSE_UNRESOLVED until the si_code + syscall
+ * number are captured via ptrace.
+ */
+#define WINE_SPIKE_SIGSYS_UNRESOLVED  0   /* not yet captured / ptrace unavailable */
+#define WINE_SPIKE_SIGSYS_SECCOMP     1   /* si_code == SYS_SECCOMP (seccomp filter) */
+#define WINE_SPIKE_SIGSYS_USER        2   /* si_code == SI_USER/SI_TKILL (explicit kill) */
+#define WINE_SPIKE_SIGSYS_KERNEL      3   /* si_code == SI_KERNEL */
+#define WINE_SPIKE_SIGSYS_NONE        4   /* child exited cleanly (no signal) */
+
+struct wine_spike_sigsys_result {
+    int exit_status;            /* raw waitpid exit (or 128+signo) */
+    int terminated_by_signo;    /* signal that killed it, or -1 if exited */
+    int sig_signo;              /* siginfo fields (best effort). NOTE: named
+                                 * sig_* (not si_*) because <siginfo.h> defines
+                                 * si_signo/si_code/si_call_addr as macros. */
+    int sig_code;               /* SYS_SECCOMP=1, SI_USER=0, SI_KERNEL=0x80 */
+    unsigned long long call_addr;
+    long long syscall_nr;       /* orig_rax at the trap */
+    unsigned int arch;          /* AUDIT_ARCH_* from GETREGSET */
+    char syscall_name[24];      /* mapped name, or "" if unknown */
+    int cause;                  /* one of WINE_SPIKE_SIGSYS_* */
+};
+
+/*
+ * Trace the APK-managed glibc loader under PTRACE and capture the SIGSYS cause
+ * (si_code + triggering syscall). Fills out->cause. This does NOT assume the
+ * cause is SELinux — it records SIGSYS_CAUSE_UNRESOLVED until the data is in.
+ */
+int wine_spike_diag_sigsys(const char *native_dir,
+                           const char *wine_target,
+                           const char *prefix_dir,
+                           const char *display,
+                           const char *wine_args,
+                           struct wine_spike_sigsys_result *out);
+
+/*
+ * S-5(a): APK-packaged Bionic trampoline launch.
+ *
+ * The direct execve path (wine_spike_launch_wine) execs the glibc loader from a
+ * forked child of libwine_spike.so. The trampoline variant execs a SEPARATE
+ * Bionic-compiled PIE (libwine_trampoline.so, also APK-managed) which then
+ * execs the glibc loader. The purpose is to test whether the SIGSYS is specific
+ * to exec'ing the glibc ELF directly from the app process (e.g. a W^X / execve
+ * target restriction) or whether it fires regardless of how we arrive at the
+ * glibc loader. Evidence from this path is kept SEPARATE from the PKG-01
+ * control (which does not exec Wine at all).
+ *
+ * Returns the trampoline-launched child PID in *out_pid, or WINE_SPIKE_ERR_*
+ * on failure. The trampoline execs:
+ *   <native_dir>/libwine_trampoline.so <loader> --library-path <lib> <wine> ...
+ */
+int wine_spike_launch_wine_via_trampoline(const char *native_dir,
+                                          const char *wine_target,
+                                          const char *prefix_dir,
+                                          const char *display,
+                                          const char *wine_args,
+                                          int64_t *out_pid);
+
+/* Extended trampoline launch with optional extra_env (see launch_wine_ex). */
+int wine_spike_launch_wine_via_trampoline_ex(const char *native_dir,
+                                             const char *wine_target,
+                                             const char *prefix_dir,
+                                             const char *display,
+                                             const char *wine_args,
+                                             const char *extra_env,
+                                             int64_t *out_pid);
+
+/*
+ * S-5(b): proot fallback launch.
+ *
+ * proot (termux/proot@a89b3732, APK-managed libproot.so, Bionic PIE) runs in
+ * the Android/Bionic namespace and ptrace-traces the glibc-namespace child. It
+ * translates the child's blocked syscalls (access->faccessat), working around
+ * the untrusted_app seccomp filter that kills the direct glibc-loader path
+ * (PROVEN: si_code=SYS_SECCOMP, syscall=21/access).
+ *
+ * proot does NOT replace the effective loader — the traced child still execve's
+ * the APK-managed glibc loader as its effective loader, satisfying S-1. The
+ * -b <app_tmp>:/tmp bind also handles wineserver's hardcoded /tmp/.wine-<uid>
+ * server path (the namespace mechanism; TMPDIR alone does not change it).
+ *
+ * Returns the proot-launched child PID in *out_pid (the proot process itself;
+ * Wine/wineserver run as proot's traced children).
+ */
+int wine_spike_launch_wine_via_proot(const char *native_dir,
+                                     const char *wine_target,
+                                     const char *prefix_dir,
+                                     const char *display,
+                                     const char *wine_args,
+                                     const char *extra_env,
+                                     int64_t *out_pid);
 
 /* Get a human-readable string for a result code. */
 const char *wine_spike_err_str(int code);

@@ -43,57 +43,14 @@ class WineSpikeRunner(private val context: Context) {
 
     /**
      * Verify the loader chain by running `wine --version` via the APK-managed
-     * glibc loader with LD_DEBUG=libs, capturing stderr. The LD_DEBUG output
-     * proves the effective loader (libld_linux_x86_64.so from the APK) resolves
-     * the glibc closure (libc.so.6, libdl.so.2) via the symlink tree.
+     * glibc loader with LD_DEBUG=libs, capturing stderr. Superseded by
+     * verifyLoaderChainEx (which supports tunables + trampoline); kept as a
+     * thin delegate for any caller that wants the no-options form.
      */
     private fun verifyLoaderChain(
         nativeDir: String, wineTarget: String, prefixDir: java.io.File,
         treeDir: java.io.File
-    ): LoaderProof {
-        val loader = java.io.File(nativeDir, "libld_linux_x86_64.so")
-        val libPath = "${treeDir.absolutePath}/lib"
-        val env = mapOf(
-            "WINEPREFIX" to prefixDir.absolutePath,
-            "HOME" to prefixDir.absolutePath,
-            "WINEDLLPATH" to "${treeDir.absolutePath}/lib/wine/x86_64-unix",
-            "LD_DEBUG" to "libs",
-            "WINEDEBUG" to "-all",
-            "PATH" to nativeDir,
-        )
-        val pb = ProcessBuilder(
-            loader.absolutePath, "--library-path", libPath,
-            wineTarget, "--version"
-        )
-        pb.redirectErrorStream(true)
-        // Add Wine-specific vars to the INHERITED environment (don't clear —
-        // the process still needs Android system vars to start).
-        pb.environment().putAll(env)
-        val out = try {
-            val proc = pb.start()
-            val text = proc.inputStream.bufferedReader().use { it.readText() }
-            val exitCode = proc.waitFor()
-            "EXIT=$exitCode\n$text"
-        } catch (e: Exception) {
-            "EXCEPTION: ${e.javaClass.simpleName}: ${e.message}"
-        }
-        val sawApk = out.contains("libld_linux_x86_64.so")
-        val sawLibc = out.contains("libc.so.6") && out.contains("calling init:")
-        val sawLibdl = out.contains("libdl.so.2")
-        // Keep only the first 20 lines for evidence (avoid huge logcat spam).
-        val summary = out.lineSequence().take(20).joinToString(" | ")
-        return LoaderProof(
-            sawApkLoader = sawApk,
-            sawLibcResolved = sawLibc,
-            sawLibdlResolved = sawLibdl,
-            evidence = mapOf(
-                "ldDebugApkLoader" to sawApk.toString(),
-                "ldDebugLibcResolved" to sawLibc.toString(),
-                "ldDebugLibdlResolved" to sawLibdl.toString(),
-                "ldDebugSummary" to summary.take(500),
-            )
-        )
-    }
+    ): LoaderProof = verifyLoaderChainEx(nativeDir, wineTarget, prefixDir, treeDir, "")
 
     private fun announce(result: ExperimentResult) {
         // Mirror the PKG_EXPERIMENT announce contract for the host driver.
@@ -131,11 +88,22 @@ class WineSpikeRunner(private val context: Context) {
 
     /**
      * S-1: Prove the effective dynamic loader is the APK-managed glibc loader for
-     * wine, wineserver, and every native child.
+     * wine, wineserver, and every native child — from the production app process.
      *
-     * Steps: build symlink tree -> launch wine -> probe /proc/<pid>/maps for wine
-     * + enumerate children + probe each child. Outcome A (all APK-managed) or
-     * record the exact failure.
+     * S-5 fallback sequence (per the approved plan, corrected):
+     *  S-5(0) Run the ptrace SIGSYS diagnostic FIRST. Exit 159 alone only proves
+     *         termination *by* SIGSYS; it does not establish the cause. We capture
+     *         si_code + syscall nr before classifying. The initial record is
+     *         SIGSYS_CAUSE_UNRESOLVED, NOT "SELinux blocks execve".
+     *  S-5(a) If the direct path fails, try the APK-packaged Bionic trampoline
+     *         (libwine_trampoline.so) which execs the glibc loader from a clean
+     *         execve'd Bionic process. Evidence kept SEPARATE from PKG-01.
+     *  narrow If the blocked syscall is a glibc startup feature (rseq/clone3),
+     *         try the narrow GLIBC_TUNABLES disable before reaching for proot.
+     *
+     * The run-as result (wine --version works under `adb shell run-as`) is
+     * supporting evidence only; it does NOT satisfy the production app-process
+     * acceptance criterion.
      */
     suspend fun runS1(): ExperimentResult = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val t0 = SystemClock.elapsedRealtime()
@@ -145,7 +113,7 @@ class WineSpikeRunner(private val context: Context) {
                 listOf("nativeLibraryDir is null"), evidence, SystemClock.elapsedRealtime() - t0)
         evidence["nativeLibraryDir"] = nativeDir
 
-        AppLog.i(TAG, "S-1: effective loader proof")
+        AppLog.i(TAG, "S-1: effective loader proof (production app process)")
 
         // 1. Read the staging manifest + build the symlink tree.
         val manifest = try {
@@ -170,79 +138,375 @@ class WineSpikeRunner(private val context: Context) {
         prefixDir.mkdirs()
         File(context.filesDir, "runtime/tmp").mkdirs()
 
-        // 3. Launch wine (the launcher, not wineserver directly). Wine's launcher
-        //    loads ntdll, initializes the config dir from WINEPREFIX, then spawns
-        //    wineserver with the right environment. We run 'wine --version' which
-        //    exercises the full loader chain (glibc loader -> ntdll -> wine init).
-        //    The process is short-lived, so we probe /proc/<pid>/maps immediately
-        //    (within the same timeslice) rather than after a sleep.
         val wineTarget = File(treeDir, "bin/wine").absolutePath
         evidence["wineTarget"] = wineTarget
 
-        // For S-1, we don't have the X-server yet, so no DISPLAY.
-        // Run 'wine --version' — it exercises the full loader chain (glibc loader
-        // -> ntdll -> wine init -> print version -> exit). The process is brief
-        // but the loader mappings are established at execve, so we probe fast.
-        val winePid = WineSpikeNative.launchWineNative(
+        // =====================================================================
+        // S-5(0): ptrace SIGSYS diagnostic. Corrects a512b71, which recorded the
+        // failure as "SELinux blocks execve" based solely on exit 159. We capture
+        // si_code + the triggering syscall before classifying.
+        // =====================================================================
+        AppLog.i(TAG, "S-5(0): running ptrace SIGSYS diagnostic")
+        val diagResult = WineSpikeNative.diagSigsysNative(
             nativeDir, wineTarget, prefixDir.absolutePath, "", "--version")
-        if (winePid < 0) {
-            return@withContext ExperimentResult.fail("S1", "-", "LAUNCH_FAILED",
-                listOf("launchWineNative returned $winePid"),
-                evidence, SystemClock.elapsedRealtime() - t0)
+        evidence["s5_0_diag"] = diagResult
+        AppLog.i(TAG, "S-5(0) diag: $diagResult")
+
+        // Parse the cause. Format: "OK|exit=N|sig=N|si_code=N|syscall=M|name=X|arch=0xC|cause=C"
+        // cause: 0=UNRESOLVED 1=SECCOMP 2=USER 3=KERNEL 4=NONE
+        val diagCause = parseField(diagResult, "cause")?.toIntOrNull() ?: -1
+        val diagSyscallName = parseField(diagResult, "name") ?: "?"
+        val diagSiCode = parseField(diagResult, "si_code")?.toIntOrNull() ?: -1
+        val diagExit = parseField(diagResult, "exit")?.toIntOrNull() ?: -1
+        evidence["s5_0_cause"] = diagCause.toString()
+        evidence["s5_0_syscallName"] = diagSyscallName
+        evidence["s5_0_siCode"] = diagSiCode.toString()
+
+        // If the diagnostic already shows a CLEAN exit (cause=NONE, exit=0), the
+        // direct path works — proceed to the LD_DEBUG proof below.
+        val directWorksCleanly = (diagCause == 4 && diagExit == 0)
+
+        // =====================================================================
+        // Narrow glibc-startup fallback: if the SIGSYS is a seccomp trap on a
+        // glibc startup syscall that has a supported tunable disable (rseq),
+        // try it before any heavier mechanism. For access()/clone3 there is NO
+        // tunable (the loader's access() probing is not suppressible; clone3
+        // fallback requires ENOSYS which seccomp preempts), so we skip the
+        // narrow attempt and record that proot (syscall interception) is needed.
+        // =====================================================================
+        var effectiveTunables = ""
+        val isRseqTrap = (diagCause == 1) && (diagSyscallName == "rseq")
+        if (!directWorksCleanly && isRseqTrap) {
+            AppLog.i(TAG, "S-5 narrow: SIGSYS on rseq — trying GLIBC_TUNABLES=glibc.pthread.rseq=0")
+            effectiveTunables = "glibc.pthread.rseq=0"
+            val narrowPid = WineSpikeNative.launchWineExNative(
+                nativeDir, wineTarget, prefixDir.absolutePath, "", "--version",
+                "GLIBC_TUNABLES=$effectiveTunables")
+            evidence["s5_narrow_tunables"] = effectiveTunables
+            evidence["s5_narrow_pid"] = narrowPid.toString()
+            Thread.sleep(800)
+            killTree(narrowPid)
+        } else if (diagCause == 1 && (diagSyscallName == "access" || diagSyscallName == "clone3")) {
+            // No tunable suppresses the loader's access() calls, and clone3 has
+            // no clean tunable (seccomp kills before ENOSYS fallback). Record
+            // that the narrow path does not apply; proot is required.
+            evidence["s5_narrow_applies"] = "false ($diagSyscallName has no tunable disable)"
+            AppLog.i(TAG, "S-5 narrow: does NOT apply for $diagSyscallName — proot required")
         }
-        evidence["winePid"] = winePid.toString()
 
-        // 4. Wait for the child to complete (wine --version is fast).
-        Thread.sleep(500)
+        // =====================================================================
+        // Attempt the actual S-1 proof on the direct path. If the diagnostic
+        // showed a clean exit, this should produce LD_DEBUG evidence.
+        // =====================================================================
+        val directProof = if (directWorksCleanly || effectiveTunables.isNotEmpty()) {
+            AppLog.i(TAG, "S-1 direct: attempting LD_DEBUG loader-chain proof")
+            verifyLoaderChainEx(nativeDir, wineTarget, prefixDir, treeDir, effectiveTunables)
+        } else {
+            null
+        }
+        if (directProof != null) {
+            evidence.putAll(directProof.evidence.mapKeys { "direct_${it.key}" })
+        }
 
-        // 5. The LD_DEBUG=libs output goes to the child's stderr → logcat (the
-        //    native launcher inherits the parent's stderr). The host driver
-        //    captures logcat lines containing 'find library=' and 'calling init:'
-        //    which prove the APK-managed loader resolving the glibc closure via
-        //    the symlink tree. We also run a direct verification here: re-invoke
-        //    wine via ProcessBuilder (capturing stderr) to get the proof in-process.
-        val proofResult = verifyLoaderChain(nativeDir, wineTarget, prefixDir, treeDir)
-        evidence.putAll(proofResult.evidence)
-        val sawApkLoader = proofResult.sawApkLoader
-        val sawLibcViaSymlink = proofResult.sawLibcResolved
-        val sawLibdlViaSymlink = proofResult.sawLibdlResolved
+        // =====================================================================
+        // S-5(a): APK-packaged Bionic trampoline path. Separate evidence.
+        // =====================================================================
+        AppLog.i(TAG, "S-5(a): trampoline path")
+        val trampPid = WineSpikeNative.launchWineViaTrampolineExNative(
+            nativeDir, wineTarget, prefixDir.absolutePath, "", "--version",
+            if (effectiveTunables.isNotEmpty()) "GLIBC_TUNABLES=$effectiveTunables" else "")
+        evidence["s5a_trampolinePid"] = trampPid.toString()
+        val trampProof = if (trampPid > 0) {
+            Thread.sleep(500)
+            val probe = WineSpikeNative.probeLoaderNative(trampPid, nativeDir)
+            evidence["s5a_trampolineProcMaps"] = probe
+            verifyLoaderChainEx(nativeDir, wineTarget, prefixDir, treeDir, effectiveTunables,
+                useTrampoline = true)
+        } else null
+        if (trampProof != null) {
+            evidence.putAll(trampProof.evidence.mapKeys { "tramp_${it.key}" })
+        }
+        killTree(trampPid)
 
-        // Also try the /proc maps probe (may work if the process is still alive).
-        val wineProbe = WineSpikeNative.probeLoaderNative(winePid, nativeDir)
-        evidence["wineProcMapsProbe"] = wineProbe
+        // =====================================================================
+        // S-5(b): proot fallback. Only reached if direct + trampoline both fail
+        // (which they do for the access() seccomp trap). proot intercepts the
+        // child's syscalls via ptrace and translates access->faccessat. This is
+        // experimentally qualified here — we prove proot starts from the app
+        // domain AND the loader chain resolves via the APK-managed loader.
+        // =====================================================================
+        AppLog.i(TAG, "S-5(b): proot fallback path (default mode)")
+        val prootExtraEnv = mutableListOf<String>()
+        if (effectiveTunables.isNotEmpty()) prootExtraEnv += "GLIBC_TUNABLES=$effectiveTunables"
+        val prootPid = WineSpikeNative.launchWineViaProotNative(
+            nativeDir, wineTarget, prefixDir.absolutePath, "", "--version",
+            prootExtraEnv.joinToString(";"))
+        evidence["s5b_prootPid"] = prootPid.toString()
+        var prootProof: LoaderProof? = null
+        if (prootPid > 0) {
+            Thread.sleep(1000)  // proot startup + ptrace attach + loader init
+            val probe = WineSpikeNative.probeLoaderNative(prootPid, nativeDir)
+            evidence["s5b_prootProcMaps"] = probe
+            prootProof = verifyLoaderChainProot(nativeDir, wineTarget, prefixDir, treeDir, effectiveTunables)
+            evidence["s5b_prootRawSummary"] = prootProof.evidence["ldDebugSummary"] ?: ""
+        }
+        if (prootProof != null) {
+            evidence.putAll(prootProof.evidence.mapKeys { "proot_${it.key}" })
+        }
+        killTree(prootPid)
 
-        // 6. Enumerate children.
-        val children = WineSpikeNative.enumChildrenNative(winePid)
-        evidence["childCount"] = children.size.toString()
-
-        // 7. Verdict: the S-1 proof is that LD_DEBUG=libs shows the APK-managed
-        //    loader (libld_linux_x86_64.so) loading the glibc closure (libc.so.6,
-        //    libdl.so.2, etc.) via the symlink tree. This proves the effective
-        //    loader is APK-managed and the closure resolves correctly.
-        val ok = sawApkLoader && sawLibcViaSymlink && sawLibdlViaSymlink
-        val code = if (ok) "LOADER_PROVEN" else "LOADER_NOT_PROVEN"
-
-        // Clean up: kill the wine process tree.
-        if (winePid > 0) {
-            try {
-                Runtime.getRuntime().exec(arrayOf("kill", "-9", winePid.toString())).waitFor()
-                for (childPid in children) {
-                    Runtime.getRuntime().exec(arrayOf("kill", "-9", childPid.toString())).waitFor()
-                }
-            } catch (e: Exception) {
-                AppLog.w(TAG, "cleanup kill failed: ${e.message}")
+        // If default proot mode fails, retry with PROOT_NO_SECCOMP=1. proot's
+        // seccomp-filter acceleration installs a seccomp filter on the traced
+        // child; in the app domain that may interact with the existing
+        // untrusted_app filter. PROOT_NO_SECCOMP disables acceleration, falling
+        // back to pure-ptrace. We record the exact syscall evidence for both.
+        val prootDefaultOk = prootProof != null &&
+            prootProof.sawApkLoader && prootProof.sawLibcResolved && prootProof.sawLibdlResolved
+        var prootNoSeccompProof: LoaderProof? = null
+        if (!prootDefaultOk) {
+            AppLog.i(TAG, "S-5(b): proot fallback path (PROOT_NO_SECCOMP=1)")
+            val noSecExtraEnv = mutableListOf("PROOT_NO_SECCOMP=1")
+            if (effectiveTunables.isNotEmpty()) noSecExtraEnv += "GLIBC_TUNABLES=$effectiveTunables"
+            val prootNsPid = WineSpikeNative.launchWineViaProotNative(
+                nativeDir, wineTarget, prefixDir.absolutePath, "", "--version",
+                noSecExtraEnv.joinToString(";"))
+            evidence["s5b_prootNoSeccompPid"] = prootNsPid.toString()
+            if (prootNsPid > 0) {
+                Thread.sleep(1000)
+                evidence["s5b_prootNoSeccompProcMaps"] = WineSpikeNative.probeLoaderNative(prootNsPid, nativeDir)
+                prootNoSeccompProof = verifyLoaderChainProot(
+                    nativeDir, wineTarget, prefixDir, treeDir, effectiveTunables, useNoSeccomp = true)
+                evidence["s5b_prootNoSeccompRawSummary"] = prootNoSeccompProof.evidence["ldDebugSummary"] ?: ""
             }
+            if (prootNoSeccompProof != null) {
+                evidence.putAll(prootNoSeccompProof.evidence.mapKeys { "prootNs_${it.key}" })
+            }
+            killTree(prootNsPid)
         }
+
+        // =====================================================================
+        // Verdict: S-1 passes ONLY if the production app-process loader chain is
+        // proven. The run-as result is supporting evidence, not acceptance.
+        // =====================================================================
+        val directOk = directProof != null &&
+            directProof.sawApkLoader && directProof.sawLibcResolved && directProof.sawLibdlResolved
+        val trampOk = trampProof != null &&
+            trampProof.sawApkLoader && trampProof.sawLibcResolved && trampProof.sawLibdlResolved
+        val prootOk = prootProof != null &&
+            prootProof.sawApkLoader && prootProof.sawLibcResolved && prootProof.sawLibdlResolved
+        val prootNsOk = prootNoSeccompProof != null &&
+            prootNoSeccompProof.sawApkLoader && prootNoSeccompProof.sawLibcResolved &&
+            prootNoSeccompProof.sawLibdlResolved
+        val ok = directOk || trampOk || prootOk || prootNsOk
+
+        val code = when {
+            ok -> "LOADER_PROVEN" +
+                (if (prootNsOk && !directOk && !prootOk) "_VIA_PROOT_NO_SECCOMP" else "") +
+                (if (prootOk && !directOk) "_VIA_PROOT" else "") +
+                (if (trampOk && !directOk && !prootOk && !prootNsOk) "_VIA_TRAMPOLINE" else "") +
+                (if (effectiveTunables.isNotEmpty()) "_WITH_TUNABLES" else "")
+            diagCause == 1 -> "SIGSYS_SECCOMP_${diagSyscallName.uppercase()}"
+            diagCause == 2 -> "SIGSYS_USER_KILL"
+            diagCause == 3 -> "SIGSYS_KERNEL"
+            diagCause == 0 -> "SIGSYS_CAUSE_UNRESOLVED"
+            else -> "LOADER_NOT_PROVEN"
+        }
+        evidence["directOk"] = directOk.toString()
+        evidence["trampOk"] = trampOk.toString()
+        evidence["prootOk"] = prootOk.toString()
+        evidence["prootNoSeccompOk"] = prootNsOk.toString()
+        evidence["verdict"] = code
 
         val result = if (ok) {
             ExperimentResult.ok("S1", "-", evidence, SystemClock.elapsedRealtime() - t0, code)
         } else {
+            // Honest failure: record the exact cause. Do NOT claim SELinux unless
+            // si_code proves it; do NOT weaken acceptance.
             ExperimentResult.fail("S1", "-", code,
-                listOf("apkLoader=$sawApkLoader libc=$sawLibcViaSymlink libdl=$sawLibdlViaSymlink"),
+                listOf("directOk=$directOk trampOk=$trampOk prootOk=$prootOk " +
+                    "prootNsOk=$prootNsOk diagCause=$diagCause syscall=$diagSyscallName " +
+                    "siCode=$diagSiCode tunables='$effectiveTunables'"),
                 evidence, SystemClock.elapsedRealtime() - t0)
         }
         announce(result)
         result
+    }
+
+    /** Parse a `key=value` field from a pipe-delimited diagnostic string. */
+    private fun parseField(s: String, key: String): String? {
+        // Format: "OK|exit=N|sig=N|...|key=VAL|..."
+        val tok = "$key="
+        val idx = s.indexOf(tok)
+        if (idx < 0) return null
+        val start = idx + tok.length
+        val end = s.indexOf('|', start)
+        return if (end < 0) s.substring(start) else s.substring(start, end)
+    }
+
+    /** Kill a PID and its children if positive. Best-effort. */
+    private fun killTree(pid: Long) {
+        if (pid <= 0) return
+        try {
+            val children = WineSpikeNative.enumChildrenNative(pid)
+            for (c in children) {
+                Runtime.getRuntime().exec(arrayOf("kill", "-9", c.toString())).waitFor()
+            }
+            Runtime.getRuntime().exec(arrayOf("kill", "-9", pid.toString())).waitFor()
+        } catch (e: Exception) {
+            AppLog.w(TAG, "cleanup kill failed: ${e.message}")
+        }
+    }
+
+    /**
+     * LD_DEBUG=libs loader-chain verification via proot. proot is invoked
+     * directly via ProcessBuilder; it ptrace-traces the glibc loader child and
+     * translates access->faccessat. The LD_DEBUG output from the traced child
+     * appears on proot's stderr (proot passes env + fds through). This proves
+     * the APK-managed loader resolves the glibc closure via the symlink tree
+     * EVEN UNDER proot — the effective loader is still the APK-managed one.
+     */
+    private fun verifyLoaderChainProot(
+        nativeDir: String, wineTarget: String, prefixDir: java.io.File,
+        treeDir: java.io.File, tunables: String, useNoSeccomp: Boolean = false
+    ): LoaderProof {
+        val proot = java.io.File(nativeDir, "libproot.so")
+        val loader = java.io.File(nativeDir, "libld_linux_x86_64.so")
+        // --library-path matches the native launcher: tree/lib + tree/lib/wine/x86_64-unix
+        val libPath = "${treeDir.absolutePath}/lib:${treeDir.absolutePath}/lib/wine/x86_64-unix"
+        // Absolute, canonical tmp dir (no '..' — proot does NOT resolve .. in
+        // PROOT_TMP_DIR before checking writability). prefixDir is
+        // filesDir/runtime/wine-prefix; tmp is filesDir/runtime/tmp.
+        val tmpDir = java.io.File(prefixDir.parentFile, "tmp").canonicalFile.absolutePath
+        java.io.File(tmpDir).mkdirs()
+        val env = linkedMapOf(
+            // PROOT_LOADER: APK-managed helper loader (immutable +x). Prevents
+            // proot extracting its embedded loader to PROOT_TMP_DIR (noexec).
+            "PROOT_LOADER" to "$nativeDir/libproot_loader.so",
+            "PROOT_LOADER_32" to "$nativeDir/libproot_loader32.so",
+            // LD_LIBRARY_PATH: proot's Bionic loader finds libtalloc.so here.
+            "LD_LIBRARY_PATH" to nativeDir,
+            "PROOT_TMP_DIR" to tmpDir,       // proot's own temp files (f2fs probe)
+            "WINEPREFIX" to prefixDir.absolutePath,
+            "HOME" to prefixDir.absolutePath,
+            "WINEDLLPATH" to "${treeDir.absolutePath}/lib/wine/x86_64-unix",
+            "LD_DEBUG" to "libs",
+            "WINEDEBUG" to "-all",
+            "PATH" to nativeDir,
+        )
+        if (tunables.isNotEmpty()) env["GLIBC_TUNABLES"] = tunables
+        // Resolve wineTarget to its real nativeLibraryDir path (app domain blocks
+        // execve of filesDir symlinks).
+        val wineReal = try { java.io.File(wineTarget).canonicalFile.absolutePath } catch (e: Exception) { wineTarget }
+        // Loader-as-guest-command form: proot runs the APK glibc loader, which
+        // then runs wine via --library-path. Matches the PROVEN run-as invocation.
+        val pb = ProcessBuilder(
+            proot.absolutePath, "-v", "5",
+            "-b", "$tmpDir:/tmp",
+            "-r", "/", "--link2symlink",
+            loader.absolutePath, "--library-path", libPath, wineReal, "--version")
+        pb.redirectErrorStream(true)
+        pb.environment().putAll(env)
+        val out = try {
+            val proc = pb.start()
+            val text = proc.inputStream.bufferedReader().use { it.readText() }
+            val exitCode = proc.waitFor()
+            "EXIT=$exitCode\n$text"
+        } catch (e: Exception) {
+            "EXCEPTION: ${e.javaClass.simpleName}: ${e.message}"
+        }
+        val sawApk = out.contains("libld_linux_x86_64.so")
+        val sawLibc = out.contains("libc.so.6") && out.contains("calling init:")
+        val sawLibdl = out.contains("libdl.so.2")
+        val sawVersion = out.contains("wine-")
+        val summary = out.lineSequence().take(20).joinToString(" | ")
+        return LoaderProof(
+            sawApkLoader = sawApk,
+            sawLibcResolved = sawLibc,
+            sawLibdlResolved = sawLibdl,
+            evidence = mapOf(
+                "ldDebugApkLoader" to sawApk.toString(),
+                "ldDebugLibcResolved" to sawLibc.toString(),
+                "ldDebugLibdlResolved" to sawLibdl.toString(),
+                "ldDebugSawWineVersion" to sawVersion.toString(),
+                "ldDebugSummary" to summary.take(500),
+                "ldDebugUsedTunables" to tunables,
+                "ldDebugUsedProot" to "true",
+                "ldDebugUsedNoSeccomp" to useNoSeccomp.toString(),
+            )
+        )
+    }
+
+    /**
+     * LD_DEBUG=libs loader-chain verification, with optional GLIBC_TUNABLES and
+     * optional trampoline launch. Returns the proof of the APK-managed loader
+     * resolving the glibc closure via the symlink tree.
+     */
+    private fun verifyLoaderChainEx(
+        nativeDir: String, wineTarget: String, prefixDir: java.io.File,
+        treeDir: java.io.File, tunables: String, useTrampoline: Boolean = false
+    ): LoaderProof {
+        val libPath = "${treeDir.absolutePath}/lib"
+        val env = linkedMapOf(
+            "WINEPREFIX" to prefixDir.absolutePath,
+            "HOME" to prefixDir.absolutePath,
+            "WINEDLLPATH" to "${treeDir.absolutePath}/lib/wine/x86_64-unix",
+            "LD_DEBUG" to "libs",
+            "WINEDEBUG" to "-all",
+            "PATH" to nativeDir,
+        )
+        if (tunables.isNotEmpty()) env["GLIBC_TUNABLES"] = tunables
+
+        val out = if (useTrampoline) {
+            // The trampoline is a PIE binary; invoke it via ProcessBuilder so we
+            // capture its stdout/stderr. argv: trampoline loader --library-path lib wine --version
+            val tramp = java.io.File(nativeDir, "libwine_trampoline.so")
+            val loader = java.io.File(nativeDir, "libld_linux_x86_64.so")
+            val pb = ProcessBuilder(
+                tramp.absolutePath, loader.absolutePath,
+                "--library-path", libPath, wineTarget, "--version")
+            pb.redirectErrorStream(true)
+            pb.environment().putAll(env)
+            try {
+                val proc = pb.start()
+                val text = proc.inputStream.bufferedReader().use { it.readText() }
+                val exitCode = proc.waitFor()
+                "EXIT=$exitCode\n$text"
+            } catch (e: Exception) {
+                "EXCEPTION: ${e.javaClass.simpleName}: ${e.message}"
+            }
+        } else {
+            val loader = java.io.File(nativeDir, "libld_linux_x86_64.so")
+            val pb = ProcessBuilder(
+                loader.absolutePath, "--library-path", libPath,
+                wineTarget, "--version")
+            pb.redirectErrorStream(true)
+            pb.environment().putAll(env)
+            try {
+                val proc = pb.start()
+                val text = proc.inputStream.bufferedReader().use { it.readText() }
+                val exitCode = proc.waitFor()
+                "EXIT=$exitCode\n$text"
+            } catch (e: Exception) {
+                "EXCEPTION: ${e.javaClass.simpleName}: ${e.message}"
+            }
+        }
+        val sawApk = out.contains("libld_linux_x86_64.so")
+        val sawLibc = out.contains("libc.so.6") && out.contains("calling init:")
+        val sawLibdl = out.contains("libdl.so.2")
+        val summary = out.lineSequence().take(20).joinToString(" | ")
+        return LoaderProof(
+            sawApkLoader = sawApk,
+            sawLibcResolved = sawLibc,
+            sawLibdlResolved = sawLibdl,
+            evidence = mapOf(
+                "ldDebugApkLoader" to sawApk.toString(),
+                "ldDebugLibcResolved" to sawLibc.toString(),
+                "ldDebugLibdlResolved" to sawLibdl.toString(),
+                "ldDebugSummary" to summary.take(500),
+                "ldDebugUsedTunables" to tunables,
+                "ldDebugUsedTrampoline" to useTrampoline.toString(),
+            )
+        )
     }
 
     /**

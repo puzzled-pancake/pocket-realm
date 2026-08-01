@@ -53,6 +53,31 @@ Java_com_pocketrealm_wine_WineSpikeNative_launchWineNative(
     return (jlong)pid;
 }
 
+/* S-5 extended launch: accepts an extra_env string for GLIBC_TUNABLES etc. */
+JNIEXPORT jlong JNICALL
+Java_com_pocketrealm_wine_WineSpikeNative_launchWineExNative(
+        JNIEnv *env, jobject /*this*/,
+        jstring jNativeDir, jstring jWineTarget, jstring jPrefixDir, jstring jDisplay,
+        jstring jWineArgs, jstring jExtraEnv) {
+    const char *native_dir = env->GetStringUTFChars(jNativeDir, nullptr);
+    const char *wine_target = env->GetStringUTFChars(jWineTarget, nullptr);
+    const char *prefix_dir = env->GetStringUTFChars(jPrefixDir, nullptr);
+    const char *display = jDisplay ? env->GetStringUTFChars(jDisplay, nullptr) : "";
+    const char *wine_args = jWineArgs ? env->GetStringUTFChars(jWineArgs, nullptr) : "";
+    const char *extra_env = jExtraEnv ? env->GetStringUTFChars(jExtraEnv, nullptr) : "";
+    int64_t pid = -1;
+    int rc = wine_spike_launch_wine_ex(native_dir, wine_target, prefix_dir,
+                                       display, wine_args, extra_env, &pid);
+    env->ReleaseStringUTFChars(jNativeDir, native_dir);
+    env->ReleaseStringUTFChars(jWineTarget, wine_target);
+    env->ReleaseStringUTFChars(jPrefixDir, prefix_dir);
+    if (jDisplay) env->ReleaseStringUTFChars(jDisplay, display);
+    if (jWineArgs) env->ReleaseStringUTFChars(jWineArgs, wine_args);
+    if (jExtraEnv) env->ReleaseStringUTFChars(jExtraEnv, extra_env);
+    if (rc != WINE_SPIKE_OK) return -1;
+    return (jlong)pid;
+}
+
 JNIEXPORT jstring JNICALL
 Java_com_pocketrealm_wine_WineSpikeNative_probeLoaderNative(
         JNIEnv *env, jobject /*this*/,
@@ -119,6 +144,122 @@ JNIEXPORT jstring JNICALL
 Java_com_pocketrealm_wine_WineSpikeNative_errStrNative(
         JNIEnv *env, jobject /*this*/, jint jCode) {
     return env->NewStringUTF(wine_spike_err_str(jCode));
+}
+
+/* S-5(0): SIGSYS diagnostic. Returns a structured string capturing the ptrace
+ * result so the Kotlin runner can classify the cause without assuming SELinux.
+ * Format:
+ *   "OK|exit=N|sig=N|si_code=N|syscall=M|name=rseq|arch=0xc|cause=C"
+ *   "OK|exit=N|cause=NONE"            (clean exit, no signal)
+ *   "FAIL|rc=N|err=..."               (tracer setup failure)
+ * cause codes: 0=UNRESOLVED 1=SECCOMP 2=USER 3=KERNEL 4=NONE
+ */
+JNIEXPORT jstring JNICALL
+Java_com_pocketrealm_wine_WineSpikeNative_diagSigsysNative(
+        JNIEnv *env, jobject /*this*/,
+        jstring jNativeDir, jstring jWineTarget, jstring jPrefixDir,
+        jstring jDisplay, jstring jWineArgs) {
+    const char *native_dir = env->GetStringUTFChars(jNativeDir, nullptr);
+    const char *wine_target = env->GetStringUTFChars(jWineTarget, nullptr);
+    const char *prefix_dir = env->GetStringUTFChars(jPrefixDir, nullptr);
+    const char *display = jDisplay ? env->GetStringUTFChars(jDisplay, nullptr) : "";
+    const char *wine_args = jWineArgs ? env->GetStringUTFChars(jWineArgs, nullptr) : "";
+
+    struct wine_spike_sigsys_result r;
+    int rc = wine_spike_diag_sigsys(native_dir, wine_target, prefix_dir,
+                                    display, wine_args, &r);
+    env->ReleaseStringUTFChars(jNativeDir, native_dir);
+    env->ReleaseStringUTFChars(jWineTarget, wine_target);
+    env->ReleaseStringUTFChars(jPrefixDir, prefix_dir);
+    if (jDisplay) env->ReleaseStringUTFChars(jDisplay, display);
+    if (jWineArgs) env->ReleaseStringUTFChars(jWineArgs, wine_args);
+
+    char out[1024];
+    if (rc != WINE_SPIKE_OK) {
+        snprintf(out, sizeof(out), "FAIL|rc=%d|err=%s", rc, wine_spike_err_str(rc));
+    } else {
+        snprintf(out, sizeof(out),
+                 "OK|exit=%d|sig=%d|si_code=%d|syscall=%lld|name=%s|arch=0x%x|cause=%d",
+                 r.exit_status, r.terminated_by_signo, r.sig_code,
+                 r.syscall_nr, r.syscall_name[0] ? r.syscall_name : "?",
+                 r.arch, r.cause);
+    }
+    return env->NewStringUTF(out);
+}
+
+/* S-5(a): launch Wine via the APK-packaged Bionic trampoline PIE. Returns the
+ * trampoline-launched child PID, or -1 on failure. */
+JNIEXPORT jlong JNICALL
+Java_com_pocketrealm_wine_WineSpikeNative_launchWineViaTrampolineNative(
+        JNIEnv *env, jobject /*this*/,
+        jstring jNativeDir, jstring jWineTarget, jstring jPrefixDir,
+        jstring jDisplay, jstring jWineArgs) {
+    const char *native_dir = env->GetStringUTFChars(jNativeDir, nullptr);
+    const char *wine_target = env->GetStringUTFChars(jWineTarget, nullptr);
+    const char *prefix_dir = env->GetStringUTFChars(jPrefixDir, nullptr);
+    const char *display = jDisplay ? env->GetStringUTFChars(jDisplay, nullptr) : "";
+    const char *wine_args = jWineArgs ? env->GetStringUTFChars(jWineArgs, nullptr) : "";
+    int64_t pid = -1;
+    int rc = wine_spike_launch_wine_via_trampoline(native_dir, wine_target, prefix_dir,
+                                                    display, wine_args, &pid);
+    env->ReleaseStringUTFChars(jNativeDir, native_dir);
+    env->ReleaseStringUTFChars(jWineTarget, wine_target);
+    env->ReleaseStringUTFChars(jPrefixDir, prefix_dir);
+    if (jDisplay) env->ReleaseStringUTFChars(jDisplay, display);
+    if (jWineArgs) env->ReleaseStringUTFChars(jWineArgs, wine_args);
+    if (rc != WINE_SPIKE_OK) return -1;
+    return (jlong)pid;
+}
+
+/* S-5(a) extended: trampoline launch with extra_env (GLIBC_TUNABLES etc.). */
+JNIEXPORT jlong JNICALL
+Java_com_pocketrealm_wine_WineSpikeNative_launchWineViaTrampolineExNative(
+        JNIEnv *env, jobject /*this*/,
+        jstring jNativeDir, jstring jWineTarget, jstring jPrefixDir,
+        jstring jDisplay, jstring jWineArgs, jstring jExtraEnv) {
+    const char *native_dir = env->GetStringUTFChars(jNativeDir, nullptr);
+    const char *wine_target = env->GetStringUTFChars(jWineTarget, nullptr);
+    const char *prefix_dir = env->GetStringUTFChars(jPrefixDir, nullptr);
+    const char *display = jDisplay ? env->GetStringUTFChars(jDisplay, nullptr) : "";
+    const char *wine_args = jWineArgs ? env->GetStringUTFChars(jWineArgs, nullptr) : "";
+    const char *extra_env = jExtraEnv ? env->GetStringUTFChars(jExtraEnv, nullptr) : "";
+    int64_t pid = -1;
+    int rc = wine_spike_launch_wine_via_trampoline_ex(native_dir, wine_target, prefix_dir,
+                                                       display, wine_args, extra_env, &pid);
+    env->ReleaseStringUTFChars(jNativeDir, native_dir);
+    env->ReleaseStringUTFChars(jWineTarget, wine_target);
+    env->ReleaseStringUTFChars(jPrefixDir, prefix_dir);
+    if (jDisplay) env->ReleaseStringUTFChars(jDisplay, display);
+    if (jWineArgs) env->ReleaseStringUTFChars(jWineArgs, wine_args);
+    if (jExtraEnv) env->ReleaseStringUTFChars(jExtraEnv, extra_env);
+    if (rc != WINE_SPIKE_OK) return -1;
+    return (jlong)pid;
+}
+
+/* S-5(b): launch Wine via proot (syscall interception). Returns the proot
+ * process PID, or -1 on failure. Wine/wineserver run as proot's traced children. */
+JNIEXPORT jlong JNICALL
+Java_com_pocketrealm_wine_WineSpikeNative_launchWineViaProotNative(
+        JNIEnv *env, jobject /*this*/,
+        jstring jNativeDir, jstring jWineTarget, jstring jPrefixDir,
+        jstring jDisplay, jstring jWineArgs, jstring jExtraEnv) {
+    const char *native_dir = env->GetStringUTFChars(jNativeDir, nullptr);
+    const char *wine_target = env->GetStringUTFChars(jWineTarget, nullptr);
+    const char *prefix_dir = env->GetStringUTFChars(jPrefixDir, nullptr);
+    const char *display = jDisplay ? env->GetStringUTFChars(jDisplay, nullptr) : "";
+    const char *wine_args = jWineArgs ? env->GetStringUTFChars(jWineArgs, nullptr) : "";
+    const char *extra_env = jExtraEnv ? env->GetStringUTFChars(jExtraEnv, nullptr) : "";
+    int64_t pid = -1;
+    int rc = wine_spike_launch_wine_via_proot(native_dir, wine_target, prefix_dir,
+                                              display, wine_args, extra_env, &pid);
+    env->ReleaseStringUTFChars(jNativeDir, native_dir);
+    env->ReleaseStringUTFChars(jWineTarget, wine_target);
+    env->ReleaseStringUTFChars(jPrefixDir, prefix_dir);
+    if (jDisplay) env->ReleaseStringUTFChars(jDisplay, display);
+    if (jWineArgs) env->ReleaseStringUTFChars(jWineArgs, wine_args);
+    if (jExtraEnv) env->ReleaseStringUTFChars(jExtraEnv, extra_env);
+    if (rc != WINE_SPIKE_OK) return -1;
+    return (jlong)pid;
 }
 
 } /* extern "C" */

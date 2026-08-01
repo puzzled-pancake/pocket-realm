@@ -31,12 +31,51 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
+/*
+ * Parse a "KEY=VAL;KEY=VAL;..." string into the extra_slots[] buffer and push
+ * pointers into envp[]. Used to inject optional env (e.g. GLIBC_TUNABLES for
+ * the rseq/clone3 fallback) without widening the per-call envp array. The
+ * string is copied into extra_slots (a stable buffer owned by the child stack)
+ * so the pointers remain valid through execve.
+ *
+ * Returns the number of extra env entries added. *ei is advanced.
+ */
+static int push_extra_env(const char *extra_env,
+                          char *extra_slots, size_t slot_cap,
+                          const char **envp, int *ei, int envp_cap) {
+    if (!extra_env || !*extra_env) return 0;
+    /* Copy the whole string into the stable buffer first. */
+    size_t len = strlen(extra_env);
+    if (len >= slot_cap) len = slot_cap - 1;
+    memcpy(extra_slots, extra_env, len);
+    extra_slots[len] = '\0';
+    int added = 0;
+    char *tok = strtok(extra_slots, ";");
+    while (tok && *ei < envp_cap - 1) {
+        envp[(*ei)++] = tok;
+        added++;
+        tok = strtok(NULL, ";");
+    }
+    return added;
+}
+
 int wine_spike_launch_wine(const char *native_dir,
                            const char *wine_target,
                            const char *prefix_dir,
                            const char *display,
                            const char *wine_args,
                            int64_t *out_pid) {
+    return wine_spike_launch_wine_ex(native_dir, wine_target, prefix_dir,
+                                     display, wine_args, NULL, out_pid);
+}
+
+int wine_spike_launch_wine_ex(const char *native_dir,
+                              const char *wine_target,
+                              const char *prefix_dir,
+                              const char *display,
+                              const char *wine_args,
+                              const char *extra_env,
+                              int64_t *out_pid) {
     if (!native_dir || !wine_target || !prefix_dir || !out_pid)
         return WINE_SPIKE_ERR_ARGS;
 
@@ -113,7 +152,7 @@ int wine_spike_launch_wine(const char *native_dir,
         /* Build a minimal environment. We do NOT inherit the Android environment
          * (Bionic paths would confuse glibc). Wine needs WINEPREFIX + PATH + HOME
          * + DISPLAY (if a display is configured). */
-        const char *envp[16];
+        const char *envp[24];
         int ei = 0;
         envp[ei++] = env_prefix;
         /* LD_DEBUG=libs: makes the glibc loader print its library resolution to
@@ -123,41 +162,29 @@ int wine_spike_launch_wine(const char *native_dir,
         envp[ei++] = "LD_DEBUG=libs";
         /* WINEDEBUG helps diagnose loader/PE resolution during the spike. */
         envp[ei++] = "WINEDEBUG=-all";
-        /* WINEDLLPATH: Wine finds its unix .so modules (ntdll.so etc.) by
-         * computing a path relative to its own binary location — but since the
-         * binary is a symlink to nativeLibraryDir, that path is wrong. WINEDLLPATH
-         * overrides the search: Wine looks for <entry>/<arch>/ntdll.so, so we
-         * point it at the symlink tree's lib/wine/x86_64-unix dir with the arch
-         * stripped (it appends /x86_64 itself). Actually the format is
-         * %s%s/ntdll.so where %s=entry, %s=arch — so entry should be the dir
-         * CONTAINING the arch dir. We set it to tree/lib/wine so Wine looks for
-         * tree/lib/wine/x86_64/ntdll.so... but our files are in x86_64-unix.
-         * The simplest working form: set WINEDLLPATH to the exact dir and use
-         * a trailing slash so the arch prefix is empty. */
         char env_dllpath[WINE_SPIKE_PATH_MAX + 32];
         snprintf(env_dllpath, sizeof(env_dllpath), "WINEDLLPATH=%s/lib/wine/x86_64-unix", tree_dir);
         envp[ei++] = env_dllpath;
-        /* Set HOME to the prefix's parent (filesDir) so Wine can find user data. */
         char env_home[WINE_SPIKE_PATH_MAX + 16];
         snprintf(env_home, sizeof(env_home), "HOME=%s", prefix_dir);
         envp[ei++] = env_home;
-        /* TMPDIR: Wine needs a writable temp dir for its server socket (/tmp/.wine-<uid>
-         * is not writable on Android). Point it at filesDir/runtime/tmp. */
         char env_tmpdir[WINE_SPIKE_PATH_MAX + 16];
         snprintf(env_tmpdir, sizeof(env_tmpdir), "TMPDIR=%s/../tmp", prefix_dir);
         envp[ei++] = env_tmpdir;
-        /* PATH: only the glibc bin dir (where the loader can find wine tools). */
         char env_path[WINE_SPIKE_PATH_MAX + 32];
         snprintf(env_path, sizeof(env_path), "PATH=%s", native_dir);
         envp[ei++] = env_path;
-        /* DISPLAY: if provided (for the X-server harness in S-3). */
         if (display && *display) {
             static char env_display[256];
             snprintf(env_display, sizeof(env_display), "DISPLAY=%s", display);
             envp[ei++] = env_display;
         }
-        /* WINEDLLOVERRIDES: force builtin modules (proves the PE cache is used). */
         envp[ei++] = "WINEDLLOVERRIDES=msvcrt,b=n;kernelbase=b";
+        /* Optional extra env (S-5: GLIBC_TUNABLES for rseq/clone3 disable, etc.).
+         * Copied into a stable child-stack buffer so pointers survive execve. */
+        char extra_slots[1024];
+        push_extra_env(extra_env, extra_slots, sizeof(extra_slots),
+                       envp, &ei, (int)(sizeof(envp) / sizeof(envp[0])));
         envp[ei] = NULL;
 
         /* The child inherits the parent's stderr (fd 2), which goes to logcat.
