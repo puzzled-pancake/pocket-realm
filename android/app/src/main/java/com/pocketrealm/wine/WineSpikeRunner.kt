@@ -884,9 +884,12 @@ class WineSpikeRunner(private val context: Context) {
 
         AppLog.i(TAG, "S-2: synchronous wineboot --init via proot (argv0=wineboot)")
         val bootRaw = try {
+            // LD_DEBUG is disabled for S-2 (it's the S-1 loader proof and
+            // would crowd out wineboot's own output). WINEDEBUG=+module,+loaddll
+            // captures PE module resolution from the cache.
             WineSpikeNative.runWineViaProotNative(
                 nativeDir, winebootTarget, "wineboot", prefixDir.absolutePath,
-                "", "--init", "WINEDEBUG=+module,+loaddll", 60_000)
+                "", "--init", "LD_DEBUG=;WINEDEBUG=+module,+loaddll", 60_000)
         } catch (e: Exception) {
             evidence["winebootRunException"] = "${e.javaClass.simpleName}: ${e.message}"
             ""

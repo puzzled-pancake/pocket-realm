@@ -478,7 +478,13 @@ int wine_spike_run_wine_via_proot(const char *native_dir,
         if (strncmp(extra_ptrs[i], "WINEDEBUG=", 10) == 0) { caller_has_winedebug = 1; break; }
     }
     if (!caller_has_winedebug) envp[ei++] = "WINEDEBUG=-all";
-    envp[ei++] = "LD_DEBUG=libs";
+    /* LD_DEBUG=libs is the S-1 loader-chain proof. Allow the caller to override
+     * (e.g. to disable it for S-2 so wineboot's own stderr isn't crowded out). */
+    int caller_has_lddebug = 0;
+    for (int i = 0; i < n_extra; i++) {
+        if (strncmp(extra_ptrs[i], "LD_DEBUG=", 9) == 0) { caller_has_lddebug = 1; break; }
+    }
+    if (!caller_has_lddebug) envp[ei++] = "LD_DEBUG=libs";
     if (env_display[0]) envp[ei++] = env_display;
     for (int i = 0; i < n_extra && ei < 31; i++) envp[ei++] = extra_ptrs[i];
     envp[ei] = NULL;
