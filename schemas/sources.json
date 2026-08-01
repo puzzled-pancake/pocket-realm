@@ -173,6 +173,7 @@
       "release_date": "2026-05-17",
       "source_tarball": "mingw-w64-gcc-16.1.0-5.src.tar.zst",
       "source_tarball_url": "https://repo.msys2.org/mingw/sources/mingw-w64-gcc-16.1.0-5.src.tar.zst",
+      "source_tarball_sha256": "947166ed372d28ab8ffa25a66bc5e37a60a42e96a686424ce58cad304fcaea15",
       "package_sha256": "c945e6fa308b6077ec50c1c628990e24d719af872daf484884668efc21dcfbde",
       "role": "Host cross-toolchain for the O06 self-test PE (32-bit Win32). Produces pocket_selftest.exe via tools/build_selftest_pe.py. The source-archive SHA-256 is computed and recorded at fetch time (MSYS2 publishes only a PGP .sig for source archives, not a hash).",
       "license": "GPL-3.0-or-later with GCC runtime exception; MinGW-w64 ZPL/public-domain headers",

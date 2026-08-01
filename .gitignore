@@ -34,6 +34,12 @@ native/.providers/
 native/.providers-extracted/
 runtime/glibc-rootfs-x86_64/
 runtime/wine-x86/
+# The glibc build workspace (termux-pacman checkout + vendored harness).
+native/.glibc-build/
+# The self-test PE is a deterministic build artifact of build_selftest_pe.py
+# (regenerated from pocket_selftest.c); its hash is recorded by the build.
+runtime/wine-x86_64-wow64/selftest/*.exe
+runtime/wine-x86_64-wow64/selftest/*.exe.sha256
 
 # ZCode local session data
 .zcode/
