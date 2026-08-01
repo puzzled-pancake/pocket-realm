@@ -108,7 +108,7 @@
       "license": "MIT",
       "role": "X11 Display Manager Control Protocol (transitive dep of libxcb).",
       "provides": [
-        "libXdmcp.so.0"
+        "libXdmcp.so.6"
       ],
       "depends_on": [],
       "build_recipe": "gpkg/libxdmcp/build.sh"
