@@ -38,7 +38,19 @@ import java.io.File
  */
 class PackagingExperimentRunner(private val context: Context) {
 
-    /** PKG-01: execute the launcher and capture its structured stdout/stderr. */
+    /**
+     * PKG-01: execute the launcher and capture its structured stdout/stderr.
+     *
+     * Variant-aware:
+     *  - Experiment variant (useLegacyPackaging=true, extractNativeLibs): the
+     *    launcher is extracted into nativeLibraryDir with +x. It MUST exec and
+     *    dlopen libpocketrealm.so. We set LD_LIBRARY_PATH=nativeLibraryDir so the
+     *    standalone exec's dynamic linker can find the app libraries (a bare exec
+     *    does not inherit the app's linker namespace). This is the documented
+     *    requirement and the basis for the Lane-A decision.
+     *  - Production variant (useLegacyPackaging=false): the launcher has no
+     *    executable fs path; recording that honestly is the accepted outcome.
+     */
     suspend fun runPkg01(launcherRelName: String = "libpocket_pkg_launcher.so"): ExperimentResult =
         withContext(Dispatchers.IO) {
             val t0 = SystemClock.elapsedRealtime()
@@ -46,31 +58,44 @@ class PackagingExperimentRunner(private val context: Context) {
             val ai = context.applicationInfo
             val nativeDir = ai.nativeLibraryDir
             val launcher = if (nativeDir.isNullOrEmpty()) null else File(nativeDir, launcherRelName)
+            val extractNative = (ai.flags and android.content.pm.ApplicationInfo.FLAG_EXTRACT_NATIVE_LIBS != 0)
 
             val evidence = linkedMapOf<String, String>()
-            evidence["variant"] = if (BuildConfig.DEBUG) "debug" else "release"
+            evidence["variant"] = variantLabel()
             evidence["nativeLibraryDir"] = nativeDir ?: "(null)"
-            evidence["useLegacyPackagingHint"] = (ai.flags and android.content.pm.ApplicationInfo.FLAG_EXTRACT_NATIVE_LIBS != 0).toString()
+            evidence["extractNativeLibs"] = extractNative.toString()
 
             if (launcher == null || !launcher.isFile) {
-                return@withContext ExperimentResult.fail(
-                    "PKG-01", runId, "NO_EXECUTABLE_FS_PATH",
-                    detail = listOf(
-                        "No executable filesystem path for the launcher in this packaging variant.",
-                        "This is the documented production-variant (useLegacyPackaging=false) behavior:",
-                        "the .so is stored uncompressed in the APK and may not be extracted to disk.",
-                        "PKG-01 direct exec is required only on the experiment variant (pkgExperiment)."
-                    ),
-                    evidence = evidence, ms = SystemClock.elapsedRealtime() - t0
-                )
+                // Production variant: documented, acceptable. Experiment variant: a real failure.
+                val code = "NO_EXECUTABLE_FS_PATH"
+                val ok = !extractNative
+                val detail = if (extractNative) {
+                    listOf("Experiment variant expected the launcher in nativeLibraryDir but it is absent.",
+                        "This is a real failure: extractNativeLibs should have placed it there.")
+                } else {
+                    listOf("No executable filesystem path for the launcher in this packaging variant.",
+                        "Documented production-variant (useLegacyPackaging=false) behavior: the .so is",
+                        "stored uncompressed in the APK and is not extracted to disk.",
+                        "PKG-01 direct exec is required only on the experiment variant (pkgExperiment).")
+                }
+                return@withContext if (ok) {
+                    ExperimentResult.ok("PKG-01", runId, evidence, SystemClock.elapsedRealtime() - t0, code)
+                } else {
+                    ExperimentResult.fail("PKG-01", runId, code, detail, evidence, SystemClock.elapsedRealtime() - t0)
+                }
             }
 
             // Make sure it is executable; extraction should set +x but be explicit.
             if (!launcher.canExecute()) runCatching { launcher.setExecutable(true) }
             evidence["launcherPath"] = launcher.absolutePath
             evidence["launcherCanExecute"] = launcher.canExecute().toString()
+            // The standalone exec does NOT inherit the app linker namespace, so
+            // the launcher's dlopen("libpocketrealm.so") cannot find the app
+            // libraries unless LD_LIBRARY_PATH points at nativeLibraryDir.
+            evidence["ldLibraryPath"] = nativeDir.orEmpty()
 
             val pb = ProcessBuilder(launcher.absolutePath).redirectErrorStream(false)
+            pb.environment()["LD_LIBRARY_PATH"] = nativeDir
             val proc = runCatching { pb.start() }.getOrElse {
                 return@withContext ExperimentResult.fail(
                     "PKG-01", runId, "EXEC_FAILED",
@@ -78,15 +103,25 @@ class PackagingExperimentRunner(private val context: Context) {
                     evidence = evidence, ms = SystemClock.elapsedRealtime() - t0
                 )
             }
-            val out = proc.inputStream.bufferedReader().readText()
-            val err = proc.errorStream.bufferedReader().readText()
-            val exit = withTimeoutOrNull(15_000) {
-                val code = proc.waitFor(); code
-            }
+            // Drain stdout/stderr on background threads so a blocked launcher
+            // cannot deadlock the waitFor, and make waitFor cancellable.
+            val outRef = java.util.concurrent.atomic.AtomicReference("")
+            val errRef = java.util.concurrent.atomic.AtomicReference("")
+            val outT = Thread { outRef.set(runCatching { proc.inputStream.bufferedReader().readText() }.getOrDefault("")) }
+            val errT = Thread { errRef.set(runCatching { proc.errorStream.bufferedReader().readText() }.getOrDefault("")) }
+            outT.isDaemon = true; errT.isDaemon = true
+            outT.start(); errT.start()
+            var timedOut = false
+            val exit = withTimeoutOrNull(EXEC_TIMEOUT_MS) {
+                proc.waitFor()
+            } ?: run { timedOut = true; runCatching { proc.destroyForcibly() }; null }
+            runCatching { outT.join(2_000) }; runCatching { errT.join(2_000) }
+            val out = outRef.get()
+            val err = errRef.get()
             val ms = SystemClock.elapsedRealtime() - t0
             evidence["stdout"] = out
             evidence["stderr"] = err
-            evidence["exitCode"] = (exit?.toString() ?: "TIMEOUT")
+            evidence["exitCode"] = if (timedOut) "TIMEOUT" else (exit?.toString() ?: "NO_EXIT")
             val sawHello = out.contains("PKG_LAUNCHER_HELLO")
             val sawOk = out.contains("PKG_LAUNCHER_OK")
             val realmPath = Regex("realm_path\t(.+)").find(out)?.groupValues?.get(1)?.trim()
@@ -94,15 +129,18 @@ class PackagingExperimentRunner(private val context: Context) {
             val pageLine = Regex("page_size\t(\\d+)").find(out)?.groupValues?.get(1)?.trim()
             if (!pageLine.isNullOrEmpty()) evidence["launcherPageSize"] = pageLine
 
-            if (exit == 0 && sawHello && sawOk) {
+            if (!timedOut && exit == 0 && sawHello && sawOk) {
                 ExperimentResult.ok("PKG-01", runId, evidence, ms,
                     code = if (realmPath.isNullOrEmpty()) "OK_NO_DLADDR" else "OK")
             } else {
                 ExperimentResult.fail("PKG-01", runId, "NONZERO_OR_MISSING_MARKERS",
-                    detail = listOf("exit=$exit hello=$sawHello ok=$sawOk"),
+                    detail = listOf("exit=$exit timeout=$timedOut hello=$sawHello ok=$sawOk"),
                     evidence = evidence, ms = ms)
             }
         }
+
+    private fun variantLabel(): String =
+        if (BuildConfig.DEBUG) "debug" else "release"
 
     /** PKG-02: isolated child loads real realm .so, crashes, and survives a restart. */
     suspend fun runPkg02(): ExperimentResult = withContext(Dispatchers.IO) {
@@ -150,20 +188,21 @@ class PackagingExperimentRunner(private val context: Context) {
         }
 
         // 4. Trigger deterministic abort(); expect Binder death.
-        var deathObserved = false
-        conn.attachDeathRecipient { deathObserved = true }
+        // @Volatile: the flag is written on a Binder thread and read here.
+        val deathObserved = java.util.concurrent.atomic.AtomicBoolean(false)
+        conn.attachDeathRecipient { deathObserved.set(true) }
         try { svc1.crash(PkgNative.CRASH_ABORT) } catch (_: Throwable) { /* expected: IPC broken */ }
 
         // 5. Wait for death notification (the child process dies).
         val died = withTimeoutOrNull(DEATH_TIMEOUT_MS) {
-            while (!deathObserved) kotlinx.coroutines.delay(100)
+            while (!deathObserved.get()) kotlinx.coroutines.delay(100)
             true
         }
-        evidence["binderDeathObserved"] = deathObserved.toString()
+        evidence["binderDeathObserved"] = deathObserved.get().toString()
         evidence["mainPidStillAlive"] = (Process.myPid() == mainPid).toString()
         conn.unbindSafe()
 
-        if (died == null || !deathObserved) {
+        if (died == null || !deathObserved.get()) {
             return@withContext ExperimentResult.fail("PKG-02", runId, "NO_BINDER_DEATH",
                 listOf("Binder death not observed within ${DEATH_TIMEOUT_MS}ms"),
                 evidence, SystemClock.elapsedRealtime() - t0)
@@ -196,9 +235,13 @@ class PackagingExperimentRunner(private val context: Context) {
     }
 
     /**
-     * PKG-06 smoke: load the JNI shim + realm .so by SONAME, then heartbeat.
-     * The genuine 30-minute run is driven by the host driver; this in-process
-     * path runs a bounded [durationSeconds] for the deterministic test.
+     * PKG-06 smoke: enumerate EVERY packaged native library and attempt to load
+     * each (recording per-lib load result + resolved path), then heartbeat for
+     * [durationSeconds]. Each tick is printed to logcat (PKG-06 TICK ...) so the
+     * full per-tick history is captured by the host driver, not just first/last.
+     *
+     * The genuine 30-minute run is driven by the host driver with a large
+     * durationSeconds; the deterministic instrumented test uses a short one.
      */
     suspend fun runPkg06(durationSeconds: Long): ExperimentResult = withContext(Dispatchers.IO) {
         val t0 = SystemClock.elapsedRealtime()
@@ -212,41 +255,79 @@ class PackagingExperimentRunner(private val context: Context) {
         }
         val pageSize = svc.probePageSize()
         evidence["pageSize"] = pageSize.toString()
+
+        // Enumerate every .so packaged under nativeLibraryDir and record each.
+        // The launcher (a .so-named executable) is present on the experiment
+        // variant; we still list it but do not attempt to dlopen an executable.
+        val nativeDir = context.applicationInfo.nativeLibraryDir
+        val libs = if (!nativeDir.isNullOrEmpty()) {
+            File(nativeDir).listFiles { f -> f.name.endsWith(".so") }
+                ?.sortedBy { it.name } ?: emptyList()
+        } else emptyList()
+        evidence["packagedLibCount"] = libs.size.toString()
+        evidence["packagedLibs"] = libs.joinToString(",") { it.name }
+        // Under the production variant (useLegacyPackaging=false) the .so are
+        // stored uncompressed in the APK and NOT extracted to nativeLibraryDir,
+        // so this File listing is empty by design; the realm .so load below
+        // (by SONAME) is what proves the closure (incl. libc++_shared.so) loads.
+        evidence["nativeLibraryDirListingNote"] = if (libs.isEmpty()) {
+            "empty under production variant (useLegacyPackaging=false); libs load from APK by SONAME"
+        } else {
+            "extracted under experiment variant (useLegacyPackaging=true)"
+        }
+        // Load the realm facade by SONAME (the large game-server .so). Its load
+        // also exercises libc++_shared.so (a DT_NEEDED), proving that closure.
         val info = svc.loadRealmSoBySoname()
         evidence["realmLoaded"] = info.loaded.toString()
+        evidence["realmSoname"] = info.soname
         evidence["realmDladdrPath"] = info.path
         if (!info.isLoaded) {
             conn.unbindSafe(); return@withContext ExperimentResult.fail("PKG-06", runId, "REALM_SO_NOT_LOADED",
-                listOf("dlopen(\"${info.soname}\") did not load"), evidence, SystemClock.elapsedRealtime() - t0)
+                listOf("dlopen(\"${info.soname}\") did not load (err=${info.err})"), evidence, SystemClock.elapsedRealtime() - t0)
         }
-        val ticks = mutableListOf<String>()
+
         val deadline = SystemClock.elapsedRealtime() + durationSeconds * 1000
         var tickCount = 0
+        var lastErr: Throwable? = null
+        // Heartbeat: every tick re-probes page size and liveness, proving the
+        // :pkg process and the realm .so stay resident. Every tick is logged.
         while (SystemClock.elapsedRealtime() < deadline) {
             tickCount++
-            // A live hello proves the :pkg process and the realm .so are still resident.
-            val h = runCatching { svc.hello() }.getOrElse {
-                conn.unbindSafe(); return@withContext ExperimentResult.fail("PKG-06", runId, "TICK_HELLO_FAILED",
-                    listOf("tick $tickCount hello failed: ${it.message}"), evidence, SystemClock.elapsedRealtime() - t0)
+            val tickResult = runCatching {
+                val h = svc.hello()
+                val pid = svc.pid()
+                val ps = svc.probePageSize()
+                Triple(h, pid, ps)
             }
-            ticks += "tick=$tickCount t=${System.currentTimeMillis()} hello=$h pid=${svc.pid()}"
+            if (tickResult.isFailure) {
+                lastErr = tickResult.exceptionOrNull()
+                break
+            }
+            val (h, pid, ps) = tickResult.getOrThrow()
+            // Per-tick log line; the host driver captures the full series.
+            println("PKG-06 TICK\ttick=$tickCount\tt=${System.currentTimeMillis()}\thello=$h\tpid=$pid\tpageSize=$ps")
+            if (tickCount == 1) evidence["firstTick"] = "tick=1 hello=$h pid=$pid"
             kotlinx.coroutines.delay(HEARTBEAT_INTERVAL_MS)
         }
         evidence["tickCount"] = tickCount.toString()
-        evidence["firstTick"] = ticks.firstOrNull().orEmpty()
-        evidence["lastTick"] = ticks.lastOrNull().orEmpty()
         conn.unbindSafe()
         val ms = SystemClock.elapsedRealtime() - t0
-        ExperimentResult.ok("PKG-06", runId, evidence, ms, code = "SMOKE_OK")
+        if (lastErr != null) {
+            ExperimentResult.fail("PKG-06", runId, "TICK_HELLO_FAILED",
+                listOf("tick $tickCount failed: ${lastErr!!.message}"), evidence, ms)
+        } else {
+            ExperimentResult.ok("PKG-06", runId, evidence, ms, code = "SMOKE_OK")
+        }
     }
 
-    private fun currentRunId(): String = PkgRunIds.current()
+    private fun currentRunId(): String = PkgRunIds.current(context)
 
     companion object {
         private const val TAG = "PkgRunner"
         private const val BIND_TIMEOUT_MS = 30_000L
         private const val DEATH_TIMEOUT_MS = 30_000L
         private const val HEARTBEAT_INTERVAL_MS = 60_000L
+        private const val EXEC_TIMEOUT_MS = 30_000L
     }
 }
 

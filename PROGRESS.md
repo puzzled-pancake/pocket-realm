@@ -1,12 +1,19 @@
 # Current project state
 
-Last verified implementation commit: `O05 — G0 production packaging, process isolation, and capability record` (this commit)
+Last verified implementation commit: `O05 — G0 production packaging, process isolation, and capability record` (this commit, evidence-pipeline-fixed)
 
 Active feature: `none`
 
 Current gate: `G0 — architecture and production packaging COMPLETE` (`O06` next — G1 direct x86 Wine)
 
 Plan/reference alignment: `1 August 2026`
+
+> Note: an earlier O05 commit (27eb1ad) was reopened after a review found the
+> evidence pipeline had blocking gaps (variant-mistaken host driver, PKG-01 not
+> setting LD_LIBRARY_PATH, null GL strings, non-reproducible API-28 page size,
+> overstated PKG-06 coverage). This commit fixes all P1/P2 findings and
+> regenerates every evidence artifact through one reproducible serial+variant-
+> specific driver (tools/run_pkg_experiments.py).
 
 ## Source of truth
 

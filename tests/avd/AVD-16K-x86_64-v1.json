@@ -3,7 +3,7 @@
   "reference_document": "docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx",
   "avd_id": "AVD-16K-x86_64-v1",
   "system_image": "system-images;android-35;google_apis_ps16k;x86_64",
-  "captured_at_utc": "2026-08-01T01:27:50.374520+00:00",
+  "captured_at_utc": "2026-08-01T02:38:12.377153+00:00",
   "host": {
     "emulator_version": "Android emulator version 36.6.11.0 (build_id 15507667) (CL:N/A)"
   },
@@ -13,8 +13,9 @@
     "abilist32": "",
     "abilist64": "x86_64,arm64-v8a",
     "page_size_bytes": 16384,
-    "mem_total_kb": 8136552,
-    "df_data_line": "/dev/block/dm-45  10167132 1459504   8560172  15% /data/user/0",
+    "page_size_source": "getconf",
+    "mem_total_kb": 8136556,
+    "df_data_line": "/dev/block/dm-45  10167132 2003600   8016076  20% /data/user/0",
     "gl_host": {
       "egl": "emulation",
       "vulkan": "ranchu",
@@ -22,5 +23,38 @@
     },
     "build_id": "AE3A.240806.043",
     "avd_name": ""
+  },
+  "app": {
+    "testRunId": "111bd58c-cf02-449b-937f-7a10a2416c8f",
+    "allocatableBytes_storageManager": 8195730842,
+    "allocatableVolumeLabel": "noBackupFilesDir",
+    "glVendor_app": "Google (NVIDIA Corporation)",
+    "glRenderer_app": "Android Emulator OpenGL ES Translator (NVIDIA GeForce RTX 5060 Ti/PCIe/SSE2)",
+    "glVersion_app": "OpenGL ES 3.1 (4.5.0 NVIDIA 610.47)",
+    "nativeLibraryDirObserved": "/data/app/~~VlN7xHxWiwhkP1im3fl1QA==/com.pocketrealm-7QE_KBcB4bt0kUTP5DcQrw==/lib/x86_64"
+  },
+  "comparison": {
+    "status": "PASS",
+    "fields": [
+      {
+        "field": "sdkInt",
+        "adb": "35",
+        "app": "35",
+        "ok": true
+      },
+      {
+        "field": "pageSizeBytes",
+        "adb": "16384",
+        "app": "16384",
+        "ok": true
+      },
+      {
+        "field": "abilist64",
+        "adb": "x86_64,arm64-v8a",
+        "app": "x86_64,arm64-v8a",
+        "ok": true
+      }
+    ],
+    "note": "Allocatable storage (StorageManager vs df) and GL strings (app EGL vs host/emulator) are recorded separately and not compared."
   }
 }

@@ -42,15 +42,18 @@ class PackagingExperimentTest {
 
     @Test
     fun t1_capability_report_probes_device_fields() {
-        val report = CapabilityReport.probe(ctx, PkgRunIds.current())
+        val report = CapabilityReport.probe(ctx, PkgRunIds.current(ctx))
         // Sanity: the probe must return real device facts, not blanks.
         assertTrue("api level must be > 0", report.sdkInt > 0)
         assertTrue("page size must be > 0", report.pageSizeBytes > 0)
         assertTrue("abilist must be non-empty", report.abilist.isNotEmpty())
         assertNotNull("testRunId must be set", report.testRunId)
+        // Write the report to a file the host driver pulls + compares.
+        val f = report.writeToFile(ctx)
         println("PKG_CAPABILITY\tapi=${report.sdkInt}\tpage=${report.pageSizeBytes}\t" +
             "abilist=${report.abilist.joinToString(",")}\tallocatable=${report.allocatableBytes}\t" +
-            "glVendor=${report.glVendor}\trunId=${report.testRunId}")
+            "glVendor=${report.glVendor}\tglRenderer=${report.glRenderer}\trunId=${report.testRunId}\t" +
+            "reportPath=${f.absolutePath}")
     }
 
     @Test

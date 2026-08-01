@@ -53,7 +53,7 @@ fun CapabilityScreen(contentPadding: PaddingValues = PaddingValues()) {
 
     LaunchedEffect(Unit) {
         if (report == null) {
-            report = CapabilityReport.probe(context, PkgRunIds.current())
+            report = CapabilityReport.probe(context, PkgRunIds.current(context))
         }
     }
 
@@ -61,7 +61,7 @@ fun CapabilityScreen(contentPadding: PaddingValues = PaddingValues()) {
         scope.launch {
             busy = true
             val r = runCatching { block() }.getOrElse {
-                ExperimentResult.fail("?", PkgRunIds.current(), "EXCEPTION",
+                ExperimentResult.fail("?", PkgRunIds.current(context), "EXCEPTION",
                     listOf("${it.javaClass.simpleName}: ${it.message}"), emptyMap(), 0)
             }
             results = listOf(r) + results

@@ -3,7 +3,7 @@
   "reference_document": "docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx",
   "avd_id": "AVD-Modern-x86_64-v1",
   "system_image": "system-images;android-35;default;x86_64",
-  "captured_at_utc": "2026-08-01T01:24:24.714834+00:00",
+  "captured_at_utc": "2026-08-01T02:38:02.248065+00:00",
   "host": {
     "emulator_version": "Android emulator version 36.6.11.0 (build_id 15507667) (CL:N/A)"
   },
@@ -13,8 +13,9 @@
     "abilist32": "",
     "abilist64": "x86_64",
     "page_size_bytes": 4096,
+    "page_size_source": "getconf",
     "mem_total_kb": 2532436,
-    "df_data_line": "/dev/block/dm-43  10167132 981608   9038068  10% /data/user/0",
+    "df_data_line": "/dev/block/dm-43  10167132 1350224   8669452  14% /data/user/0",
     "gl_host": {
       "egl": "emulation",
       "vulkan": "ranchu",
@@ -22,5 +23,38 @@
     },
     "build_id": "AE3A.240806.019",
     "avd_name": ""
+  },
+  "app": {
+    "testRunId": "ca7cc184-2851-4468-85aa-03dcecb7d339",
+    "allocatableBytes_storageManager": 8865254810,
+    "allocatableVolumeLabel": "noBackupFilesDir",
+    "glVendor_app": "Google (NVIDIA Corporation)",
+    "glRenderer_app": "Android Emulator OpenGL ES Translator (NVIDIA GeForce RTX 5060 Ti/PCIe/SSE2)",
+    "glVersion_app": "OpenGL ES 3.1 (4.5.0 NVIDIA 610.47)",
+    "nativeLibraryDirObserved": "/data/app/~~PjiqNmJjCi9WprSvTaEmfQ==/com.pocketrealm-0-WqPwRlmQhyXtJnyj63WA==/lib/x86_64"
+  },
+  "comparison": {
+    "status": "PASS",
+    "fields": [
+      {
+        "field": "sdkInt",
+        "adb": "35",
+        "app": "35",
+        "ok": true
+      },
+      {
+        "field": "pageSizeBytes",
+        "adb": "4096",
+        "app": "4096",
+        "ok": true
+      },
+      {
+        "field": "abilist64",
+        "adb": "x86_64",
+        "app": "x86_64",
+        "ok": true
+      }
+    ],
+    "note": "Allocatable storage (StorageManager vs df) and GL strings (app EGL vs host/emulator) are recorded separately and not compared."
   }
 }

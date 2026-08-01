@@ -3,12 +3,15 @@ package com.pocketrealm.pkg
 import android.app.ActivityManager
 import android.content.Context
 import android.content.pm.PackageManager
+import android.opengl.EGL14
+import android.opengl.GLES20
 import android.os.Build
 import android.os.storage.StorageManager
 import android.os.storage.StorageVolume
 import android.system.Os
 import android.system.OsConstants
 import androidx.core.content.getSystemService
+import java.io.File
 import java.util.UUID
 
 /**
@@ -79,13 +82,14 @@ data class CapabilityReport(
                 label = "noBackupFilesDir"
             }
 
-            // App GLES strings require a current EGL context; calling glGetString
-            // without one can crash native-side, so we do NOT probe GLES here.
-            // The host driver records the host/emulator graphics config; a future
-            // surface-backed probe can populate these from a real GL context.
-            val glVendor: String? = null
-            val glRenderer: String? = null
-            val glVersion: String? = null
+            // App GLES strings: create a short-lived EGL context so glGetString
+            // has a current context (calling it without one is undefined / can
+            // crash native-side). These are the app's in-process GL strings and
+            // are recorded separately from the host/emulator graphics config.
+            val glStrings = probeGlStrings()
+            val glVendor = glStrings?.get(0)
+            val glRenderer = glStrings?.get(1)
+            val glVersion = glStrings?.get(2)
             val hasVulkan = runCatching {
                 context.packageManager.getSystemAvailableFeatures()
                     ?.any { it.name == "android.hardware.vulkan.level" || it.name == "android.hardware.vulkan.compute" || it.name == "android.hardware.vulkan.version" }
@@ -117,5 +121,90 @@ data class CapabilityReport(
                 capturedAtEpochMs = System.currentTimeMillis(),
             )
         }
+
+        /**
+         * Create a short-lived EGL 1.4 context, make it current, and read the
+         * GL vendor/renderer/version strings. Returns null if EGL is unavailable
+         * (e.g. a headless instrumented process without a display). All EGL
+         * resources are torn down before returning.
+         */
+        private fun probeGlStrings(): List<String>? {
+            return runCatching {
+                val display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+                if (display == null || display == EGL14.EGL_NO_DISPLAY) return@runCatching null
+                val vers = IntArray(2)
+                if (!EGL14.eglInitialize(display, vers, 0, vers, 1)) return@runCatching null
+                val cfgAttr = intArrayOf(
+                    EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
+                    EGL14.EGL_SURFACE_TYPE, EGL14.EGL_PBUFFER_BIT,
+                    EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8,
+                    EGL14.EGL_NONE
+                )
+                val configs = arrayOfNulls<android.opengl.EGLConfig>(1)
+                val numCfg = IntArray(1)
+                if (!EGL14.eglChooseConfig(display, cfgAttr, 0, configs, 0, 1, numCfg, 0) || numCfg[0] == 0) {
+                    EGL14.eglTerminate(display); return@runCatching null
+                }
+                val surfAttr = intArrayOf(EGL14.EGL_WIDTH, 1, EGL14.EGL_HEIGHT, 1, EGL14.EGL_NONE)
+                val surface = EGL14.eglCreatePbufferSurface(display, configs[0], surfAttr, 0)
+                if (surface == null || surface == EGL14.EGL_NO_SURFACE) {
+                    EGL14.eglTerminate(display); return@runCatching null
+                }
+                val ctxAttr = intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE)
+                val ctx = EGL14.eglCreateContext(display, configs[0], EGL14.EGL_NO_CONTEXT, ctxAttr, 0)
+                if (ctx == null || ctx == EGL14.EGL_NO_CONTEXT) {
+                    EGL14.eglDestroySurface(display, surface); EGL14.eglTerminate(display); return@runCatching null
+                }
+                EGL14.eglMakeCurrent(display, surface, surface, ctx)
+                val vendor = GLES20.glGetString(GLES20.GL_VENDOR)
+                val renderer = GLES20.glGetString(GLES20.GL_RENDERER)
+                val version = GLES20.glGetString(GLES20.GL_VERSION)
+                EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+                EGL14.eglDestroyContext(display, ctx)
+                EGL14.eglDestroySurface(display, surface)
+                EGL14.eglTerminate(display)
+                listOf(vendor ?: "", renderer ?: "", version ?: "")
+            }.getOrNull()
+        }
+    }
+
+    /** Serialize to JSON for the host driver to pull and compare. */
+    fun toJson(): String {
+        val e = { s: String -> "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\"" }
+        val arr = { xs: List<String> -> xs.joinToString(",", "[", "]") { e(it) } }
+        return buildString {
+            append("{")
+            append("\"testRunId\":").append(e(testRunId)).append(",")
+            append("\"sdkInt\":").append(sdkInt).append(",")
+            append("\"buildId\":").append(e(buildId ?: "")).append(",")
+            append("\"abilist\":").append(arr(abilist)).append(",")
+            append("\"abilist32\":").append(arr(abilist32)).append(",")
+            append("\"abilist64\":").append(arr(abilist64)).append(",")
+            append("\"pageSizeBytes\":").append(pageSizeBytes).append(",")
+            append("\"totalRamBytes\":").append(totalRamBytes).append(",")
+            append("\"allocatableBytes\":").append(allocatableBytes).append(",")
+            append("\"allocatableVolumeLabel\":").append(e(allocatableVolumeLabel)).append(",")
+            append("\"glVendor\":").append(e(glVendor ?: "")).append(",")
+            append("\"glRenderer\":").append(e(glRenderer ?: "")).append(",")
+            append("\"glVersion\":").append(e(glVersion ?: "")).append(",")
+            append("\"vulkanFeature\":").append(vulkanFeature).append(",")
+            append("\"packageName\":").append(e(packageName)).append(",")
+            append("\"processName\":").append(e(processName)).append(",")
+            append("\"nativeLibraryDirObserved\":").append(e(nativeLibraryDirObserved ?: "")).append(",")
+            append("\"capturedAtEpochMs\":").append(capturedAtEpochMs)
+            append("}")
+        }
+    }
+
+    /**
+     * Write the report JSON to a file the host driver can `adb pull`. Returns
+     * the file path. Placed under app-private files so it never holds secrets.
+     */
+    fun writeToFile(context: android.content.Context, name: String = "capability-report.json"): File {
+        val f = File(context.getDir("capability", android.content.Context.MODE_PRIVATE).apply { mkdirs() }, name)
+        val tmp = File(f.parentFile, "$name.tmp")
+        tmp.writeText(toJson())
+        tmp.renameTo(f)
+        return f
     }
 }
