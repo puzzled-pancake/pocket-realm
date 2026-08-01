@@ -52,6 +52,26 @@ OUTPUT_ROOT = ROOT / "runtime" / "glibc-rootfs-x86_64"  # final staged closure
 GLIBC_PACKAGES_ID = "termux-glibc-packages-c9d4de5"
 CGCT_IMAGE = "ghcr.io/termux/package-builder-cgct:latest"
 
+# On Windows, Python's subprocess must use the EXPLICIT Git Bash binary, not
+# PATH resolution: Windows' own bash.exe (System32) is the WSL launcher, which
+# fails with "execvpe(/bin/bash) failed: No such file or directory" when there
+# is no usable WSL distro. Resolve the Git Bash binary the same way the running
+# shell would.
+def _resolve_git_bash() -> str:
+    import shutil
+    candidates = [
+        shutil.which("bash"),  # works when invoked from Git Bash
+        r"C:\Program Files\Git\usr\bin\bash.exe",
+        r"C:\Program Files\Git\bin\bash.exe",
+        str(Path.home() / r"AppData\Local\Programs\Git\usr\bin\bash.exe"),
+    ]
+    for c in candidates:
+        if c and Path(c).is_file():
+            return c
+    return "bash"  # fall back; will fail loudly on Windows without Git
+
+GIT_BASH = _resolve_git_bash()
+
 
 def sha256_of(path: Path) -> str:
     h = hashlib.sha256()
@@ -103,35 +123,75 @@ def clone_glibc_packages(commit: str, dest: Path) -> None:
     run(["git", "-C", str(dest), "checkout", commit])
 
 
+def strip_crlf_sh(repo: Path) -> int:
+    """Strip CRLF line endings from every .sh file in the repo. Required on
+    Windows: git checkout with core.autocrlf=true converts LF->CRLF, and the
+    Linux bash inside the cgct container chokes on the trailing \\r
+    ("$'\\r': command not found"). Python walker avoids the Git Bash glob
+    expansion that breaks find -name '*.sh'."""
+    import os
+    fixed = 0
+    for root, dirs, files in os.walk(repo):
+        if ".git" in dirs:
+            dirs.remove(".git")
+        for fn in files:
+            if fn.endswith(".sh"):
+                p = Path(root) / fn
+                data = p.read_bytes()
+                if b"\r\n" in data:
+                    p.write_bytes(data.replace(b"\r\n", b"\n"))
+                    fixed += 1
+    return fixed
+
+
 def vendor_build_harness(repo: Path) -> str:
     """Run get-build-package.sh, which shallow-clones termux-packages master and
     copies build-package.sh + scripts/ in. Return the termux-packages commit for
     provenance recording (the harness version is otherwise unpinned)."""
-    run(["bash", "get-build-package.sh"], cwd=repo)
-    # Record the cloned termux-packages commit before get-build-package.sh deletes it.
-    # We re-derive it from the copied build-package.sh provenance if available;
-    # otherwise record "master (unpinned by get-build-package.sh)".
-    tp_dir = repo / "termux-packages"
-    if tp_dir.is_dir():
-        r = subprocess.run(["git", "-C", str(tp_dir), "rev-parse", "HEAD"],
-                           capture_output=True, text=True)
-        return r.stdout.strip() or "master (unpinned)"
-    return "master (unpinned by get-build-package.sh)"
+    if (repo / "build-package.sh").is_file():
+        print(f"  (build harness already vendored at {repo})")
+    else:
+        run([GIT_BASH, "get-build-package.sh"], cwd=repo)
+    # Strip CRLF from the freshly-vendored scripts (Windows checkout).
+    n = strip_crlf_sh(repo)
+    print(f"  stripped CRLF from {n} .sh files (Windows checkout fix)")
+    # The cloned termux-packages/ is deleted by get-build-package.sh, so we
+    # cannot read its commit after the fact. Record the harness as unpinned
+    # (master) — a known provenance gap noted in BUILD_PROVENANCE.json.
+    return "master (unpinned by get-build-package.sh — see provenance gap note)"
 
 
 def build_packages(repo: Path, arch: str, pkgs: list[str]) -> Path:
-    """Build each package via the cgct Docker container. Output .pkg.tar.* land
-    in repo/output/. Returns the output dir."""
+    """Build packages via a direct docker run into the cgct container.
+
+    Bypasses scripts/run-docker.sh because that wrapper derives the volume path
+    from $PWD as a /c/... MSYS path, which Docker Desktop cannot resolve; and it
+    injects a seccomp/apparmor profile path that also fails on Windows. Instead
+    we invoke docker directly with the //c/... double-slash mount form Docker
+    Desktop requires and MSYS_NO_PATHCONV=1 to stop Git Bash mangling the
+    container-side Linux paths. No seccomp profile (we are building trusted,
+    pinned, hash-verified packages; the profile is a hardening nicety).
+    Output .pkg.tar.* land in repo/output/. Returns the output dir."""
     out_dir = repo / "output"
     out_dir.mkdir(exist_ok=True)
-    env = dict(**__import__("os").environ, TERMUX_BUILDER_IMAGE_NAME=CGCT_IMAGE)
+    # Docker Desktop expects the Windows drive as //c/... in the volume mount.
+    mount_src = "//" + str(repo).replace("\\", "/").lstrip("/")
+    # Also strip CRLF again (the build may pull additional dep build.sh files
+    # that were checked out with CRLF).
+    strip_crlf_sh(repo)
+    env = dict(**__import__("os").environ, MSYS_NO_PATHCONV="1")
     # -I builds dependencies recursively; --library glibc selects gpkg; --format
     # pacman emits .pkg.tar.* . Build all in one invocation so the dep order
     # resolves within the harness.
-    cmd = ["bash", "scripts/run-docker.sh",
-           "./build-package.sh", "-I", "-a", arch,
-           "--format", "pacman", "--library", "glibc", *pkgs]
-    run(cmd, cwd=repo, env=env)
+    cmd = [
+        "docker", "run", "--rm",
+        "-v", f"{mount_src}:/home/builder/termux-packages",
+        "--workdir", "/home/builder/termux-packages",
+        CGCT_IMAGE,
+        "./build-package.sh", "-I", "-a", arch,
+        "--format", "pacman", "--library", "glibc", *pkgs,
+    ]
+    run(cmd, env=env)
     return out_dir
 
 
