@@ -103,13 +103,15 @@ class WineSpikeRunner(private val context: Context) {
         }
         evidence["symlinkTree"] = treeDir.absolutePath
 
-        // 2. Create the WINEPREFIX dir.
+        // 2. Create the WINEPREFIX + tmp dirs.
         val prefixDir = File(context.filesDir, "runtime/wine-prefix")
         prefixDir.mkdirs()
+        File(context.filesDir, "runtime/tmp").mkdirs()
 
-        // 3. Launch wine via the APK-managed loader. We run `wine wineboot --init`
-        //    which starts wineserver as a child.
-        val wineTarget = File(treeDir, "bin/wine").absolutePath
+        // 3. Launch wineserver --foreground via the APK-managed loader.
+        //    wineserver --foreground stays alive (doesn't daemonize), so we can
+        //    probe its /proc/<pid>/maps before it exits.
+        val wineTarget = File(treeDir, "bin/wineserver").absolutePath
         evidence["wineTarget"] = wineTarget
 
         // For S-1, we don't have the X-server yet, so no DISPLAY.
@@ -121,8 +123,8 @@ class WineSpikeRunner(private val context: Context) {
         }
         evidence["winePid"] = winePid.toString()
 
-        // 4. Give Wine a moment to spawn wineserver.
-        Thread.sleep(2000)
+        // 4. Give wineserver a moment to initialize its loader mappings.
+        Thread.sleep(1000)
 
         // 5. Probe wine's effective loader.
         val wineProbe = WineSpikeNative.probeLoaderNative(winePid, nativeDir)

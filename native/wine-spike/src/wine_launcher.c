@@ -48,16 +48,41 @@ int wine_spike_launch_wine(const char *native_dir,
         return WINE_SPIKE_ERR_LAUNCH;
     }
 
-    /* Build the execve args. */
+    /* Derive the symlink tree's lib/ dir from the wine_target path.
+     * wine_target is <tree_dir>/bin/wine; the lib path is <tree_dir>/lib.
+     * The glibc loader's --library-path must point here (not nativeLibraryDir)
+     * because the APK-managed glibc libs are renamed (lib<soname>.so) and the
+     * loader resolves DT_NEEDED by exact filename. The symlink tree restores
+     * the real SONAME names: tree/lib/libc.so.6 -> native/liblibc.so.6.so.
+     *
+     * We ALSO include the Wine unix module dir (tree/lib/wine/x86_64-unix)
+     * because Wine's loader (ntdll init) dlopen()s its unix .so modules by
+     * bare SONAME (ntdll.so), and the glibc loader needs the directory
+     * containing those symlinks in its search path. The --library-path arg
+     * accepts a colon-separated list. */
+    char tree_dir[WINE_SPIKE_PATH_MAX];
+    snprintf(tree_dir, sizeof(tree_dir), "%s", wine_target);
+    char *bin_pos = strstr(tree_dir, "/bin/");
+    if (bin_pos) {
+        *bin_pos = '\0';  /* tree_dir is now <tree_dir> */
+    } else {
+        snprintf(tree_dir, sizeof(tree_dir), "%s", native_dir);
+    }
+
+    char lib_path[WINE_SPIKE_PATH_MAX * 2];
+    snprintf(lib_path, sizeof(lib_path),
+             "%s/lib:%s/lib/wine/x86_64-unix", tree_dir, tree_dir);
+
+    /* Build the execve args. --library-path points at the symlink tree dirs. */
     const char *argv[] = {
         loader_path,                           /* argv[0] = the loader itself */
         "--library-path",
-        native_dir,                            /* where the glibc closure lives */
+        lib_path,                              /* symlink tree lib dirs (real SONAME names) */
         wine_target,                           /* the wine binary (via symlink tree) */
         NULL,
     };
 
-    LOGI("launch_wine: %s --library-path %s %s", loader_path, native_dir, wine_target);
+    LOGI("launch_wine: %s --library-path %s %s", loader_path, lib_path, wine_target);
 
     pid_t pid = fork();
     if (pid < 0) {
@@ -77,10 +102,29 @@ int wine_spike_launch_wine(const char *native_dir,
         envp[ei++] = env_prefix;
         /* WINEDEBUG helps diagnose loader/PE resolution during the spike. */
         envp[ei++] = "WINEDEBUG=+loaddll,+module,+relay";
+        /* WINEDLLPATH: Wine finds its unix .so modules (ntdll.so etc.) by
+         * computing a path relative to its own binary location — but since the
+         * binary is a symlink to nativeLibraryDir, that path is wrong. WINEDLLPATH
+         * overrides the search: Wine looks for <entry>/<arch>/ntdll.so, so we
+         * point it at the symlink tree's lib/wine/x86_64-unix dir with the arch
+         * stripped (it appends /x86_64 itself). Actually the format is
+         * %s%s/ntdll.so where %s=entry, %s=arch — so entry should be the dir
+         * CONTAINING the arch dir. We set it to tree/lib/wine so Wine looks for
+         * tree/lib/wine/x86_64/ntdll.so... but our files are in x86_64-unix.
+         * The simplest working form: set WINEDLLPATH to the exact dir and use
+         * a trailing slash so the arch prefix is empty. */
+        char env_dllpath[WINE_SPIKE_PATH_MAX + 32];
+        snprintf(env_dllpath, sizeof(env_dllpath), "WINEDLLPATH=%s/lib/wine/x86_64-unix", tree_dir);
+        envp[ei++] = env_dllpath;
         /* Set HOME to the prefix's parent (filesDir) so Wine can find user data. */
         char env_home[WINE_SPIKE_PATH_MAX + 16];
         snprintf(env_home, sizeof(env_home), "HOME=%s", prefix_dir);
         envp[ei++] = env_home;
+        /* TMPDIR: Wine needs a writable temp dir for its server socket (/tmp/.wine-<uid>
+         * is not writable on Android). Point it at filesDir/runtime/tmp. */
+        char env_tmpdir[WINE_SPIKE_PATH_MAX + 16];
+        snprintf(env_tmpdir, sizeof(env_tmpdir), "TMPDIR=%s/../tmp", prefix_dir);
+        envp[ei++] = env_tmpdir;
         /* PATH: only the glibc bin dir (where the loader can find wine tools). */
         char env_path[WINE_SPIKE_PATH_MAX + 32];
         snprintf(env_path, sizeof(env_path), "PATH=%s", native_dir);

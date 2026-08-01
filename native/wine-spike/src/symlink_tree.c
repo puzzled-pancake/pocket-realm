@@ -110,69 +110,86 @@ int wine_spike_build_symlink_tree(const char *tree_dir,
 
     LOGI("build_symlink_tree: tree=%s native=%s", tree_dir, native_dir);
 
-    /* Parse the wine_logical_to_jnilib object from the manifest.
-     * The manifest has: "wine_logical_to_jnilib": { "bin/wine": "libwine_preloader.so", ... }
-     * We iterate by finding the object, then parsing each key-value pair. */
-    const char *obj = find_json_key(manifest_json, "wine_logical_to_jnilib");
-    if (!obj || *obj != '{') {
-        LOGE("wine_logical_to_jnilib not found in manifest");
-        return WINE_SPIKE_ERR_IO;
-    }
-    obj++; /* skip '{' */
-
     int count = 0;
-    while (*obj && *obj != '}') {
-        /* Skip whitespace + commas. */
-        while (*obj == ' ' || *obj == '\t' || *obj == '\n' || *obj == '\r' || *obj == ',')
-            obj++;
-        if (*obj == '}') break;
-        if (*obj != '"') {
-            LOGE("manifest parse error at offset (expected key)");
-            return WINE_SPIKE_ERR_IO;
-        }
-        /* Extract logical path (key). */
-        char logical[WINE_SPIKE_PATH_MAX];
-        int logical_len = copy_json_string(obj, logical, sizeof(logical));
-        if (logical_len < 0) {
-            LOGE("manifest parse error: bad key");
-            return WINE_SPIKE_ERR_IO;
-        }
-        /* Advance past the key string + closing quote. */
-        obj = strchr(obj + 1, '"');
-        if (!obj) return WINE_SPIKE_ERR_IO;
-        obj++; /* past closing quote */
-        /* Skip whitespace + colon. */
-        while (*obj == ' ' || *obj == '\t') obj++;
-        if (*obj != ':') return WINE_SPIKE_ERR_IO;
-        obj++;
-        while (*obj == ' ' || *obj == '\t') obj++;
-        /* Extract jniLib name (value). */
-        char jnilib[512];
-        int jnilib_len = copy_json_string(obj, jnilib, sizeof(jnilib));
-        if (jnilib_len < 0) return WINE_SPIKE_ERR_IO;
-        obj = strchr(obj + 1, '"');
-        if (!obj) return WINE_SPIKE_ERR_IO;
-        obj++;
 
-        /* Build paths: link = tree_dir/logical, target = native_dir/jnilib. */
-        char link_path[WINE_SPIKE_PATH_MAX];
-        char target_path[WINE_SPIKE_PATH_MAX];
-        snprintf(link_path, sizeof(link_path), "%s/%s", tree_dir, logical);
-        snprintf(target_path, sizeof(target_path), "%s/%s", native_dir, jnilib);
+    /* --- 1. Wine logical tree (bin/ + lib/wine/x86_64-unix/) --- */
+    const char *wine_obj = find_json_key(manifest_json, "wine_logical_to_jnilib");
+    if (wine_obj && *wine_obj == '{') {
+        wine_obj++;
+        while (*wine_obj && *wine_obj != '}') {
+            while (*wine_obj == ' ' || *wine_obj == '\t' || *wine_obj == '\n' ||
+                   *wine_obj == '\r' || *wine_obj == ',') wine_obj++;
+            if (*wine_obj == '}') break;
+            if (*wine_obj != '"') {
+                LOGE("wine_logical parse error (expected key)");
+                return WINE_SPIKE_ERR_IO;
+            }
+            char logical[WINE_SPIKE_PATH_MAX];
+            if (copy_json_string(wine_obj, logical, sizeof(logical)) < 0) return WINE_SPIKE_ERR_IO;
+            wine_obj = strchr(wine_obj + 1, '"');
+            if (!wine_obj) return WINE_SPIKE_ERR_IO;
+            wine_obj++;
+            while (*wine_obj == ' ' || *wine_obj == '\t') wine_obj++;
+            if (*wine_obj != ':') return WINE_SPIKE_ERR_IO;
+            wine_obj++;
+            while (*wine_obj == ' ' || *wine_obj == '\t') wine_obj++;
+            char jnilib[512];
+            if (copy_json_string(wine_obj, jnilib, sizeof(jnilib)) < 0) return WINE_SPIKE_ERR_IO;
+            wine_obj = strchr(wine_obj + 1, '"');
+            if (!wine_obj) return WINE_SPIKE_ERR_IO;
+            wine_obj++;
 
-        /* Create the parent dir of link_path. */
-        char parent[WINE_SPIKE_PATH_MAX];
-        snprintf(parent, sizeof(parent), "%s", link_path);
-        char *slash = strrchr(parent, '/');
-        if (slash) {
-            *slash = '\0';
-            mkdir_p(parent);
+            char link_path[WINE_SPIKE_PATH_MAX], target_path[WINE_SPIKE_PATH_MAX];
+            snprintf(link_path, sizeof(link_path), "%s/%s", tree_dir, logical);
+            snprintf(target_path, sizeof(target_path), "%s/%s", native_dir, jnilib);
+            char parent[WINE_SPIKE_PATH_MAX];
+            snprintf(parent, sizeof(parent), "%s", link_path);
+            char *slash = strrchr(parent, '/');
+            if (slash) { *slash = '\0'; mkdir_p(parent); }
+            if (make_symlink(target_path, link_path) != 0) return WINE_SPIKE_ERR_IO;
+            count++;
         }
+    }
 
-        if (make_symlink(target_path, link_path) != 0) {
-            return WINE_SPIKE_ERR_IO;
+    /* --- 2. glibc/X11 closure lib symlinks (lib/<soname> -> native_dir/<renamed>) ---
+     * These are CRITICAL: the glibc loader resolves DT_NEEDED by exact filename.
+     * The APK-managed files are renamed to lib<soname>.so (AGP requires .so final
+     * extension), so the loader can't find 'libc.so.6' in nativeLibraryDir. The
+     * symlink tree provides lib/libc.so.6 -> nativeLibraryDir/liblibc.so.6.so,
+     * and --library-path points at tree_dir/lib. */
+    const char *glibc_obj = find_json_key(manifest_json, "glibc_soname_to_jnilib");
+    if (glibc_obj && *glibc_obj == '{') {
+        glibc_obj++;
+        while (*glibc_obj && *glibc_obj != '}') {
+            while (*glibc_obj == ' ' || *glibc_obj == '\t' || *glibc_obj == '\n' ||
+                   *glibc_obj == '\r' || *glibc_obj == ',') glibc_obj++;
+            if (*glibc_obj == '}') break;
+            if (*glibc_obj != '"') {
+                LOGE("glibc_soname parse error (expected key)");
+                return WINE_SPIKE_ERR_IO;
+            }
+            char soname[256];
+            if (copy_json_string(glibc_obj, soname, sizeof(soname)) < 0) return WINE_SPIKE_ERR_IO;
+            glibc_obj = strchr(glibc_obj + 1, '"');
+            if (!glibc_obj) return WINE_SPIKE_ERR_IO;
+            glibc_obj++;
+            while (*glibc_obj == ' ' || *glibc_obj == '\t') glibc_obj++;
+            if (*glibc_obj != ':') return WINE_SPIKE_ERR_IO;
+            glibc_obj++;
+            while (*glibc_obj == ' ' || *glibc_obj == '\t') glibc_obj++;
+            char jnilib[512];
+            if (copy_json_string(glibc_obj, jnilib, sizeof(jnilib)) < 0) return WINE_SPIKE_ERR_IO;
+            glibc_obj = strchr(glibc_obj + 1, '"');
+            if (!glibc_obj) return WINE_SPIKE_ERR_IO;
+            glibc_obj++;
+
+            /* Place the SONAME symlink under tree_dir/lib/ (the --library-path target). */
+            char link_path[WINE_SPIKE_PATH_MAX], target_path[WINE_SPIKE_PATH_MAX];
+            snprintf(link_path, sizeof(link_path), "%s/lib/%s", tree_dir, soname);
+            snprintf(target_path, sizeof(target_path), "%s/%s", native_dir, jnilib);
+            if (make_symlink(target_path, link_path) != 0) return WINE_SPIKE_ERR_IO;
+            count++;
         }
-        count++;
     }
 
     LOGI("build_symlink_tree: created %d symlinks under %s", count, tree_dir);

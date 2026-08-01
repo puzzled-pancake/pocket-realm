@@ -152,16 +152,22 @@ def extract_sonames_from_pkg(pkg_path: Path, sonames: list[str]) -> dict[str, by
 
 def rename_for_jnilib(soname: str) -> str:
     """Rename a SONAME to lib<name>.so for AGP extraction.
-    The loader resolves by SONAME via --library-path, not filename, so any
-    lib*-prefixed name works. We preserve the original soname in the middle for
-    debuggability: libX11.so.6 -> libso_libX11.so.6.so."""
-    # ld-linux-x86-64.so.2 already starts with 'ld', not 'lib'.
+
+    AGP only packages files whose name ends in '.so' (the final extension must
+    be .so). Glibc/X11 SONAMEs like 'libc.so.6' or 'libdl.so.2' do NOT end in
+    '.so' (they end in .6/.2/etc.), so AGP silently drops them. We rename ALL
+    glibc/X11 libs to 'lib<soname>.so' (e.g. libc.so.6 -> liblibc.so.6.so).
+
+    The glibc loader resolves DT_NEEDED by FILENAME via --library-path. Since we
+    renamed the files, the loader can't find 'libc.so.6' in nativeLibraryDir.
+    The fix: the symlink tree in filesDir provides 'libc.so.6' as a symlink ->
+    'nativeLibraryDir/liblibc.so.6.so', and --library-path points at the symlink
+    tree's lib/ dir (not nativeLibraryDir directly). The loader follows symlinks.
+    """
     if soname == "ld-linux-x86-64.so.2":
         return "libld_linux_x86_64.so"
-    # Strip leading 'lib', then re-add with a marker.
-    if soname.startswith("lib"):
-        return "libso_" + soname[3:] + ".so" if not soname.endswith(".so") else "libso_" + soname[3:]
-    return "libso_" + soname + ".so"
+    # All other glibc/X11 libs: lib<soname>.so (preserve the SONAME in the name).
+    return "lib" + soname + ".so"
 
 
 def stage_glibc_closure(jni_dir: Path) -> dict[str, str]:
