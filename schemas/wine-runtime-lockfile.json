@@ -1,0 +1,128 @@
+{
+  "schema": 1,
+  "description": "O06 G1 dependency lockfile (SBOM) for the glibc-side runtime closure required by the pinned Kron4ek Wine 11.14 amd64-wow64 archive. Every package is built from source via its gpkg build script at the single termux-pacman/glibc-packages commit below, so the loader (ld-linux-x86-64.so.2) and all libs come from one glibc 2.43-1 build (no loader/libc ABI skew). Source-built by tools/build_glibc_closure.py; the actual DT_NEEDED closure of the Wine archive is verified against this lockfile by tools/check_wine_dtneeded.py. This covers the MANDATORY closure only (wineboot + a windowed X11/GDI PE); optional/dlopen-disablable deps (libgnutls, libvulkan, libpulse, libGL/Mesa, etc.) are intentionally absent and added only by a deliberate re-planning decision.",
+  "wine_provider": "wine-kron4ek-11-14-vanilla-wow64",
+  "glibc_packages_repo": {
+    "upstream_url": "https://github.com/termux-pacman/glibc-packages",
+    "commit": "c9d4de54797bd6652f797217bf9e4c4050f02798",
+    "commit_date": "2026-07-31"
+  },
+  "target": {
+    "arch": "x86_64",
+    "libc_namespace": "glibc (separate from Android/Bionic; the Bionic namespace gets only the platform whitelist libc/libm/libdl/liblog/libpthread)",
+    "closure_basis": "mandatory DT_NEEDED of Kron4ek Wine 11.14 amd64-wow64 (winex11.drv NtTerminateProcess'es if libX11.so.6 is absent)",
+    "outputs_root": "runtime/glibc-rootfs-x86_64/"
+  },
+  "packages": [
+    {
+      "name": "glibc",
+      "gpkg_dir": "gpkg/glibc",
+      "version": "2.43-1",
+      "upstream_source_url": "https://ftp.gnu.org/gnu/libc/glibc-2.43.tar.xz",
+      "upstream_source_sha256": "d9c86c6b5dbddb43a3e08270c5844fc5177d19442cf5b8df4be7c07cd5fa3831",
+      "license": "GPL-3.0-or-later / LGPL-3.0-or-later (build scripts MIT)",
+      "role": "the dynamic loader ld-linux-x86-64.so.2 + libc.so.6, libpthread.so.0, libdl.so.2, libm.so.6, librt.so.1. Android patch set (SysV SHM, fakesyscall, passwd/group) is the full termux-pacman set.",
+      "provides": ["ld-linux-x86-64.so.2", "libc.so.6", "libpthread.so.0", "libdl.so.2", "libm.so.6", "librt.so.1"],
+      "build_recipe": "gpkg/glibc/build.sh"
+    },
+    {
+      "name": "libx11",
+      "gpkg_dir": "gpkg/libx11",
+      "version": "1.8.11",
+      "upstream_source_url": "https://xorg.freedesktop.org/releases/individual/lib/libX11-1.8.11.tar.xz",
+      "upstream_source_sha256": "3b74e82943924b45a0b778cc6842976909c3010d9445a8fd185e1dca4d380e88",
+      "license": "MIT, X11",
+      "role": "MANDATORY: Wine winex11.drv dlopens libX11.so.6 at unix-lib init and NtTerminateProcess'es if it fails. Required for any window.",
+      "provides": ["libX11.so.6"],
+      "depends_on": ["libxcb", "libxau", "libxdmcp", "libxext"],
+      "build_recipe": "gpkg/libx11/build.sh"
+    },
+    {
+      "name": "libxcb",
+      "gpkg_dir": "gpkg/libxcb",
+      "version": "1.17.0",
+      "upstream_source_url": "https://xorg.freedesktop.org/archive/individual/lib/libxcb-1.17.0.tar.xz",
+      "upstream_source_sha256": "599ebf9996710fea71622e6e184f3a8ad5b43d0e5fa8c4e407123c88a59a6d55",
+      "license": "MIT",
+      "role": "X11 C Binding (transitive dep of libX11).",
+      "provides": ["libxcb.so.1"],
+      "depends_on": ["libxau", "libxdmcp"],
+      "build_recipe": "gpkg/libxcb/build.sh"
+    },
+    {
+      "name": "libxau",
+      "gpkg_dir": "gpkg/libxau",
+      "version": "1.0.12",
+      "upstream_source_url": "https://xorg.freedesktop.org/releases/individual/lib/libXau-1.0.12.tar.xz",
+      "upstream_source_sha256": "74d0e4dfa3d39ad8939e99bda37f5967aba528211076828464d2777d477fc0fb",
+      "license": "MIT",
+      "role": "X11 Authorization Protocol (transitive dep of libxcb).",
+      "provides": ["libXau.so.6"],
+      "depends_on": [],
+      "build_recipe": "gpkg/libxau/build.sh"
+    },
+    {
+      "name": "libxdmcp",
+      "gpkg_dir": "gpkg/libxdmcp",
+      "version": "1.1.5",
+      "upstream_source_url": "https://xorg.freedesktop.org/archive/individual/lib/libXdmcp-1.1.5.tar.xz",
+      "upstream_source_sha256": "d8a5222828c3adab70adf69a5583f1d32eb5ece04304f7f8392b6a353aa2228c",
+      "license": "MIT",
+      "role": "X11 Display Manager Control Protocol (transitive dep of libxcb).",
+      "provides": ["libXdmcp.so.0"],
+      "depends_on": [],
+      "build_recipe": "gpkg/libxdmcp/build.sh"
+    },
+    {
+      "name": "libxext",
+      "gpkg_dir": "gpkg/libxext",
+      "version": "1.3.6",
+      "upstream_source_url": "https://xorg.freedesktop.org/releases/individual/lib/libXext-1.3.6.tar.xz",
+      "upstream_source_sha256": "edb59fa23994e405fdc5b400afdf5820ae6160b94f35e3dc3da4457a16e89753",
+      "license": "MIT, HPND, ISC",
+      "role": "X11 Extensions (transitive dep of libX11; Wine dlopens it for the X11 extension path).",
+      "provides": ["libXext.so.6"],
+      "depends_on": ["libxau"],
+      "build_recipe": "gpkg/libxext/build.sh"
+    },
+    {
+      "name": "freetype",
+      "gpkg_dir": "gpkg/freetype",
+      "version": "2.13.3",
+      "upstream_source_url": "https://downloads.sourceforge.net/freetype/freetype-2.13.3.tar.xz",
+      "upstream_source_sha256": "0550350666d427c74daeb85d5ac7bb353acba5f76956395995311a9c6f063289",
+      "license": "GPL-2.0 (FTL also available upstream)",
+      "role": "MANDATORY: Wine font rendering. Kron4ek does not pass --without-freetype, so libfreetype.so.6 is in the DT_NEEDED of gdi32.",
+      "provides": ["libfreetype.so.6"],
+      "depends_on": [],
+      "build_recipe": "gpkg/freetype/build.sh"
+    },
+    {
+      "name": "fontconfig",
+      "gpkg_dir": "gpkg/fontconfig",
+      "version": "2.15.0",
+      "upstream_source_url": "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/archive/2.15.0/fontconfig-2.15.0.tar.gz",
+      "upstream_source_sha256": "cdebb4b805d33e9bdefcc0ef9743db638d2acb21139bbe1a6a85878d4c3e8c9e",
+      "license": "MIT",
+      "role": "MANDATORY: Wine font selection (pulled by freetype). Kron4ek does not pass --without-fontconfig.",
+      "provides": ["libfontconfig.so.1"],
+      "depends_on": ["freetype"],
+      "build_recipe": "gpkg/fontconfig/build.sh"
+    }
+  ],
+  "intentionally_absent_optional": {
+    "note": "These are dlopen-disablable or --without-* optional deps. Absent is fine for the WineD3D-safe audio-off spike; Wine degrades silently. Adding any (esp. libGL/libEGL/Mesa for WineD3D, or libvulkan for DXVK) is a deliberate re-planning decision that must extend this lockfile.",
+    "libs": [
+      "libgnutls.so.30 (TLS; dlopened)",
+      "libvulkan.so.1 (GAP in glibc-packages; --without-vulkan sidesteps for O06)",
+      "libpulse.so.0 / libasound.so.2 (audio off)",
+      "libGL.so.1 / libEGL.so.1 (WineD3D GL; deferred)",
+      "libXrandr/libXrender/libXcomposite/libXinerama/libXi/libXfixes/libXcursor/libXxf86vm (X extensions; degrade silently)",
+      "libgphoto2/libgsm/libmpg123/libv4l/libusb/libcups/libSDL2/libFAudio/lcms2/sane/capi20/pcsclite/samba/libxpresent/libjxr (all --without-* disablable)"
+    ]
+  },
+  "verification": {
+    "closure_checker": "tools/check_wine_dtneeded.py derives the actual transitive DT_NEEDED + WINE_CHECK_SONAME dlopen set from the pinned Wine archive and cross-checks every mandatory SONAME against this lockfile; the spike does not proceed with an unmet mandatory dep.",
+    "build_script": "tools/build_glibc_closure.py builds the closure from the pinned commit and hashes every output into this lockfile's per-package outputs (added by the build)."
+  }
+}

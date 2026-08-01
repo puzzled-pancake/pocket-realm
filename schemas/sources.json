@@ -2,7 +2,7 @@
   "schema": 1,
   "reference_document": "docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx",
   "description": "Pinned upstream source manifest for the Pocket Realm offline build. Every active entry has an exact commit, license, and redistribution verdict. The canonical architecture and delivery reference is docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx; this file governs source selection only.",
-  "updated": "2026-08-01",
+  "updated": "2026-08-01 (O06 G1 provider pins added: Wine/glibc-closure/X-server/proot/MinGW)",
   "toolchain": {
     "android_sdk_root_env": "ANDROID_SDK_ROOT / ANDROID_HOME (machine-local; not pinned here)",
     "ndk": {
@@ -81,6 +81,104 @@
       "redistribution": {
         "verdict": "source-redistributable",
         "notes": "GPL-2.0, inherits CMaNGOS licensing. Linked into the native world component selected by the G0 topology."
+      }
+    },
+    {
+      "id": "wine-kron4ek-11-14-vanilla-wow64",
+      "kind": "prebuilt-archive",
+      "upstream_url": "https://github.com/Kron4ek/Wine-Builds",
+      "release_tag": "11.14",
+      "artifact": "wine-11.14-amd64-wow64.tar.xz",
+      "artifact_url": "https://github.com/Kron4ek/Wine-Builds/releases/download/11.14/wine-11.14-amd64-wow64.tar.xz",
+      "artifact_sha256": "707956fa1574ad1660c4d7f2cfd9c024e0f437ad0a2d501a53b717adb1288222",
+      "kron4ek_build_commit": "fe137c65b411ff3079d1b26573dcb70bf16814a5",
+      "upstream_wine": {
+        "project": "wine",
+        "version": "11.14",
+        "source_url": "https://gitlab.winehq.org/wine/wine.git",
+        "commit": "1012f3d99507b80d4869eabf0853567660a7ecbb",
+        "vanilla": true
+      },
+      "build_recipe": [
+        "build_wine.sh",
+        "create_ubuntu_bootstraps.sh",
+        ".github/workflows/wine.yml"
+      ],
+      "patches_vs_upstream": [],
+      "role": "O06 G1 x86 client runtime. amd64-wow64 variant: multilib build with lib/wine/i386-unix stripped, relying on Wine 11.0+ default new-WoW64 for 32-bit PE. Exec'd (via the APK-managed glibc loader) in the :client process; not an Android .so. Wine-owned builtin PE modules are canonical APK assets; the closure also requires glibc + X11/freetype/fontconfig (see the lockfile).",
+      "license": {
+        "wine_binaries": "LGPL-2.1-or-later",
+        "build_scripts": "MIT (Copyright Kron4ek)"
+      },
+      "redistribution": {
+        "verdict": "binary-redistributable-under-LGPL-2.1-source-traceable",
+        "notes": "Wine binaries are LGPL-2.1. Source correspondence is traceable: Kron4ek build commit + MIT build scripts + upstream Wine 11.14 vanilla (no patches). No formal written LGPL source-offer; Wine source is public at upstream_wine.source_url. Source reproduction from upstream remains the production/distribution bar (ADR-014, future). This provider supplies Wine's own ELF + PE closure ONLY; it does not supply glibc, the X server, the loader, or solve Android APK execution placement (DECISIONS #12, ADR-013)."
+      },
+      "runtime_scope_notes": "Provides Wine's own ELF closure + builtin PE modules only. The glibc/X11/font closure comes from termux-glibc-packages-c9d4de5; the X server from xserver-winlator-ca3d735; the loader is the glibc build's ld-linux-x86-64.so.2."
+    },
+    {
+      "id": "termux-glibc-packages-c9d4de5",
+      "kind": "source-built-archive",
+      "upstream_url": "https://github.com/termux-pacman/glibc-packages",
+      "commit": "c9d4de54797bd6652f797217bf9e4c4050f02798",
+      "commit_date": "2026-07-31",
+      "role": "The ENTIRE glibc-side runtime closure for the Wine runtime: glibc 2.43-1 (loader ld-linux-x86-64.so.2 + libc/libpthread/libdl/libm/librt) AND libX11 (+ libxcb/libxau/libxdmcp/libXext) AND freetype AND fontconfig — the mandatory DT_NEEDED set Kron4ek Wine 11.14 requires for wineboot + a windowed PE (winex11.drv NtTerminateProcess'es if libX11.so.6 is absent). All packages built from this single commit; loader + libs from the same glibc 2.43-1 build (no loader/libc ABI skew).",
+      "glibc_upstream": {
+        "source_url": "https://ftp.gnu.org/gnu/libc/glibc-2.43.tar.xz",
+        "source_sha256": "d9c86c6b5dbddb43a3e08270c5844fc5177d19442cf5b8df4be7c07cd5fa3831",
+        "version": "2.43-1"
+      },
+      "build_recipe": "gpkg/<package>/build.sh per package (see schemas/wine-runtime-lockfile.json for the per-package source hashes/versions/licenses)",
+      "license": {
+        "build_scripts": "MIT",
+        "glibc": "GPL-3.0-or-later / LGPL-3.0-or-later",
+        "x11_font_libs": "per-package (MIT/X11/BSD-3-Clause) - see lockfile"
+      },
+      "redistribution": {
+        "verdict": "source-redistributable (built from public Termux/glibc upstream)",
+        "notes": "All packages built from source via their gpkg build scripts at the pinned commit. The glibc Android patch set (SysV SHM, fakesyscall, passwd/group) is the full termux-pacman set. Output hashes recorded in the lockfile."
+      }
+    },
+    {
+      "id": "xserver-winlator-ca3d735",
+      "kind": "vendored-source",
+      "upstream_url": "https://github.com/brunodev85/winlator-app",
+      "commit": "ca3d735a60d653a787daf16d14fafef28d9c2c23",
+      "commit_date": "2026-07-27 (author) / 2026-07-28 (committer)",
+      "role": "O06 in-app X server (display + input). Reused implementation: com.winlator.xserver (X11 wire protocol) + xconnector (epoll Unix socket) + sysvshm + renderer (GLES compositor) + widget.XServerView + native cpp/winlator/{xconnector_epoll.c,sysvshared_memory.c}. MIT-SHM + DRI3 extensions + InputDeviceManager. Packaged as a normal Android library in :client (Java + JNI .so) - NOT a Lane-B executable. Source retained in-tree for the LGPL obligation; WinHandler/Activity/DebugDialog couplings trimmed and recorded.",
+      "license": "LGPL-2.1 (verified from root LICENSE at this commit; NOT MIT)",
+      "redistribution": {
+        "verdict": "source-redistributable-under-LGPL-2.1",
+        "notes": "Vendored as an adapted, attributed fork. Source retained at runtime/xserver-winlator/ for the LGPL-2.1 source-offer obligation. The trim list (couplings to Winlator's app shell replaced by Pocket Realm's :client service + ClientSupervisor) is recorded in docs/patches/wine-provider-provenance.md."
+      }
+    },
+    {
+      "id": "proot-termux-v5-1-107-89",
+      "kind": "source-built-archive",
+      "upstream_url": "https://github.com/termux/proot",
+      "tag": "v5.1.107.89",
+      "commit": "a89b3732ec6ae1db674510f0843b2f3db54d0a2f",
+      "role": "Fallback ONLY. Built and added to the exec set if the Phase-1 spike proves native-glibc loader invocation fails for some native child. The exact failure that triggered the fallback is recorded. termux/proot publishes no binary releases; this is source-only.",
+      "license": "GPL-2.0-or-later",
+      "redistribution": {
+        "verdict": "source-redistributable",
+        "notes": "Built from source only if the spike selects the proot path. Not built by default."
+      }
+    },
+    {
+      "id": "mingw-w64-i686-gcc-selftest",
+      "kind": "host-toolchain",
+      "package": "mingw-w64-i686-gcc",
+      "version": "16.1.0-5",
+      "release_date": "2026-05-17",
+      "source_tarball": "mingw-w64-gcc-16.1.0-5.src.tar.zst",
+      "source_tarball_url": "https://repo.msys2.org/mingw/sources/mingw-w64-gcc-16.1.0-5.src.tar.zst",
+      "package_sha256": "c945e6fa308b6077ec50c1c628990e24d719af872daf484884668efc21dcfbde",
+      "role": "Host cross-toolchain for the O06 self-test PE (32-bit Win32). Produces pocket_selftest.exe via tools/build_selftest_pe.py. The source-archive SHA-256 is computed and recorded at fetch time (MSYS2 publishes only a PGP .sig for source archives, not a hash).",
+      "license": "GPL-3.0-or-later with GCC runtime exception; MinGW-w64 ZPL/public-domain headers",
+      "redistribution": {
+        "verdict": "host-toolchain-not-redistributed",
+        "notes": "Used on the build host only; its output (pocket_selftest.exe) is project-owned LGPL-clean code and is redistributed as an authorized guest PE."
       }
     }
   ],
