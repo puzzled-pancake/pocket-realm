@@ -166,6 +166,21 @@
       }
     },
     {
+      "id": "talloc-samba-2-4-2",
+      "kind": "source-built-archive",
+      "upstream_url": "https://www.samba.org/talloc/",
+      "version": "2.4.2",
+      "source_tarball": "talloc-2.4.2.tar.gz",
+      "source_tarball_url": "https://www.samba.org/ftp/talloc/talloc-2.4.2.tar.gz",
+      "source_tarball_sha256": "85ecf9e465e20f98f9950a52e9a411e14320bc555fa257d87697b7e7a9b1d8a6",
+      "role": "Hard runtime dependency of proot (termux/proot@a89b3732 links -ltalloc unconditionally). Built as a single Bionic .so (libtalloc.so) for the same x86_64 target as proot. Built ONLY when the proot fallback path is selected.",
+      "license": "LGPL-3.0-or-later",
+      "redistribution": {
+        "verdict": "source-redistributable-under-LGPL-3.0",
+        "notes": "talloc.c is a single translation unit from the samba talloc library. Built with a synthesized minimal config.h declaring the features Bionic provides (no glibc-specific code). Source retained for the LGPL-3.0 source-offer obligation."
+      }
+    },
+    {
       "id": "mingw-w64-i686-gcc-selftest",
       "kind": "host-toolchain",
       "package": "mingw-w64-i686-gcc",

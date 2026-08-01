@@ -75,7 +75,58 @@ Versioned C ABI + `libpocketrealm.so`; create/start/health/save/stop/destroy pro
 
 ## Blockers
 
-None for O06. A user-owned build-5875 client becomes required at O07; named AVD/device and physical qualification inputs are required at their later gates.
+O06 Phase 1 has an **active blocker**: the production app-process execve of glibc
+ELFs returns EACCES (see below). A user-owned build-5875 client becomes required
+at O07; named AVD/device and physical qualification inputs are required at their
+later gates. **Outcome B is NOT yet proven** — the loader chain is demonstrated
+only under `run-as` (supporting evidence), not from the production app process.
+Downstream O06 implementation (the rootfs-bind / namespace strategy to satisfy
+S-1 from the app process) is **not authorized** until S-1 passes on 4KB.
+
+## O06 Phase 1 — Wine feasibility spike status (in progress)
+
+The S-1/S-2/S-3 on-device spike is running on the Modern lane (API 35, 4KB).
+S-1 acceptance (effective APK-managed loader proven for wine + wineserver + every
+native child, from the **production app process**) is NOT yet met. Findings:
+
+- **S-5(0) corrected diagnosis (a512b71 → S-5 correction commit):** the earlier
+  "SELinux blocks execve" finding was based only on exit 159. A ptrace+siginfo
+  diagnostic captured the actual cause: `si_code=1 (SYS_SECCOMP)`,
+  `syscall=21 (access)`, `arch=AUDIT_ARCH_X86_64`. Android's untrusted_app
+  seccomp filter kills the glibc loader on its first `access()` probing call.
+  This is NOT an SELinux execve denial.
+- **S-5(a) Bionic trampoline:** a separate APK-managed Bionic PIE
+  (`libwine_trampoline.so`) that re-execve's the glibc loader. Built + run; hits
+  the identical access() seccomp trap once it execs the loader. Confirms the
+  block is on the glibc loader's syscalls, not on how we arrive at it.
+- **Narrow GLIBC_TUNABLES fallback:** does NOT apply — no tunable suppresses the
+  loader's access() probing calls.
+- **S-5(b) proot (termux/proot@a89b3732, Bionic PIE, 295KB):** built from source
+  (Python reimplementation of the GNUmakefile — Windows has no make). proot
+  starts from the production app domain (`proot --version` → 5.1.107.89,
+  process_vm=yes, seccomp_filter=yes; runs `/system/bin/id` fine). Under `run-as`
+  the full loader chain is PROVEN under proot: `calling init: libld_linux_x86_64.so
+  / libc.so.6 / libdl.so.2 / libpthread.so.0 / libgcc_s.so.1` → `calling fini:
+  ntdll.so` → `wine-11.14`. No SIGSYS — proot's syscall interception defeats the
+  access() seccomp trap. The `-b <app_tmp>:/tmp` bind handles wineserver's
+  hardcoded `/tmp/.wine-<uid>` path.
+- **App-process exec restriction (remaining blocker):** in the production app
+  process, proot's execve of a glibc ELF (libwine_preloader.so / the loader)
+  returns `EACCES`. Bionic ELFs (libproot.so, libwine_trampoline.so) execve
+  freely in the same directory; glibc ELFs (PT_INTERP=/lib64/ld-linux-x86-64.so.2)
+  do not. proot cannot bypass this because it relies on the kernel's execve for
+  the initial program (ptrace interception applies only to syscalls AFTER exec).
+  The `run-as` path succeeds (different exec context) but is supporting evidence,
+  not acceptance.
+
+**Spike outcome: NOT YET DETERMINED (not A, not B, not C).** No outcome is
+finalized. The Wine loader chain mechanism is demonstrated under proot via
+`run-as`, but the production app-process has an additional exec restriction on
+glibc ELFs that proot's ptrace model does not address. O06 stays active;
+acceptance is NOT weakened. The remaining work (PROOT_LOADER pinning, default vs
+PROOT_NO_SECCOMP, and if needed the glibc access→faccessat rebuild) is in-flight
+before any outcome (A/B/C) is recorded. S-2/S-3 are gated on S-1 passing from
+the production app process.
 
 ## Next action
 

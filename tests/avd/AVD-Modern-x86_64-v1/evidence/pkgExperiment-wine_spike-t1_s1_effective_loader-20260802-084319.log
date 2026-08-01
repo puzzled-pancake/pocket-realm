@@ -1,0 +1,120 @@
+08-02 08:43:16.549  7881  7895 D nativeloader: Load /data/app/~~ddKzOZ7jQEDTnYDlrN996A==/com.pocketrealm-9N9DT9AeFbRe-sObxC3RSw==/lib/x86_64/libwine_spike.so using ns clns-7 from class loader (caller=/data/app/~~ddKzOZ7jQEDTnYDlrN996A==/com.pocketrealm-9N9DT9AeFbRe-sObxC3RSw==/base.apk!classes3.dex): ok
+08-02 08:43:16.561  7881  7895 I PR/WineSpikeNative: libwine_spike.so loaded
+08-02 08:43:16.611  7881  7897 I wine_spike: build_symlink_tree: tree=/data/user/0/com.pocketrealm/files/runtime/wine-tree native=/data/app/~~ddKzOZ7jQEDTnYDlrN996A==/com.pocketrealm-9N9DT9AeFbRe-sObxC3RSw==/lib/x86_64
+08-02 08:43:16.618  7881  7897 I wine_spike: build_symlink_tree: created 56 symlinks under /data/user/0/com.pocketrealm/files/runtime/wine-tree
+08-02 08:43:16.631  7881  7897 I wine_spike: diag: PTRACE_EVENT_EXEC — execve succeeded, loader running
+08-02 08:43:16.632  7881  7897 I wine_spike: diag: SIGSYS si_signo=31 si_code=1 si_call_addr=0x7c2c9f5d31ab
+08-02 08:43:16.632  7881  7897 I wine_spike: diag: trapping syscall nr=21 (access) arch=0xc000003e
+08-02 08:43:16.632  7881  7897 I wine_spike: diag: cause = SECCOMP (SYS_SECCOMP)
+08-02 08:43:16.632  7881  7897 E wine_spike: diag: PTRACE_CONT: No such process
+08-02 08:43:16.646  7881  7897 I wine_spike: trampoline: exec /data/app/~~ddKzOZ7jQEDTnYDlrN996A==/com.pocketrealm-9N9DT9AeFbRe-sObxC3RSw==/lib/x86_64/libwine_trampoline.so /data/app/~~ddKzOZ7jQEDTnYDlrN996A==/com.pocketrealm-9N9DT9AeFbRe-sObxC3RSw==/lib/x86_64/libld_linux_x86_64.so --library-path /data/user/0/com.pocketrealm/files/runtime/wine-tree/lib:/data/user/0/com.pocketrealm/files/runtime/wine-tree/lib/wine/x86_64-unix /data/user/0/com.pocketrealm/files/runtime/wine-tree/bin/wine ...
+08-02 08:43:16.651  7881  7897 I wine_spike: trampoline: child pid=7902
+08-02 08:43:16.660  7902  7902 I wine_spike: trampoline: re-execve /data/app/~~ddKzOZ7jQEDTnYDlrN996A==/com.pocketrealm-9N9DT9AeFbRe-sObxC3RSw==/lib/x86_64/libld_linux_x86_64.so (argc=5)
+08-02 08:43:17.182  7881  7897 E wine_spike: probe_loader: no APK-managed loader found for pid 7902
+08-02 08:43:17.182  7881  7897 I wine_spike: count_apk_mappings pid=7902: 0/0 mapped files from APK dir
+08-02 08:43:17.192  7903  7903 I wine_spike: trampoline: re-execve /data/app/~~ddKzOZ7jQEDTnYDlrN996A==/com.pocketrealm-9N9DT9AeFbRe-sObxC3RSw==/lib/x86_64/libld_linux_x86_64.so (argc=5)
+08-02 08:43:17.216  7881  7897 I wine_spike: proot: resolved wine_target /data/user/0/com.pocketrealm/files/runtime/wine-tree/bin/wine -> /data/app/~~ddKzOZ7jQEDTnYDlrN996A==/com.pocketrealm-9N9DT9AeFbRe-sObxC3RSw==/lib/x86_64/libwine_preloader.so
+08-02 08:43:17.216  7881  7897 I wine_spike: proot: exec /data/app/~~ddKzOZ7jQEDTnYDlrN996A==/com.pocketrealm-9N9DT9AeFbRe-sObxC3RSw==/lib/x86_64/libproot.so -b /data/user/0/com.pocketrealm/files/runtime/tmp:/tmp -b /data/user/0/com.pocketrealm/files/runtime/wine-tree/lib:/lib64 -b /data/app/~~ddKzOZ7jQEDTnYDlrN996A==/com.pocketrealm-9N9DT9AeFbRe-sObxC3RSw==/lib/x86_64/libld_linux_x86_64.so:/lib64/ld-linux-x86-64.so.2 -r / --link2symlink /data/user/0/com.pocketrealm/files/runtime/wine-tree/bin/wine ...
+08-02 08:43:17.220  7881  7897 I wine_spike: proot: child pid=7906
+08-02 08:43:18.249  7881  7897 E wine_spike: probe_loader: no APK-managed loader found for pid 7906
+08-02 08:43:18.250  7881  7897 I wine_spike: count_apk_mappings pid=7906: 0/0 mapped files from APK dir
+08-02 08:43:18.284  7881  7897 I System.out: WINE_SPIKE_S1_RESULT	ok=false	code=SIGSYS_SECCOMP_ACCESS
+08-02 08:43:18.285  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	nativeLibraryDir=/data/app/~~ddKzOZ7jQEDTnYDlrN996A==/com.pocketrealm-9N9DT9AeFbRe-sObxC3RSw==/lib/x86_64
+08-02 08:43:18.285  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	symlinkTree=/data/user/0/com.pocketrealm/files/runtime/wine-tree
+08-02 08:43:18.285  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	wineTarget=/data/user/0/com.pocketrealm/files/runtime/wine-tree/bin/wine
+08-02 08:43:18.285  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	s5_0_diag=OK|exit=-1|sig=-1|si_code=1|syscall=21|name=access|arch=0xc000003e|cause=1
+08-02 08:43:18.285  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	s5_0_cause=1
+08-02 08:43:18.285  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	s5_0_syscallName=access
+08-02 08:43:18.286  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	s5_0_siCode=1
+08-02 08:43:18.286  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	s5_narrow_applies=false (access has no tunable disable)
+08-02 08:43:18.286  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	s5a_trampolinePid=7902
+08-02 08:43:18.286  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	s5a_trampolineProcMaps=FAIL|rc=5|loader=|interp=(unreadable: No such file or directory)|apk=0
+08-02 08:43:18.286  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	tramp_ldDebugApkLoader=false
+08-02 08:43:18.287  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	tramp_ldDebugLibcResolved=false
+08-02 08:43:18.287  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	tramp_ldDebugLibdlResolved=false
+08-02 08:43:18.288  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	tramp_ldDebugSummary=EXIT=159 | 
+08-02 08:43:18.288  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	tramp_ldDebugUsedTunables=
+08-02 08:43:18.288  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	tramp_ldDebugUsedTrampoline=true
+08-02 08:43:18.288  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	s5b_prootPid=7906
+08-02 08:43:18.288  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	s5b_prootProcMaps=FAIL|rc=5|loader=|interp=(unreadable: No such file or directory)|apk=0
+08-02 08:43:18.288  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	s5b_prootRawSummary=EXIT=1 | proot error: execve("/data/app/~~ddKzOZ7jQEDTnYDlrN996A==/com.pocketrealm-9N9DT9AeFbRe-sObxC3RSw==/lib/x86_64/libwine_preloader.so"): Permission denied | proot info: possible causes: |   * the program is a script but its interpreter (eg. /bin/sh) was not found; |   * the program is an ELF but its interpreter (eg. ld-linux.so) was not found; |   * the program is a foreign binary but qemu was not specified; |   * qemu does not work correctly (if specified); |   * the loader was not found 
+08-02 08:43:18.288  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	proot_ldDebugApkLoader=false
+08-02 08:43:18.289  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	proot_ldDebugLibcResolved=false
+08-02 08:43:18.289  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	proot_ldDebugLibdlResolved=false
+08-02 08:43:18.289  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	proot_ldDebugSawWineVersion=false
+08-02 08:43:18.289  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	proot_ldDebugSummary=EXIT=1 | proot error: execve("/data/app/~~ddKzOZ7jQEDTnYDlrN996A==/com.pocketrealm-9N9DT9AeFbRe-sObxC3RSw==/lib/x86_64/libwine_preloader.so"): Permission denied | proot info: possible causes: |   * the program is a script but its interpreter (eg. /bin/sh) was not found; |   * the program is an ELF but its interpreter (eg. ld-linux.so) was not found; |   * the program is a foreign binary but qemu was not specified; |   * qemu does not work correctly (if specified); |   * the loader was not found 
+08-02 08:43:18.289  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	proot_ldDebugUsedTunables=
+08-02 08:43:18.289  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	proot_ldDebugUsedProot=true
+08-02 08:43:18.289  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	directOk=false
+08-02 08:43:18.289  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	trampOk=false
+08-02 08:43:18.289  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	prootOk=false
+08-02 08:43:18.289  7881  7897 I System.out: WINE_SPIKE_S1_EVIDENCE	verdict=SIGSYS_SECCOMP_ACCESS
+--- instrument stdout ---
+INSTRUMENTATION_STATUS: class=com.pocketrealm.wine.WineSpikeTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=
+com.pocketrealm.wine.WineSpikeTest:
+INSTRUMENTATION_STATUS: test=t1_s1_effective_loader
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.pocketrealm.wine.WineSpikeTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stack=java.lang.AssertionError: S-1 (effective loader) failed: SIGSYS_SECCOMP_ACCESS :: directOk=false trampOk=false prootOk=false diagCause=1 syscall=access siCode=1 tunables=''
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at com.pocketrealm.wine.WineSpikeTest$t1_s1_effective_loader$1.invokeSuspend(WineSpikeTest.kt:40)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:104)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:277)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:95)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:69)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source:1)
+	at com.pocketrealm.wine.WineSpikeTest.t1_s1_effective_loader(WineSpikeTest.kt:38)
+
+INSTRUMENTATION_STATUS: stream=
+Error in t1_s1_effective_loader(com.pocketrealm.wine.WineSpikeTest):
+java.lang.AssertionError: S-1 (effective loader) failed: SIGSYS_SECCOMP_ACCESS :: directOk=false trampOk=false prootOk=false diagCause=1 syscall=access siCode=1 tunables=''
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at com.pocketrealm.wine.WineSpikeTest$t1_s1_effective_loader$1.invokeSuspend(WineSpikeTest.kt:40)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:104)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:277)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:95)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:69)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source:1)
+	at com.pocketrealm.wine.WineSpikeTest.t1_s1_effective_loader(WineSpikeTest.kt:38)
+
+INSTRUMENTATION_STATUS: test=t1_s1_effective_loader
+INSTRUMENTATION_STATUS_CODE: -2
+INSTRUMENTATION_RESULT: stream=
+
+Time: 1.765
+There was 1 failure:
+1) t1_s1_effective_loader(com.pocketrealm.wine.WineSpikeTest)
+java.lang.AssertionError: S-1 (effective loader) failed: SIGSYS_SECCOMP_ACCESS :: directOk=false trampOk=false prootOk=false diagCause=1 syscall=access siCode=1 tunables=''
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at com.pocketrealm.wine.WineSpikeTest$t1_s1_effective_loader$1.invokeSuspend(WineSpikeTest.kt:40)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:104)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:277)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:95)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:69)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source:1)
+	at com.pocketrealm.wine.WineSpikeTest.t1_s1_effective_loader(WineSpikeTest.kt:38)
+
+FAILURES!!!
+Tests run: 1,  Failures: 1
+
+
+INSTRUMENTATION_CODE: -1
