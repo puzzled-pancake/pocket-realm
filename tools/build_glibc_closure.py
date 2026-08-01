@@ -38,9 +38,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -97,6 +99,16 @@ def run(cmd: list[str], cwd: Path | None = None, check: bool = True,
         env: dict | None = None) -> subprocess.CompletedProcess:
     print(f"  $ {' '.join(cmd)}" + (f"   (cwd={cwd})" if cwd else ""))
     return subprocess.run(cmd, cwd=str(cwd) if cwd else None, check=check, env=env)
+
+
+def _win_to_docker_mount(path: Path) -> str:
+    """Convert a Windows path to the //c/... double-slash Docker Desktop mount
+    form (lowercase drive, NO colon — a colon makes Docker parse the volume as a
+    3-part "src:dst:mode" spec and reject the destination as "invalid mode")."""
+    win_path = str(path).replace("\\", "/")
+    if len(win_path) >= 2 and win_path[1] == ":":
+        win_path = win_path[0].lower() + win_path[2:]
+    return "//" + win_path
 
 
 def ensure_docker() -> bool:
@@ -161,43 +173,124 @@ def vendor_build_harness(repo: Path) -> str:
     return "master (unpinned by get-build-package.sh — see provenance gap note)"
 
 
-def build_packages(repo: Path, arch: str, pkgs: list[str]) -> Path:
-    """Build packages via a direct docker run into the cgct container.
+def _package_output_exists(out_dir: Path, pkg_name: str, arch: str) -> bool:
+    """True if a .pkg.tar.* for this package already exists in output/. We use
+    this Python-level skip rather than the harness's /data/data/.built-packages
+    stamp mechanism because that stamp dir lives in the container's ephemeral fs
+    (lost on --rm), and the harness's own skip only fires for downloaded deps
+    or with -f/-F flags. A simple output-file existence check is robust and
+    does not depend on container-internal state. (The version embedded in the
+    filename comes from the pinned build.sh, so it matches the lockfile.)
 
-    Bypasses scripts/run-docker.sh because that wrapper derives the volume path
-    from $PWD as a /c/... MSYS path, which Docker Desktop cannot resolve; and it
-    injects a seccomp/apparmor profile path that also fails on Windows. Instead
-    we invoke docker directly with the //c/... double-slash mount form Docker
-    Desktop requires and MSYS_NO_PATHCONV=1 to stop Git Bash mangling the
-    container-side Linux paths. No seccomp profile (we are building trusted,
-    pinned, hash-verified packages; the profile is a hardening nicety).
-    Output .pkg.tar.* land in repo/output/. Returns the output dir."""
-    out_dir = repo / "output"
-    out_dir.mkdir(exist_ok=True)
-    # Docker Desktop expects the Windows drive as //c/... in the volume mount
-    # (lowercase drive, NO colon — a colon makes Docker parse it as a 3-part
-    # "src:dst:mode" spec and reject the destination as an "invalid mode").
-    win_path = str(repo).replace("\\", "/")
-    # "C:/foo/bar" -> "c/foo/bar"
-    if len(win_path) >= 2 and win_path[1] == ":":
-        win_path = win_path[0].lower() + win_path[2:]
-    mount_src = "//" + win_path
-    # Also strip CRLF again (the build may pull additional dep build.sh files
-    # that were checked out with CRLF).
-    strip_crlf_sh(repo)
-    env = dict(**__import__("os").environ, MSYS_NO_PATHCONV="1")
-    # -I builds dependencies recursively; --library glibc selects gpkg; --format
-    # pacman emits .pkg.tar.* . Build all in one invocation so the dep order
-    # resolves within the harness.
+    Filename gotcha: the harness adds a '-glibc' suffix to TERMUX_PKG_NAME for
+    glibc-library packages, so most archives are '<name>-glibc-<ver>-...'. But
+    the glibc/glibc32 provider packages themselves do NOT get the suffix
+    (they are already 'glibc'), so their archives are 'glibc-<ver>-...' /
+    'glibc32-<ver>-...'. We check both prefix forms."""
+    suffixes = (f"-{arch}.pkg.tar.xz", f"-{arch}.pkg.tar.zst",
+                "-any.pkg.tar.xz", "-any.pkg.tar.zst")
+    # Candidate prefixes: with and without the -glibc suffix.
+    prefixes = (f"{pkg_name}-glibc-", f"{pkg_name}-")
+    for prefix in prefixes:
+        for p in out_dir.glob(f"{prefix}*"):
+            if any(p.name.endswith(s) for s in suffixes):
+                return True
+    return False
+
+
+def _build_one_package(repo: Path, arch: str, pkg: str, out_dir: Path,
+                       install_deps: bool) -> bool:
+    """Build a single package in its own --rm container. Returns True on success.
+
+    Per-package isolation means a failure at gcc-libs does NOT throw away the
+    60-min glibc build (its .pkg.tar.* is already committed to the mounted
+    output/ dir, and the next run skips it via _package_output_exists). This is
+    the key resilience property: each package's success is durable.
+
+    .termux-build is intentionally NOT mounted: an earlier attempt bind-mounted
+    it to the Windows NTFS host and that BROKE glibc's elf/ld.so link step
+    (undefined reference to __lll_lock_wait_private) — glibc's static-archive
+    assembly (rtld-libc.a) is sensitive to NTFS mmap/temp-file semantics. The
+    container's own overlay fs builds glibc correctly. The cost is that deps
+    re-download per container; the benefit is correctness, and -I downloads
+    prebuilt deps (fast) rather than rebuilding them."""
+    mount_repo = _win_to_docker_mount(repo)
+    env = dict(**os.environ, MSYS_NO_PATHCONV="1")
+    # -I downloads prebuilt deps instead of building them (we only source-build
+    # the 9 lockfile packages themselves); -a selects arch; --format pacman
+    # emits .pkg.tar.*; --library glibc selects gpkg/. One package per container.
+    flag = "-I" if install_deps else "-s"
     cmd = [
         "docker", "run", "--rm",
-        "-v", f"{mount_src}:/home/builder/termux-packages",
+        "-v", f"{mount_repo}:/home/builder/termux-packages",
         "--workdir", "/home/builder/termux-packages",
         CGCT_IMAGE,
-        "./build-package.sh", "-I", "-a", arch,
-        "--format", "pacman", "--library", "glibc", *pkgs,
+        "./build-package.sh", flag, "-a", arch,
+        "--format", "pacman", "--library", "glibc", pkg,
     ]
-    run(cmd, env=env)
+    # Retry loop ONLY for transient network failures (HTTP 429 from the gcc git
+    # clone at sourceware.org, mirror hiccups, connection resets). A real build
+    # failure aborts at once — retrying a deterministic failure reproduces it.
+    transient_markers = ("HTTP 429", "RPC failed", "Could not resolve host",
+                         "Connection timed out", "Connection refused",
+                         "SSL_ERROR", "curl: (28", "curl: (22",
+                         "fatal: the remote end",
+                         "Temporary failure in name resolution",
+                         "Failed to connect")
+    max_attempts = 4
+    for attempt in range(1, max_attempts + 1):
+        print(f"  attempt {attempt}/{max_attempts}...")
+        log_file = repo / "output" / f".{pkg}.build.log"
+        log_file.parent.mkdir(exist_ok=True)
+        with log_file.open("wb") as lf:
+            r = subprocess.run(cmd, env=env, stdout=lf, stderr=subprocess.STDOUT)
+        if r.returncode == 0:
+            print(f"  OK")
+            return True
+        # Read the tail to classify the failure.
+        try:
+            tail = log_file.read_text(encoding="utf-8", errors="replace")[-3000:]
+        except OSError:
+            tail = ""
+        is_transient = any(m in tail for m in transient_markers)
+        if is_transient:
+            print(f"  transient network failure; last lines:")
+            for line in tail.splitlines()[-6:]:
+                print(f"    {line[:140]}")
+            if attempt < max_attempts:
+                backoff = 30 * attempt
+                print(f"  retrying in {backoff}s...")
+                time.sleep(backoff)
+                continue
+        # Deterministic failure OR out of retries: print the tail and stop.
+        print(f"  FAILED (rc={r.returncode}); last lines:")
+        for line in tail.splitlines()[-15:]:
+            print(f"    {line[:140]}")
+        return False
+    return False
+
+
+def build_packages(repo: Path, arch: str, pkgs: list[str]) -> Path:
+    """Build each lockfile package in its own container, skipping any whose
+    output archive already exists. Per-package isolation makes each success
+    durable: a later failure cannot throw away an earlier package's build.
+
+    See _build_one_package for the NTFS/.termux-build rationale and the
+    transient-retry policy. Output .pkg.tar.* land in repo/output/."""
+    out_dir = repo / "output"
+    out_dir.mkdir(exist_ok=True)
+    strip_crlf_sh(repo)
+    failed: list[str] = []
+    for i, pkg in enumerate(pkgs, 1):
+        if _package_output_exists(out_dir, pkg, arch):
+            existing = [p.name for p in out_dir.glob(f"{pkg}-glibc-*") if p.suffix in (".xz", ".zst") or "pkg.tar" in p.name]
+            print(f"[{i}/{len(pkgs)}] {pkg}: already built -> {existing}")
+            continue
+        print(f"\n[{i}/{len(pkgs)}] building {pkg} ...")
+        if not _build_one_package(repo, arch, pkg, out_dir, install_deps=True):
+            failed.append(pkg)
+    if failed:
+        raise RuntimeError(f"build failed for packages: {failed}")
     return out_dir
 
 

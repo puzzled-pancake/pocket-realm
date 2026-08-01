@@ -22,20 +22,32 @@
       "upstream_source_sha256": "d9c86c6b5dbddb43a3e08270c5844fc5177d19442cf5b8df4be7c07cd5fa3831",
       "license": "GPL-3.0-or-later / LGPL-3.0-or-later (build scripts MIT)",
       "role": "the dynamic loader ld-linux-x86-64.so.2 + libc.so.6, libpthread.so.0, libdl.so.2, libm.so.6, librt.so.1, libresolv.so.2. Android patch set (SysV SHM, fakesyscall, passwd/group) is the full termux-pacman set.",
-      "provides": ["ld-linux-x86-64.so.2", "libc.so.6", "libpthread.so.0", "libdl.so.2", "libm.so.6", "librt.so.1", "libresolv.so.2"],
+      "provides": [
+        "ld-linux-x86-64.so.2",
+        "libc.so.6",
+        "libpthread.so.0",
+        "libdl.so.2",
+        "libm.so.6",
+        "librt.so.1",
+        "libresolv.so.2"
+      ],
       "build_recipe": "gpkg/glibc/build.sh"
     },
     {
       "name": "gcc-libs",
       "gpkg_dir": "gpkg/gcc-libs",
-      "version": "14.2.1",
-      "upstream_source_url": "git+https://sourceware.org/git/gcc",
-      "upstream_source_sha256": "ee47c48b656c2fe6e937f99954303f07ef6eab26d40cf70401880cdc2c290b1c",
+      "version": "16.1.0",
+      "upstream_source_url": "https://ftp.gnu.org/gnu/gcc/gcc-16.1.0/gcc-16.1.0.tar.xz",
+      "upstream_source_sha256": "50efb4d94c3397aff3b0d61a5abd748b4dd31d9d3f2ab7be05b171d36a510f79",
       "license": "GPL-3.0-or-later WITH GCC Runtime Library Exception (the libgcc_s runtime is distributable under the exception)",
       "role": "MANDATORY: libgcc_s.so.1 is a load-time DT_NEEDED of ntdll.so (Wine's core NTDLL, always loaded). Non-optional.",
-      "provides": ["libgcc_s.so.1"],
-      "depends_on": ["glibc"],
-      "build_recipe": "gpkg/gcc-libs/build.sh"
+      "provides": [
+        "libgcc_s.so.1"
+      ],
+      "depends_on": [
+        "glibc"
+      ],
+      "build_recipe": "gpkg/gcc-libs/build.sh (termux-pacman/glibc-packages upd-gcc branch, commit 845d0e313f53535de28abba0fb42b07e960cc031; supersedes the c9d4de5 main pin for this package \u2014 gcc 14.2.1 does not build with the cgct image's gcc 16.1.0 cross-compiler due to C++20 char8_t)"
     },
     {
       "name": "libx11",
@@ -45,8 +57,15 @@
       "upstream_source_sha256": "3b74e82943924b45a0b778cc6842976909c3010d9445a8fd185e1dca4d380e88",
       "license": "MIT, X11",
       "role": "MANDATORY: Wine winex11.drv dlopens libX11.so.6 at unix-lib init and NtTerminateProcess'es if it fails. Required for any window.",
-      "provides": ["libX11.so.6"],
-      "depends_on": ["libxcb", "libxau", "libxdmcp", "libxext"],
+      "provides": [
+        "libX11.so.6"
+      ],
+      "depends_on": [
+        "libxcb",
+        "libxau",
+        "libxdmcp",
+        "libxext"
+      ],
       "build_recipe": "gpkg/libx11/build.sh"
     },
     {
@@ -57,8 +76,13 @@
       "upstream_source_sha256": "599ebf9996710fea71622e6e184f3a8ad5b43d0e5fa8c4e407123c88a59a6d55",
       "license": "MIT",
       "role": "X11 C Binding (transitive dep of libX11).",
-      "provides": ["libxcb.so.1"],
-      "depends_on": ["libxau", "libxdmcp"],
+      "provides": [
+        "libxcb.so.1"
+      ],
+      "depends_on": [
+        "libxau",
+        "libxdmcp"
+      ],
       "build_recipe": "gpkg/libxcb/build.sh"
     },
     {
@@ -69,7 +93,9 @@
       "upstream_source_sha256": "74d0e4dfa3d39ad8939e99bda37f5967aba528211076828464d2777d477fc0fb",
       "license": "MIT",
       "role": "X11 Authorization Protocol (transitive dep of libxcb).",
-      "provides": ["libXau.so.6"],
+      "provides": [
+        "libXau.so.6"
+      ],
       "depends_on": [],
       "build_recipe": "gpkg/libxau/build.sh"
     },
@@ -81,7 +107,9 @@
       "upstream_source_sha256": "d8a5222828c3adab70adf69a5583f1d32eb5ece04304f7f8392b6a353aa2228c",
       "license": "MIT",
       "role": "X11 Display Manager Control Protocol (transitive dep of libxcb).",
-      "provides": ["libXdmcp.so.0"],
+      "provides": [
+        "libXdmcp.so.0"
+      ],
       "depends_on": [],
       "build_recipe": "gpkg/libxdmcp/build.sh"
     },
@@ -93,8 +121,12 @@
       "upstream_source_sha256": "edb59fa23994e405fdc5b400afdf5820ae6160b94f35e3dc3da4457a16e89753",
       "license": "MIT, HPND, ISC",
       "role": "X11 Extensions (transitive dep of libX11; Wine dlopens it for the X11 extension path).",
-      "provides": ["libXext.so.6"],
-      "depends_on": ["libxau"],
+      "provides": [
+        "libXext.so.6"
+      ],
+      "depends_on": [
+        "libxau"
+      ],
       "build_recipe": "gpkg/libxext/build.sh"
     },
     {
@@ -105,7 +137,9 @@
       "upstream_source_sha256": "0550350666d427c74daeb85d5ac7bb353acba5f76956395995311a9c6f063289",
       "license": "GPL-2.0 (FTL also available upstream)",
       "role": "MANDATORY: Wine font rendering. Kron4ek does not pass --without-freetype, so libfreetype.so.6 is in the DT_NEEDED of gdi32.",
-      "provides": ["libfreetype.so.6"],
+      "provides": [
+        "libfreetype.so.6"
+      ],
       "depends_on": [],
       "build_recipe": "gpkg/freetype/build.sh"
     },
@@ -117,8 +151,12 @@
       "upstream_source_sha256": "cdebb4b805d33e9bdefcc0ef9743db638d2acb21139bbe1a6a85878d4c3e8c9e",
       "license": "MIT",
       "role": "MANDATORY: Wine font selection (pulled by freetype). Kron4ek does not pass --without-fontconfig.",
-      "provides": ["libfontconfig.so.1"],
-      "depends_on": ["freetype"],
+      "provides": [
+        "libfontconfig.so.1"
+      ],
+      "depends_on": [
+        "freetype"
+      ],
       "build_recipe": "gpkg/fontconfig/build.sh"
     }
   ],
