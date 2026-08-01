@@ -102,8 +102,13 @@ int wine_spike_probe_loader(int64_t pid,
             }
             if (pathname && pathname < eol) {
                 size_t plen = eol - pathname;
-                /* Check if this is the loader (contains ld-linux). */
-                if (plen >= 8 && strstr(pathname, "ld-linux")) {
+                /* Check if this is the loader. The canonical glibc loader is
+                 * ld-linux-x86-64.so.2 (substring "ld-linux"), but the APK-
+                 * managed copy is renamed to libld_linux_x86_64.so (AGP requires
+                 * a lib*.so name) — substring "ld_linux" (underscore). Match
+                 * either so the APK-managed loader is correctly identified. */
+                if (plen >= 8 && (strstr(pathname, "ld-linux") ||
+                                  strstr(pathname, "ld_linux"))) {
                     /* Copy the loader path. */
                     if (out_loader_path && loader_path_cap > 0) {
                         size_t copy_len = plen < loader_path_cap - 1 ? plen : loader_path_cap - 1;

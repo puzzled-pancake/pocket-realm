@@ -257,43 +257,88 @@ int wine_spike_kill_tree_recursive(int64_t root_pid) {
     return WINE_SPIKE_OK;
 }
 
-/* Snapshot a proot descendant tree into out->descendants[]: for each descendant
- * (and root), record pid/ppid/cmdline/comm + /proc/<pid>/maps proof. Called
- * while the tree is alive (between launch and wait completion). */
+/* Record a PID into out->descendants[] if not already present. Returns 1 if
+ * recorded, 0 if skipped (already seen or full). */
+static int record_pid(int64_t pid, struct wine_spike_proot_run_result *out,
+                      const char *expected_native_dir) {
+    for (int k = 0; k < out->descendant_count; k++) {
+        if (out->descendants[k].pid == pid) return 0;  /* already present */
+    }
+    if (out->descendant_count >= WINE_SPIKE_DESCENDANTS_MAX) return 0;
+    struct wine_spike_proc_info *info = &out->descendants[out->descendant_count];
+    info->pid = pid;
+    info->ppid = read_ppid(pid);
+    read_cmdline(pid, info->cmdline, sizeof(info->cmdline));
+    read_comm(pid, info->comm, sizeof(info->comm));
+    info->classification[0] = '\0';
+    char loader_path[WINE_SPIKE_PATH_MAX] = {0};
+    char interp[256] = {0};
+    int rc = wine_spike_probe_loader(pid, expected_native_dir,
+                                     loader_path, sizeof(loader_path),
+                                     interp, sizeof(interp));
+    int apk_count = wine_spike_count_apk_mappings(pid, expected_native_dir);
+    if (rc == WINE_SPIKE_OK) {
+        snprintf(info->maps_proof, sizeof(info->maps_proof),
+                 "OK|%s|%d", loader_path, apk_count);
+    } else if (rc == WINE_SPIKE_ERR_IO) {
+        snprintf(info->maps_proof, sizeof(info->maps_proof), "GONE");
+    } else {
+        snprintf(info->maps_proof, sizeof(info->maps_proof),
+                 "FAIL|rc=%d|apk=%d", rc, apk_count);
+    }
+    out->descendant_count++;
+    return 1;
+}
+
+/* Snapshot a proot run's process tree into out->descendants[]. Two strategies
+ * are combined, because proot's traced children do not always show proot as
+ * their PPID in /proc (ptrace reparenting + the loader execs wine in-place):
+ *
+ *   1. Recursive descendants of the proot PID (children, grandchildren, ...).
+ *   2. A GLOBAL /proc scan for any process whose /proc/<pid>/maps contains the
+ *      APK-managed loader (libld_linux_x86_64.so in expected_native_dir). This
+ *      catches the glibc-namespace loader/wine process even if its PPID is not
+ *      proot's PID.
+ *
+ * Both sets are de-duplicated by PID. Called while the processes are alive. */
 static void snapshot_tree(int64_t root_pid,
                           struct wine_spike_proot_run_result *out,
                           const char *expected_native_dir) {
-    out->descendant_count = 0;
+    /* NOTE: does NOT reset descendant_count — snapshots ACCUMULATE across
+     * calls during the run, so a process observed briefly (e.g. the loader
+     * during a fast `wine --version`) is retained even if later snapshots
+     * (after exit) find nothing. De-dup is by PID in record_pid(). The run
+     * loop resets descendant_count to 0 ONCE before the loop starts. */
+
+    /* Strategy 1: recursive descendants of the proot PID. */
     int64_t pids[WINE_SPIKE_DESCENDANTS_MAX];
     int n = wine_spike_enum_descendants_recursive(root_pid, pids,
                                                   WINE_SPIKE_DESCENDANTS_MAX);
-    LOGI("snapshot_tree root=%lld: %d descendants", (long long)root_pid, n);
-    for (int i = 0; i < n && out->descendant_count < WINE_SPIKE_DESCENDANTS_MAX; i++) {
-        int64_t pid = pids[i];
-        struct wine_spike_proc_info *info = &out->descendants[out->descendant_count];
-        info->pid = pid;
-        info->ppid = read_ppid(pid);
-        read_cmdline(pid, info->cmdline, sizeof(info->cmdline));
-        read_comm(pid, info->comm, sizeof(info->comm));
-        info->classification[0] = '\0';
-        /* /proc/<pid>/maps proof: APK-managed loader present? */
-        char loader_path[WINE_SPIKE_PATH_MAX] = {0};
-        char interp[256] = {0};
-        int rc = wine_spike_probe_loader(pid, expected_native_dir,
-                                         loader_path, sizeof(loader_path),
-                                         interp, sizeof(interp));
-        int apk_count = wine_spike_count_apk_mappings(pid, expected_native_dir);
-        if (rc == WINE_SPIKE_OK) {
-            snprintf(info->maps_proof, sizeof(info->maps_proof),
-                     "OK|%s|%d", loader_path, apk_count);
-        } else if (rc == WINE_SPIKE_ERR_IO) {
-            snprintf(info->maps_proof, sizeof(info->maps_proof), "GONE");
-        } else {
-            snprintf(info->maps_proof, sizeof(info->maps_proof),
-                     "FAIL|rc=%d|apk=%d", rc, apk_count);
+    LOGI("snapshot_tree root=%lld: %d recursive descendants", (long long)root_pid, n);
+    for (int i = 0; i < n; i++) record_pid(pids[i], out, expected_native_dir);
+
+    /* Strategy 2: global /proc scan for any process mapping the APK loader. */
+    DIR *proc = opendir("/proc");
+    int global_hits = 0;
+    if (proc) {
+        struct dirent *de;
+        while ((de = readdir(proc)) != NULL) {
+            if (!isdigit((unsigned char)de->d_name[0])) continue;
+            int64_t pid = (int64_t)atoll(de->d_name);
+            if (pid <= 0) continue;
+            char maps_path[128];
+            snprintf(maps_path, sizeof(maps_path), "/proc/%lld/maps", (long long)pid);
+            char maps[65536];
+            int ml = read_file(maps_path, maps, sizeof(maps));
+            if (ml <= 0) continue;
+            if (strstr(maps, "libld_linux_x86_64.so") != NULL) {
+                if (record_pid(pid, out, expected_native_dir)) global_hits++;
+            }
         }
-        out->descendant_count++;
+        closedir(proc);
     }
+    LOGI("snapshot_tree: global scan found %d processes mapping the APK loader",
+         global_hits);
 }
 
 /* ---- the synchronous run -------------------------------------------------- */
@@ -350,21 +395,30 @@ int wine_spike_run_wine_via_proot(const char *native_dir,
     /* Build argv. KEY CHANGE vs the old launcher: --argv0 <logical> inserted
      * right after the loader, so Wine's argv[0] is the logical command name
      * ("wineboot"/"wine"/...) even though the real ELF is libwine_preloader.so.
-     * The glibc loader supports --argv0=NAME (added in glibc 2.33). */
+     *
+     * IMPORTANT: the glibc loader accepts the SPACE form `--argv0 NAME`, NOT
+     * `--argv0=NAME` (the loader prints "unrecognized option '--argv0=wine'"
+     * for the = form, verified on-device). So --argv0 and its value are two
+     * separate argv entries. */
     const char *argv[48];
     int ai = 0;
-    char argv0_opt[WINE_SPIKE_PATH_MAX + 16];
-    snprintf(argv0_opt, sizeof(argv0_opt), "--argv0=%s", argv0);
     char bind_tmp[WINE_SPIKE_PATH_MAX * 2];
     snprintf(bind_tmp, sizeof(bind_tmp), "%s:/tmp", tmp_dir);
 
     argv[ai++] = proot_path;
-    argv[ai++] = "-v"; argv[ai++] = "5";
+    /* -v 2: info level. Shows errors + key proot events (bindings, translate,
+     * the guest exec) without flooding stderr with every syscall trace (-v 5).
+     * The full syscall evidence is captured separately via the ptrace SIGSYS
+     * diagnostic (S-5(0)); here we want the guest's actual error output to be
+     * visible in the captured stderr. POCKET_PROOT_VERBOSE=5 overrides. */
+    const char *pverb = getenv("POCKET_PROOT_VERBOSE");
+    argv[ai++] = "-v"; argv[ai++] = (pverb && *pverb) ? pverb : "2";
     argv[ai++] = "-b"; argv[ai++] = bind_tmp;
     argv[ai++] = "-r"; argv[ai++] = "/";
     argv[ai++] = "--link2symlink";
     argv[ai++] = loader_path;
-    argv[ai++] = argv0_opt;            /* preserve logical argv[0] */
+    argv[ai++] = "--argv0";
+    argv[ai++] = argv0;               /* preserve logical argv[0] (space form) */
     argv[ai++] = "--library-path";
     argv[ai++] = lib_path;
     argv[ai++] = wine_real;
@@ -469,7 +523,6 @@ int wine_spike_run_wine_via_proot(const char *native_dir,
         if (deadline.tv_nsec >= 1000000000L) { deadline.tv_sec++; deadline.tv_nsec -= 1000000000L; }
     }
 
-    int snapshotted = 0;
     while (1) {
         /* Drain pipes with a short poll timeout. */
         struct pollfd pfds[2];
@@ -497,12 +550,14 @@ int wine_spike_run_wine_via_proot(const char *native_dir,
             }
         }
 
-        /* Snapshot the descendant tree once, after a short settle so proot +
-         * the loader have started. This captures wine/wineserver while alive. */
-        if (!snapshotted) {
-            usleep(300000);  /* 300ms settle for proot + loader + child exec */
+        /* Snapshot the process tree EVERY iteration while the child is alive.
+         * Fast commands (wine --version) may exit in well under a second, so a
+         * single delayed snapshot misses the loader/wine process. The global
+         * /proc scan + de-dup accumulates every process that maps the APK
+         * loader at any point during the run. Each iteration is ~the poll
+         * interval (<=100ms), so we sample at ~10Hz. */
+        if (!got_status) {
             snapshot_tree(child_pid, out, native_dir);
-            snapshotted = 1;
         }
 
         /* Re-check exit. */
@@ -529,7 +584,7 @@ int wine_spike_run_wine_via_proot(const char *native_dir,
                      timeout_ms, (long long)child_pid);
                 out->timed_out = 1;
                 /* Snapshot what we can before killing (best-effort). */
-                if (!snapshotted) snapshot_tree(child_pid, out, native_dir);
+                snapshot_tree(child_pid, out, native_dir);
                 wine_spike_kill_tree_recursive(child_pid);
                 /* Drain remaining pipe output briefly, then break. */
                 for (int t = 0; t < 10; t++) {
