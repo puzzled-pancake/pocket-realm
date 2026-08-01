@@ -1,0 +1,45 @@
+08-02 09:10:33.341  8212  8226 D nativeloader: Load /data/app/~~-d7O39azbQOxgru4aH0oxA==/com.pocketrealm-mvc7orhyDASrgRMhMSFVGQ==/lib/x86_64/libwine_spike.so using ns clns-7 from class loader (caller=/data/app/~~-d7O39azbQOxgru4aH0oxA==/com.pocketrealm-mvc7orhyDASrgRMhMSFVGQ==/base.apk!classes3.dex): ok
+08-02 09:10:33.352  8212  8226 I PR/WineSpikeNative: libwine_spike.so loaded
+08-02 09:10:36.281  8212  8228 I wine_spike: materialize_pe_cache: cache=/data/user/0/com.pocketrealm/files/runtime/wine-pe-cache assets=/data/user/0/com.pocketrealm/cache/wine-pe-assets
+08-02 09:10:43.428  8212  8228 I wine_spike: materialize_pe_cache: 1626 verified (1626 newly materialized), 0 failed
+08-02 09:10:45.484  8212  8228 I wine_spike: verify_pe_cache: 1626 checked, 0 mismatches
+08-02 09:10:45.533  8212  8228 I wine_spike: build_symlink_tree: tree=/data/user/0/com.pocketrealm/files/runtime/wine-tree native=/data/app/~~-d7O39azbQOxgru4aH0oxA==/com.pocketrealm-mvc7orhyDASrgRMhMSFVGQ==/lib/x86_64
+08-02 09:10:45.537  8212  8228 I wine_spike: build_symlink_tree: created 56 symlinks under /data/user/0/com.pocketrealm/files/runtime/wine-tree
+08-02 09:10:45.537  8212  8228 I wine_spike: proot: resolved wine_target /data/user/0/com.pocketrealm/files/runtime/wine-tree/bin/wineboot -> /data/app/~~-d7O39azbQOxgru4aH0oxA==/com.pocketrealm-mvc7orhyDASrgRMhMSFVGQ==/lib/x86_64/libwine_preloader.so
+08-02 09:10:45.537  8212  8228 I wine_spike: proot: exec /data/app/~~-d7O39azbQOxgru4aH0oxA==/com.pocketrealm-mvc7orhyDASrgRMhMSFVGQ==/lib/x86_64/libproot.so -v 5 -b /data/user/0/com.pocketrealm/files/runtime/tmp:/tmp -r / --link2symlink /data/app/~~-d7O39azbQOxgru4aH0oxA==/com.pocketrealm-mvc7orhyDASrgRMhMSFVGQ==/lib/x86_64/libld_linux_x86_64.so --library-path /data/user/0/com.pocketrealm/files/runtime/wine-tree/lib:/data/user/0/com.pocketrealm/files/runtime/wine-tree/lib/wine/x86_64-unix /data/app/~~-d7O39azbQOxgru4aH0oxA==/com.pocketrealm-mvc7orhyDASrgRMhMSFVGQ==/lib/x86_64/libwine_preloader.so ... (PROOT_LOADER=/data/app/~~-d7O39azbQOxgru4aH0oxA==/com.pocketrealm-mvc7orhyDASrgRMhMSFVGQ==/lib/x86_64/libproot_loader.so)
+08-02 09:10:45.542  8212  8228 I wine_spike: proot: child pid=8237
+08-02 09:10:50.560  8212  8228 I System.out: WINE_SPIKE_S2_RESULT	ok=true	code=PE_CACHE_VERIFIED
+08-02 09:10:50.560  8212  8228 I System.out: WINE_SPIKE_S2_EVIDENCE	nativeLibraryDir=/data/app/~~-d7O39azbQOxgru4aH0oxA==/com.pocketrealm-mvc7orhyDASrgRMhMSFVGQ==/lib/x86_64
+08-02 09:10:50.561  8212  8228 I System.out: WINE_SPIKE_S2_EVIDENCE	assetsExtractDir=/data/user/0/com.pocketrealm/cache/wine-pe-assets
+08-02 09:10:50.561  8212  8228 I System.out: WINE_SPIKE_S2_EVIDENCE	materializeRc=0
+08-02 09:10:50.561  8212  8228 I System.out: WINE_SPIKE_S2_EVIDENCE	verifyRc=0
+08-02 09:10:50.561  8212  8228 I System.out: WINE_SPIKE_S2_EVIDENCE	peCacheFileCount=1626
+08-02 09:10:50.561  8212  8228 I System.out: WINE_SPIKE_S2_EVIDENCE	symlinkTreeRc=0
+08-02 09:10:50.561  8212  8228 I System.out: WINE_SPIKE_S2_EVIDENCE	winebootTarget=/data/user/0/com.pocketrealm/files/runtime/wine-tree/bin/wineboot
+08-02 09:10:50.562  8212  8228 I System.out: WINE_SPIKE_S2_EVIDENCE	winebootPid=8237
+08-02 09:10:50.562  8212  8228 I System.out: WINE_SPIKE_S2_EVIDENCE	winebootStillRunning=true
+08-02 09:10:50.562  8212  8228 I System.out: WINE_SPIKE_S2_EVIDENCE	winebootExit=-1
+--- instrument stdout ---
+INSTRUMENTATION_STATUS: class=com.pocketrealm.wine.WineSpikeTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=
+com.pocketrealm.wine.WineSpikeTest:
+INSTRUMENTATION_STATUS: test=t2_s2_wineboot_pe_resolution
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.pocketrealm.wine.WineSpikeTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=t2_s2_wineboot_pe_resolution
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_RESULT: stream=
+
+Time: 17.243
+
+OK (1 test)
+
+
+INSTRUMENTATION_CODE: -1

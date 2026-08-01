@@ -560,15 +560,24 @@ class WineSpikeRunner(private val context: Context) {
         val cacheFiles = cacheDir.walkTopDown().filter { it.isFile }.count()
         evidence["peCacheFileCount"] = cacheFiles.toString()
 
-        // 4. Launch wineboot --init to prove PE resolution.
+        // 4. Launch wineboot --init via proot (the direct path is killed by the
+        //    access() seccomp trap — see S-1). wineboot initializes the prefix
+        //    and resolves Wine-owned PE builtin modules, proving the PE cache.
+        //    Build the symlink tree (idempotent — S-1 may already have built it).
+        val manifest = try { readAsset(STAGING_MANIFEST_ASSET) } catch (e: Exception) { "" }
         val treeDir = File(context.filesDir, "runtime/wine-tree")
+        if (manifest.isNotEmpty()) {
+            val treeRc = WineSpikeNative.buildSymlinkTreeNative(treeDir.absolutePath, nativeDir, manifest)
+            evidence["symlinkTreeRc"] = treeRc.toString()
+        }
+        File(context.filesDir, "runtime/tmp").mkdirs()
         val prefixDir = File(context.filesDir, "runtime/wine-prefix")
         prefixDir.mkdirs()
         val winebootTarget = File(treeDir, "bin/wineboot").absolutePath
         evidence["winebootTarget"] = winebootTarget
 
-        val winebootPid = WineSpikeNative.launchWineNative(
-            nativeDir, winebootTarget, prefixDir.absolutePath, "", "--init")
+        val winebootPid = WineSpikeNative.launchWineViaProotNative(
+            nativeDir, winebootTarget, prefixDir.absolutePath, "", "--init", "")
         evidence["winebootPid"] = winebootPid.toString()
 
         if (winebootPid > 0) {
