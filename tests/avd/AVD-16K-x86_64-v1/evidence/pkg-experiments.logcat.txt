@@ -1,0 +1,7 @@
+08-01 14:04:47.248  6710  6723 I System.out: PKG_EXPERIMENT_RESULT	PKG-06	ok=true	code=SMOKE_OK
+08-01 14:04:47.248  6710  6723 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	pageSize=16384
+08-01 14:04:47.248  6710  6723 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	realmLoaded=1
+08-01 14:04:47.250  6710  6723 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	realmDladdrPath=/data/app/~~EyW768LehzbG-_7OJ-D21A==/com.pocketrealm-1L3BkhW3hIH711thy3FYtg==/base.apk!/lib/x86_64/libpocketrealm.so
+08-01 14:04:47.250  6710  6723 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	tickCount=30
+08-01 14:04:47.250  6710  6723 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	firstTick=tick=1 t=1785548086983 hello=pocket-realm-pkg-ok pid=6729
+08-01 14:04:47.250  6710  6723 I System.out: PKG_EXPERIMENT_EVIDENCE	PKG-06	lastTick=tick=30 t=1785549827222 hello=pocket-realm-pkg-ok pid=6729

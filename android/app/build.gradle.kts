@@ -13,15 +13,55 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+
+        // G0–G3 development ABI. arm64-v8a is added at G5 once the same
+        // contracts pass on x86_64.
+        ndk {
+            abiFilters += "x86_64"
+        }
     }
 
+    // PKG-01 (report §8.4) requires executing an APK-packaged PIE launcher from
+    // nativeLibraryDir. That only happens reliably when AGP *extracts* native
+    // libs to disk with the executable bit, i.e. useLegacyPackaging=true. The
+    // "pkgExperiment" build type is that experiment variant; the standard
+    // "debug"/"release" types keep useLegacyPackaging=false (production: .so
+    // stored uncompressed/page-aligned in the APK, may have no fs exec path).
+    // PKG-02/PKG-06 run against the production packaging variant.
     buildTypes {
-        release {
+        getByName("debug") {
+            // production packaging model
+        }
+        getByName("release") {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+        }
+        create("pkgExperiment") {
+            initWith(getByName("debug"))
+            // Experiment variant: force extraction so the launcher has an
+            // executable filesystem path in nativeLibraryDir.
+            isJniDebuggable = true
+        }
+    }
+
+    // Per-variant jniLibs packaging model. O05 documents the observed behavior
+    // of each lane; the production variants (debug/release) intentionally do
+    // NOT require an executable fs path. The pkgExperiment variant overrides
+    // this to true via androidComponents below.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
+    }
+
+    sourceSets {
+        getByName("main") {
+            // Deterministic staged native closure (see stageNativeLibs task).
+            // Never references ../../../native — staged inside the module.
+            jniLibs.srcDir("build/staged-jniLibs")
         }
     }
 
@@ -33,12 +73,97 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        // O05: IPkgIsolation AIDL crosses the :pkg process boundary.
+        aidl = true
     }
 
     testOptions {
         // Instrumented tests run against the real supervisor/service on-device;
         // animations are disabled for deterministic lifecycle observation.
         animationsDisabled = true
+        // Host JVM unit tests touch android.util.Log via AppLog; return defaults
+        // rather than throwing "not mocked" so model/unit tests stay pure-JVM.
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
+}
+
+// Resolve the NDK via the same ndk-link junction build_native.py creates, then
+// fall back to a discovered ndk/<version> dir. Used only to locate
+// libc++_shared.so for the staged closure.
+val sdkRoot = providers.environmentVariable("ANDROID_SDK_ROOT")
+    .orElse(providers.environmentVariable("ANDROID_HOME")).orElse("")
+val ndkLinkPath = sdkRoot.map { "$it/ndk-link" }
+val ndkVersionsPath = sdkRoot.map { "$it/ndk" }
+val ndkRootProvider = provider {
+    val link = File(ndkLinkPath.get())
+    if (link.isDirectory) return@provider link
+    val versionsDir = File(ndkVersionsPath.get())
+    if (versionsDir.isDirectory) {
+        versionsDir.listFiles()?.filter { it.isDirectory }
+            ?.maxByOrNull { it.name }?.let { return@provider it }
+    }
+    error("NDK not found under ANDROID_SDK_ROOT/ndk[-link]. Run scripts/build_native.py first.")
+}
+
+// Stages the complete native dependency closure into build/staged-jniLibs/x86_64.
+// APK assembly depends on this task. Packages only app-supplied libs (the realm
+// facade, the packaging JNI shim, the PIE launcher, and libc++_shared.so);
+// platform libs (libc/libm/libdl/liblog) are supplied by Android, never staged.
+val stageNativeLibs by tasks.registering(Copy::class) {
+    group = "pocket realm"
+    description = "Stage the native .so closure for APK packaging (x86_64)."
+
+    val repoRoot = layout.projectDirectory.dir("../..").asFile
+    val rtBuild = File(repoRoot, "native/.build-x86_64/pocket-runtime-build")
+    val pkgBuild = File(repoRoot, "native/.build-x86_64/packaging-build")
+    val stagedLib = layout.buildDirectory.dir("staged-jniLibs/x86_64")
+
+    // Require the native build to have run (O03/O04 + O05 packaging module).
+    doFirst {
+        val required = listOf(
+            File(rtBuild, "libpocketrealm.so"),
+            File(pkgBuild, "libpocketpkgtest.so"),
+            File(pkgBuild, "libpocket_pkg_launcher.so"),
+        )
+        val missing = required.filter { !it.isFile }
+        check(missing.isEmpty()) {
+            "Missing staged native artifacts (run scripts/build_native.py --abi x86_64 all " +
+                "and build native/packaging): ${missing.joinToString { it.name }}"
+        }
+    }
+
+    into(stagedLib)
+    // Real realm facade (O04) — large APK-native .so, loaded by SONAME in PKG-02/06.
+    from(File(rtBuild, "libpocketrealm.so"))
+    // PKG JNI shim + dlopen/crash helper.
+    from(File(pkgBuild, "libpocketpkgtest.so"))
+    // PKG-01 PIE launcher (a .so-named executable; extracted under the
+    // experiment variant).
+    from(File(pkgBuild, "libpocket_pkg_launcher.so"))
+    // libc++_shared.so — the realm facade links ANDROID_STL=c++_shared, so its
+    // runtime closure needs the shared C++ runtime. Sourced from the NDK, never
+    // from a platform path. Platform libs (libc/libm/libdl/liblog) are excluded.
+    from(provider {
+        val ndk = ndkRootProvider.get()
+        File(ndk, "toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/x86_64-linux-android/libc++_shared.so")
+    })
+}
+
+// Make every APK-producing variant depend on staging the native closure, and
+// force the pkgExperiment variant to extract .so to disk with +x so the PKG-01
+// launcher has an executable filesystem path in nativeLibraryDir.
+androidComponents {
+    onVariants { variant ->
+        val cap = variant.name.replaceFirstChar { c -> c.uppercase() }
+        tasks.matching { it.name == "merge${cap}JniLibFolders" }
+            .configureEach { dependsOn(stageNativeLibs) }
+        tasks.matching { it.name.startsWith("assemble") && it.name.endsWith(cap) }
+            .configureEach { dependsOn(stageNativeLibs) }
+        if (variant.name == "pkgExperiment") {
+            variant.packaging.jniLibs.useLegacyPackaging.set(true)
+        }
     }
 }
 
@@ -62,6 +187,7 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.navigation.compose)
+    implementation(libs.kotlinx.coroutines.android)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     androidTestImplementation(libs.androidx.test.ext.junit)

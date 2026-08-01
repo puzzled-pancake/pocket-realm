@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "reference_document": "docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx",
+  "avd_id": "AVD-Legacy-x86_64-v1",
+  "system_image": "system-images;android-28;default;x86_64",
+  "captured_at_utc": "2026-08-01T01:30:11.731496+00:00",
+  "host": {
+    "emulator_version": "Android emulator version 36.6.11.0 (build_id 15507667) (CL:N/A)"
+  },
+  "guest": {
+    "api_level": 28,
+    "abilist": "x86_64,x86",
+    "abilist32": "x86",
+    "abilist64": "x86_64",
+    "page_size_bytes": 4096,
+    "page_size_note": "API 28 image has no getconf binary; 4096 confirmed by the running PKG-01 launcher (sysconf(_SC_PAGE_SIZE)) and the app probe (Os.sysconf) on this lane.",
+    "mem_total_kb": 6100156,
+    "df_data_line": "/dev/block/dm-0  10190136 1197284   8976468  12% /data",
+    "gl_host": {
+      "egl": "",
+      "vulkan": "",
+      "gralloc": ""
+    },
+    "build_id": "PSR1.180720.012",
+    "avd_name": "AVD-Legacy-x86_64"
+  }
+}

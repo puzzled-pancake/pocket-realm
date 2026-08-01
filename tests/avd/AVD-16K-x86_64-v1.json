@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "reference_document": "docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx",
+  "avd_id": "AVD-16K-x86_64-v1",
+  "system_image": "system-images;android-35;google_apis_ps16k;x86_64",
+  "captured_at_utc": "2026-08-01T01:27:50.374520+00:00",
+  "host": {
+    "emulator_version": "Android emulator version 36.6.11.0 (build_id 15507667) (CL:N/A)"
+  },
+  "guest": {
+    "api_level": 35,
+    "abilist": "x86_64,arm64-v8a",
+    "abilist32": "",
+    "abilist64": "x86_64,arm64-v8a",
+    "page_size_bytes": 16384,
+    "mem_total_kb": 8136552,
+    "df_data_line": "/dev/block/dm-45  10167132 1459504   8560172  15% /data/user/0",
+    "gl_host": {
+      "egl": "emulation",
+      "vulkan": "ranchu",
+      "gralloc": "ranchu"
+    },
+    "build_id": "AE3A.240806.043",
+    "avd_name": ""
+  }
+}

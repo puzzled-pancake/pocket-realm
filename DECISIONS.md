@@ -65,3 +65,26 @@ The canonical offline decisions are ADR-001 through ADR-012 in
 43. The local Legacy Session Anchor preserves the client TCP/header-crypt session during backend handoff but owns no gameplay/economy decisions.
 44. Planned migration uses pre-copy, ordered deltas, barriers, equal semantic state roots, a higher epoch, atomic route switch, and source fencing. A standby applies authoritative deltas rather than independently simulating the world.
 45. Every queue, cache, snapshot, retry, buffer, imported archive, and network stream has an explicit bound and exhaustion behavior.
+
+## G0 overlay (2026-08-01, feature O05)
+
+The G0 packaging experiments (PKG-01/02/06) have run on the legacy API 28,
+current-target API 35 (4 KB), and API 35 (16 KB) lanes; evidence is in
+`tests/avd/` and `docs/adr/ADR-013-g0-production-topology.md`. This **confirms**
+decisions #7 and #8 from evidence; it does not renumber or contradict them:
+
+- **Production Lane A is selected**: long-lived native realm components ship as
+  APK-packaged libraries loaded by supervised entry shims in dedicated
+  `android:process` fault domains (`:database`, `:realm`, `:world`, `:client`).
+  The Kotlin `RuntimeSupervisor` owns state (decision #6).
+- **target-28 unpack/exec is confirmed NOT the production path** (research lane
+  only). A standalone-exec experiment variant is retained only as G0 evidence
+  (decision #7).
+- The O04 in-process `libpocketrealm.so` facade remains reusable library-lane
+  /control evidence; it is not the production world-server topology (decision #8).
+- **Signed-code/mutable-data boundary**: executable native code ships only via
+  the signed APK in `nativeLibraryDir`; mutable datadir/prefix/cache/journal/
+  database stays app-private and is never executed (decision #12).
+
+No existing decision is superseded. If a later gate's evidence contradicts the
+report, a separate superseding ADR will be raised then.

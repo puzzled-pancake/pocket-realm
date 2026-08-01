@@ -2,11 +2,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Offline flavor: foreground service + notifications only. No gameplay
-         INTERNET permission. See schemas/flavor.json excludes_from_release_artifact.
-         The realm uses FGS type specialUse, NOT dataSync: dataSync is capped at
-         6h on Android 15 and is intended for finite syncs, whereas the realm is
-         a persistent long-running process spanning multi-hour play sessions. -->
+    <!-- Offline flavor: foreground service + notifications, plus INTERNET.
+         INTERNET is required by schemas/flavor.json android_permissions.required
+         and the report: app-local TCP sockets and the versioned app-private
+         control channel need loopback. network_policy (flavor.json) is explicit:
+         INTERNET permits app-local TCP only; offline realm listeners bind to
+         127.0.0.1 and the permission authorizes no external gameplay authority
+         (connected transport is post-O22, separate flavor/build type). -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -51,5 +54,14 @@
                 <action android:name="com.pocketrealm.action.SAVE_EXIT" />
             </intent-filter>
         </receiver>
+
+        <!-- O05 PKG-02: an isolated fault domain for the native crash experiment.
+             The deliberate abort() happens here, never in :main. Not a bound
+             service from the UI's perspective; the runner attaches a Binder
+             DeathRecipient to observe child death. Exported=false, no FGS. -->
+        <service
+            android:name=".pkg.PkgIsolationService"
+            android:process=":pkg"
+            android:exported="false" />
     </application>
 </manifest>

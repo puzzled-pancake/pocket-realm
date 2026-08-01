@@ -4,8 +4,11 @@
  * This is the versioned boundary between the Kotlin/Compose Android supervisor
  * (and, later, the connected Rust Realm Kernel) and the native CMaNGOS/Playerbots
  * realm. It is the only crossing point for the historical O04 embedded-library
- * path. Report gate G0 decides whether production uses this library lane or a
- * separately supervised native component.
+ * path. G0 has now decided the production topology (ADR-013, 2026-08-01):
+ * long-lived realm components use Production Lane A (library-backed, supervised,
+ * fault-isolated), NOT this in-process facade. This ABI and libpocketrealm.so
+ * remain as reusable library-lane/control evidence (DECISIONS #8) for any future
+ * in-process consumer; they are not the production world-server crossing.
  *
  * Hard invariants enforced by the implementation (.claude/rules/native.md and
  * DECISIONS.md #7/#8):

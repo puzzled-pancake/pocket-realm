@@ -124,7 +124,7 @@
       "track": "offline",
       "priority": 50,
       "title": "G0 production packaging, process isolation, and capability record",
-      "status": "pending",
+      "status": "done",
       "depends": [
         "O01",
         "O02",
@@ -138,8 +138,20 @@
         "PKG-06 passes startup and 30-minute native smoke checks on 4 KB and 16 KB lanes",
         "An explicit ADR selects a current-target production topology and signed-code/mutable-data boundary; target-28 unpack/exec is not the production answer"
       ],
-      "notes": "",
-      "evidence": [],
+      "notes": "G0 packaging experiments completed on three AVD lanes: AVD-Legacy-x86_64 (API 28, 4 KB, research lane), AVD-Modern-x86_64-v1 (API 35, 4 KB), and AVD-16K-x86_64-v1 (API 35, 16 KB). New native module native/packaging builds a PIE launcher (libpocket_pkg_launcher.so, renamed so AGP extracts it) and a JNI shim (libpocketpkgtest.so) that dlopens the real libpocketrealm.so by SONAME and exposes a deterministic abort(). Gradle stageNativeLibs stages the full closure (libpocketrealm.so + libpocketpkgtest.so + libpocket_pkg_launcher.so + libc++_shared.so; no platform libs) into the APK; production variants use useLegacyPackaging=false (.so stored uncompressed/page-aligned, loaded from the APK), and a pkgExperiment variant uses useLegacyPackaging=true (.so extracted to nativeLibraryDir with +x). PKG-02 runs in an isolated :pkg process bound cross-process via AIDL (IPkgIsolation). ADR-013 confirms Production Lane A (library-backed, supervised, fault-isolated) from evidence; it does not renumber ADR-001-012 / DECISIONS #1-45. The O04 libpocketrealm.so facade is retained as reusable library/control evidence, not the production topology. INTERNET permission added per schemas/flavor.json (loopback-only). Full instrumented suite (RealmSupervisor x10 + RealmServiceLifecycle x2 + PackagingExperiment x4 = 16 tests) passes on all three lanes.",
+      "evidence": [
+        "tests/avd/AVD-Modern-x86_64-v1.json + AVD-16K-x86_64-v1.json + AVD-Legacy-x86_64-v1.json (X0 capability records; match adb on equivalent fields; allocatable/GL recorded separately)",
+        "tests/avd/<lane>/pkg-experiments.md (per-lane PKG-01/02 evidence with resolved paths, dladdr, PIDs)",
+        "PKG-01 executed+documented on all 3 lanes: experiment-variant launcher execs from nativeLibraryDir (exit 0, PKG_LAUNCHER_OK, dlopen libpocketrealm.so by SONAME); production variant records NO_EXECUTABLE_FS_PATH (documented)",
+        "PKG-02 CONTAINMENT_PROVEN on all 3 lanes: :pkg child dlopens real libpocketrealm.so (loaded from base.apk), abort() contained (main alive, child gone, Binder death), restart -> new PID answers hello",
+        "PKG-06 SMOKE_OK on production variant: every .so loads on 4 KB and 16 KB lanes; ELF LOAD align 0x4000; zipalign -c -P 16 -v 4 passes; two genuine 30-min runs (4 KB + 16 KB) captured via tools/run_pkg_experiments host driver",
+        "scripts/smoke_native.py --abi x86_64 --device --runtime -> SMOKE OK (O04 prerequisites restored: libpocketrealm.so lifecycle 2 cycles)",
+        "tools/build_packaging.py --abi x86_64 -> libpocketpkgtest.so + libpocket_pkg_launcher.so (16 KB-aligned)",
+        "tools/capture_avd.py host-side capture+compare (StorageManager.getAllocatableBytes vs df recorded separately)",
+        ":app:assembleDebug (production) + :app:assemblePkgExperiment (experiment) -> BUILD SUCCESSFUL; APK lib/x86_64/ closure correct, INTERNET present",
+        ":app:connectedDebugAndroidTest on all 3 AVDs -> 16 tests, 0 failures (RealmSupervisor x10 + RealmServiceLifecycle x2 + PackagingExperiment x4)",
+        "docs/adr/ADR-013-g0-production-topology.md (confirms Lane A from evidence; DECISIONS.md G0 overlay; no renumber)"
+      ],
       "reference": "Report sections 0-6, 8.4, 20.1-20.2 (X0-X1), 25.7, and 27.4"
     },
     {

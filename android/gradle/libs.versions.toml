@@ -11,6 +11,7 @@ androidxTestExt = "1.2.1"
 androidxTestRunner = "1.6.2"
 androidxTestCore = "1.6.1"
 coroutinesTest = "1.8.1"
+coroutinesAndroid = "1.8.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -31,6 +32,8 @@ androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version
 androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTestRunner" }
 androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidxTestCore" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
+# O05: coroutines for the packaging-experiment runner (Dispatchers/withContext).
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutinesAndroid" }
 # Host JVM unit tests (O04: RealmNative shim).
 junit = { group = "junit", name = "junit", version = "4.13.2" }
 

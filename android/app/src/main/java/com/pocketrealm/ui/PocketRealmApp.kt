@@ -1,6 +1,7 @@
 package com.pocketrealm.ui
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
@@ -52,6 +53,7 @@ fun PocketRealmApp() {
             startDestination = Screen.Home.route,
         ) {
             composable(Screen.Home.route) { HomeScreen(contentPadding = inner) }
+            composable(Screen.Capability.route) { CapabilityScreen(contentPadding = inner) }
             composable(Screen.Settings.route) { SettingsScreen(contentPadding = inner) }
             composable(Screen.Diagnostics.route) { DiagnosticsScreen(contentPadding = inner) }
         }
@@ -60,8 +62,9 @@ fun PocketRealmApp() {
 
 sealed class Screen(val route: String, val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
     data object Home : Screen("home", "Home", Icons.Filled.Home)
+    data object Capability : Screen("capability", "Capability", Icons.Filled.BugReport)
     data object Settings : Screen("settings", "Settings", Icons.Filled.Settings)
     data object Diagnostics : Screen("diagnostics", "Diagnostics", Icons.Filled.Dashboard)
 }
 
-private val bottomDestinations = listOf(Screen.Home, Screen.Settings, Screen.Diagnostics)
+private val bottomDestinations = listOf(Screen.Home, Screen.Capability, Screen.Settings, Screen.Diagnostics)
