@@ -1,0 +1,262 @@
+=== wine_spike evidence ===
+# serial: emulator-5554
+# avd: AVD-Modern-x86_64
+# lane: modern
+# api: 35
+# abi: x86_64
+# abilist: x86_64
+# kernel_page_size: 4096
+# expected_page_size: 4096
+# variant: pkgExperiment
+# test: t2_s2_wineboot_pe_resolution
+# result_ok: False
+# results: S2=false/WINEBOOT_NONZERO_EXIT
+=== WINE_SPIKE logcat ===
+08-02 10:35:10.279 10089 10103 D nativeloader: Load /data/app/~~gyes5h0UOA1UOFwe82GxPQ==/com.pocketrealm-7clC3_kQFJrGbqKeh4CbdA==/lib/x86_64/libwine_spike.so using ns clns-7 from class loader (caller=/data/app/~~gyes5h0UOA1UOFwe82GxPQ==/com.pocketrealm-7clC3_kQFJrGbqKeh4CbdA==/base.apk!classes3.dex): ok
+08-02 10:35:10.290 10089 10103 I PR/WineSpikeNative: libwine_spike.so loaded
+08-02 10:35:14.357 10089 10105 I wine_spike: build_symlink_tree: tree=/data/user/0/com.pocketrealm/files/runtime/wine-tree native=/data/app/~~gyes5h0UOA1UOFwe82GxPQ==/com.pocketrealm-7clC3_kQFJrGbqKeh4CbdA==/lib/x86_64
+08-02 10:35:14.364 10089 10105 I wine_spike: build_symlink_tree: created 56 symlinks under /data/user/0/com.pocketrealm/files/runtime/wine-tree
+08-02 10:35:14.370 10089 10105 I wine_spike: materialize_pe_cache: cache=/data/user/0/com.pocketrealm/files/runtime/wine-pe-cache assets=/data/user/0/com.pocketrealm/cache/wine-pe-assets tree=/data/user/0/com.pocketrealm/files/runtime/wine-tree
+08-02 10:35:16.661 10089 10105 I wine_spike: materialize_pe_cache: 1626 verified (0 newly materialized), 1626 linked, 0 failed
+08-02 10:35:18.738 10089 10105 I wine_spike: verify_pe_cache: 1626 checked, 0 mismatches
+08-02 10:35:19.193 10089 10105 W wine_spike: verify mismatch: /data/user/0/com.pocketrealm/files/runtime/wine-pe-cache/wine-pe/i386-windows/kernel32.dll
+08-02 10:35:20.883 10089 10105 I wine_spike: verify_pe_cache: 1626 checked, 1 mismatches
+08-02 10:35:20.883 10089 10105 I wine_spike: materialize_pe_cache: cache=/data/user/0/com.pocketrealm/files/runtime/wine-pe-cache assets=/data/user/0/com.pocketrealm/cache/wine-pe-assets tree=/data/user/0/com.pocketrealm/files/runtime/wine-tree
+08-02 10:35:23.137 10089 10105 I wine_spike: materialize_pe_cache: 1626 verified (1 newly materialized), 1626 linked, 0 failed
+08-02 10:35:25.213 10089 10105 I wine_spike: verify_pe_cache: 1626 checked, 0 mismatches
+08-02 10:35:25.231 10089 10105 I wine_spike: proot_run: argv0=wineboot wine_real=/data/app/~~gyes5h0UOA1UOFwe82GxPQ==/com.pocketrealm-7clC3_kQFJrGbqKeh4CbdA==/lib/x86_64/libwine_preloader.so lib_path=/data/user/0/com.pocketrealm/files/runtime/wine-tree/lib:/data/user/0/com.pocketrealm/files/runtime/wine-tree/lib/wine/x86_64-unix timeout=60000ms
+08-02 10:35:25.252 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.253 10089 10105 E wine_spike: probe_loader: no APK-managed loader found for pid 10114
+08-02 10:35:25.253 10089 10105 I wine_spike: count_apk_mappings pid=10114: 8/42 mapped files from APK dir
+08-02 10:35:25.255 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.256 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.256 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.260 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.260 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.262 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.263 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.264 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.265 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.265 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.266 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.267 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.268 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.269 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.269 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.272 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.272 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.283 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.284 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.285 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.286 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.287 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.287 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.288 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.290 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.291 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.293 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.293 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.294 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.299 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.301 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.301 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.303 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.307 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.308 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.309 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.310 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.311 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.312 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.312 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.313 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.313 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.314 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.314 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.315 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.316 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.317 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.318 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.319 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.320 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.321 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.321 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.322 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.322 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.323 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.323 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.324 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.324 10089 10105 I wine_spike: snapshot_tree root=10112: 1 recursive descendants
+08-02 10:35:25.325 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.325 10089 10105 I wine_spike: snapshot_tree root=10112: 0 recursive descendants
+08-02 10:35:25.325 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.326 10089 10105 I wine_spike: proot_run: done exit_status=256 timed_out=0 descendants=1 stdout=0B stderr=8191B
+08-02 10:35:25.350 10089 10105 I wine_spike: proot_run: argv0=wineserver wine_real=/data/app/~~gyes5h0UOA1UOFwe82GxPQ==/com.pocketrealm-7clC3_kQFJrGbqKeh4CbdA==/lib/x86_64/libwineserver.so lib_path=/data/user/0/com.pocketrealm/files/runtime/wine-tree/lib:/data/user/0/com.pocketrealm/files/runtime/wine-tree/lib/wine/x86_64-unix timeout=10000ms
+08-02 10:35:25.371 10089 10105 I wine_spike: snapshot_tree root=10115: 0 recursive descendants
+08-02 10:35:25.372 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.373 10089 10105 I wine_spike: snapshot_tree root=10115: 1 recursive descendants
+08-02 10:35:25.373 10089 10105 E wine_spike: probe_loader: no APK-managed loader found for pid 10117
+08-02 10:35:25.373 10089 10105 I wine_spike: count_apk_mappings pid=10117: 8/42 mapped files from APK dir
+08-02 10:35:25.374 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.379 10089 10105 I wine_spike: snapshot_tree root=10115: 1 recursive descendants
+08-02 10:35:25.379 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.379 10089 10105 I wine_spike: snapshot_tree root=10115: 1 recursive descendants
+08-02 10:35:25.381 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.381 10089 10105 I wine_spike: snapshot_tree root=10115: 1 recursive descendants
+08-02 10:35:25.382 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.382 10089 10105 I wine_spike: snapshot_tree root=10115: 1 recursive descendants
+08-02 10:35:25.383 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.383 10089 10105 I wine_spike: snapshot_tree root=10115: 1 recursive descendants
+08-02 10:35:25.384 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.384 10089 10105 I wine_spike: snapshot_tree root=10115: 1 recursive descendants
+08-02 10:35:25.385 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.385 10089 10105 I wine_spike: snapshot_tree root=10115: 1 recursive descendants
+08-02 10:35:25.386 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.387 10089 10105 I wine_spike: snapshot_tree root=10115: 1 recursive descendants
+08-02 10:35:25.388 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.388 10089 10105 I wine_spike: snapshot_tree root=10115: 1 recursive descendants
+08-02 10:35:25.389 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.389 10089 10105 I wine_spike: snapshot_tree root=10115: 1 recursive descendants
+08-02 10:35:25.390 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.390 10089 10105 I wine_spike: snapshot_tree root=10115: 1 recursive descendants
+08-02 10:35:25.390 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.390 10089 10105 I wine_spike: snapshot_tree root=10115: 1 recursive descendants
+08-02 10:35:25.391 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.391 10089 10105 I wine_spike: snapshot_tree root=10115: 0 recursive descendants
+08-02 10:35:25.392 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.392 10089 10105 I wine_spike: proot_run: done exit_status=0 timed_out=0 descendants=1 stdout=0B stderr=7158B
+08-02 10:35:25.394 10089 10105 I wine_spike: proot_run: argv0=wineserver wine_real=/data/app/~~gyes5h0UOA1UOFwe82GxPQ==/com.pocketrealm-7clC3_kQFJrGbqKeh4CbdA==/lib/x86_64/libwineserver.so lib_path=/data/user/0/com.pocketrealm/files/runtime/wine-tree/lib:/data/user/0/com.pocketrealm/files/runtime/wine-tree/lib/wine/x86_64-unix timeout=5000ms
+08-02 10:35:25.404 10089 10105 I wine_spike: snapshot_tree root=10118: 0 recursive descendants
+08-02 10:35:25.405 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.405 10089 10105 I wine_spike: snapshot_tree root=10118: 1 recursive descendants
+08-02 10:35:25.406 10089 10105 E wine_spike: probe_loader: no APK-managed loader found for pid 10120
+08-02 10:35:25.406 10089 10105 I wine_spike: count_apk_mappings pid=10120: 8/42 mapped files from APK dir
+08-02 10:35:25.407 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.411 10089 10105 I wine_spike: snapshot_tree root=10118: 1 recursive descendants
+08-02 10:35:25.412 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.412 10089 10105 I wine_spike: snapshot_tree root=10118: 1 recursive descendants
+08-02 10:35:25.413 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.413 10089 10105 I wine_spike: snapshot_tree root=10118: 1 recursive descendants
+08-02 10:35:25.414 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.414 10089 10105 I wine_spike: snapshot_tree root=10118: 1 recursive descendants
+08-02 10:35:25.415 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.415 10089 10105 I wine_spike: snapshot_tree root=10118: 1 recursive descendants
+08-02 10:35:25.415 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.416 10089 10105 I wine_spike: snapshot_tree root=10118: 1 recursive descendants
+08-02 10:35:25.416 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.416 10089 10105 I wine_spike: snapshot_tree root=10118: 1 recursive descendants
+08-02 10:35:25.417 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.417 10089 10105 I wine_spike: snapshot_tree root=10118: 1 recursive descendants
+08-02 10:35:25.417 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.418 10089 10105 I wine_spike: snapshot_tree root=10118: 1 recursive descendants
+08-02 10:35:25.418 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.419 10089 10105 I wine_spike: snapshot_tree root=10118: 1 recursive descendants
+08-02 10:35:25.419 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.420 10089 10105 I wine_spike: snapshot_tree root=10118: 0 recursive descendants
+08-02 10:35:25.420 10089 10105 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:35:25.420 10089 10105 I wine_spike: proot_run: done exit_status=256 timed_out=0 descendants=1 stdout=0B stderr=7158B
+08-02 10:35:25.427 10089 10105 I System.out: WINE_SPIKE_S2_RESULT	ok=false	code=WINEBOOT_NONZERO_EXIT
+08-02 10:35:25.427 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	nativeLibraryDir=/data/app/~~gyes5h0UOA1UOFwe82GxPQ==/com.pocketrealm-7clC3_kQFJrGbqKeh4CbdA==/lib/x86_64
+08-02 10:35:25.428 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	assetsExtractDir=/data/user/0/com.pocketrealm/cache/wine-pe-assets
+08-02 10:35:25.428 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	symlinkTreeRc=0
+08-02 10:35:25.428 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	materializeRc=0
+08-02 10:35:25.428 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	verifyRc=0
+08-02 10:35:25.429 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	peCacheFileCount=1627
+08-02 10:35:25.429 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	repairTarget=kernel32.dll
+08-02 10:35:25.429 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	repairPath=/data/user/0/com.pocketrealm/files/runtime/wine-pe-cache/wine-pe/i386-windows/kernel32.dll
+08-02 10:35:25.429 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	repairShaBefore=75f7e79d6ffa7cd18775034407b03fb8ebd306d7d548029b02e5fb9a6b0e0794
+08-02 10:35:25.430 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	repairVerifyAfterCorrupt=5
+08-02 10:35:25.430 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	repairRematRc=0
+08-02 10:35:25.430 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	repairShaAfter=75f7e79d6ffa7cd18775034407b03fb8ebd306d7d548029b02e5fb9a6b0e0794
+08-02 10:35:25.430 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	repairVerifyAfterRepair=0
+08-02 10:35:25.430 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	repairOk=true
+08-02 10:35:25.431 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	coreModules=wineboot.exe:ok@/data/data/com.pocketrealm/files/runtime/wine-pe-cache/wine-pe/x86_64-windows/wineboot.exe,kernel32.dll:ok@/data/data/com.pocketrealm/files/runtime/wine-pe-cache/wine-pe/x86_64-windows/kernel32.dll,ntdll.dll:ok@/data/data/com.pocketrealm/files/runtime/wine-pe-cache/wine-pe/x86_64-windows/ntdll.dll
+08-02 10:35:25.431 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	winebootTarget=/data/user/0/com.pocketrealm/files/runtime/wine-tree/bin/wineboot
+08-02 10:35:25.431 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	winebootRc=0
+08-02 10:35:25.431 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	winebootExitStatus=256
+08-02 10:35:25.431 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	winebootExitCode=1
+08-02 10:35:25.431 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	winebootTimedOut=false
+08-02 10:35:25.431 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	winebootStdoutTail=
+08-02 10:35:25.431 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	winebootStderrTail=proot info: vpid 1: translate("/" + "/data/user/0/com.pocketrealm/files/runtime/wine-tree/lib/wine/x86_64-unix/ntdll.so") | proot info: vpid 1:          -> "/data/app/~~gyes5h0UOA1UOFwe82GxPQ==/com.pocketrealm-7clC3_kQFJrGbqKeh4CbdA==/lib/x86_64/libwine_unix_ntdll.so" | proot info: vpid 1: translate("/" + "/data/user/0/com.pocketrealm/files/runtime/wine-tree/lib/libpthread.so.0") | proot info: vpid 1:          -> "/data/app/~~gyes5h0UOA1UOFwe82GxPQ==/com.pocketrealm-7clC3_kQFJrGbqKeh4CbdA==/lib/x86_64/liblibpthread.so.0.so" | proot info: vpid 1: translate("/" + "/data/user/0/com.pocketrealm/files/runtime/wine-tree/lib/libgcc_s.so.1") | proot info: vpid 1:          -> "/data/app/~~gyes5h0UOA1UOFwe82GxPQ==/com.pocketrealm-7clC3_kQFJrGbqKeh4CbdA==/lib/x86_64/liblibgcc_s.so.1.so" | proot info: vpid 1: translate("/" + "/data") | proot info: vpid 1:          -> "/data" | proot info: vpid 1: translate("/" + "/data/user") | proot info: vpid 1:          -> "/data/user" | proot info: vpid 1: translate("/" + "/data/user/0") | proot info: vpid 1:          -> "/data/user/0" | proot info: vpid 1: translate("/" + "/data") | proot info: vpid 1:          -> "/data" | proot info: vpid 1: translate("/" + "/data/data") | proot info: vpid 1:          -> "/data/data" | proot info: vpid 1: translate("/" + "/data/data/com.pocketrealm") | proot info: vpid 1:          -> "/data/data/com.pocketrealm" | proot info: vpid 1: translate("/" + "/data/data/com.pocketrealm/files") | proot info: vpid 1:          -> "/data/data/com.pocketrealm/files" | proot info: vpid 1: translate("/" + "/data/data/com.pocketrealm/files/runtime") | proot info: vpid 1:          -> "/data/data/com.pocketrealm/files/runtime" | proot info: vpid 1: translate("/" + "/data/data/com.pocketrealm/files/runtime/wine-tree") | proot info: vpid 1:          -> "/data/data/com.pocketrealm/files/runtime/wine-tree" | proot info: vpid 1: translate("/" + "/data/data/com.pocketrealm/files/runtime/wine-tree/lib") | proot info: vpid 1:          -> "/data/data/com.pocketrealm/files/runtime/wine-tree/lib" | proot info: vpid 1: translate("/" + "/data/data/com.pocketrealm/files/runtime/wine-tree/lib/wine") | proot info: vpid 1:          -> "/data/data/com.pocketrealm/files/runtime/wine-tree/lib/wine" | proot info: vpid 1: translate("/" + "/data/data/com.pocketrealm/files/runtime/wine-tree/lib/wine/x86_64-unix") | proot info: vpid 1:          -> "/data/data/com.pocketrealm/files/runtime/
+08-02 10:35:25.432 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	winebootModuleLoadLines=0
+08-02 10:35:25.432 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	winebootModuleLoadSample=
+08-02 10:35:25.432 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	serverWait.rc=0
+08-02 10:35:25.432 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	serverWait.exitCode=0
+08-02 10:35:25.432 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	serverWait.timedOut=false
+08-02 10:35:25.432 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	serverWait.stderrTail=     10117:	calling fini:  [0] |      10117:	 |      10117:	 |      10117:	calling fini: /data/user/0/com.pocketrealm/files/runtime/wine-tree/lib/libc.so.6 [0] |      10117:	 |      10117:	 |      10117:	calling fini: /data/app/~~gyes5h0UOA1UOFwe82GxPQ==/com.pocketrealm-7clC3_kQFJrGbqKeh4CbdA==/lib/x86_64/libld_linux_x86_64.so [0] |      10117:	 | proot info: vpid 1: exited with status 0 | 
+08-02 10:35:25.432 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	serverKill.rc=0
+08-02 10:35:25.432 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	serverKill.exitCode=1
+08-02 10:35:25.432 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	serverKill.timedOut=false
+08-02 10:35:25.432 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	serverKill.stderrTail=     10120:	calling fini:  [0] |      10120:	 |      10120:	 |      10120:	calling fini: /data/user/0/com.pocketrealm/files/runtime/wine-tree/lib/libc.so.6 [0] |      10120:	 |      10120:	 |      10120:	calling fini: /data/app/~~gyes5h0UOA1UOFwe82GxPQ==/com.pocketrealm-7clC3_kQFJrGbqKeh4CbdA==/lib/x86_64/libld_linux_x86_64.so [0] |      10120:	 | proot info: vpid 1: exited with status 1 | 
+08-02 10:35:25.432 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	prefixArtifacts=system.reg=false,user.reg=false,userdef.reg=true,dosdevices=false,drive_c/windows/system32=false
+08-02 10:35:25.432 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	s2BootExitedZero=false
+08-02 10:35:25.432 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	s2ArtifactsOk=false
+08-02 10:35:25.434 10089 10105 I System.out: WINE_SPIKE_S2_EVIDENCE	s2CoreAllReachable=true
+--- instrument stdout ---
+INSTRUMENTATION_STATUS: class=com.pocketrealm.wine.WineSpikeTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=
+com.pocketrealm.wine.WineSpikeTest:
+INSTRUMENTATION_STATUS: test=t2_s2_wineboot_pe_resolution
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.pocketrealm.wine.WineSpikeTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stack=java.lang.AssertionError: S-2 (wineboot PE resolution) failed: WINEBOOT_NONZERO_EXIT :: matRc=0 verifyRc=0 repairOk=true coreAllReachable=true bootExitedZero=false artifactsOk=false bootTimedOut=false bootExitCode=1
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at com.pocketrealm.wine.WineSpikeTest$t2_s2_wineboot_pe_resolution$1.invokeSuspend(WineSpikeTest.kt:49)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:104)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:277)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:95)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:69)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source:1)
+	at com.pocketrealm.wine.WineSpikeTest.t2_s2_wineboot_pe_resolution(WineSpikeTest.kt:47)
+
+INSTRUMENTATION_STATUS: stream=
+Error in t2_s2_wineboot_pe_resolution(com.pocketrealm.wine.WineSpikeTest):
+java.lang.AssertionError: S-2 (wineboot PE resolution) failed: WINEBOOT_NONZERO_EXIT :: matRc=0 verifyRc=0 repairOk=true coreAllReachable=true bootExitedZero=false artifactsOk=false bootTimedOut=false bootExitCode=1
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at com.pocketrealm.wine.WineSpikeTest$t2_s2_wineboot_pe_resolution$1.invokeSuspend(WineSpikeTest.kt:49)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:104)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:277)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:95)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:69)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source:1)
+	at com.pocketrealm.wine.WineSpikeTest.t2_s2_wineboot_pe_resolution(WineSpikeTest.kt:47)
+
+INSTRUMENTATION_STATUS: test=t2_s2_wineboot_pe_resolution
+INSTRUMENTATION_STATUS_CODE: -2
+INSTRUMENTATION_RESULT: stream=
+
+Time: 15.189
+There was 1 failure:
+1) t2_s2_wineboot_pe_resolution(com.pocketrealm.wine.WineSpikeTest)
+java.lang.AssertionError: S-2 (wineboot PE resolution) failed: WINEBOOT_NONZERO_EXIT :: matRc=0 verifyRc=0 repairOk=true coreAllReachable=true bootExitedZero=false artifactsOk=false bootTimedOut=false bootExitCode=1
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at com.pocketrealm.wine.WineSpikeTest$t2_s2_wineboot_pe_resolution$1.invokeSuspend(WineSpikeTest.kt:49)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:104)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:277)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:95)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:69)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source:1)
+	at com.pocketrealm.wine.WineSpikeTest.t2_s2_wineboot_pe_resolution(WineSpikeTest.kt:47)
+
+FAILURES!!!
+Tests run: 1,  Failures: 1
+
+
+INSTRUMENTATION_CODE: -1

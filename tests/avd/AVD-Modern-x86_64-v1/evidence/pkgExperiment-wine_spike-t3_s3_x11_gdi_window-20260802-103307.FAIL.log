@@ -1,0 +1,201 @@
+=== wine_spike evidence ===
+# serial: emulator-5554
+# avd: AVD-Modern-x86_64
+# lane: modern
+# api: 35
+# abi: x86_64
+# abilist: x86_64
+# kernel_page_size: 4096
+# expected_page_size: 4096
+# variant: pkgExperiment
+# test: t3_s3_x11_gdi_window
+# result_ok: False
+# results: S3=false/NO_WINDOW_MAPPED
+=== WINE_SPIKE logcat ===
+08-02 10:33:01.187 10013 10027 D nativeloader: Load /data/app/~~ZjssNzMzk-NCGTMkXGIPeg==/com.pocketrealm-DtLmOLbKM4SWgeknRlOV9Q==/lib/x86_64/libwine_spike.so using ns clns-7 from class loader (caller=/data/app/~~ZjssNzMzk-NCGTMkXGIPeg==/com.pocketrealm-DtLmOLbKM4SWgeknRlOV9Q==/base.apk!classes3.dex): ok
+08-02 10:33:01.198 10013 10027 I PR/WineSpikeNative: libwine_spike.so loaded
+08-02 10:33:01.254 10013 10029 I wine_spike: build_symlink_tree: tree=/data/user/0/com.pocketrealm/files/runtime/wine-tree native=/data/app/~~ZjssNzMzk-NCGTMkXGIPeg==/com.pocketrealm-DtLmOLbKM4SWgeknRlOV9Q==/lib/x86_64
+08-02 10:33:01.261 10013 10029 I wine_spike: build_symlink_tree: created 56 symlinks under /data/user/0/com.pocketrealm/files/runtime/wine-tree
+08-02 10:33:01.266 10013 10029 I wine_spike: materialize_pe_cache: cache=/data/user/0/com.pocketrealm/files/runtime/wine-pe-cache assets=/data/user/0/com.pocketrealm/cache/wine-pe-assets tree=/data/user/0/com.pocketrealm/files/runtime/wine-tree
+08-02 10:33:03.590 10013 10029 I wine_spike: materialize_pe_cache: 1626 verified (0 newly materialized), 1626 linked, 0 failed
+08-02 10:33:03.590 10013 10029 I wine_spike: materialize_pe_cache: cache=/data/user/0/com.pocketrealm/files/runtime/wine-pe-cache assets=/data/user/0/com.pocketrealm/cache/wine-pe-assets tree=/data/user/0/com.pocketrealm/files/runtime/wine-tree
+08-02 10:33:03.593 10013 10029 I wine_spike: materialize_pe_cache: 1 verified (0 newly materialized), 1 linked, 0 failed
+08-02 10:33:05.700 10013 10029 I wine_spike: verify_pe_cache: 1626 checked, 0 mismatches
+08-02 10:33:06.243 10013 10029 I wine_spike: proot_run: argv0=wine wine_real=/data/app/~~ZjssNzMzk-NCGTMkXGIPeg==/com.pocketrealm-DtLmOLbKM4SWgeknRlOV9Q==/lib/x86_64/libwine_preloader.so lib_path=/data/user/0/com.pocketrealm/files/runtime/wine-tree/lib:/data/user/0/com.pocketrealm/files/runtime/wine-tree/lib/wine/x86_64-unix timeout=120000ms
+08-02 10:33:06.264 10013 10029 I wine_spike: snapshot_tree root=10034: 0 recursive descendants
+08-02 10:33:06.265 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.265 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.266 10013 10029 E wine_spike: probe_loader: no APK-managed loader found for pid 10036
+08-02 10:33:06.267 10013 10029 I wine_spike: count_apk_mappings pid=10036: 8/42 mapped files from APK dir
+08-02 10:33:06.268 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.272 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.273 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.273 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.274 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.274 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.275 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.275 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.276 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.277 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.277 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.278 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.279 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.279 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.280 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.280 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.281 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.281 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.282 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.282 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.283 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.284 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.284 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.285 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.285 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.286 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.287 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.287 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.288 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.288 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.288 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.289 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.290 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.290 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.291 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.291 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.292 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.293 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.294 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.294 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.295 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.295 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.296 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.296 10013 10029 I wine_spike: snapshot_tree root=10034: 1 recursive descendants
+08-02 10:33:06.297 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.297 10013 10029 I wine_spike: snapshot_tree root=10034: 0 recursive descendants
+08-02 10:33:06.298 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.298 10013 10029 I wine_spike: proot_run: done exit_status=256 timed_out=0 descendants=1 stdout=0B stderr=8191B
+08-02 10:33:06.331 10013 10029 I wine_spike: proot_run: argv0=wineserver wine_real=/data/app/~~ZjssNzMzk-NCGTMkXGIPeg==/com.pocketrealm-DtLmOLbKM4SWgeknRlOV9Q==/lib/x86_64/libwineserver.so lib_path=/data/user/0/com.pocketrealm/files/runtime/wine-tree/lib:/data/user/0/com.pocketrealm/files/runtime/wine-tree/lib/wine/x86_64-unix timeout=5000ms
+08-02 10:33:06.347 10013 10029 I wine_spike: snapshot_tree root=10037: 0 recursive descendants
+08-02 10:33:06.348 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.348 10013 10029 I wine_spike: snapshot_tree root=10037: 1 recursive descendants
+08-02 10:33:06.349 10013 10029 E wine_spike: probe_loader: no APK-managed loader found for pid 10039
+08-02 10:33:06.349 10013 10029 I wine_spike: count_apk_mappings pid=10039: 8/42 mapped files from APK dir
+08-02 10:33:06.350 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.354 10013 10029 I wine_spike: snapshot_tree root=10037: 1 recursive descendants
+08-02 10:33:06.355 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.355 10013 10029 I wine_spike: snapshot_tree root=10037: 1 recursive descendants
+08-02 10:33:06.356 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.356 10013 10029 I wine_spike: snapshot_tree root=10037: 1 recursive descendants
+08-02 10:33:06.357 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.357 10013 10029 I wine_spike: snapshot_tree root=10037: 1 recursive descendants
+08-02 10:33:06.358 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.358 10013 10029 I wine_spike: snapshot_tree root=10037: 1 recursive descendants
+08-02 10:33:06.359 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.359 10013 10029 I wine_spike: snapshot_tree root=10037: 1 recursive descendants
+08-02 10:33:06.360 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.360 10013 10029 I wine_spike: snapshot_tree root=10037: 1 recursive descendants
+08-02 10:33:06.360 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.361 10013 10029 I wine_spike: snapshot_tree root=10037: 1 recursive descendants
+08-02 10:33:06.361 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.362 10013 10029 I wine_spike: snapshot_tree root=10037: 1 recursive descendants
+08-02 10:33:06.363 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.363 10013 10029 I wine_spike: snapshot_tree root=10037: 1 recursive descendants
+08-02 10:33:06.364 10013 10029 I wine_spike: snapshot_tree: global scan found 0 processes mapping the APK loader
+08-02 10:33:06.364 10013 10029 I wine_spike: proot_run: done exit_status=256 timed_out=0 descendants=1 stdout=0B stderr=7158B
+08-02 10:33:06.366 10013 10029 I System.out: WINE_SPIKE_S3_RESULT	ok=false	code=NO_WINDOW_MAPPED
+08-02 10:33:06.366 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	nativeLibraryDir=/data/app/~~ZjssNzMzk-NCGTMkXGIPeg==/com.pocketrealm-DtLmOLbKM4SWgeknRlOV9Q==/lib/x86_64
+08-02 10:33:06.366 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	winlatorLoaded=true
+08-02 10:33:06.367 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	s3GuestMaterialized=true
+08-02 10:33:06.367 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	s3PeVerifyRc=0
+08-02 10:33:06.367 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	x0Path=/data/user/0/com.pocketrealm/files/runtime/tmp/.X11-unix/X0
+08-02 10:33:06.367 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	xServerStarted=true
+08-02 10:33:06.367 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	x0SocketExists=true
+08-02 10:33:06.367 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	selfTestPath=/data/user/0/com.pocketrealm/files/runtime/wine-tree/pocket_selftest.exe
+08-02 10:33:06.367 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	selfTestExists=true
+08-02 10:33:06.367 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	s3WineTarget=/data/user/0/com.pocketrealm/files/runtime/wine-tree/bin/wine
+08-02 10:33:06.368 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	s3Rc=0
+08-02 10:33:06.368 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	s3ExitCode=1
+08-02 10:33:06.368 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	s3TimedOut=false
+08-02 10:33:06.368 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	s3StdoutTail=
+08-02 10:33:06.368 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	s3StderrTail=proot info: vpid 1:          -> "/data/app/~~ZjssNzMzk-NCGTMkXGIPeg==/com.pocketrealm-DtLmOLbKM4SWgeknRlOV9Q==/lib/x86_64/liblibc.so.6.so" |      10036:	 |      10036:	 |      10036:	calling init: /data/app/~~ZjssNzMzk-NCGTMkXGIPeg==/com.pocketrealm-DtLmOLbKM4SWgeknRlOV9Q==/lib/x86_64/libld_linux_x86_64.so |      10036:	 |      10036:	 |      10036:	calling init: /data/user/0/com.pocketrealm/files/runtime/wine-tree/lib/libc.so.6 |      10036:	 |      10036:	 |      10036:	calling init: /data/user/0/com.pocketrealm/files/runtime/wine-tree/lib/libdl.so.2 |      10036:	 |      10036:	 |      10036:	initialize program: wine |      10036:	 |      10036:	 |      10036:	transferring control: wine |      10036:	 | proot info: vpid 1: translate("/" + "/proc") | proot info: vpid 1:          -> "/proc" | proot info: vpid 1: translate("/" + "/proc/self") | proot info: vpid 1:          -> "/proc/self" | proot info: vpid 1: translate("/" + "/proc/10036") | proot info: vpid 1:          -> "/proc/10036" | proot info: vpid 1: translate("/" + "/proc/10036/exe") | proot info: vpid 1:          -> "/proc/10036/exe" | proot info: vpid 1: translate("/" + "/data") | proot info: vpid 1:          -> "/data" | proot info: vpid 1: translate("/" + "/data/app") | proot info: vpid 1:          -> "/data/app" | proot info: vpid 1: translate("/" + "/data/app/~~ZjssNzMzk-NCGTMkXGIPeg==") | proot info: vpid 1:          -> "/data/app/~~ZjssNzMzk-NCGTMkXGIPeg==" | proot info: vpid 1: translate("/" + "/data/app/~~ZjssNzMzk-NCGTMkXGIPeg==/com.pocketrealm-DtLmOLbKM4SWgeknRlOV9Q==") | proot info: vpid 1:          -> "/data/app/~~ZjssNzMzk-NCGTMkXGIPeg==/com.pocketrealm-DtLmOLbKM4SWgeknRlOV9Q==" | proot info: vpid 1: translate("/" + "/data/app/~~ZjssNzMzk-NCGTMkXGIPeg==/com.pocketrealm-DtLmOLbKM4SWgeknRlOV9Q==/lib") | proot info: vpid 1:          -> "/data/app/~~ZjssNzMzk-NCGTMkXGIPeg==/com.pocketrealm-DtLmOLbKM4SWgeknRlOV9Q==/lib" | proot info: vpid 1: translate("/" + "/data/app/~~ZjssNzMzk-NCGTMkXGIPeg==/com.pocketrealm-DtLmOLbKM4SWgeknRlOV9Q==/lib/x86_64") | proot info: vpid 1:          -> "/data/app/~~ZjssNzMzk-NCGTMkXGIPeg==/com.pocketrealm-DtLmOLbKM4SWgeknRlOV9Q==/lib/x86_64" | proot info: vpid 1: translate("/" + "/data/app/~~ZjssNzMzk-NCGTMkXGIPeg==/com.pocketrealm-DtLmOLbKM4SWgeknRlOV9Q==/lib/x86_64/libld_linux_x86_64.so") | proot info: vpid 1:          -> "/data/app/~~ZjssNzMzk-NCGTMkXGIPeg==/com.pocketrealm-DtLmOLbKM4SWgeknRlOV9Q==/lib/x86_64/libld_linux_x86_64.so" | proot info: vpid 1: translate("/" + "/data/app/~~ZjssNzMzk-NCGTMkXGIPeg==/com.pocketrealm-Dt
+08-02 10:33:06.369 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	s3WindowSeen=false
+08-02 10:33:06.369 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	s3SelfTestOk=false
+08-02 10:33:06.369 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	s3SelfTestExit=1
+08-02 10:33:06.369 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	s3WindowCount=0
+08-02 10:33:06.369 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	s3HasMappedWindow=false
+08-02 10:33:06.369 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	s3ServerKill.rc=0
+08-02 10:33:06.369 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	s3ServerKill.exitCode=1
+08-02 10:33:06.369 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	s3ServerKill.timedOut=false
+08-02 10:33:06.369 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	s3ServerKill.stderrTail=     10039:	calling fini:  [0] |      10039:	 |      10039:	 |      10039:	calling fini: /data/user/0/com.pocketrealm/files/runtime/wine-tree/lib/libc.so.6 [0] |      10039:	 |      10039:	 |      10039:	calling fini: /data/app/~~ZjssNzMzk-NCGTMkXGIPeg==/com.pocketrealm-DtLmOLbKM4SWgeknRlOV9Q==/lib/x86_64/libld_linux_x86_64.so [0] |      10039:	 | proot info: vpid 1: exited with status 1 | 
+08-02 10:33:06.369 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	s3Ok=false
+08-02 10:33:06.369 10013 10029 I System.out: WINE_SPIKE_S3_EVIDENCE	verdict=NO_WINDOW_MAPPED
+--- instrument stdout ---
+INSTRUMENTATION_STATUS: class=com.pocketrealm.wine.WineSpikeTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=
+com.pocketrealm.wine.WineSpikeTest:
+INSTRUMENTATION_STATUS: test=t3_s3_x11_gdi_window
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.pocketrealm.wine.WineSpikeTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stack=java.lang.AssertionError: S-3 (X11/GDI window) not yet passing: NO_WINDOW_MAPPED :: transportLoaded=true serverStarted=true windowSeen=false selfTestOk=false selfTestExit=1
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at com.pocketrealm.wine.WineSpikeTest$t3_s3_x11_gdi_window$1.invokeSuspend(WineSpikeTest.kt:61)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:104)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:277)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:95)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:69)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source:1)
+	at com.pocketrealm.wine.WineSpikeTest.t3_s3_x11_gdi_window(WineSpikeTest.kt:56)
+
+INSTRUMENTATION_STATUS: stream=
+Error in t3_s3_x11_gdi_window(com.pocketrealm.wine.WineSpikeTest):
+java.lang.AssertionError: S-3 (X11/GDI window) not yet passing: NO_WINDOW_MAPPED :: transportLoaded=true serverStarted=true windowSeen=false selfTestOk=false selfTestExit=1
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at com.pocketrealm.wine.WineSpikeTest$t3_s3_x11_gdi_window$1.invokeSuspend(WineSpikeTest.kt:61)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:104)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:277)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:95)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:69)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source:1)
+	at com.pocketrealm.wine.WineSpikeTest.t3_s3_x11_gdi_window(WineSpikeTest.kt:56)
+
+INSTRUMENTATION_STATUS: test=t3_s3_x11_gdi_window
+INSTRUMENTATION_STATUS_CODE: -2
+INSTRUMENTATION_RESULT: stream=
+
+Time: 5.209
+There was 1 failure:
+1) t3_s3_x11_gdi_window(com.pocketrealm.wine.WineSpikeTest)
+java.lang.AssertionError: S-3 (X11/GDI window) not yet passing: NO_WINDOW_MAPPED :: transportLoaded=true serverStarted=true windowSeen=false selfTestOk=false selfTestExit=1
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.assertTrue(Assert.java:42)
+	at com.pocketrealm.wine.WineSpikeTest$t3_s3_x11_gdi_window$1.invokeSuspend(WineSpikeTest.kt:61)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:104)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:277)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:95)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:69)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source:1)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source:1)
+	at com.pocketrealm.wine.WineSpikeTest.t3_s3_x11_gdi_window(WineSpikeTest.kt:56)
+
+FAILURES!!!
+Tests run: 1,  Failures: 1
+
+
+INSTRUMENTATION_CODE: -1
