@@ -174,8 +174,14 @@ def build_packages(repo: Path, arch: str, pkgs: list[str]) -> Path:
     Output .pkg.tar.* land in repo/output/. Returns the output dir."""
     out_dir = repo / "output"
     out_dir.mkdir(exist_ok=True)
-    # Docker Desktop expects the Windows drive as //c/... in the volume mount.
-    mount_src = "//" + str(repo).replace("\\", "/").lstrip("/")
+    # Docker Desktop expects the Windows drive as //c/... in the volume mount
+    # (lowercase drive, NO colon — a colon makes Docker parse it as a 3-part
+    # "src:dst:mode" spec and reject the destination as an "invalid mode").
+    win_path = str(repo).replace("\\", "/")
+    # "C:/foo/bar" -> "c/foo/bar"
+    if len(win_path) >= 2 and win_path[1] == ":":
+        win_path = win_path[0].lower() + win_path[2:]
+    mount_src = "//" + win_path
     # Also strip CRLF again (the build may pull additional dep build.sh files
     # that were checked out with CRLF).
     strip_crlf_sh(repo)
