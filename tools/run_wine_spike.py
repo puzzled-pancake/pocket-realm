@@ -73,6 +73,16 @@ def assert_page_size(serial: str, expected: int) -> bool:
     return False
 
 
+def probe_device(serial: str) -> dict[str, str]:
+    """Fetch API level, ABI list, page size for evidence provenance."""
+    api = adb(serial, "shell", "getprop", "ro.build.version.sdk", timeout=15).strip()
+    abi = adb(serial, "shell", "getprop", "ro.product.cpu.abi", timeout=15).strip()
+    abi_list = adb(serial, "shell", "getprop", "ro.product.cpu.abilist", timeout=15).strip()
+    page = adb(serial, "shell", "getconf", "PAGE_SIZE", timeout=15).strip()
+    return {"api": api or "?", "abi": abi or "?",
+            "abilist": abi_list or "?", "kernel_page_size": page or "?"}
+
+
 def gradle_build():
     gw = str(ANDROID / "gradlew.bat")
     print("== building pkgExperiment APK ==")
@@ -137,12 +147,42 @@ def parse_outcome(instr_out: str) -> tuple[int, int, int]:
     return ran, passed, failed
 
 
-def write_evidence(lane: str, name: str, content: str):
+def parse_wine_spike_results(wine_lines: list[str]) -> dict[str, dict[str, str]]:
+    """Parse WINE_SPIKE_*_RESULT ok=... lines into {exp: {ok, code, ...}}.
+
+    Each result line looks like:
+        ... WINE_SPIKE_S1_RESULT  ok=true  code=LOADER_PROVEN ...
+    We split on whitespace, find tok=VALUE pairs, and key by the experiment
+    (S1/S2/S3) parsed from the tag.
+    """
+    import re
+    results: dict[str, dict[str, str]] = {}
+    for ln in wine_lines:
+        m = re.search(r"WINE_SPIKE_(S\d)_RESULT\b(.*)", ln)
+        if not m:
+            continue
+        exp = m.group(1)
+        tail = m.group(2)
+        fields: dict[str, str] = {}
+        for tok in tail.split():
+            if "=" in tok:
+                k, _, v = tok.partition("=")
+                fields[k] = v
+        results[exp] = fields
+    return results
+
+
+def write_evidence(lane: str, name: str, content: str, passed: bool):
+    """Write exactly ONE evidence artifact (PASS or FAIL), after the outcome is
+    determined. The suffix encodes the outcome; we do NOT write a second
+    byte-identical .FAIL.log copy (that recreated the duplicate pairs we
+    removed)."""
     avd = LANES[lane]["avd"]
     d = ROOT / "tests" / "avd" / f"{avd}-v1" / "evidence"
     d.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    path = d / f"pkgExperiment-wine_spike-{name}-{ts}.log"
+    suffix = "PASS" if passed else "FAIL"
+    path = d / f"pkgExperiment-wine_spike-{name}-{ts}.{suffix}.log"
     path.write_text(content, encoding="utf-8")
     print(f"  evidence -> {path.relative_to(ROOT)}")
     return path
@@ -186,33 +226,59 @@ def main() -> int:
     # 5. Filter logcat for WINE_SPIKE lines.
     wine_lines = [ln for ln in log.splitlines()
                   if "WINE_SPIKE" in ln or "wine_spike" in ln]
-    evidence_text = "\n".join(wine_lines) + "\n--- instrument stdout ---\n" + instr_out
 
-    # 6. Write evidence.
-    write_evidence(args.lane, suffix, evidence_text)
+    # 6. Parse the per-experiment results BEFORE writing evidence, so we write
+    #    exactly ONE artifact (PASS or FAIL), not a normal copy + a byte-
+    #    identical .FAIL.log copy.
+    results = parse_wine_spike_results(wine_lines)
+    ran, passed_n, failed_n = parse_outcome(instr_out)
 
-    # 7. Parse outcome.
-    ran, passed, failed = parse_outcome(instr_out)
+    # Determine the overall verdict:
+    #   - instrumentation must not have failed (failed_n == 0, ran > 0)
+    #   - AND every emitted WINE_SPIKE_*_RESULT must report ok=true
+    #   - if --only was passed, that one test's result must be ok=true
+    all_results_ok = all(r.get("ok") == "true" for r in results.values())
+    expected_exps = ([args.only.split("_", 1)[0].upper().replace("T1", "S1")
+                      .replace("T2", "S2").replace("T3", "S3")] if args.only
+                     else ["S1", "S2", "S3"])
+    # We only require the results for experiments that actually ran. If a test
+    # produced no RESULT line at all, treat as not-ok.
+    saw_expected = any(exp in results for exp in expected_exps)
+    overall_ok = (ran > 0 and failed_n == 0 and all_results_ok and saw_expected)
+
     print(f"\n=== outcome ===")
-    print(f"  ran={ran} passed={passed} failed={failed}")
+    print(f"  ran={ran} passed={passed_n} failed={failed_n}")
     print(f"  WINE_SPIKE lines captured: {len(wine_lines)}")
+    print(f"  results: {results}")
 
     # Print the key result lines.
     for ln in wine_lines:
         if "RESULT" in ln:
             print(f"  {ln}")
 
-    overall_ok = ran > 0 and failed == 0
-    if args.only:
-        # Single-test runs: also accept a clean result for that one test.
-        overall_ok = ran > 0 and failed == 0
-
-    if not overall_ok:
-        # Write a .FAIL evidence copy.
-        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-        avd = LANES[args.lane]["avd"]
-        fail_path = ROOT / "tests" / "avd" / f"{avd}-v1" / "evidence" / f"pkgExperiment-wine_spike-{suffix}-{ts}.FAIL.log"
-        fail_path.write_text(evidence_text, encoding="utf-8")
+    # 7. Build the evidence text WITH provenance metadata, then write one file.
+    dev = probe_device(args.serial)
+    meta = {
+        "serial": args.serial,
+        "avd": LANES[args.lane]["avd"],
+        "lane": args.lane,
+        "api": dev["api"],
+        "abi": dev["abi"],
+        "abilist": dev["abilist"],
+        "kernel_page_size": dev["kernel_page_size"],
+        "expected_page_size": LANES[args.lane]["page"],
+        "variant": "pkgExperiment",
+        "test": suffix,
+        "result_ok": overall_ok,
+        "results": ";".join(f"{k}={v.get('ok')}/{v.get('code')}" for k, v in sorted(results.items())),
+    }
+    meta_block = "\n".join(f"# {k}: {v}" for k, v in meta.items())
+    evidence_text = (
+        f"=== wine_spike evidence ===\n{meta_block}\n"
+        f"=== WINE_SPIKE logcat ===\n" + "\n".join(wine_lines) +
+        f"\n--- instrument stdout ---\n{instr_out}"
+    )
+    write_evidence(args.lane, suffix, evidence_text, passed=overall_ok)
 
     return 0 if overall_ok else 1
 

@@ -95,9 +95,62 @@ object WineSpikeNative {
      * access(2)->faccessat(2) to work around the seccomp filter. Returns the
      * proot process PID, or -1 on failure. The -b <tmp>:/tmp bind handles
      * wineserver's hardcoded /tmp/.wine-<uid> path.
+     *
+     * NOTE: this is the async fire-and-forget launch (returns a live PID).
+     * Prefer [runWineViaProotNative] for S-1/S-2 acceptance, which runs to
+     * completion and returns exit status + captured output + recursive
+     * descendant /proc maps proof.
      */
     external fun launchWineViaProotNative(
         nativeDir: String, wineTarget: String, prefixDir: String,
         display: String, wineArgs: String, extraEnv: String
     ): Long
+
+    /**
+     * S-1/S-2 synchronous proot run with logical argv[0] preservation and full
+     * process-tree loader proof. This is the corrected launcher:
+     *  - argv0Override preserves the logical Wine command name (wine/wineboot/
+     *    winecfg) via glibc-loader --argv0, so Wine dispatches correctly even
+     *    though the real ELF is libwine_preloader.so.
+     *  - Runs proot to completion (or timeoutMs), capturing stdout + stderr.
+     *  - Snapshots EVERY descendant's PID/PPID/comm/cmdline + /proc/<pid>/maps
+     *    proof while the tree is alive — the S-1 acceptance requirement (wine +
+     *    wineserver + every native child must map the APK-managed loader).
+     *  - On timeout, recursively kills + reaps the whole process tree.
+     *
+     * Returns a structured string (parse with parseProotRunResult):
+     *   header line: "RC=<int>|EXIT=<int>|TIMED_OUT=<0|1>|DESCS=<n>"
+     *   one line per descendant: "  pid=<ll>|ppid=<ll>|comm=<s>|maps=<proof>|cmdline=<s>"
+     *   "@@@STDOUT@@@\n<stdout>"
+     *   "@@@STDERR@@@\n<stderr>"
+     *
+     * EXIT is the raw waitpid status of the top proot process; the caller
+     * checks WIFEXITED + WEXITSTATUS. maps proof per descendant is one of:
+     *   "OK|<loader_path>|<apk_count>" (APK-managed loader proven)
+     *   "FAIL|rc=<n>|apk=<n>"           (loader not APK-managed)
+     *   "GONE"                          (process exited before snapshot)
+     */
+    external fun runWineViaProotNative(
+        nativeDir: String, wineTarget: String, argv0Override: String,
+        prefixDir: String, display: String, wineArgs: String,
+        extraEnv: String, timeoutMs: Int
+    ): String
+
+    /**
+     * S-2 tree-aware PE cache materialize: like [materializePeCacheNative] but
+     * additionally symlinks each manifest entry's logical_path into the wine
+     * tree, so Wine can find the cached PE modules at their expected paths.
+     * Pass treeDir=null for the legacy (cache-files-only) behavior.
+     */
+    external fun materializePeCacheIntoTreeNative(
+        cacheDir: String, manifest: String, assetsDir: String, treeDir: String?
+    ): Int
+
+    /**
+     * S-2 mismatch-repair: resolve the cache path for a PE module asset basename
+     * (e.g. "kernel32.dll"). Returns "" if no match.
+     */
+    external fun resolveCachePathNative(
+        cacheDir: String, manifest: String, assetName: String
+    ): String
 }

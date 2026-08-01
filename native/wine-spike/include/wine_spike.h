@@ -155,11 +155,40 @@ int wine_spike_materialize_pe_cache(const char *cache_dir,
                                     const char *assets_dir);
 
 /*
+ * Materialize + connect to the logical Wine tree (S-2 path fix). Same as
+ * wine_spike_materialize_pe_cache, but additionally — for each manifest entry
+ * that has a "logical_path" — installs a symlink at
+ *   <tree_dir>/<logical_path> -> <cache_dir>/<asset_path>
+ * so Wine can resolve builtin PE modules at their expected paths. Pass NULL for
+ * tree_dir to get the legacy behavior (cache files only, no tree symlinks).
+ *
+ * This corrects the earlier bug where pe_cache.c ignored logical_path and
+ * materialized files under wine-pe/... with nothing connecting them to the
+ * logical Wine tree. The symlink-only tree property is preserved: no ELF
+ * regular file lives in writable storage; these are PE guest-code files.
+ */
+int wine_spike_materialize_pe_cache_into_tree(const char *cache_dir,
+                                              const char *manifest_json,
+                                              const char *assets_dir,
+                                              const char *tree_dir);
+
+/*
  * Verify the PE cache: re-check every file's SHA-256 against the manifest.
  * Called before each Wine launch. Returns WINE_SPIKE_OK if all match,
  * WINE_SPIKE_ERR_VERIFY if any mismatch (caller should re-materialize).
  */
 int wine_spike_verify_pe_cache(const char *cache_dir, const char *manifest_json);
+
+/*
+ * Resolve the cache path for a given PE module asset basename (S-2 mismatch
+ * repair test). Fills <out> with "<cache_dir>/<asset_path>" for the first
+ * manifest entry whose asset basename matches <asset_name>. Returns
+ * WINE_SPIKE_OK on match, WINE_SPIKE_ERR_IO if no match.
+ */
+int wine_spike_resolve_cache_path(const char *cache_dir,
+                                  const char *manifest_json,
+                                  const char *asset_name,
+                                  char *out, size_t out_cap);
 
 /*
  * S-5(0) SIGSYS classification (see sigsys_diag.c).
@@ -258,6 +287,101 @@ int wine_spike_launch_wine_via_proot(const char *native_dir,
                                      const char *wine_args,
                                      const char *extra_env,
                                      int64_t *out_pid);
+
+/* Maximum descendants captured by a proot run (proot + wine + wineserver +
+ * any native children). Larger than WINE_SPIKE_CHILDREN_MAX because the
+ * recursive tree is captured while alive, not just direct children. */
+#define WINE_SPIKE_DESCENDANTS_MAX 64
+
+/* A single descendant captured during a proot run. */
+struct wine_spike_proc_info {
+    int64_t pid;
+    int64_t ppid;
+    char cmdline[WINE_SPIKE_LINE_MAX];   /* /proc/<pid>/cmdline (NULs → spaces) */
+    char comm[64];                        /* /proc/<pid>/comm */
+    /* Classification (filled by the run caller, not the C side):
+     *   "wine" / "wineserver" / "proot" / "loader" / "unknown"
+     * The C side leaves this empty; the Kotlin runner classifies from cmdline. */
+    char classification[24];
+    /* Per-process /proc/<pid>/maps proof, captured while the process was alive.
+     * "OK|<loader_path>|<apk_count>" or "FAIL|<reason>". Captured only if the
+     * process was still alive at snapshot time; otherwise "GONE". */
+    char maps_proof[WINE_SPIKE_LINE_MAX];
+};
+
+/* Structured result of a synchronous proot run. The run waits for the proot
+ * process tree to finish (or the timeout), captures stdout/stderr, and
+ * snapshots every descendant's PID/PPID/cmdline/comm + maps proof while the
+ * processes are alive.
+ *
+ * On timeout, the run kills + reaps the ENTIRE process tree (recursive),
+ * not just the top proot PID, and sets timed_out=1. */
+struct wine_spike_proot_run_result {
+    int exit_status;        /* raw waitpid exit of the top proot process (or -1) */
+    int proot_rc;           /* WINE_SPIKE_OK or WINE_SPIKE_ERR_* */
+    int timed_out;          /* 1 if the run hit the timeout */
+    char stdout_buf[8192];  /* captured child stdout (truncated) */
+    char stderr_buf[8192];  /* captured child stderr (truncated) */
+    int descendant_count;   /* number of entries in descendants[] */
+    struct wine_spike_proc_info descendants[WINE_SPIKE_DESCENDANTS_MAX];
+};
+
+/*
+ * S-1/S-2 run path: run Wine synchronously via proot, with logical argv[0]
+ * preservation. This is the corrected launcher that:
+ *   - separates the immutable real APK executable path (libwine_preloader.so in
+ *     nativeLibraryDir) from the LOGICAL Wine command name (argv[0], e.g.
+ *     "wine", "wineboot", "winecfg"). glibc loader --argv0=<logical> preserves
+ *     argv[0] so Wine dispatches correctly (wineboot != wine).
+ *   - runs proot to completion (or timeout_ms), capturing stdout + stderr.
+ *   - snapshots every descendant's PID/PPID/cmdline/comm + /proc/<pid>/maps
+ *     proof while alive, so the caller can verify the APK-managed loader for
+ *     wine + wineserver + every native child (full S-1 acceptance).
+ *   - on timeout, recursively kills + reaps the whole tree.
+ *
+ * Args:
+ *   native_dir    — nativeLibraryDir
+ *   wine_target   — logical tree path (e.g. tree/bin/wineboot); resolved to the
+ *                   real APK ELF for the exec, but argv[0] is taken from
+ *                   argv0_override (or the basename of wine_target if NULL).
+ *   argv0_override — logical command name ("wine", "wineboot", ...). If NULL/
+ *                   empty, derived from wine_target's basename.
+ *   prefix_dir    — WINEPREFIX
+ *   display       — DISPLAY env (e.g. ":0") or empty
+ *   wine_args     — extra args after the wine command (e.g. "--init", "--version")
+ *   extra_env     — "KEY=VAL;KEY=VAL;..." or empty
+ *   timeout_ms    — hard timeout; 0 = wait forever
+ *   out           — filled with the structured result
+ *
+ * Returns WINE_SPIKE_OK on a successful run (regardless of child exit code;
+ * check out->exit_status for the child's exit), or WINE_SPIKE_ERR_* on launch
+ * failure. out->timed_out indicates the timeout fired.
+ */
+int wine_spike_run_wine_via_proot(const char *native_dir,
+                                  const char *wine_target,
+                                  const char *argv0_override,
+                                  const char *prefix_dir,
+                                  const char *display,
+                                  const char *wine_args,
+                                  const char *extra_env,
+                                  int timeout_ms,
+                                  struct wine_spike_proot_run_result *out);
+
+/*
+ * Recursively enumerate ALL descendants of <root_pid> (children, grandchildren,
+ * ...) into out_pids (depth-first). Returns the count written, or -1 on error.
+ * Used by the runner to enumerate the proot->wine->wineserver tree. Unlike
+ * wine_spike_enum_children (direct children only), this walks the full tree.
+ */
+int wine_spike_enum_descendants_recursive(int64_t root_pid,
+                                          int64_t *out_pids, int cap);
+
+/*
+ * Recursively kill + reap a process tree: SIGTERM then SIGKILL every descendant
+ * of <root_pid> (depth-first), then <root_pid> itself. Best-effort; used on
+ * timeout or shutdown so no proot/wine/wineserver orphans survive.
+ */
+int wine_spike_kill_tree_recursive(int64_t root_pid);
 
 /* Get a human-readable string for a result code. */
 const char *wine_spike_err_str(int code);

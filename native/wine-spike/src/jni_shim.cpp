@@ -128,6 +128,41 @@ Java_com_pocketrealm_wine_WineSpikeNative_materializePeCacheNative(
     return rc;
 }
 
+/* S-2 tree-aware materialize: also symlinks logical_path entries into the wine
+ * tree so Wine can find cached PE modules. */
+JNIEXPORT jint JNICALL
+Java_com_pocketrealm_wine_WineSpikeNative_materializePeCacheIntoTreeNative(
+        JNIEnv *env, jobject /*this*/,
+        jstring jCacheDir, jstring jManifest, jstring jAssetsDir, jstring jTreeDir) {
+    const char *cache_dir = env->GetStringUTFChars(jCacheDir, nullptr);
+    const char *manifest = env->GetStringUTFChars(jManifest, nullptr);
+    const char *assets_dir = env->GetStringUTFChars(jAssetsDir, nullptr);
+    const char *tree_dir = jTreeDir ? env->GetStringUTFChars(jTreeDir, nullptr) : nullptr;
+    int rc = wine_spike_materialize_pe_cache_into_tree(cache_dir, manifest, assets_dir, tree_dir);
+    env->ReleaseStringUTFChars(jCacheDir, cache_dir);
+    env->ReleaseStringUTFChars(jManifest, manifest);
+    env->ReleaseStringUTFChars(jAssetsDir, assets_dir);
+    if (jTreeDir) env->ReleaseStringUTFChars(jTreeDir, tree_dir);
+    return rc;
+}
+
+/* S-2 mismatch-repair: resolve the cache path for a PE module asset basename. */
+JNIEXPORT jstring JNICALL
+Java_com_pocketrealm_wine_WineSpikeNative_resolveCachePathNative(
+        JNIEnv *env, jobject /*this*/,
+        jstring jCacheDir, jstring jManifest, jstring jAssetName) {
+    const char *cache_dir = env->GetStringUTFChars(jCacheDir, nullptr);
+    const char *manifest = env->GetStringUTFChars(jManifest, nullptr);
+    const char *asset_name = env->GetStringUTFChars(jAssetName, nullptr);
+    char out[WINE_SPIKE_PATH_MAX] = {0};
+    int rc = wine_spike_resolve_cache_path(cache_dir, manifest, asset_name, out, sizeof(out));
+    env->ReleaseStringUTFChars(jCacheDir, cache_dir);
+    env->ReleaseStringUTFChars(jManifest, manifest);
+    env->ReleaseStringUTFChars(jAssetName, asset_name);
+    if (rc != WINE_SPIKE_OK) return env->NewStringUTF("");
+    return env->NewStringUTF(out);
+}
+
 JNIEXPORT jint JNICALL
 Java_com_pocketrealm_wine_WineSpikeNative_verifyPeCacheNative(
         JNIEnv *env, jobject /*this*/,
@@ -260,6 +295,72 @@ Java_com_pocketrealm_wine_WineSpikeNative_launchWineViaProotNative(
     if (jExtraEnv) env->ReleaseStringUTFChars(jExtraEnv, extra_env);
     if (rc != WINE_SPIKE_OK) return -1;
     return (jlong)pid;
+}
+
+/* S-1/S-2 synchronous proot run with logical argv[0] + recursive descendant
+ * /proc maps proof. Returns a structured result the Kotlin runner parses:
+ *
+ *   "EXIT=<int>|TIMED_OUT=<0|1>|DESCS=<n>\n<desc lines>\n@@@STDOUT@@@\n<stdout>\n@@@STDERR@@@\n<stderr>"
+ *
+ * Each desc line (one per descendant):
+ *   "  pid=<ll>|ppid=<ll>|comm=<s>|maps=<proof>|cmdline=<s>"
+ *
+ * This is the corrected launcher: argv[0] is preserved via glibc-loader --argv0,
+ * and the run waits for completion (or timeout_ms) capturing stdout/stderr +
+ * every descendant's /proc/<pid>/maps proof. On timeout the whole tree is killed.
+ */
+JNIEXPORT jstring JNICALL
+Java_com_pocketrealm_wine_WineSpikeNative_runWineViaProotNative(
+        JNIEnv *env, jobject /*this*/,
+        jstring jNativeDir, jstring jWineTarget, jstring jArgv0,
+        jstring jPrefixDir, jstring jDisplay, jstring jWineArgs,
+        jstring jExtraEnv, jint jTimeoutMs) {
+    const char *native_dir = env->GetStringUTFChars(jNativeDir, nullptr);
+    const char *wine_target = env->GetStringUTFChars(jWineTarget, nullptr);
+    const char *argv0 = jArgv0 ? env->GetStringUTFChars(jArgv0, nullptr) : "";
+    const char *prefix_dir = env->GetStringUTFChars(jPrefixDir, nullptr);
+    const char *display = jDisplay ? env->GetStringUTFChars(jDisplay, nullptr) : "";
+    const char *wine_args = jWineArgs ? env->GetStringUTFChars(jWineArgs, nullptr) : "";
+    const char *extra_env = jExtraEnv ? env->GetStringUTFChars(jExtraEnv, nullptr) : "";
+    int timeout_ms = (int)jTimeoutMs;
+
+    struct wine_spike_proot_run_result r;
+    int rc = wine_spike_run_wine_via_proot(native_dir, wine_target, argv0, prefix_dir,
+                                           display, wine_args, extra_env, timeout_ms, &r);
+
+    env->ReleaseStringUTFChars(jNativeDir, native_dir);
+    env->ReleaseStringUTFChars(jWineTarget, wine_target);
+    if (jArgv0) env->ReleaseStringUTFChars(jArgv0, argv0);
+    env->ReleaseStringUTFChars(jPrefixDir, prefix_dir);
+    if (jDisplay) env->ReleaseStringUTFChars(jDisplay, display);
+    if (jWineArgs) env->ReleaseStringUTFChars(jWineArgs, wine_args);
+    if (jExtraEnv) env->ReleaseStringUTFChars(jExtraEnv, extra_env);
+
+    /* Build the structured result string. Bound the total size so it fits in a
+     * JNI string comfortably; stdout/stderr are truncated per-side in C. */
+    std::string out;
+    char header[256];
+    snprintf(header, sizeof(header), "RC=%d|EXIT=%d|TIMED_OUT=%d|DESCS=%d",
+             rc, r.exit_status, r.timed_out, r.descendant_count);
+    out += header;
+    for (int i = 0; i < r.descendant_count; i++) {
+        const struct wine_spike_proc_info *d = &r.descendants[i];
+        out += "\n  pid=";
+        out += std::to_string(d->pid);
+        out += "|ppid=";
+        out += std::to_string(d->ppid);
+        out += "|comm=";
+        out += d->comm;
+        out += "|maps=";
+        out += d->maps_proof;
+        out += "|cmdline=";
+        out += d->cmdline;
+    }
+    out += "\n@@@STDOUT@@@\n";
+    out += r.stdout_buf;
+    out += "\n@@@STDERR@@@\n";
+    out += r.stderr_buf;
+    return env->NewStringUTF(out.c_str());
 }
 
 } /* extern "C" */

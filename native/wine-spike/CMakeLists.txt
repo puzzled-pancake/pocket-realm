@@ -40,6 +40,7 @@ add_library(wine_spike SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/src/sigsys_diag.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/trampoline_launcher.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/proot_launcher.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/proot_run.c
 )
 target_include_directories(wine_spike PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(wine_spike PRIVATE log dl)

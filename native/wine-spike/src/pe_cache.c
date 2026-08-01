@@ -214,12 +214,53 @@ static int extract_field(const char *obj, const char *key, char *out, size_t cap
     return 0;
 }
 
+/* Create a symlink link_path -> target, removing any existing entry first, and
+ * mkdir_p the parent. Idempotent. Returns 0 on success. */
+static int install_tree_symlink(const char *target, const char *link_path) {
+    char parent[WINE_SPIKE_PATH_MAX];
+    snprintf(parent, sizeof(parent), "%s", link_path);
+    char *slash = strrchr(parent, '/');
+    if (slash) { *slash = '\0'; mkdir_p(parent); }
+    unlink(link_path);   /* ignore "not found" */
+    if (symlink(target, link_path) != 0) {
+        LOGE("pe tree symlink %s -> %s: %s", link_path, target, strerror(errno));
+        return -1;
+    }
+    return 0;
+}
+
 int wine_spike_materialize_pe_cache(const char *cache_dir,
                                     const char *manifest_json,
                                     const char *assets_dir) {
+    return wine_spike_materialize_pe_cache_into_tree(cache_dir, manifest_json,
+                                                     assets_dir, NULL);
+}
+
+/*
+ * Materialize PE modules AND connect them to the logical Wine tree.
+ *
+ * For each manifest entry we now:
+ *   1. copy/verify the canonical asset to <cache_dir>/<asset_path> (the
+ *      hash-verified guest-code cache), exactly as before; AND
+ *   2. if tree_dir is non-NULL and the entry has a "logical_path" (e.g.
+ *      "lib/wine/x86_64-windows/foo.dll"), create a symlink at
+ *      <tree_dir>/<logical_path> -> <cache_dir>/<asset_path>.
+ *
+ * This fixes the S-2 path bug: the old code ignored logical_path and
+ * materialized files under wine-pe/... with nothing connecting them to the
+ * logical Wine tree, so Wine could not find a single cached PE module. The
+ * symlink-only tree keeps the property that no ELF regular file lives in
+ * writable storage — these are PE guest-code files (authorized), never passed
+ * to Android execve(), loaded only by Wine's own PE loader.
+ */
+int wine_spike_materialize_pe_cache_into_tree(const char *cache_dir,
+                                              const char *manifest_json,
+                                              const char *assets_dir,
+                                              const char *tree_dir) {
     if (!cache_dir || !manifest_json || !assets_dir) return WINE_SPIKE_ERR_ARGS;
 
-    LOGI("materialize_pe_cache: cache=%s assets=%s", cache_dir, assets_dir);
+    LOGI("materialize_pe_cache: cache=%s assets=%s tree=%s",
+         cache_dir, assets_dir, tree_dir ? tree_dir : "(none)");
 
     const char *arr = find_entries_array(manifest_json);
     if (!arr) {
@@ -229,7 +270,7 @@ int wine_spike_materialize_pe_cache(const char *cache_dir,
 
     mkdir_p(cache_dir);
 
-    int verified = 0, materialized = 0, failed = 0;
+    int verified = 0, materialized = 0, linked = 0, failed = 0;
     const char *p = arr + 1; /* skip '[' */
 
     while (*p && *p != ']') {
@@ -249,13 +290,16 @@ int wine_spike_materialize_pe_cache(const char *cache_dir,
         }
         if (depth != 0) break;
 
-        /* Extract fields. */
-        char asset_path[512], expected_sha[128];
+        /* Extract fields. logical_path is OPTIONAL (the guest-pe manifest may
+         * omit it or set it to a bare filename). */
+        char asset_path[512], expected_sha[128], logical_path[512];
         if (extract_field(obj_start, "asset_path", asset_path, sizeof(asset_path)) != 0 ||
             extract_field(obj_start, "sha256", expected_sha, sizeof(expected_sha)) != 0) {
             p = obj_end + 1;
             continue;
         }
+        logical_path[0] = '\0';
+        extract_field(obj_start, "logical_path", logical_path, sizeof(logical_path));
 
         /* Source = assets_dir/asset_path, Dest = cache_dir/asset_path. */
         char src[WINE_SPIKE_PATH_MAX], dest[WINE_SPIKE_PATH_MAX];
@@ -290,17 +334,30 @@ int wine_spike_materialize_pe_cache(const char *cache_dir,
                 LOGE("hash mismatch after materialize: %s (expected %s, got %s)",
                      dest, expected_sha, actual_hash);
                 failed++;
+                p = obj_end + 1;
+                continue;
             } else {
                 materialized++;
                 verified++;
             }
         }
 
+        /* Connect to the logical Wine tree via symlink (if a logical_path is
+         * present and a tree_dir was supplied). This is the S-2 fix. */
+        if (tree_dir && logical_path[0]) {
+            /* Bare-filename logical paths (e.g. the self-test PE) map under the
+             * tree root as-is. Path-bearing logical paths (lib/wine/...) map
+             * under the tree root too. */
+            char link_path[WINE_SPIKE_PATH_MAX];
+            snprintf(link_path, sizeof(link_path), "%s/%s", tree_dir, logical_path);
+            if (install_tree_symlink(dest, link_path) == 0) linked++;
+        }
+
         p = obj_end + 1;
     }
 
-    LOGI("materialize_pe_cache: %d verified (%d newly materialized), %d failed",
-         verified, materialized, failed);
+    LOGI("materialize_pe_cache: %d verified (%d newly materialized), %d linked, %d failed",
+         verified, materialized, linked, failed);
     if (failed > 0) return WINE_SPIKE_ERR_VERIFY;
     return WINE_SPIKE_OK;
 }
@@ -350,4 +407,62 @@ int wine_spike_verify_pe_cache(const char *cache_dir, const char *manifest_json)
 
     LOGI("verify_pe_cache: %d checked, %d mismatches", checked, mismatches);
     return (mismatches == 0) ? WINE_SPIKE_OK : WINE_SPIKE_ERR_VERIFY;
+}
+
+/*
+ * Resolve the cache path for a given asset basename. Walks the manifest entries
+ * and returns the first entry whose asset_path basename matches <asset_name>
+ * (e.g. "kernel32.dll" → "wine-pe/x86_64-windows/kernel32.dll"), then formats
+ * <cache_dir>/<asset_path> into out. Returns WINE_SPIKE_OK on match.
+ *
+ * Used by the S-2 mismatch-repair test: it resolves a known module, corrupts
+ * that cache file, proves verify_pe_cache detects the mismatch, runs
+ * materialize_pe_cache_into_tree to atomically rematerialize it, and re-verifies
+ * the canonical SHA-256.
+ */
+int wine_spike_resolve_cache_path(const char *cache_dir,
+                                  const char *manifest_json,
+                                  const char *asset_name,
+                                  char *out, size_t out_cap) {
+    if (!cache_dir || !manifest_json || !asset_name || !out || out_cap == 0)
+        return WINE_SPIKE_ERR_ARGS;
+    out[0] = '\0';
+
+    const char *arr = find_entries_array(manifest_json);
+    if (!arr) return WINE_SPIKE_ERR_IO;
+
+    /* Basename of asset_name (in case the caller passes a path). */
+    const char *want_base = strrchr(asset_name, '/');
+    want_base = want_base ? want_base + 1 : asset_name;
+
+    const char *p = arr + 1;
+    while (*p && *p != ']') {
+        while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r' || *p == ',') p++;
+        if (*p == ']') break;
+        if (*p != '{') { p++; continue; }
+
+        const char *obj_start = p;
+        int depth = 0;
+        const char *obj_end = p;
+        while (*obj_end) {
+            if (*obj_end == '{') depth++;
+            else if (*obj_end == '}') { depth--; if (depth == 0) break; }
+            obj_end++;
+        }
+        if (depth != 0) break;
+
+        char asset_path[512];
+        if (extract_field(obj_start, "asset_path", asset_path, sizeof(asset_path)) != 0) {
+            p = obj_end + 1;
+            continue;
+        }
+        const char *base = strrchr(asset_path, '/');
+        base = base ? base + 1 : asset_path;
+        if (strcmp(base, want_base) == 0) {
+            snprintf(out, out_cap, "%s/%s", cache_dir, asset_path);
+            return WINE_SPIKE_OK;
+        }
+        p = obj_end + 1;
+    }
+    return WINE_SPIKE_ERR_IO;
 }
