@@ -1071,30 +1071,40 @@ class WineSpikeRunner(private val context: Context) {
             WineSpikeNative.buildSymlinkTreeNative(treeDir.absolutePath, nativeDir, stagingManifest)
         }
 
-        // Materialize guest PE (the self-test) into the tree + assets.
+        // Materialize guest PE (the self-test) into the tree. Ensure the guest-pe
+        // assets are present (S-2 may have created assetsExtractDir with only
+        // wine-pe, so check + extract guest-pe unconditionally).
         val assetsExtractDir = File(context.cacheDir, "wine-pe-assets")
-        if (!assetsExtractDir.isDirectory) {
-            assetsExtractDir.mkdirs()
+        assetsExtractDir.mkdirs()
+        val guestPeDir = File(assetsExtractDir, "guest-pe")
+        if (!guestPeDir.isDirectory) {
+            try {
+                extractAssetsToDir("guest-pe", guestPeDir)
+                context.assets.open(GUEST_PE_MANIFEST_ASSET).use { inp ->
+                    File(assetsExtractDir, GUEST_PE_MANIFEST_ASSET).outputStream().use { inp.copyTo(it) }
+                }
+            } catch (_: Exception) { /* guest-pe may be absent in this build */ }
+        }
+        // Ensure the wine-pe assets + manifest are present too (S-2 may have run
+        // first, but S-3 can run standalone).
+        if (!File(assetsExtractDir, WINE_PE_MANIFEST_ASSET).isFile) {
             extractAssetsToDir("wine-pe", File(assetsExtractDir, "wine-pe"))
             context.assets.open(WINE_PE_MANIFEST_ASSET).use { inp ->
                 File(assetsExtractDir, WINE_PE_MANIFEST_ASSET).outputStream().use { inp.copyTo(it) }
             }
-            try {
-                extractAssetsToDir("guest-pe", File(assetsExtractDir, "guest-pe"))
-                context.assets.open(GUEST_PE_MANIFEST_ASSET).use { inp ->
-                    File(assetsExtractDir, GUEST_PE_MANIFEST_ASSET).outputStream().use { inp.copyTo(it) }
-                }
-            } catch (_: Exception) { /* guest-pe may be absent */ }
         }
         val peManifest = readAsset(WINE_PE_MANIFEST_ASSET)
         WineSpikeNative.materializePeCacheIntoTreeNative(
             cacheDir.absolutePath, peManifest, assetsExtractDir.absolutePath, treeDir.absolutePath)
-        // Guest PE manifest (self-test) — materialize its entry too.
+        // Guest PE manifest (self-test) — materialize its entry into the tree.
+        var guestMaterialized = false
         try {
             val guestManifest = readAsset(GUEST_PE_MANIFEST_ASSET)
-            WineSpikeNative.materializePeCacheIntoTreeNative(
+            val grc = WineSpikeNative.materializePeCacheIntoTreeNative(
                 cacheDir.absolutePath, guestManifest, assetsExtractDir.absolutePath, treeDir.absolutePath)
+            guestMaterialized = (grc == 0)
         } catch (_: Exception) {}
+        evidence["s3GuestMaterialized"] = guestMaterialized.toString()
         // Reverify before launch.
         val verifyRc = WineSpikeNative.verifyPeCacheNative(cacheDir.absolutePath, peManifest)
         evidence["s3PeVerifyRc"] = verifyRc.toString()
@@ -1126,8 +1136,11 @@ class WineSpikeRunner(private val context: Context) {
             xServer = com.winlator.xserver.XServer(activity, screenInfo)
             val connHandler = com.winlator.xserver.XClientConnectionHandler(xServer)
             val reqHandler = com.winlator.xserver.XClientRequestHandler()
-            // Build a UnixSocketConfig pointing at x0Path directly.
-            val sockCfg = com.winlator.xconnector.UnixSocketConfig.create(x11Dir.absolutePath, "X0")
+            // Build a UnixSocketConfig pointing at x0Path. Use the relative form
+            // ".X11-unix/X0" under appTmp so FileUtils.getDirname sees a
+            // separator (getDirname throws on a bare filename with no '/').
+            val sockCfg = com.winlator.xconnector.UnixSocketConfig.create(
+                appTmp.absolutePath, ".X11-unix/X0")
             connector = com.winlator.xconnector.XConnectorEpoll(sockCfg, connHandler, reqHandler)
             connector.setInitialInputBufferCapacity(4096)
             connector.setInitialOutputBufferCapacity(4096)
@@ -1151,11 +1164,18 @@ class WineSpikeRunner(private val context: Context) {
             if (prefixDir.exists()) prefixDir.deleteRecursively()
             prefixDir.mkdirs()
 
-            AppLog.i(TAG, "S-3: launching self-test PE via proot (DISPLAY=:0)")
+            // Launch `wine pocket_selftest.exe` via proot. The wine binary
+            // (libwine_preloader.so) is the ELF the loader runs; the PE is its
+            // argument (Wine's PE loader handles it). argv0=wine preserves the
+            // logical command name. DISPLAY=:0 routes GDI through winex11.drv
+            // to our X-server. The self-test path is passed as the wine arg.
+            val wineTarget = File(treeDir, "bin/wine").absolutePath
+            evidence["s3WineTarget"] = wineTarget
+            AppLog.i(TAG, "S-3: launching wine pocket_selftest.exe via proot (DISPLAY=:0)")
             val raw = try {
                 WineSpikeNative.runWineViaProotNative(
-                    nativeDir, selfTestPath.absolutePath, "pocket_selftest",
-                    prefixDir.absolutePath, ":0", "", "", 120_000)
+                    nativeDir, wineTarget, "wine",
+                    prefixDir.absolutePath, ":0", selfTestPath.absolutePath, "", 120_000)
             } catch (e: Exception) {
                 evidence["s3RunException"] = "${e.javaClass.simpleName}: ${e.message}"
                 ""
