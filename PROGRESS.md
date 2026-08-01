@@ -103,7 +103,9 @@ The S-1/S-2/S-3 on-device spike runs on the Modern lane (API 35, 4KB).
 | Loader transfers control to wineboot.exe | **PASS** Modern 4KB: `initialize program: wineboot` → `transferring control: wineboot` |
 | **Full S-2 acceptance (wineboot --init exit 0 + prefix artifacts)** | **NOT yet proven** Modern 4KB: `wineboot --init` exits 1 with NO prefix artifacts (empty WINEPREFIX). The loader chain + PE cache are proven; the remaining failure is a Wine-runtime issue (wineboot.exe runs but errors before initializing the prefix). |
 | Winlator Java sources + native transport | **Built + packaged**: libwinlator.so (413864B) in the APK; X-server compiles GDI-only |
-| **S-3 X11/GDI window** | **NOT yet run** on-device (harness wired, libwinlator.so packaged) |
+| X-server starts + binds `<appTmp>/.X11-unix/X0` | **PASS** Modern 4KB: `winlatorLoaded=true`, `xServerStarted=true`, `x0SocketExists=true` |
+| Wine launches via loader chain for S-3 | **PASS** Modern 4KB: `wine <selftest.exe>` → `initialize program: wine` → `transferring control: wine` |
+| **Full S-3 acceptance (GDI window + POCKET_SELFTEST_OK)** | **NOT yet proven** Modern 4KB: wine exits 1 before mapping a window (same root cause as S-2 — Wine's ELF side loads fine; the PE/WoW64 runtime exits 1 under proot with no debug output). The X-server transport + harness are proven; the blocker is the Wine-runtime exit-1. |
 | **16 KB qualification** | **Not run** |
 
 **S-1 genuinely PASSES on Modern 4KB.** Two structured runs: (a) `wine --version`
@@ -168,36 +170,41 @@ chain defect.
 
 ### Remaining work (before any outcome is recorded)
 
-The review-driven corrections to S-1/S-2 are complete; S-1 PASSES. The open items:
+The review-driven corrections are complete; S-1 PASSES. S-2 and S-3 are each
+blocked by the SAME root cause: Wine's ELF side loads correctly, but the
+PE/WoW64 runtime exits 1 under proot with no debug output (wineboot --init and
+`wine <selftest.exe>` both exhibit this). The X-server transport, PE cache,
+loader chain, and harness are all proven.
 
-1. **S-2 wineboot --init exit 0** (the active blocker): wineboot.exe loads (LD_DEBUG
-   shows initialize + transfer) but exits 1 producing NO prefix artifacts. The
-   PE cache + repair + logical_path tree + loader→wineboot transfer are all
-   proven. The remaining failure is a Wine-runtime investigation — wineboot
-   errors before initializing the prefix, with no Wine debug-channel output.
-   Next steps: isolate whether it is a missing env (e.g. USER/USERNAME, TZ,
-   WINEDLLPATH), a namespace/path issue under proot's `/` rootfs bind, or an
-   early wineboot code path that needs a pre-existing file. S-2 acceptance is
-   NOT met until wineboot --init exits 0 + the prefix artifacts exist.
-2. **S-3 on-device run** (libwinlator.so is built + packaged; the harness is
-   wired): run runS3 on Modern 4KB — start the X-server, launch the self-test PE
-   with DISPLAY=:0 via proot, require `POCKET_SELFTEST_WINDOW` +
-   `POCKET_SELFTEST_OK` + exit zero + a mapped client window.
-3. **16K lane repeat**: rerun S-1/S-2/S-3 on the 16K AVD with the identical
-   staged artifacts.
-4. **Outcome**: record B only if all three pass on both lanes via PRoot;
+1. **Wine PE/WoW64 exit-1 under proot** (the single active blocker for S-2 + S-3).
+   Wine's glibc-namespace ELF side is proven working (`initialize program:
+   wine`/`wineboot` → `transferring control`). The PE side — which runs via
+   Wine's new-WoW64 thunking — exits 1 immediately with NO Wine debug-channel
+   output, producing no prefix artifacts (S-2) and no window (S-3). This is a
+   Wine/proot runtime investigation: likely a syscall Wine's WoW64/PE runtime
+   needs that proot does not translate correctly, or a missing namespace
+   resource. Next steps: strace-level tracing of the wine child under proot to
+   identify the failing syscall; compare with a known-working proot+Wine config;
+   test PROOT_NO_SECCOMP=1; if a specific untranslated syscall is found, narrow
+   the proot workaround or the glibc-access→faccessat-style rebuild.
+2. **16K lane repeat**: once S-2/S-3 pass on 4KB, rerun S-1/S-2/S-3 on the 16K
+   AVD with the identical staged artifacts.
+3. **Outcome**: record B only if all three pass on both lanes via PRoot;
    otherwise C with the exact remaining failure. Outcome A is not available
    (direct + trampoline already disproven).
 
-(Items previously listed here — the shared PRoot launcher rework, full S-1
-process-tree proof, pe_cache logical_path fix, evidence-driver single-artifact
-fix, and provenance/source corrections — are DONE. S-1 PASSES; S-2's cache/PE/
-repair chain is proven, with wineboot --init exit 0 the only open S-2 item.)
+(All review-listed corrections are DONE: shared PRoot launcher rework with
+--argv0 + structured result + recursive kill; full S-1 process-tree proof;
+pe_cache logical_path fix; evidence-driver single-artifact + ok=true marker
+requirement; provenance/source records corrected; Playerbots/Connected
+Architecture docs in their own commit; libwinlator.so vendored+built+packaged;
+X-server made GDI-only; S-3 harness wired + debugged.)
 
 **Spike outcome: NOT YET DETERMINED (not A, not B, not C).** S-1 PASSES on
-Modern 4KB. S-2's loader/PE/cache chain is proven but wineboot --init exit 0 is
-blocked on a Wine-runtime investigation. S-3 is wired (libwinlator.so packaged)
-but not yet run on-device. The 16K repeat is pending. O06 stays
+Modern 4KB (process-tree loader proof). S-2's loader/PE/cache/repair chain is
+fully proven; S-2 acceptance waits on the Wine PE/WoW64 exit-1 fix. S-3's
+X-server transport + harness are proven; S-3 acceptance waits on the same fix.
+The 16K repeat is pending. O06 stays
 active; acceptance is NOT weakened.
 
 ## Next action
