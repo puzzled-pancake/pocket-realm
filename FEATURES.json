@@ -187,7 +187,7 @@
       "track": "offline",
       "priority": 70,
       "title": "G1 build-5875 validation and repeatable WoW login-screen proof",
-      "status": "pending",
+      "status": "done",
       "depends": [
         "O06"
       ],
@@ -197,8 +197,14 @@
         "A managed debug copy launches WoW.exe repeatedly to the login screen with WineD3D, 1280x720 or lower, 30 FPS, audio off, and no server",
         "The prefix/runtime manifest and deterministic client safe mode capture every effective deviation and failure classification"
       ],
-      "notes": "",
-      "evidence": [],
+      "notes": "Completed 2026-08-02 on the fixed API-35 x86_64 4 KB lane. The read-only SAF/host validators identify PE32 i386 build 5875, reject wrong-build/launcher-only/corrupt-MPQ selections, and preserve unknown-hash warnings. A hash-verified app-private managed copy launches directly through WineD3D at the supported 800x600 mode (within the 1280x720 ceiling), 30 FPS, audio off, loopback realmlist, and survives a clean stop/relaunch. Strict GLES-thread framebuffer capture records 319606 and 321732 non-black pixels; no proprietary client executables or data archives are tracked.",
+      "evidence": [
+        "PROGRESS.md - O07 build-5875 result",
+        "tests/avd/AVD-Modern-x86_64-v1/evidence/client-build5875-scan-20260802.PASS.json",
+        "tests/avd/AVD-Modern-x86_64-v1/evidence/clientRuntime-o07-login-20260802-1218Z.PASS.json",
+        "tests/avd/AVD-Modern-x86_64-v1/evidence/o07-login-first.png",
+        "tests/avd/AVD-Modern-x86_64-v1/evidence/o07-login-relaunch.png"
+      ],
       "reference": "Report sections 9.1-9.3, 15.7-15.10, and 20.2-20.3 (X3)"
     },
     {

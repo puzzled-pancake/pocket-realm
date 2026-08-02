@@ -1,12 +1,12 @@
 # Current project state
 
-Last verified implementation commit: `O06 — production ClientRuntime lifecycle` (this commit; paired 4 KB/16 KB evidence)
+Last verified implementation commit: `bb4aa04` (`O07: qualify managed build-5875 client login`)
 
-Active feature: `O07 — G1 build-5875 validation and repeatable WoW login-screen proof`
+Active feature: `O08 — G2 native x86_64 MariaDB service, schema ledger, and dirty recovery`
 
-Current gate: `G1 — direct x86 Wine (O06 complete; O07 next)`. G0 production packaging is complete (O05).
+Current gate: `G2 — native x86 realm baseline (O07 complete; O08 next)`. G0 production packaging and G1 direct-client proof are complete.
 
-Plan/reference alignment: `1 August 2026`
+Plan/reference alignment: `2 August 2026`
 
 > Note: an earlier O05 commit (27eb1ad) was reopened after a review found the
 > evidence pipeline had blocking gaps (variant-mistaken host driver, PKG-01 not
@@ -70,14 +70,14 @@ Versioned C ABI + `libpocketrealm.so`; create/start/health/save/stop/destroy pro
 ## Known gaps under the canonical report
 
 - The `pkgExperiment` standalone-exec variant is G0 evidence only; production uses the library-backed Lane A model.
-- Proprietary build-5875 validation, MariaDB, realmd/mangosd production integration, importer, bots, and mobile UX remain pending at their gates (O07-O22).
+- MariaDB, realmd/mangosd production integration, full importer UX, bots, and mobile UX remain pending at their gates (O08-O22).
 - The full report X/FUN/FLT/SOAK gates remain pending.
 
 ## Blockers
 
-O06 has no remaining blocker. A user-owned, unmodified build-5875 client is now
-required for O07; named physical-device inputs remain required at later release
-gates. No proprietary client files were used or added by O06.
+O06/O07 have no remaining G1 blocker. Named physical-device inputs remain
+required at later release gates. The user-owned source client remains unchanged
+on `C:` and no proprietary client executables or data archives are added to Git.
 
 ## O06 Phase 1 — Wine feasibility spike (complete: Outcome B)
 
@@ -150,12 +150,55 @@ Final paired evidence:
 - `tests/avd/AVD-16K-x86_64-v1/evidence/clientRuntime-o06-lifecycle-20260802-080252Z.PASS.log`
 - `tests/avd/AVD-16K-x86_64-v1/evidence/clientRuntime-o06-surface-20260802-080252Z.png`
 
+## O07 build-5875 result — complete
+
+The user-owned `C:\Vanilla wow 1.12.1` source was inspected read-only and
+identified as PE32 i386 `WoW.exe` version `1.12.1.5875` (SHA-256
+`b4756d38ef207c02ed651f4952bd89a70b4857b73a33413339e1b285b28d2dc7`),
+149 files / 5,389,935,386 bytes, with the required flat English MPQ layout.
+The source realmlist was not changed and the source is not a runtime dependency.
+
+- `SafClientScanner` performs the Android read-only fast scan over a selected
+  document tree. Four on-device tests cover supported build/layout, wrong
+  build, launcher-only selection, and corrupt MPQ rejection. A confirmed build
+  with an unknown executable hash remains a warning rather than being silently
+  rejected.
+- `tools/stage_o07_client.py` provides the report-authorized managed debug-copy
+  path. It validates paths/case/PE/MPQ/layout, stages with `.partial` + rename,
+  journals resumable copies by source hash (not size alone), re-verifies every
+  device file, and atomically publishes an app-private generation. Only that
+  generation receives the loopback realmlist and deterministic safe profile.
+- `ManagedClientStore` fails closed on manifest, PE/build, executable size/hash,
+  base-data, symlink, and endpoint checks. The service accepts the fixed client
+  ID only and launches direct `WoW.exe`; arbitrary paths, launchers, DLL
+  injection, and caller-supplied environments remain unavailable.
+- O07 adds the source-pinned x86_64 Gladio `libGL.so.1` client and paired
+  Winlator GLX server. The qualified profile reports OpenGL 3.0 / GLSL 1.30,
+  retains WineD3D's internal-format queries, and omits modern draw capabilities
+  the GLES 3.1 bridge cannot preserve. Shaders target GLES 3.1 (`#version 310
+  es`), transient client arrays use explicit bounded attribute records, and
+  the Android compositor uses readback/upload because the fixed AVD does not
+  implement `glCopyTexImage2D` for this shared-context path.
+- The strict API-35 x86_64 4 KB acceptance test reaches the visible build-5875
+  login screen at 800x600 (within the canonical 1280x720-or-lower ceiling), 30
+  FPS, audio off, and loopback/no-server configuration. It reads the renderer
+  framebuffer on its GLES thread, records 319,606 non-black pixels on first
+  launch and 321,732 after a clean stop/relaunch, and rejects a mapped black
+  surface.
+
+Authoritative O07 evidence:
+
+- `tests/avd/AVD-Modern-x86_64-v1/evidence/client-build5875-scan-20260802.PASS.json`
+- `tests/avd/AVD-Modern-x86_64-v1/evidence/clientRuntime-o07-login-20260802-1218Z.PASS.json`
+- `tests/avd/AVD-Modern-x86_64-v1/evidence/o07-login-first.png`
+- `tests/avd/AVD-Modern-x86_64-v1/evidence/o07-login-relaunch.png`
+
 ## Next action
 
-Begin O07: validate the user-supplied build-5875 client without modifying its
-source tree, record the managed client manifest, and prove a repeatable login
-screen through the completed `ClientRuntime`. Keep proprietary client content
-out of Git and do not weaken the O06 safe profile.
+Begin O08: source and cross-build the pinned MariaDB x86_64 closure, then prove
+app-private Unix-socket initialization, least-privilege authentication, clean
+stop, dirty recovery, and the ordered schema ledger before any realm process is
+allowed to start.
 
 ## Session note
 

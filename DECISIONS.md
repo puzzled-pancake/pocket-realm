@@ -115,3 +115,28 @@ changing the report's Gate-G1 exit criteria:
   mapped surface, focus, keyboard/mouse, audio-off, clean close, process-group
   forced stop, and diagnostics. O07 is the first gate allowed to consume the
   user's proprietary build-5875 client.
+
+## G1 client overlay (2026-08-02, feature O07)
+
+O07 completes Gate G1 without changing decisions #22, #23, or #25:
+
+- **The user selection is an immutable source, not the runtime tree.** A
+  read-only SAF fast scan classifies PE/build/layout. The report-authorized
+  debug import copies into a hash-verified app-private generation and never
+  writes endpoint or graphics settings back to the selected source.
+- **Only direct build-5875 `WoW.exe` is authorized.** The service accepts the
+  fixed `wow-1.12.1-5875` identity and obtains its canonical executable and
+  working directory from `ManagedClientStore`; callers cannot supply a path,
+  launcher, injected DLL, or environment.
+- **The renderer capability record is provider-specific.** The pinned Gladio
+  GLES bridge advertises only its qualified OpenGL 3.0 / GLSL 1.30 subset. It
+  retains internal-format queries required for WineD3D render targets but
+  withholds unsupported modern instancing/base-vertex paths. This is an
+  explicit compatibility profile, not a claim of desktop OpenGL 3.3 parity.
+- **800x600 is the qualified O07 effective mode.** The canonical requirement is
+  1280x720 or lower. The managed ceiling remains 1280x720, while build 5875
+  selects 800x600 on the fixed AVD. Both first launch and clean relaunch produce
+  a visible, non-black login framebuffer with audio off and no server.
+- **No proprietary client executables or data archives enter version control.**
+  Only client identity/layout metadata, hashes, classification records, and
+  rendered acceptance screenshots are retained as evidence.

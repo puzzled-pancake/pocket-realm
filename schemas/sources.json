@@ -2,7 +2,7 @@
   "schema": 1,
   "reference_document": "docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx",
   "description": "Pinned upstream source manifest for the Pocket Realm offline build. Every active entry has an exact commit, license, and redistribution verdict. The canonical architecture and delivery reference is docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx; this file governs source selection only.",
-  "updated": "2026-08-02 (O06 Phase-1 Outcome B: paired 4 KB/16 KB Wine qualification and source-reproduced dispatcher adaptation)",
+  "updated": "2026-08-02 (O07: read-only build-5875 validation and repeatable WineD3D/Gladio login-screen qualification)",
   "toolchain": {
     "android_sdk_root_env": "ANDROID_SDK_ROOT / ANDROID_HOME (machine-local; not pinned here)",
     "ndk": {
@@ -100,7 +100,7 @@
         "vanilla": true
       },
       "android_16k_adaptation": {
-        "reason": "Wine x86_64's process-local syscall dispatcher at 0x7ffe1000 shares the 0x7ffe0000 KUSER_SHARED_DATA host page on 16 KB kernels, allowing cross-process overwrite of an ASLR-relative pointer.",
+        "reason": "Wine x86_64's process-local syscall dispatcher at 0x7ffe1000 shares the 0x7ffe0000 KUSER_SHARED_DATA host page on 16 KB kernels, allowing cross-process overwrite of an ASLR-relative pointer. The patch also constrains Android's rejected low-DOS mapping fallback below 4 GiB so a WoW64 guest cannot receive a truncated pointer.",
         "dispatcher_address": "0x7ffe4000",
         "patch": "native/wine-spike/patches/wine-11.14-x86_64-16k.patch",
         "build_script": "tools/build_wine_16k_ntdll.py",
@@ -120,7 +120,7 @@
         ".github/workflows/wine.yml"
       ],
       "patches_vs_upstream": [
-        "native/wine-spike/patches/wine-11.14-x86_64-16k.patch (x86_64 Android 16 KB host-page separation; source-rebuilds the paired Unix ntdll + PE ntdll/win32u set)"
+        "native/wine-spike/patches/wine-11.14-x86_64-16k.patch (x86_64 Android 16 KB host-page separation plus below-4-GiB low-DOS fallback; source-rebuilds the paired Unix ntdll + PE ntdll/win32u set)"
       ],
       "role": "O06 G1 x86 client runtime. The provider is the amd64-wow64 variant with lib/wine/i386-unix stripped, relying on Wine 11.0+ new-WoW64 for 32-bit PE. S-1 uses the pinned PRoot fallback because Android app-domain seccomp blocks direct glibc-loader access(2); S-2/S-3 run through the glibc adapter/shim after bootstrap. Wine-owned builtin PE modules are canonical APK assets. The source-rebuilt 16 KB dispatcher trio is staged atomically over the provider counterparts; glibc + X11/freetype/fontconfig come from the pinned lockfile closure.",
       "license": {
@@ -163,12 +163,29 @@
       "upstream_url": "https://github.com/brunodev85/winlator-app",
       "commit": "ca3d735a60d653a787daf16d14fafef28d9c2c23",
       "commit_date": "2026-07-27 (author) / 2026-07-28 (committer)",
-      "role": "O06 in-app X server (display + input). CURRENT STATE (S-3 wired): the Java X11 wire-protocol sources are vendored to runtime/xserver-winlator/ (143 .java files: com.winlator.xserver core + errors + events + requests + extensions, com.winlator.xconnector, com.winlator.renderer (+effects/material), com.winlator.core subset, com.winlator.math, com.winlator.widget.XServerView, plus 6 app-shell-coupling stubs). The native transport libwinlator.so is VENDORED, BUILT, and PACKAGED into the APK: the complete pinned native source set (9 .c + 17 headers at native/xserver-winlator/cpp/, vendored UNMODIFIED from app/src/main/cpp/winlator/), NDK-built 16 KB-aligned (413864 bytes) via tools/build_xserver_winlator.py. The JNI method names match the vendored Java classes' package paths exactly (Java_com_winlator_xconnector_{XConnectorEpoll,XInputStream,XOutputStream}_* + Java_com_winlator_xserver_Drawable_*), drop-in for System.loadLibrary(\"winlator\"). NO Java reimplementation of the native epoll/SCM_RIGHTS layer exists. The only build-time adaptation is a force-include header (include/pocket_ndk_compat.h) supplying transitive stdlib/time.h includes; the .c/.h content is byte-identical to the pinned commit. The X-server is GDI-only: XServer.setupExtensions() advertises BigReq + Sync + XComposite only (GLX/DRI3/MIT-SHM/Present removed - native support not built, no no-op advertisements). S-3 harness in WineSpikeRunner.runS3 creates <appTmp>/.X11-unix/X0, starts the X-server headless, launches the 32-bit self-test PE with DISPLAY=:0 via the synchronous proot run, requires POCKET_SELFTEST_WINDOW + POCKET_SELFTEST_OK + exit zero.",
+      "role": "O06/O07 in-app X server, display, input, and GLX server. The pinned Java X11 layer (143 files) and native epoll/SCM_RIGHTS transport are vendored, NDK-built, 16 KB-aligned, and packaged; no Java transport rewrite exists. O06 qualifies the GDI path on both 4 KB/16 KB lanes. O07 enables BigReq, Sync, XComposite, and source-matched GLX at their original wire opcodes; DRI3, MIT-SHM, and Present remain unadvertised. The paired Gladio server is adapted in-tree for a bounded explicit transient-attribute protocol, GLES 3.1 shaders, and the qualified OpenGL 3.0 / GLSL 1.30 capability subset. Internal-format queries remain advertised for WineD3D render-target classification, while unsupported modern instancing/base-vertex/sampler/UBO paths are withheld. The fixed API-35 x86_64 4 KB lane renders and relaunches the visible build-5875 login screen.",
       "license": "LGPL-2.1 (verified from root LICENSE at this commit; NOT MIT)",
       "redistribution": {
         "verdict": "source-redistributable-under-LGPL-2.1",
-        "notes": "Vendored as an adapted, attributed fork. Java source retained at runtime/xserver-winlator/ for the LGPL-2.1 source-offer obligation. Native C source (pinned cpp/winlator/src/*.c + include/*.h) will be vendored into the tree when libwinlator.so is built. The trim list (couplings to Winlator's app shell stubbed for the spike) is recorded in docs/patches/wine-provider-provenance.md."
+        "notes": "Vendored as an adapted, attributed fork. Java and native C source are retained at runtime/xserver-winlator/ and native/xserver-winlator/cpp/ for the LGPL-2.1 source-offer obligation. The app-shell trim list and O07 GLX adaptations are recorded in docs/patches/wine-provider-provenance.md."
       }
+    },
+    {
+      "id": "gladio-eaa2a8d",
+      "kind": "source-built-archive",
+      "upstream_url": "https://github.com/brunodev85/gladio",
+      "commit": "eaa2a8d6eda3a1a6af755370ea9fac6cf7792ac3",
+      "commit_date": "2026-04-15",
+      "role": "O07 x86_64 glibc libGL.so.1 client paired with the Winlator-derived Android/GLES Gladio server. Built by tools/build_gladio_client.py in the pinned CGCT image with 16 KB ELF alignment. Adaptations are signature-locked: app-private X11 socket selection through POCKET_GLADIO_X11_SOCKET, explicit bounded transient vertex-attribute records shared with the server, bound-BGRA offset preservation, and the qualified OpenGL 3.0 / GLSL 1.30 profile. Output SHA-256: 3344560af7565a32b25acbcd927a6b35cccbb5997f0280d444f87316b2510d06; DT_NEEDED is limited to the pinned glibc loader, libc, and libX11 closure.",
+      "build_script": "tools/build_gladio_client.py",
+      "builder_image": "ghcr.io/termux/package-builder-cgct@sha256:69ffa5cfe02ca569e7d03d1c99e3c9a0f79390ad6bf11a3629d048c29c6ccb61",
+      "generated_build_provenance": "native/.build-x86_64/gladio-client/BUILD_PROVENANCE.json",
+      "license": "LGPL-2.1",
+      "redistribution": {
+        "verdict": "source-redistributable-under-LGPL-2.1",
+        "notes": "The exact public source commit, deterministic build recipe, paired server adaptations, and output hash are recorded. The APK distributes the resulting library with the complete corresponding adapted source and build scripts retained in-tree."
+      },
+      "qualification": "O07 visible build-5875 login screen and clean relaunch pass on API-35 x86_64 4 KB; strict GLES-thread framebuffer capture rejects black surfaces."
     },
     {
       "id": "proot-termux-v5-1-107-89",

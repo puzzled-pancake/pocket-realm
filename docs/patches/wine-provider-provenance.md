@@ -1,8 +1,8 @@
 # O06 Wine Runtime and X-Server Provider Provenance
 
 This document records the Wine 16 KB adaptation plus the source correspondence,
-license obligation, and trim list for the in-app X-server used by the O06 Wine
-feasibility spike.
+license obligation, trim list, and O07 Gladio adaptations for the in-app X
+server and WineD3D bridge.
 
 **Status as of this revision:** the Java X11 wire-protocol sources are vendored
 and compile (143 `.java` files). The native transport `libwinlator.so` is
@@ -33,6 +33,17 @@ pointer and jump into an invalid address. The patch moves the dispatcher to a
 private host page at `0x7ffe4000`, maps/protects using the detected host page
 size, and regenerates all affected x86_64 PE syscall stubs.
 
+The same source patch also constrains Wine's low-DOS-memory fallback below
+4 GiB. Android can reject the traditional fixed low mapping; Wine's otherwise
+unbounded 64-bit fallback may then return an address that a 32-bit WoW64 guest
+truncates. The replacement uses Wine's normal `map_view` allocator with a
+`limit_4g - 1` ceiling. It does not reserve a project-specific fixed address.
+
+Separately, the APK-side seccomp shim deliberately refuses to `MAP_FIXED`
+executable permissions over an existing writable WoW64 stack. It returns
+`EACCES`, allowing Wine to retry its writable-only path, instead of destroying
+guest stack contents to satisfy an execmod request.
+
 The build verifier scans the provider's complete x86_64 PE directory and proves
 that only `ntdll.dll` and `win32u.dll` contain the old dispatcher encoding. It
 rejects any old stubs in the rebuilt pair, requires the expected new stubs, and
@@ -56,10 +67,14 @@ Final paired-runtime qualification is recorded in:
   `native/.providers-extracted/winlator-app-ca3d735/app/src/main/cpp/winlator/`
   (`src/{xconnector_epoll.c, xinput_stream.c, xoutput_stream.c, arrays.c,
   ring_buffer.c, drawable.c, ...}` + `include/*.h`)
-- **GLX renderer location:** `native/xserver-winlator/cpp/gladiorenderer/`, all
-  38 Gladio source/header files byte-identical to pinned
-  `app/src/main/cpp/gladiorenderer/`, plus its byte-identical dependency
-  `vortekrenderer/include/bc_decoder.h`
+- **GLX server location:** `native/xserver-winlator/cpp/gladiorenderer/`, derived
+  from the pinned `app/src/main/cpp/gladiorenderer/` source set plus
+  `vortekrenderer/include/bc_decoder.h`; Pocket Realm's protocol/profile/shader
+  adaptations are retained as normal in-tree source changes.
+- **GLX client source:** `https://github.com/brunodev85/gladio` commit
+  `eaa2a8d6eda3a1a6af755370ea9fac6cf7792ac3`; built for native x86_64 glibc by
+  `tools/build_gladio_client.py` as `libGL.so.1` (SHA-256
+  `3344560af7565a32b25acbcd927a6b35cccbb5997f0280d444f87316b2510d06`).
 - **License:** LGPL-2.1 (Winlator is LGPL-2.1; source retained in-tree for the
   source-offer obligation)
 - **schemas/sources.json id:** `xserver-winlator-ca3d735`
@@ -90,27 +105,38 @@ Final paired-runtime qualification is recorded in:
 
 ## What is vendored + built
 
-1. **Native transport `libwinlator.so`** — the COMPLETE pinned native source set
-   (9 `.c` + 17 headers, vendored UNMODIFIED into `native/xserver-winlator/cpp/`
-   from `app/src/main/cpp/winlator/`). It correctly handles filesystem-domain
+1. **Native transport `libwinlator.so`** — the complete pinned native transport
+   source set (9 `.c` + 17 headers, vendored into
+   `native/xserver-winlator/cpp/` from `app/src/main/cpp/winlator/`). It handles filesystem-domain
    Unix sockets, epoll, SCM_RIGHTS fd-passing, buffered X11 input/output, and JNI
    callbacks. The JNI method names match the vendored Java classes' package paths
    exactly (`Java_com_winlator_xconnector_{XConnectorEpoll,XInputStream,
    XOutputStream}_*` + `Java_com_winlator_xserver_Drawable_*`), so it is a
    drop-in for `System.loadLibrary("winlator")`. NO Java rewrite was written.
-   Build: `tools/build_xserver_winlator.py` (NDK, 16 KB-aligned). The only
-   build-time adaptation is a force-include header (`include/pocket_ndk_compat.h`)
-   that supplies `<stdlib.h>`/`<string.h>`/`<time.h>` the upstream Android Studio
-   build provides transitively. O07 adds the missing `IntArray_indexOf`
+   Build: `tools/build_xserver_winlator.py` (NDK, 16 KB-aligned). A force-include
+   compatibility header (`include/pocket_ndk_compat.h`) supplies
+   `<stdlib.h>`/`<string.h>`/`<time.h>` the upstream Android Studio build
+   provides transitively. O07 adds the missing `IntArray_indexOf`
    declaration/body that Gladio at the same pinned commit calls but the
-   provider's arrays source omits. All other provider `.c`/`.h` content is
-   byte-identical to the pinned commit. The EGL/GLES + jnigraphics deps are retained (the renderer
+   provider's arrays source omits. The EGL/GLES + jnigraphics deps are retained (the renderer
    needs them; they are part of the same library).
 2. **O07 GLX extension** — `XServer.setupExtensions()` now advertises BigReq,
    Sync, XComposite, and GLX. GLX is backed by the complete pinned
    `libgladiorenderer.so` source set; DRI3, MIT-SHM, and Present remain omitted
    because their full native paths are outside the qualified O07 WineD3D path.
-3. **S-3 harness** — `WineSpikeRunner.runS3`: creates `<appTmp>/.X11-unix/X0`,
+   Original Winlator wire opcodes are preserved even though optional extensions
+   are omitted; extension lookup is by opcode instead of compact array index.
+3. **O07 Gladio client/server pair** — the x86_64 glibc client replaces the
+   hard-coded Winlator socket with the absolute app-private
+   `POCKET_GLADIO_X11_SOCKET`. Client and server use a private, explicit
+   `(attribute index, kind, byte count, bytes)` record format, bounds-check every
+   record, preserve BGRA VBO offsets, and upload transient client arrays through
+   per-attribute GLES VBOs. Shaders target the emulator's GLES 3.1 ceiling
+   (`#version 310 es`). The server advertises the qualified OpenGL 3.0 / GLSL
+   1.30 subset: internal-format queries remain for WineD3D backbuffer format
+   classification, while unsupported modern instancing/base-vertex, sampler,
+   UBO, compute, and tessellation paths are withheld.
+4. **S-3 harness** — `WineSpikeRunner.runS3`: creates `<appTmp>/.X11-unix/X0`,
    starts the X-server (XConnectorEpoll + XClientConnectionHandler +
    XClientRequestHandler, headless for the spike), launches the project-owned
    32-bit self-test PE with DISPLAY=:0 via the qualified direct glibc adapter,
@@ -131,8 +157,8 @@ Final paired-runtime qualification is recorded in:
 4. **`com.winlator.inputcontrols.ExternalController`** — input fully stubbed for
    S-3 (window create+map+paint does not require input events).
 5. **`com.winlator.sysvshm.SysVSharedMemory`** — System V shared memory. Stubbed
-   (the SysV IPC path is not exercised; MIT-SHM will be removed from the
-   advertisement list for GDI-only).
+   (the SysV IPC path is not exercised; MIT-SHM is not advertised by the
+   qualified GDI/GLX extension set).
 6. **`com.winlator.R`** — resource references. No XML resources are required by
    the X-server core; GLSL shaders are inline strings in the material classes.
    `GLRenderer.createRootCursorDrawable` uses a resource-name lookup with a 1x1
@@ -149,6 +175,17 @@ Final paired-runtime qualification is recorded in:
 - **GLES render proof:** `Texture.updateFromDrawable()` uploads the `Drawable`'s
   `ByteBuffer` to a GLES2 texture; the harness asserts a valid texture and
   non-background pixels via screenshot/PixelCopy.
+
+## O07 WineD3D acceptance
+
+The fixed API-35 x86_64 4 KB lane launches the hash-verified managed build-5875
+client twice through this exact client/server pair. `ClientBuild5875LoginTest`
+requires a mapped 800x600 `wow.exe` window, samples the `XServerView` framebuffer
+on its owning GLES thread, rejects a more-than-99%-black surface, and then repeats
+the proof after a clean stop. The accepted samples contain 319,606 and 321,732
+non-black pixels. Evidence lives under
+`tests/avd/AVD-Modern-x86_64-v1/evidence/o07-login-{first,relaunch}.png` with the
+paired JSON record.
 
 ## Source-offer obligation (LGPL-2.1)
 

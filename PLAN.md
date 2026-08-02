@@ -96,11 +96,17 @@ non-exported `:client` service, an app-owned X surface/input host, versioned
 app-private prefix/cache state, audio-off, clean close, process-group forced
 stop, and bounded diagnostics. The lifecycle passes unchanged on both lanes.
 
-With O06 complete, implement the SAF fast scan and PE/build-5875 validator without modifying the source tree.
+O07 completed on 2 August 2026. The read-only SAF/host validators identify PE32
+i386 build 5875 and reject wrong-build, launcher-only, and corrupt-MPQ inputs.
+The source tree remains unchanged; its hash-verified managed debug copy is the
+only runtime input. Direct `WoW.exe` reaches the visible login screen through
+the pinned WineD3D/Gladio path at 800x600 (within the 1280x720 ceiling), 30 FPS,
+audio off, and a loopback realmlist. Strict renderer-framebuffer evidence passes
+on first launch and after a clean stop/relaunch.
 
-Then launch the managed build-5875 `WoW.exe` with WineD3D, 1280x720 or lower, 30 FPS, audio off, minimal overlays, and no server. Preserve a deterministic client safe mode and exact Wine/prefix/runtime manifests.
-
-**Exit:** the unmodified user-supplied client reaches a repeatable login screen on the fixed x86 AVD. Do not begin ARM translation if this gate fails.
+**Exit: PASS.** The unmodified user-supplied client reaches a repeatable login
+screen on the fixed API-35 x86_64 4 KB AVD. G2 may begin; ARM translation remains
+deferred to G5 as planned.
 
 ### Gate G2: native x86 realm and MariaDB baseline - O08-O09
 
