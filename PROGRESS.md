@@ -1,12 +1,12 @@
 # Current project state
 
-Last verified implementation commit: `bb4aa04` (`O07: qualify managed build-5875 client login`)
+Last verified implementation commit: `fc946f1` (`O08: qualify isolated MariaDB database runtime`)
 
-Active feature: `O08 — G2 native x86_64 MariaDB service, schema ledger, and dirty recovery`
+Active feature: `O09 — G2 native x86_64 realmd and no-bot world with structured control`
 
-Current gate: `G2 — native x86 realm baseline (O07 complete; O08 next)`. G0 production packaging and G1 direct-client proof are complete.
+Current gate: `G2 — native x86 realm baseline (O08 complete; O09 next)`. G0 production packaging and G1 direct-client proof are complete.
 
-Plan/reference alignment: `2 August 2026`
+Plan/reference alignment: `3 August 2026`
 
 > Note: an earlier O05 commit (27eb1ad) was reopened after a review found the
 > evidence pipeline had blocking gaps (variant-mistaken host driver, PKG-01 not
@@ -70,12 +70,12 @@ Versioned C ABI + `libpocketrealm.so`; create/start/health/save/stop/destroy pro
 ## Known gaps under the canonical report
 
 - The `pkgExperiment` standalone-exec variant is G0 evidence only; production uses the library-backed Lane A model.
-- MariaDB, realmd/mangosd production integration, full importer UX, bots, and mobile UX remain pending at their gates (O08-O22).
+- realmd/mangosd production integration, full importer UX, bots, and mobile UX remain pending at their gates (O09-O22).
 - The full report X/FUN/FLT/SOAK gates remain pending.
 
 ## Blockers
 
-O06/O07 have no remaining G1 blocker. Named physical-device inputs remain
+O06/O07/O08 have no remaining blocker. Named physical-device inputs remain
 required at later release gates. The user-owned source client remains unchanged
 on `C:` and no proprietary client executables or data archives are added to Git.
 
@@ -193,12 +193,46 @@ Authoritative O07 evidence:
 - `tests/avd/AVD-Modern-x86_64-v1/evidence/o07-login-first.png`
 - `tests/avd/AVD-Modern-x86_64-v1/evidence/o07-login-relaunch.png`
 
+## O08 — isolated MariaDB database runtime (complete)
+
+- MariaDB 11.5.2 is source-built for native x86_64 Linux/glibc from the
+  hash-pinned official archive and Termux recipe/toolchain. The installed
+  server/client closure is 16 KB compatible, has no leaked builder RPATH, uses
+  the O06-qualified loader/libc pair, and packages no optional MariaDB plugin.
+- The non-exported `:database` process exclusively owns its no-backup datadir.
+  Its fixed Binder contract accepts no SQL, path, executable, environment, or
+  credential. MariaDB binds only the app-private Unix socket with networking
+  disabled in both config and argv.
+- Initialization uses the ordered upstream system-table bootstrap, independent
+  random admin/core credentials, per-schema least privilege, an authenticated
+  query, and a denied account-administration operation. A clean marker is
+  written only after authenticated shutdown, zero process exit, and socket
+  removal.
+- The pinned CMaNGOS, Classic-DB, and Playerbots inputs produce 399 ordered,
+  deterministic gzip assets. Every compressed and SQL stream is hash-checked;
+  the database ledger records source/target revisions, status, timestamps,
+  snapshot/build IDs, and result digests. Classic-DB's own core-sync handoff is
+  derived from its pinned SQL before newer CMaNGOS updates are selected.
+- The fixed API-35 x86_64 4 KB lane passed the full test twice. The recorded run
+  took 139.399 seconds and proved all migrations, exact revision checks plus a
+  rejected mismatch, preflight storage-full refusal, stopped-state snapshot
+  and restore, clean lifecycle, dirty kill, observed recovery output,
+  authenticated post-recovery query, and final clean stop.
+
+Authoritative O08 evidence:
+
+- `tests/avd/AVD-Modern-x86_64-v1/evidence/databaseRuntime-o08-acceptance-20260802-1915Z.PASS.json`
+- `schemas/mariadb-runtime-lockfile.json`
+- `schemas/database-migrations.json`
+- `docs/adr/ADR-015-o08-database-runtime.md`
+
 ## Next action
 
-Begin O08: source and cross-build the pinned MariaDB x86_64 closure, then prove
-app-private Unix-socket initialization, least-privilege authentication, clean
-stop, dirty recovery, and the ordered schema ledger before any realm process is
-allowed to start.
+Begin O09: package native x86_64 `realmd` and `mangosd` in dedicated fault
+domains with playerbots disabled. Add the fixed structured readiness/control
+contract, gate startup on O08 schema compatibility, corroborate ready events
+with loopback probes on 3724/8085, then prove save, clean stop, and forced
+recovery without launching the client.
 
 ## Session note
 
