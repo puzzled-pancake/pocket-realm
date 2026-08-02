@@ -1,0 +1,102 @@
+diff --git a/contrib/extractor/mpq_libmpq.h b/contrib/extractor/mpq_libmpq.h
+index 2a7cc405..3782de40 100644
+--- a/contrib/extractor/mpq_libmpq.h
++++ b/contrib/extractor/mpq_libmpq.h
+@@ -46,27 +46,28 @@ class MPQArchive
+             if (libmpq__file_number(mpq_a, "(listfile)", &filenum)) return;
+             libmpq__off_t size, transferred;
+             libmpq__file_unpacked_size(mpq_a, filenum, &size);
++            if (!size) return;
+ 
+-            char* buffer = new char[size];
+-
+-            libmpq__file_read(mpq_a, filenum, (unsigned char*)buffer, size, &transferred);
+-
+-            char seps[] = "\n";
+-            char* token;
+-
+-            token = strtok(buffer, seps);
+-            uint32 counter = 0;
+-            while ((token != NULL) && (counter < size))
++            // libmpq returns raw listfile bytes, not a C string. The old code
++            // allocated exactly `size` bytes and passed them to strtok(), so a
++            // page-aligned listfile could read into an unmapped Android page.
++            vector<char> buffer(static_cast<size_t>(size) + 1, '\0');
++            if (libmpq__file_read(mpq_a, filenum,
++                    reinterpret_cast<unsigned char*>(buffer.data()), size, &transferred))
++                return;
++            const size_t used = static_cast<size_t>(transferred < size ? transferred : size);
++            char* cursor = buffer.data();
++            char* const end = cursor + used;
++            while (cursor < end)
+             {
+-                //cout << token << endl;
+-                token[strlen(token) - 1] = 0;
+-                string s = token;
+-                filelist.push_back(s);
+-                counter += strlen(token) + 2;
+-                token = strtok(NULL, seps);
++                char* newline = static_cast<char*>(memchr(cursor, '\n', static_cast<size_t>(end - cursor)));
++                char* lineEnd = newline ? newline : end;
++                if (lineEnd > cursor && lineEnd[-1] == '\r')
++                    --lineEnd;
++                if (lineEnd > cursor)
++                    filelist.emplace_back(cursor, static_cast<size_t>(lineEnd - cursor));
++                cursor = newline ? newline + 1 : end;
+             }
+-
+-            delete[] buffer;
+         }
+ };
+ typedef std::deque<MPQArchive*> ArchiveSet;
+diff --git a/contrib/vmap_extractor/vmapextract/mpq_libmpq04.h b/contrib/vmap_extractor/vmapextract/mpq_libmpq04.h
+index 2a7cc405..3782de40 100644
+--- a/contrib/vmap_extractor/vmapextract/mpq_libmpq04.h
++++ b/contrib/vmap_extractor/vmapextract/mpq_libmpq04.h
+@@ -46,27 +46,28 @@ class MPQArchive
+             if (libmpq__file_number(mpq_a, "(listfile)", &filenum)) return;
+             libmpq__off_t size, transferred;
+             libmpq__file_unpacked_size(mpq_a, filenum, &size);
++            if (!size) return;
+ 
+-            char* buffer = new char[size];
+-
+-            libmpq__file_read(mpq_a, filenum, (unsigned char*)buffer, size, &transferred);
+-
+-            char seps[] = "\n";
+-            char* token;
+-
+-            token = strtok(buffer, seps);
+-            uint32 counter = 0;
+-            while ((token != NULL) && (counter < size))
++            // libmpq returns raw listfile bytes, not a C string. The old code
++            // allocated exactly `size` bytes and passed them to strtok(), so a
++            // page-aligned listfile could read into an unmapped Android page.
++            vector<char> buffer(static_cast<size_t>(size) + 1, '\0');
++            if (libmpq__file_read(mpq_a, filenum,
++                    reinterpret_cast<unsigned char*>(buffer.data()), size, &transferred))
++                return;
++            const size_t used = static_cast<size_t>(transferred < size ? transferred : size);
++            char* cursor = buffer.data();
++            char* const end = cursor + used;
++            while (cursor < end)
+             {
+-                //cout << token << endl;
+-                token[strlen(token) - 1] = 0;
+-                string s = token;
+-                filelist.push_back(s);
+-                counter += strlen(token) + 2;
+-                token = strtok(NULL, seps);
++                char* newline = static_cast<char*>(memchr(cursor, '\n', static_cast<size_t>(end - cursor)));
++                char* lineEnd = newline ? newline : end;
++                if (lineEnd > cursor && lineEnd[-1] == '\r')
++                    --lineEnd;
++                if (lineEnd > cursor)
++                    filelist.emplace_back(cursor, static_cast<size_t>(lineEnd - cursor));
++                cursor = newline ? newline + 1 : end;
+             }
+-
+-            delete[] buffer;
+         }
+ };
+ typedef std::deque<MPQArchive*> ArchiveSet;

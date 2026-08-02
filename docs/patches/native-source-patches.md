@@ -201,9 +201,28 @@ executables accept PIC too). The stale-target guard key includes `+pic` so a
 re-run after this change cleans bin.v2. Added `--runtime`/`--runtime-tests`
 flags that pass `-DBUILD_POCKET_RUNTIME=ON -DPOCKET_RUNTIME_DIR=...`.
 
+### O11 extractors — bounded MPQ `(listfile)` parsing
+
+**Change:** `native/patches/o11-cmangos-safe-mpq-listfile.patch` replaces the
+two extractor copies of `MPQArchive::GetFileListTo` with a transferred-length-
+bounded parser. It allocates an explicit trailing NUL, uses `memchr` within the
+reported byte count, trims CR safely, and ignores empty records. The pinned
+source submodule stays clean: `tools/build_o11_extractors.py` materializes the
+exact CMaNGOS commit into an ignored build tree, applies the hash-pinned patch,
+then builds the four Android x86_64 extractor PIEs.
+
+**Why:** upstream allocated exactly the listfile's unpacked size and passed the
+non-NUL-terminated bytes to `strtok`. The real build-5875 VMAP run reached an
+Android page boundary and crashed at `mpq_libmpq04.h:67` with SIGSEGV. The
+bounded parser completed the same read-only client extraction and also removes
+the corresponding latent defect from the DBC/map extractor.
+
 ## Reproduction
 
 See `scripts/build_native.py` for the full reproducible build (stages:
-openssl, boost, sqlite, cmangos). The code patches live in the upstream working
+openssl, boost, sqlite, cmangos). Most code patches live in the upstream working
 trees (submodules) at the paths above; a clean re-pin requires re-applying them.
-The FetchContent integration is automated and needs no manual step.
+O11 is the exception: its external patch, patch hash, clean source
+materialization, and extractor hashes are automated by
+`tools/build_o11_extractors.py` and `schemas/o11-extractor-lockfile.json`. The
+FetchContent integration is automated and needs no manual step.

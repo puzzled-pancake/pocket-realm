@@ -1,8 +1,8 @@
 # Current project state
 
-Last verified implementation milestone: `O10 — durable RuntimeSupervisor state machine and ownership`
+Last verified implementation milestone: `O11 — resumable managed-client import and prepared-data publication`
 
-Active feature: `O11 — G3 resumable managed-client import and data preparation`
+Active feature: `O12 — G3 integrated login, persistence, backup, and diagnostics`
 
 Current gate: `G3 — integrated x86 application (O08/O09/O10 complete)`. G0 production packaging, G1 direct-client proof, and G2 native realm baseline are complete.
 
@@ -70,12 +70,12 @@ Versioned C ABI + `libpocketrealm.so`; create/start/health/save/stop/destroy pro
 ## Known gaps under the canonical report
 
 - The `pkgExperiment` standalone-exec variant is G0 evidence only; production uses the library-backed Lane A model.
-- Managed import, integrated client/account/persistence, bots, and mobile UX remain pending at their gates (O11-O22).
+- Integrated client/account/persistence, bots, and mobile UX remain pending at their gates (O12-O22).
 - The full report X/FUN/FLT/SOAK gates remain pending.
 
 ## Blockers
 
-O06/O07/O08/O09/O10 have no remaining blocker. Named physical-device inputs remain
+O06/O07/O08/O09/O10/O11 have no remaining blocker. Named physical-device inputs remain
 required at later release gates. The user-owned source client remains unchanged
 on `C:` and no proprietary client executables or data archives are added to Git.
 
@@ -152,7 +152,7 @@ Final paired evidence:
 
 ## O07 build-5875 result — complete
 
-The user-owned `C:\Vanilla wow 1.12.1` source was inspected read-only and
+The user-owned WoW 1.12.1 source tree was inspected read-only and
 identified as PE32 i386 `WoW.exe` version `1.12.1.5875` (SHA-256
 `b4756d38ef207c02ed651f4952bd89a70b4857b73a33413339e1b285b28d2dc7`),
 149 files / 5,389,935,386 bytes, with the required flat English MPQ layout.
@@ -284,11 +284,48 @@ Authoritative O10 evidence:
 - `tests/avd/AVD-Modern-x86_64-v1/evidence/runtimeSupervisor-o10-acceptance-20260803.PASS.json`
 - `docs/adr/ADR-017-o10-durable-runtime-supervisor.md`
 
+## O11 — resumable managed-client import and prepared data (complete)
+
+- The `:import` foreground process keeps only a persisted SAF read grant. It
+  fast-classifies direct x86 PE32 build 5875 before bounded NFKC/case-fold-safe
+  traversal and report-formula storage preflight; the source tree is never a
+  runtime dependency and receives no write operation.
+- The schema-2 SQLite WAL/FULL journal records each file's expected metadata,
+  partial, SHA-256, attempt, error, and fsync state. Resume rehashes verified
+  files, repairs corruption, and republishes only through a fsynced manifest,
+  generation rename, and digest-bearing active pointer. Re-import is a new
+  generation; current + previous retention is device-tested and bounded.
+- Ten forced `:import` deaths pass on API-35 x86_64 4 KiB and 16 KiB lanes,
+  including before-publish and after-rename/before-activation crash windows.
+  Wrong builds remain rejected and no incomplete generation becomes active.
+- Four fixed-purpose Bionic PIE extractors are source/patch/hash pinned and
+  16 KiB aligned. Real-client diagnosis found upstream's non-NUL-terminated MPQ
+  listfile parser; the external bounded parser patch removed the SIGSEGV and
+  resumed over the existing staging work.
+- The real 149-file, 5,389,935,386-byte build-5875 source completed on the
+  large-storage API-35 4 KiB lane. Its NORMAL generation has 158 DBCs, 2,429
+  maps, 43 VMAP trees, 1,249 VMAP tiles, 22 MMAP maps, 1,815 MMAP tiles, and
+  9,204 hash-recorded files totaling 2,280,526,960 bytes. The active pointer
+  matches manifest SHA-256
+  `be6478859781dd8cda5e85cd47d98ae84b66216a6f392f616a07b89ba482e41c`.
+- `PreparedDataStore` verifies the active digest, identity/counts, safe paths,
+  sizes, and every file hash before `worldConfigNormal()` enables VMAP/MMAP.
+  Missing or damaged data fails closed; O09's no-navigation baseline remains an
+  explicit non-normal test path until O12 integration.
+
+Authoritative O11 evidence:
+
+- `tests/avd/AVD-Modern-x86_64-v1/evidence/managedImport-o11-interruptions-20260803.PASS.json`
+- `tests/avd/AVD-16K-x86_64-v1/evidence/managedImport-o11-interruptions-20260803.PASS.json`
+- `tests/avd/O11-Large-x86_64/evidence/managedImport-o11-real-build5875-20260803.PASS.json`
+- `docs/adr/ADR-018-o11-managed-client-import.md`
+
 ## Next action
 
-Begin O11: implement bounded, resumable SAF managed-client import and
-checkpointed DBC/maps/vmaps/mmaps preparation without modifying the user-owned
-source or publishing an incomplete active generation.
+Begin O12: attach the qualified O07 client/display session to the O10
+supervisor, provision the local account through core control, prove login/world
+entry and exact persistence, then implement verified backup/restore and
+redacted diagnostics.
 
 ## Session note
 

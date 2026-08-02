@@ -16,7 +16,8 @@ internal class ServerRuntimeFiles(context: Context) {
     private val run = File(root, "run").apply { mkdirs() }
     private val logs = File(root, "logs").apply { mkdirs() }
     private val lifecycle = File(root, "lifecycle").apply { mkdirs() }
-    private val data = File(roots.content, "o09-server/active")
+    private val baselineData = File(roots.content, "o09-server/active")
+    private val normalData = PreparedDataStore(File(roots.content, "o11-server"))
     private val secretFile = File(roots.databaseRoot, "secrets.json")
 
     fun realmdConfig(): File {
@@ -34,8 +35,15 @@ internal class ServerRuntimeFiles(context: Context) {
     }
 
     fun worldConfig(): File {
-        require(data.isDirectory) { "verified O09 client-derived data generation is missing" }
-        require(File(data, "BUILD_PROVENANCE.json").isFile) { "O09 data provenance is missing" }
+        require(baselineData.isDirectory) { "verified O09 client-derived data generation is missing" }
+        require(File(baselineData, "BUILD_PROVENANCE.json").isFile) { "O09 data provenance is missing" }
+        return worldConfig(baselineData, normalPlay = false)
+    }
+
+    /** O12+ production entry point; refuses normal play unless every O11 artifact verifies. */
+    fun worldConfigNormal(): File = worldConfig(normalData.requireActive().root, normalPlay = true)
+
+    private fun worldConfig(data: File, normalPlay: Boolean): File {
         val secret = coreSecret()
         val socket = roots.databaseRun.resolve("mariadb.sock").absolutePath
         fun db(name: String) = ".;$socket;pocket_core;$secret;$name"
@@ -52,10 +60,10 @@ internal class ServerRuntimeFiles(context: Context) {
             Console.Enable = 0
             Ra.Enable = 0
             SOAP.Enabled = 0
-            vmap.enableLOS = 0
-            vmap.enableHeight = 0
-            vmap.enableIndoorCheck = 0
-            mmap.enabled = 0
+            vmap.enableLOS = ${if (normalPlay) 1 else 0}
+            vmap.enableHeight = ${if (normalPlay) 1 else 0}
+            vmap.enableIndoorCheck = ${if (normalPlay) 1 else 0}
+            mmap.enabled = ${if (normalPlay) 1 else 0}
             LogLevel = 1
             LogFile = "${logs.resolve("world.log").absolutePath}"
             LogFileLevel = 1

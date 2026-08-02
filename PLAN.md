@@ -138,7 +138,21 @@ final clean shutdown. The qualified O07 client/display attachment remains an
 O12 integration step; O10's backend exposes that absence as `CLIENT_FAILED`
 without taking down the ready local realm.
 
-Complete resumable SAF managed-copy import and checkpointed DBC/maps/vmaps/mmaps preparation with storage preflight, immutable source, atomic manifests, and no silent degraded data mode. Provision accounts through the core command/control path; secrets never enter logs. Implement database-consistent backups, restore-to-fresh-datadir verification, support-bundle redaction, and the exact shutdown order from report section 18.3.
+O11 completed on 3 August 2026. The dedicated `:import` worker now performs a
+bounded read-only SAF scan, report-formula storage preflight, schema-2 resumable
+managed copy, corruption repair, and immutable generation publication. Ten
+copy/publication deaths pass on both 4 KiB and 16 KiB API-35 lanes. The real
+149-file build-5875 client produced and atomically activated 158 DBCs, 2,429
+maps, 43 VMAP trees, 1,249 VMAP tiles, 22 MMAP maps, and 1,815 MMAP tiles. The
+normal-play reader verifies the active manifest and every file hash; incomplete
+or damaged data cannot silently enable VMAP/MMAP. Extractor commit, patch, PIE
+hashes, dependencies, and 16 KiB alignment are pinned.
+
+O12 now provisions accounts through the core command/control path; secrets
+never enter logs. It attaches the qualified O07 client/display to the O10
+supervisor, implements database-consistent backups, restore-to-fresh-datadir
+verification, support-bundle redaction, and the exact shutdown order from
+report section 18.3.
 
 **Exit:** one action completes local login, character creation, 30 minutes of play, save/stop/restart with exact character assertions, 20 clean cycles, forced recovery, and importer interruption tests on x86.
 

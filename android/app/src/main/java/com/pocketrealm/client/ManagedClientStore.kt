@@ -15,14 +15,24 @@ internal class ManagedClientStore(context: Context) {
         val manifest: JSONObject,
     )
 
-    private val expectedRoot = File(context.noBackupFilesDir, "client/active")
+    private val clientRoot = File(context.noBackupFilesDir, "client")
 
     fun load(clientId: String): ManagedClient {
         require(clientId == ClientRuntimeContract.WOW_5875_ID) { "unsupported managed client id" }
-        val expected = expectedRoot.absoluteFile
-        val expectedParent = checkNotNull(expected.parentFile).canonicalFile
-        val root = expectedRoot.canonicalFile
-        check(root.parentFile == expectedParent && root.name == "active" && root.isDirectory &&
+        val pointer = File(clientRoot, "active.json")
+        var expectedManifestHash: String? = null
+        val expected = if (pointer.isFile) {
+            val value = JSONObject(pointer.readText())
+            check(value.getInt("schema") == 1 && value.getString("clientId") == clientId)
+            expectedManifestHash = value.getString("manifestSha256").lowercase()
+            check(expectedManifestHash.matches(Regex("[0-9a-f]{64}")))
+            val generation = value.getString("generation")
+            check(generation.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")))
+            File(clientRoot, "generations/$generation")
+        } else File(clientRoot, "active") // O07 debug-generation compatibility
+        val expectedParent = checkNotNull(expected.absoluteFile.parentFile).canonicalFile
+        val root = expected.canonicalFile
+        check(root.parentFile == expectedParent && root.isDirectory &&
             !Files.isSymbolicLink(expected.toPath())) {
             "managed client generation is absent or unsafe"
         }
@@ -30,8 +40,9 @@ internal class ManagedClientStore(context: Context) {
         check(manifestFile.isFile && !Files.isSymbolicLink(manifestFile.toPath())) {
             "managed client manifest is absent or unsafe"
         }
+        expectedManifestHash?.let { check(sha256(manifestFile) == it) { "active-pointer manifest hash mismatch" } }
         val manifest = JSONObject(manifestFile.readText())
-        check(manifest.optInt("schema") == 1 && manifest.optBoolean("complete")) {
+        check(manifest.optInt("schema") in 1..2 && manifest.optBoolean("complete")) {
             "managed client generation is incomplete"
         }
         check(manifest.getString("clientId") == clientId && manifest.optBoolean("directLaunch")) {

@@ -2,7 +2,7 @@
   "schema": 1,
   "reference_document": "docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx",
   "description": "Pinned upstream source manifest for the Pocket Realm offline build. Every active entry has an exact commit, license, and redistribution verdict. The canonical architecture and delivery reference is docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx; this file governs source selection only.",
-  "updated": "2026-08-03 (O09: pinned no-bot native realmd/world runtime and Connector/C Unix-socket client)",
+  "updated": "2026-08-03 (O11: pinned Android extractor set and bounded MPQ listfile patch)",
   "toolchain": {
     "android_sdk_root_env": "ANDROID_SDK_ROOT / ANDROID_HOME (machine-local; not pinned here)",
     "ndk": {
@@ -50,6 +50,11 @@
           "reason": "Honor mmap.enabled=0 before entering the mmap tile loader; O09 packages verified DBC/maps and deliberately leaves vmaps/mmaps disabled."
         }
       ],
+      "o11_extractor_overlay": {
+        "patch": "native/patches/o11-cmangos-safe-mpq-listfile.patch",
+        "lockfile": "schemas/o11-extractor-lockfile.json",
+        "purpose": "Finite on-device DBC/maps/vmaps/mmaps preparation; fixes non-NUL-terminated MPQ listfile parsing without dirtying the pinned submodule."
+      },
       "license": "GPL-2.0-or-later",
       "license_file": "native/cmangos/LICENSE",
       "redistribution": {

@@ -164,3 +164,29 @@ O10 implements decisions #6, #7, #9, #10, and #11 without superseding them:
 
 The detailed rationale and device qualification are recorded in
 `docs/adr/ADR-017-o10-durable-runtime-supervisor.md`.
+
+## G3 managed-import overlay (2026-08-03, feature O11)
+
+O11 implements decisions #12, #24, #26, #27, and #45 without superseding the
+canonical report:
+
+- **The SAF tree is an immutable input.** Only a persisted read grant is kept;
+  Wine and extractors consume a verified app-private generation and app-owned
+  settings are never written to the selected client.
+- **Copy and data work have durable, bounded journals.** Per-file SHA-256/fsync
+  state and per-stage DBC/maps/vmaps/MMAP checkpoints make process death a
+  resume case, not an overlay or an unverified continuation.
+- **Publication is generation based.** A manifest and directory rename become
+  visible through a digest-bearing active pointer only after verification.
+  Re-import creates a new UUID generation; current + previous retention bounds
+  storage and preserves rollback.
+- **Normal play is fail-closed on prepared data.** The O11 active manifest must
+  identify build 5875/classic/NORMAL and every required file must match its
+  size and hash before VMAP/MMAP can be enabled.
+- **Extractor provenance is reproducible.** The clean pinned CMaNGOS commit,
+  external MPQ parser patch, four artifact hashes, dependency closure, and
+  16 KiB LOAD alignment are captured in the O11 lockfile. User-derived output
+  remains app-private and outside version control.
+
+The detailed rationale and real-client qualification are recorded in
+`docs/adr/ADR-018-o11-managed-client-import.md`.

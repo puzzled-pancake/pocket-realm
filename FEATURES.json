@@ -285,7 +285,7 @@
       "track": "offline",
       "priority": 110,
       "title": "G3 resumable managed-client import and client-data preparation",
-      "status": "pending",
+      "status": "done",
       "depends": [
         "O07",
         "O09",
@@ -297,8 +297,14 @@
         "Ten interruptions across copy/finalization resume to the same verified managed-client manifest with no incomplete active generation",
         "DBC/maps/vmaps/mmaps stages checkpoint and atomically publish a compatible data manifest; missing required data never silently starts normal play"
       ],
-      "notes": "",
-      "evidence": [],
+      "notes": "Read-only persisted SAF input is fast-classified before bounded full traversal. A schema-2 SQLite WAL/FULL journal records per-file size/mtime/SHA-256/temp/attempt/fsync state; corrupt verified targets are repaired and publication uses fsynced immutable UUID generations plus digest-bearing active/previous pointers. Ten worker deaths now include before-publish and after-rename/before-activation windows; both API-35 x86_64 4 KB and 16 KB lanes pass, and re-import/retention is bounded. Four fixed-purpose 16 KB-aligned Bionic PIE extractors are built from pinned CMaNGOS with a hash-pinned bounded-MPQ-listfile patch. The real 149-file, 5,389,935,386-byte build-5875 client produced a complete NORMAL manifest with 158 DBCs, 2,429 maps, 43 VMAP trees, 1,249 VMAP tiles, 22 MMAP maps, and 1,815 MMAP tiles. PreparedDataStore verifies the pointer, manifest, counts, paths, sizes, and every hash before worldConfigNormal enables VMAP/MMAP; the O09 no-navigation baseline stays explicit until O12 integration.",
+      "evidence": [
+        "./gradlew :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin -> PASS (24 host tests; Android test compilation)",
+        "tests/avd/AVD-Modern-x86_64-v1/evidence/managedImport-o11-interruptions-20260803.PASS.json",
+        "tests/avd/AVD-16K-x86_64-v1/evidence/managedImport-o11-interruptions-20260803.PASS.json",
+        "tests/avd/O11-Large-x86_64/evidence/managedImport-o11-real-build5875-20260803.PASS.json",
+        "docs/adr/ADR-018-o11-managed-client-import.md"
+      ],
       "reference": "Report sections 9, 10, 20.2 (X9), and Appendix B.7"
     },
     {

@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "feature": "O11",
+  "ok": true,
+  "avd": "O11-Large-x86_64",
+  "hostSerial": "emulator-5558",
+  "api": 35,
+  "abi": "x86_64",
+  "pageSize": 4096,
+  "appVariant": "clientRuntime",
+  "source": {
+    "clientVersion": "1.12.1.5875",
+    "clientBuild": 5875,
+    "machine": "IMAGE_FILE_MACHINE_I386",
+    "optionalMagic": "PE32",
+    "files": 149,
+    "bytes": 5389935386,
+    "wowExeSha256": "b4756d38ef207c02ed651f4952bd89a70b4857b73a33413339e1b285b28d2dc7",
+    "safAuthority": "com.android.externalstorage.documents",
+    "persistedReadGrant": true,
+    "sourceWriteCalls": 0
+  },
+  "managedClient": {
+    "generation": "8d174e77-6936-452c-98d7-08b7cfe11128",
+    "journalSchema": 2,
+    "filesProcessed": 149,
+    "bytesCopied": 5388813027,
+    "manifestSha256": "f991ed21f79c27fa455948cf3ce5e634fd2f815c9bf94c34d4af20ca89603dc7",
+    "activePointerMatchesManifest": true,
+    "partialFiles": 0,
+    "stagingGenerations": 0
+  },
+  "data": {
+    "generation": "8d174e77-6936-452c-98d7-08b7cfe11128",
+    "mode": "NORMAL",
+    "complete": true,
+    "manifestFiles": 9204,
+    "manifestSha256": "be6478859781dd8cda5e85cd47d98ae84b66216a6f392f616a07b89ba482e41c",
+    "activePointerMatchesManifest": true,
+    "publishedBytes": 2280526960,
+    "dbc": 158,
+    "maps": 2429,
+    "vmapTrees": 43,
+    "vmapTiles": 1249,
+    "mmapMaps": 22,
+    "mmapTiles": 1815,
+    "stagingGenerations": 0,
+    "topLevelEntries": ["dbc", "maps", "vmaps", "mmaps", "data-manifest.json"]
+  },
+  "stages": {
+    "DBC_MAPS": {"state": "VERIFIED", "attempts": 1},
+    "VMAP_EXTRACT": {"state": "VERIFIED", "attempts": 3, "nativeCrashDiagnosedAndPatched": true},
+    "VMAP_ASSEMBLE": {"state": "VERIFIED", "attempts": 1},
+    "MMAPS": {"state": "VERIFIED", "attempts": 2, "checkpoints": 22},
+    "MANIFEST": {"state": "VERIFIED", "attempts": 1}
+  },
+  "generator": {
+    "cmangosCommit": "c096bada9e4ed23ad4ca706c67160a26d7121337",
+    "sourcePatch": "native/patches/o11-cmangos-safe-mpq-listfile.patch",
+    "artifactLock": "schemas/o11-extractor-lockfile.json",
+    "loadAlignment": 16384
+  },
+  "journalElapsedMs": 2101148,
+  "storagePreflightPassed": true,
+  "normalModeFailsClosedWithoutVerifiedData": true,
+  "uiEvidence": "tests/avd/O11-Large-x86_64/evidence/managedImport-o11-real-build5875-20260803.png",
+  "result": "COMPLETE"
+}

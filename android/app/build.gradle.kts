@@ -160,6 +160,7 @@ val stageNativeLibs by tasks.registering(Sync::class) {
     val prootStage = File(repoRoot, "native/.build-x86_64/proot-stage")
     val mariadbStage = File(repoRoot, "native/.build-x86_64/mariadb-staging/jniLibs/x86_64")
     val realmStage = File(repoRoot, "native/.build-o09-x86_64/realm-staging/jniLibs/x86_64")
+    val extractorStage = File(repoRoot, "native/.build-o11-x86_64/extractor-staging/jniLibs/x86_64")
     val stagedLib = layout.buildDirectory.dir("staged-jniLibs/x86_64")
 
     // Require the native build to have run (O03/O04 + O05 packaging + O06 spike).
@@ -192,6 +193,12 @@ val stageNativeLibs by tasks.registering(Sync::class) {
         )
         check(serverLibraries.all { it.isFile }) {
             "O09 native realm staging is incomplete. Run: python tools/build_o09_realm_runtime.py"
+        }
+        val extractors = listOf("libpocket_ad.so", "libpocket_vmap_extractor.so",
+            "libpocket_vmap_assembler.so", "libpocket_movemapgen.so")
+            .map { File(extractorStage, it) }
+        check(extractors.all { it.isFile }) {
+            "O11 extractor staging is incomplete. Run: python tools/build_o11_extractors.py"
         }
     }
 
@@ -261,6 +268,9 @@ val stageNativeLibs by tasks.registering(Sync::class) {
     // O09: Android/Bionic, no-bot CMaNGOS components. Each library is loaded
     // only inside its dedicated :realm or :world process.
     from(realmStage)
+    // O11: finite, fixed-purpose Android/Bionic PIE extractors. These are
+    // invoked only by the isolated import worker after managed-copy publication.
+    from(extractorStage)
 }
 
 val validateDatabaseRuntime by tasks.registering {
@@ -342,4 +352,5 @@ dependencies {
     // Host JVM unit tests (O04: RealmNative shim graceful-degradation test).
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation("org.json:json:20240303")
 }
