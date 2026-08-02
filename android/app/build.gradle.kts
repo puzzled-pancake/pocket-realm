@@ -204,6 +204,9 @@ val stageNativeLibs by tasks.registering(Sync::class) {
     // (com.winlator.xconnector.* + com.winlator.xserver.Drawable), so it is a
     // drop-in for System.loadLibrary("winlator").
     from(File(xserverBuild, "libwinlator.so"))
+    // O07: source-matched Winlator GLX/OpenGL bridge. WineD3D needs this
+    // extension to render the imported 1.12.1 client; GDI-only O06 did not.
+    from(File(xserverBuild, "libgladiorenderer.so"))
     // libc++_shared.so — the realm facade links ANDROID_STL=c++_shared, so its
     // runtime closure needs the shared C++ runtime. Sourced from the NDK, never
     // from a platform path. Platform libs (libc/libm/libdl/liblog) are excluded.

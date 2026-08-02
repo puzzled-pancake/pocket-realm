@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the native/xserver-winlator libwinlator.so (S-3 X-server transport).
+"""Build the native X-server transport and GLX renderer.
 
 Vendored source-matched from Winlator ca3d735 (app/src/main/cpp/winlator/).
 Standalone CMake build against the pinned NDK (same toolchain as
@@ -14,8 +14,8 @@ the vendored Java classes (com.winlator.xconnector.{XConnectorEpoll,
 XInputStream,XOutputStream} + com.winlator.xserver.Drawable) exactly, so it is
 a drop-in for System.loadLibrary("winlator").
 
-16 KB-aligned, links Android/Bionic libs (log, android, jnigraphics, EGL,
-GLESv2, GLESv3). NOT a Lane-B executable.
+libgladiorenderer.so is the source-matched Winlator GLX/OpenGL bridge used by
+WineD3D for O07. Both are 16 KB-aligned and link Android/Bionic graphics libs.
 
 Usage:
   python3 tools/build_xserver_winlator.py --abi x86_64
@@ -82,10 +82,11 @@ def main() -> int:
     if rc != 0:
         return rc
 
-    so = build / "libwinlator.so"
+    outputs = [build / "libwinlator.so", build / "libgladiorenderer.so"]
     print(f"\n== artifact ==")
-    print(f"  {so} {'OK' if so.is_file() else 'MISSING'} ({so.stat().st_size if so.is_file() else 0} bytes)")
-    return 0 if so.is_file() else 1
+    for so in outputs:
+        print(f"  {so} {'OK' if so.is_file() else 'MISSING'} ({so.stat().st_size if so.is_file() else 0} bytes)")
+    return 0 if all(so.is_file() for so in outputs) else 1
 
 
 if __name__ == "__main__":

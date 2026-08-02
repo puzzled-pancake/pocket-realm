@@ -60,6 +60,33 @@ add_library(winlator SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/src/wine_registry_editor.c
 )
 
+# O07 restores the source-matched Winlator GLX/OpenGL renderer required by
+# WineD3D. The 38 files below are byte-identical to
+# app/src/main/cpp/gladiorenderer at the pinned ca3d735 source commit.
+set(GLADIO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/gladiorenderer)
+add_library(gladiorenderer SHARED
+    ${GLADIO_DIR}/src/main.c
+    ${GLADIO_DIR}/src/gl_context.c
+    ${GLADIO_DIR}/src/gl_renderer.c
+    ${GLADIO_DIR}/src/request_handler.c
+    ${GLADIO_DIR}/src/shader_material.c
+    ${GLADIO_DIR}/src/shader_converter.c
+    ${GLADIO_DIR}/src/gl_formats.c
+    ${GLADIO_DIR}/src/gl_texture.c
+    ${GLADIO_DIR}/src/attrib_stack.c
+    ${GLADIO_DIR}/src/gl_query.c
+    ${GLADIO_DIR}/src/compressed_texture.c
+    ${GLADIO_DIR}/src/arb_program.c
+    ${GLADIO_DIR}/src/gl_buffer.c
+    ${GLADIO_DIR}/src/gl_vao.c
+    ${GLADIO_DIR}/src/gl_framebuffer.c
+)
+set_property(TARGET gladiorenderer PROPERTY C_STANDARD 23)
+target_include_directories(gladiorenderer PRIVATE
+    ${GLADIO_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
 target_link_libraries(winlator
     log
     android
@@ -69,7 +96,21 @@ target_link_libraries(winlator
     GLESv3
 )
 
+target_link_libraries(gladiorenderer
+    winlator
+    log
+    android
+    EGL
+    GLESv2
+    GLESv3
+)
+
 set_target_properties(winlator PROPERTIES
     OUTPUT_NAME "winlator"
+    LINK_FLAGS "-Wl,-z,max-page-size=0x4000"
+)
+
+set_target_properties(gladiorenderer PROPERTIES
+    OUTPUT_NAME "gladiorenderer"
     LINK_FLAGS "-Wl,-z,max-page-size=0x4000"
 )

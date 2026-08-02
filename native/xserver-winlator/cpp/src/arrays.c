@@ -605,3 +605,10 @@ void ArrayDeque_free(ArrayDeque* arrayDeque, bool freeValues) {
     arrayDeque->tail = 0;
     arrayDeque->size = 0;
 }
+
+int IntArray_indexOf(IntArray* intArray, int value) {
+    for (int i = 0; i < intArray->size; i++) {
+        if (intArray->values[i] == value) return i;
+    }
+    return -1;
+}

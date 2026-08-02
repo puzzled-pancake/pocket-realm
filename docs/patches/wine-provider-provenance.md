@@ -5,9 +5,10 @@ license obligation, and trim list for the in-app X-server used by the O06 Wine
 feasibility spike.
 
 **Status as of this revision:** the Java X11 wire-protocol sources are vendored
-and compile (143 `.java` files). The **native transport `libwinlator.so` is
-vendored, built, and packaged** into the APK (NDK build, 16 KB-aligned,
-413864 bytes). S-3 passes end-to-end on the Modern 4 KB and 16 KB lanes. No Java
+and compile (143 `.java` files). The native transport `libwinlator.so` is
+vendored, built, and packaged. O07 additionally vendors and packages the
+source-matched `libgladiorenderer.so` GLX/OpenGL bridge. Both are NDK-built and
+16 KB aligned. S-3 passes end-to-end on the Modern 4 KB and 16 KB lanes. No Java
 reimplementation of the native epoll/SCM_RIGHTS layer was written.
 
 ## Wine 11.14 paired 16 KB adaptation
@@ -55,6 +56,10 @@ Final paired-runtime qualification is recorded in:
   `native/.providers-extracted/winlator-app-ca3d735/app/src/main/cpp/winlator/`
   (`src/{xconnector_epoll.c, xinput_stream.c, xoutput_stream.c, arrays.c,
   ring_buffer.c, drawable.c, ...}` + `include/*.h`)
+- **GLX renderer location:** `native/xserver-winlator/cpp/gladiorenderer/`, all
+  38 Gladio source/header files byte-identical to pinned
+  `app/src/main/cpp/gladiorenderer/`, plus its byte-identical dependency
+  `vortekrenderer/include/bc_decoder.h`
 - **License:** LGPL-2.1 (Winlator is LGPL-2.1; source retained in-tree for the
   source-offer obligation)
 - **schemas/sources.json id:** `xserver-winlator-ca3d735`
@@ -96,14 +101,15 @@ Final paired-runtime qualification is recorded in:
    Build: `tools/build_xserver_winlator.py` (NDK, 16 KB-aligned). The only
    build-time adaptation is a force-include header (`include/pocket_ndk_compat.h`)
    that supplies `<stdlib.h>`/`<string.h>`/`<time.h>` the upstream Android Studio
-   build provides transitively; the `.c`/`.h` content is byte-identical to the
-   pinned commit. The EGL/GLES + jnigraphics deps are retained (the renderer
+   build provides transitively. O07 adds the missing `IntArray_indexOf`
+   declaration/body that Gladio at the same pinned commit calls but the
+   provider's arrays source omits. All other provider `.c`/`.h` content is
+   byte-identical to the pinned commit. The EGL/GLES + jnigraphics deps are retained (the renderer
    needs them; they are part of the same library).
-2. **GDI-only extension set** — `XServer.setupExtensions()` advertises ONLY
-   BigReq + Sync + XComposite. GLX (loads absent `libgladiorenderer.so`), DRI3,
-   MIT-SHM, and Present were removed — their native support is not exercised for
-   GDI, and advertising them with no-op/absent implementations would make Wine
-   attempt and fail at runtime.
+2. **O07 GLX extension** — `XServer.setupExtensions()` now advertises BigReq,
+   Sync, XComposite, and GLX. GLX is backed by the complete pinned
+   `libgladiorenderer.so` source set; DRI3, MIT-SHM, and Present remain omitted
+   because their full native paths are outside the qualified O07 WineD3D path.
 3. **S-3 harness** — `WineSpikeRunner.runS3`: creates `<appTmp>/.X11-unix/X0`,
    starts the X-server (XConnectorEpoll + XClientConnectionHandler +
    XClientRequestHandler, headless for the spike), launches the project-owned

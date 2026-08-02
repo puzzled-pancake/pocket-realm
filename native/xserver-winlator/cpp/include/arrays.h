@@ -48,6 +48,9 @@ extern void IntArray_remove(IntArray* intArray, int offset, int count);
 extern int IntArray_removeAt(IntArray* intArray, int index);
 extern void IntArray_clear(IntArray* intArray);
 extern void IntArray_sort(IntArray* intArray);
+/* Pocket Realm O07 compatibility: Gladio at the same pinned commit calls this
+ * helper, but Winlator's arrays implementation omitted its declaration/body. */
+extern int IntArray_indexOf(IntArray* intArray, int value);
 
 typedef struct ArrayList {
     int size;
