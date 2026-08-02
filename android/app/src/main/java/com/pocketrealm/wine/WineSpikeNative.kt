@@ -142,7 +142,7 @@ object WineSpikeNative {
      * logical argv0=wine so no writable Unix ELF re-exec is needed. */
     external fun runWineDirectNative(
         nativeDir: String, peTarget: String, prefixDir: String,
-        display: String, wineArgs: String, extraEnv: String, timeoutMs: Int
+        workingDir: String, display: String, wineArgs: String, extraEnv: String, timeoutMs: Int
     ): String
 
     /** Kill the currently active direct Wine process group, if any. */

@@ -195,6 +195,18 @@ static void append_capture_tail(char *dst, size_t *len, size_t cap,
     dst[*len] = '\0';
 }
 
+static void log_live_capture(const char *stream, const char *src, size_t count) {
+    while (count) {
+        size_t chunk = count > 3000 ? 3000 : count;
+        char line[3001];
+        memcpy(line, src, chunk);
+        line[chunk] = '\0';
+        LOGI("direct_run %s: %s", stream, line);
+        src += chunk;
+        count -= chunk;
+    }
+}
+
 static int mkdir_p_local(const char *path) {
     char tmp[WINE_SPIKE_PATH_MAX];
     snprintf(tmp, sizeof(tmp), "%s", path);
@@ -965,6 +977,7 @@ int wine_spike_run_wine_via_proot(const char *native_dir,
 int wine_spike_run_wine_direct(const char *native_dir,
                                const char *pe_target,
                                const char *prefix_dir,
+                               const char *working_dir,
                                const char *display,
                                const char *wine_args,
                                const char *extra_env,
@@ -972,6 +985,7 @@ int wine_spike_run_wine_direct(const char *native_dir,
                                struct wine_spike_proot_run_result *out) {
     if (!native_dir || !pe_target || !prefix_dir || !out)
         return WINE_SPIKE_ERR_ARGS;
+    if (!working_dir || !*working_dir) working_dir = prefix_dir;
     memset(out, 0, sizeof(*out));
     out->exit_status = -1;
 
@@ -1046,6 +1060,7 @@ int wine_spike_run_wine_direct(const char *native_dir,
     char env_pe64[WINE_SPIKE_PATH_MAX + 32], env_pe32[WINE_SPIKE_PATH_MAX + 32];
     char env_pe_cache[WINE_SPIKE_PATH_MAX + 40];
     char env_pe_target[WINE_SPIKE_PATH_MAX + 40];
+    char env_client_root[WINE_SPIKE_PATH_MAX + 48];
     char env_data[WINE_SPIKE_PATH_MAX + 32], env_tmp[WINE_SPIKE_PATH_MAX + 32];
     char env_loader[WINE_SPIKE_PATH_MAX + 32];
     char env_display[256] = {0};
@@ -1068,6 +1083,8 @@ int wine_spike_run_wine_direct(const char *native_dir,
              "POCKET_WINE_PE_CACHE=%s/wine-pe-cache", runtime_dir);
     snprintf(env_pe_target, sizeof(env_pe_target),
              "POCKET_WINE_PE_TARGET=%s", pe_target);
+    snprintf(env_client_root, sizeof(env_client_root),
+             "POCKET_WINE_CLIENT_ROOT=%s", working_dir);
     snprintf(env_data, sizeof(env_data), "POCKET_WINE_DATA=%s", data);
     snprintf(env_tmp, sizeof(env_tmp), "POCKET_WINE_TMP=%s", tmp);
     snprintf(env_loader, sizeof(env_loader), "POCKET_GLIBC_LOADER=%s", loader);
@@ -1092,6 +1109,7 @@ int wine_spike_run_wine_direct(const char *native_dir,
     envp[ei++] = env_ldpath; envp[ei++] = env_preload; envp[ei++] = env_dllpath;
     envp[ei++] = env_wineserver; envp[ei++] = env_native; envp[ei++] = env_pe64;
     envp[ei++] = env_pe32; envp[ei++] = env_pe_cache; envp[ei++] = env_pe_target;
+    envp[ei++] = env_client_root;
     envp[ei++] = env_data; envp[ei++] = env_tmp;
     envp[ei++] = env_loader;
     envp[ei++] = "PATH=/system/bin";
@@ -1108,11 +1126,13 @@ int wine_spike_run_wine_direct(const char *native_dir,
     int has_winedebug = 0, has_lddebug = 0;
     int trace_sigsys = 0;
     int use_strace = 0;
+    int live_capture = 0;
     for (int i = 0; i < n_extra; i++) {
         if (!strncmp(extra_ptrs[i], "WINEDEBUG=", 10)) has_winedebug = 1;
         if (!strncmp(extra_ptrs[i], "LD_DEBUG=", 9)) has_lddebug = 1;
         if (!strcmp(extra_ptrs[i], "POCKET_TRACE_SIGSYS=1")) trace_sigsys = 1;
         if (!strcmp(extra_ptrs[i], "POCKET_USE_STRACE=1")) use_strace = 1;
+        if (!strcmp(extra_ptrs[i], "POCKET_WINE_LIVE_CAPTURE=1")) live_capture = 1;
     }
     if (!has_winedebug) envp[ei++] = "WINEDEBUG=-all";
     if (!has_lddebug) envp[ei++] = "LD_DEBUG=";
@@ -1135,6 +1155,10 @@ int wine_spike_run_wine_direct(const char *native_dir,
         setpgid(0, 0);
         dup2(out_pipe[1], STDOUT_FILENO); dup2(err_pipe[1], STDERR_FILENO);
         close(out_pipe[0]); close(out_pipe[1]); close(err_pipe[0]); close(err_pipe[1]);
+        if (chdir(working_dir) != 0) {
+            fprintf(stderr, "direct_run: chdir %s failed: %s\n", working_dir, strerror(errno));
+            _exit(126);
+        }
         if (trace_sigsys) {
             if (ptrace(PTRACE_TRACEME, 0, 0, 0) != 0) {
                 fprintf(stderr, "direct_run: PTRACE_TRACEME failed: %s\n", strerror(errno));
@@ -1223,6 +1247,10 @@ int wine_spike_run_wine_direct(const char *native_dir,
             char buf[4096];
             ssize_t n = read(pfds[i].fd, buf, sizeof(buf));
             if (n > 0) {
+                if (live_capture) {
+                    log_live_capture(pfds[i].fd == out_pipe[0] ? "stdout" : "stderr",
+                                     buf, (size_t)n);
+                }
                 char *dst = pfds[i].fd == out_pipe[0] ? out->stdout_buf : out->stderr_buf;
                 size_t *lenp = pfds[i].fd == out_pipe[0] ? &out_len : &err_len;
                 size_t cap = pfds[i].fd == out_pipe[0] ? sizeof(out->stdout_buf) : sizeof(out->stderr_buf);

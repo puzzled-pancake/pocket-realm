@@ -486,6 +486,10 @@ void readVertexArrayElement(GLContext* context, int arrayIdx, int elementIdx) {
     }
 }
 
+#define POCKET_DRAW_ATTR_MAGIC 0x504b4131
+#define POCKET_DRAW_ATTR_GENERIC 1
+#define POCKET_DRAW_ATTR_LEGACY 2
+
 bool readUnboundVertexArrays(GLContext* context, GLenum drawMode, int drawCount, void** outIndices, GLenum indexType) {
     if (indexType != GL_NONE) {
         if (GLBuffer_getBound(GL_ELEMENT_ARRAY_BUFFER)) {
@@ -495,53 +499,98 @@ bool readUnboundVertexArrays(GLContext* context, GLenum drawMode, int drawCount,
     }
 
     if (ArrayBuffer_available(&context->inputBuffer) == 0) return false;
+    if (ArrayBuffer_available(&context->inputBuffer) < 2 * (int)sizeof(int)) {
+        println("gladio: draw payload truncated header available=%d",
+                ArrayBuffer_available(&context->inputBuffer));
+        return true;
+    }
+
+    int magic = ArrayBuffer_getInt(&context->inputBuffer);
+    int recordCount = ArrayBuffer_getInt(&context->inputBuffer);
+    if (magic != POCKET_DRAW_ATTR_MAGIC || recordCount < 0 ||
+        recordCount > VERTEX_ATTRIB_COUNT) {
+        println("gladio: draw payload invalid magic=0x%x records=%d available=%d",
+                magic, recordCount,
+                ArrayBuffer_available(&context->inputBuffer));
+        return true;
+    }
+
     bool meshCreated = false;
 
     GLClientState* clientState = &currentRenderer->clientState;
-    for (int i = 0, j; i < clientState->vao->maxEnabledAttribs; i++) {
-        bool legacyEnabledWithProgram = GLClientState_isLegacyEnabledWithProgram(clientState, i);
-        if (clientState->vao->attribs[i].state == VERTEX_ATTRIB_ENABLED || legacyEnabledWithProgram) {
-            GLVertexAttrib* vertexAttrib = &clientState->vao->attribs[i];
+    for (int record = 0; record < recordCount; record++) {
+        if (ArrayBuffer_available(&context->inputBuffer) < 3 * (int)sizeof(int)) {
+            println("gladio: draw payload record=%d truncated metadata available=%d",
+                    record,
+                    ArrayBuffer_available(&context->inputBuffer));
+            return true;
+        }
+        int i = ArrayBuffer_getInt(&context->inputBuffer);
+        int kind = ArrayBuffer_getInt(&context->inputBuffer);
+        int byteCount = ArrayBuffer_getInt(&context->inputBuffer);
+        if (i < 0 || i >= VERTEX_ATTRIB_COUNT || byteCount < 0 ||
+            byteCount > ArrayBuffer_available(&context->inputBuffer)) {
+            println("gladio: draw payload record=%d invalid index=%d kind=%d bytes=%d available=%d",
+                    record, i, kind, byteCount,
+                    ArrayBuffer_available(&context->inputBuffer));
+            return true;
+        }
+
+        void* pointer = ArrayBuffer_getBytes(&context->inputBuffer, byteCount);
+        GLVertexAttrib* vertexAttrib = &clientState->vao->attribs[i];
+        if (kind == POCKET_DRAW_ATTR_GENERIC) {
             int size = MIN(4, vertexAttrib->size);
-
-            int byteCount = ArrayBuffer_getInt(&context->inputBuffer);
-            void* pointer = ArrayBuffer_getBytes(&context->inputBuffer, byteCount);
-
-            GLBuffer* oldArrayBuffer = NULL;
+            uintptr_t pointerOffset = 0;
             if (vertexAttrib->size == GL_BGRA) {
                 uint64_t offset = (uint64_t)vertexAttrib->pointer;
+                if (offset > (uint64_t)byteCount || vertexAttrib->stride < 3) return true;
                 swapPixelsRedBlue(pointer + offset, vertexAttrib->stride, byteCount - offset);
-                oldArrayBuffer = clientState->vao->buffer[indexOfGLTarget(GL_ARRAY_BUFFER)];
-                if (clientState->vao->bgraBuffer == 0) glGenBuffers(1, &clientState->vao->bgraBuffer);
-                glBindBuffer(GL_ARRAY_BUFFER, clientState->vao->bgraBuffer);
-                glBufferData(GL_ARRAY_BUFFER, byteCount, pointer, GL_DYNAMIC_DRAW);
-                pointer = vertexAttrib->pointer;
+                pointerOffset = (uintptr_t)vertexAttrib->pointer;
             }
 
             int location = i;
-            if (legacyEnabledWithProgram || ARBProgram_isActive()) {
+            if (GLClientState_isLegacyEnabledWithProgram(clientState, i) ||
+                ARBProgram_isActive()) {
                 if (clientState->program) {
                     location = clientState->program->location.attributes[i];
                 }
                 else location = clientState->arbProgram[0]->material->location.attributes[i];
-                GLRenderer_enableVertexAttribute(currentRenderer, location);
             }
 
-            glVertexAttribPointer(location, size, vertexAttrib->type, vertexAttrib->normalized, vertexAttrib->stride, pointer);
-            if (oldArrayBuffer) glBindBuffer(GL_ARRAY_BUFFER, oldArrayBuffer->id);
+            if (location < 0) continue;
+            GLuint* transientBuffer = &clientState->vao->transientBuffers[i];
+            if (*transientBuffer == 0) glGenBuffers(1, transientBuffer);
+            GLBuffer* oldArrayBuffer = clientState->vao->buffer[indexOfGLTarget(GL_ARRAY_BUFFER)];
+            glBindBuffer(GL_ARRAY_BUFFER, *transientBuffer);
+            glBufferData(GL_ARRAY_BUFFER, byteCount, pointer, GL_STREAM_DRAW);
+            GLRenderer_enableVertexAttribute(currentRenderer, location);
+            glVertexAttribPointer(location, size, vertexAttrib->type,
+                                  vertexAttrib->normalized, vertexAttrib->stride,
+                                  (const void*)pointerOffset);
+            glBindBuffer(GL_ARRAY_BUFFER, oldArrayBuffer ? oldArrayBuffer->id : 0);
         }
-        else if (clientState->vao->attribs[i].state == VERTEX_ATTRIB_LEGACY_ENABLED) {
+        else if (kind == POCKET_DRAW_ATTR_LEGACY) {
             if (!meshCreated) {
                 GLRenderer_beginImmediate(currentRenderer, drawMode);
                 meshCreated = true;
             }
 
-            for (j = 0; j < drawCount; j++) {
+            ArrayBuffer savedInput = context->inputBuffer;
+            context->inputBuffer.buffer = pointer;
+            context->inputBuffer.position = 0;
+            context->inputBuffer.size = byteCount;
+            context->inputBuffer.capacity = byteCount;
+            for (int j = 0; j < drawCount; j++) {
                 readVertexArrayElement(context, i, -1);
                 if (i == POSITION_ARRAY_INDEX) {
                     GLRenderer_addArrayElement(currentRenderer, currentRenderer->geometry.vertices.position-1);
                 }
             }
+            context->inputBuffer = savedInput;
+        }
+        else {
+            println("gladio: draw payload record=%d invalid kind=%d", record, kind);
+            return true;
         }
     }
     if (meshCreated) GLRenderer_endImmediate(currentRenderer);
@@ -550,7 +599,38 @@ bool readUnboundVertexArrays(GLContext* context, GLenum drawMode, int drawCount,
 
 const char* getGLExtensions(int* outNumExtensions) {
     static int numExtensions = 0;
-    static const char* extensionNames = "GL_EXT_abgr GL_ARB_shadow GL_ARB_window_pos GL_EXT_packed_pixels GL_ARB_vertex_buffer_object GL_ARB_vertex_array_object GL_ARB_texture_border_clamp GL_ARB_texture_env_add GL_EXT_texture_env_add GL_EXT_draw_range_elements GL_EXT_bgra GL_ARB_texture_compression GL_EXT_texture_compression_s3tc GL_EXT_texture_compression_dxt1 GL_EXT_texture_compression_dxt3 GL_EXT_texture_compression_dxt5 GL_ARB_point_parameters GL_EXT_point_parameters GL_EXT_texture_edge_clamp GL_EXT_multi_draw_arrays GL_ARB_multisample GL_EXT_polygon_offset GL_ARB_draw_elements_base_vertex GL_ARB_texture_rectangle GL_EXT_vertex_array GL_ARB_vertex_array_bgra GL_ARB_texture_non_power_of_two GL_EXT_blend_color GL_EXT_blend_minmax GL_EXT_blend_equation_separate GL_EXT_blend_func_separate GL_EXT_blend_subtract GL_EXT_texture_filter_anisotropic GL_ARB_texture_mirrored_repeat GL_ARB_point_sprite GL_ARB_texture_cube_map GL_EXT_texture_cube_map GL_EXT_texture_rg GL_ARB_texture_rg GL_EXT_texture_float GL_ARB_texture_float GL_EXT_texture_half_float GL_EXT_color_buffer_float GL_EXT_color_buffer_half_float GL_EXT_depth_texture GL_ARB_depth_texture GL_ARB_depth_clamp GL_ARB_ES2_compatibility GL_ARB_fragment_shader GL_ARB_vertex_shader GL_ARB_shading_language_100 GL_ARB_draw_instanced GL_EXT_draw_instanced GL_ARB_instanced_arrays GL_EXT_instanced_arrays GL_ARB_framebuffer_object GL_EXT_framebuffer_object GL_EXT_packed_depth_stencil GL_EXT_framebuffer_blit GL_ARB_draw_buffers GL_ARB_internalformat_query GL_ARB_internalformat_query2 GL_ARB_map_buffer_range GL_ARB_draw_buffers_blend GL_ARB_multitexture GL_ARB_texture_env_combine GL_EXT_texture_env_combine GL_ARB_texture_env_dot3 GL_EXT_texture_env_dot3 GL_ARB_shader_objects GL_ARB_vertex_program GL_ARB_fragment_program GL_ARB_buffer_storage GL_EXT_buffer_storage GL_ARB_sync GL_ARB_sampler_objects GL_ARB_texture_multisample GL_ARB_color_buffer_float GL_ARB_occlusion_query GL_ARB_occlusion_query2 GL_EXT_direct_state_access GL_ARB_uniform_buffer_object GL_ARB_timer_query GL_EXT_timer_query GL_ARB_texture_swizzle GL_ARB_copy_buffer GL_ARB_depth_buffer_float GL_ARB_sample_shading GL_ARB_tessellation_shader GL_ARB_derivative_control GL_ARB_compute_shader GL_EXT_gpu_program_parameters";
+    /* Gladio is a compatibility translator over GLES 3.1, not a complete
+     * desktop OpenGL 3.3 implementation. Advertising instancing/base-vertex,
+     * sampler, UBO, and other modern paths makes WineD3D 11 select draw paths
+     * that this pinned provider cannot preserve. Keep the format-query pair:
+     * WineD3D needs it to retain B8G8R8X8 render-target support. */
+    static const char* extensionNames =
+        "GL_EXT_abgr GL_ARB_shadow GL_ARB_window_pos GL_EXT_packed_pixels "
+        "GL_ARB_vertex_buffer_object GL_ARB_vertex_array_object "
+        "GL_ARB_texture_border_clamp GL_ARB_texture_env_add GL_EXT_texture_env_add "
+        "GL_EXT_draw_range_elements GL_EXT_bgra GL_ARB_texture_compression "
+        "GL_EXT_texture_compression_s3tc GL_EXT_texture_compression_dxt1 "
+        "GL_EXT_texture_compression_dxt3 GL_EXT_texture_compression_dxt5 "
+        "GL_ARB_point_parameters GL_EXT_point_parameters GL_EXT_texture_edge_clamp "
+        "GL_EXT_multi_draw_arrays GL_ARB_multisample GL_EXT_polygon_offset "
+        "GL_ARB_texture_rectangle GL_EXT_vertex_array GL_ARB_vertex_array_bgra "
+        "GL_ARB_texture_non_power_of_two GL_EXT_blend_color GL_EXT_blend_minmax "
+        "GL_EXT_blend_equation_separate GL_EXT_blend_func_separate "
+        "GL_EXT_blend_subtract GL_EXT_texture_filter_anisotropic "
+        "GL_ARB_texture_mirrored_repeat GL_ARB_point_sprite GL_ARB_texture_cube_map "
+        "GL_EXT_texture_cube_map GL_EXT_texture_rg GL_ARB_texture_rg "
+        "GL_EXT_texture_float GL_ARB_texture_float GL_EXT_texture_half_float "
+        "GL_EXT_color_buffer_float GL_EXT_color_buffer_half_float "
+        "GL_EXT_depth_texture GL_ARB_depth_texture GL_ARB_depth_clamp "
+        "GL_ARB_ES2_compatibility GL_ARB_fragment_shader GL_ARB_vertex_shader "
+        "GL_ARB_shading_language_100 GL_ARB_framebuffer_object "
+        "GL_EXT_framebuffer_object GL_EXT_packed_depth_stencil "
+        "GL_EXT_framebuffer_blit GL_ARB_draw_buffers GL_ARB_internalformat_query "
+        "GL_ARB_internalformat_query2 GL_ARB_map_buffer_range "
+        "GL_ARB_multitexture GL_ARB_texture_env_combine GL_EXT_texture_env_combine "
+        "GL_ARB_texture_env_dot3 GL_EXT_texture_env_dot3 GL_ARB_shader_objects "
+        "GL_ARB_vertex_program GL_ARB_fragment_program GL_ARB_color_buffer_float "
+        "GL_ARB_occlusion_query";
 
     if (numExtensions == 0) {
         char* ptr = (char*)extensionNames;

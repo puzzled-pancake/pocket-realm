@@ -180,7 +180,6 @@ public class XServer {
     }
 
     private Extension[] setupExtensions() {
-        byte opcode = Extension.START_MAJOR_OPCODE;
         // O06 qualified a GDI/X11-only set. O07 adds the source-matched
         // libgladiorenderer.so, so GLX is now honest to advertise for WineD3D.
         // Still omitted:
@@ -196,17 +195,24 @@ public class XServer {
         //   - Sync  (pure-Java, counters only)
         //   - XComposite (window management references composited windows)
         //   - GLX (native Gladio renderer, required by WineD3D)
+        // Preserve Winlator's wire opcodes even when optional extensions are
+        // omitted. In particular the matching Gladio client intentionally
+        // sends GLX on -106; compacting this array had incorrectly moved GLX
+        // to -103 and made the server index past the end of the array.
+        final byte first = Extension.START_MAJOR_OPCODE;
         return new Extension[]{
-            new BigReqExtension(this, opcode--),
-            new SyncExtension(this, opcode--),
-            new XComposite(this, opcode--),
-            new GLXExtension(this, opcode--)
+            new BigReqExtension(this, first),
+            new SyncExtension(this, (byte)(first - 4)),
+            new XComposite(this, (byte)(first - 5)),
+            new GLXExtension(this, (byte)(first - 6))
         };
     }
 
     public <T extends Extension> T getExtension(byte opcode) {
-        int index = Extension.START_MAJOR_OPCODE - opcode;
-        return (T)extensions[index];
+        for (Extension extension : extensions) {
+            if (extension.getMajorOpcode() == opcode) return (T)extension;
+        }
+        return null;
     }
 
     public void debugPrint(String line) {

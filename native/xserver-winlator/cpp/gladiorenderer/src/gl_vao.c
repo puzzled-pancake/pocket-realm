@@ -74,6 +74,8 @@ void GLVertexArrayObject_delete(GLClientState* clientState, GLuint id) {
         glDeleteBuffers(1, &vao->bgraBuffer);
         vao->bgraBuffer = 0;
     }
+    glDeleteBuffers(VERTEX_ATTRIB_COUNT, vao->transientBuffers);
+    memset(vao->transientBuffers, 0, sizeof(vao->transientBuffers));
 
     if (id > 0) {
         MEMFREE(vao);

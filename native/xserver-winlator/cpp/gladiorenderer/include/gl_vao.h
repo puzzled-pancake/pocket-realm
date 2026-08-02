@@ -33,6 +33,7 @@ typedef struct GLVertexArrayObject {
     GLVertexAttrib attribs[VERTEX_ATTRIB_COUNT];
     GLBuffer* buffer[MAX_BUFFER_TARGETS];
     GLuint bgraBuffer;
+    GLuint transientBuffers[VERTEX_ATTRIB_COUNT];
 } GLVertexArrayObject;
 
 #define GL_SEND_VERTEX_ARRAY(requestCode, arrayIdx) \

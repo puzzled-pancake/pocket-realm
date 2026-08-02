@@ -168,6 +168,7 @@ static int is_verified_pe_path(const char *path)
     return android_path_has_dir_prefix(path, getenv("POCKET_WINE_PE64")) ||
            android_path_has_dir_prefix(path, getenv("POCKET_WINE_PE32")) ||
            android_path_has_dir_prefix(path, getenv("POCKET_WINE_PE_CACHE")) ||
+           android_path_has_dir_prefix(path, getenv("POCKET_WINE_CLIENT_ROOT")) ||
            android_paths_equal(path, target);
 }
 
@@ -343,6 +344,16 @@ static int mprotect_with_execmod_fallback(void *address, size_t length, int prot
 {
     int rc = (int)syscall(SYS_mprotect, address, length, prot);
     if (rc == 0 || errno != EACCES || !(prot & PROT_EXEC) || !length) return rc;
+
+    /* Wine deliberately probes writable+executable protection and, when the
+     * host rejects it, retries the range without PROT_EXEC.  In particular,
+     * legacy non-NX-compatible executables make Wine probe every writable
+     * view, including the tracee's live WoW64 stack.  Replacing such a range
+     * with MAP_FIXED here would overwrite the stack used by this function and
+     * corrupt the return path.  Preserve EACCES so Wine can perform its normal
+     * write-only fallback; the execmod copy is only safe for non-writable PE
+     * mappings transitioning to executable protection. */
+    if (prot & PROT_WRITE) return rc;
 
     /* SELinux denies execmod when Wine changes a private PE file mapping from
      * writable/relocatable to executable. Preserve the relocated bytes, replace

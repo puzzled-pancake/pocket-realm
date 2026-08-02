@@ -1334,7 +1334,7 @@ static void injectBuiltinVariables(ShaderProgram* program, ShaderObject* shader)
     }
 
     int head = 0;
-    insertCodeLine(shader, head++, strdup("#version 320 es"));
+    insertCodeLine(shader, head++, strdup("#version 310 es"));
     if (shader->type == GL_FRAGMENT_SHADER) {
         insertCodeLine(shader, head++, strdup("precision highp float;"));
         insertCodeLine(shader, head++, strdup("precision highp int;"));
@@ -1635,6 +1635,15 @@ static void compileShaderObject(ShaderProgram* program, ShaderObject* shader) {
     glGetShaderiv(shader->id, GL_COMPILE_STATUS, &compileStatus);
     shader->compileStatus = compileStatus ? COMPILE_STATUS_SUCCESS : COMPILE_STATUS_ERROR;
 
+    if (!compileStatus) {
+        GLint infoLogLength = 0;
+        glGetShaderiv(shader->id, GL_INFO_LOG_LENGTH, &infoLogLength);
+        GLchar infoLog[2048] = {0};
+        glGetShaderInfoLog(shader->id, sizeof(infoLog) - 1, NULL, infoLog);
+        println("gladio: shader %u (type=0x%x, program=%u, logLength=%d) compile error:\n%s",
+                shader->id, shader->type, program->id, infoLogLength, infoLog);
+    }
+
 #if IS_DEBUG_ENABLED(DEBUG_MODE_SHADER_INFO)
     if (!compileStatus) {
         GLchar infoLog[512];
@@ -1693,10 +1702,18 @@ static void mergeSeparateShaders(ShaderProgram* program, ShaderObject* mainShade
 static void linkShaderProgram(ShaderProgram* program) {
     glLinkProgram(program->id);
 
-#if IS_DEBUG_ENABLED(DEBUG_MODE_SHADER_INFO)
-    GLint linkStatus;
+    GLint linkStatus = GL_FALSE;
     glGetProgramiv(program->id, GL_LINK_STATUS, &linkStatus);
+    if (!linkStatus) {
+        GLint infoLogLength = 0;
+        glGetProgramiv(program->id, GL_INFO_LOG_LENGTH, &infoLogLength);
+        GLchar infoLog[2048] = {0};
+        glGetProgramInfoLog(program->id, sizeof(infoLog) - 1, NULL, infoLog);
+        println("gladio: program %u (logLength=%d) link error:\n%s",
+                program->id, infoLogLength, infoLog);
+    }
 
+#if IS_DEBUG_ENABLED(DEBUG_MODE_SHADER_INFO)
     if (!linkStatus) {
         GLchar infoLog[512];
         glGetProgramInfoLog(program->id, 512, NULL, infoLog);

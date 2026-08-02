@@ -367,23 +367,25 @@ JNIEXPORT jstring JNICALL
 Java_com_pocketrealm_wine_WineSpikeNative_runWineDirectNative(
         JNIEnv *env, jobject /*this*/,
         jstring jNativeDir, jstring jPeTarget, jstring jPrefixDir,
-        jstring jDisplay, jstring jWineArgs, jstring jExtraEnv,
+        jstring jWorkingDir, jstring jDisplay, jstring jWineArgs, jstring jExtraEnv,
         jint jTimeoutMs) {
     const char *native_dir = env->GetStringUTFChars(jNativeDir, nullptr);
     const char *pe_target = env->GetStringUTFChars(jPeTarget, nullptr);
     const char *prefix_dir = env->GetStringUTFChars(jPrefixDir, nullptr);
+    const char *working_dir = jWorkingDir ? env->GetStringUTFChars(jWorkingDir, nullptr) : "";
     const char *display = jDisplay ? env->GetStringUTFChars(jDisplay, nullptr) : "";
     const char *wine_args = jWineArgs ? env->GetStringUTFChars(jWineArgs, nullptr) : "";
     const char *extra_env = jExtraEnv ? env->GetStringUTFChars(jExtraEnv, nullptr) : "";
 
     struct wine_spike_proot_run_result r;
-    int rc = wine_spike_run_wine_direct(native_dir, pe_target, prefix_dir,
+    int rc = wine_spike_run_wine_direct(native_dir, pe_target, prefix_dir, working_dir,
                                          display, wine_args, extra_env,
                                          (int)jTimeoutMs, &r);
 
     env->ReleaseStringUTFChars(jNativeDir, native_dir);
     env->ReleaseStringUTFChars(jPeTarget, pe_target);
     env->ReleaseStringUTFChars(jPrefixDir, prefix_dir);
+    if (jWorkingDir) env->ReleaseStringUTFChars(jWorkingDir, working_dir);
     if (jDisplay) env->ReleaseStringUTFChars(jDisplay, display);
     if (jWineArgs) env->ReleaseStringUTFChars(jWineArgs, wine_args);
     if (jExtraEnv) env->ReleaseStringUTFChars(jExtraEnv, extra_env);

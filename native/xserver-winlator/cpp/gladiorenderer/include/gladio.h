@@ -15,9 +15,9 @@
 #define SKIP_GL_FINISH 1
 #define X11_SERVER_PATH "/data/data/com.winlator/files/rootfs/tmp/.X11-unix/X0"
 
-#define GL_STRING_VERSION "3.3"
+#define GL_STRING_VERSION "3.0"
 #define GL_STRING_RENDERER "Gladio"
-#define GL_STRING_SHADING_LANGUAGE_VERSION "3.30"
+#define GL_STRING_SHADING_LANGUAGE_VERSION "1.30"
 
 #include "winlator.h"
 

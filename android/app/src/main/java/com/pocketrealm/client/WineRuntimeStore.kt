@@ -3,6 +3,7 @@ package com.pocketrealm.client
 import android.content.Context
 import android.os.SystemClock
 import com.pocketrealm.wine.WineSpikeNative
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.nio.file.Files
@@ -11,34 +12,46 @@ import java.nio.file.LinkOption
 /** Immutable-code / mutable-data staging used by the production runtime. */
 internal class WineRuntimeStore(private val context: Context) {
     data class Prepared(
+        val clientId: String,
         val prefixId: String,
         val root: File,
         val tree: File,
         val prefix: File,
         val cache: File,
         val tmp: File,
-        val selfTest: File,
+        val executable: File,
+        val workingDir: File,
+        val selfTest: Boolean,
     )
 
     init { WineSpikeNative.load() }
 
     fun paths(clientId: String): Prepared {
-        require(clientId == ClientRuntimeContract.SELF_TEST_ID) { "O06 only authorizes the project self-test" }
+        val selfTest = clientId == ClientRuntimeContract.SELF_TEST_ID
+        val managed = if (selfTest) null else ManagedClientStore(context).load(clientId)
         val root = File(
             context.noBackupFilesDir,
             // AF_UNIX sun_path is only 108 bytes on Linux. Keep the physical
             // generation name compact; the full pinned build/client identity
             // remains in prefix-manifest.json and prefixId.
-            "wine/w11w64-v1/selftest/p${ClientRuntimeContract.PREFIX_SCHEMA}",
+            "wine/w11w64-v1/${if (selfTest) "selftest" else "wow5875"}/p${ClientRuntimeContract.PREFIX_SCHEMA}",
         )
         return Prepared(
-            prefixId = "${ClientRuntimeContract.RUNTIME_BUILD_ID}:$clientId:${ClientRuntimeContract.PREFIX_SCHEMA}",
+            clientId = clientId,
+            prefixId = listOfNotNull(
+                ClientRuntimeContract.RUNTIME_BUILD_ID,
+                ClientRuntimeContract.RENDERER_BUILD_ID.takeUnless { selfTest },
+                clientId,
+                ClientRuntimeContract.PREFIX_SCHEMA.toString(),
+            ).joinToString(":"),
             root = root,
             tree = File(root, "wine-tree"),
             prefix = File(root, "wine-prefix"),
             cache = File(root, "wine-pe-cache"),
             tmp = File(root, "tmp"),
-            selfTest = File(root, "wine-tree/pocket_selftest.exe"),
+            executable = managed?.executable ?: File(root, "wine-tree/pocket_selftest.exe"),
+            workingDir = managed?.root ?: root,
+            selfTest = selfTest,
         )
     }
 
@@ -46,7 +59,8 @@ internal class WineRuntimeStore(private val context: Context) {
         require(renderer == "wined3d") { "O06 qualifies WineD3D only" }
         require(audioMode == "off") { "O06 requires the audio-off diagnostic profile" }
         val p = paths(clientId)
-        p.root.mkdirs(); p.prefix.mkdirs(); p.cache.mkdirs(); p.tmp.mkdirs()
+        p.root.mkdirs(); p.prefix.mkdirs(); p.tmp.mkdirs()
+        ensureSharedCaches(p)
         File(p.tmp, ".X11-unix").mkdirs()
 
         val staging = readAsset("staging-manifest.json")
@@ -61,6 +75,7 @@ internal class WineRuntimeStore(private val context: Context) {
         val compatible = manifestFile.isFile && runCatching {
             val old = JSONObject(manifestFile.readText())
             old.getString("runtime_build_id") == ClientRuntimeContract.RUNTIME_BUILD_ID &&
+                (p.selfTest || old.optString("renderer_build_id") == ClientRuntimeContract.RENDERER_BUILD_ID) &&
                 old.getInt("prefix_schema") == ClientRuntimeContract.PREFIX_SCHEMA &&
                 old.getString("windows_arch") == "win32-on-wow64" &&
                 old.getString("renderer") == renderer && old.getString("audio_mode") == audioMode
@@ -75,7 +90,8 @@ internal class WineRuntimeStore(private val context: Context) {
 
         if (!prefixReady(p.prefix, 1_000)) initializePrefix(p)
         check(prefixReady(p.prefix, 1_000)) { "Wine prefix did not become ready" }
-        check(p.selfTest.isFile) { "Authorized self-test PE is absent" }
+        check(p.executable.isFile) { "Authorized client executable is absent" }
+        if (!p.selfTest) enforceManagedSafeMode(p)
 
         val manifest = JSONObject()
             .put("runtime_build_id", ClientRuntimeContract.RUNTIME_BUILD_ID)
@@ -91,6 +107,34 @@ internal class WineRuntimeStore(private val context: Context) {
             .put("max_preserved_prefixes", ClientRuntimeContract.MAX_PRESERVED_PREFIXES)
             .put("cache_quota_bytes", ClientRuntimeContract.CACHE_QUOTA_BYTES)
             .put("log_quota_bytes", ClientRuntimeContract.LOG_QUOTA_BYTES)
+        if (!p.selfTest) {
+            val managed = ManagedClientStore(context).load(clientId)
+            val identity = managed.manifest.getJSONObject("identity")
+            manifest
+                .put("renderer_build_id", ClientRuntimeContract.RENDERER_BUILD_ID)
+                .put("renderer_provider", JSONObject()
+                    .put("client", "gladio-eaa2a8d")
+                    .put("client_sha256", "3344560af7565a32b25acbcd927a6b35cccbb5997f0280d444f87316b2510d06")
+                    .put("server", "pocket-gladio-o07v1")
+                    .put("server_sha256", "2d20db2c12b007b2251edce9421264ea168da0bb463718d9baa8f2c02403584f")
+                    .put("api", "OpenGL 3.0 / GLSL 1.30 over GLES 3.1")
+                    .put("internal_format_queries", true)
+                    .put("modern_instancing", false))
+                .put("client_executable_sha256", identity.getString("sha256"))
+                .put("client_version", identity.getString("version"))
+                .put("working_directory", "app-private-managed-client")
+                .put("safe_profile", JSONObject()
+                    .put("resolution_ceiling", "1280x720")
+                    .put("qualified_effective_resolution", "800x600")
+                    .put("fps_cap", 30)
+                    .put("audio", "off")
+                    .put("realm_endpoint", "127.0.0.1")
+                    .put("addons", "off"))
+                .put("known_deviations", JSONArray()
+                    .put("GLES shader target is 310 es")
+                    .put("renderer advertises a constrained GL 3.0 capability subset")
+                    .put("texture copy uses GLES readback/upload instead of glCopyTexImage2D"))
+        }
         writeAtomic(manifestFile, manifest.toString(2))
         enforceQuotas(p)
         return p
@@ -101,7 +145,7 @@ internal class WineRuntimeStore(private val context: Context) {
         check(wineboot.isFile) { "wineboot.exe is not cache-backed" }
         val raw = WineSpikeNative.runWineDirectNative(
             context.applicationInfo.nativeLibraryDir, wineboot.absolutePath,
-            p.prefix.absolutePath, "", "--init",
+            p.prefix.absolutePath, p.prefix.absolutePath, "", "--init",
             "LD_DEBUG=;WINEDEBUG=-all;WINEDLLOVERRIDES=winex11.drv=d",
             60_000,
         )
@@ -124,6 +168,40 @@ internal class WineRuntimeStore(private val context: Context) {
         linkBuiltins(p)
     }
 
+    private fun enforceManagedSafeMode(p: Prepared) {
+        check(p.clientId == ClientRuntimeContract.WOW_5875_ID) { "safe profile target mismatch" }
+        val realmlist = "set realmlist 127.0.0.1\r\n"
+        val config = """SET readTOS "1"
+SET readEULA "1"
+SET readScanning "1"
+SET movie "0"
+SET gxResolution "1280x720"
+SET gxWindow "1"
+SET gxMaximize "0"
+SET gxVSync "0"
+SET gxMultisample "1"
+SET gxMultisampleQuality "0.000000"
+SET maxFPS "30"
+SET Sound_EnableAllSound "0"
+SET Sound_EnableMusic "0"
+SET Sound_EnableSFX "0"
+SET Sound_EnableAmbience "0"
+SET ffxGlow "0"
+SET ffxDeath "0"
+SET farclip "177"
+""".replace("\n", "\r\n")
+        writeAtomic(File(p.workingDir, "realmlist.wtf"), realmlist)
+        File(p.workingDir, "WTF").mkdirs()
+        writeAtomic(File(p.workingDir, "WTF/Config.wtf"), config)
+        val record = JSONObject()
+            .put("schema", 1).put("client_id", p.clientId)
+            .put("renderer", "wined3d").put("resolution", "1280x720")
+            .put("fps_cap", 30).put("audio", "off")
+            .put("realm_endpoint", "127.0.0.1").put("addons", "off")
+            .put("passwords_stored", false).put("source_modified", false)
+        writeAtomic(File(p.workingDir, "managed-safe-profile.json"), record.toString(2))
+    }
+
     private fun materializePeCaches(p: Prepared) {
         val extracted = File(context.cacheDir, "client-runtime-assets")
         if (extracted.exists()) extracted.deleteRecursively()
@@ -143,6 +221,32 @@ internal class WineRuntimeStore(private val context: Context) {
         // Extraction is transient input to the canonical hash-verified cache.
         // Keeping it would duplicate ~600 MiB in cacheDir without an owner.
         extracted.deleteRecursively()
+    }
+
+    /** PE/data caches are immutable and keyed by RUNTIME_BUILD_ID, not by the
+     * proprietary client. Prefixes stay isolated; only reproducible caches are
+     * shared. This also migrates the legacy O06 per-selftest cache layout. */
+    private fun ensureSharedCaches(p: Prepared) {
+        val generationRoot = File(context.noBackupFilesDir, "wine/w11w64-v1")
+        val sharedRoot = File(generationRoot, "shared").apply { mkdirs() }
+        val legacySelfTest = File(generationRoot, "selftest/p${ClientRuntimeContract.PREFIX_SCHEMA}")
+        for (name in listOf("wine-pe-cache", "wine-data-cache")) {
+            val shared = File(sharedRoot, name)
+            val legacy = File(legacySelfTest, name)
+            if (!shared.exists()) {
+                if (legacy.isDirectory && !Files.isSymbolicLink(legacy.toPath())) {
+                    check(legacy.renameTo(shared)) { "legacy $name cache migration failed" }
+                } else shared.mkdirs()
+            }
+            val link = File(p.root, name)
+            val correct = Files.isSymbolicLink(link.toPath()) &&
+                Files.readSymbolicLink(link.toPath()) == shared.toPath()
+            if (!correct) {
+                if (Files.isSymbolicLink(link.toPath())) Files.delete(link.toPath())
+                else if (link.exists()) link.deleteRecursively()
+                Files.createSymbolicLink(link.toPath(), shared.toPath())
+            }
+        }
     }
 
     private fun prepareData(p: Prepared) {
@@ -208,7 +312,7 @@ internal class WineRuntimeStore(private val context: Context) {
             file.isDirectory && file.name.startsWith("wine-prefix-preserved-")
         }.orEmpty()
         val preservedBytes = preserved.sumOf(::sizeOf)
-        val cacheBytes = sizeOf(p.cache) + sizeOf(File(p.root, "wine-data-cache"))
+        val cacheBytes = sizeOf(File(context.noBackupFilesDir, "wine/w11w64-v1/shared"))
         check(prefixBytes <= ClientRuntimeContract.PREFIX_QUOTA_BYTES) { "prefix quota exceeded" }
         check(preserved.size <= ClientRuntimeContract.MAX_PRESERVED_PREFIXES) {
             "preserved prefix generation limit exceeded"

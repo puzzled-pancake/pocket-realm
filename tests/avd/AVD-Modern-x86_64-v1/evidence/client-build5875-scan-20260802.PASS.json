@@ -1,0 +1,23 @@
+{
+  "clientId": "wow-1.12.1-5875",
+  "directLaunch": true,
+  "schema": 1,
+  "sourceMutated": false,
+  "sourceRuntimeDependency": false,
+  "validation": {
+    "build": 5875,
+    "clientId": "wow-1.12.1-5875",
+    "fileCount": 149,
+    "locale": "enUS-flat-classic",
+    "machine": 332,
+    "optionalMagic": 267,
+    "sha256": "b4756d38ef207c02ed651f4952bd89a70b4857b73a33413339e1b285b28d2dc7",
+    "size": 4775986,
+    "sourceBytes": 5389935386,
+    "version": "1.12.1.5875",
+    "warnings": [
+      "VAL-05: FLAT_ENGLISH_LOCALE_INFERRED",
+      "VAL-03: executable hash matches the inspected user-supplied build 5875 copy"
+    ]
+  }
+}

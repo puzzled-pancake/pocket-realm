@@ -26,6 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PINNED_SOURCE = ROOT / "native" / ".providers-extracted" / "wine-source-1012f3d"
 PINNED_COMMIT = "1012f3d99507b80d4869eabf0853567660a7ecbb"
+SOURCE_DATE_EPOCH = "1784925752"
 PATCH = ROOT / "native" / "wine-spike" / "patches" / "wine-11.14-x86_64-16k.patch"
 REVIEWED_PROVENANCE = (
     ROOT / "native" / "wine-spike" / "patches" /
@@ -126,6 +127,7 @@ def build() -> None:
     BUILD_DIR.mkdir(parents=True)
     root_mount = docker_path(ROOT)
     command = " && ".join([
+        f"export SOURCE_DATE_EPOCH={SOURCE_DATE_EPOCH}",
         "apt-get update -qq",
         (
             "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "
@@ -200,6 +202,7 @@ def verify() -> dict[str, object]:
     return {
         "schema": 1,
         "wine_source_commit": PINNED_COMMIT,
+        "source_date_epoch": SOURCE_DATE_EPOCH,
         "patch": str(PATCH.relative_to(ROOT)).replace("\\", "/"),
         "patch_sha256": sha256(PATCH),
         "builder_image": BUILDER_IMAGE,
@@ -231,7 +234,7 @@ def main() -> int:
             raise RuntimeError(f"reviewed Wine build provenance missing: {REVIEWED_PROVENANCE}")
         reviewed = json.loads(REVIEWED_PROVENANCE.read_text(encoding="utf-8"))
         for field in (
-            "wine_source_commit", "patch_sha256", "builder_image",
+            "wine_source_commit", "source_date_epoch", "patch_sha256", "builder_image",
             "dispatcher_address", "dispatcher_stub_counts",
             "verified_provider_modules_replaced",
         ):

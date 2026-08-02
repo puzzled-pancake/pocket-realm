@@ -46,14 +46,29 @@ class ClientRuntimeService : Service() {
         override fun probe(requestJson: String): String = guarded(requestJson) {
             val request = JSONObject(requestJson)
             requireProtocol(request)
-            val supported = Build.SUPPORTED_ABIS.contains("x86_64") && Build.VERSION.SDK_INT >= 26 &&
+            val clientId = request.getString("clientId")
+            val baseSupported = Build.SUPPORTED_ABIS.contains("x86_64") && Build.VERSION.SDK_INT >= 26 &&
                 File(applicationInfo.nativeLibraryDir, "libwine_loader_preloader.so").isFile &&
                 File(applicationInfo.nativeLibraryDir, "libwine_spike.so").isFile
+            var clientFailure: String? = null
+            val clientSupported = when (clientId) {
+                ClientRuntimeContract.SELF_TEST_ID -> true
+                ClientRuntimeContract.WOW_5875_ID -> runCatching {
+                    ManagedClientStore(applicationContext).load(clientId)
+                }.onFailure { clientFailure = it.message ?: it.javaClass.simpleName }.isSuccess
+                else -> false
+            }
+            val supported = baseSupported && clientSupported
             JSONObject()
                 .put("ok", true).put("supported", supported)
                 .put("runtimeBuildId", ClientRuntimeContract.RUNTIME_BUILD_ID)
                 .put("immutableCode", true)
-                .put("reason", if (supported) "x86_64 APK-managed Wine closure available" else "runtime/ABI unavailable")
+                .put("reason", when {
+                    supported -> "x86_64 runtime and authorized client available"
+                    !baseSupported -> "runtime/ABI unavailable"
+                    clientFailure != null -> "managed client unavailable: $clientFailure"
+                    else -> "unsupported client identity"
+                })
                 .put("requestedAbi", request.optString("abi"))
         }
 
@@ -148,15 +163,23 @@ class ClientRuntimeService : Service() {
 
     private fun runSession(r: SessionRecord) {
         val windowsClosePath = "Z:" + r.closeFile.absolutePath.replace('/', '\\')
-        val env = listOf(
-            "LD_DEBUG=", "WINEDEBUG=-all", "POCKET_AUDIO_MODE=off",
-            "POCKET_SELFTEST_INTERACTIVE=1", "POCKET_CLOSE_FILE=$windowsClosePath",
-            "WINEDLLOVERRIDES=winealsa.drv=d,winepulse.drv=d",
-        ).joinToString(";")
+        val env = buildList {
+            add("LD_DEBUG=")
+            add("WINEDEBUG=-all")
+            add("POCKET_AUDIO_MODE=off")
+            add("WINEDLLOVERRIDES=winealsa.drv=d,winepulse.drv=d")
+            if (r.prepared.selfTest) {
+                add("POCKET_SELFTEST_INTERACTIVE=1"); add("POCKET_CLOSE_FILE=$windowsClosePath")
+            } else {
+                add("WINEESYNC=0"); add("WINEFSYNC=0")
+                add("POCKET_GLADIO_X11_SOCKET=${File(r.prepared.tmp, ".X11-unix/X0").absolutePath}")
+            }
+        }.joinToString(";")
         val raw = try {
             WineSpikeNative.runWineDirectNative(
-                applicationInfo.nativeLibraryDir, r.prepared.selfTest.absolutePath,
-                r.prepared.prefix.absolutePath, ":0", "", env, 6 * 60 * 60 * 1000,
+                applicationInfo.nativeLibraryDir, r.prepared.executable.absolutePath,
+                r.prepared.prefix.absolutePath, r.prepared.workingDir.absolutePath,
+                ":0", "", env, 6 * 60 * 60 * 1000,
             )
         } catch (t: Throwable) {
             synchronized(lock) {
@@ -170,7 +193,7 @@ class ClientRuntimeService : Service() {
             r.stdout = result.stdout.takeLast(ClientRuntimeContract.MAX_DIAGNOSTIC_CHARS)
             r.stderr = result.stderr.takeLast(ClientRuntimeContract.MAX_DIAGNOSTIC_CHARS)
             r.cleanExit = result.rc == 0 && result.exitedCleanly && result.exitCode == 0 &&
-                !result.timedOut && r.stdout.contains("POCKET_SELFTEST_OK")
+                !result.timedOut && (!r.prepared.selfTest || r.stdout.contains("POCKET_SELFTEST_OK"))
             if (!r.forced) {
                 transition(
                     r,

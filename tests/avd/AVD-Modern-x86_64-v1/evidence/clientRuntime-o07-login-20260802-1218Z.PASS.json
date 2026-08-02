@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "clientId": "wow-1.12.1-5875",
+  "abi": "x86_64",
+  "api": 35,
+  "pageSize": 4096,
+  "renderer": "wined3d",
+  "safeModeResolutionCeiling": "1280x720",
+  "effectiveResolution": "800x600",
+  "fpsCap": 30,
+  "audio": "off",
+  "realmEndpoint": "127.0.0.1",
+  "firstWindows": [
+    "||1x1|pid=0",
+    "||800x600|pid=0",
+    "|wow.exe|800x600|pid=2468"
+  ],
+  "relaunchWindows": [
+    "||1x1|pid=0",
+    "||800x600|pid=0",
+    "|wow.exe|800x600|pid=2582"
+  ],
+  "firstNonBlackPixels": 319606,
+  "relaunchNonBlackPixels": 321732,
+  "firstScreenshot": "o07-login-first.png",
+  "relaunchScreenshot": "o07-login-relaunch.png",
+  "stableLoginWindow": true,
+  "relaunchPassed": true
+}

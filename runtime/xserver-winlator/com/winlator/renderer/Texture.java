@@ -6,6 +6,7 @@ import android.opengl.GLES20;
 import com.winlator.xserver.Drawable;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
 public class Texture {
     protected int textureId = 0;
@@ -17,6 +18,7 @@ public class Texture {
     protected boolean needsUpdate = true;
     private boolean flipY = false;
     protected Drawable owner;
+    private ByteBuffer readbackBuffer;
 
     public Texture(Drawable owner) {
         this.owner = owner;
@@ -138,9 +140,31 @@ public class Texture {
     }
 
     public void copyFromReadBuffer(short width, short height) {
-        if (!isAllocated()) allocateTexture(width, height, null);
+        int byteCount = width * height * 4;
+        if (readbackBuffer == null || readbackBuffer.capacity() != byteCount) {
+            readbackBuffer = ByteBuffer.allocateDirect(byteCount).order(ByteOrder.nativeOrder());
+        }
+        readbackBuffer.clear();
+        GLES20.glReadPixels(0, 0, width, height, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, readbackBuffer);
+        readbackBuffer.rewind();
+
+        boolean allocate = !isAllocated();
+        if (allocate) generateTextureId();
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId);
-        GLES20.glCopyTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, 0, 0, width, height, 0);
+        GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1);
+        if (allocate) {
+            GLES20.glTexImage2D(
+                GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, width, height, 0,
+                GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, readbackBuffer
+            );
+            setTextureParameters();
+        }
+        else {
+            GLES20.glTexSubImage2D(
+                GLES20.GL_TEXTURE_2D, 0, 0, 0, width, height,
+                GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, readbackBuffer
+            );
+        }
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0);
         GLES20.glFlush();
     }

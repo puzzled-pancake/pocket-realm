@@ -59,6 +59,7 @@ WINE_16K_WIN32U_PE = (
     ROOT / "native" / ".build-x86_64" / "wine-ntdll-16k-multiarch" /
     "dlls" / "win32u" / "x86_64-windows" / "win32u.dll"
 )
+GLADIO_CLIENT = ROOT / "native" / ".build-x86_64" / "gladio-client" / "libGL.so.1"
 
 # The glibc/X11/font runtime libs to stage (the DT_NEEDED closure).
 # Each entry: (package_archive, [sonames to extract from lib/])
@@ -456,6 +457,21 @@ def stage_glibc_closure(jni_dir: Path) -> dict[str, str]:
             write_runtime_elf(jni_dir / renamed, data, soname)
             staged[soname] = renamed
             print(f"  x11    {soname:28} -> {renamed:36} ({len(data):>8} B)")
+
+    # WineD3D dlopens libGL.so.1. Winlator's Gladio release asset is AArch64
+    # because its x86_64 Wine runs through Box64; Pocket Realm runs Wine
+    # natively on x86_64, so package the source-built x86_64 Gladio client.
+    if not GLADIO_CLIENT.is_file():
+        raise FileNotFoundError(
+            f"x86_64 Gladio client missing: {GLADIO_CLIENT}\n"
+            "  Run: python tools/build_gladio_client.py"
+        )
+    soname = "libGL.so.1"
+    data = GLADIO_CLIENT.read_bytes()
+    renamed = rename_for_jnilib(soname)
+    write_runtime_elf(jni_dir / renamed, data, "Gladio x86_64 libGL.so.1")
+    staged[soname] = renamed
+    print(f"  gladio {soname:28} -> {renamed:36} ({len(data):>8} B)")
 
     return staged
 

@@ -961,7 +961,7 @@ class WineSpikeRunner(private val context: Context) {
             // would crowd out wineboot's own output). WINEDEBUG=+module,+loaddll
             // captures PE module resolution from the cache.
             WineSpikeNative.runWineDirectNative(
-                nativeDir, winebootTarget, prefixDir.absolutePath,
+                nativeDir, winebootTarget, prefixDir.absolutePath, prefixDir.absolutePath,
                 "", "--init",
                 "LD_DEBUG=;WINEDEBUG=+module,+loaddll;WINEDLLOVERRIDES=winex11.drv=d",
                 60_000)
@@ -1331,7 +1331,7 @@ class WineSpikeRunner(private val context: Context) {
 
             val winebootTarget = File(treeDir, "lib/wine/x86_64-windows/wineboot.exe").absolutePath
             val initRaw = WineSpikeNative.runWineDirectNative(
-                nativeDir, winebootTarget, prefixDir.absolutePath,
+                nativeDir, winebootTarget, prefixDir.absolutePath, prefixDir.absolutePath,
                 "", "--init",
                 "LD_DEBUG=;WINEDEBUG=-all;WINEDLLOVERRIDES=winex11.drv=d",
                 60_000)
@@ -1388,7 +1388,7 @@ class WineSpikeRunner(private val context: Context) {
             val raw = try {
                 WineSpikeNative.runWineDirectNative(
                     nativeDir, selfTestPath.absolutePath,
-                    prefixDir.absolutePath, ":0", "",
+                    prefixDir.absolutePath, prefixDir.absolutePath, ":0", "",
                     "LD_DEBUG=;WINEDEBUG=-all",
                     120_000)
             } catch (e: Exception) {
