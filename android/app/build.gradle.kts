@@ -45,6 +45,13 @@ android {
             // executable filesystem path in nativeLibraryDir.
             isJniDebuggable = true
         }
+        create("clientRuntime") {
+            initWith(getByName("debug"))
+            // O06's qualified x86DirectWine product lane. Unlike the O05
+            // control variants, Wine must execute APK-managed ELFs from
+            // nativeLibraryDir; extraction is selected below per-variant.
+            isJniDebuggable = true
+        }
     }
 
     // Per-variant jniLibs packaging model. O05 documents the observed behavior
@@ -227,7 +234,7 @@ androidComponents {
             .configureEach { dependsOn(stageNativeLibs) }
         tasks.matching { it.name.startsWith("assemble") && it.name.endsWith(cap) }
             .configureEach { dependsOn(stageNativeLibs) }
-        if (variant.name == "pkgExperiment") {
+        if (variant.name == "pkgExperiment" || variant.name == "clientRuntime") {
             variant.packaging.jniLibs.useLegacyPackaging.set(true)
         }
     }

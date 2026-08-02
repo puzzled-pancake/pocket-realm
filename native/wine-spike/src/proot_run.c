@@ -45,6 +45,18 @@
 #include <elf.h>
 #include <android/log.h>
 
+static volatile sig_atomic_t g_active_direct_pgid = 0;
+
+int wine_spike_cancel_active_direct(void) {
+    pid_t pgid = (pid_t)g_active_direct_pgid;
+    if (pgid <= 0) return 0;
+    int delivered = kill(-pgid, SIGTERM) == 0;
+    usleep(150000);
+    if (kill(-pgid, SIGKILL) == 0) delivered = 1;
+    if (kill(pgid, SIGKILL) == 0) delivered = 1;
+    return delivered;
+}
+
 #define TAG "wine_spike"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
@@ -1120,6 +1132,7 @@ int wine_spike_run_wine_direct(const char *native_dir,
         return WINE_SPIKE_ERR_LAUNCH;
     }
     if (pid == 0) {
+        setpgid(0, 0);
         dup2(out_pipe[1], STDOUT_FILENO); dup2(err_pipe[1], STDERR_FILENO);
         close(out_pipe[0]); close(out_pipe[1]); close(err_pipe[0]); close(err_pipe[1]);
         if (trace_sigsys) {
@@ -1174,6 +1187,8 @@ int wine_spike_run_wine_direct(const char *native_dir,
         fprintf(stderr, "direct_run: execve preloader failed: %s\n", strerror(errno));
         _exit(127);
     }
+    setpgid(pid, pid);
+    g_active_direct_pgid = (sig_atomic_t)pid;
     close(out_pipe[1]); close(err_pipe[1]);
     set_nonblocking(out_pipe[0]);
     set_nonblocking(err_pipe[0]);
@@ -1338,6 +1353,7 @@ int wine_spike_run_wine_direct(const char *native_dir,
     if (out_pipe[0] >= 0) close(out_pipe[0]);
     if (err_pipe[0] >= 0) close(err_pipe[0]);
     out->exit_status = got_status ? status : -1;
+    if (g_active_direct_pgid == (sig_atomic_t)pid) g_active_direct_pgid = 0;
     out->proot_rc = WINE_SPIKE_OK;
     LOGI("direct_run: done status=%d timeout=%d desc=%d stdout=%zu stderr=%zu",
          out->exit_status, out->timed_out, out->descendant_count, out_len, err_len);

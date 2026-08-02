@@ -103,6 +103,15 @@ changing the report's Gate-G1 exit criteria:
   `ntdll.so` and x86_64 PE `ntdll.dll`/`win32u.dll` are source-rebuilt and staged
   together with the dispatcher on a private page at `0x7ffe4000`. Mixed provider
   and patched members are rejected.
-- **Phase-1 completion authorizes full O06 implementation, not O06 completion.**
-  Input, focus, audio-off, close/forced-stop, diagnostics, bounded mutable state,
-  and service/process acceptance remain required before O06 can be marked done.
+- **The full O06 implementation adopts split ownership.** A non-exported
+  `:client` service owns Wine, the authorized PE, prefixes, session tokens, and
+  the exact process group. The UI process owns the X server, rendered
+  `XServerView`, and input translation. Its bounded AIDL protocol accepts no
+  arbitrary command, path, or environment.
+- **`clientRuntime` is the explicit executable-native G1 lane.** It extracts
+  APK native libraries as required by the qualified Wine route; O05's
+  `debug`/`release` packaging controls remain unchanged.
+- **O06 is complete.** Paired 4 KB/16 KB evidence proves prefix relaunch,
+  mapped surface, focus, keyboard/mouse, audio-off, clean close, process-group
+  forced stop, and diagnostics. O07 is the first gate allowed to consume the
+  user's proprietary build-5875 client.

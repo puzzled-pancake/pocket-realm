@@ -381,6 +381,11 @@ int wine_spike_run_wine_direct(const char *native_dir,
                                int timeout_ms,
                                struct wine_spike_proot_run_result *out);
 
+/* Cancel the currently active bounded direct Wine run, if any. The direct
+ * runner places the Wine tree in its own process group; cancellation is
+ * therefore session-tree scoped instead of relying on executable names. */
+int wine_spike_cancel_active_direct(void);
+
 /*
  * Recursively enumerate ALL descendants of <root_pid> (children, grandchildren,
  * ...) into out_pids (depth-first). Returns the count written, or -1 on error.

@@ -145,6 +145,9 @@ object WineSpikeNative {
         display: String, wineArgs: String, extraEnv: String, timeoutMs: Int
     ): String
 
+    /** Kill the currently active direct Wine process group, if any. */
+    external fun cancelActiveDirectNative(): Boolean
+
     /**
      * S-2 tree-aware PE cache materialize: like [materializePeCacheNative] but
      * additionally symlinks each manifest entry's logical_path into the wine

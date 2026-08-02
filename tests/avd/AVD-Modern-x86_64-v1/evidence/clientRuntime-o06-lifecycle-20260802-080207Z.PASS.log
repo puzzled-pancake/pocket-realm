@@ -1,0 +1,179 @@
+O06 CLIENT RUNTIME QUALIFICATION
+utc=2026-08-02T08:02:07.901482+00:00
+lane=modern
+avd_record=AVD-Modern-x86_64-v1
+avd_actual=pixel_api35
+serial=emulator-5554
+api=35
+abi=x86_64
+variant=clientRuntime
+page_size=4096
+app_sha256=6bc8a07737884f5ec8f962643e0ac770701b6b9f2ba396310d2b59f36df6238d
+test_sha256=995d13a1d51ca1d00dffd83d173b956953cb9cf29bb5cb61c998602cef8dd49d
+verdict=PASS
+
+=== instrumentation ===
+INSTRUMENTATION_STATUS: class=com.pocketrealm.client.ClientRuntimeLifecycleTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=
+com.pocketrealm.client.ClientRuntimeLifecycleTest:
+INSTRUMENTATION_STATUS: test=fullLifecycleAndForcedStop
+INSTRUMENTATION_STATUS_CODE: 1
+INSTRUMENTATION_STATUS: class=com.pocketrealm.client.ClientRuntimeLifecycleTest
+INSTRUMENTATION_STATUS: current=1
+INSTRUMENTATION_STATUS: id=AndroidJUnitRunner
+INSTRUMENTATION_STATUS: numtests=1
+INSTRUMENTATION_STATUS: stream=.
+INSTRUMENTATION_STATUS: test=fullLifecycleAndForcedStop
+INSTRUMENTATION_STATUS_CODE: 0
+INSTRUMENTATION_RESULT: stream=
+
+Time: 37.008
+
+OK (1 test)
+
+
+INSTRUMENTATION_CODE: -1
+
+
+=== final persisted diagnostics ===
+{"protocol":1,"sessionId":"100710d5-9d4c-4770-bf80-ab64ce345474","state":"FORCE_STOPPED","sequence":3,"detail":"session process group killed","cleanExit":false,"forced":true,"windowVisible":true,"focusSeen":false,"audioOff":false,"keyboardSeen":false,"mouseSeen":false,"stdoutTail":"","stderrTail":""}
+
+=== relevant logcat ===
+08-02 20:01:30.050 23606 23620 I TestRunner: started: fullLifecycleAndForcedStop(com.pocketrealm.client.ClientRuntimeLifecycleTest)
+08-02 20:01:31.519   581   638 I ActivityManager: Start proc 23637:com.pocketrealm:client/u0a164 for service {com.pocketrealm/com.pocketrealm.client.ClientRuntimeService}
+08-02 20:01:32.049 23637 23637 D nativeloader: Load /data/app/~~bLXrDauq_-ue5S--7-vO0g==/com.pocketrealm-_0wpTY2GybL5OMY22-K3vQ==/lib/x86_64/libwine_spike.so using ns clns-7 from class loader (caller=/data/app/~~bLXrDauq_-ue5S--7-vO0g==/com.pocketrealm-_0wpTY2GybL5OMY22-K3vQ==/base.apk!classes7.dex): ok
+08-02 20:01:32.058 23637 23637 I PR/WineSpikeNative: libwine_spike.so loaded
+08-02 20:01:32.059 23637 23637 I PR/ClientRuntime: ClientRuntimeService started pid=23637
+08-02 20:01:32.074 23637 23647 I wine_spike: build_symlink_tree: tree=/data/user/0/com.pocketrealm/no_backup/wine/w11w64-v1/selftest/p1/wine-tree native=/data/app/~~bLXrDauq_-ue5S--7-vO0g==/com.pocketrealm-_0wpTY2GybL5OMY22-K3vQ==/lib/x86_64
+08-02 20:01:32.082 23637 23647 I wine_spike: build_symlink_tree: created 64 symlinks under /data/user/0/com.pocketrealm/no_backup/wine/w11w64-v1/selftest/p1/wine-tree
+08-02 20:01:32.408 23637 23647 I wine_spike: materialize_pe_cache: cache=/data/user/0/com.pocketrealm/no_backup/wine/w11w64-v1/selftest/p1/wine-data-cache assets=/data/user/0/com.pocketrealm/cache/client-runtime-data tree=/data/user/0/com.pocketrealm/no_backup/wine/w11w64-v1/selftest/p1/wine-tree
+08-02 20:01:32.812 23637 23647 I wine_spike: materialize_pe_cache: 144 verified (0 newly materialized), 144 linked, 0 failed
+08-02 20:01:32.963 23637 23647 I wine_spike: verify_pe_cache: 144 checked, 0 mismatches
+08-02 20:01:38.887 23637 23647 I wine_spike: materialize_pe_cache: cache=/data/user/0/com.pocketrealm/no_backup/wine/w11w64-v1/selftest/p1/wine-pe-cache assets=/data/user/0/com.pocketrealm/cache/client-runtime-assets tree=/data/user/0/com.pocketrealm/no_backup/wine/w11w64-v1/selftest/p1/wine-tree
+08-02 20:01:42.415 23637 23647 I wine_spike: materialize_pe_cache: 1626 verified (0 newly materialized), 1626 linked, 0 failed
+08-02 20:01:44.728 23637 23647 I wine_spike: verify_pe_cache: 1626 checked, 0 mismatches
+08-02 20:01:44.729 23637 23647 I wine_spike: materialize_pe_cache: cache=/data/user/0/com.pocketrealm/no_backup/wine/w11w64-v1/selftest/p1/wine-pe-cache assets=/data/user/0/com.pocketrealm/cache/client-runtime-assets tree=/data/user/0/com.pocketrealm/no_backup/wine/w11w64-v1/selftest/p1/wine-tree
+08-02 20:01:44.732 23637 23647 I wine_spike: materialize_pe_cache: 1 verified (0 newly materialized), 1 linked, 0 failed
+08-02 20:01:44.734 23637 23647 I wine_spike: verify_pe_cache: 1 checked, 0 mismatches
+08-02 20:01:45.196 23637 23647 I wine_spike: build_symlink_tree: tree=/data/user/0/com.pocketrealm/no_backup/wine/w11w64-v1/selftest/p1/wine-tree native=/data/app/~~bLXrDauq_-ue5S--7-vO0g==/com.pocketrealm-_0wpTY2GybL5OMY22-K3vQ==/lib/x86_64
+08-02 20:01:45.201 23637 23647 I wine_spike: build_symlink_tree: created 64 symlinks under /data/user/0/com.pocketrealm/no_backup/wine/w11w64-v1/selftest/p1/wine-tree
+08-02 20:01:45.379 23637 23647 I wine_spike: materialize_pe_cache: cache=/data/user/0/com.pocketrealm/no_backup/wine/w11w64-v1/selftest/p1/wine-data-cache assets=/data/user/0/com.pocketrealm/cache/client-runtime-data tree=/data/user/0/com.pocketrealm/no_backup/wine/w11w64-v1/selftest/p1/wine-tree
+08-02 20:01:45.742 23637 23647 I wine_spike: materialize_pe_cache: 144 verified (0 newly materialized), 144 linked, 0 failed
+08-02 20:01:45.885 23637 23647 I wine_spike: verify_pe_cache: 144 checked, 0 mismatches
+08-02 20:01:48.488 23637 23647 I wine_spike: materialize_pe_cache: cache=/data/user/0/com.pocketrealm/no_backup/wine/w11w64-v1/selftest/p1/wine-pe-cache assets=/data/user/0/com.pocketrealm/cache/client-runtime-assets tree=/data/user/0/com.pocketrealm/no_backup/wine/w11w64-v1/selftest/p1/wine-tree
+08-02 20:01:50.845 23637 23647 I wine_spike: materialize_pe_cache: 1626 verified (0 newly materialized), 1626 linked, 0 failed
+08-02 20:01:53.001 23637 23647 I wine_spike: verify_pe_cache: 1626 checked, 0 mismatches
+08-02 20:01:53.001 23637 23647 I wine_spike: materialize_pe_cache: cache=/data/user/0/com.pocketrealm/no_backup/wine/w11w64-v1/selftest/p1/wine-pe-cache assets=/data/user/0/com.pocketrealm/cache/client-runtime-assets tree=/data/user/0/com.pocketrealm/no_backup/wine/w11w64-v1/selftest/p1/wine-tree
+08-02 20:01:53.003 23637 23647 I wine_spike: materialize_pe_cache: 1 verified (0 newly materialized), 1 linked, 0 failed
+08-02 20:01:53.004 23637 23647 I wine_spike: verify_pe_cache: 1 checked, 0 mismatches
+08-02 20:01:53.439 23637 23663 I wine_spike: probe_loader: APK-managed loader found: /data/app/~~bLXrDauq_-ue5S--7-vO0g==/com.pocketrealm-_0wpTY2GybL5OMY22-K3vQ==/lib/x86_64/libwine_loader.so
+08-02 20:01:53.439 23637 23663 I wine_spike: count_apk_mappings pid=23664: 59/59 mapped files from APK dir
+08-02 20:01:53.439 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:01:53.618 23637 23663 I wine_spike: probe_loader: APK-managed loader found: /data/app/~~bLXrDauq_-ue5S--7-vO0g==/com.pocketrealm-_0wpTY2GybL5OMY22-K3vQ==/lib/x86_64/libwineserver.so
+08-02 20:01:53.618 23637 23663 I wine_spike: count_apk_mappings pid=23667: 23/23 mapped files from APK dir
+08-02 20:01:53.618 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:01:53.674 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: (deleted)
+08-02 20:01:53.674 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23669
+08-02 20:01:53.675 23637 23663 I wine_spike: count_apk_mappings pid=23669: 59/116 mapped files from APK dir
+08-02 20:01:53.675 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:01:53.859 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: (deleted)
+08-02 20:01:53.860 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23671
+08-02 20:01:53.860 23637 23663 I wine_spike: count_apk_mappings pid=23671: 59/116 mapped files from APK dir
+08-02 20:01:53.860 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:01:54.108 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: (deleted)
+08-02 20:01:54.108 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23674
+08-02 20:01:54.109 23637 23663 I wine_spike: count_apk_mappings pid=23674: 59/93 mapped files from APK dir
+08-02 20:01:54.109 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:01:54.290 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: (deleted)
+08-02 20:01:54.290 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23683
+08-02 20:01:54.291 23637 23663 I wine_spike: count_apk_mappings pid=23683: 59/70 mapped files from APK dir
+08-02 20:01:54.291 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:01:54.592 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: (deleted)
+08-02 20:01:54.592 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23689
+08-02 20:01:54.592 23637 23663 I wine_spike: count_apk_mappings pid=23689: 59/70 mapped files from APK dir
+08-02 20:01:54.593 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:01:54.840 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: (deleted)
+08-02 20:01:54.840 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23695
+08-02 20:01:54.841 23637 23663 I wine_spike: count_apk_mappings pid=23695: 59/104 mapped files from APK dir
+08-02 20:01:54.841 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:01:55.026 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: (deleted)
+08-02 20:01:55.026 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23703
+08-02 20:01:55.027 23637 23663 I wine_spike: count_apk_mappings pid=23703: 59/86 mapped files from APK dir
+08-02 20:01:55.027 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:01:55.213 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: (deleted)
+08-02 20:01:55.214 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23710
+08-02 20:01:55.214 23637 23663 I wine_spike: count_apk_mappings pid=23710: 59/124 mapped files from APK dir
+08-02 20:01:55.214 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:01:55.959 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: /data/data/com.pocketrealm/no_backup/wine/w11w64-v1/selftest/p1/wine-pe-cache/wine-pe/x86_64-windows/apisetschema.dll
+08-02 20:01:55.959 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23717
+08-02 20:01:55.959 23637 23663 I wine_spike: count_apk_mappings pid=23717: 70/119 mapped files from APK dir
+08-02 20:01:55.959 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:01:56.239 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: (deleted)
+08-02 20:01:56.239 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23719
+08-02 20:01:56.240 23637 23663 I wine_spike: count_apk_mappings pid=23719: 59/142 mapped files from APK dir
+08-02 20:01:56.240 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:01:56.644 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: (deleted)
+08-02 20:01:56.644 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23725
+08-02 20:01:56.644 23637 23663 I wine_spike: count_apk_mappings pid=23725: 59/82 mapped files from APK dir
+08-02 20:01:56.644 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:01:56.894 23637 23646 I PR/ClientRuntime: session=28d0a01b-1da7-4c2c-ab9d-3a0bfca0be0b state=RUNNING detail=mapped client window visible
+08-02 20:01:58.864 23637 23646 I PR/ClientRuntime: session=28d0a01b-1da7-4c2c-ab9d-3a0bfca0be0b state=CLOSE_REQUESTED detail=token-scoped WM_CLOSE requested
+08-02 20:02:03.069 23637 23663 I wine_spike: direct_run: done status=0 timeout=0 desc=13 stdout=418 stderr=1060
+08-02 20:02:03.084 23637 23663 I PR/ClientRuntime: session=28d0a01b-1da7-4c2c-ab9d-3a0bfca0be0b state=EXITED detail=rc=0 exit=0 timeout=false
+08-02 20:02:03.140 23606 23620 I O06Acceptance: CLIENT_RUNTIME_ACCEPTANCE clean=true window=true focus=true audioOff=true keyboard=true mouse=true
+08-02 20:02:03.202 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: (deleted)
+08-02 20:02:03.202 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23738
+08-02 20:02:03.202 23637 23663 I wine_spike: count_apk_mappings pid=23738: 59/59 mapped files from APK dir
+08-02 20:02:03.202 23637 23663 I wine_spike: probe_loader: APK-managed loader found: /data/app/~~bLXrDauq_-ue5S--7-vO0g==/com.pocketrealm-_0wpTY2GybL5OMY22-K3vQ==/lib/x86_64/libwineserver.so
+08-02 20:02:03.203 23637 23663 I wine_spike: count_apk_mappings pid=23741: 23/23 mapped files from APK dir
+08-02 20:02:03.203 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: (deleted)
+08-02 20:02:03.203 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23743
+08-02 20:02:03.204 23637 23663 I wine_spike: count_apk_mappings pid=23743: 59/70 mapped files from APK dir
+08-02 20:02:03.204 23637 23663 I wine_spike: snapshot_tree: recorded 3 new processes mapping the APK loader
+08-02 20:02:03.388 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: (deleted)
+08-02 20:02:03.388 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23745
+08-02 20:02:03.388 23637 23663 I wine_spike: count_apk_mappings pid=23745: 59/70 mapped files from APK dir
+08-02 20:02:03.388 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:02:03.699 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: (deleted)
+08-02 20:02:03.699 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23748
+08-02 20:02:03.699 23637 23663 I wine_spike: count_apk_mappings pid=23748: 59/124 mapped files from APK dir
+08-02 20:02:03.700 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:02:03.886 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: (deleted)
+08-02 20:02:03.886 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23757
+08-02 20:02:03.887 23637 23663 I wine_spike: count_apk_mappings pid=23757: 59/104 mapped files from APK dir
+08-02 20:02:03.887 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:02:04.167 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: (deleted)
+08-02 20:02:04.167 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23763
+08-02 20:02:04.167 23637 23663 I wine_spike: count_apk_mappings pid=23763: 59/112 mapped files from APK dir
+08-02 20:02:04.167 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:02:04.354 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: (deleted)
+08-02 20:02:04.354 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23769
+08-02 20:02:04.354 23637 23663 I wine_spike: count_apk_mappings pid=23769: 59/124 mapped files from APK dir
+08-02 20:02:04.354 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:02:04.540 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: (deleted)
+08-02 20:02:04.540 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23776
+08-02 20:02:04.541 23637 23663 I wine_spike: count_apk_mappings pid=23776: 59/104 mapped files from APK dir
+08-02 20:02:04.541 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:02:04.728 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: (deleted)
+08-02 20:02:04.728 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23783
+08-02 20:02:04.728 23637 23663 I wine_spike: count_apk_mappings pid=23783: 59/110 mapped files from APK dir
+08-02 20:02:04.728 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:02:05.378 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: /data/data/com.pocketrealm/no_backup/wine/w11w64-v1/selftest/p1/wine-pe-cache/wine-pe/x86_64-windows/apisetschema.dll
+08-02 20:02:05.378 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23790
+08-02 20:02:05.379 23637 23663 I wine_spike: count_apk_mappings pid=23790: 70/106 mapped files from APK dir
+08-02 20:02:05.379 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:02:05.674 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: (deleted)
+08-02 20:02:05.675 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23792
+08-02 20:02:05.675 23637 23663 I wine_spike: count_apk_mappings pid=23792: 59/142 mapped files from APK dir
+08-02 20:02:05.675 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:02:06.031 23637 23663 W wine_spike: probe_loader: loader NOT APK-managed: (deleted)
+08-02 20:02:06.032 23637 23663 E wine_spike: probe_loader: no APK-managed loader found for pid 23798
+08-02 20:02:06.032 23637 23663 I wine_spike: count_apk_mappings pid=23798: 59/124 mapped files from APK dir
+08-02 20:02:06.032 23637 23663 I wine_spike: snapshot_tree: recorded 1 new processes mapping the APK loader
+08-02 20:02:06.293 23637 23647 I PR/ClientRuntime: session=100710d5-9d4c-4770-bf80-ab64ce345474 state=RUNNING detail=mapped client window visible
+08-02 20:02:06.461 23637 23647 I PR/ClientRuntime: session=100710d5-9d4c-4770-bf80-ab64ce345474 state=FORCE_STOPPED detail=session process group killed
+08-02 20:02:06.463 23606 23620 I O06Acceptance: CLIENT_RUNTIME_FORCE_STOP state=FORCE_STOPPED forced=true
+08-02 20:02:06.488 23606 23620 I TestRunner: finished: fullLifecycleAndForcedStop(com.pocketrealm.client.ClientRuntimeLifecycleTest)

@@ -1,10 +1,10 @@
 # Current project state
 
-Last verified implementation commit: `O06 — Phase-1 direct x86 Wine feasibility, Outcome B` (this commit; paired 4 KB/16 KB evidence)
+Last verified implementation commit: `O06 — production ClientRuntime lifecycle` (this commit; paired 4 KB/16 KB evidence)
 
-Active feature: `O06 — G1 direct x86 Wine self-test, prefix, surface, and input bridge` (Phase-1 feasibility spike complete; full implementation replanning authorized)
+Active feature: `O07 — G1 build-5875 validation and repeatable WoW login-screen proof`
 
-Current gate: `G1 — direct x86 Wine (O06 Phase 1 Outcome B; full O06 remains active)`. G0 production packaging is complete (O05).
+Current gate: `G1 — direct x86 Wine (O06 complete; O07 next)`. G0 production packaging is complete (O05).
 
 Plan/reference alignment: `1 August 2026`
 
@@ -70,16 +70,14 @@ Versioned C ABI + `libpocketrealm.so`; create/start/health/save/stop/destroy pro
 ## Known gaps under the canonical report
 
 - The `pkgExperiment` standalone-exec variant is G0 evidence only; production uses the library-backed Lane A model.
-- Full Wine input/audio/lifecycle integration, MariaDB, realmd/mangosd production integration, importer, bots, and mobile UX remain pending at their gates (O06-O22).
+- Proprietary build-5875 validation, MariaDB, realmd/mangosd production integration, importer, bots, and mobile UX remain pending at their gates (O07-O22).
 - The full report X/FUN/FLT/SOAK gates remain pending.
 
 ## Blockers
 
-The O06 Phase-1 feasibility spike has no remaining blocker. A user-owned,
-unmodified build-5875 client becomes required at O07; named physical-device
-inputs remain required at later release gates. O06 itself remains active: the
-spike authorizes the full implementation plan, but does not claim the complete
-input/audio/lifecycle acceptance of O06.
+O06 has no remaining blocker. A user-owned, unmodified build-5875 client is now
+required for O07; named physical-device inputs remain required at later release
+gates. No proprietary client files were used or added by O06.
 
 ## O06 Phase 1 — Wine feasibility spike (complete: Outcome B)
 
@@ -123,14 +121,41 @@ fallback/adaptation path is required. Outcome A is unavailable because direct
 loader/trampoline execution is disproven. Outcome C is disproven by the paired
 4 KB/16 KB passes.
 
+## O06 full implementation — complete
+
+The qualified fallback is now behind the report's `ClientRuntime` contract and
+a non-exported `ClientRuntimeService` in the dedicated `:client` process. The UI
+process owns the Winlator-derived X transport, actual `XServerView` surface, and
+letterbox-aware input bridge; the service owns the fixed self-test executable,
+Wine process group, prefix lifecycle, session tokens, and bounded diagnostics.
+
+- `clientRuntime` is the selected extracted-native O06 product lane. O05's
+  `debug`/`release` controls retain non-legacy packaging.
+- Runtime code remains APK-managed. Mutable state lives below
+  `noBackupFilesDir/wine/`, is versioned, and has declared 768 MiB active-prefix,
+  768 MiB single rollback-prefix, 768 MiB cache, and 4 MiB diagnostic quotas.
+  Compatible relaunch preserves prefix writes; an incompatible prefix is kept
+  as the one bounded rollback generation before replacement.
+- The project-owned 32-bit PE visibly paints the app surface and records focus,
+  keyboard press/release, transformed mouse press/release, and a true audio-off
+  path that skips device initialization.
+- Clean close is token-scoped and becomes `WM_CLOSE`. Forced stop cancels the
+  active Wine process group; the AIDL service accepts no arbitrary executable,
+  prefix path, or environment.
+
+Final paired evidence:
+
+- `tests/avd/AVD-Modern-x86_64-v1/evidence/clientRuntime-o06-lifecycle-20260802-080207Z.PASS.log`
+- `tests/avd/AVD-Modern-x86_64-v1/evidence/clientRuntime-o06-surface-20260802-080207Z.png`
+- `tests/avd/AVD-16K-x86_64-v1/evidence/clientRuntime-o06-lifecycle-20260802-080252Z.PASS.log`
+- `tests/avd/AVD-16K-x86_64-v1/evidence/clientRuntime-o06-surface-20260802-080252Z.png`
+
 ## Next action
 
-Replan and implement the full O06 `ClientRuntime`/`x86DirectWine` feature using
-the qualified fallback architecture. Retain the spike's immutable-code,
-app-private-state, paired-runtime, process-isolation, and evidence requirements.
-Do not mark O06 done until keyboard/mouse, focus, audio-off, clean close, forced
-stop, diagnostics, bounded prefix/cache state, and the selected service/process
-model meet the feature acceptance criteria.
+Begin O07: validate the user-supplied build-5875 client without modifying its
+source tree, record the managed client manifest, and prove a repeatable login
+screen through the completed `ClientRuntime`. Keep proprietary client content
+out of Git and do not weaken the O06 safe profile.
 
 ## Session note
 

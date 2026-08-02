@@ -63,5 +63,14 @@
             android:name=".pkg.PkgIsolationService"
             android:process=":pkg"
             android:exported="false" />
+
+        <!-- O06: Wine and every native child live in a dedicated fault domain.
+             Only the same APK can bind; the token-scoped AIDL surface never
+             accepts an arbitrary executable, prefix path, or environment. -->
+        <service
+            android:name=".client.ClientRuntimeService"
+            android:process=":client"
+            android:exported="false"
+            android:stopWithTask="true" />
     </application>
 </manifest>

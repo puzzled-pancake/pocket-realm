@@ -38,6 +38,8 @@ static int g_vk_last = 0;
 static int g_audio_attempted = 0;
 static int g_audio_ok = 0;
 static int g_painted = 0;
+static int g_interactive = 0;
+static char g_close_file[MAX_PATH * 4];
 
 static void log_line(const char *fmt, ...) {
     char buf[256];
@@ -58,6 +60,12 @@ static void log_line(const char *fmt, ...) {
 }
 
 static void probe_audio(void) {
+    char mode[16] = {0};
+    if (GetEnvironmentVariableA("POCKET_AUDIO_MODE", mode, sizeof(mode)) > 0 &&
+        lstrcmpiA(mode, "off") == 0) {
+        log_line("POCKET_SELFTEST_AUDIO skipped");
+        return;
+    }
     /* Open + immediately close the default waveOut. Under WineD3D-safe audio-OFF
      * mode the harness disables Wine's audio backends, so this should fail or
      * be a no-op; the log line records which, proving the audio-disabled path. */
@@ -99,6 +107,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             log_line("POCKET_SELFTEST_KEY %d", (int)wp);
             return 0;
         case WM_KEYUP:
+            log_line("POCKET_SELFTEST_KEYUP %d", (int)wp);
             return 0;
         case WM_MOUSEMOVE:
             /* Cheap: only log when a button is held, to avoid log flooding. */
@@ -112,10 +121,23 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             log_line("POCKET_SELFTEST_MOUSE x=%d y=%d btn=l",
                      (int)(short)LOWORD(lp), (int)(short)HIWORD(lp));
             return 0;
+        case WM_LBUTTONUP:
+            log_line("POCKET_SELFTEST_MOUSEUP x=%d y=%d btn=l",
+                     (int)(short)LOWORD(lp), (int)(short)HIWORD(lp));
+            return 0;
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC dc = BeginPaint(hwnd, &ps);
-            FillRect(dc, &ps.rcPaint, (HBRUSH)(COLOR_WINDOW + 1));
+            HBRUSH background = CreateSolidBrush(RGB(20, 30, 48));
+            FillRect(dc, &ps.rcPaint, background);
+            DeleteObject(background);
+            SetBkMode(dc, TRANSPARENT);
+            SetTextColor(dc, RGB(225, 235, 255));
+            RECT title = {72, 72, 1200, 300};
+            DrawTextA(dc,
+                      "Pocket Realm\r\nO06 Wine lifecycle self-test\r\n"
+                      "Win32 on x86_64 Android",
+                      -1, &title, DT_LEFT | DT_TOP | DT_NOPREFIX);
             EndPaint(hwnd, &ps);
             if (!g_painted) {
                 g_painted = 1;
@@ -123,14 +145,18 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 /* Close only after the mapped window has painted. This keeps
                  * the headless instrumentation deterministic while exercising
                  * WM_CLOSE, WM_DESTROY, and a clean process exit. */
-                SetTimer(hwnd, 1, 250, NULL);
+                SetTimer(hwnd, 1, g_interactive ? 100 : 250, NULL);
             }
             return 0;
         }
         case WM_TIMER:
             if (wp == 1) {
-                KillTimer(hwnd, 1);
-                SendMessageA(hwnd, WM_CLOSE, 0, 0);
+                if (!g_interactive ||
+                    (g_close_file[0] && GetFileAttributesA(g_close_file) != INVALID_FILE_ATTRIBUTES)) {
+                    KillTimer(hwnd, 1);
+                    log_line("POCKET_SELFTEST_CLOSE requested");
+                    SendMessageA(hwnd, WM_CLOSE, 0, 0);
+                }
             }
             return 0;
         case WM_CLOSE:
@@ -147,7 +173,15 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmd, int show) {
     (void)hPrev; (void)cmd; (void)show;
 
-    log_line("POCKET_SELFTEST_START pid=%lu", (unsigned long)GetCurrentProcessId());
+    {
+        char interactive[8] = {0};
+        g_interactive = GetEnvironmentVariableA(
+            "POCKET_SELFTEST_INTERACTIVE", interactive, sizeof(interactive)) > 0 &&
+            interactive[0] == '1';
+        GetEnvironmentVariableA("POCKET_CLOSE_FILE", g_close_file, sizeof(g_close_file));
+    }
+    log_line("POCKET_SELFTEST_START pid=%lu interactive=%d",
+             (unsigned long)GetCurrentProcessId(), g_interactive);
 
     WNDCLASSEXA wc = {0};
     wc.cbSize = sizeof(wc);

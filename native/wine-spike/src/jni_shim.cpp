@@ -408,4 +408,10 @@ Java_com_pocketrealm_wine_WineSpikeNative_runWineDirectNative(
     return env->NewStringUTF(out.c_str());
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_pocketrealm_wine_WineSpikeNative_cancelActiveDirectNative(
+    JNIEnv *, jobject) {
+    return wine_spike_cancel_active_direct() ? JNI_TRUE : JNI_FALSE;
+}
+
 } /* extern "C" */
