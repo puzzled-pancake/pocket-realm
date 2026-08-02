@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -25,8 +26,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pocketrealm.R
 import com.pocketrealm.realm.RealmState
-import com.pocketrealm.service.RealmBridge
 import com.pocketrealm.service.RealmService
+import com.pocketrealm.supervisor.RuntimeSupervisorClient
 
 /**
  * The one-screen-with-one-primary-action Home. Status reflects the real
@@ -36,7 +37,9 @@ import com.pocketrealm.service.RealmService
 @Composable
 fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
     val context = LocalContext.current
-    val state by RealmBridge.state.collectAsState()
+    val supervisorClient = remember(context) { RuntimeSupervisorClient(context) }
+    val stateUpdates = remember(supervisorClient) { supervisorClient.observeRealmState() }
+    val state by stateUpdates.collectAsState(initial = RealmState.Idle)
 
     Column(
         modifier = Modifier

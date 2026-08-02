@@ -40,6 +40,7 @@
 
         <service
             android:name=".service.RealmService"
+            android:process=":supervisor"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
@@ -70,8 +71,7 @@
         <service
             android:name=".client.ClientRuntimeService"
             android:process=":client"
-            android:exported="false"
-            android:stopWithTask="true" />
+            android:exported="false" />
 
         <!-- O08: MariaDB owns its datadir in a dedicated fault domain. The
              same-APK Binder API exposes lifecycle/test verbs only; callers
@@ -79,8 +79,7 @@
         <service
             android:name=".database.DatabaseService"
             android:process=":database"
-            android:exported="false"
-            android:stopWithTask="true" />
+            android:exported="false" />
 
         <!-- O09: CMaNGOS components are library-backed but retain executable-
              equivalent failure boundaries. The fixed AIDL APIs accept no
@@ -88,12 +87,10 @@
         <service
             android:name=".server.RealmRuntimeService"
             android:process=":realm"
-            android:exported="false"
-            android:stopWithTask="true" />
+            android:exported="false" />
         <service
             android:name=".server.WorldRuntimeService"
             android:process=":world"
-            android:exported="false"
-            android:stopWithTask="true" />
+            android:exported="false" />
     </application>
 </manifest>

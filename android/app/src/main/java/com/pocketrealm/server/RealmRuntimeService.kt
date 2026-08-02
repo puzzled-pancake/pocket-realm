@@ -5,15 +5,30 @@ import android.content.Intent
 import android.os.IBinder
 import android.os.Process
 import com.pocketrealm.log.AppLog
+import com.pocketrealm.supervisor.ComponentOwnership
 import org.json.JSONObject
 
 /** Dedicated realmd fault domain; Binder exposes lifecycle only, never paths or credentials. */
 class RealmRuntimeService : Service() {
     private lateinit var files: ServerRuntimeFiles
-    override fun onCreate() { super.onCreate(); files = ServerRuntimeFiles(applicationContext) }
+    private lateinit var ownership: ComponentOwnership
+    override fun onCreate() {
+        super.onCreate()
+        files = ServerRuntimeFiles(applicationContext)
+        ownership = ComponentOwnership("realm") {
+            Thread({
+                files.writeLifecycle("realm", false, "owner-lost")
+                runCatching { RealmNative.stopNative(5_000) }
+                stopSelf()
+            }, "realm-owner-loss").start()
+        }
+    }
 
     private val binder = object : IRealmControl.Stub() {
-        override fun status() = guarded { ServerStatusJson.realm(RealmNative.statusNative(), RealmNative.detailNative()) }
+        override fun claim(sessionId: String, instanceToken: String, ownerLease: IBinder) =
+            guarded { ownership.claim(sessionId, instanceToken, ownerLease) }
+        override fun status() = guarded { ownership.decorate(
+            ServerStatusJson.realm(RealmNative.statusNative(), RealmNative.detailNative())) }
         override fun start() = guarded {
             files.writeLifecycle("realm", false, "start")
             val rc = RealmNative.startNative(files.realmdConfig().absolutePath)
@@ -23,6 +38,19 @@ class RealmRuntimeService : Service() {
             val rc = RealmNative.stopNative(ServerRuntimeContract.CONTROL_TIMEOUT_MS)
             files.writeLifecycle("realm", rc == 0, "stop", ServerRuntimeContract.errorName(rc.toLong()))
             ServerStatusJson.operation("realm", "stop", rc)
+        }
+        override fun stopOwned(instanceToken: String) = guarded {
+            ownership.requireOwner(instanceToken)
+            val rc = RealmNative.stopNative(ServerRuntimeContract.CONTROL_TIMEOUT_MS)
+            files.writeLifecycle("realm", rc == 0, "stop", ServerRuntimeContract.errorName(rc.toLong()))
+            if (rc == 0) ownership.clear(instanceToken)
+            ServerStatusJson.operation("realm", "stop", rc)
+        }
+        override fun forceStopOwned(instanceToken: String): String {
+            ownership.requireOwner(instanceToken)
+            files.writeLifecycle("realm", false, "forced-stop")
+            Process.killProcess(Process.myPid())
+            return ""
         }
         override fun killForTest(): String {
             files.writeLifecycle("realm", false, "kill-for-test")

@@ -260,7 +260,7 @@
       "track": "offline",
       "priority": 100,
       "title": "G3 durable RuntimeSupervisor state machine and component ownership",
-      "status": "pending",
+      "status": "done",
       "depends": [
         "O02",
         "O07",
@@ -272,8 +272,12 @@
         "An atomic durable journal and unguessable session/instance tokens recover ownership without killing unknown PIDs/listeners",
         "Exact graceful shutdown order, timeouts, escalation, client-only relaunch, realm-fatal failure handling, and Android force-stop behavior pass fault-injected tests"
       ],
-      "notes": "",
-      "evidence": [],
+      "notes": "Production state ownership now lives in a non-exported foreground :supervisor service backed by a pure dependency-gated state machine and schema-2 atomic journal. Each component generation receives an independent 256-bit token plus a live Binder owner lease; owner loss triggers safe dirty teardown, and recovery never signals an observed process unless its session/token pair matches the durable record. Structured DB/realm/world health, not PID existence, gates readiness. Graceful order is client -> world save -> world -> realm -> database. O10 models and fault-tests successful client relaunch; the Android adapter intentionally reports client unavailable until O12 attaches the already-qualified O07 display session.",
+      "evidence": [
+        "./gradlew :app:testDebugUnitTest --tests com.pocketrealm.supervisor.DurableRuntimeSupervisorTest -> PASS (shutdown order, PID rejection, owner mismatch withholding, relaunch, realm-fatal failure, bounded escalation)",
+        "tests/avd/AVD-Modern-x86_64-v1/evidence/runtimeSupervisor-o10-acceptance-20260803.PASS.json",
+        "docs/adr/ADR-017-o10-durable-runtime-supervisor.md"
+      ],
       "reference": "Report sections 6.3-6.7, 8.2-8.3, and 18"
     },
     {

@@ -341,4 +341,5 @@ dependencies {
 
     // Host JVM unit tests (O04: RealmNative shim graceful-degradation test).
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
 }

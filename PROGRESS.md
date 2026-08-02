@@ -1,10 +1,10 @@
 # Current project state
 
-Last verified implementation milestone: `O09 — isolated native realmd/world runtime`
+Last verified implementation milestone: `O10 — durable RuntimeSupervisor state machine and ownership`
 
-Active feature: `O10 — G3 durable RuntimeSupervisor state machine and component ownership`
+Active feature: `O11 — G3 resumable managed-client import and data preparation`
 
-Current gate: `G3 — integrated x86 application (O08/O09 complete)`. G0 production packaging, G1 direct-client proof, and G2 native realm baseline are complete.
+Current gate: `G3 — integrated x86 application (O08/O09/O10 complete)`. G0 production packaging, G1 direct-client proof, and G2 native realm baseline are complete.
 
 Plan/reference alignment: `3 August 2026`
 
@@ -70,12 +70,12 @@ Versioned C ABI + `libpocketrealm.so`; create/start/health/save/stop/destroy pro
 ## Known gaps under the canonical report
 
 - The `pkgExperiment` standalone-exec variant is G0 evidence only; production uses the library-backed Lane A model.
-- Full supervisor/importer integration, bots, and mobile UX remain pending at their gates (O10-O22).
+- Managed import, integrated client/account/persistence, bots, and mobile UX remain pending at their gates (O11-O22).
 - The full report X/FUN/FLT/SOAK gates remain pending.
 
 ## Blockers
 
-O06/O07/O08/O09 have no remaining blocker. Named physical-device inputs remain
+O06/O07/O08/O09/O10 have no remaining blocker. Named physical-device inputs remain
 required at later release gates. The user-owned source client remains unchanged
 on `C:` and no proprietary client executables or data archives are added to Git.
 
@@ -258,12 +258,37 @@ Authoritative O09 evidence:
 - `schemas/database-migrations.json`
 - `docs/adr/ADR-016-o09-native-realm-runtime.md`
 
+## O10 — durable RuntimeSupervisor and ownership (complete)
+
+- The foreground, non-exported `:supervisor` process is now the only durable
+  lifecycle authority. A pure Kotlin core enforces dependency-gated database ->
+  realmd -> world -> client transitions and rejects PID-only readiness.
+- Every runtime generation is tied to a UUID session, independent 256-bit
+  component token, and live Binder owner lease. Component processes safely
+  tear down dirty when that lease dies. Recovery observes first and withholds
+  every stop/kill whose live ownership does not match the journal.
+- The schema-2 mode-0600 journal uses temp write, file fsync, same-directory
+  atomic rename, and directory fsync. Clean is committed only after client stop,
+  world save acknowledgement, world stop, realm stop, and database stop.
+- Bounded start/stop/recovery sections hold a partial wake lock. Client failure
+  is isolated and relaunchable in the state-machine contract; database, realm,
+  and world failures are realm-fatal. O12 remains responsible for connecting
+  this lifecycle to the qualified O07 client/display session.
+- The API-35 x86_64 4 KB device test passed in 33.310 seconds: fresh readiness,
+  client-failure isolation, clean stop, deliberate supervisor death with
+  owner-loss teardown and fresh-session recovery, owned world death with dirty
+  realm-fatal classification, recovery, and final clean journal.
+
+Authoritative O10 evidence:
+
+- `tests/avd/AVD-Modern-x86_64-v1/evidence/runtimeSupervisor-o10-acceptance-20260803.PASS.json`
+- `docs/adr/ADR-017-o10-durable-runtime-supervisor.md`
+
 ## Next action
 
-Begin O10: replace the simulated supervisor path with dependency-gated
-database -> realmd -> world -> client states, durable session/instance-token
-ownership, and explicit recovery transitions built on the qualified O06-O09
-component contracts.
+Begin O11: implement bounded, resumable SAF managed-client import and
+checkpointed DBC/maps/vmaps/mmaps preparation without modifying the user-owned
+source or publishing an incomplete active generation.
 
 ## Session note
 

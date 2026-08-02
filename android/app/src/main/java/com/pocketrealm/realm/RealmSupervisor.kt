@@ -7,10 +7,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Holds and validates [RealmState] transitions. Thread-safe for state reads;
- * transitions are serialized through a single supervisor coroutine in
- * [com.pocketrealm.service.RealmService], which calls the [request*] methods
- * from a controlled context.
+ * Legacy O02 UI-transition model retained for its compatibility tests.
+ * Production lifecycle ownership moved to
+ * [com.pocketrealm.supervisor.DurableRuntimeSupervisor] in O10.
  *
  * The legal-transition table is intentionally narrow: it is safer to ignore an
  * out-of-order request than to act on one and corrupt realm state.

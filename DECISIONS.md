@@ -140,3 +140,27 @@ O07 completes Gate G1 without changing decisions #22, #23, or #25:
 - **No proprietary client executables or data archives enter version control.**
   Only client identity/layout metadata, hashes, classification records, and
   rendered acceptance screenshots are retained as evidence.
+
+## G3 supervisor overlay (2026-08-03, feature O10)
+
+O10 implements decisions #6, #7, #9, #10, and #11 without superseding them:
+
+- **The foreground `:supervisor` process is the sole lifecycle authority.**
+  Database, realm, world, and client processes own their resources but cannot
+  promote or coordinate themselves.
+- **A component generation requires two forms of identity:** a durable UUID
+  session plus independent 256-bit token, and a live Binder owner lease. The
+  token prevents stale PID reuse; lease death makes supervisor loss immediately
+  observable to each child and triggers safe dirty teardown.
+- **Signals are ownership-gated.** Recovery observes structured component state
+  first and never stops or kills an unknown generation. PID/listener existence
+  alone is neither health nor authority.
+- **Durability is explicit.** The schema-2 journal uses fsync plus atomic rename;
+  clean is written only after client -> world save -> world -> realm -> database
+  shutdown succeeds. Partial operations hold a bounded wake lock.
+- **The O07 client remains qualified but unattached at O10.** Client failure is
+  isolated and relaunchable in the supervisor contract; O12 connects the real
+  Wine/display session to that contract.
+
+The detailed rationale and device qualification are recorded in
+`docs/adr/ADR-017-o10-durable-runtime-supervisor.md`.

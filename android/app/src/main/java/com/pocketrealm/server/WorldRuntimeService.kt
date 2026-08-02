@@ -5,15 +5,31 @@ import android.content.Intent
 import android.os.IBinder
 import android.os.Process
 import com.pocketrealm.log.AppLog
+import com.pocketrealm.supervisor.ComponentOwnership
 import org.json.JSONObject
 
 /** Dedicated no-bot mangosd fault domain with a fixed bounded control protocol. */
 class WorldRuntimeService : Service() {
     private lateinit var files: ServerRuntimeFiles
-    override fun onCreate() { super.onCreate(); files = ServerRuntimeFiles(applicationContext) }
+    private lateinit var ownership: ComponentOwnership
+    override fun onCreate() {
+        super.onCreate()
+        files = ServerRuntimeFiles(applicationContext)
+        ownership = ComponentOwnership("world") {
+            Thread({
+                files.writeLifecycle("world", false, "owner-lost")
+                runCatching { WorldNative.stopNative(5_000) }
+                stopSelf()
+                Process.killProcess(Process.myPid())
+            }, "world-owner-loss").start()
+        }
+    }
 
     private val binder = object : IWorldControl.Stub() {
-        override fun status() = guarded { ServerStatusJson.world(WorldNative.statusNative(), WorldNative.detailNative()) }
+        override fun claim(sessionId: String, instanceToken: String, ownerLease: IBinder) =
+            guarded { ownership.claim(sessionId, instanceToken, ownerLease) }
+        override fun status() = guarded { ownership.decorate(
+            ServerStatusJson.world(WorldNative.statusNative(), WorldNative.detailNative())) }
         override fun start() = guarded {
             files.writeLifecycle("world", false, "start")
             val rc = WorldNative.startNative(files.worldConfig().absolutePath)
@@ -35,6 +51,22 @@ class WorldRuntimeService : Service() {
             files.writeLifecycle("world", rc == 0, "stop", ServerRuntimeContract.errorName(rc.toLong()))
             if (rc == 0) retireCleanProcess()
             ServerStatusJson.operation("world", "stop", rc)
+        }
+        override fun stopOwned(instanceToken: String) = guarded {
+            ownership.requireOwner(instanceToken)
+            val rc = WorldNative.stopNative(ServerRuntimeContract.CONTROL_TIMEOUT_MS)
+            files.writeLifecycle("world", rc == 0, "stop", ServerRuntimeContract.errorName(rc.toLong()))
+            if (rc == 0) {
+                ownership.clear(instanceToken)
+                retireCleanProcess()
+            }
+            ServerStatusJson.operation("world", "stop", rc)
+        }
+        override fun forceStopOwned(instanceToken: String): String {
+            ownership.requireOwner(instanceToken)
+            files.writeLifecycle("world", false, "forced-stop")
+            Process.killProcess(Process.myPid())
+            return ""
         }
         override fun killForTest(): String {
             files.writeLifecycle("world", false, "kill-for-test")

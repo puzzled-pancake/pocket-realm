@@ -5,26 +5,45 @@ import android.content.Intent
 import android.os.IBinder
 import android.os.Process
 import com.pocketrealm.log.AppLog
+import com.pocketrealm.supervisor.ComponentOwnership
 import org.json.JSONObject
 
 /** Fault-isolated, non-exported owner of MariaDB and its live datadir. */
 class DatabaseService : Service() {
     private lateinit var engine: DatabaseEngine
+    private lateinit var ownership: ComponentOwnership
 
     override fun onCreate() {
         super.onCreate()
         DatabaseNative.load()
         engine = DatabaseEngine(applicationContext)
+        ownership = ComponentOwnership("database") {
+            Thread({
+                AppLog.w(TAG, "supervisor owner lease died; stopping database dirty")
+                runCatching { engine.close() }
+                stopSelf()
+            }, "database-owner-loss").start()
+        }
         AppLog.i(TAG, "DatabaseService created pid=${Process.myPid()}")
     }
 
     private val binder = object : IDatabaseControl.Stub() {
-        override fun status(): String = guarded { engine.status() }
+        override fun claim(sessionId: String, instanceToken: String, ownerLease: IBinder): String =
+            guarded { ownership.claim(sessionId, instanceToken, ownerLease) }
+        override fun status(): String = guarded { ownership.decorate(engine.status()) }
         override fun initialize(): String = guarded { engine.initialize() }
         override fun start(): String = guarded { engine.start() }
         override fun queryHealth(): String = guarded { engine.queryHealth() }
         override fun applyPinnedMigrations(): String = guarded { engine.applyPinnedMigrations() }
         override fun stop(): String = guarded { engine.stop() }
+        override fun stopOwned(instanceToken: String): String = guarded {
+            ownership.requireOwner(instanceToken)
+            engine.stop().also { ownership.clear(instanceToken) }
+        }
+        override fun forceStopOwned(instanceToken: String): String = guarded {
+            ownership.requireOwner(instanceToken)
+            engine.killForTest()
+        }
         override fun killForTest(): String = guarded { engine.killForTest() }
         override fun recover(): String = guarded { engine.recover() }
         override fun snapshotAndRestoreTest(): String = guarded { engine.snapshotAndRestoreTest() }

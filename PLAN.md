@@ -128,6 +128,16 @@ disabled until the later measured bot gate.
 
 Replace the simulated supervisor with the report state machine and a durable atomic journal. Startup is dependency-gated: preflight -> database ready/schema compatible -> realmd ready -> world ready/data loaded -> client window ready. Component ownership uses session/instance tokens rather than stale PIDs. A client-only crash permits bounded relaunch; database/world failures are realm-fatal and preserve evidence.
 
+O10 completed on 3 August 2026. The foreground `:supervisor` process now owns
+the dependency state machine, schema-2 fsync/atomic-rename journal, bounded
+operations, 256-bit per-component generation tokens, and live Binder owner
+leases. Structured health plus exact ownership gates every promotion and
+signal. The API-35 x86_64 4 KB lane passes clean lifecycle, supervisor-death
+recovery, client-failure isolation, owned world-failure teardown, restart, and
+final clean shutdown. The qualified O07 client/display attachment remains an
+O12 integration step; O10's backend exposes that absence as `CLIENT_FAILED`
+without taking down the ready local realm.
+
 Complete resumable SAF managed-copy import and checkpointed DBC/maps/vmaps/mmaps preparation with storage preflight, immutable source, atomic manifests, and no silent degraded data mode. Provision accounts through the core command/control path; secrets never enter logs. Implement database-consistent backups, restore-to-fresh-datadir verification, support-bundle redaction, and the exact shutdown order from report section 18.3.
 
 **Exit:** one action completes local login, character creation, 30 minutes of play, save/stop/restart with exact character assertions, 20 clean cycles, forced recovery, and importer interruption tests on x86.
