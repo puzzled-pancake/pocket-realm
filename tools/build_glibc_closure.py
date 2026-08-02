@@ -12,8 +12,7 @@ plumbing). So we run it in the official cgct Docker container.
 
 Procedure (mirrors termux-pacman/glibc-packages CI):
   1. Clone termux-pacman/glibc-packages at the pinned commit (sources.json).
-  2. Vendor the build harness via get-build-package.sh (shallow-clones
-     termux-packages; we record the harness commit for provenance).
+  2. Vendor the build harness from an exact termux/termux-packages commit.
   3. Build each lockfile package for x86_64 via run-docker.sh + build-package.sh
      in the ghcr.io/termux/package-builder-cgct container.
   4. Import the output .pkg.tar.* into runtime/glibc-rootfs-x86_64/, extract the
@@ -40,6 +39,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -52,28 +52,25 @@ WORK_ROOT = ROOT / "native" / ".glibc-build"          # gitignored build workspa
 OUTPUT_ROOT = ROOT / "runtime" / "glibc-rootfs-x86_64"  # final staged closure
 
 GLIBC_PACKAGES_ID = "termux-glibc-packages-c9d4de5"
-CGCT_IMAGE = "ghcr.io/termux/package-builder-cgct:latest"
-
-# On Windows, Python's subprocess must use the EXPLICIT Git Bash binary, not
-# PATH resolution: Windows' own bash.exe (System32) is the WSL launcher, which
-# fails with "execvpe(/bin/bash) failed: No such file or directory" when there
-# is no usable WSL distro. Resolve the Git Bash binary the same way the running
-# shell would.
-def _resolve_git_bash() -> str:
-    import shutil
-    candidates = [
-        shutil.which("bash"),  # works when invoked from Git Bash
-        r"C:\Program Files\Git\usr\bin\bash.exe",
-        r"C:\Program Files\Git\bin\bash.exe",
-        str(Path.home() / r"AppData\Local\Programs\Git\usr\bin\bash.exe"),
-    ]
-    for c in candidates:
-        if c and Path(c).is_file():
-            return c
-    return "bash"  # fall back; will fail loudly on Windows without Git
-
-GIT_BASH = _resolve_git_bash()
-
+CGCT_IMAGE = (
+    "ghcr.io/termux/package-builder-cgct@"
+    "sha256:69ffa5cfe02ca569e7d03d1c99e3c9a0f79390ad6bf11a3629d048c29c6ccb61"
+)
+TERMUX_PACKAGES_HARNESS_COMMIT = "d9188dcf2517ec5f2ed82e021b3cd14c402c74ec"
+GCC_LIBS_RECIPE_COMMIT = "845d0e313f53535de28abba0fb42b07e960cc031"
+GLIBC_OVERLAY_DIR = ROOT / "native" / "wine-spike" / "glibc"
+LOCAL_BOOTSTRAP_PACKAGES = {
+    "gcc-libs", "libx11", "libxcb", "libxau", "libxdmcp", "libxext", "freetype",
+    "fontconfig", "zlib", "libbz2", "libpng", "brotli", "libexpat",
+    "xorg-util-macros", "xorgproto", "xtrans", "xcb-proto",
+}
+ELF_MAX_PAGE_SIZE = "0x4000"
+BUILD_ORDER = (
+    "glibc", "gcc-libs", "xorg-util-macros", "xorgproto", "xtrans",
+    "xcb-proto", "libxau", "libxdmcp", "libxcb", "libx11", "libxext",
+    "zlib", "libbz2", "libpng", "brotli", "freetype", "libexpat",
+    "fontconfig",
+)
 
 def sha256_of(path: Path) -> str:
     h = hashlib.sha256()
@@ -99,6 +96,15 @@ def run(cmd: list[str], cwd: Path | None = None, check: bool = True,
         env: dict | None = None) -> subprocess.CompletedProcess:
     print(f"  $ {' '.join(cmd)}" + (f"   (cwd={cwd})" if cwd else ""))
     return subprocess.run(cmd, cwd=str(cwd) if cwd else None, check=check, env=env)
+
+
+def remove_tree(path: Path) -> None:
+    """Remove a disposable checkout, including Git's read-only pack files."""
+    def make_writable_and_retry(func, failed_path, _exc):
+        os.chmod(failed_path, stat.S_IWRITE)
+        func(failed_path)
+
+    shutil.rmtree(path, onexc=make_writable_and_retry)
 
 
 def _win_to_docker_mount(path: Path) -> str:
@@ -135,6 +141,165 @@ def clone_glibc_packages(commit: str, dest: Path) -> None:
     run(["git", "-C", str(dest), "checkout", commit])
 
 
+def apply_gcc_libs_recipe_pin(repo: Path) -> None:
+    """Use the recorded GCC 16.1 recipe commit for this package only."""
+    run(["git", "-C", str(repo), "checkout", GCC_LIBS_RECIPE_COMMIT, "--",
+         "gpkg/gcc-libs"])
+    recipe = repo / "gpkg" / "gcc-libs" / "build.sh"
+    text = recipe.read_text(encoding="utf-8")
+    old = "termux_step_make() {\n\tmake\n}"
+    new = "termux_step_make() {\n\tmake -j8 all-target-libgcc\n}"
+    if text.count(old) != 1:
+        raise RuntimeError("pinned gcc-libs serial-make anchor missing or ambiguous")
+    text = text.replace(old, new)
+    build_dep_old = 'TERMUX_PKG_BUILD_DEPENDS="doxygen-glibc"'
+    build_dep_new = '# TERMUX_PKG_BUILD_DEPENDS omitted: Doxygen is not needed for runtime libraries'
+    if text.count(build_dep_old) != 1:
+        raise RuntimeError("pinned gcc-libs Doxygen dependency anchor missing or ambiguous")
+    text = text.replace(build_dep_old, build_dep_new)
+    prereq_anchor = "termux_step_pre_configure() {\n"
+    prereq_insert = (
+        "termux_step_pre_configure() {\n"
+        "\t(cd \"$TERMUX_PKG_SRCDIR\" && ./contrib/download_prerequisites)\n"
+    )
+    if text.count(prereq_anchor) != 1:
+        raise RuntimeError("pinned gcc-libs pre-configure anchor missing or ambiguous")
+    text = text.replace(prereq_anchor, prereq_insert)
+    external_prereqs = (
+        "\t\t--with-gmp=$TERMUX_PREFIX \\\n"
+        "\t\t--with-mpfr=$TERMUX_PREFIX \\\n"
+        "\t\t--with-mpc=$TERMUX_PREFIX \\\n"
+    )
+    if text.count(external_prereqs) != 1:
+        raise RuntimeError("pinned gcc-libs external-prerequisite anchors missing or ambiguous")
+    text = text.replace(external_prereqs, "")
+    languages_old = "\t\t--enable-languages=c,c++,fortran \\\n"
+    languages_new = "\t\t--enable-languages=c \\\n"
+    if text.count(languages_old) != 1:
+        raise RuntimeError("pinned gcc-libs language anchor missing or ambiguous")
+    text = text.replace(languages_old, languages_new)
+    linker_old = "\t\tLD_FOR_TARGET=$TERMUX_PREFIX/bin/ld || (cat config.log && exit 1)"
+    linker_new = (
+        "\t\tLD_FOR_TARGET=$LD \\\n"
+        "\t\tLDFLAGS_FOR_TARGET=\"$LDFLAGS\" || (cat config.log && exit 1)"
+    )
+    if text.count(linker_old) != 1:
+        raise RuntimeError("pinned gcc-libs target-linker anchor missing or ambiguous")
+    text = text.replace(linker_old, linker_new)
+    install_anchor = "termux_step_make_install() {"
+    if text.count(install_anchor) != 1 or not text.rstrip().endswith("}"):
+        raise RuntimeError("pinned gcc-libs install function missing or ambiguous")
+    install_start = text.index(install_anchor)
+    text = text[:install_start] + (
+        "termux_step_make_install() {\n"
+        "\tmake -C $TERMUX_HOST_PLATFORM/libgcc install-shared\n"
+        "}\n"
+    )
+    recipe.write_text(text, encoding="utf-8", newline="\n")
+    print(f"  pinned gcc-libs recipe at {GCC_LIBS_RECIPE_COMMIT}")
+    print("  narrowed gcc-libs to the C/libgcc target with bounded parallelism")
+    print("  removed gcc-libs' documentation-only Doxygen build dependency")
+    print("  selected GCC's checksum-verified in-tree GMP/MPFR/MPC prerequisites")
+
+
+def apply_android_syscall_overlays(repo: Path) -> None:
+    """Apply the project-owned additions to the pinned Termux glibc recipe.
+
+    Android's x86_64 app seccomp policy blocks poll(2).  Termux's glibc recipe
+    already removes blocked syscall numbers from arch-syscall.h and supplies
+    compatible implementations through fakesyscall.json.  Add poll to that
+    same mechanism so glibc's private NSS/resolver calls use ppoll(2), not just
+    public calls that an LD_PRELOAD shim can interpose.
+
+    Every textual edit is signature-locked.  This deliberately fails when the
+    pinned upstream recipe changes instead of silently producing an unpatched
+    libc.
+    """
+    recipe = repo / "gpkg" / "glibc"
+    source = GLIBC_OVERLAY_DIR / "fake_poll.c"
+    if not source.is_file():
+        raise RuntimeError(f"missing glibc overlay: {source}")
+    shutil.copy2(source, recipe / "fake_poll.c")
+
+    config_path = recipe / "fakesyscall.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    key = "fake_poll((struct pollfd *)a0, a1, a2)"
+    existing = config.get(key)
+    if existing not in (None, ["poll"]):
+        raise RuntimeError(f"unexpected existing poll fakesyscall: {existing!r}")
+    config[key] = ["poll"]
+    config_path.write_text(json.dumps(config, indent="\t") + "\n", encoding="utf-8", newline="\n")
+
+    base_path = recipe / "fakesyscall-base.h"
+    base = base_path.read_text(encoding="utf-8")
+    include = '// fake_poll\n#include "fake_poll.c"'
+    if include not in base:
+        anchor = '// fake_epoll_pwait2\n#include "fake_epoll_pwait2.c"'
+        if base.count(anchor) != 1:
+            raise RuntimeError("pinned fakesyscall-base.h include anchor missing or ambiguous")
+        base = base.replace(anchor, anchor + "\n\n" + include)
+        base_path.write_text(base, encoding="utf-8", newline="\n")
+
+    build_path = recipe / "build.sh"
+    build = build_path.read_text(encoding="utf-8")
+    old = "fake_epoll_pwait2.c,setfs{u,g}id.c"
+    new = "fake_epoll_pwait2.c,fake_poll.c,setfs{u,g}id.c"
+    if new not in build:
+        if build.count(old) != 1:
+            raise RuntimeError("pinned glibc build.sh copy-list anchor missing or ambiguous")
+        build = build.replace(old, new)
+    # The selected Wine build uses new-WoW64 and therefore needs no i386 Unix
+    # userspace. Do not spend time producing the recipe's glibc32 subpackage or
+    # accidentally import it into the x86_64-only closure.
+    multilib_old = "TERMUX_PKG_BUILD_MULTILIB=true"
+    multilib_new = "TERMUX_PKG_BUILD_MULTILIB=false"
+    if multilib_new not in build:
+        if build.count(multilib_old) != 1:
+            raise RuntimeError("pinned glibc multilib anchor missing or ambiguous")
+        build = build.replace(multilib_old, multilib_new)
+    build_path.write_text(build, encoding="utf-8", newline="\n")
+
+    print("  applied Android poll(2)->ppoll(2) and x86_64-only glibc recipe overlays")
+
+    # These two upstream recipes depend on target bash only for packaged CLI
+    # utilities/scripts. O06 imports the shared libraries exclusively. Keeping
+    # that utility-only dependency would make a libbz2/libpng closure rebuild
+    # recursively build Bash and (when the mirror lacks gcc-libs 16.1) GCC.
+    # Narrow the source recipe to the library dependency surface we distribute.
+    dep_edits = {
+        "libbz2": (
+            'TERMUX_PKG_DEPENDS="glibc, bash-glibc"',
+            'TERMUX_PKG_DEPENDS="glibc"',
+        ),
+        "libpng": (
+            'TERMUX_PKG_DEPENDS="zlib-glibc, bash-glibc"',
+            'TERMUX_PKG_DEPENDS="zlib-glibc"',
+        ),
+    }
+    for package, (old_dep, new_dep) in dep_edits.items():
+        path = repo / "gpkg" / package / "build.sh"
+        text = path.read_text(encoding="utf-8")
+        if new_dep not in text:
+            if text.count(old_dep) != 1:
+                raise RuntimeError(f"pinned {package} dependency anchor missing or ambiguous")
+            path.write_text(text.replace(old_dep, new_dep), encoding="utf-8", newline="\n")
+    print("  applied library-only dependency overlays for libbz2/libpng")
+
+    # xcb-proto is platform-independent build input. The pinned recipe names
+    # python${TERMUX_PYTHON_VERSION}, but -s intentionally does not install the
+    # target Python package; use the CGCT image's host Python for generation.
+    xcb_proto_path = repo / "gpkg" / "xcb-proto" / "build.sh"
+    xcb_proto = xcb_proto_path.read_text(encoding="utf-8")
+    python_old = "PYTHON=python${TERMUX_PYTHON_VERSION}"
+    python_new = "PYTHON=python3"
+    if python_new not in xcb_proto:
+        if xcb_proto.count(python_old) != 1:
+            raise RuntimeError("pinned xcb-proto Python anchor missing or ambiguous")
+        xcb_proto_path.write_text(xcb_proto.replace(python_old, python_new),
+                                  encoding="utf-8", newline="\n")
+    print("  selected host Python for the build-only xcb-proto generator")
+
+
 def strip_crlf_sh(repo: Path) -> int:
     """Strip CRLF line endings from every .sh file in the repo. Required on
     Windows: git checkout with core.autocrlf=true converts LF->CRLF, and the
@@ -156,21 +321,62 @@ def strip_crlf_sh(repo: Path) -> int:
     return fixed
 
 
+def apply_16k_linker_overlay(repo: Path) -> None:
+    """Link every glibc-side ELF for both 4 KB and 16 KB kernels.
+
+    The CGCT GNU toolchain defaults x86_64 PT_LOAD segments to 4 KB. Android's
+    16 KB kernel rejects those ELFs before the dynamic loader can start. Patch
+    the harness's single GNU-toolchain initialization point so glibc and every
+    DT_NEEDED closure package use congruent 16 KB segments.
+    """
+    path = repo / "scripts" / "build" / "toolchain" / "termux_setup_toolchain_gnu.sh"
+    text = path.read_text(encoding="utf-8")
+    old = 'export LDFLAGS=""'
+    new = f'export LDFLAGS="-Wl,-z,max-page-size={ELF_MAX_PAGE_SIZE}"'
+    if new not in text:
+        if text.count(old) != 1:
+            raise RuntimeError("GNU toolchain LDFLAGS anchor missing or ambiguous")
+        path.write_text(text.replace(old, new), encoding="utf-8", newline="\n")
+    print(f"  applied dual-page-size ELF linker policy (max-page-size={ELF_MAX_PAGE_SIZE})")
+
+
 def vendor_build_harness(repo: Path) -> str:
-    """Run get-build-package.sh, which shallow-clones termux-packages master and
-    copies build-package.sh + scripts/ in. Return the termux-packages commit for
-    provenance recording (the harness version is otherwise unpinned)."""
-    if (repo / "build-package.sh").is_file():
-        print(f"  (build harness already vendored at {repo})")
+    """Vendor the Termux build harness at an exact, reviewable commit."""
+    marker = repo / ".termux-packages-harness-commit"
+    current = marker.read_text(encoding="ascii").strip() if marker.is_file() else ""
+    required = ("build-package.sh", "clean.sh", "packages", "x11-packages",
+                "root-packages", "scripts", "ndk-patches")
+    if current == TERMUX_PACKAGES_HARNESS_COMMIT and all((repo / p).exists() for p in required):
+        print(f"  (build harness already pinned at {TERMUX_PACKAGES_HARNESS_COMMIT})")
     else:
-        run([GIT_BASH, "get-build-package.sh"], cwd=repo)
-    # Strip CRLF from the freshly-vendored scripts (Windows checkout).
+        checkout = repo / ".termux-packages-pinned"
+        if checkout.exists():
+            remove_tree(checkout)
+        checkout.mkdir()
+        run(["git", "-C", str(checkout), "init"])
+        run(["git", "-C", str(checkout), "remote", "add", "origin",
+             "https://github.com/termux/termux-packages.git"])
+        run(["git", "-C", str(checkout), "fetch", "--depth", "1", "origin",
+             TERMUX_PACKAGES_HARNESS_COMMIT])
+        run(["git", "-C", str(checkout), "checkout", "--detach", "FETCH_HEAD"])
+        for name in required:
+            target = repo / name
+            if target.exists():
+                if target.is_dir():
+                    remove_tree(target)
+                else:
+                    target.unlink()
+            source = checkout / name
+            if source.is_dir():
+                shutil.copytree(source, target)
+            else:
+                shutil.copy2(source, target)
+        remove_tree(checkout)
+        marker.write_text(TERMUX_PACKAGES_HARNESS_COMMIT + "\n", encoding="ascii")
+        print(f"  vendored Termux build harness at {TERMUX_PACKAGES_HARNESS_COMMIT}")
     n = strip_crlf_sh(repo)
     print(f"  stripped CRLF from {n} .sh files (Windows checkout fix)")
-    # The cloned termux-packages/ is deleted by get-build-package.sh, so we
-    # cannot read its commit after the fact. Record the harness as unpinned
-    # (master) — a known provenance gap noted in BUILD_PROVENANCE.json.
-    return "master (unpinned by get-build-package.sh — see provenance gap note)"
+    return TERMUX_PACKAGES_HARNESS_COMMIT
 
 
 def _package_output_exists(out_dir: Path, pkg_name: str, arch: str) -> bool:
@@ -225,9 +431,34 @@ def _build_one_package(repo: Path, arch: str, pkg: str, out_dir: Path,
         "-v", f"{mount_repo}:/home/builder/termux-packages",
         "--workdir", "/home/builder/termux-packages",
         CGCT_IMAGE,
-        "./build-package.sh", flag, "-a", arch,
-        "--format", "pacman", "--library", "glibc", pkg,
     ]
+    if install_deps:
+        cmd += ["./build-package.sh", flag, "-a", arch,
+                "--format", "pacman", "--library", "glibc", pkg]
+    else:
+        # The current mirror does not publish gcc-libs-glibc 16.1. Import all
+        # locally source-built packages into this ephemeral prefix and create
+        # the same version stamps the Termux harness writes after a successful
+        # build. The -s mode then skips dependency resolution entirely: every
+        # target dependency is already present, and this avoids the harness
+        # walking unavailable mirror packages and recursively rebuilding GCC.
+        bootstrap = r'''
+set -e
+mkdir -p /data/data/.built-packages
+for archive in output/*.pkg.tar.xz; do
+  [ -f "$archive" ] || continue
+  pkginfo=$(tar -xOf "$archive" .PKGINFO 2>/dev/null || true)
+  pkgname=$(printf '%s\n' "$pkginfo" | sed -n 's/^pkgname = //p' | head -n 1)
+  pkgver=$(printf '%s\n' "$pkginfo" | sed -n 's/^pkgver = //p' | head -n 1)
+  tar -xJf "$archive" --anchored --exclude=.{BUILDINFO,PKGINFO,MTREE,INSTALL} \
+    --force-local --no-overwrite-dir -C /
+  if [ -n "$pkgname" ] && [ -n "$pkgver" ]; then
+    printf '%s\n' "$pkgver" > "/data/data/.built-packages/$pkgname"
+  fi
+done
+exec ./build-package.sh -s -a "$1" --format pacman --library glibc "$2"
+'''.strip()
+        cmd += ["bash", "-lc", bootstrap, "closure-build", arch, pkg]
     # Retry loop ONLY for transient network failures (HTTP 429 from the gcc git
     # clone at sourceware.org, mirror hiccups, connection resets). A real build
     # failure aborts at once — retrying a deterministic failure reproduces it.
@@ -270,7 +501,7 @@ def _build_one_package(repo: Path, arch: str, pkg: str, out_dir: Path,
     return False
 
 
-def build_packages(repo: Path, arch: str, pkgs: list[str]) -> Path:
+def build_packages(repo: Path, arch: str, pkgs: list[str], force: bool = False) -> Path:
     """Build each lockfile package in its own container, skipping any whose
     output archive already exists. Per-package isolation makes each success
     durable: a later failure cannot throw away an earlier package's build.
@@ -280,6 +511,12 @@ def build_packages(repo: Path, arch: str, pkgs: list[str]) -> Path:
     out_dir = repo / "output"
     out_dir.mkdir(exist_ok=True)
     strip_crlf_sh(repo)
+    if force:
+        prefixes = tuple(p for pkg in pkgs for p in (f"{pkg}-glibc-", f"{pkg}-"))
+        for artifact in out_dir.glob("*.pkg.tar.*"):
+            if artifact.name.startswith(prefixes):
+                print(f"  force rebuild: removing generated cache artifact {artifact.name}")
+                artifact.unlink()
     failed: list[str] = []
     for i, pkg in enumerate(pkgs, 1):
         if _package_output_exists(out_dir, pkg, arch):
@@ -287,7 +524,8 @@ def build_packages(repo: Path, arch: str, pkgs: list[str]) -> Path:
             print(f"[{i}/{len(pkgs)}] {pkg}: already built -> {existing}")
             continue
         print(f"\n[{i}/{len(pkgs)}] building {pkg} ...")
-        if not _build_one_package(repo, arch, pkg, out_dir, install_deps=True):
+        install_deps = pkg not in LOCAL_BOOTSTRAP_PACKAGES
+        if not _build_one_package(repo, arch, pkg, out_dir, install_deps=install_deps):
             failed.append(pkg)
     if failed:
         raise RuntimeError(f"build failed for packages: {failed}")
@@ -316,6 +554,8 @@ def main() -> int:
     ap.add_argument("--packages", help="comma-separated subset (default: all lockfile packages)")
     ap.add_argument("--no-build", action="store_true",
                     help="print the plan + verify prerequisites without building")
+    ap.add_argument("--force", action="store_true",
+                    help="rebuild requested packages even when generated archives exist")
     args = ap.parse_args()
 
     pin = load_glibc_packages_pin()
@@ -327,6 +567,8 @@ def main() -> int:
     if unknown:
         print(f"ERROR: packages not in lockfile: {unknown}", file=sys.stderr)
         return 2
+    order = {name: index for index, name in enumerate(BUILD_ORDER)}
+    requested.sort(key=lambda name: order.get(name, len(order)))
 
     print("=== O06 glibc closure source-build plan ===")
     print(f"  repo pin : termux-pacman/glibc-packages @ {pin['commit']}")
@@ -348,10 +590,13 @@ def main() -> int:
 
     repo = WORK_ROOT / "glibc-packages"
     clone_glibc_packages(pin["commit"], repo)
+    apply_gcc_libs_recipe_pin(repo)
+    apply_android_syscall_overlays(repo)
     harness_commit = vendor_build_harness(repo)
+    apply_16k_linker_overlay(repo)
     print(f"\n  harness  : termux-packages @ {harness_commit} (vendored by get-build-package.sh)")
 
-    out_dir = build_packages(repo, args.arch, requested)
+    out_dir = build_packages(repo, args.arch, requested, force=args.force)
     imported = import_and_hash(out_dir, requested, OUTPUT_ROOT)
 
     # Record the build result into a provenance file alongside the lockfile.
@@ -361,6 +606,7 @@ def main() -> int:
         "termux_packages_harness_commit": harness_commit,
         "cgct_image": CGCT_IMAGE,
         "arch": args.arch,
+        "elf_max_page_size": ELF_MAX_PAGE_SIZE,
         "packages_requested": requested,
         "imported_packages": imported,
     }

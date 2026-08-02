@@ -37,6 +37,7 @@ static const char *WINDOW_TITLE = "Pocket Realm G1 Self-test";
 static int g_vk_last = 0;
 static int g_audio_attempted = 0;
 static int g_audio_ok = 0;
+static int g_painted = 0;
 
 static void log_line(const char *fmt, ...) {
     char buf[256];
@@ -110,6 +111,27 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_LBUTTONDOWN:
             log_line("POCKET_SELFTEST_MOUSE x=%d y=%d btn=l",
                      (int)(short)LOWORD(lp), (int)(short)HIWORD(lp));
+            return 0;
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC dc = BeginPaint(hwnd, &ps);
+            FillRect(dc, &ps.rcPaint, (HBRUSH)(COLOR_WINDOW + 1));
+            EndPaint(hwnd, &ps);
+            if (!g_painted) {
+                g_painted = 1;
+                log_line("POCKET_SELFTEST_PAINT");
+                /* Close only after the mapped window has painted. This keeps
+                 * the headless instrumentation deterministic while exercising
+                 * WM_CLOSE, WM_DESTROY, and a clean process exit. */
+                SetTimer(hwnd, 1, 250, NULL);
+            }
+            return 0;
+        }
+        case WM_TIMER:
+            if (wp == 1) {
+                KillTimer(hwnd, 1);
+                SendMessageA(hwnd, WM_CLOSE, 0, 0);
+            }
             return 0;
         case WM_CLOSE:
             DestroyWindow(hwnd);

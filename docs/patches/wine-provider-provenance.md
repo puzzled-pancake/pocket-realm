@@ -1,15 +1,48 @@
-# O06 X-Server Provider Provenance (Winlator ca3d735)
+# O06 Wine Runtime and X-Server Provider Provenance
 
-This document records the source correspondence, license obligation, and trim
-list for the in-app X-server vendored from Winlator for the O06 Wine feasibility
-spike (S-3: X11/GDI window).
+This document records the Wine 16 KB adaptation plus the source correspondence,
+license obligation, and trim list for the in-app X-server used by the O06 Wine
+feasibility spike.
 
 **Status as of this revision:** the Java X11 wire-protocol sources are vendored
 and compile (143 `.java` files). The **native transport `libwinlator.so` is
 vendored, built, and packaged** into the APK (NDK build, 16 KB-aligned,
-413864 bytes). S-3 is now wired end-to-end (WineSpikeRunner.runS3 + the pinned
-connector/handlers). No Java reimplementation of the native epoll/SCM_RIGHTS
-layer was written.
+413864 bytes). S-3 passes end-to-end on the Modern 4 KB and 16 KB lanes. No Java
+reimplementation of the native epoll/SCM_RIGHTS layer was written.
+
+## Wine 11.14 paired 16 KB adaptation
+
+- **Source:** `wine-mirror/wine` commit
+  `1012f3d99507b80d4869eabf0853567660a7ecbb` (Wine 11.14), matching the
+  Kron4ek 11.14 vanilla WoW64 provider recorded in `schemas/sources.json`.
+- **Patch:** `native/wine-spike/patches/wine-11.14-x86_64-16k.patch`.
+- **Reproduction:** `tools/build_wine_16k_ntdll.py` builds in the pinned Termux
+  CGCT image digest. Reviewed output hashes/toolchain data are checked in at
+  `native/wine-spike/patches/wine-11.14-x86_64-16k.provenance.json`; each local
+  rebuild also emits its generated record at
+  `native/.build-x86_64/wine-ntdll-16k-multiarch/BUILD_PROVENANCE.json`.
+- **Paired outputs:** Unix `ntdll.so`, x86_64 PE `ntdll.dll`, and x86_64 PE
+  `win32u.dll`. These must always be staged as one source-matched set.
+
+Wine's generated x86_64 syscall stubs normally call a process-local dispatcher
+pointer at `0x7ffe1000`. On a 16 KB Android host this address occupies the same
+host page as the shared `KUSER_SHARED_DATA` mapping at `0x7ffe0000`. Multiple
+Wine processes can therefore overwrite one another's ASLR-relative dispatcher
+pointer and jump into an invalid address. The patch moves the dispatcher to a
+private host page at `0x7ffe4000`, maps/protects using the detected host page
+size, and regenerates all affected x86_64 PE syscall stubs.
+
+The build verifier scans the provider's complete x86_64 PE directory and proves
+that only `ntdll.dll` and `win32u.dll` contain the old dispatcher encoding. It
+rejects any old stubs in the rebuilt pair, requires the expected new stubs, and
+checks the Unix ELF for 16 KB page compatibility. This closes the source-
+reproduction and mixed-runtime risks rather than treating a manually edited
+binary as a distributable fix.
+
+Final paired-runtime qualification is recorded in:
+
+- `tests/avd/AVD-Modern-x86_64-v1/evidence/pkgExperiment-wine_spike-all-20260802-185902.PASS.log`
+- `tests/avd/AVD-16K-x86_64-v1/evidence/pkgExperiment-wine_spike-all-20260802-185645.PASS.log`
 
 ## Source pin
 
@@ -18,7 +51,7 @@ layer was written.
 - **Fetched to:** `native/.providers-extracted/winlator-app-ca3d735/` (source
   archive, not committed)
 - **Java vendored to:** `runtime/xserver-winlator/com/winlator/`
-- **Native source location (pinned, NOT yet vendored/built):**
+- **Native source location:** `native/xserver-winlator/cpp/`, vendored from
   `native/.providers-extracted/winlator-app-ca3d735/app/src/main/cpp/winlator/`
   (`src/{xconnector_epoll.c, xinput_stream.c, xoutput_stream.c, arrays.c,
   ring_buffer.c, drawable.c, ...}` + `include/*.h`)
@@ -26,7 +59,7 @@ layer was written.
   source-offer obligation)
 - **schemas/sources.json id:** `xserver-winlator-ca3d735`
 
-## What is actually vendored today (Java only; compiles)
+## Vendored Java layer
 
 143 `.java` files under `runtime/xserver-winlator/com/winlator/`:
 
@@ -37,7 +70,7 @@ layer was written.
 | `com.winlator.xserver.events` | 25 | X11 event types |
 | `com.winlator.xserver.extensions` | 9 | BigReq, DRI3, GLX, MIT-SHM, Present, Sync, XComposite (+ base `Extension`) |
 | `com.winlator.xserver.requests` | 11 | X11 core request handlers (CreateWindow, MapWindow, PolyFillRect, etc.) |
-| `com.winlator.xconnector` | 8 | Unix-socket connection layer. **`XConnectorEpoll` + `XInputStream` + `XOutputStream` declare JNI methods backed by the native transport — which is NOT yet built.** These classes therefore link but fail at runtime until `libwinlator.so` is added. |
+| `com.winlator.xconnector` | 8 | Unix-socket connection layer. `XConnectorEpoll` + `XInputStream` + `XOutputStream` use the packaged native transport. |
 | `com.winlator.renderer` | 9 | GLES compositor (`GLRenderer`, `Texture`, `RenderableWindow`) |
 | `com.winlator.renderer.effects` | 4 | Post effects (cursor, etc.) |
 | `com.winlator.renderer.material` | 4 | GLES materials/shaders |
@@ -74,7 +107,8 @@ layer was written.
 3. **S-3 harness** — `WineSpikeRunner.runS3`: creates `<appTmp>/.X11-unix/X0`,
    starts the X-server (XConnectorEpoll + XClientConnectionHandler +
    XClientRequestHandler, headless for the spike), launches the project-owned
-   32-bit self-test PE with DISPLAY=:0 via the synchronous proot run, requires
+   32-bit self-test PE with DISPLAY=:0 via the qualified direct glibc adapter,
+   requires
    `POCKET_SELFTEST_WINDOW` + `POCKET_SELFTEST_OK` + exit zero, proves a mapped
    client window via `WindowManager.getMappedClientWindows()`, and cleanly
    shuts down wineserver + the X-server. A `getMappedClientWindows()` accessor
@@ -98,13 +132,14 @@ layer was written.
    `GLRenderer.createRootCursorDrawable` uses a resource-name lookup with a 1x1
    fallback.
 
-## Acceptance mapping (S-3, pending)
+## Acceptance mapping (S-3, passed on both lanes)
 
 - **Create + map window:** opcodes CREATE_WINDOW/MAP_WINDOW → `WindowManager`.
   The mapped window's content lives in a `Drawable` (BGRA `ByteBuffer`).
 - **Listen on socket:** `XConnectorEpoll` (native `xconnector_epoll.c`) binds
-  `<appTmp>/.X11-unix/X0`; under PRoot the `<appTmp>:/tmp` bind makes it visible
-  as `/tmp/.X11-unix/X0`. Wine's `winex11.drv` connects via `DISPLAY=:0`.
+  `<appTmp>/.X11-unix/X0`; the glibc path shim maps Wine's conventional
+  `/tmp/.X11-unix/X0` lookup there. Wine's `winex11.drv` connects via
+  `DISPLAY=:0`.
 - **GLES render proof:** `Texture.updateFromDrawable()` uploads the `Drawable`'s
   `ByteBuffer` to a GLES2 texture; the harness asserts a valid texture and
   non-background pixels via screenshot/PixelCopy.
@@ -114,7 +149,8 @@ layer was written.
 The complete corresponding source of the LGPL-2.1 Winlator X-server Java layer is
 retained in-tree at `runtime/xserver-winlator/` (the vendored copy at the pinned
 commit, minus the app-shell couplings listed above which Pocket Realm does not
-use). When the native transport is built, its pinned C sources will be vendored
-from the same commit into the tree and recorded here. The upstream commit hash
-identifies the exact source version. This satisfies the LGPL-2.1
-source-availability obligation for the adapted library.
+use). The native C sources are retained at `native/xserver-winlator/cpp/` from
+the same pinned commit, with the project compatibility header and build recipe
+recorded in-tree. The upstream commit hash identifies the exact source version.
+This satisfies the LGPL-2.1 source-availability obligation for the adapted
+library.

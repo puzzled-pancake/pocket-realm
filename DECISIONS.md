@@ -88,3 +88,21 @@ decisions #7 and #8 from evidence; it does not renumber or contradict them:
 
 No existing decision is superseded. If a later gate's evidence contradicts the
 report, a separate superseding ADR will be raised then.
+
+## G1 Phase-1 overlay (2026-08-02, feature O06)
+
+The S-1/S-2/S-3 feasibility spike passes on both API-35 x86_64 page-size lanes
+and records **Outcome B**. This refines decisions #22, #23, and #25 without
+changing the report's Gate-G1 exit criteria:
+
+- **The direct-x86 backend remains replaceable behind `ClientRuntime`.** Its
+  qualified bootstrap uses pinned PRoot because Android app-domain seccomp kills
+  the glibc loader's legacy `access(2)` probe; stock Winlator remains neither the
+  application architecture nor the user experience.
+- **Wine's 16 KB dispatcher modules are a single compatibility unit.** The Unix
+  `ntdll.so` and x86_64 PE `ntdll.dll`/`win32u.dll` are source-rebuilt and staged
+  together with the dispatcher on a private page at `0x7ffe4000`. Mixed provider
+  and patched members are rejected.
+- **Phase-1 completion authorizes full O06 implementation, not O06 completion.**
+  Input, focus, audio-off, close/forced-stop, diagnostics, bounded mutable state,
+  and service/process acceptance remain required before O06 can be marked done.

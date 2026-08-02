@@ -80,16 +80,25 @@ def check_prebuilt_archive(entry: dict) -> tuple[bool, str]:
 
 
 def check_source_built_archive(entry: dict) -> tuple[bool, str]:
-    """A source-built archive's pin is its upstream commit; the built outputs
-    are hashed into the per-package lockfile (schemas/wine-runtime-lockfile.json),
-    verified separately. Here we only confirm the commit field is present and
-    complete (no abbreviation)."""
+    """Validate either a Git source pin or a release-tarball source pin.
+
+    Most entries use a full upstream commit. Some projects (notably talloc)
+    publish a release tarball instead; for those, URL + complete SHA-256 is the
+    immutable source identity. Built outputs are verified by their consuming
+    recipe/lockfile.
+    """
     commit = entry.get("commit")
-    if not commit:
-        return False, "missing commit"
-    if len(commit) < 40:
-        return False, f"commit appears abbreviated ({commit})"
-    return True, commit[:16]
+    if commit:
+        if len(commit) < 40:
+            return False, f"commit appears abbreviated ({commit})"
+        return True, commit[:16]
+    source_url = entry.get("source_tarball_url")
+    source_hash = entry.get("source_tarball_sha256")
+    if not source_url or not source_hash:
+        return False, "missing commit or source_tarball_url/source_tarball_sha256"
+    if len(source_hash) != 64 or any(ch not in "0123456789abcdefABCDEF" for ch in source_hash):
+        return False, "source_tarball_sha256 is not a complete SHA-256"
+    return True, f"tarball {source_hash[:16]}"
 
 
 def check_vendored_source(entry: dict) -> tuple[bool, str]:

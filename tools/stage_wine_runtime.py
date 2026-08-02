@@ -37,6 +37,7 @@ import json
 import lzma
 import os
 import shutil
+import struct
 import sys
 import tarfile
 from pathlib import Path
@@ -46,6 +47,18 @@ GLIBC_ROOTFS = ROOT / "runtime" / "glibc-rootfs-x86_64"
 WINE_EXTRACT = ROOT / "native" / ".providers-extracted" / "wine-kron4ek-11-14-vanilla-wow64"
 WINE_ROOT_NAME = "wine-11.14-amd64-wow64"
 OUTPUT = ROOT / "native" / ".build-x86_64" / "wine-staging"
+WINE_16K_NTDLL = (
+    ROOT / "native" / ".build-x86_64" / "wine-ntdll-16k-multiarch" /
+    "dlls" / "ntdll" / "ntdll.so"
+)
+WINE_16K_NTDLL_PE = (
+    ROOT / "native" / ".build-x86_64" / "wine-ntdll-16k-multiarch" /
+    "dlls" / "ntdll" / "x86_64-windows" / "ntdll.dll"
+)
+WINE_16K_WIN32U_PE = (
+    ROOT / "native" / ".build-x86_64" / "wine-ntdll-16k-multiarch" /
+    "dlls" / "win32u" / "x86_64-windows" / "win32u.dll"
+)
 
 # The glibc/X11/font runtime libs to stage (the DT_NEEDED closure).
 # Each entry: (package_archive, [sonames to extract from lib/])
@@ -70,8 +83,17 @@ X11_FONT_LIBS = {
     "libxext-glibc": ["libXext.so.6"],
     "freetype-glibc": ["libfreetype.so.6"],
     "fontconfig-glibc": ["libfontconfig.so.1"],
+    # Transitive DT_NEEDED closure of freetype + fontconfig. These must be
+    # staged beside their parents: merely listing the two dlopen targets in
+    # the lockfile does not make dlopen succeed.
+    "zlib-glibc": ["libz.so.1"],
+    "libbz2-glibc": ["libbz2.so.1.0"],
+    "libpng-glibc": ["libpng16.so.16"],
+    "brotli-glibc": ["libbrotlidec.so.1", "libbrotlicommon.so.1"],
+    "libexpat-glibc": ["libexpat.so.1"],
 }
 TERMUX_LIB_PREFIX = "data/data/com.termux/files/usr/glibc/lib"
+ANDROID_MAX_PAGE_SIZE = 0x4000
 
 
 def sha256_of(path: Path) -> str:
@@ -80,6 +102,56 @@ def sha256_of(path: Path) -> str:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def validate_elf_page_compatibility(data: bytes, label: str) -> None:
+    """Fail closed unless every ELF PT_LOAD works on 4 KB and 16 KB kernels.
+
+    Android's 16 KB loader requires each load segment to be aligned to at
+    least 16 KB and for the file offset and virtual address to be congruent at
+    that page size. A 16 KB-aligned ELF remains valid on the 4 KB lane.
+    """
+    if len(data) < 64 or data[:4] != b"\x7fELF":
+        raise RuntimeError(f"expected ELF runtime artifact: {label}")
+    if data[4] != 2 or data[5] != 1:
+        raise RuntimeError(f"expected little-endian ELF64 runtime artifact: {label}")
+
+    try:
+        phoff = struct.unpack_from("<Q", data, 32)[0]
+        phentsize = struct.unpack_from("<H", data, 54)[0]
+        phnum = struct.unpack_from("<H", data, 56)[0]
+    except struct.error as exc:
+        raise RuntimeError(f"truncated ELF header: {label}") from exc
+
+    load_count = 0
+    issues: list[str] = []
+    for index in range(phnum):
+        offset = phoff + index * phentsize
+        if offset + 56 > len(data):
+            raise RuntimeError(f"truncated ELF program headers: {label}")
+        p_type = struct.unpack_from("<I", data, offset)[0]
+        if p_type != 1:  # PT_LOAD
+            continue
+        load_count += 1
+        p_offset = struct.unpack_from("<Q", data, offset + 8)[0]
+        p_vaddr = struct.unpack_from("<Q", data, offset + 16)[0]
+        p_align = struct.unpack_from("<Q", data, offset + 48)[0]
+        if p_align < ANDROID_MAX_PAGE_SIZE:
+            issues.append(f"PT_LOAD[{index}] align=0x{p_align:x}")
+        if p_offset % ANDROID_MAX_PAGE_SIZE != p_vaddr % ANDROID_MAX_PAGE_SIZE:
+            issues.append(
+                f"PT_LOAD[{index}] offset/vaddr not 16K-congruent "
+                f"(0x{p_offset:x}/0x{p_vaddr:x})"
+            )
+    if load_count == 0:
+        raise RuntimeError(f"ELF contains no PT_LOAD segment: {label}")
+    if issues:
+        raise RuntimeError(f"16 KB-incompatible ELF {label}: {'; '.join(issues)}")
+
+
+def write_runtime_elf(path: Path, data: bytes, label: str) -> None:
+    validate_elf_page_compatibility(data, label)
+    path.write_bytes(data)
 
 
 def find_pkg(name_prefix: str) -> Path:
@@ -170,6 +242,186 @@ def rename_for_jnilib(soname: str) -> str:
     return "lib" + soname + ".so"
 
 
+def patch_rtld_access_for_android(path: Path) -> None:
+    """Replace the pinned loader's raw access(2) wrapper with faccessat(2).
+
+    Android's untrusted_app seccomp profile traps x86_64 syscall 21 even though
+    faccessat is allowed.  termux-pacman's glibc patch set handles public libc
+    calls, but rtld contains a private static access wrapper used before any
+    LD_PRELOAD object can run.  The replacement preserves the two-argument
+    access ABI, returns the raw negative errno on failure (rtld only tests zero
+    vs non-zero), and is deliberately signature-locked to the pinned glibc
+    2.43 artifact so an upstream byte change fails closed.
+    """
+    data = bytearray(path.read_bytes())
+    signature = bytes.fromhex(
+        "f30f1efa"          # endbr64
+        "b815000000"        # mov $SYS_access,%eax
+        "0f05"              # syscall
+        "483d00f0ffff"      # cmp $-4096,%rax
+        "7705c3"            # ja error; ret
+    )
+    offset = data.find(signature)
+    if offset < 0 or data.find(signature, offset + 1) >= 0:
+        raise RuntimeError("pinned rtld access wrapper signature missing or ambiguous")
+    replacement = bytes.fromhex(
+        "f30f1efa"          # endbr64
+        "89f2"              # mode: esi -> edx
+        "4889fe"            # pathname: rdi -> rsi
+        "bf9cffffff"        # dirfd: AT_FDCWD -> edi
+        "b80d010000"        # SYS_faccessat (269) -> eax
+        "0f05"              # syscall
+        "c3"                # return (zero or negative errno)
+    )
+    data[offset:offset + len(replacement)] = replacement
+    path.write_bytes(data)
+    print(f"  patch  rtld access(2)->faccessat(2) at file offset 0x{offset:x}")
+
+
+def patch_libc_legacy_stat_for_android(path: Path) -> None:
+    """Translate glibc's versioned stat/lstat entry points to newfstatat.
+
+    Wine links the compatibility symbols __xstat64 and __lxstat64 directly.
+    Those private glibc entry points retain the legacy x86_64 stat(2) and
+    lstat(2) syscalls even though termux-pacman's public stat wrappers use the
+    Android-compatible *at API. Android's untrusted_app seccomp policy traps
+    those legacy calls before an LD_PRELOAD interposer can help.
+
+    Each 32-byte replacement keeps the version check and the existing glibc
+    errno blocks immediately following it. Only the successful syscall setup
+    changes: newfstatat(AT_FDCWD, path, buf, flags).
+    """
+    data = bytearray(path.read_bytes())
+    for syscall_nr, at_flags, label in ((4, 0, "stat"), (6, 0x100, "lstat")):
+        signature = (
+            bytes.fromhex(
+                "f30f1efa"              # endbr64
+                "83ff01"                # supported ABI version <= 1
+                "772f"                  # invalid version -> existing EINVAL block
+                "4889f7"                # path -> rdi (legacy syscall ABI)
+                "b8"                    # mov syscall number -> eax
+            )
+            + syscall_nr.to_bytes(4, "little")
+            + bytes.fromhex(
+                "4889d6"                # result buffer -> rsi
+                "0f05"
+                "483d00f0ffff"
+                "7702"
+                "c3"
+                "90"
+            )
+        )
+        offset = data.find(signature)
+        if offset < 0 or data.find(signature, offset + 1) >= 0:
+            raise RuntimeError(f"pinned glibc __{label}stat64 signature missing or ambiguous")
+        replacement = bytes.fromhex(
+            "f30f1efa"
+            "83ff01"
+            "772f"
+            "41ba" + at_flags.to_bytes(4, "little").hex() +  # fourth arg: flags
+            "bf9cffffff"                                   # AT_FDCWD
+            "b806010000"                                   # SYS_newfstatat (262)
+            "0f05"
+            "85c0"
+            "7801"                                         # negative -> errno block
+            "c3"
+        )
+        if len(replacement) != len(signature):
+            raise AssertionError("glibc legacy stat patch must preserve the function prefix size")
+        data[offset:offset + len(signature)] = replacement
+        print(f"  patch  libc {label}(2)->newfstatat(2) at file offset 0x{offset:x}")
+    path.write_bytes(data)
+
+
+def patch_wine_interp_to_inherited_fd(path: Path) -> None:
+    """Point Wine's final ELF loader at an inherited APK rtld file handle.
+
+    wine-preloader maps the final loader itself, then opens its PT_INTERP path.
+    Android has no writable /lib64 namespace and the APK loader path is too
+    long for the fixed ELF field. The direct launcher reserves fd 100 for the
+    immutable APK loader; /proc/self/fd/100 fits in the original field and is
+    resolved by the kernel without copying executable bytes to writable data.
+    """
+    data = bytearray(path.read_bytes())
+    original = b"/lib64/ld-linux-x86-64.so.2\0"
+    replacement = b"/proc/self/fd/100\0"
+    offset = data.find(original)
+    if offset < 0 or data.find(original, offset + 1) >= 0:
+        raise RuntimeError("pinned Wine PT_INTERP signature missing or ambiguous")
+    data[offset:offset + len(original)] = replacement.ljust(len(original), b"\0")
+    path.write_bytes(data)
+    print(f"  patch  Wine PT_INTERP -> /proc/self/fd/100 at file offset 0x{offset:x}")
+
+
+def patch_wine_preloader_open_for_android(path: Path) -> None:
+    """Replace wine-preloader's raw open(2) wrapper with openat(2).
+
+    The static preloader runs before glibc and therefore cannot benefit from
+    the LD_PRELOAD compatibility shim. Android's untrusted_app seccomp policy
+    traps the legacy x86_64 open syscall, while openat is permitted. Preserve
+    wld_open(path, flags, mode)'s observable contract: a descriptor on success
+    and exactly -1 for every kernel error. Matching the complete pinned Wine
+    11.14 function makes an upstream change fail closed.
+    """
+    data = bytearray(path.read_bytes())
+    signature = bytes.fromhex(
+        "48c7c002000000"    # mov $SYS_open,%rax
+        "4989ca"            # generic wrapper fourth-argument shuffle
+        "0f05"              # syscall
+        "488d8800100000"    # kernel error-range test
+        "48c7c2ffffffff"
+        "4881f900100000"
+        "480f42c2"
+        "c3"
+    )
+    offset = data.find(signature)
+    if offset < 0 or data.find(signature, offset + 1) >= 0:
+        raise RuntimeError("pinned Wine preloader wld_open signature missing or ambiguous")
+    replacement = bytes.fromhex(
+        "4989d2"            # mode: rdx -> r10
+        "4889f2"            # flags: rsi -> rdx
+        "4889fe"            # pathname: rdi -> rsi
+        "bf9cffffff"        # dirfd: AT_FDCWD -> edi
+        "b801010000"        # SYS_openat (257) -> eax
+        "0f05"              # syscall
+        "4885c0"            # test return value
+        "7907"              # non-negative: skip the -1 assignment
+        "48c7c0ffffffff"    # any kernel error -> -1
+        "c3"
+        "90909090"          # retain the original function extent
+    )
+    if len(replacement) != len(signature):
+        raise AssertionError("Wine preloader patch must preserve the function size")
+    data[offset:offset + len(signature)] = replacement
+    path.write_bytes(data)
+    print(f"  patch  wine-preloader open(2)->openat(2) at file offset 0x{offset:x}")
+
+
+def patch_wine_datadir_to_app_alias(path: Path, with_nls_suffix: bool = False) -> None:
+    """Relocate the provider's build-machine DATADIR to an app-private alias.
+
+    Kron4ek's prebuilt NTDLL embeds /home/runner/.../share/wine and uses it via
+    glibc-private pathname calls, which an LD_PRELOAD wrapper cannot reliably
+    interpose. The owner-user AVD resolves /data/data/com.pocketrealm to the
+    package data directory; WineSpikeRunner creates the final `wine` symlink to
+    the verified cache before launch. This path is spike-only (the production
+    provider contract must supply a user-aware DATADIR), app-private, and never
+    turns data into executable bytes.
+    """
+    data = bytearray(path.read_bytes())
+    root = b"/home/runner/build_wine/wine-11.14-amd64/share/wine"
+    original = root + (b"/nls\0" if with_nls_suffix else b"\0")
+    replacement = b"/data/data/com.pocketrealm/wine" + (b"/nls\0" if with_nls_suffix else b"\0")
+    offset = data.find(original)
+    if offset < 0 or data.find(original, offset + 1) >= 0:
+        suffix = "/nls" if with_nls_suffix else ""
+        raise RuntimeError(f"pinned Wine DATADIR{suffix} signature missing or ambiguous in {path.name}")
+    data[offset:offset + len(original)] = replacement.ljust(len(original), b"\0")
+    path.write_bytes(data)
+    suffix = "/nls" if with_nls_suffix else ""
+    print(f"  patch  Wine DATADIR{suffix} -> /data/data/com.pocketrealm/wine{suffix} at file offset 0x{offset:x}")
+
+
 def stage_glibc_closure(jni_dir: Path) -> dict[str, str]:
     """Extract + rename the glibc/gcc-libs/X11/font runtime .so closure."""
     staged: dict[str, str] = {}  # soname -> renamed filename
@@ -179,16 +431,19 @@ def stage_glibc_closure(jni_dir: Path) -> dict[str, str]:
     files = extract_sonames_from_pkg(glibc_pkg, GLIBC_RUNTIME_SONAMES)
     for soname, data in sorted(files.items()):
         renamed = rename_for_jnilib(soname)
-        (jni_dir / renamed).write_bytes(data)
+        write_runtime_elf(jni_dir / renamed, data, soname)
         staged[soname] = renamed
         print(f"  glibc  {soname:28} -> {renamed:36} ({len(data):>8} B)")
+
+    patch_rtld_access_for_android(jni_dir / rename_for_jnilib("ld-linux-x86-64.so.2"))
+    patch_libc_legacy_stat_for_android(jni_dir / rename_for_jnilib("libc.so.6"))
 
     # gcc-libs package.
     gcc_pkg = find_pkg("gcc-libs-glibc")
     files = extract_sonames_from_pkg(gcc_pkg, GCC_LIBS_SONAMES)
     for soname, data in sorted(files.items()):
         renamed = rename_for_jnilib(soname)
-        (jni_dir / renamed).write_bytes(data)
+        write_runtime_elf(jni_dir / renamed, data, soname)
         staged[soname] = renamed
         print(f"  gcc    {soname:28} -> {renamed:36} ({len(data):>8} B)")
 
@@ -198,7 +453,7 @@ def stage_glibc_closure(jni_dir: Path) -> dict[str, str]:
         files = extract_sonames_from_pkg(pkg, sonames)
         for soname, data in sorted(files.items()):
             renamed = rename_for_jnilib(soname)
-            (jni_dir / renamed).write_bytes(data)
+            write_runtime_elf(jni_dir / renamed, data, soname)
             staged[soname] = renamed
             print(f"  x11    {soname:28} -> {renamed:36} ({len(data):>8} B)")
 
@@ -229,18 +484,55 @@ def stage_wine_elFs(wine_root: Path, jni_dir: Path) -> dict[str, str]:
         out = jni_dir / renamed
         # Don't re-write the preloader stub if already written (wine==wineboot==...).
         if not out.exists():
-            out.write_bytes(data)
+            write_runtime_elf(out, data, f"Wine bin/{name}")
+            if name == "wineserver":
+                patch_wine_interp_to_inherited_fd(out)
+                patch_wine_datadir_to_app_alias(out, with_nls_suffix=True)
             print(f"  wine   bin/{name:16}  -> {renamed:36} ({len(data):>8} B)")
         staged[f"bin/{name}"] = renamed
 
-    # x86_64-unix ELF modules (ntdll.so, winex11.so, etc.).
+    # Wine's bin/ launcher is only the first stage.  For every command other
+    # than --help/--version, ntdll re-execs the installed architecture loader
+    # (and, on x86_64, its static preloader) from lib/wine/x86_64-unix/.  The
+    # bootstrap probe used to miss this because --version exits before the
+    # re-exec.  Package both second-stage executables as immutable APK-managed
+    # files; proot_run.c exposes their expected logical names with bind mounts.
     unix_dir = wine_root / "lib" / "wine" / "x86_64-unix"
+    for name, renamed in (
+        ("wine", "libwine_loader.so"),
+        ("wine-preloader", "libwine_loader_preloader.so"),
+    ):
+        src = unix_dir / name
+        if not src.is_file():
+            raise FileNotFoundError(f"required Wine second-stage loader missing: {src}")
+        write_runtime_elf(jni_dir / renamed, src.read_bytes(), f"Wine {name}")
+        if name == "wine":
+            patch_wine_interp_to_inherited_fd(jni_dir / renamed)
+        elif name == "wine-preloader":
+            patch_wine_preloader_open_for_android(jni_dir / renamed)
+        staged[f"lib/wine/x86_64-unix/{name}"] = renamed
+        print(f"  wine   lib/wine/x86_64-unix/{name:14} -> {renamed:36} ({src.stat().st_size:>8} B)")
+
+    # x86_64-unix ELF modules (ntdll.so, winex11.so, etc.).
     so_files = sorted(unix_dir.glob("*.so"))
     # Filter out the static .a archives (they're in the same dir but end .a).
     so_files = [f for f in so_files if f.suffix == ".so"]
     for src in so_files:
         renamed = "libwine_unix_" + src.name  # ntdll.so -> libwine_unix_ntdll.so
-        (jni_dir / renamed).write_bytes(src.read_bytes())
+        out = jni_dir / renamed
+        runtime_src = WINE_16K_NTDLL if src.name == "ntdll.so" else src
+        if src.name == "ntdll.so" and not runtime_src.is_file():
+            raise FileNotFoundError(
+                f"16 KB-aware Wine ntdll missing: {runtime_src}\n"
+                "  Run: python tools/build_wine_16k_ntdll.py"
+            )
+        write_runtime_elf(out, runtime_src.read_bytes(), f"Wine {src.name}")
+        if src.name == "ntdll.so":
+            patch_wine_datadir_to_app_alias(out)
+            print(
+                "  wine   ntdll.so: source-matched 16 KB host-page patch "
+                f"({sha256_of(runtime_src)[:16]}...)"
+            )
         staged[f"lib/wine/x86_64-unix/{src.name}"] = renamed
     print(f"  wine   lib/wine/x86_64-unix/*.so: {len(so_files)} modules staged")
 
@@ -258,6 +550,10 @@ def stage_pe_modules(wine_root: Path, assets_dir: Path) -> dict:
     pe_assets_dir = assets_dir / "wine-pe"
     pe_assets_dir.mkdir(parents=True, exist_ok=True)
 
+    paired_dispatcher_modules = {
+        "ntdll.dll": WINE_16K_NTDLL_PE,
+        "win32u.dll": WINE_16K_WIN32U_PE,
+    }
     total = 0
     for arch_label, pe_dir in pe_dirs:
         if not pe_dir.is_dir():
@@ -274,7 +570,20 @@ def stage_pe_modules(wine_root: Path, assets_dir: Path) -> dict:
             asset_rel = f"wine-pe/{arch_label}/{pe.name}"
             logical_path = f"lib/wine/{arch_label}/{pe.name}"
             dst = assets_dir / asset_rel
-            shutil.copy2(pe, dst)
+            source = pe
+            if arch_label == "x86_64-windows" and pe.name in paired_dispatcher_modules:
+                paired_source = paired_dispatcher_modules[pe.name]
+                if not paired_source.is_file():
+                    raise FileNotFoundError(
+                        f"16 KB-aware Wine PE module missing: {paired_source}\n"
+                        "  Run: python tools/build_wine_16k_ntdll.py"
+                    )
+                source = paired_source
+                print(
+                    f"  pe     x86_64-windows/{pe.name}: paired 16 KB "
+                    f"dispatcher patch ({sha256_of(source)[:16]}...)"
+                )
+            shutil.copy2(source, dst)
             h = sha256_of(dst)
             manifest_entries.append({
                 "asset_path": asset_rel,
@@ -295,6 +604,47 @@ def stage_pe_modules(wine_root: Path, assets_dir: Path) -> dict:
     manifest_path = assets_dir / "wine-pe-manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(f"  pe     manifest: {manifest_path.relative_to(ROOT)} ({total} modules)")
+    return manifest
+
+
+def stage_wine_data(wine_root: Path, assets_dir: Path) -> dict:
+    """Stage Wine's architecture-independent runtime data with hashes.
+
+    ntdll reads the NLS tables before it can start wineserver, and wineboot
+    subsequently consumes wine.inf/fonts.  These are regular data files, not
+    Android-executed ELFs, so they belong in the verified filesDir cache.  The
+    logical paths are linked under wine-tree/share/wine; proot_run.c bind-maps
+    that directory onto Wine's compile-time DATADIR location.
+    """
+    source_dir = wine_root / "share" / "wine"
+    if not source_dir.is_dir():
+        raise FileNotFoundError(f"required Wine data directory missing: {source_dir}")
+
+    entries = []
+    for source in sorted(p for p in source_dir.rglob("*") if p.is_file()):
+        rel = source.relative_to(source_dir).as_posix()
+        asset_rel = f"wine-data/{rel}"
+        destination = assets_dir / asset_rel
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        entries.append({
+            "asset_path": asset_rel,
+            "sha256": sha256_of(destination),
+            "logical_path": f"share/wine/{rel}",
+            "role": "Wine architecture-independent runtime data",
+        })
+
+    manifest = {
+        "description": "Hash-verified Wine DATADIR files (NLS, wine.inf, fonts, metadata).",
+        "wine_provider": "wine-kron4ek-11-14-vanilla-wow64",
+        "total_files": len(entries),
+        "entries": entries,
+    }
+    manifest_path = assets_dir / "wine-data-manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    total_size = sum((assets_dir / entry["asset_path"]).stat().st_size for entry in entries)
+    print(f"  data   manifest: {manifest_path.relative_to(ROOT)} "
+          f"({len(entries)} files, {total_size / 1048576:.1f} MiB)")
     return manifest
 
 
@@ -373,10 +723,12 @@ def main() -> int:
     if not args.no_pe:
         print(f"\n--- staging assets (PE modules + manifest) ---")
         pe_manifest = stage_pe_modules(wine_root, assets_dir)
+        data_manifest = stage_wine_data(wine_root, assets_dir)
         stage_selftest_pe(assets_dir)
     else:
         print(f"\n--- (--no-pe: skipping PE assets) ---")
         pe_manifest = None
+        data_manifest = None
 
     # Write a staging manifest (for the on-device code to build the symlink tree).
     staging_manifest = {
@@ -390,6 +742,8 @@ def main() -> int:
         "wine_logical_to_jnilib": wine_staged,
         "has_pe_assets": pe_manifest is not None,
         "pe_module_count": pe_manifest["total_modules"] if pe_manifest else 0,
+        "has_wine_data_assets": data_manifest is not None,
+        "wine_data_file_count": data_manifest["total_files"] if data_manifest else 0,
     }
 
     # Record proot fallback artifacts if they were built (built separately by

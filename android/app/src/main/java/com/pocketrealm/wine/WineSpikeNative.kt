@@ -136,6 +136,15 @@ object WineSpikeNative {
         extraEnv: String, timeoutMs: Int
     ): String
 
+    /** Synchronous no-PRoot Wine run using the APK rtld compatibility patch,
+     * glibc path shim, and Bionic wineserver exec bridge. [peTarget] is an
+     * explicit PE path; the native side invokes the final Wine loader with
+     * logical argv0=wine so no writable Unix ELF re-exec is needed. */
+    external fun runWineDirectNative(
+        nativeDir: String, peTarget: String, prefixDir: String,
+        display: String, wineArgs: String, extraEnv: String, timeoutMs: Int
+    ): String
+
     /**
      * S-2 tree-aware PE cache materialize: like [materializePeCacheNative] but
      * additionally symlinks each manifest entry's logical_path into the wine

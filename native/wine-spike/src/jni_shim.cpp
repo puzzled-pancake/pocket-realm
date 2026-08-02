@@ -363,4 +363,49 @@ Java_com_pocketrealm_wine_WineSpikeNative_runWineViaProotNative(
     return env->NewStringUTF(out.c_str());
 }
 
+JNIEXPORT jstring JNICALL
+Java_com_pocketrealm_wine_WineSpikeNative_runWineDirectNative(
+        JNIEnv *env, jobject /*this*/,
+        jstring jNativeDir, jstring jPeTarget, jstring jPrefixDir,
+        jstring jDisplay, jstring jWineArgs, jstring jExtraEnv,
+        jint jTimeoutMs) {
+    const char *native_dir = env->GetStringUTFChars(jNativeDir, nullptr);
+    const char *pe_target = env->GetStringUTFChars(jPeTarget, nullptr);
+    const char *prefix_dir = env->GetStringUTFChars(jPrefixDir, nullptr);
+    const char *display = jDisplay ? env->GetStringUTFChars(jDisplay, nullptr) : "";
+    const char *wine_args = jWineArgs ? env->GetStringUTFChars(jWineArgs, nullptr) : "";
+    const char *extra_env = jExtraEnv ? env->GetStringUTFChars(jExtraEnv, nullptr) : "";
+
+    struct wine_spike_proot_run_result r;
+    int rc = wine_spike_run_wine_direct(native_dir, pe_target, prefix_dir,
+                                         display, wine_args, extra_env,
+                                         (int)jTimeoutMs, &r);
+
+    env->ReleaseStringUTFChars(jNativeDir, native_dir);
+    env->ReleaseStringUTFChars(jPeTarget, pe_target);
+    env->ReleaseStringUTFChars(jPrefixDir, prefix_dir);
+    if (jDisplay) env->ReleaseStringUTFChars(jDisplay, display);
+    if (jWineArgs) env->ReleaseStringUTFChars(jWineArgs, wine_args);
+    if (jExtraEnv) env->ReleaseStringUTFChars(jExtraEnv, extra_env);
+
+    std::string out;
+    char header[256];
+    snprintf(header, sizeof(header), "RC=%d|EXIT=%d|TIMED_OUT=%d|DESCS=%d",
+             rc, r.exit_status, r.timed_out, r.descendant_count);
+    out += header;
+    for (int i = 0; i < r.descendant_count; i++) {
+        const struct wine_spike_proc_info *d = &r.descendants[i];
+        out += "\n  pid=" + std::to_string(d->pid);
+        out += "|ppid=" + std::to_string(d->ppid);
+        out += "|comm="; out += d->comm;
+        out += "|maps="; out += d->maps_proof;
+        out += "|cmdline="; out += d->cmdline;
+    }
+    out += "\n@@@STDOUT@@@\n";
+    out += r.stdout_buf;
+    out += "\n@@@STDERR@@@\n";
+    out += r.stderr_buf;
+    return env->NewStringUTF(out.c_str());
+}
+
 } /* extern "C" */

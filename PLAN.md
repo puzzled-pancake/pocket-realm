@@ -85,6 +85,15 @@ Also define the signed-code/mutable-data split required by PKG-03 through PKG-05
 
 ### Gate G1: direct x86 client proof - O06-O07
 
+O06 Phase-1 feasibility completed with **Outcome B** on 2 August 2026. S-1
+(effective loader/process tree), S-2 (verified/repaired PE cache plus successful
+`wineboot --init` and prefix creation), and S-3 (in-app X11/GDI self-test
+window) pass on both API-35 x86_64 4 KB and 16 KB AVD lanes. The qualified
+route uses the pinned PRoot helper for the seccomp-blocked glibc bootstrap, a
+source-built glibc adapter/closure, and a paired Wine 11.14 dispatcher patch at
+`0x7ffe4000` for 16 KB safety. This result authorizes full O06 implementation;
+it does not itself complete O06's input/audio/lifecycle acceptance.
+
 Implement `ClientRuntime` and an `x86DirectWine` backend on a fixed x86/x86_64 AVD. Package a redistributable Windows self-test, initialize a dedicated prefix, present a surface, and prove input/audio lifecycle before importing proprietary content. Implement the SAF fast scan and PE/build-5875 validator without modifying the source tree.
 
 Then launch the managed build-5875 `WoW.exe` with WineD3D, 1280x720 or lower, 30 FPS, audio off, minimal overlays, and no server. Preserve a deterministic client safe mode and exact Wine/prefix/runtime manifests.

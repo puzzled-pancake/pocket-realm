@@ -2,6 +2,7 @@ package com.winlator.xserver.extensions;
 
 import static com.winlator.xserver.XClientRequestHandler.RESPONSE_CODE_SUCCESS;
 
+import com.winlator.renderer.GLRenderer;
 import com.winlator.renderer.Texture;
 import com.winlator.xconnector.XInputStream;
 import com.winlator.xconnector.XOutputStream;
@@ -87,7 +88,10 @@ public class XComposite extends Extension {
         if (updateMode == UpdateMode.REDIRECT_AUTOMATIC.ordinal()) {
             Drawable parentContent = parent.getContent();
             final Texture texture = parentContent.getTexture();
-            if (texture != null) xServer.getRenderer().xServerView.queueEvent(texture::destroy);
+            GLRenderer renderer = xServer.getRenderer();
+            if (texture != null && renderer != null) {
+                renderer.xServerView.queueEvent(texture::destroy);
+            }
             parentContent.setTexture(window.getContent().getTexture());
         }
     }

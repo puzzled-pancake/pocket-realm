@@ -2,7 +2,7 @@
   "schema": 1,
   "reference_document": "docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx",
   "description": "Pinned upstream source manifest for the Pocket Realm offline build. Every active entry has an exact commit, license, and redistribution verdict. The canonical architecture and delivery reference is docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx; this file governs source selection only.",
-  "updated": "2026-08-01 (O06 G1 provider pins added: Wine/glibc-closure/X-server/proot/MinGW)",
+  "updated": "2026-08-02 (O06 Phase-1 Outcome B: paired 4 KB/16 KB Wine qualification and source-reproduced dispatcher adaptation)",
   "toolchain": {
     "android_sdk_root_env": "ANDROID_SDK_ROOT / ANDROID_HOME (machine-local; not pinned here)",
     "ndk": {
@@ -99,20 +99,37 @@
         "commit": "1012f3d99507b80d4869eabf0853567660a7ecbb",
         "vanilla": true
       },
+      "android_16k_adaptation": {
+        "reason": "Wine x86_64's process-local syscall dispatcher at 0x7ffe1000 shares the 0x7ffe0000 KUSER_SHARED_DATA host page on 16 KB kernels, allowing cross-process overwrite of an ASLR-relative pointer.",
+        "dispatcher_address": "0x7ffe4000",
+        "patch": "native/wine-spike/patches/wine-11.14-x86_64-16k.patch",
+        "build_script": "tools/build_wine_16k_ntdll.py",
+        "builder_image": "ghcr.io/termux/package-builder-cgct@sha256:69ffa5cfe02ca569e7d03d1c99e3c9a0f79390ad6bf11a3629d048c29c6ccb61",
+        "paired_outputs": [
+          "dlls/ntdll/ntdll.so",
+          "dlls/ntdll/x86_64-windows/ntdll.dll",
+          "dlls/win32u/x86_64-windows/win32u.dll"
+        ],
+        "reviewed_build_provenance": "native/wine-spike/patches/wine-11.14-x86_64-16k.provenance.json",
+        "generated_build_provenance": "native/.build-x86_64/wine-ntdll-16k-multiarch/BUILD_PROVENANCE.json",
+        "qualification": "S-1/S-2/S-3 pass on API 35 Modern 4 KB and 16 KB lanes; see PROGRESS.md authoritative evidence paths."
+      },
       "build_recipe": [
         "build_wine.sh",
         "create_ubuntu_bootstraps.sh",
         ".github/workflows/wine.yml"
       ],
-      "patches_vs_upstream": [],
-      "role": "O06 G1 x86 client runtime. amd64-wow64 variant: multilib build with lib/wine/i386-unix stripped, relying on Wine 11.0+ default new-WoW64 for 32-bit PE. Exec'd (via the APK-managed glibc loader) in the :client process; not an Android .so. Wine-owned builtin PE modules are canonical APK assets; the closure also requires glibc + X11/freetype/fontconfig (see the lockfile).",
+      "patches_vs_upstream": [
+        "native/wine-spike/patches/wine-11.14-x86_64-16k.patch (x86_64 Android 16 KB host-page separation; source-rebuilds the paired Unix ntdll + PE ntdll/win32u set)"
+      ],
+      "role": "O06 G1 x86 client runtime. The provider is the amd64-wow64 variant with lib/wine/i386-unix stripped, relying on Wine 11.0+ new-WoW64 for 32-bit PE. S-1 uses the pinned PRoot fallback because Android app-domain seccomp blocks direct glibc-loader access(2); S-2/S-3 run through the glibc adapter/shim after bootstrap. Wine-owned builtin PE modules are canonical APK assets. The source-rebuilt 16 KB dispatcher trio is staged atomically over the provider counterparts; glibc + X11/freetype/fontconfig come from the pinned lockfile closure.",
       "license": {
         "wine_binaries": "LGPL-2.1-or-later",
         "build_scripts": "MIT (Copyright Kron4ek)"
       },
       "redistribution": {
         "verdict": "binary-redistributable-under-LGPL-2.1-source-traceable",
-        "notes": "Wine binaries are LGPL-2.1. Source correspondence is traceable: Kron4ek build commit + MIT build scripts + upstream Wine 11.14 vanilla (no patches). No formal written LGPL source-offer; Wine source is public at upstream_wine.source_url. Source reproduction from upstream remains the production/distribution bar (ADR-014, future). This provider supplies Wine's own ELF + PE closure ONLY; it does not supply glibc, the X server, the loader, or solve Android APK execution placement (DECISIONS #12, ADR-013)."
+        "notes": "Wine binaries are LGPL-2.1. Source correspondence is traceable through the Kron4ek build commit, MIT build scripts, and pinned upstream Wine commit. The Android 16 KB adaptation is reproduced from that pinned upstream source by the checked-in patch and build script; output/toolchain hashes are generated in BUILD_PROVENANCE.json. No formal written LGPL source-offer is relied on. This provider supplies Wine's own ELF + PE closure only; glibc, the X server, and APK execution placement remain separately pinned."
       },
       "runtime_scope_notes": "Provides Wine's own ELF closure + builtin PE modules only. The glibc/X11/font closure comes from termux-glibc-packages-c9d4de5; the X server from xserver-winlator-ca3d735; the loader is the glibc build's ld-linux-x86-64.so.2."
     },
@@ -122,7 +139,8 @@
       "upstream_url": "https://github.com/termux-pacman/glibc-packages",
       "commit": "c9d4de54797bd6652f797217bf9e4c4050f02798",
       "commit_date": "2026-07-31",
-      "role": "The ENTIRE glibc-side runtime closure for the Wine runtime: glibc 2.43-1 (loader ld-linux-x86-64.so.2 + libc/libpthread/libdl/libm/librt) AND libX11 (+ libxcb/libxau/libxdmcp/libXext) AND freetype AND fontconfig \u2014 the mandatory DT_NEEDED set Kron4ek Wine 11.14 requires for wineboot + a windowed PE (winex11.drv NtTerminateProcess'es if libX11.so.6 is absent). All packages built from this single commit; loader + libs from the same glibc 2.43-1 build (no loader/libc ABI skew).\n\nGCC-LIBS RECIPE DIVERGENCE (recorded honestly): the c9d4de5 main pin's gcc-libs 14.2.1 recipe cannot build against the cgct image's gcc 16.1.0 cross-compiler (C++20 char8_t incompatibility in libcody), and its git+sourceware.org clone is persistently HTTP-429 rate-limited. We adopt upstream's open 'upd-gcc' branch (commit 845d0e313f53535de28abba0fb42b07e960cc031, authored 2026-07-14 by Maxython) for the gcc-libs package ONLY: it bumps gcc-libs to 16.1.0 via the official GNU tarball (https://ftp.gnu.org/gnu/gcc/gcc-16.1.0/gcc-16.1.0.tar.xz, SHA-256 50efb4d94c3397aff3b0d61a5abd748b4dd31d9d3f2ab7be05b171d36a510f79), which resolves both issues (no git clone; 16.1.0 source matches the 16.1.0 compiler). All other 8 packages remain on the c9d4de5 pin. This is the same source provider (termux-pacman/glibc-packages), just the gcc-libs package's build recipe from a newer branch.",
+      "role": "The ENTIRE glibc-side runtime closure for the Wine runtime: glibc 2.43-1 (loader ld-linux-x86-64.so.2 + libc/libpthread/libdl/libm/librt) AND libX11 (+ libxcb/libxau/libxdmcp/libXext) AND freetype/fontconfig and their locked transitive libraries. This is the mandatory DT_NEEDED/dlopen set Kron4ek Wine 11.14 requires for wineboot + a windowed PE. The loader and libc come from the same glibc 2.43-1 build (no loader/libc ABI skew), and every distributed ELF is linked with 0x4000 maximum-page-size segments for both Android page-size lanes.\n\nGCC-LIBS RECIPE DIVERGENCE (recorded honestly): the c9d4de5 main pin's gcc-libs 14.2.1 recipe cannot build against the cgct image's gcc 16.1.0 cross-compiler (C++20 char8_t incompatibility in libcody), and its git+sourceware.org clone is persistently HTTP-429 rate-limited. We adopt upstream's open 'upd-gcc' branch (commit 845d0e313f53535de28abba0fb42b07e960cc031, authored 2026-07-14 by Maxython) for the gcc-libs package ONLY: it bumps gcc-libs to 16.1.0 via the official GNU tarball (https://ftp.gnu.org/gnu/gcc/gcc-16.1.0/gcc-16.1.0.tar.xz, SHA-256 50efb4d94c3397aff3b0d61a5abd748b4dd31d9d3f2ab7be05b171d36a510f79), which resolves both issues. Every other package remains on the c9d4de5 pin.",
+      "termux_packages_harness_commit": "d9188dcf2517ec5f2ed82e021b3cd14c402c74ec",
       "glibc_upstream": {
         "source_url": "https://ftp.gnu.org/gnu/libc/glibc-2.43.tar.xz",
         "source_sha256": "d9c86c6b5dbddb43a3e08270c5844fc5177d19442cf5b8df4be7c07cd5fa3831",
@@ -136,7 +154,7 @@
       },
       "redistribution": {
         "verdict": "source-redistributable (built from public Termux/glibc upstream)",
-        "notes": "All packages built from source via their gpkg build scripts at the pinned commit. The glibc Android patch set (SysV SHM, fakesyscall, passwd/group) is the full termux-pacman set. Output hashes recorded in the lockfile."
+        "notes": "All packages are built from source via pinned gpkg recipes and the pinned Termux build harness. Project overlays add Android poll(2)-to-ppoll(2) compatibility, omit the unused i386 glibc subpackage, and set -Wl,-z,max-page-size=0x4000 across the closure. Imported package hashes are recorded in runtime/glibc-rootfs-x86_64/BUILD_PROVENANCE.json."
       }
     },
     {

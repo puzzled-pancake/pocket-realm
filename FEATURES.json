@@ -160,7 +160,7 @@
       "track": "offline",
       "priority": 60,
       "title": "G1 direct x86 Wine self-test, prefix, surface, and input bridge",
-      "status": "pending",
+      "status": "active",
       "depends": [
         "O05"
       ],
@@ -170,8 +170,13 @@
         "Keyboard/mouse input, focus, audio-off path, clean close, forced stop, and diagnostics work in the selected service/process model",
         "Runtime code remains immutable in APK-managed locations while prefix/cache state is app-private, versioned, and bounded"
       ],
-      "notes": "",
-      "evidence": [],
+      "notes": "Phase-1 feasibility completed 2026-08-02 with Outcome B. S-1/S-2/S-3 pass on API-35 x86_64 Modern 4 KB and 16 KB lanes. Full O06 implementation is authorized but remains active until input/audio/lifecycle/process acceptance passes.",
+      "evidence": [
+        "PROGRESS.md - O06 Phase 1 Outcome B",
+        "docs/patches/wine-provider-provenance.md",
+        "tests/avd/AVD-Modern-x86_64-v1/evidence/pkgExperiment-wine_spike-all-20260802-185902.PASS.log",
+        "tests/avd/AVD-16K-x86_64-v1/evidence/pkgExperiment-wine_spike-all-20260802-185645.PASS.log"
+      ],
       "reference": "Report sections 8.4 PKG-03/PKG-04, 15.1-15.7, and 20.2-20.3 (X2)"
     },
     {

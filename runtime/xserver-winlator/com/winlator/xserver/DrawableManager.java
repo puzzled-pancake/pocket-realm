@@ -3,6 +3,7 @@ package com.winlator.xserver;
 import android.util.SparseArray;
 
 import com.winlator.core.Callback;
+import com.winlator.renderer.GLRenderer;
 import com.winlator.renderer.Texture;
 
 public class DrawableManager extends XResourceManager implements XResourceManager.OnResourceLifecycleListener {
@@ -36,7 +37,12 @@ public class DrawableManager extends XResourceManager implements XResourceManage
         final Texture texture = drawable.getTexture();
         if (texture != null) {
             if (texture.getOwner() == drawable) texture.setOwner(null);
-            xServer.getRenderer().xServerView.queueEvent(texture::destroy);
+            /* The O06 protocol spike deliberately runs the X server headless.
+             * With no GL context, there is no renderer queue or allocated GLES
+             * texture to release. The normal Winlator path still destroys the
+             * texture on its renderer thread. */
+            GLRenderer renderer = xServer.getRenderer();
+            if (renderer != null) renderer.xServerView.queueEvent(texture::destroy);
         }
 
         Callback<Drawable> onDestroyListener = drawable.getOnDestroyListener();

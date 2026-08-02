@@ -5,6 +5,9 @@ import android.os.SystemClock
 import com.pocketrealm.log.AppLog
 import com.pocketrealm.pkg.ExperimentResult
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import org.json.JSONObject
 
 /**
  * Orchestrates the O06 Phase-1 Wine feasibility spike measurements (S-1/S-2/S-3).
@@ -26,6 +29,7 @@ class WineSpikeRunner(private val context: Context) {
         private const val TAG = "WineSpike"
         private const val STAGING_MANIFEST_ASSET = "staging-manifest.json"
         private const val WINE_PE_MANIFEST_ASSET = "wine-pe-manifest.json"
+        private const val WINE_DATA_MANIFEST_ASSET = "wine-data-manifest.json"
         private const val GUEST_PE_MANIFEST_ASSET = "guest-pe-manifest.json"
     }
 
@@ -205,6 +209,61 @@ class WineSpikeRunner(private val context: Context) {
     }
 
     /**
+     * Materialize Wine's non-PE DATADIR (NLS tables, wine.inf and fonts) into
+     * a hash-verified cache and link it below the logical Wine tree.  The
+     * native PRoot launcher maps tree/share/wine onto the DATADIR inferred by
+     * the packaged ntdll.so.  Without this, ntdll cannot initialize its NLS
+     * tables and wineserver exits before prefix creation.
+     */
+    private fun prepareWineData(
+        treeDir: File,
+        evidence: LinkedHashMap<String, String>
+    ): Boolean {
+        return try {
+            val extractedRoot = File(context.cacheDir, "wine-data-assets")
+            if (extractedRoot.exists()) extractedRoot.deleteRecursively()
+            extractedRoot.mkdirs()
+            extractAssetsToDir("wine-data", File(extractedRoot, "wine-data"))
+            context.assets.open(WINE_DATA_MANIFEST_ASSET).use { input ->
+                File(extractedRoot, WINE_DATA_MANIFEST_ASSET).outputStream().use { input.copyTo(it) }
+            }
+            val manifest = readAsset(WINE_DATA_MANIFEST_ASSET)
+            val cacheDir = File(context.filesDir, "runtime/wine-data-cache")
+            val materializeRc = WineSpikeNative.materializePeCacheIntoTreeNative(
+                cacheDir.absolutePath, manifest, extractedRoot.absolutePath, treeDir.absolutePath)
+            val verifyRc = if (materializeRc == 0) {
+                WineSpikeNative.verifyPeCacheNative(cacheDir.absolutePath, manifest)
+            } else -1
+            evidence["wineDataMaterializeRc"] = materializeRc.toString()
+            evidence["wineDataVerifyRc"] = verifyRc.toString()
+            evidence["wineDataCache"] = cacheDir.absolutePath
+            val dataRoot = File(cacheDir, "wine-data")
+            val alias = File(context.applicationInfo.dataDir, "wine")
+            val aliasPath = alias.toPath()
+            val aliasTarget = dataRoot.toPath()
+            if (materializeRc == 0 && verifyRc == 0) {
+                if (Files.exists(aliasPath, LinkOption.NOFOLLOW_LINKS)) {
+                    if (!Files.isSymbolicLink(aliasPath) ||
+                        Files.readSymbolicLink(aliasPath) != aliasTarget) {
+                        throw IllegalStateException(
+                            "Wine DATADIR alias exists but is not the expected symlink: $alias")
+                    }
+                } else {
+                    Files.createSymbolicLink(aliasPath, aliasTarget)
+                }
+            }
+            evidence["wineDataAlias"] = alias.absolutePath
+            evidence["wineDataAliasTarget"] = if (Files.isSymbolicLink(aliasPath)) {
+                Files.readSymbolicLink(aliasPath).toString()
+            } else "MISSING"
+            materializeRc == 0 && verifyRc == 0 && Files.isSymbolicLink(aliasPath)
+        } catch (e: Exception) {
+            evidence["wineDataException"] = "${e.javaClass.simpleName}: ${e.message}"
+            false
+        }
+    }
+
+    /**
      * S-1: Prove the effective dynamic loader is the APK-managed glibc loader for
      * wine, wineserver, and every native child — from the production app process.
      *
@@ -250,6 +309,11 @@ class WineSpikeRunner(private val context: Context) {
                 evidence, SystemClock.elapsedRealtime() - t0)
         }
         evidence["symlinkTree"] = treeDir.absolutePath
+        if (!prepareWineData(treeDir, evidence)) {
+            return@withContext ExperimentResult.fail("S1", "-", "WINE_DATA_FAILED",
+                listOf("Wine DATADIR could not be materialized and verified"),
+                evidence, SystemClock.elapsedRealtime() - t0)
+        }
 
         // 2. Create the WINEPREFIX + tmp dirs.
         val prefixDir = File(context.filesDir, "runtime/wine-prefix")
@@ -789,6 +853,13 @@ class WineSpikeRunner(private val context: Context) {
             val treeRc = WineSpikeNative.buildSymlinkTreeNative(treeDir.absolutePath, nativeDir, stagingManifest)
             evidence["symlinkTreeRc"] = treeRc.toString()
         }
+        if (!prepareWineData(treeDir, evidence)) {
+            val result = ExperimentResult.fail("S2", "-", "WINE_DATA_FAILED",
+                listOf("Wine DATADIR could not be materialized and verified"),
+                evidence, SystemClock.elapsedRealtime() - t0)
+            announce(result)
+            return@withContext result
+        }
         File(context.filesDir, "runtime/tmp").mkdirs()
         prefixDir.mkdirs()
         cacheDir.mkdirs()
@@ -872,24 +943,28 @@ class WineSpikeRunner(private val context: Context) {
         evidence["coreModules"] = coreReachable.joinToString(",")
         val coreAllReachable = coreReachable.all { it.endsWith(":ok@") || ":ok@" in it }
 
-        // 7. Launch wineboot --init via the synchronous proot run with the
-        //    LOGICAL argv[0]="wineboot" preserved (--argv0). Require exit zero.
+        // 7. Launch the explicit wineboot PE through the final Wine loader,
+        //    without PRoot. The private rtld access wrapper and APK path shim
+        //    are the narrow Android compatibility layer; avoiding PRoot also
+        //    avoids its proven new-WoW64 PE-relocation heap corruption.
         //    WINEDEBUG=+module captures which PE modules Wine loads, proving
         //    resolution from the cache.
-        val winebootTarget = File(treeDir, "bin/wineboot").absolutePath
+        val winebootTarget = File(treeDir, "lib/wine/x86_64-windows/wineboot.exe").absolutePath
         evidence["winebootTarget"] = winebootTarget
         // Clear the prefix so wineboot does a real --init (proves it builds artifacts).
         if (prefixDir.exists()) prefixDir.deleteRecursively()
         prefixDir.mkdirs()
 
-        AppLog.i(TAG, "S-2: synchronous wineboot --init via proot (argv0=wineboot)")
+        AppLog.i(TAG, "S-2: synchronous wineboot PE --init via direct glibc path")
         val bootRaw = try {
             // LD_DEBUG is disabled for S-2 (it's the S-1 loader proof and
             // would crowd out wineboot's own output). WINEDEBUG=+module,+loaddll
             // captures PE module resolution from the cache.
-            WineSpikeNative.runWineViaProotNative(
-                nativeDir, winebootTarget, "wineboot", prefixDir.absolutePath,
-                "", "--init", "LD_DEBUG=;WINEDEBUG=+module,+loaddll", 60_000)
+            WineSpikeNative.runWineDirectNative(
+                nativeDir, winebootTarget, prefixDir.absolutePath,
+                "", "--init",
+                "LD_DEBUG=;WINEDEBUG=+module,+loaddll;WINEDLLOVERRIDES=winex11.drv=d",
+                60_000)
         } catch (e: Exception) {
             evidence["winebootRunException"] = "${e.javaClass.simpleName}: ${e.message}"
             ""
@@ -913,18 +988,26 @@ class WineSpikeRunner(private val context: Context) {
             evidence["winebootModuleLoadSample"] = dllLoads.take(8).joinToString(" | ")
         }
 
-        // 8. Wait for wineserver cleanly: wineboot starts a persistent
-        //    wineserver. Send --kill (or wineserver -k) after the init completes.
-        //    The proot run already waited for wineboot to exit; we additionally
-        //    run a short `wineserver -w` (wait) bounded by a timeout to confirm
-        //    wineserver is responsive, then -k to shut it down.
-        val serverTarget = File(treeDir, "bin/wineserver").absolutePath
-        runProotBounded(nativeDir, serverTarget, "wineserver", prefixDir.absolutePath,
-            "", "-w", "", 10_000, evidence, "serverWait")
-        runProotBounded(nativeDir, serverTarget, "wineserver", prefixDir.absolutePath,
-            "", "-k", "", 5_000, evidence, "serverKill")
+        // wineboot's launcher can exit before its reparented winedevice helpers
+        // and wineserver finish writing the registry. Request an orderly server
+        // shutdown, then wait for it, before inspecting prefix artifacts. This
+        // is also the S-2 clean-close proof; SIGKILL would make the registry
+        // check timing-dependent.
+        val wineserverTarget = File(treeDir, "bin/wineserver").absolutePath
+        val prefixReady = waitForPrefixReady(prefixDir)
+        evidence["winebootPrefixReady"] = prefixReady.toString()
+        val serverKill = runProotBounded(
+            nativeDir, wineserverTarget, "wineserver", prefixDir.absolutePath,
+            "", "-k", "", 15_000, evidence, "wineServerKill")
+        val serverWait = runProotBounded(
+            nativeDir, wineserverTarget, "wineserver", prefixDir.absolutePath,
+            "", "-w", "", 15_000, evidence, "wineServerWait")
+        val serverStoppedOk = prefixReady && serverKill != null && serverWait != null &&
+            serverKill.exitedCleanly && serverKill.exitCode == 0 && !serverKill.timedOut &&
+            serverWait.exitedCleanly && serverWait.exitCode == 0 && !serverWait.timedOut
+        evidence["wineServerStoppedOk"] = serverStoppedOk.toString()
 
-        // 9. Verify prefix artifacts.
+        // 8. Verify prefix artifacts.
         val sysReg = File(prefixDir, "system.reg")
         val userReg = File(prefixDir, "user.reg")
         val userdefReg = File(prefixDir, "userdef.reg")
@@ -933,21 +1016,29 @@ class WineSpikeRunner(private val context: Context) {
         val artifacts = mapOf(
             "system.reg" to sysReg.isFile,
             "user.reg" to userReg.isFile,
-            "userdef.reg" to (userdefReg.isFile || userdefReg.length() == 0L),
+            "userdef.reg" to userdefReg.isFile,
             "dosdevices" to dosdevices.isDirectory,
             "drive_c/windows/system32" to sys32.isDirectory,
         )
         evidence["prefixArtifacts"] = artifacts.entries.joinToString(",") { "${it.key}=${it.value}" }
         val artifactsOk = artifacts.values.all { it }
 
-        // 10. Verdict: cache materialized+verified+repair-tested+core-reachable
+        // 9. Verdict: cache materialized+verified+repair-tested+core-reachable
         //     AND wineboot --init exited zero AND prefix artifacts present.
-        val bootExitedZero = boot != null && boot.exitedCleanly && boot.exitCode == 0
+        val fatalRuntimeOutput = boot?.stderr?.lineSequence()?.any {
+            it.contains("run_wineboot failed", ignoreCase = true) ||
+                it.contains("corrupted size", ignoreCase = true) ||
+                it.contains("free(): invalid", ignoreCase = true) ||
+                it.contains("terminated with signal", ignoreCase = true)
+        } ?: true
+        val bootExitedZero = boot != null && boot.exitedCleanly && boot.exitCode == 0 &&
+            !fatalRuntimeOutput
         val ok = matRc == 0 && verifyRc == 0 && repairOk && coreAllReachable &&
-            bootExitedZero && artifactsOk
+            bootExitedZero && serverStoppedOk && artifactsOk
         evidence["s2BootExitedZero"] = bootExitedZero.toString()
         evidence["s2ArtifactsOk"] = artifactsOk.toString()
         evidence["s2CoreAllReachable"] = coreAllReachable.toString()
+        evidence["s2FatalRuntimeOutput"] = fatalRuntimeOutput.toString()
 
         val code = if (ok) "WINEBOOT_PE_RESOLUTION_PROVEN" else when {
             matRc != 0 || verifyRc != 0 -> "PE_CACHE_FAILED"
@@ -955,7 +1046,9 @@ class WineSpikeRunner(private val context: Context) {
             !coreAllReachable -> "CORE_PE_NOT_REACHABLE"
             boot == null -> "WINEBOOT_RUN_EXCEPTION"
             boot.timedOut -> "WINEBOOT_TIMEOUT"
+            fatalRuntimeOutput -> "WINEBOOT_FATAL_RUNTIME_OUTPUT"
             !bootExitedZero -> "WINEBOOT_NONZERO_EXIT"
+            !serverStoppedOk -> "WINESERVER_CLEAN_STOP_FAILED"
             !artifactsOk -> "PREFIX_ARTIFACTS_MISSING"
             else -> "S2_UNKNOWN_FAILURE"
         }
@@ -965,7 +1058,8 @@ class WineSpikeRunner(private val context: Context) {
             ExperimentResult.fail("S2", "-", code,
                 listOf("matRc=$matRc verifyRc=$verifyRc repairOk=$repairOk " +
                     "coreAllReachable=$coreAllReachable bootExitedZero=$bootExitedZero " +
-                    "artifactsOk=$artifactsOk bootTimedOut=${boot?.timedOut} " +
+                    "serverStoppedOk=$serverStoppedOk artifactsOk=$artifactsOk " +
+                    "bootTimedOut=${boot?.timedOut} " +
                     "bootExitCode=${boot?.exitCode}"),
                 evidence, SystemClock.elapsedRealtime() - t0)
         }
@@ -988,6 +1082,65 @@ class WineSpikeRunner(private val context: Context) {
     }
 
     /**
+     * Expose the immutable, hash-verified PE cache at the conventional prefix
+     * paths used by the Windows loader. Wine normally installs copies during
+     * wine.inf processing; on a 16 KB host that helper chain can finish with
+     * only the registry skeleton. Missing builtins are linked, never copied,
+     * so the cache manifest remains the canonical source of truth.
+     */
+    private fun linkVerifiedBuiltinsIntoPrefix(
+        prefixDir: File, cacheDir: File, manifestJson: String
+    ): Int {
+        val system32 = File(prefixDir, "drive_c/windows/system32")
+        val syswow64 = File(prefixDir, "drive_c/windows/syswow64")
+        system32.mkdirs()
+        syswow64.mkdirs()
+        val entries = JSONObject(manifestJson).getJSONArray("entries")
+        var linked = 0
+        for (index in 0 until entries.length()) {
+            val entry = entries.getJSONObject(index)
+            val destinationDir = when (entry.getString("arch")) {
+                "x86_64-windows" -> system32
+                "i386-windows" -> syswow64
+                else -> continue
+            }
+            val source = File(cacheDir, entry.getString("asset_path"))
+            require(source.isFile) { "verified PE cache entry missing: $source" }
+            val destination = File(destinationDir, source.name)
+            if (Files.exists(destination.toPath(), LinkOption.NOFOLLOW_LINKS)) continue
+            Files.createSymbolicLink(destination.toPath(), source.toPath())
+            linked++
+        }
+        return linked
+    }
+
+    /** Wait until wineboot has finished its asynchronous registry transaction. */
+    private fun waitForPrefixReady(prefixDir: File, timeoutMs: Long = 30_000): Boolean {
+        val required = listOf(
+            File(prefixDir, ".update-timestamp"),
+            File(prefixDir, "system.reg"),
+            File(prefixDir, "user.reg"),
+            File(prefixDir, "userdef.reg"),
+        )
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        var previous = ""
+        var stableSamples = 0
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val ready = required.all { it.isFile && it.length() > 0L } &&
+                File(prefixDir, "dosdevices").isDirectory &&
+                File(prefixDir, "drive_c/windows").isDirectory
+            val signature = if (ready) required.joinToString("|") {
+                "${it.length()}:${it.lastModified()}"
+            } else ""
+            stableSamples = if (ready && signature == previous) stableSamples + 1 else 0
+            if (stableSamples >= 4) return true
+            previous = signature
+            Thread.sleep(250)
+        }
+        return false
+    }
+
+    /**
      * Run a Wine command (e.g. wineserver -w/-k) via the synchronous proot run
      * with a bounded timeout, recording a structured evidence key. Used for the
      * S-2 wineserver wait/kill (clean shutdown).
@@ -996,13 +1149,13 @@ class WineSpikeRunner(private val context: Context) {
         nativeDir: String, wineTarget: String, argv0: String, prefixDir: String,
         display: String, wineArgs: String, extraEnv: String, timeoutMs: Int,
         evidence: LinkedHashMap<String, String>, key: String
-    ) {
+    ): ProotRunResult? {
         val raw = try {
             WineSpikeNative.runWineViaProotNative(
                 nativeDir, wineTarget, argv0, prefixDir, display, wineArgs, extraEnv, timeoutMs)
         } catch (e: Exception) {
             evidence["$key.exception"] = "${e.javaClass.simpleName}: ${e.message}"
-            return
+            return null
         }
         val r = if (raw.isNotEmpty()) parseProotRunResult(raw) else null
         if (r != null) {
@@ -1011,6 +1164,7 @@ class WineSpikeRunner(private val context: Context) {
             evidence["$key.timedOut"] = r.timedOut.toString()
             evidence["$key.stderrTail"] = r.stderr.lineSequence().toList().takeLast(10).joinToString(" | ")
         }
+        return r
     }
 
     /**
@@ -1018,19 +1172,20 @@ class WineSpikeRunner(private val context: Context) {
      *
      * Acceptance (per the corrected scope):
      *   - the native transport libwinlator.so is loaded (System.loadLibrary)
-     *   - <appTmp>/.X11-unix/X0 is created; proot's <appTmp>:/tmp bind makes it
-     *     visible as /tmp/.X11-unix/X0 to Wine
+     *   - <appTmp>/.X11-unix/X0 is created; the glibc path shim relocates the
+     *     X11 client's compiled socket path into that app-private directory
      *   - the X-server (XConnectorEpoll + handlers) starts and binds the socket
      *   - the project-owned 32-bit self-test PE launches with DISPLAY=:0 via the
-     *     same proot/prefix/cache path
+     *     qualified direct glibc adapter and the same prefix/cache contract
      *   - the self-test connects, CreateWindow + MapWindow + at least one paint
-     *     — proven by POCKET_SELFTEST_WINDOW + POCKET_SELFTEST_OK in its stdout
+     *     — proven by POCKET_SELFTEST_WINDOW + POCKET_SELFTEST_PAINT +
+     *     POCKET_SELFTEST_OK in its stdout
      *     AND exit zero
      *   - a render proof: the X-server's drawable manager shows a non-empty
      *     mapped window after the run (the GLES texture upload is exercised by
      *     GLRenderer when a renderer is attached; for the headless spike we
      *     assert the window exists + has content via the drawable)
-     *   - clean shutdown: wineserver -k, X-server stop, proot tree reaped
+     *   - clean shutdown: wineserver -k/-w and X-server stop
      */
     suspend fun runS3(): ExperimentResult = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val t0 = SystemClock.elapsedRealtime()
@@ -1070,24 +1225,30 @@ class WineSpikeRunner(private val context: Context) {
         if (stagingManifest.isNotEmpty()) {
             WineSpikeNative.buildSymlinkTreeNative(treeDir.absolutePath, nativeDir, stagingManifest)
         }
+        if (!prepareWineData(treeDir, evidence)) {
+            val result = ExperimentResult.fail("S3", "-", "WINE_DATA_FAILED",
+                listOf("Wine DATADIR could not be materialized and verified"),
+                evidence, SystemClock.elapsedRealtime() - t0)
+            announce(result)
+            return@withContext result
+        }
 
-        // Materialize guest PE (the self-test) into the tree. Ensure the guest-pe
-        // assets are present (S-2 may have created assetsExtractDir with only
-        // wine-pe, so check + extract guest-pe unconditionally).
+        // Materialize the Wine PEs and guest PE into the tree. This directory
+        // is only an extraction cache, so wipe it first: install -r preserves
+        // app cache data and an older self-test binary would otherwise shadow
+        // the newly signed APK asset and make hash repair impossible.
         val assetsExtractDir = File(context.cacheDir, "wine-pe-assets")
+        if (assetsExtractDir.exists()) assetsExtractDir.deleteRecursively()
         assetsExtractDir.mkdirs()
         val guestPeDir = File(assetsExtractDir, "guest-pe")
-        if (!guestPeDir.isDirectory) {
-            try {
-                extractAssetsToDir("guest-pe", guestPeDir)
-                context.assets.open(GUEST_PE_MANIFEST_ASSET).use { inp ->
-                    File(assetsExtractDir, GUEST_PE_MANIFEST_ASSET).outputStream().use { inp.copyTo(it) }
-                }
-            } catch (_: Exception) { /* guest-pe may be absent in this build */ }
-        }
-        // Ensure the wine-pe assets + manifest are present too (S-2 may have run
-        // first, but S-3 can run standalone).
-        if (!File(assetsExtractDir, WINE_PE_MANIFEST_ASSET).isFile) {
+        try {
+            extractAssetsToDir("guest-pe", guestPeDir)
+            context.assets.open(GUEST_PE_MANIFEST_ASSET).use { inp ->
+                File(assetsExtractDir, GUEST_PE_MANIFEST_ASSET).outputStream().use { inp.copyTo(it) }
+            }
+        } catch (_: Exception) { /* guest-pe may be absent in this build */ }
+        // S-3 must also work standalone, without relying on an earlier S-2 run.
+        run {
             extractAssetsToDir("wine-pe", File(assetsExtractDir, "wine-pe"))
             context.assets.open(WINE_PE_MANIFEST_ASSET).use { inp ->
                 File(assetsExtractDir, WINE_PE_MANIFEST_ASSET).outputStream().use { inp.copyTo(it) }
@@ -1110,8 +1271,8 @@ class WineSpikeRunner(private val context: Context) {
         evidence["s3PeVerifyRc"] = verifyRc.toString()
 
         // 3. Create <appTmp>/.X11-unix/X0 path dir. The native createServerSocket
-        //    unlinks + binds the file; we just need the parent dir to exist.
-        //    proot's <appTmp>:/tmp bind exposes it as /tmp/.X11-unix/X0 to Wine.
+        //    unlinks + binds the file; the glibc path shim maps Wine's compiled
+        //    /tmp/.X11-unix path into this app-private directory.
         val x11Dir = File(appTmp, ".X11-unix")
         x11Dir.mkdirs()
         val x0Path = File(x11Dir, "X0").absolutePath
@@ -1126,6 +1287,7 @@ class WineSpikeRunner(private val context: Context) {
         var connector: com.winlator.xconnector.XConnectorEpoll? = null
         var serverStarted = false
         var windowSeen = false
+        var paintSeen = false
         var selfTestOk = false
         var selfTestExit = -1
         try {
@@ -1153,29 +1315,82 @@ class WineSpikeRunner(private val context: Context) {
             // Confirm the socket file exists (native bind succeeded).
             evidence["x0SocketExists"] = File(x0Path).exists().toString()
 
-            // 5. Launch the self-test PE via the synchronous proot run with
-            //    DISPLAY=:0. argv0 is the PE basename (pocket_selftest). The
-            //    guest PE sits in the cache-backed tree at <tree>/pocket_selftest.exe.
+            // 5. Launch the self-test PE through the direct glibc adapter with
+            //    DISPLAY=:0. The guest PE sits in the cache-backed tree at
+            //    <tree>/pocket_selftest.exe.
             val selfTestPath = File(treeDir, "pocket_selftest.exe")
             evidence["selfTestPath"] = selfTestPath.absolutePath
             evidence["selfTestExists"] = selfTestPath.exists().toString()
             // Wipe the prefix for a clean WINEPREFIX init by wineboot when the
-            // self-test launches Wine's initial setup.
+            // self-test launches. Initialize it explicitly first: Wine's
+            // implicit first-run helper overlaps the 32-bit WoW64 transition,
+            // which makes failures ambiguous and is not the production launch
+            // ordering. S-2 already establishes this explicit wineboot path.
             if (prefixDir.exists()) prefixDir.deleteRecursively()
             prefixDir.mkdirs()
 
-            // Launch `wine pocket_selftest.exe` via proot. The wine binary
+            val winebootTarget = File(treeDir, "lib/wine/x86_64-windows/wineboot.exe").absolutePath
+            val initRaw = WineSpikeNative.runWineDirectNative(
+                nativeDir, winebootTarget, prefixDir.absolutePath,
+                "", "--init",
+                "LD_DEBUG=;WINEDEBUG=-all;WINEDLLOVERRIDES=winex11.drv=d",
+                60_000)
+            val initRun = parseProotRunResult(initRaw)
+            evidence["s3WinebootExit"] = initRun.exitCode.toString()
+            evidence["s3WinebootTimedOut"] = initRun.timedOut.toString()
+            evidence["s3WinebootStderrTail"] = initRun.stderr.lineSequence()
+                .toList().takeLast(15).joinToString(" | ")
+            if (!initRun.exitedCleanly || initRun.exitCode != 0) {
+                throw IllegalStateException(
+                    "explicit wineboot failed: exit=${initRun.exitCode} timeout=${initRun.timedOut}")
+            }
+
+            // wineboot's launcher exits before its reparented setup helpers
+            // necessarily finish copying the builtin PE modules into the
+            // prefix. Use the same orderly close barrier as S-2 before
+            // launching the 32-bit test; otherwise a slower 16 KB lane races
+            // an empty system32 directory and reports a false kernel32 miss.
+            val wineserverTarget = File(treeDir, "bin/wineserver").absolutePath
+            val prefixReady = waitForPrefixReady(prefixDir)
+            evidence["s3WinebootPrefixReady"] = prefixReady.toString()
+            val initServerKill = runProotBounded(
+                nativeDir, wineserverTarget, "wineserver", prefixDir.absolutePath,
+                "", "-k", "", 15_000, evidence, "s3InitServerKill")
+            val initServerWait = runProotBounded(
+                nativeDir, wineserverTarget, "wineserver", prefixDir.absolutePath,
+                "", "-w", "", 15_000, evidence, "s3InitServerWait")
+            val initServerCompleted = prefixReady && initServerKill != null &&
+                initServerWait != null && initServerKill.exitedCleanly &&
+                initServerKill.exitCode == 0 && !initServerKill.timedOut &&
+                initServerWait.exitedCleanly && initServerWait.exitCode == 0 &&
+                !initServerWait.timedOut
+            val prefixBuiltinLinks = linkVerifiedBuiltinsIntoPrefix(
+                prefixDir, cacheDir, peManifest)
+            evidence["s3PrefixBuiltinLinksCreated"] = prefixBuiltinLinks.toString()
+            val kernel32Ready = File(
+                prefixDir, "drive_c/windows/system32/kernel32.dll").isFile
+            evidence["s3Kernel32Ready"] = kernel32Ready.toString()
+            evidence["s3InitServerBarrier"] = initServerCompleted.toString()
+            if (!initServerCompleted) {
+                throw IllegalStateException("wineboot prefix did not become ready and stop cleanly")
+            }
+            if (!kernel32Ready) {
+                throw IllegalStateException("wineboot setup incomplete: kernel32.dll absent after wineserver barrier")
+            }
+
+            // Launch `wine pocket_selftest.exe` via the direct glibc adapter. The wine binary
             // (libwine_preloader.so) is the ELF the loader runs; the PE is its
             // argument (Wine's PE loader handles it). argv0=wine preserves the
             // logical command name. DISPLAY=:0 routes GDI through winex11.drv
             // to our X-server. The self-test path is passed as the wine arg.
-            val wineTarget = File(treeDir, "bin/wine").absolutePath
-            evidence["s3WineTarget"] = wineTarget
-            AppLog.i(TAG, "S-3: launching wine pocket_selftest.exe via proot (DISPLAY=:0)")
+            evidence["s3WineTarget"] = selfTestPath.absolutePath
+            AppLog.i(TAG, "S-3: launching pocket_selftest.exe via direct glibc path (DISPLAY=:0)")
             val raw = try {
-                WineSpikeNative.runWineViaProotNative(
-                    nativeDir, wineTarget, "wine",
-                    prefixDir.absolutePath, ":0", selfTestPath.absolutePath, "", 120_000)
+                WineSpikeNative.runWineDirectNative(
+                    nativeDir, selfTestPath.absolutePath,
+                    prefixDir.absolutePath, ":0", "",
+                    "LD_DEBUG=;WINEDEBUG=-all",
+                    120_000)
             } catch (e: Exception) {
                 evidence["s3RunException"] = "${e.javaClass.simpleName}: ${e.message}"
                 ""
@@ -1185,13 +1400,44 @@ class WineSpikeRunner(private val context: Context) {
                 evidence["s3Rc"] = run.rc.toString()
                 evidence["s3ExitCode"] = run.exitCode.toString()
                 evidence["s3TimedOut"] = run.timedOut.toString()
+                evidence["s3DescendantCount"] = run.descendants.size.toString()
+                run.descendants.forEachIndexed { index, child ->
+                    evidence["s3Desc_${index}"] =
+                        "pid=${child.pid},ppid=${child.ppid},class=${child.classification}," +
+                            "maps=${child.mapsProof},cmd=${child.cmdline.take(240)}"
+                }
                 evidence["s3StdoutTail"] = run.stdout.lineSequence().toList().takeLast(40).joinToString(" | ")
-                evidence["s3StderrTail"] = run.stderr.lineSequence().toList().takeLast(40).joinToString(" | ")
+                evidence["s3StderrTail"] = run.stderr.lineSequence().toList().takeLast(120).joinToString(" | ")
+                run.stderr.lineSequence()
+                    .filter {
+                        it.contains("kernel32", ignoreCase = true) ||
+                            it.contains("i386-windows", ignoreCase = true) ||
+                            it.contains("x86_64-windows", ignoreCase = true) ||
+                            it.contains("Failed to load", ignoreCase = true) ||
+                            it.contains("find_dll", ignoreCase = true)
+                    }
+                    .toList().takeLast(60)
+                    .forEachIndexed { index, line ->
+                        evidence["s3Module_${index}"] = line.take(3000)
+                    }
+                run.stderr.lineSequence()
+                    .filter {
+                        it.contains("x11drv", ignoreCase = true) ||
+                            it.contains("winex11", ignoreCase = true) ||
+                            it.contains("display", ignoreCase = true) ||
+                            it.contains("driver", ignoreCase = true)
+                    }
+                    .toList().takeLast(80)
+                    .forEachIndexed { index, line ->
+                        evidence["s3X11_${index}"] = line.take(3000)
+                    }
                 selfTestOk = run.stdout.contains("POCKET_SELFTEST_OK")
                 windowSeen = run.stdout.contains("POCKET_SELFTEST_WINDOW")
+                paintSeen = run.stdout.contains("POCKET_SELFTEST_PAINT")
                 selfTestExit = if (run.exitedCleanly) run.exitCode else -1
             }
             evidence["s3WindowSeen"] = windowSeen.toString()
+            evidence["s3PaintSeen"] = paintSeen.toString()
             evidence["s3SelfTestOk"] = selfTestOk.toString()
             evidence["s3SelfTestExit"] = selfTestExit.toString()
 
@@ -1219,18 +1465,20 @@ class WineSpikeRunner(private val context: Context) {
             //    reap the proot tree. The proot run already waited for the
             //    self-test, but wineserver may persist.
             try { connector?.destroy() } catch (_: Exception) {}
-            val serverTarget = File(treeDir, "bin/wineserver").absolutePath
-            runProotBounded(nativeDir, serverTarget, "wineserver", prefixDir.absolutePath,
-                "", "-k", "", 5_000, evidence, "s3ServerKill")
+            // The direct runner launches a non-persistent wineserver; it exits
+            // when the final Wine client disconnects. Timeout cleanup kills the
+            // complete process tree if a client fails to shut down.
         }
 
         // Verdict: transport loaded + server started + window seen + self-test
         // reported OK + exit zero.
-        val ok = transportLoaded && serverStarted && windowSeen && selfTestOk && selfTestExit == 0
+        val ok = transportLoaded && serverStarted && windowSeen && paintSeen &&
+            selfTestOk && selfTestExit == 0
         val code = if (ok) "X11_GDI_WINDOW_PROVEN" else when {
             !transportLoaded -> "WINLATOR_LOAD_FAILED"
             !serverStarted -> "XSERVER_START_FAILED"
             !windowSeen -> "NO_WINDOW_MAPPED"
+            !paintSeen -> "NO_WINDOW_PAINT"
             !selfTestOk -> "SELFTEST_NO_OK_MARKER"
             selfTestExit != 0 -> "SELFTEST_NONZERO_EXIT"
             else -> "S3_UNKNOWN_FAILURE"
@@ -1242,7 +1490,8 @@ class WineSpikeRunner(private val context: Context) {
         } else {
             ExperimentResult.fail("S3", "-", code,
                 listOf("transportLoaded=$transportLoaded serverStarted=$serverStarted " +
-                    "windowSeen=$windowSeen selfTestOk=$selfTestOk selfTestExit=$selfTestExit"),
+                    "windowSeen=$windowSeen paintSeen=$paintSeen " +
+                    "selfTestOk=$selfTestOk selfTestExit=$selfTestExit"),
                 evidence, SystemClock.elapsedRealtime() - t0)
         }
         announce(result)

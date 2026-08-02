@@ -46,6 +46,12 @@ WINE_ID = "wine-kron4ek-11-14-vanilla-wow64"
 RUNTIME_MANDATORY = {
     "libfreetype.so.6": "font rendering (gdi32); Kron4ek built --with-freetype",
     "libfontconfig.so.1": "font selection; Kron4ek built --with-fontconfig",
+    "libz.so.1": "DT_NEEDED by the mandatory libfreetype runtime",
+    "libbz2.so.1.0": "DT_NEEDED by the mandatory libfreetype runtime",
+    "libpng16.so.16": "DT_NEEDED by the mandatory libfreetype runtime",
+    "libbrotlidec.so.1": "DT_NEEDED by the mandatory libfreetype runtime",
+    "libbrotlicommon.so.1": "DT_NEEDED by libbrotlidec",
+    "libexpat.so.1": "DT_NEEDED by the mandatory libfontconfig runtime",
 }
 RUNTIME_OPTIONAL = {
     "libXrandr.so.2", "libXrender.so.1", "libXcomposite.so.1", "libXinerama.so.1",

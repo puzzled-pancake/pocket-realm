@@ -25,5 +25,11 @@
 *.adt binary
 *.wdt binary
 
+# Unified-diff context markers and captured device output can legitimately end
+# in whitespace; do not treat those immutable evidence/source-patch bytes as
+# source-code whitespace errors.
+*.patch -whitespace
+tests/avd/**/evidence/*.log -whitespace
+
 # Generated lockfiles — merge=ours to avoid spurious conflicts
 Cargo.lock merge=ours

@@ -243,8 +243,10 @@ def main() -> int:
                      else ["S1", "S2", "S3"])
     # We only require the results for experiments that actually ran. If a test
     # produced no RESULT line at all, treat as not-ok.
-    saw_expected = any(exp in results for exp in expected_exps)
-    overall_ok = (ran > 0 and failed_n == 0 and all_results_ok and saw_expected)
+    saw_expected = all(exp in results for exp in expected_exps)
+    expected_test_count = 1 if args.only else 3
+    overall_ok = (ran == expected_test_count and failed_n == 0 and
+                  all_results_ok and saw_expected)
 
     print(f"\n=== outcome ===")
     print(f"  ran={ran} passed={passed_n} failed={failed_n}")

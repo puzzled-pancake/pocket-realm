@@ -320,8 +320,8 @@ struct wine_spike_proot_run_result {
     int exit_status;        /* raw waitpid exit of the top proot process (or -1) */
     int proot_rc;           /* WINE_SPIKE_OK or WINE_SPIKE_ERR_* */
     int timed_out;          /* 1 if the run hit the timeout */
-    char stdout_buf[8192];  /* captured child stdout (truncated) */
-    char stderr_buf[8192];  /* captured child stderr (truncated) */
+    char stdout_buf[16384]; /* captured child stdout tail */
+    char stderr_buf[262144]; /* bounded stderr tail; holds focused Wine diagnostics */
     int descendant_count;   /* number of entries in descendants[] */
     struct wine_spike_proc_info descendants[WINE_SPIKE_DESCENDANTS_MAX];
 };
@@ -366,6 +366,20 @@ int wine_spike_run_wine_via_proot(const char *native_dir,
                                   const char *extra_env,
                                   int timeout_ms,
                                   struct wine_spike_proot_run_result *out);
+
+/* Direct-glibc run used after PRoot was proven to corrupt Wine 11's new-WoW64
+ * PE relocation on x86_64. The APK loader has a signature-locked access(2)
+ * compatibility patch; a glibc LD_PRELOAD shim supplies the immutable-ELF /
+ * writable-data path mapping and /tmp redirect without ptrace translation.
+ * The result wire format is identical to the synchronous PRoot run. */
+int wine_spike_run_wine_direct(const char *native_dir,
+                               const char *pe_target,
+                               const char *prefix_dir,
+                               const char *display,
+                               const char *wine_args,
+                               const char *extra_env,
+                               int timeout_ms,
+                               struct wine_spike_proot_run_result *out);
 
 /*
  * Recursively enumerate ALL descendants of <root_pid> (children, grandchildren,
