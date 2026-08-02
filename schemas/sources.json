@@ -2,7 +2,7 @@
   "schema": 1,
   "reference_document": "docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx",
   "description": "Pinned upstream source manifest for the Pocket Realm offline build. Every active entry has an exact commit, license, and redistribution verdict. The canonical architecture and delivery reference is docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx; this file governs source selection only.",
-  "updated": "2026-08-02 (O07: read-only build-5875 validation and repeatable WineD3D/Gladio login-screen qualification)",
+  "updated": "2026-08-03 (O08: pinned MariaDB 11.5.2 x86_64 source-build and isolated database runtime)",
   "toolchain": {
     "android_sdk_root_env": "ANDROID_SDK_ROOT / ANDROID_HOME (machine-local; not pinned here)",
     "ndk": {
@@ -30,7 +30,7 @@
       "playerbots_integration": "BUILD_PLAYERBOTS=ON; cmangos FetchContent (SOURCE_DIR form) reads native/playerbots mirrored into native/cmangos/src/modules/PlayerBots by build_native.py ensure_playerbots()",
       "emulator_test_abi": "x86_64 is the required G1/G2 development and integration ABI via the fixed Android AVD lanes. arm64-v8a remains the physical release ABI; any distributed x86 artifact must be explicitly declared by the release matrix.",
       "patches": "docs/patches/native-source-patches.md",
-      "planned_database_dependency": "Pinned native MariaDB source/build is selected and added by O08 before G2 acceptance."
+      "database_dependency": "MariaDB 11.5.2 is source-built for the x86_64 glibc runtime by tools/build_mariadb_android.py; its exact provider and SQL ledgers are staged by the O08 tools."
     }
   },
   "sources": [
@@ -155,6 +155,26 @@
       "redistribution": {
         "verdict": "source-redistributable (built from public Termux/glibc upstream)",
         "notes": "All packages are built from source via pinned gpkg recipes and the pinned Termux build harness. Project overlays add Android poll(2)-to-ppoll(2) compatibility, omit the unused i386 glibc subpackage, and set -Wl,-z,max-page-size=0x4000 across the closure. Imported package hashes are recorded in runtime/glibc-rootfs-x86_64/BUILD_PROVENANCE.json."
+      }
+    },
+    {
+      "id": "mariadb-11-5-2-termux-glibc",
+      "kind": "source-built-archive",
+      "upstream_url": "https://github.com/MariaDB/server",
+      "version": "11.5.2",
+      "source_tarball": "mariadb-11.5.2.tar.gz",
+      "source_tarball_url": "https://archive.mariadb.org/mariadb-11.5.2/source/mariadb-11.5.2.tar.gz",
+      "source_tarball_sha256": "e25fac00aeb34610faf62182836a14e3310c0ca5d882e9109f63bd8dfdc3542d",
+      "build_recipe": "gpkg/mariadb/build.sh at termux-pacman/glibc-packages c9d4de54797bd6652f797217bf9e4c4050f02798, driven by tools/build_mariadb_android.py in the pinned CGCT image",
+      "recipe_overlay": "The retired NetCologne mirror URL is replaced with MariaDB's official archive URL; the recipe's exact source SHA-256 is unchanged. Existing source-built output archives seed dependency resolution so the unavailable mirror gcc-libs package is not rebuilt. CMake 4.4 receives its documented 3.5 policy floor, glibc's void signal-handler fact is supplied after GCC 16 rejects MariaDB's K&R probe, and GCC 16's removed evex512 target alias is dropped while every explicit AVX-512 feature and MariaDB's runtime dispatch remain unchanged. Target-native build generators receive the pinned CGCT x86_64 library directory only as CMake's build-tree RPATH, which is removed on install; staging rejects any leaked builder path.",
+      "termux_packages_harness_commit": "d9188dcf2517ec5f2ed82e021b3cd14c402c74ec",
+      "builder_image": "ghcr.io/termux/package-builder-cgct@sha256:69ffa5cfe02ca569e7d03d1c99e3c9a0f79390ad6bf11a3629d048c29c6ccb61",
+      "elf_max_page_size": "0x4000",
+      "role": "O08 G2 native x86_64 database service. mariadbd and the fixed mariadb client execute from immutable APK nativeLibraryDir through the O06-qualified glibc/PRoot syscall adapter. The service owns an app-private Unix socket and datadir with TCP disabled.",
+      "license": "GPL-2.0-only",
+      "redistribution": {
+        "verdict": "source-redistributable-under-GPL-2.0",
+        "notes": "The exact public release source, checked-in build/staging recipes, build-image pin, and generated output/runtime hashes provide source correspondence for the distributed MariaDB ELF subset. The compiler-matched libstdc++.so.6.0.35 is extracted from that exact CGCT image, pinned by SHA-256, and corresponds to the recorded GCC 16.1.0 GNU source tarball under the GCC Runtime Library Exception. Dependency licenses and closure use are recorded separately in the generated runtime lockfile."
       }
     },
     {

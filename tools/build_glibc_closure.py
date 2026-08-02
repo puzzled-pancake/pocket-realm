@@ -432,17 +432,12 @@ def _build_one_package(repo: Path, arch: str, pkg: str, out_dir: Path,
         "--workdir", "/home/builder/termux-packages",
         CGCT_IMAGE,
     ]
-    if install_deps:
-        cmd += ["./build-package.sh", flag, "-a", arch,
-                "--format", "pacman", "--library", "glibc", pkg]
-    else:
-        # The current mirror does not publish gcc-libs-glibc 16.1. Import all
-        # locally source-built packages into this ephemeral prefix and create
-        # the same version stamps the Termux harness writes after a successful
-        # build. The -s mode then skips dependency resolution entirely: every
-        # target dependency is already present, and this avoids the harness
-        # walking unavailable mirror packages and recursively rebuilding GCC.
-        bootstrap = r'''
+    # Import all already source-built packages into the ephemeral prefix before
+    # dependency resolution. This matters for gcc-libs-glibc 16.1, which the
+    # current mirror metadata references but no longer serves. With -I the
+    # harness still downloads every dependency not present locally; with -s it
+    # uses the complete preseed and skips resolution as before.
+    bootstrap = r'''
 set -e
 mkdir -p /data/data/.built-packages
 for archive in output/*.pkg.tar.xz; do
@@ -450,15 +445,19 @@ for archive in output/*.pkg.tar.xz; do
   pkginfo=$(tar -xOf "$archive" .PKGINFO 2>/dev/null || true)
   pkgname=$(printf '%s\n' "$pkginfo" | sed -n 's/^pkgname = //p' | head -n 1)
   pkgver=$(printf '%s\n' "$pkginfo" | sed -n 's/^pkgver = //p' | head -n 1)
+  # Pacman archive names encode the default package revision as "-0", while
+  # Termux's dependency version for a recipe with no explicit revision omits
+  # it (e.g. gcc-libs 16.1.0). Match the harness's version stamp.
+  case "$pkgver" in *-0) pkgver=${pkgver%-0};; esac
   tar -xJf "$archive" --anchored --exclude=.{BUILDINFO,PKGINFO,MTREE,INSTALL} \
     --force-local --no-overwrite-dir -C /
   if [ -n "$pkgname" ] && [ -n "$pkgver" ]; then
     printf '%s\n' "$pkgver" > "/data/data/.built-packages/$pkgname"
   fi
 done
-exec ./build-package.sh -s -a "$1" --format pacman --library glibc "$2"
+exec ./build-package.sh "$3" -a "$1" --format pacman --library glibc "$2"
 '''.strip()
-        cmd += ["bash", "-lc", bootstrap, "closure-build", arch, pkg]
+    cmd += ["bash", "-lc", bootstrap, "closure-build", arch, pkg, flag]
     # Retry loop ONLY for transient network failures (HTTP 429 from the gcc git
     # clone at sourceware.org, mirror hiccups, connection resets). A real build
     # failure aborts at once — retrying a deterministic failure reproduces it.

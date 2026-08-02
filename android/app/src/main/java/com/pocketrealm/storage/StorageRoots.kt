@@ -23,8 +23,18 @@ class StorageRoots(context: Context) {
     /** Root of all mutable, internal, never-user-visible realm state. */
     val realmData: File = File(appContext.filesDir, "realm").apply { mkdirs() }
 
-    /** The live character database directory (a protected generation lives here). */
-    val realmDatabase: File = File(realmData, "db").apply { mkdirs() }
+    /**
+     * O08 database ownership boundary. It is excluded from Android backup and
+     * owned exclusively by the `:database` service. No other component may
+     * copy or edit files below [databaseDatadir] while MariaDB is running.
+     */
+    val databaseRoot: File = File(appContext.noBackupFilesDir, "database").apply { mkdirs() }
+    val databaseDatadir: File = File(databaseRoot, "data").apply { mkdirs() }
+    val databaseRun: File = File(databaseRoot, "run").apply { mkdirs() }
+    val databaseSnapshots: File = File(databaseRoot, "snapshots").apply { mkdirs() }
+
+    /** Compatibility name for pre-O08 callers; the service remains sole owner. */
+    val realmDatabase: File get() = databaseDatadir
 
     /** Verified recovery generations (>=2 retained per PLAN.md A3). */
     val generations: File = File(realmData, "generations").apply { mkdirs() }
@@ -55,7 +65,10 @@ class StorageRoots(context: Context) {
     fun verify(): Report {
         val roots = listOf(
             "realm" to realmData,
-            "realm/db" to realmDatabase,
+            "database" to databaseRoot,
+            "database/data" to databaseDatadir,
+            "database/run" to databaseRun,
+            "database/snapshots" to databaseSnapshots,
             "realm/generations" to generations,
             "content" to content,
             "runtime" to runtime,
@@ -66,7 +79,8 @@ class StorageRoots(context: Context) {
             roots = roots.map { (name, dir) ->
                 RootStatus(name, dir.absolutePath, dir.exists(), usableBytes(dir))
             },
-            mutableRootIsInternal = realmData.startsWith(appContext.filesDir),
+            mutableRootIsInternal = realmData.startsWith(appContext.filesDir) &&
+                databaseRoot.startsWith(appContext.noBackupFilesDir),
         )
     }
 

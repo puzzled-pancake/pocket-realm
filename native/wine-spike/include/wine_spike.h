@@ -387,6 +387,27 @@ int wine_spike_run_wine_direct(const char *native_dir,
  * therefore session-tree scoped instead of relying on executable names. */
 int wine_spike_cancel_active_direct(void);
 
+/* Generic x86_64 Linux/glibc child runner used by O08's isolated MariaDB
+ * service. The caller remains responsible for exposing only fixed, trusted
+ * commands: this native primitive is intentionally not part of an exported
+ * Binder surface. args_blob and env_blob are newline-delimited bounded lists;
+ * stdin_path may name a hash-verified SQL input or be empty. */
+int wine_spike_run_glibc_program(const char *native_dir,
+                                 const char *executable,
+                                 const char *argv0_override,
+                                 const char *working_dir,
+                                 const char *runtime_root,
+                                 const char *library_path,
+                                 const char *args_blob,
+                                 const char *env_blob,
+                                 const char *stdin_path,
+                                 int timeout_ms,
+                                 int track_as_daemon,
+                                 struct wine_spike_proot_run_result *out);
+
+/* Kill only the process tree registered by a track_as_daemon launch. */
+int wine_spike_cancel_active_glibc_program(void);
+
 /*
  * Recursively enumerate ALL descendants of <root_pid> (children, grandchildren,
  * ...) into out_pids (depth-first). Returns the count written, or -1 on error.

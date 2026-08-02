@@ -212,7 +212,7 @@
       "track": "offline",
       "priority": 80,
       "title": "G2 native x86_64 MariaDB service, schema ledger, and dirty recovery",
-      "status": "pending",
+      "status": "complete",
       "depends": [
         "O05",
         "O03"
@@ -223,8 +223,10 @@
         "Pinned realm, characters, logs, world, and playerbot inputs install through a hash-verified ordered migration ledger; revision mismatch is tested",
         "Dirty kill/recovery, storage-full handling, and consistent pre-migration snapshot/restore pass without copying a live datadir"
       ],
-      "notes": "",
-      "evidence": [],
+      "notes": "MariaDB 11.5.2 is source-built for x86_64/glibc with a hash-pinned ABI closure, runs in the non-exported :database process through the O06-qualified syscall adapter, and owns an app-private Unix socket/datadir with TCP disabled. The API-35 4 KB lane passed initialization, random least-privilege credentials plus denied account administration, 399 ordered hash-verified migrations, exact revision checks and mismatch rejection, storage-full refusal, stopped-state snapshot/restore, clean stop, dirty kill, recovery output, authenticated query, and final clean stop.",
+      "evidence": [
+        "tests/avd/AVD-Modern-x86_64-v1/evidence/databaseRuntime-o08-acceptance-20260802-1915Z.PASS.json"
+      ],
       "reference": "Report section 12 and sections 20.2/20.4 (X4)"
     },
     {

@@ -52,6 +52,12 @@ android {
             // nativeLibraryDir; extraction is selected below per-variant.
             isJniDebuggable = true
         }
+        create("databaseRuntime") {
+            initWith(getByName("debug"))
+            // O08's MariaDB/glibc ELFs execute from nativeLibraryDir, using the
+            // same qualified immutable-code packaging model as O06.
+            isJniDebuggable = true
+        }
     }
 
     // Per-variant jniLibs packaging model. O05 documents the observed behavior
@@ -76,6 +82,11 @@ android {
             // O06 S-3: Winlator X-server (vendored at ca3d735; trimmed/stubbed).
             // See docs/patches/wine-provider-provenance.md for the trim list.
             java.srcDir("../../runtime/xserver-winlator")
+        }
+        getByName("databaseRuntime") {
+            // Generated, deterministic provider support data + gzip migration
+            // inputs. Executable code remains in nativeLibraryDir.
+            assets.srcDir("../../native/.build-x86_64/mariadb-staging/assets")
         }
     }
 
@@ -138,6 +149,7 @@ val stageNativeLibs by tasks.registering(Sync::class) {
     val xserverBuild = File(repoRoot, "native/.build-x86_64/xserver-winlator-build")
     val wineStaging = File(repoRoot, "native/.build-x86_64/wine-staging/jniLibs")
     val prootStage = File(repoRoot, "native/.build-x86_64/proot-stage")
+    val mariadbStage = File(repoRoot, "native/.build-x86_64/mariadb-staging/jniLibs/x86_64")
     val stagedLib = layout.buildDirectory.dir("staged-jniLibs/x86_64")
 
     // Require the native build to have run (O03/O04 + O05 packaging + O06 spike).
@@ -225,6 +237,31 @@ val stageNativeLibs by tasks.registering(Sync::class) {
     from(File(wineStaging, "libwine_unix_ntdll.so")) {
         rename { "ntdll.so" }
     }
+    // O08: pinned MariaDB executables + their glibc DT_NEEDED closure. The
+    // stage script assigns collision-safe lib*.so APK names and records every
+    // source pathname/hash in BUILD_PROVENANCE.json.
+    from(mariadbStage)
+}
+
+val validateDatabaseRuntime by tasks.registering {
+    group = "pocket realm"
+    description = "Require the generated O08 MariaDB provider and migration assets."
+    val repoRoot = layout.projectDirectory.dir("../..").asFile
+    doLast {
+        val stage = File(repoRoot, "native/.build-x86_64/mariadb-staging")
+        val required = listOf(
+            File(stage, "jniLibs/x86_64/libpocket_mariadbd.so"),
+            File(stage, "jniLibs/x86_64/libpocket_mariadb_client.so"),
+            File(stage, "assets/database/provider/bootstrap.sql"),
+            File(stage, "assets/database/migrations/manifest.json"),
+            File(stage, "BUILD_PROVENANCE.json"),
+        )
+        val missing = required.filterNot { it.isFile }
+        check(missing.isEmpty()) {
+            "O08 MariaDB staging incomplete. Run tools/stage_mariadb_runtime.py and " +
+                "tools/stage_database_migrations.py. Missing: ${missing.joinToString { it.name }}"
+        }
+    }
 }
 
 // Make every APK-producing variant depend on staging the native closure, and
@@ -237,8 +274,14 @@ androidComponents {
             .configureEach { dependsOn(stageNativeLibs) }
         tasks.matching { it.name.startsWith("assemble") && it.name.endsWith(cap) }
             .configureEach { dependsOn(stageNativeLibs) }
-        if (variant.name == "pkgExperiment" || variant.name == "clientRuntime") {
+        if (variant.name == "pkgExperiment" || variant.name == "clientRuntime" ||
+            variant.name == "databaseRuntime") {
             variant.packaging.jniLibs.useLegacyPackaging.set(true)
+        }
+        if (variant.name == "databaseRuntime") {
+            tasks.matching { it.name == "merge${cap}JniLibFolders" ||
+                it.name == "merge${cap}Assets" || it.name == "assemble${cap}" }
+                .configureEach { dependsOn(validateDatabaseRuntime) }
         }
     }
 }

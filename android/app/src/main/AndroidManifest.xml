@@ -72,5 +72,14 @@
             android:process=":client"
             android:exported="false"
             android:stopWithTask="true" />
+
+        <!-- O08: MariaDB owns its datadir in a dedicated fault domain. The
+             same-APK Binder API exposes lifecycle/test verbs only; callers
+             cannot submit SQL, paths, commands, environment, or credentials. -->
+        <service
+            android:name=".database.DatabaseService"
+            android:process=":database"
+            android:exported="false"
+            android:stopWithTask="true" />
     </application>
 </manifest>

@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+"""Build O08's deterministic, hash-verified SQL migration asset set.
+
+The source repos remain the source of truth. This script selects the exact
+Classic 1.12.1 inputs, records their pinned commits and SQL hashes in the
+reviewable schema manifest, and emits deterministic gzip assets for Android.
+"""
+from __future__ import annotations
+
+import gzip
+import hashlib
+import json
+import re
+import shutil
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SCHEMA_OUT = ROOT / "schemas" / "database-migrations.json"
+ASSET_ROOT = (
+    ROOT / "native" / ".build-x86_64" / "mariadb-staging" /
+    "assets" / "database" / "migrations"
+)
+EXPECTED_REVISIONS = {
+    "realm": "required_z2820_01_realmd_joindate_datetime",
+    "characters": "required_z2819_01_characters_item_instance_text_id_fix",
+    "logs": "required_z2778_01_logs_anticheat",
+    "world": "required_z2830_01_mangos_icon_name",
+}
+DATABASES = {
+    "realm": "classicrealmd",
+    "characters": "classiccharacters",
+    "logs": "classiclogs",
+    "world": "classicmangos",
+    "playerbot-characters": "classiccharacters",
+    "playerbot-world": "classicmangos",
+}
+
+
+@dataclass(frozen=True)
+class Input:
+    component: str
+    path: Path
+
+
+def git_commit(path: Path) -> str:
+    return subprocess.check_output(
+        ["git", "-C", str(path), "rev-parse", "HEAD"], text=True
+    ).strip()
+
+
+def sql_bytes(path: Path) -> bytes:
+    if path.suffix == ".gz":
+        with gzip.open(path, "rb") as stream:
+            return stream.read()
+    return path.read_bytes()
+
+
+def sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def select_inputs() -> list[Input]:
+    cmangos = ROOT / "native" / "cmangos"
+    classic = ROOT / "native" / "classic-db"
+    bots = ROOT / "native" / "playerbots"
+    selected = [
+        Input("realm", cmangos / "sql/base/realmd.sql"),
+        Input("characters", cmangos / "sql/base/characters.sql"),
+        Input("logs", cmangos / "sql/base/logs.sql"),
+        Input("world", classic / "Full_DB/ClassicDB_1_12_1_z2815.sql.gz"),
+    ]
+    classic_updates = sorted((classic / "Updates").glob("[0-9]*.sql"))
+    selected.extend(Input("world", p) for p in classic_updates)
+    selected.extend(
+        Input("world", p)
+        for p in sorted((classic / "Updates/Instances").glob("[0-9]*.sql"))
+    )
+    # Classic-DB's numbered updates carry their own CMaNGOS core-sync steps.
+    # Find the highest world revision those pinned files already install and
+    # append only newer core migrations; replaying z2816..z2829 would fail on
+    # the revision column Classic-DB has already advanced.
+    integrated_core_revision = max(
+        int(match.group(1))
+        for path in classic_updates
+        for match in re.finditer(r"required_z(\d{4})_[A-Za-z0-9_]+", path.read_text(errors="replace"))
+    )
+    selected.extend(
+        Input("world", p)
+        for p in sorted((cmangos / "sql/updates/mangos").glob("z*.sql"))
+        if int(p.name[1:5]) > integrated_core_revision
+    )
+    selected.extend(
+        Input("playerbot-characters", p)
+        for p in sorted((bots / "sql/characters").glob("*.sql"))
+    )
+    selected.extend(
+        Input("playerbot-world", p)
+        for p in sorted((bots / "sql/world").glob("*.sql"))
+    )
+    selected.extend(
+        Input("playerbot-world", p)
+        for p in sorted((bots / "sql/world/classic").glob("*.sql"))
+    )
+    missing = [str(item.path) for item in selected if not item.path.is_file()]
+    if missing:
+        raise RuntimeError(f"missing pinned SQL inputs: {missing}")
+    return selected
+
+
+def main() -> int:
+    inputs = select_inputs()
+    if ASSET_ROOT.exists():
+        shutil.rmtree(ASSET_ROOT)
+    ASSET_ROOT.mkdir(parents=True)
+
+    entries = []
+    for index, item in enumerate(inputs, 1):
+        data = sql_bytes(item.path)
+        source_stem = item.path.stem.removesuffix(".sql")
+        safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", source_stem).strip("_")
+        migration_id = f"{index:04d}-{item.component}-{safe_stem}"
+        # AAPT treats the conventional .gz suffix as a request to inflate and
+        # rename the asset during merge. Use a neutral extension so the exact
+        # deterministic gzip byte stream and its pinned hash survive the APK.
+        asset_name = f"{index:04d}.sqlz"
+        with ASSET_ROOT.joinpath(asset_name).open("wb") as raw:
+            with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as zipped:
+                zipped.write(data)
+        entries.append(
+            {
+                "migration_id": migration_id,
+                "component": item.component,
+                "database": DATABASES[item.component],
+                "source_path": item.path.relative_to(ROOT).as_posix(),
+                "asset": f"database/migrations/{asset_name}",
+                "compression": "gzip",
+                "sql_size": len(data),
+                "sql_sha256": sha256(data),
+                "asset_sha256": sha256(ASSET_ROOT.joinpath(asset_name).read_bytes()),
+            }
+        )
+
+    manifest = {
+        "schema": 1,
+        "app_build_id": "o08-g2-mariadb-v1",
+        "ordering": "exact array order; stop realm/world before apply",
+        "source_commits": {
+            "cmangos": git_commit(ROOT / "native/cmangos"),
+            "classic_db": git_commit(ROOT / "native/classic-db"),
+            "playerbots": git_commit(ROOT / "native/playerbots"),
+        },
+        "expected_revisions": EXPECTED_REVISIONS,
+        "entries": entries,
+    }
+    encoded = json.dumps(manifest, indent=2) + "\n"
+    SCHEMA_OUT.write_text(encoded, encoding="utf-8")
+    (ASSET_ROOT / "manifest.json").write_text(encoded, encoding="utf-8")
+    print(f"staged {len(entries)} ordered migrations")
+    print(f"manifest: {SCHEMA_OUT}")
+    print(f"assets:   {ASSET_ROOT}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
