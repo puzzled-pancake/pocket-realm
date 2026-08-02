@@ -114,7 +114,15 @@ Cross-build MariaDB for x86_64 Android and run it as an app-private service with
 
 Run `realmd` and then `mangosd` natively with playerbots disabled. Add structured logging and a versioned app-private control channel for readiness, account creation, save, shutdown, world-tick metrics, and stable error codes. Corroborate ready events with loopback socket probes on 3724 and 8085.
 
-**Exit:** MariaDB initializes, queries, clean-stops, and recovers after a kill; the no-bot realm reaches world-ready, saves, stops, and survives forced-recovery tests without a client. Do not add bots if this gate fails.
+O08 and O09 completed on 3 August 2026. MariaDB initializes, queries,
+clean-stops, and recovers after a kill. The no-bot native realm reaches
+structured world-ready from verified app-private build-5875 DBC/maps, saves,
+retires its isolated process after clean shutdown, and recovers correctly from
+controlled world/database deaths. Twenty realm cycles, bounded control fuzzing,
+and concurrent host proof of loopback-only 3724/8085 listeners pass.
+
+**Exit: PASS.** G3 supervisor/integration work may begin; playerbots remain
+disabled until the later measured bot gate.
 
 ### Gate G3: integrated x86 application - O10-O12
 

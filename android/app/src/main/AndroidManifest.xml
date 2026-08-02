@@ -81,5 +81,19 @@
             android:process=":database"
             android:exported="false"
             android:stopWithTask="true" />
+
+        <!-- O09: CMaNGOS components are library-backed but retain executable-
+             equivalent failure boundaries. The fixed AIDL APIs accept no
+             paths, SQL, environment, or arbitrary server commands. -->
+        <service
+            android:name=".server.RealmRuntimeService"
+            android:process=":realm"
+            android:exported="false"
+            android:stopWithTask="true" />
+        <service
+            android:name=".server.WorldRuntimeService"
+            android:process=":world"
+            android:exported="false"
+            android:stopWithTask="true" />
     </application>
 </manifest>

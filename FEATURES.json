@@ -234,7 +234,7 @@
       "track": "offline",
       "priority": 90,
       "title": "G2 native x86_64 realmd and no-bot world with structured control",
-      "status": "pending",
+      "status": "done",
       "depends": [
         "O08",
         "O03"
@@ -246,8 +246,13 @@
         "Versioned app-private control supports account, save, shutdown, heartbeat/tick metrics, bounded errors, and fuzz/contract tests",
         "Twenty clean realm cycles plus controlled mangosd/MariaDB kills produce correct recovery classifications and no silent clean mark"
       ],
-      "notes": "",
-      "evidence": [],
+      "notes": "Pinned CMaNGOS realmd/world are built as 16 KB-compatible Android/Bionic x86_64 libraries with playerbots/AHBot off and static MariaDB Connector/C. Non-exported :realm/:world services expose only the fixed versioned control contract; the world process retires after acknowledged clean shutdown so each generation starts with fresh CMaNGOS singleton state. The app-private build-5875 extractor output contains 158 DBC and 2429 maps, fully hashed and never bundled. The migration ledger is append-only at 410 entries after adding mandatory CMaNGOS DBC/ScriptDev2/ACID layers. The API-35 4 KB lane passed 20 realm cycles, 11 control fuzz cases, account/save/stop, controlled world and database kills, dirty recovery, a final clean dependency cycle, and concurrent host proof that ports 3724/8085 listened only on 127.0.0.1.",
+      "evidence": [
+        "tests/avd/AVD-Modern-x86_64-v1/evidence/realmRuntime-o09-acceptance-20260803.PASS.json",
+        "schemas/realm-runtime-lockfile.json",
+        "schemas/database-migrations.json",
+        "docs/adr/ADR-016-o09-native-realm-runtime.md"
+      ],
       "reference": "Report sections 11, 17, 18, and 20.2/20.4 (X5-X6)"
     },
     {

@@ -4402,6 +4402,127 @@
       "sql_size": 49087,
       "sql_sha256": "4e016243f65b04a76908e68e3a246fca2eb6a812e3a4d3ba256aa6f03946b2aa",
       "asset_sha256": "b46f9567f24c9c58edd23c1f30b16186534ab8a11a0a5b31d0c794c44f92dce8"
+    },
+    {
+      "migration_id": "0400-world-CombatCondition",
+      "component": "world",
+      "database": "classicmangos",
+      "source_path": "native/cmangos/sql/base/dbc/original_data/CombatCondition.sql",
+      "asset": "database/migrations/0400.sqlz",
+      "compression": "gzip",
+      "sql_size": 19878,
+      "sql_sha256": "8a5a387038928abd60725f69fea2664dbff59ea8d3eb42f6a4fbbc1000cdbb94",
+      "asset_sha256": "34e000f2a1de5087dfca63c952f8581b66c2d125667af5d726b095704626e77d"
+    },
+    {
+      "migration_id": "0401-world-DungeonEncounter",
+      "component": "world",
+      "database": "classicmangos",
+      "source_path": "native/cmangos/sql/base/dbc/original_data/DungeonEncounter.sql",
+      "asset": "database/migrations/0401.sqlz",
+      "compression": "gzip",
+      "sql_size": 62407,
+      "sql_sha256": "de7068b7d8419a0f1b2d1b001a37d1b22b5d9fce18e45c61d27759088afe74e2",
+      "asset_sha256": "bb7fc600eeb7c063bce094dd08a0279021b9d5b36bd30528d01796bdb2d9a0e2"
+    },
+    {
+      "migration_id": "0402-world-Spell",
+      "component": "world",
+      "database": "classicmangos",
+      "source_path": "native/cmangos/sql/base/dbc/original_data/Spell.sql",
+      "asset": "database/migrations/0402.sqlz",
+      "compression": "gzip",
+      "sql_size": 8456823,
+      "sql_sha256": "ad1d275388be4da976f9fad9fd2a8626d1ba3ba0c2ecb3ac6a488b326f74f6ab",
+      "asset_sha256": "474b0baed4d3d08e7c0a29216ed724eb29df60256650cd1f3ad0e2f727c13ea8"
+    },
+    {
+      "migration_id": "0403-world-SpellCone",
+      "component": "world",
+      "database": "classicmangos",
+      "source_path": "native/cmangos/sql/base/dbc/original_data/SpellCone.sql",
+      "asset": "database/migrations/0403.sqlz",
+      "compression": "gzip",
+      "sql_size": 9872,
+      "sql_sha256": "6f87e31fecc2ecbd745cf1fa6fafef735a0c1ca77dc9f6e763648de67738adf1",
+      "asset_sha256": "aa32ada7942575e33ed8fc3824a9a9fa1ca234197ab116064fc938edb7f887d2"
+    },
+    {
+      "migration_id": "0404-world-UnitCondition",
+      "component": "world",
+      "database": "classicmangos",
+      "source_path": "native/cmangos/sql/base/dbc/original_data/UnitCondition.sql",
+      "asset": "database/migrations/0404.sqlz",
+      "compression": "gzip",
+      "sql_size": 19237,
+      "sql_sha256": "3cfa79099f01467b82fef2ec842dad6e341bf287ab4dbbd1b1e09a15fa47a8bd",
+      "asset_sha256": "743dbd46f1ccfe916cc925009785f97d843349c810def90f3e4722d1076e0128"
+    },
+    {
+      "migration_id": "0405-world-WorldStateExpression",
+      "component": "world",
+      "database": "classicmangos",
+      "source_path": "native/cmangos/sql/base/dbc/original_data/WorldStateExpression.sql",
+      "asset": "database/migrations/0405.sqlz",
+      "compression": "gzip",
+      "sql_size": 452831,
+      "sql_sha256": "07fc00283f7bc1134997575e9c3b538153ab16a12ae6caee088a501e8e02165b",
+      "asset_sha256": "d5546fb240f4ee457f8d57b9e3bc7df37a9e078da70fce25b1e19bb1b0b25953"
+    },
+    {
+      "migration_id": "0406-world-Spell",
+      "component": "world",
+      "database": "classicmangos",
+      "source_path": "native/cmangos/sql/base/dbc/cmangos_fixes/Spell.sql",
+      "asset": "database/migrations/0406.sqlz",
+      "compression": "gzip",
+      "sql_size": 23110,
+      "sql_sha256": "43e788aa18f0ea229a06d7d88fed13963d124702016566f7cdc583749b52ab8a",
+      "asset_sha256": "cfebf1e79ec50bdc9fd8c8106d67e85d564c47ea59b2d65cc7976b5dbca6ad51"
+    },
+    {
+      "migration_id": "0407-world-scriptdev2",
+      "component": "world",
+      "database": "classicmangos",
+      "source_path": "native/cmangos/sql/scriptdev2/scriptdev2.sql",
+      "asset": "database/migrations/0407.sqlz",
+      "compression": "gzip",
+      "sql_size": 292195,
+      "sql_sha256": "f5f040c9a6d7a8b5b616e5f43ad348a5c296462ff216d7fd42b2c2e9bd5d2ada",
+      "asset_sha256": "d88ca322871b9423adf925b2f53dd071648ddb8d87d32800fec3715f94a2bbbb"
+    },
+    {
+      "migration_id": "0408-world-spell",
+      "component": "world",
+      "database": "classicmangos",
+      "source_path": "native/cmangos/sql/scriptdev2/spell.sql",
+      "asset": "database/migrations/0408.sqlz",
+      "compression": "gzip",
+      "sql_size": 23667,
+      "sql_sha256": "430522c11010bb69656c8e84cb5ea142c0d69b3477c99c71d9231f95e7f1faf2",
+      "asset_sha256": "8e51570d3deba49bd0d608d5de014494f67133d711b4005b2308256d0783a4ba"
+    },
+    {
+      "migration_id": "0409-world-acid_classic",
+      "component": "world",
+      "database": "classicmangos",
+      "source_path": "native/classic-db/ACID/acid_classic.sql",
+      "asset": "database/migrations/0409.sqlz",
+      "compression": "gzip",
+      "sql_size": 2215982,
+      "sql_sha256": "21f19bf74903fe86584ee891668ae0539b9c422bfa24833cd22a4f7c271fca70",
+      "asset_sha256": "ad06443c0f13769a801a34f9e54be2a00a616db58e8694d0f52bb0a42f1139bd"
+    },
+    {
+      "migration_id": "0410-world-cmangos_custom",
+      "component": "world",
+      "database": "classicmangos",
+      "source_path": "native/classic-db/utilities/cmangos_custom.sql",
+      "asset": "database/migrations/0410.sqlz",
+      "compression": "gzip",
+      "sql_size": 8707,
+      "sql_sha256": "25028a08deb3a3fe208c78447f46338c8f472805779abf98b9b0de4c716778ea",
+      "asset_sha256": "12e86379ca4018540ecc0716f346edfdf7be6d92fef71085caa1d00ddf7287a3"
     }
   ]
 }

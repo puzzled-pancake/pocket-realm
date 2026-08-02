@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "abi": "x86_64",
+  "min_api": 26,
+  "elf_max_page_size": "0x4000",
+  "playerbots": false,
+  "auction_house_bot": false,
+  "cmangos_commit": "c096bada9e4ed23ad4ca706c67160a26d7121337",
+  "cmangos_source_overlays": [
+    {
+      "id": "mmap-disabled-load-guard",
+      "path": "src/game/Maps/GridMap.cpp",
+      "reason": "Do not enter MMapManager::loadMap when mmap.enabled=0; the disabled manager intentionally has no map instance."
+    }
+  ],
+  "mariadb_connector_c": {
+    "url": "https://github.com/MariaDB/mariadb-connector-c.git",
+    "commit": "de6305915f86bb33c83b1fe782a2b8a76920aec1",
+    "license": "LGPL-2.1-or-later"
+  },
+  "artifacts": [
+    {
+      "path": "native/.build-o09-x86_64/realm-staging/jniLibs/x86_64/libpocket_realmd_runtime.so",
+      "size": 5113040,
+      "sha256": "d864a691cf969dadfb6e2f9185e13cf5dc60861c21a91f5b3be12bab39e1c596",
+      "needed": [
+        "libc++_shared.so",
+        "libc.so",
+        "libdl.so",
+        "libm.so",
+        "libz.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
+    },
+    {
+      "path": "native/.build-o09-x86_64/realm-staging/jniLibs/x86_64/libpocket_world_runtime.so",
+      "size": 15282448,
+      "sha256": "1c7b56ec39f5544e490d4eca29a53d4d4070fd185f78e5aa04c2e216c45c161a",
+      "needed": [
+        "libc++_shared.so",
+        "libc.so",
+        "libdl.so",
+        "libm.so",
+        "libz.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
+    }
+  ]
+}

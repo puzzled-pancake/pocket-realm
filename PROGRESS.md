@@ -1,10 +1,10 @@
 # Current project state
 
-Last verified implementation commit: `fc946f1` (`O08: qualify isolated MariaDB database runtime`)
+Last verified implementation milestone: `O09 — isolated native realmd/world runtime`
 
-Active feature: `O09 — G2 native x86_64 realmd and no-bot world with structured control`
+Active feature: `O10 — G3 durable RuntimeSupervisor state machine and component ownership`
 
-Current gate: `G2 — native x86 realm baseline (O08 complete; O09 next)`. G0 production packaging and G1 direct-client proof are complete.
+Current gate: `G3 — integrated x86 application (O08/O09 complete)`. G0 production packaging, G1 direct-client proof, and G2 native realm baseline are complete.
 
 Plan/reference alignment: `3 August 2026`
 
@@ -70,12 +70,12 @@ Versioned C ABI + `libpocketrealm.so`; create/start/health/save/stop/destroy pro
 ## Known gaps under the canonical report
 
 - The `pkgExperiment` standalone-exec variant is G0 evidence only; production uses the library-backed Lane A model.
-- realmd/mangosd production integration, full importer UX, bots, and mobile UX remain pending at their gates (O09-O22).
+- Full supervisor/importer integration, bots, and mobile UX remain pending at their gates (O10-O22).
 - The full report X/FUN/FLT/SOAK gates remain pending.
 
 ## Blockers
 
-O06/O07/O08 have no remaining blocker. Named physical-device inputs remain
+O06/O07/O08/O09 have no remaining blocker. Named physical-device inputs remain
 required at later release gates. The user-owned source client remains unchanged
 on `C:` and no proprietary client executables or data archives are added to Git.
 
@@ -226,13 +226,44 @@ Authoritative O08 evidence:
 - `schemas/database-migrations.json`
 - `docs/adr/ADR-015-o08-database-runtime.md`
 
+## O09 — isolated native realmd/world runtime (complete)
+
+- Pinned CMaNGOS `realmd` and world are source-built as Android/Bionic x86_64
+  libraries with 16 KB ELF alignment and only Android/NDK runtime dependencies.
+  Playerbots, the deprecated playerbot path, and AHBot are compile-time off.
+- Non-exported `:realm` and `:world` services expose a fixed versioned
+  Binder/JNI/C contract for readiness, account creation, save, stop, heartbeat,
+  tick metrics, and bounded error classification. Paths, SQL, bind settings,
+  executables, environment, and credentials are not caller-controlled.
+- The read-only user-owned build-5875 source produced 158 DBC and 2,429 map
+  files (178,365,278 bytes). Every output is hashed and atomically published to
+  app-private storage; no client-derived data is tracked or bundled.
+- O09 appends the mandatory CMaNGOS DBC/fix/ScriptDev2/ACID layers without
+  renumbering O08's 399 existing migration IDs, bringing the deterministic
+  ledger to 410. This repairs the full snapshot's older `spell_template` using
+  the pinned core's official 159-field DBC SQL.
+- Clean world shutdown acknowledges save/teardown, writes the clean journal,
+  and retires the dedicated process. A subsequent bind receives a fresh
+  CMaNGOS process generation; uncontrolled deaths remain dirty.
+- The API-35 x86_64 4 KB lane passed the complete test in 61.009 seconds: 20
+  clean realm cycles, 11 rejected control fuzz cases, account/save/clean stop,
+  controlled world death and recovery, controlled MariaDB death with recovery
+  output, and a final dependency-ordered clean cycle. Concurrent host evidence
+  observed only `127.0.0.1:3724` and `127.0.0.1:8085` in LISTEN state.
+
+Authoritative O09 evidence:
+
+- `tests/avd/AVD-Modern-x86_64-v1/evidence/realmRuntime-o09-acceptance-20260803.PASS.json`
+- `schemas/realm-runtime-lockfile.json`
+- `schemas/database-migrations.json`
+- `docs/adr/ADR-016-o09-native-realm-runtime.md`
+
 ## Next action
 
-Begin O09: package native x86_64 `realmd` and `mangosd` in dedicated fault
-domains with playerbots disabled. Add the fixed structured readiness/control
-contract, gate startup on O08 schema compatibility, corroborate ready events
-with loopback probes on 3724/8085, then prove save, clean stop, and forced
-recovery without launching the client.
+Begin O10: replace the simulated supervisor path with dependency-gated
+database -> realmd -> world -> client states, durable session/instance-token
+ownership, and explicit recovery transitions built on the qualified O06-O09
+component contracts.
 
 ## Session note
 

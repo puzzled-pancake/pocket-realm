@@ -104,6 +104,27 @@ def select_inputs() -> list[Input]:
         Input("playerbot-world", p)
         for p in sorted((bots / "sql/world/classic").glob("*.sql"))
     )
+    # ClassicDB's full installer applies these mandatory CMaNGOS/content
+    # layers after the numbered content/core updates.  In particular,
+    # original_data/Spell.sql recreates spell_template with the coefficient
+    # columns required by the pinned core; the z2815 snapshot alone only has
+    # the older 153-column table.  Keep these additions at the tail so the
+    # migration IDs already shipped by O08 remain append-only and an existing
+    # app-private database can repair itself without replaying old entries.
+    selected.extend(
+        Input("world", p)
+        for p in sorted((cmangos / "sql/base/dbc/original_data").glob("*.sql"))
+    )
+    selected.extend(
+        Input("world", p)
+        for p in sorted((cmangos / "sql/base/dbc/cmangos_fixes").glob("*.sql"))
+    )
+    selected.extend(
+        Input("world", p)
+        for p in sorted((cmangos / "sql/scriptdev2").glob("*.sql"))
+    )
+    selected.append(Input("world", classic / "ACID/acid_classic.sql"))
+    selected.append(Input("world", classic / "utilities/cmangos_custom.sql"))
     missing = [str(item.path) for item in selected if not item.path.is_file()]
     if missing:
         raise RuntimeError(f"missing pinned SQL inputs: {missing}")

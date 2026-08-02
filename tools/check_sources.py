@@ -7,6 +7,8 @@ Checks every entry by kind:
   - source-built-archive: the recorded upstream commit is present in the entry
                           (provenance only; the built closure is hashed into the
                           per-package lockfile, checked separately).
+  - source-built-static-library: a full upstream commit and an existing local
+                          build recipe identify the statically linked source.
   - vendored-source     : the recorded upstream commit is present; the vendored
                           copy is checked separately by the build that uses it.
   - host-toolchain      : the recorded version + source-tarball name are present
@@ -112,6 +114,27 @@ def check_vendored_source(entry: dict) -> tuple[bool, str]:
     return True, commit[:16]
 
 
+def check_source_built_static_library(entry: dict) -> tuple[bool, str]:
+    """Validate the immutable source pin and the checked-in build recipe.
+
+    The consuming build records the resulting archive and final ELF hashes in
+    its lockfile. This gate ensures that the source correspondence needed to
+    reproduce that static library cannot silently lose either half.
+    """
+    commit = entry.get("commit")
+    build_script = entry.get("build_script")
+    if not commit or len(commit) != 40 or any(
+        ch not in "0123456789abcdefABCDEF" for ch in commit
+    ):
+        return False, "commit is not a complete 40-character Git object ID"
+    if not build_script:
+        return False, "missing build_script"
+    recipe = ROOT / build_script
+    if not recipe.is_file():
+        return False, f"build_script not found: {build_script}"
+    return True, f"{commit[:16]} via {build_script}"
+
+
 def check_host_toolchain(entry: dict) -> tuple[bool, str]:
     """A host-toolchain pin is its package + version + source-tarball name +
     package SHA-256. Host availability is checked by the consuming build."""
@@ -130,6 +153,7 @@ KIND_CHECKERS = {
     "git-submodule": None,  # handled by the original submodule path
     "prebuilt-archive": check_prebuilt_archive,
     "source-built-archive": check_source_built_archive,
+    "source-built-static-library": check_source_built_static_library,
     "vendored-source": check_vendored_source,
     "host-toolchain": check_host_toolchain,
 }

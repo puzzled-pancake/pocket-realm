@@ -2,7 +2,7 @@
   "schema": 1,
   "reference_document": "docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx",
   "description": "Pinned upstream source manifest for the Pocket Realm offline build. Every active entry has an exact commit, license, and redistribution verdict. The canonical architecture and delivery reference is docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx; this file governs source selection only.",
-  "updated": "2026-08-03 (O08: pinned MariaDB 11.5.2 x86_64 source-build and isolated database runtime)",
+  "updated": "2026-08-03 (O09: pinned no-bot native realmd/world runtime and Connector/C Unix-socket client)",
   "toolchain": {
     "android_sdk_root_env": "ANDROID_SDK_ROOT / ANDROID_HOME (machine-local; not pinned here)",
     "ndk": {
@@ -43,6 +43,13 @@
       "commit": "c096bada9e4ed23ad4ca706c67160a26d7121337",
       "commit_date": "2026-08-01 (upstream base plus Pocket Realm Android, FetchContent, and O04 lifecycle commits)",
       "role": "Vanilla 1.12 game server core (mangosd + realmd). Built for x86_64 development and arm64-v8a release. O04's embeddable lifecycle is retained as library-lane evidence; G0 selects the production component topology.",
+      "o09_source_overlays": [
+        {
+          "id": "mmap-disabled-load-guard",
+          "path": "native/cmangos/src/game/Maps/GridMap.cpp",
+          "reason": "Honor mmap.enabled=0 before entering the mmap tile loader; O09 packages verified DBC/maps and deliberately leaves vmaps/mmaps disabled."
+        }
+      ],
       "license": "GPL-2.0-or-later",
       "license_file": "native/cmangos/LICENSE",
       "redistribution": {
@@ -175,6 +182,23 @@
       "redistribution": {
         "verdict": "source-redistributable-under-GPL-2.0",
         "notes": "The exact public release source, checked-in build/staging recipes, build-image pin, and generated output/runtime hashes provide source correspondence for the distributed MariaDB ELF subset. The compiler-matched libstdc++.so.6.0.35 is extracted from that exact CGCT image, pinned by SHA-256, and corresponds to the recorded GCC 16.1.0 GNU source tarball under the GCC Runtime Library Exception. Dependency licenses and closure use are recorded separately in the generated runtime lockfile."
+      }
+    },
+    {
+      "id": "mariadb-connector-c-de630591",
+      "kind": "source-built-static-library",
+      "upstream_url": "https://github.com/MariaDB/mariadb-connector-c.git",
+      "commit": "de6305915f86bb33c83b1fe782a2b8a76920aec1",
+      "role": "O09 Android/Bionic client library statically linked into the isolated CMaNGOS realmd/world components. It connects only to O08's app-private MariaDB Unix socket; no database TCP listener or Connector/C shared object is packaged.",
+      "build_script": "tools/build_o09_realm_runtime.py",
+      "source_overlays": [
+        "Correct the upstream uint/ushort type-probe typo exposed during Android cross-compilation.",
+        "Remove const from the TLS fingerprint output buffer, required by Clang 21 and consistent with EVP_DigestFinal_ex's writable output contract."
+      ],
+      "license": "LGPL-2.1-or-later",
+      "redistribution": {
+        "verdict": "source-redistributable-under-LGPL-2.1-or-later",
+        "notes": "The exact public commit, deterministic source overlays, Android toolchain inputs, static archive build, and resulting server-library hashes are recorded by the checked-in build script and schemas/realm-runtime-lockfile.json."
       }
     },
     {

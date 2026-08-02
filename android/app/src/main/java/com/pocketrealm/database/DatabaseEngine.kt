@@ -130,6 +130,11 @@ internal class DatabaseEngine(private val context: Context) {
         check(initialized() || allowUnsealedBootstrap) { "DB-INIT: initialize must pass before start" }
         check(state == State.STOPPED || state == State.FAILED) { "database already active: $state" }
         checkStorage(MIN_START_BYTES)
+        // nativeLibraryDir changes whenever Android installs a replacement
+        // APK. The persistent provider/lib symlinks therefore must be
+        // revalidated and repointed on every stopped start, not only during
+        // first-time database initialization.
+        stageProviderData()
         socket.delete(); pidFile.delete()
         cleanMarker.delete()
         writeConfig()

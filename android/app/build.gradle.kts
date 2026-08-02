@@ -58,6 +58,12 @@ android {
             // same qualified immutable-code packaging model as O06.
             isJniDebuggable = true
         }
+        create("realmRuntime") {
+            initWith(getByName("debug"))
+            // O09 integration lane: O08's executable MariaDB provider plus
+            // Android-native realmd/world libraries in separate processes.
+            isJniDebuggable = true
+        }
     }
 
     // Per-variant jniLibs packaging model. O05 documents the observed behavior
@@ -86,6 +92,9 @@ android {
         getByName("databaseRuntime") {
             // Generated, deterministic provider support data + gzip migration
             // inputs. Executable code remains in nativeLibraryDir.
+            assets.srcDir("../../native/.build-x86_64/mariadb-staging/assets")
+        }
+        getByName("realmRuntime") {
             assets.srcDir("../../native/.build-x86_64/mariadb-staging/assets")
         }
     }
@@ -150,6 +159,7 @@ val stageNativeLibs by tasks.registering(Sync::class) {
     val wineStaging = File(repoRoot, "native/.build-x86_64/wine-staging/jniLibs")
     val prootStage = File(repoRoot, "native/.build-x86_64/proot-stage")
     val mariadbStage = File(repoRoot, "native/.build-x86_64/mariadb-staging/jniLibs/x86_64")
+    val realmStage = File(repoRoot, "native/.build-o09-x86_64/realm-staging/jniLibs/x86_64")
     val stagedLib = layout.buildDirectory.dir("staged-jniLibs/x86_64")
 
     // Require the native build to have run (O03/O04 + O05 packaging + O06 spike).
@@ -175,6 +185,13 @@ val stageNativeLibs by tasks.registering(Sync::class) {
         }
         check(prootStage.isDirectory) {
             "proot staging not found at $prootStage. Run: python tools/build_proot.py --abi x86_64"
+        }
+        val serverLibraries = listOf(
+            File(realmStage, "libpocket_realmd_runtime.so"),
+            File(realmStage, "libpocket_world_runtime.so"),
+        )
+        check(serverLibraries.all { it.isFile }) {
+            "O09 native realm staging is incomplete. Run: python tools/build_o09_realm_runtime.py"
         }
     }
 
@@ -241,6 +258,9 @@ val stageNativeLibs by tasks.registering(Sync::class) {
     // stage script assigns collision-safe lib*.so APK names and records every
     // source pathname/hash in BUILD_PROVENANCE.json.
     from(mariadbStage)
+    // O09: Android/Bionic, no-bot CMaNGOS components. Each library is loaded
+    // only inside its dedicated :realm or :world process.
+    from(realmStage)
 }
 
 val validateDatabaseRuntime by tasks.registering {
@@ -275,10 +295,15 @@ androidComponents {
         tasks.matching { it.name.startsWith("assemble") && it.name.endsWith(cap) }
             .configureEach { dependsOn(stageNativeLibs) }
         if (variant.name == "pkgExperiment" || variant.name == "clientRuntime" ||
-            variant.name == "databaseRuntime") {
+            variant.name == "databaseRuntime" || variant.name == "realmRuntime") {
             variant.packaging.jniLibs.useLegacyPackaging.set(true)
         }
         if (variant.name == "databaseRuntime") {
+            tasks.matching { it.name == "merge${cap}JniLibFolders" ||
+                it.name == "merge${cap}Assets" || it.name == "assemble${cap}" }
+                .configureEach { dependsOn(validateDatabaseRuntime) }
+        }
+        if (variant.name == "realmRuntime") {
             tasks.matching { it.name == "merge${cap}JniLibFolders" ||
                 it.name == "merge${cap}Assets" || it.name == "assemble${cap}" }
                 .configureEach { dependsOn(validateDatabaseRuntime) }
