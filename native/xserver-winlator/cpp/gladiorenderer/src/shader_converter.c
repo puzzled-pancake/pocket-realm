@@ -1757,21 +1757,6 @@ static void linkShaderProgram(ShaderProgram* program) {
         glGetProgramInfoLog(program->id, sizeof(infoLog) - 1, NULL, infoLog);
         println("gladio: program %u (logLength=%d) link error:\n%s",
                 program->id, infoLogLength, infoLog);
-        for (int i = 0; i < program->attachedShaders.size; i++) {
-            ShaderObject* shader = program->attachedShaders.elements[i];
-            ArrayBuffer source = {0};
-            ShaderConverter_getShaderSource(shader, &source);
-            char* lines = strdup(source.buffer);
-            char* save = NULL;
-            for (char* line = strtok_r(lines, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
-                if (strstr(line, "uniform") || strstr(line, "pos_fixup")) {
-                    println("gladio: failed-uniform shader=%u type=0x%x %s",
-                            shader->id, shader->type, line);
-                }
-            }
-            free(lines);
-            ArrayBuffer_free(&source);
-        }
     }
 
     if (!linkStatus) {

@@ -494,10 +494,11 @@ void GLRenderer_setCapabilityState(GLRenderer* renderer, GLenum cap, bool state,
             }
             else if (state) {
                 glEnable(cap);
-                GLenum error = glGetError();
-                if (error != GL_NO_ERROR) {
-                    println("gladio:setCapabilityState: glEnable cap=%x error=%x", cap, error);
-                }
+                /* Desktop GL capabilities are translated onto GLES. Some
+                 * legacy WineD3D enables have no GLES equivalent; consume the
+                 * resulting compatibility error here so a later proxied
+                 * glGetError() does not observe an unrelated stale failure. */
+                glGetError();
             }
             else glDisable(cap);
             break;

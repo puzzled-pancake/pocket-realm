@@ -7,19 +7,6 @@
 extern EGLContext globalEGLContext;
 
 pthread_mutex_t glx_context_mutex = PTHREAD_MUTEX_INITIALIZER;
-static thread_local unsigned long presentProbeCount;
-#define EMPTY_FRAME_PROBE_HASH 0xe6a1d1c5u
-
-static uint32_t probeFramebuffer(GLuint framebuffer, short width, short height) {
-    uint8_t pixels[8 * 8 * 4];
-    GLint x = MAX(0, width / 2 - 4);
-    GLint y = MAX(0, height / 2 - 4);
-    GLFramebuffer_bind(GL_READ_FRAMEBUFFER, framebuffer);
-    glReadPixels(x, y, 8, 8, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-    uint32_t hash = 2166136261u;
-    for (int i = 0; i < sizeof(pixels); i++) hash = (hash ^ pixels[i]) * 16777619u;
-    return hash;
-}
 
 static void loadJMethods(JMethods* jmethods) {
     JNIEnv* env;
@@ -132,44 +119,25 @@ static void setCurrentRenderWindow(GLContext* context, int windowId) {
 }
 
 static void swapDisplayBuffers(GLContext* context, int drawableId) {
-    GLuint genericFramebuffer = currentRenderer->clientState.framebuffer[indexOfGLTarget(GL_FRAMEBUFFER)];
     GLuint drawFramebuffer = currentRenderer->clientState.framebuffer[indexOfGLTarget(GL_DRAW_FRAMEBUFFER)];
     GLuint readFramebuffer = currentRenderer->clientState.framebuffer[indexOfGLTarget(GL_READ_FRAMEBUFFER)];
-    uint32_t drawHash = probeFramebuffer(drawFramebuffer,
-                                         currentRenderer->displaySize[0], currentRenderer->displaySize[1]);
-    uint32_t readHash = probeFramebuffer(readFramebuffer,
-                                         currentRenderer->displaySize[0], currentRenderer->displaySize[1]);
-    uint32_t frontHash = probeFramebuffer(currentRenderer->displayBuffers[0],
-                                          currentRenderer->displaySize[0], currentRenderer->displaySize[1]);
-    uint32_t backHash = probeFramebuffer(currentRenderer->displayBuffers[1],
-                                         currentRenderer->displaySize[0], currentRenderer->displaySize[1]);
-    bool useReadFallback = drawHash == EMPTY_FRAME_PROBE_HASH &&
-                           frontHash == EMPTY_FRAME_PROBE_HASH &&
-                           backHash == EMPTY_FRAME_PROBE_HASH &&
-                           readHash != EMPTY_FRAME_PROBE_HASH &&
-                           readFramebuffer != drawFramebuffer;
-    if (presentProbeCount++ % 10 == 0 || useReadFallback) {
-        uint32_t genericHash = probeFramebuffer(genericFramebuffer,
-                                                currentRenderer->displaySize[0], currentRenderer->displaySize[1]);
-        println("gladio: present-probe n=%lu drawable=%d size=%dx%d "
-                "generic=%u/%08x draw=%u/%08x read=%u/%08x front=%u/%08x back=%u/%08x fallback=%d",
-                presentProbeCount, drawableId,
-                currentRenderer->displaySize[0], currentRenderer->displaySize[1],
-                genericFramebuffer, genericHash, drawFramebuffer, drawHash,
-                readFramebuffer, readHash, currentRenderer->displayBuffers[0], frontHash,
-                currentRenderer->displayBuffers[1], backHash, useReadFallback);
-    }
-    /* glReadPixels consumes GL_READ_FRAMEBUFFER, not GL_DRAW_FRAMEBUFFER.
-     * A client may bind the read target independently while the cached generic
-     * and draw ids remain equal; the old conditional then presented unrelated
-     * (usually black) pixels. Normalise both targets to the frame being
-     * presented on every swap. The display-buffer rotation below establishes
-     * the next client draw state. */
+    bool useReadFallback = currentRenderer->preferReadFramebuffer &&
+                           readFramebuffer > 0 &&
+                           readFramebuffer != drawFramebuffer &&
+                           readFramebuffer != currentRenderer->displayBuffers[0] &&
+                           readFramebuffer != currentRenderer->displayBuffers[1];
+    /* WineD3D's second shared GLX context leaves the composed frame in its
+     * explicit read FBO while the newly-created default front/back buffers are
+     * untouched. Present that FBO for switched contexts; the first context
+     * continues to present its normal draw buffer. */
     GLFramebuffer_bind(GL_READ_FRAMEBUFFER,
                        useReadFallback ? readFramebuffer : drawFramebuffer);
 
     JMethods* jmethods = &context->jmethods;
-    bool result = (*jmethods->env)->CallBooleanMethod(jmethods->env, jmethods->obj, jmethods->updateWindowContent, drawableId, currentRenderer->displaySize[0], currentRenderer->displaySize[1], JNI_TRUE);
+    bool result = (*jmethods->env)->CallBooleanMethod(
+        jmethods->env, jmethods->obj, jmethods->updateWindowContent,
+        drawableId, currentRenderer->displaySize[0], currentRenderer->displaySize[1],
+        useReadFallback ? JNI_FALSE : JNI_TRUE);
     if (result) {
         if (currentRenderer->swapBuffers) {
             SWAP(currentRenderer->displayBuffers[0], currentRenderer->displayBuffers[1], GLuint);
@@ -223,10 +191,12 @@ static void* requestHandlerThread(void* param) {
                 GLXContext* glxContext = (GLXContext*)(*jmethods->env)->CallLongMethod(jmethods->env, jmethods->obj, jmethods->getGLXContextPtr, context->clientFd, contextId);
 
                 if (glxContext && context->glxContext != glxContext) {
+                    bool switchedFromExistingContext = context->glxContext != NULL;
                     destroyDisplayBuffers();
                     eglMakeCurrent(eglGetDisplay(EGL_DEFAULT_DISPLAY), EGL_NO_SURFACE, EGL_NO_SURFACE, glxContext->eglContext);
                     context->glxContext = glxContext;
                     currentRenderer = &glxContext->renderer;
+                    if (switchedFromExistingContext) currentRenderer->preferReadFramebuffer = true;
                     GLRenderer_resetFrameCount(currentRenderer);
                 }
 

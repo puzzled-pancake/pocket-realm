@@ -25,7 +25,6 @@ import com.pocketrealm.ui.MainActivity
 import com.pocketrealm.supervisor.AndroidRuntimeBackend
 import com.pocketrealm.supervisor.IRuntimeSupervisorControl
 import com.pocketrealm.supervisor.RuntimePhase
-import com.winlator.xserver.Drawable
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -157,8 +156,10 @@ class O12IntegratedRuntimeTest {
             assertTrue("character never entered the embedded world: $onlineWorld",
                 onlineWorld.optLong("onlinePlayers") > 0)
             val firstComplexWorldFrame = waitForComplexDisplay(120_000, 128).first
+            waitForMateriallyChangedDisplay(firstComplexWorldFrame, 180_000, 128)
+            Thread.sleep(10_000)
             val (inWorldFrame, inWorldNonBlack, inWorldDistinctColors) =
-                waitForMateriallyChangedDisplay(firstComplexWorldFrame, 180_000, 128)
+                waitForMateriallyChangedDisplay(firstComplexWorldFrame, 30_000, 128)
             val inWorldFile = File(context.filesDir, "evidence/O12_IN_WORLD.png")
             inWorldFile.outputStream().use { inWorldFrame.compress(Bitmap.CompressFormat.PNG, 100, it) }
 
@@ -273,25 +274,6 @@ class O12IntegratedRuntimeTest {
         target.outputStream().use { frame.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
-    private fun captureDrawable(drawable: Drawable): Bitmap {
-        val host = requireNotNull(IntegratedClientDisplay.host.value)
-        val result = AtomicReference<Bitmap>()
-        val done = CountDownLatch(1)
-        host.view.renderer.takeWindowScreenshot(drawable) { frame ->
-            result.set(frame)
-            done.countDown()
-        }
-        assertTrue("active X drawable capture timed out", done.await(10, TimeUnit.SECONDS))
-        return requireNotNull(result.get()) { "active X drawable capture unavailable" }
-    }
-
-    private fun captureActiveDrawable(): Bitmap {
-        val host = requireNotNull(IntegratedClientDisplay.host.value)
-        return captureDrawable(requireNotNull(host.activeDrawable()) {
-            "active X drawable unavailable (${host.windowSummary()})"
-        })
-    }
-
     private fun waitForVisibleDisplay(timeoutMs: Long): Pair<Bitmap, Int> {
         val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs
         var lastFrame: Bitmap? = null
@@ -368,7 +350,6 @@ class O12IntegratedRuntimeTest {
         var lastFrame: Bitmap? = null
         var lastNonBlack = 0
         var lastDistinct = 0
-        var samples = 0
         do {
             lastFrame = captureDisplay()
             val pixels = lastFrame.getPixelsCopy()
@@ -378,36 +359,10 @@ class O12IntegratedRuntimeTest {
             if (lastNonBlack > pixels.size / 100 && lastDistinct >= minimumDistinctColors) {
                 return Triple(lastFrame, lastNonBlack, lastDistinct)
             }
-            if (samples++ % 10 == 0) {
-                android.util.Log.i("O12FrameProbe", "world-frame nonBlack=$lastNonBlack " +
-                    "distinct=$lastDistinct elapsedMs=${timeoutMs - (deadline - android.os.SystemClock.elapsedRealtime())}")
-            }
             Thread.sleep(1_000)
         } while (android.os.SystemClock.elapsedRealtime() < deadline)
-        val raw = captureActiveDrawable()
-        val rawPixels = raw.getPixelsCopy()
-        val rawNonBlack = rawPixels.count { (it and 0x00ffffff) != 0 }
-        val rawDistinct = rawPixels.asSequence().map { it and 0x00ffffff }
-            .distinct().take(4096).count()
-        File(context.filesDir, "evidence/O12_ACTIVE_DRAWABLE.png").also {
-            it.parentFile!!.mkdirs()
-            it.outputStream().use { stream -> raw.compress(Bitmap.CompressFormat.PNG, 100, stream) }
-        }
-        val windows = IntegratedClientDisplay.host.value?.windowSummary().orEmpty()
-        val windowFrames = IntegratedClientDisplay.host.value!!.mappedWindows().joinToString(";") { window ->
-            val frame = captureDrawable(window.content)
-            File(context.filesDir, "evidence/O12_WINDOW_${window.id}.png").outputStream().use { stream ->
-                frame.compress(Bitmap.CompressFormat.PNG, 100, stream)
-            }
-            val pixels = frame.getPixelsCopy()
-            val colors = pixels.asSequence().map { it and 0x00ffffff }.distinct().take(4096).count()
-            "${window.id}=${frame.width}x${frame.height}/" +
-                "${pixels.count { (it and 0x00ffffff) != 0 }}/$colors"
-        }
         throw AssertionError("world renderer did not become complex " +
-            "(nonBlack=$lastNonBlack distinctColors=$lastDistinct; " +
-            "raw=${raw.width}x${raw.height} rawNonBlack=$rawNonBlack " +
-            "rawDistinct=$rawDistinct windowFrames=$windowFrames windows=$windows)")
+            "(nonBlack=$lastNonBlack distinctColors=$lastDistinct)")
     }
 
     private fun waitForMateriallyChangedDisplay(
@@ -447,11 +402,18 @@ class O12IntegratedRuntimeTest {
 
     private fun uniqueCharacterName(seed: Long): String {
         var value = seed
+        val vowels = "aeiou"
+        val consonants = "bcdfghjklmnpqrsvwxyz"
         return buildString {
             append("pocket")
-            repeat(5) {
-                append(('a'.code + (value % 26).toInt()).toChar())
-                value /= 26
+            repeat(5) { index ->
+                // Alternating alphabets make adjacent duplicates impossible,
+                // including at the fixed "pocket" boundary. Vanilla rejects
+                // names containing three equal consecutive letters, so a
+                // random base-26 suffix can make this end-to-end test flaky.
+                val alphabet = if (index % 2 == 0) vowels else consonants
+                append(alphabet[(value % alphabet.length).toInt()])
+                value /= alphabet.length
             }
         }
     }

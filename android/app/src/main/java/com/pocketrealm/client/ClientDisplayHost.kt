@@ -10,7 +10,6 @@ import com.winlator.xconnector.UnixSocketConfig
 import com.winlator.xconnector.XConnectorEpoll
 import com.winlator.xserver.Pointer
 import com.winlator.xserver.Atom
-import com.winlator.xserver.Drawable
 import com.winlator.xserver.events.Event
 import com.winlator.xserver.ScreenInfo
 import com.winlator.xserver.Window
@@ -38,24 +37,6 @@ class ClientDisplayHost(
     private var deleteTargetLogged = false
     private val closeRetry = Runnable { attemptClose() }
     val windowVisible: Boolean get() = reportedWindow
-
-    /** Test/diagnostic view of the drawable selected for normal input and
-     * graceful-close routing. Callers must only inspect it through renderer
-     * queue operations because its texture is GLES-thread owned. */
-    fun activeDrawable(): Drawable? = activeWindow?.content
-
-    fun mappedWindows(): List<Window> = xServer.windowManager.mappedClientWindows.toList()
-
-    fun windowSummary(): String {
-        val selected = activeWindow
-        return xServer.windowManager.mappedClientWindows.joinToString(";") { window ->
-            val marker = if (window === selected) "*" else ""
-            "$marker${window.id}:p=${window.parent?.id}:" +
-                "xy=${window.rootX},${window.rootY}:${window.width}x${window.height}:" +
-                "desktop=${window.isDesktopWindow}:" +
-                "${window.name.take(32)}:${window.className.take(32)}"
-        }
-    }
 
     init {
         System.loadLibrary("winlator")
