@@ -312,7 +312,7 @@
       "track": "offline",
       "priority": 160,
       "title": "G3 integrated x86 login, account, persistence, backup, and diagnostics",
-      "status": "pending",
+      "status": "done",
       "depends": [
         "O10",
         "O11"
@@ -324,8 +324,11 @@
         "A database-consistent backup restores into a fresh datadir and reaches world-ready before activation",
         "Support bundles preserve exact component/runtime IDs and pass password/database-secret redaction canaries"
       ],
-      "notes": "",
-      "evidence": [],
+      "notes": "Completed 2026-08-03 on the strategic API-35 x86_64 4 KB lane. One supervised action provisions a core-controlled account, launches the managed build-5875 client, creates a character, enters the local world, and sustains 30 minutes of active zero-bot play. Database-consistent restore into a fresh datadir reaches world-ready and preserves the exact durable character, position, inventory, and quest hashes through 20 clean cycles and a forced world-death recovery. The redacted support bundle retains component/runtime identities. Five additional client relaunches prove renderer readiness and non-black WineD3D presentation. The 16 KB integrated O12 repeat is not claimed here and remains a release-qualification item in O20/G6.",
+      "evidence": [
+        "tests/avd/AVD-Modern-x86_64-v1/evidence/o12-integrated-runtime-20260803.PASS.json",
+        "adb shell am instrument -w -r -e class com.pocketrealm.O12IntegratedRuntimeTest#integratedStartAccountClientCleanStopBackupAndRestore -e o12SoakSeconds 1800 -e o12CleanCycles 20 -e o12ForcedRecovery true com.pocketrealm.test/androidx.test.runner.AndroidJUnitRunner -> OK (1 test), 2918.166 seconds"
+      ],
       "reference": "Report sections 14, 19, 20.5 (X7-X8), and 25.2-25.5"
     },
     {

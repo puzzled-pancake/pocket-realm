@@ -1,10 +1,10 @@
 # Current project state
 
-Last verified implementation milestone: `O11 — resumable managed-client import and prepared-data publication`
+Last verified implementation milestone: `O12 — integrated login, persistence, backup, recovery, and diagnostics`
 
-Active feature: `O12 — G3 integrated login, persistence, backup, and diagnostics`
+Active feature: `O13 — G4 measured playerbot tiers and admission control`
 
-Current gate: `G3 — integrated x86 application (O08/O09/O10 complete)`. G0 production packaging, G1 direct-client proof, and G2 native realm baseline are complete.
+Current gate: `G4 — bots and mobile input UX`. G0 production packaging, G1 direct-client proof, G2 native realm baseline, and G3 integrated x86 application are complete on their stated qualification lanes.
 
 Plan/reference alignment: `3 August 2026`
 
@@ -17,7 +17,7 @@ Plan/reference alignment: `3 August 2026`
 
 ## Source of truth
 
-- `docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx` is the canonical offline engineering reference; the adjacent PDF is the fixed-layout reading copy.
+- `docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.pdf` is the canonical offline engineering reference; the adjacent DOCX is its editable source.
 - `PLAN.md` is the repository execution overlay and connected-realm extension.
 - `DECISIONS.md` contains adopted decisions, evidence-backed deltas, and the G0 overlay.
 - `FEATURES.json` maps O05-O22 to report gates G0-G6 and named report sections.
@@ -320,12 +320,38 @@ Authoritative O11 evidence:
 - `tests/avd/O11-Large-x86_64/evidence/managedImport-o11-real-build5875-20260803.PASS.json`
 - `docs/adr/ADR-018-o11-managed-client-import.md`
 
+## O12 — integrated x86 application (complete on the 4 KiB qualification lane)
+
+- The O10 supervisor now owns the qualified Wine client/display session. One
+  instrumented action provisions a local account through core control, launches
+  the managed build-5875 client, creates a character, and enters the local world
+  without placing plaintext credentials in logs.
+- The API-35 x86_64 4 KiB lane passed a 1,800-second active zero-bot soak with
+  31 one-minute samples. Every sample retained one online player and one active
+  session, the world tick count advanced from 2,579 to 37,404, and the rendered
+  frame retained at least 128 distinct colors. A harmless jump pulse exercises
+  the real Android-to-X11-to-Wine input path and prevents the server's normal
+  15-minute AFK logout from invalidating an active-play qualification.
+- Clean client exit, database-consistent backup, restore into a fresh datadir,
+  20 clean cycles, and forced world-death recovery all preserve durable SHA-256
+  `14151106a87a1aa8a994c98e5e32f8cf0de769a78ba8ae9721b1431d2adb7aee`.
+  The support bundle passes secret-redaction canaries and retains exact runtime
+  identities. Five focused client relaunches also retain renderer readiness and
+  non-black WineD3D presentation.
+- This closes O12/G3 on the strategic 4 KiB lane. It does not claim an O12
+  integrated run on the 16 KiB AVD; that repeat remains part of O20/G6 modern
+  Android and page-size release qualification.
+
+Authoritative O12 evidence:
+
+- `tests/avd/AVD-Modern-x86_64-v1/evidence/o12-integrated-runtime-20260803.PASS.json`
+
 ## Next action
 
-Begin O12: attach the qualified O07 client/display session to the O10
-supervisor, provision the local account through core control, prove login/world
-entry and exact persistence, then implement verified backup/restore and
-redacted diagnostics.
+Begin O13 from the recovered zero-bot baseline: enable the pinned playerbot
+schema/config only through a measured profile, make generation resumable and
+range-safe, add admission control and world/resource metrics, then qualify the
+25-bot tier before attempting 50/100 or auction-house automation.
 
 ## Session note
 

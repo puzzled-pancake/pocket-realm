@@ -1,7 +1,7 @@
 # Pocket Realm implementation plan
 
 This is the repository-specific execution overlay. The canonical offline engineering reference is
-[`docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx`](docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx); the adjacent PDF is its fixed-layout reading copy. `FEATURES.json` defines executable order and acceptance.
+[`docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.pdf`](docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.pdf); the adjacent DOCX is its editable source. `FEATURES.json` defines executable order and acceptance.
 
 ## 0. Authority and reading order
 
@@ -148,13 +148,19 @@ normal-play reader verifies the active manifest and every file hash; incomplete
 or damaged data cannot silently enable VMAP/MMAP. Extractor commit, patch, PIE
 hashes, dependencies, and 16 KiB alignment are pinned.
 
-O12 now provisions accounts through the core command/control path; secrets
-never enter logs. It attaches the qualified O07 client/display to the O10
-supervisor, implements database-consistent backups, restore-to-fresh-datadir
-verification, support-bundle redaction, and the exact shutdown order from
-report section 18.3.
+O12 completed on 3 August 2026 on the API-35 x86_64 4 KiB strategic lane. The
+supervisor provisions accounts through core command/control without logging
+secrets, attaches the qualified client/display, and performs the report's exact
+shutdown order. One 2,918.166-second instrumented qualification reached login,
+character creation, world entry, and 30 minutes of active zero-bot play; then
+proved database-consistent restore into a fresh datadir, exact durable state,
+20 clean cycles, forced world-death recovery, and redacted diagnostics. Five
+focused relaunches additionally proved renderer lifecycle and non-black
+WineD3D presentation. O11 separately supplies the importer interruption proof.
 
-**Exit:** one action completes local login, character creation, 30 minutes of play, save/stop/restart with exact character assertions, 20 clean cycles, forced recovery, and importer interruption tests on x86.
+**Exit: PASS on API-35 x86_64 4 KiB.** G4 may begin. This result does not claim
+an O12 integrated pass on the 16 KiB AVD; that repeat remains an explicit
+O20/G6 release-qualification item.
 
 ### Gate G4: bots and mobile input UX - O13-O14
 

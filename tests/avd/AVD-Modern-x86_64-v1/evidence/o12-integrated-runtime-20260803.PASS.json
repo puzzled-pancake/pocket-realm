@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "feature": "O12",
+  "ok": true,
+  "hostSerial": "emulator-5558",
+  "api": 35,
+  "abi": "x86_64",
+  "pageSize": 4096,
+  "profile": "mobile-low-v2-normal",
+  "instrumentationTest": "com.pocketrealm.O12IntegratedRuntimeTest#integratedStartAccountClientCleanStopBackupAndRestore",
+  "instrumentationResult": "OK (1 test)",
+  "instrumentationElapsedSeconds": 2918.166,
+  "accountProvisionedThroughCoreControl": true,
+  "clientWindowVisible": true,
+  "characterCreated": true,
+  "worldEntered": true,
+  "zeroBotSoak": {
+    "requestedSeconds": 1800,
+    "sampleCount": 31,
+    "sampleIntervalSeconds": 60,
+    "onlinePlayersEverySample": 1,
+    "activeSessionsEverySample": 1,
+    "firstTickCount": 2579,
+    "lastTickCount": 37404,
+    "maxTickMs": 357,
+    "minimumDistinctFrameColors": 128
+  },
+  "cleanStop": true,
+  "restoreIntoFreshDatadirWorldReady": true,
+  "restoreDurableStateExact": true,
+  "cleanCycleCount": 20,
+  "forcedRecovery": {
+    "requested": true,
+    "failurePhase": "ERROR",
+    "failureClean": false,
+    "recovered": true
+  },
+  "durableStateSha256": "14151106a87a1aa8a994c98e5e32f8cf0de769a78ba8ae9721b1431d2adb7aee",
+  "inventorySha256": "33388b9cc0531c61a317cad23b348247b5b8b566273e8bb7c3320f2c87418456",
+  "questSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "supportBundle": {
+    "entries": 7,
+    "redactionCanariesPassed": true,
+    "manifestSha256": "a3287b1163b7178909e53204ffcb1dd83e226046156c1580123018e9e2084d1f"
+  },
+  "rendererRestartQualification": {
+    "cycles": 5,
+    "rendererReadyEveryCycle": true,
+    "minimumNonBlackPixels": 227977,
+    "rawEvidenceSha256": "dde15adcac579d466d4267b3c43f5b3be415a3adfe56d09580705388cdd16bb2"
+  },
+  "rawDeviceEvidence": "/sdcard/Android/data/com.pocketrealm/files/evidence/O12_INTEGRATED_RUNTIME.json",
+  "rawEvidenceSha256": "f8159f159282bb482e801f65fd763eda22775951e18cf33b13c05b71d87101e2",
+  "qualificationScope": "API-35 x86_64 4 KB",
+  "notClaimed": "The O12 integrated runtime qualification has not been repeated on the 16 KB lane; that remains part of O20/G6."
+}
