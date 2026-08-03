@@ -139,7 +139,7 @@ public class Texture {
         return textureId;
     }
 
-    public void copyFromReadBuffer(short width, short height) {
+    public boolean copyFromReadBuffer(short width, short height, boolean validateContent) {
         int byteCount = width * height * 4;
         if (readbackBuffer == null || readbackBuffer.capacity() != byteCount) {
             readbackBuffer = ByteBuffer.allocateDirect(byteCount).order(ByteOrder.nativeOrder());
@@ -147,6 +147,22 @@ public class Texture {
         readbackBuffer.clear();
         GLES20.glReadPixels(0, 0, width, height, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, readbackBuffer);
         readbackBuffer.rewind();
+
+        boolean hasContent = !validateContent;
+        if (validateContent) {
+            int pixelCount = width * height;
+            int pixelStep = Math.max(1, pixelCount / 4096);
+            int visibleSamples = 0;
+            for (int pixel = 0; pixel < pixelCount && visibleSamples < 16; pixel += pixelStep) {
+                int offset = pixel * 4;
+                if ((readbackBuffer.get(offset) & 0xff) != 0 ||
+                    (readbackBuffer.get(offset + 1) & 0xff) != 0 ||
+                    (readbackBuffer.get(offset + 2) & 0xff) != 0) {
+                    visibleSamples++;
+                }
+            }
+            hasContent = visibleSamples >= 16;
+        }
 
         boolean allocate = !isAllocated();
         if (allocate) generateTextureId();
@@ -167,6 +183,7 @@ public class Texture {
         }
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0);
         GLES20.glFlush();
+        return hasContent;
     }
 
     public void destroy() {

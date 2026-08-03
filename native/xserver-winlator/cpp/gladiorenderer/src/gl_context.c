@@ -16,7 +16,7 @@ static void loadJMethods(JMethods* jmethods) {
     jclass cls = (*env)->GetObjectClass(env, jmethods->obj);
     jmethods->getWindowSize = (*env)->GetMethodID(env, cls, "getWindowSize", "(I)[S");
     jmethods->clearWindowContent = (*env)->GetMethodID(env, cls, "clearWindowContent", "(I)V");
-    jmethods->updateWindowContent = (*env)->GetMethodID(env, cls, "updateWindowContent", "(ISSZ)Z");
+    jmethods->updateWindowContent = (*env)->GetMethodID(env, cls, "updateWindowContent", "(ISSZZ)I");
     jmethods->getGLXContextPtr = (*env)->GetMethodID(env, cls, "getGLXContextPtr", "(II)J");
 }
 
@@ -118,29 +118,111 @@ static void setCurrentRenderWindow(GLContext* context, int windowId) {
     currentRenderer->swapBuffers = true;
 }
 
+enum PresentationSource {
+    PRESENTATION_UNKNOWN = 0,
+    PRESENTATION_DRAW = 1,
+    PRESENTATION_READ = 2,
+    PRESENTATION_FRONT = 3,
+    PRESENTATION_BACK = 4,
+};
+
+enum WindowUpdateResult {
+    WINDOW_UPDATE_RESIZE = 0,
+    WINDOW_UPDATE_BLACK = 1,
+    WINDOW_UPDATE_CONTENT = 2,
+};
+
+static GLuint getPresentationFramebuffer(int source, GLuint drawFramebuffer,
+                                         GLuint readFramebuffer) {
+    switch (source) {
+        case PRESENTATION_READ: return readFramebuffer;
+        case PRESENTATION_FRONT: return currentRenderer->displayBuffers[0];
+        case PRESENTATION_BACK: return currentRenderer->displayBuffers[1];
+        case PRESENTATION_DRAW:
+        default: return drawFramebuffer;
+    }
+}
+
+static bool presentationNeedsFlip(int source) {
+    return source != PRESENTATION_READ;
+}
+
+static int copyPresentation(GLContext* context, int drawableId, int source,
+                            GLuint drawFramebuffer, GLuint readFramebuffer,
+                            bool validateContent) {
+    GLFramebuffer_bindReadback(
+        getPresentationFramebuffer(source, drawFramebuffer, readFramebuffer));
+    JMethods* jmethods = &context->jmethods;
+    return (*jmethods->env)->CallIntMethod(
+        jmethods->env, jmethods->obj, jmethods->updateWindowContent,
+        drawableId, currentRenderer->displaySize[0], currentRenderer->displaySize[1],
+        presentationNeedsFlip(source) ? JNI_TRUE : JNI_FALSE,
+        validateContent ? JNI_TRUE : JNI_FALSE);
+}
+
 static void swapDisplayBuffers(GLContext* context, int drawableId) {
     GLuint drawFramebuffer = currentRenderer->clientState.framebuffer[indexOfGLTarget(GL_DRAW_FRAMEBUFFER)];
     GLuint readFramebuffer = currentRenderer->clientState.framebuffer[indexOfGLTarget(GL_READ_FRAMEBUFFER)];
-    bool useReadFallback = readFramebuffer > 0 &&
-                           readFramebuffer != drawFramebuffer &&
-                           readFramebuffer != currentRenderer->displayBuffers[0] &&
-                           readFramebuffer != currentRenderer->displayBuffers[1];
-    /* WineD3D can leave the composed frame in an explicit read FBO while its
-     * emulated default front/back buffers remain untouched. This occurs both
-     * with and without a preceding shared-context switch, so select from the
-     * current GL binding rather than GLX-context history. */
+    bool explicitRead = readFramebuffer > 0 &&
+                        readFramebuffer != drawFramebuffer &&
+                        readFramebuffer != currentRenderer->displayBuffers[0] &&
+                        readFramebuffer != currentRenderer->displayBuffers[1];
+    int result = WINDOW_UPDATE_BLACK;
+
+    /* WineD3D can compose into either its current explicit read FBO or one of
+     * the emulated default buffers, depending on GLX-context creation order.
+     * IDs and bind history alone cannot distinguish the populated source. On
+     * startup, validate the pixels from the normal full-frame readback and try
+     * the finite candidate set until one contains real RGB content. Cache the
+     * source kind (not the rotating FBO id) for this GLX context. */
+    if (context->presentationSource != PRESENTATION_UNKNOWN) {
+        bool revalidate = ++context->presentationFrames >= 300;
+        result = copyPresentation(context, drawableId, context->presentationSource,
+                                  drawFramebuffer, readFramebuffer, revalidate);
+        if (result == WINDOW_UPDATE_BLACK && revalidate) {
+            context->presentationSource = PRESENTATION_UNKNOWN;
+            context->presentationFrames = 0;
+        }
+        else if (revalidate) context->presentationFrames = 0;
+    }
+
+    if (context->presentationSource == PRESENTATION_UNKNOWN &&
+        result != WINDOW_UPDATE_RESIZE) {
+        int candidates[] = {
+            explicitRead ? PRESENTATION_READ : PRESENTATION_DRAW,
+            explicitRead ? PRESENTATION_DRAW : PRESENTATION_READ,
+            PRESENTATION_FRONT,
+            PRESENTATION_BACK,
+        };
+        GLuint tried[ARRAY_SIZE(candidates)] = {0};
+        int triedCount = 0;
+        for (int i = 0; i < ARRAY_SIZE(candidates); i++) {
+            GLuint framebuffer = getPresentationFramebuffer(
+                candidates[i], drawFramebuffer, readFramebuffer);
+            bool duplicate = framebuffer == 0;
+            for (int j = 0; j < triedCount && !duplicate; j++) {
+                duplicate = tried[j] == framebuffer;
+            }
+            if (duplicate) continue;
+            tried[triedCount++] = framebuffer;
+            result = copyPresentation(context, drawableId, candidates[i],
+                                      drawFramebuffer, readFramebuffer, true);
+            if (result == WINDOW_UPDATE_RESIZE) break;
+            if (result == WINDOW_UPDATE_CONTENT) {
+                context->presentationSource = candidates[i];
+                context->presentationFrames = 0;
+                println("gladio: presentation source=%d framebuffer=%u drawable=%d",
+                        candidates[i], framebuffer, drawableId);
+                break;
+            }
+        }
+    }
+
     /* Presentation is an implementation readback, not a guest GL bind. Keep
      * Wine's cached framebuffer state intact and restore the real GLES read
      * binding immediately after Java has copied the pixels. */
-    GLFramebuffer_bindReadback(useReadFallback ? readFramebuffer : drawFramebuffer);
-
-    JMethods* jmethods = &context->jmethods;
-    bool result = (*jmethods->env)->CallBooleanMethod(
-        jmethods->env, jmethods->obj, jmethods->updateWindowContent,
-        drawableId, currentRenderer->displaySize[0], currentRenderer->displaySize[1],
-        useReadFallback ? JNI_FALSE : JNI_TRUE);
     GLFramebuffer_bindReadback(readFramebuffer);
-    if (result) {
+    if (result != WINDOW_UPDATE_RESIZE) {
         if (currentRenderer->swapBuffers) {
             SWAP(currentRenderer->displayBuffers[0], currentRenderer->displayBuffers[1], GLuint);
             GLRenderer_setDrawBuffer(currentRenderer, GL_BACK);
@@ -197,6 +279,8 @@ static void* requestHandlerThread(void* param) {
                     eglMakeCurrent(eglGetDisplay(EGL_DEFAULT_DISPLAY), EGL_NO_SURFACE, EGL_NO_SURFACE, glxContext->eglContext);
                     context->glxContext = glxContext;
                     currentRenderer = &glxContext->renderer;
+                    context->presentationSource = PRESENTATION_UNKNOWN;
+                    context->presentationFrames = 0;
                     GLRenderer_resetFrameCount(currentRenderer);
                 }
 
@@ -246,6 +330,7 @@ static void* requestHandlerThread(void* param) {
 GLContext* createGLContext(JNIEnv* env, jobject obj, int clientFd) {
     GLContext* context = calloc(1, sizeof(GLContext));
     context->clientFd = clientFd;
+    context->presentationSource = PRESENTATION_UNKNOWN;
 
     int shmFds[2];
     shmFds[0] = ashmemCreateRegion("gl-server-ring", RingBuffer_getSHMemSize(SERVER_RING_BUFFER_SIZE));

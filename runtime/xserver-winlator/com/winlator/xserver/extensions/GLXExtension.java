@@ -330,21 +330,21 @@ public class GLXExtension extends Extension {
     }
 
     @Keep
-    private boolean updateWindowContent(int drawableId, short width, short height, boolean flipY) {
+    private int updateWindowContent(int drawableId, short width, short height, boolean flipY, boolean validateContent) {
         Drawable drawable = xServer.drawableManager.getDrawable(drawableId);
-        if (drawable == null) return true;
+        if (drawable == null) return 2;
 
         synchronized (drawable.renderLock) {
-            if (drawable.width != width || drawable.height != height) return false;
+            if (drawable.width != width || drawable.height != height) return 0;
 
             drawable.setData(null);
             Texture texture = drawable.getTexture();
             texture.setFlipY(flipY);
-            texture.copyFromReadBuffer(width, height);
+            boolean hasContent = texture.copyFromReadBuffer(width, height, validateContent);
             Runnable onDrawListener = drawable.getOnDrawListener();
             if (onDrawListener != null) onDrawListener.run();
+            return hasContent ? 2 : 1;
         }
-        return true;
     }
 
     @Keep

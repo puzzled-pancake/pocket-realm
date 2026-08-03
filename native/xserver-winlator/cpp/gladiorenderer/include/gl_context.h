@@ -31,6 +31,9 @@ typedef struct GLContext {
 
     GLuint savedDSATarget;
     GLuint savedDSAId;
+
+    int presentationSource;
+    uint32_t presentationFrames;
 } GLContext;
 
 extern GLContext* createGLContext(JNIEnv* env, jobject obj, int clientFd);
