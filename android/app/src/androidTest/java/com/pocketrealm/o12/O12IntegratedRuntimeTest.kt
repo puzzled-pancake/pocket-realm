@@ -611,18 +611,18 @@ class O12IntegratedRuntimeTest {
                 val tick = status.getLong("tickCount")
                 if (previousTick >= 0) assertTrue("world ticks stopped during soak: $status", tick > previousTick)
                 previousTick = tick
-                val frame = captureDisplay()
-                val pixels = frame.getPixelsCopy()
-                val nonBlack = pixels.count { (it and 0x00ffffff) != 0 }
-                val distinct = pixels.asSequence().map { it and 0x00ffffff }.distinct().take(128).count()
-                assertTrue("client framebuffer degraded during soak ($nonBlack/$distinct)",
-                    nonBlack > pixels.size / 100 && distinct >= 128)
                 // Vanilla marks an unattended character AFK and CMaNGOS then
                 // applies its normal 15-minute AFK logout policy. This is an
                 // active-play soak, so send a harmless in-place jump through
                 // the production Android -> X11 -> Wine input bridge once per
                 // sample. Do not disable or weaken the server's AFK policy.
                 pulsePlayerActivity()
+                // Loading fades and a discarded default framebuffer can make
+                // an individual readback black even while presentation is
+                // healthy. Require recovery to a complex frame within a short
+                // bound instead of treating one transient frame as sustained
+                // renderer degradation.
+                val (_, nonBlack, distinct) = waitForComplexDisplay(10_000, 128)
                 samples.put(JSONObject()
                     .put("elapsedSeconds", (now - started) / 1_000)
                     .put("tickCount", tick)
