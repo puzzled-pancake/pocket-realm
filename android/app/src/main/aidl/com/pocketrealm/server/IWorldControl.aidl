@@ -11,6 +11,7 @@ interface IWorldControl {
     String createAccount(String username, String password);
     String setAccountGmLevel(String username, int level);
     String accountStatus(String username);
+    String characterPersistence(String username, String characterName);
     String realmStatus();
     String save();
     String stop();

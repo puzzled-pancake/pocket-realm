@@ -58,6 +58,12 @@ class WorldRuntimeService : Service() {
             ServerRuntimeContract.requireAccountToken("username", username)
             accountResult("account-status", username, 0)
         }
+        override fun characterPersistence(username: String, characterName: String) = guarded {
+            ServerRuntimeContract.requireAccountToken("username", username)
+            ServerRuntimeContract.requireCharacterName(characterName)
+            JSONObject(WorldNative.characterPersistenceNative(username, characterName))
+                .put("schema", 1).put("ok", true).put("component", "world")
+        }
         override fun realmStatus() = guarded {
             JSONObject(WorldNative.realmInfoNative())
                 .put("schema", 1).put("ok", true).put("component", "world")

@@ -168,6 +168,15 @@ class O12IntegratedRuntimeTest {
             val interactionRealm = JSONObject(worldApi.realmStatus())
             assertTrue("authenticated client never opened a world session: $interactionWorld",
                 interactionSessions > 0)
+            val saveResult = JSONObject(worldApi.save())
+            assertTrue("world save failed: $saveResult", saveResult.getBoolean("ok"))
+            val persistenceBeforeStop = JSONObject(
+                worldApi.characterPersistence(accountName, characterName))
+            assertTrue("created character was not queryable: $persistenceBeforeStop",
+                persistenceBeforeStop.getBoolean("found"))
+            assertTrue("created character has no inventory sentinel: $persistenceBeforeStop",
+                persistenceBeforeStop.getInt("inventoryCount") > 0 &&
+                    persistenceBeforeStop.getJSONObject("inventorySentinel").getInt("itemEntry") > 0)
             val serverLogs = File(context.noBackupFilesDir, "server/logs")
             listOf("realmd.log", "world.log").forEach { name ->
                 val source = File(serverLogs, name)
@@ -194,6 +203,27 @@ class O12IntegratedRuntimeTest {
             assertTrue(restored.toString(), restored.getBoolean("ok"))
             assertTrue(restored.getBoolean("worldReadyVerified"))
             assertTrue(waitPhase(supervisor.api, RuntimePhase.STOPPED, 30_000).getBoolean("clean"))
+
+            // Restore verification must prove the user row, not merely that a
+            // fresh datadir can boot. Start the restored native realm without
+            // launching another client, query the fixed read-only persistence
+            // surface, and compare its canonical durable digest exactly.
+            assertAccepted(supervisor.api.start(AndroidRuntimeBackend.INTEGRATED_PROFILE, false))
+            waitPhase(supervisor.api, RuntimePhase.WORLD_READY, 360_000)
+            world?.close()
+            world = bind(
+                Intent(context, WorldRuntimeService::class.java),
+                IWorldControl.Stub::asInterface,
+            )
+            val persistenceAfterRestore = JSONObject(
+                requireNotNull(world).api.characterPersistence(accountName, characterName))
+            assertTrue("restored character was not queryable: $persistenceAfterRestore",
+                persistenceAfterRestore.getBoolean("found"))
+            assertEquals("restored character durable state changed",
+                persistenceBeforeStop.getString("durableSha256"),
+                persistenceAfterRestore.getString("durableSha256"))
+            assertAccepted(supervisor.api.stop(false))
+            assertTrue(waitPhase(supervisor.api, RuntimePhase.STOPPED, 180_000).getBoolean("clean"))
 
             val support = SupportBundleExporter(context).export(
                 explicitCanaries = listOf(accountName, accountPassword),
@@ -225,6 +255,9 @@ class O12IntegratedRuntimeTest {
                 .put("accountGmLevel", account.getInt("gmLevel"))
                 .put("cleanStop", true).put("backupSnapshot", snapshotId)
                 .put("restoreWorldReadyVerified", true)
+                .put("persistenceBeforeStop", persistenceBeforeStop)
+                .put("persistenceAfterRestore", persistenceAfterRestore)
+                .put("restoreDurableStateExact", true)
                 .put("supportBundleEntries", support.entries)
                 .put("supportManifestSha256", support.manifestSha256)
                 .put("components", running.getJSONObject("components"))

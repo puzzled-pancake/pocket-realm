@@ -6,6 +6,7 @@ internal object WorldNative {
     external fun createAccountNative(username: String, password: String, timeoutMs: Long): Int
     external fun setAccountGmLevelNative(username: String, level: Int, timeoutMs: Long): Int
     external fun accountInfoNative(username: String): LongArray
+    external fun characterPersistenceNative(username: String, characterName: String): String
     external fun realmInfoNative(): String
     external fun saveNative(timeoutMs: Long): Int
     external fun stopNative(timeoutMs: Long): Int

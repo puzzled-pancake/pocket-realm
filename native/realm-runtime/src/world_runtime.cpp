@@ -10,6 +10,7 @@
 
 #include <jni.h>
 #include <openssl/provider.h>
+#include <openssl/sha.h>
 
 #include <algorithm>
 #include <atomic>
@@ -17,6 +18,7 @@
 #include <cctype>
 #include <condition_variable>
 #include <cstring>
+#include <iomanip>
 #include <sstream>
 #include <memory>
 #include <mutex>
@@ -111,6 +113,114 @@ public:
         return {fields[0].GetUInt32(), fields[1].GetInt32()};
     }
 
+    std::string character_persistence(const std::string& username, const std::string& character_name)
+    {
+        if (m_state.state() != POCKET_SERVER_READY && m_state.state() != POCKET_SERVER_SAVING)
+            return "{\"found\":false,\"reason\":\"world-not-ready\"}";
+        const auto ascii_alnum = [](const std::string& value) {
+            return std::all_of(value.begin(), value.end(),
+                [](unsigned char c) { return c < 0x80 && std::isalnum(c); });
+        };
+        const auto ascii_letters = [](const std::string& value) {
+            return std::all_of(value.begin(), value.end(),
+                [](unsigned char c) { return c < 0x80 && std::isalpha(c); });
+        };
+        if (username.empty() || username.size() > 16 || !ascii_alnum(username) ||
+            character_name.size() < 2 || character_name.size() > 12 || !ascii_letters(character_name))
+            return "{\"found\":false,\"reason\":\"invalid-identity\"}";
+
+        const auto account = account_info(username);
+        if (account.first == 0) return "{\"found\":false,\"reason\":\"account-missing\"}";
+        std::string escaped_name = character_name;
+        CharacterDatabase.escape_string(escaped_name);
+        auto character = CharacterDatabase.PQuery(
+            "SELECT guid,account,name,race,class,gender,level,xp,money,"
+            "position_x,position_y,position_z,map,orientation,cinematic "
+            "FROM characters WHERE account='%u' AND name='%s' AND deleteDate IS NULL LIMIT 1",
+            account.first, escaped_name.c_str());
+        if (!character) return "{\"found\":false,\"reason\":\"character-missing\"}";
+        Field* fields = character->Fetch();
+        const uint32_t guid = fields[0].GetUInt32();
+
+        std::ostringstream inventory_rows;
+        uint32_t inventory_count = 0;
+        uint32_t sentinel_entry = 0;
+        uint32_t sentinel_count = 0;
+        if (auto inventory = CharacterDatabase.PQuery(
+                "SELECT ci.bag,ci.slot,ci.item,ci.item_template,COALESCE(ii.count,0) "
+                "FROM character_inventory ci LEFT JOIN item_instance ii ON ii.guid=ci.item "
+                "WHERE ci.guid='%u' ORDER BY ci.bag,ci.slot,ci.item,ci.item_template", guid))
+        {
+            do
+            {
+                Field* row = inventory->Fetch();
+                inventory_rows << row[0].GetUInt32() << ':' << row[1].GetUInt32() << ':'
+                               << row[2].GetUInt32() << ':' << row[3].GetUInt32() << ':'
+                               << row[4].GetUInt32() << '\n';
+                if (inventory_count == 0)
+                {
+                    sentinel_entry = row[3].GetUInt32();
+                    sentinel_count = row[4].GetUInt32();
+                }
+                ++inventory_count;
+            } while (inventory->NextRow());
+        }
+
+        std::ostringstream quest_rows;
+        uint32_t quest_count = 0;
+        if (auto quests = CharacterDatabase.PQuery(
+                "SELECT quest,status,rewarded,explored,timer,mobcount1,mobcount2,mobcount3,mobcount4,"
+                "itemcount1,itemcount2,itemcount3,itemcount4 FROM character_queststatus "
+                "WHERE guid='%u' ORDER BY quest", guid))
+        {
+            do
+            {
+                Field* row = quests->Fetch();
+                for (int i = 0; i < 13; ++i)
+                {
+                    if (i) quest_rows << ':';
+                    quest_rows << row[i].GetUInt64();
+                }
+                quest_rows << '\n';
+                ++quest_count;
+            } while (quests->NextRow());
+        }
+
+        const std::string inventory_digest = sha256_hex(inventory_rows.str());
+        const std::string quest_digest = sha256_hex(quest_rows.str());
+        std::ostringstream durable;
+        durable << guid << ':' << fields[1].GetUInt32() << ':' << fields[2].GetCppString() << ':'
+                << fields[3].GetUInt32() << ':' << fields[4].GetUInt32() << ':'
+                << fields[5].GetUInt32() << ':' << fields[6].GetUInt32() << ':'
+                << fields[7].GetUInt32() << ':' << fields[8].GetUInt32() << ':'
+                << std::setprecision(9) << fields[9].GetFloat() << ':' << fields[10].GetFloat() << ':'
+                << fields[11].GetFloat() << ':' << fields[12].GetUInt32() << ':'
+                << fields[13].GetFloat() << ':' << inventory_digest << ':' << quest_digest;
+
+        std::ostringstream json;
+        json << "{\"found\":true,\"guid\":" << guid
+             << ",\"accountId\":" << fields[1].GetUInt32()
+             << ",\"name\":\"" << json_escape(fields[2].GetCppString()) << "\""
+             << ",\"race\":" << fields[3].GetUInt32()
+             << ",\"class\":" << fields[4].GetUInt32()
+             << ",\"gender\":" << fields[5].GetUInt32()
+             << ",\"level\":" << fields[6].GetUInt32()
+             << ",\"xp\":" << fields[7].GetUInt32()
+             << ",\"money\":" << fields[8].GetUInt32()
+             << ",\"position\":{\"x\":" << std::setprecision(9) << fields[9].GetFloat()
+             << ",\"y\":" << fields[10].GetFloat() << ",\"z\":" << fields[11].GetFloat()
+             << ",\"map\":" << fields[12].GetUInt32() << ",\"orientation\":" << fields[13].GetFloat() << "}"
+             << ",\"cinematic\":" << fields[14].GetUInt32()
+             << ",\"inventoryCount\":" << inventory_count
+             << ",\"inventorySha256\":\"" << inventory_digest << "\""
+             << ",\"inventorySentinel\":{\"itemEntry\":" << sentinel_entry
+             << ",\"count\":" << sentinel_count << "}"
+             << ",\"questCount\":" << quest_count
+             << ",\"questSha256\":\"" << quest_digest << "\""
+             << ",\"durableSha256\":\"" << sha256_hex(durable.str()) << "\"}";
+        return json.str();
+    }
+
     std::string realm_info()
     {
         if (m_state.state() != POCKET_SERVER_READY && m_state.state() != POCKET_SERVER_SAVING)
@@ -192,6 +302,16 @@ public:
     }
 
 private:
+    static std::string sha256_hex(const std::string& value)
+    {
+        unsigned char digest[SHA256_DIGEST_LENGTH];
+        SHA256(reinterpret_cast<const unsigned char*>(value.data()), value.size(), digest);
+        std::ostringstream hex;
+        hex << std::hex << std::setfill('0');
+        for (unsigned char byte : digest) hex << std::setw(2) << static_cast<unsigned int>(byte);
+        return hex.str();
+    }
+
     static std::string json_escape(const std::string& value)
     {
         std::string escaped;
@@ -364,6 +484,14 @@ Java_com_pocketrealm_server_WorldNative_accountInfoNative(JNIEnv* env, jclass, j
     jlongArray result = env->NewLongArray(2);
     env->SetLongArrayRegion(result, 0, 2, values);
     return result;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_pocketrealm_server_WorldNative_characterPersistenceNative(
+    JNIEnv* env, jclass, jstring username, jstring character_name)
+{
+    return to_jstring(env, g_runtime.character_persistence(
+        from_jstring(env, username), from_jstring(env, character_name)));
 }
 
 extern "C" JNIEXPORT jstring JNICALL

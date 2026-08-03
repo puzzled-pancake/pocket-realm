@@ -31,4 +31,11 @@ internal object ServerRuntimeContract {
             "$label must contain ASCII letters or digits only"
         }
     }
+
+    fun requireCharacterName(value: String) {
+        require(value.length in 2..12) { "characterName must contain 2..12 characters" }
+        require(value.all { it.isLetter() && it.code < 128 }) {
+            "characterName must contain ASCII letters only"
+        }
+    }
 }
