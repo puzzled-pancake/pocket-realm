@@ -358,6 +358,67 @@ class O12IntegratedRuntimeTest {
         }
     }
 
+    /**
+     * Recreates the complete UI display and Wine process repeatedly. This is a
+     * focused regression for the EGL share-context race: every launch must
+     * publish GLRenderer's context before Wine creates a GLX context, and the
+     * resulting login surface must be readable as non-black.
+     */
+    @Test fun rendererShareContextSurvivesRepeatedClientLaunches() {
+        val arguments = InstrumentationRegistry.getArguments()
+        val cycles = arguments.getString("o12RendererLaunchCycles")?.toIntOrNull() ?: 3
+        require(cycles in 1..20) { "o12RendererLaunchCycles must be in 1..20" }
+        val activity = ActivityScenario.launch(MainActivity::class.java)
+        val supervisor = bind(
+            Intent(context, RealmService::class.java),
+            IRuntimeSupervisorControl.Stub::asInterface,
+        )
+        val display = bind(
+            Intent(context, ClientDisplayService::class.java),
+            IClientDisplayControl.Stub::asInterface,
+        )
+        val evidence = JSONArray()
+        try {
+            normalizeStopped(supervisor.api)
+            repeat(cycles) { index ->
+                assertAccepted(supervisor.api.start(AndroidRuntimeBackend.INTEGRATED_PROFILE, true))
+                val running = waitPhase(supervisor.api, RuntimePhase.RUNNING, 360_000)
+                assertOwnedReady(running, "database", "realm", "world", "client")
+                val status = JSONObject(display.api.status())
+                assertTrue("renderer was not ready before client launch: $status",
+                    status.getBoolean("rendererReady"))
+                assertTrue("client window was not mapped: $status", status.getBoolean("windowVisible"))
+                val (frame, nonBlack) = waitForVisibleDisplay(120_000)
+                evidence.put(JSONObject()
+                    .put("cycle", index + 1)
+                    .put("rendererReady", true)
+                    .put("width", frame.width)
+                    .put("height", frame.height)
+                    .put("nonBlackPixels", nonBlack))
+                assertAccepted(supervisor.api.stop(false))
+                assertTrue("renderer cycle ${index + 1} did not stop cleanly",
+                    waitPhase(supervisor.api, RuntimePhase.STOPPED, 180_000).getBoolean("clean"))
+            }
+            val target = File(context.filesDir, "evidence/O12_RENDERER_RESTARTS.json")
+            target.parentFile!!.mkdirs()
+            target.writeText(JSONObject()
+                .put("schema", 1)
+                .put("ok", true)
+                .put("cycles", cycles)
+                .put("launches", evidence)
+                .toString(2))
+        } finally {
+            runCatching {
+                if (JSONObject(supervisor.api.status()).getString("phase") != RuntimePhase.STOPPED.name) {
+                    supervisor.api.stop(true)
+                }
+            }
+            display.close()
+            supervisor.close()
+            activity.close()
+        }
+    }
+
     private fun captureDisplay(): Bitmap {
         val host = requireNotNull(IntegratedClientDisplay.host.value) { "integrated display host unavailable" }
         val width = host.view.width

@@ -15,6 +15,7 @@ public class Texture {
     protected int magFilter = GLES20.GL_LINEAR;
     protected int minFilter = GLES20.GL_LINEAR;
     protected int format = GLES11Ext.GL_BGRA;
+    private int allocatedFormat;
     protected boolean needsUpdate = true;
     private boolean flipY = false;
     protected Drawable owner;
@@ -46,6 +47,7 @@ public class Texture {
 
         if (data != null) {
             GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, format, width, height, 0, format, GLES20.GL_UNSIGNED_BYTE, data);
+            allocatedFormat = format;
         }
 
         setTextureParameters();
@@ -120,8 +122,15 @@ public class Texture {
         if (owner == null || owner.getData() == null) return;
 
         ByteBuffer data = owner.getData();
+        if (isAllocated() && allocatedFormat != format) {
+            int[] textureIds = new int[]{textureId};
+            GLES20.glDeleteTextures(1, textureIds, 0);
+            textureId = 0;
+            allocatedFormat = 0;
+        }
         if (!isAllocated()) {
             allocateTexture(owner.width, owner.height, data);
+            needsUpdate = false;
         }
         else if (needsUpdate) {
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId);
@@ -164,25 +173,20 @@ public class Texture {
             hasContent = visibleSamples >= 16;
         }
 
-        boolean allocate = !isAllocated();
-        if (allocate) generateTextureId();
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId);
-        GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1);
-        if (allocate) {
-            GLES20.glTexImage2D(
-                GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, width, height, 0,
-                GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, readbackBuffer
-            );
-            setTextureParameters();
-        }
-        else {
-            GLES20.glTexSubImage2D(
-                GLES20.GL_TEXTURE_2D, 0, 0, 0, width, height,
-                GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, readbackBuffer
-            );
-        }
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0);
-        GLES20.glFlush();
+        /*
+         * This method runs on Wine's GLX request thread. Uploading here makes
+         * textureId belong to Wine's EGL context and therefore relies on the
+         * Android GLSurfaceView context sharing that object for its entire
+         * lifecycle. Surface recreation can replace that context while Wine
+         * continues rendering, leaving a valid CPU readback but a black Java
+         * renderer. Keep the frame in the drawable's locked CPU buffer and let
+         * updateFromDrawable() allocate/update the texture on the Android GL
+         * thread instead. The full-frame readback already existed, so this
+         * changes ownership rather than adding another readback.
+         */
+        format = GLES20.GL_RGBA;
+        owner.setData(readbackBuffer);
+        needsUpdate = true;
         return hasContent;
     }
 
@@ -191,6 +195,7 @@ public class Texture {
             int[] textureIds = new int[]{textureId};
             GLES20.glDeleteTextures(textureIds.length, textureIds, 0);
             textureId = 0;
+            allocatedFormat = 0;
         }
     }
 }

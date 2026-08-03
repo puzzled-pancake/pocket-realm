@@ -52,7 +52,19 @@ class ClientDisplayService : Service() {
             }
             host = display
             IntegratedClientDisplay.publish(display)
-            JSONObject().put("ok", true).put("display", ":0").put("transportReady", true)
+            val rendererReady = try {
+                display.awaitRendererReady(RENDERER_READY_TIMEOUT_MS)
+            } catch (interrupted: InterruptedException) {
+                Thread.currentThread().interrupt()
+                false
+            }
+            if (!rendererReady) {
+                releaseInternal()
+                error("DISPLAY_SURFACE_NOT_READY: Android EGL share context was not published")
+            }
+            AppLog.i(TAG, "renderer EGL share context ready before Wine launch")
+            JSONObject().put("ok", true).put("display", ":0")
+                .put("transportReady", true).put("rendererReady", true)
         }
 
         override fun attachSession(instanceToken: String, value: String): String = guarded {
@@ -67,6 +79,7 @@ class ClientDisplayService : Service() {
         override fun status(): String = guarded {
             JSONObject().put("ok", true).put("prepared", host != null)
                 .put("windowVisible", host?.windowVisible == true)
+                .put("rendererReady", host?.rendererReady == true)
                 .put("hasOwner", ownerToken != null)
         }
 
@@ -123,6 +136,7 @@ class ClientDisplayService : Service() {
 
     companion object {
         private const val TAG = "ClientDisplay"
+        private const val RENDERER_READY_TIMEOUT_MS = 15_000L
         private val TOKEN = Regex("[0-9a-f]{64}")
     }
 }

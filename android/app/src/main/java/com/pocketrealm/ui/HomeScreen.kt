@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableStateOf
@@ -157,7 +158,9 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
                     androidx.compose.foundation.layout.Box(
                         Modifier.fillMaxWidth().height(480.dp).background(Color.Black)
                             .testTag("integrated-client-surface")) {
-                        AndroidView(factory = { host.view }, modifier = Modifier.fillMaxSize())
+                        key(host) {
+                            AndroidView(factory = { host.view }, modifier = Modifier.fillMaxSize())
+                        }
                     }
                 }
             }

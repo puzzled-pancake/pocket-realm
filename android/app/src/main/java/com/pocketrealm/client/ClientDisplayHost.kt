@@ -18,6 +18,7 @@ import com.winlator.xserver.XClientConnectionHandler
 import com.winlator.xserver.XClientRequestHandler
 import com.winlator.xserver.XServer
 import com.winlator.xserver.events.ClientMessage
+import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
 /** UI-owned X transport, rendered SurfaceView, and normalized input bridge. */
@@ -37,6 +38,7 @@ class ClientDisplayHost(
     private var deleteTargetLogged = false
     private val closeRetry = Runnable { attemptClose() }
     val windowVisible: Boolean get() = reportedWindow
+    val rendererReady: Boolean get() = view.renderer.isSurfaceReady
 
     init {
         System.loadLibrary("winlator")
@@ -81,6 +83,9 @@ class ClientDisplayHost(
     }
 
     fun releaseInput(source: Int? = null) = input.releaseAll(source)
+    fun awaitRendererReady(timeoutMs: Long): Boolean =
+        view.renderer.awaitSurfaceReady(timeoutMs, TimeUnit.MILLISECONDS)
+
     fun dispatchKey(event: KeyEvent): Boolean {
         // DesktopHelper owns normal application focus on map and pointer
         // press. Preserve it; the deepest composited D3D child often selects

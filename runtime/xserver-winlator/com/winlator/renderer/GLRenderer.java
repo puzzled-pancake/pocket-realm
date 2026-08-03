@@ -33,6 +33,8 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.IntBuffer;
 import java.util.ArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
@@ -61,6 +63,13 @@ public class GLRenderer implements GLSurfaceView.Renderer, WindowManager.OnWindo
     protected short surfaceWidth;
     protected short surfaceHeight;
     public final EffectComposer effectComposer = new EffectComposer(this);
+    /**
+     * Wine GLX contexts must share with the Android renderer's EGL context.
+     * The native global share context is not valid until onSurfaceCreated(),
+     * so the client launcher waits on this one-shot readiness boundary before
+     * it permits Wine to create its first GLX context.
+     */
+    private final CountDownLatch surfaceReady = new CountDownLatch(1);
 
     public GLRenderer(XServerView xServerView, XServer xServer) {
         this.xServerView = xServerView;
@@ -81,6 +90,7 @@ public class GLRenderer implements GLSurfaceView.Renderer, WindowManager.OnWindo
     @Override
     public void onSurfaceCreated(GL10 gl, EGLConfig config) {
         GPUHelper.setGlobalEGLContext();
+        surfaceReady.countDown();
 
         GLES20.glFrontFace(GLES20.GL_CCW);
         GLES20.glDisable(GLES20.GL_CULL_FACE);
@@ -91,6 +101,14 @@ public class GLRenderer implements GLSurfaceView.Renderer, WindowManager.OnWindo
         GLES20.glEnable(GLES20.GL_BLEND);
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
         GLES20.glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    }
+
+    public boolean awaitSurfaceReady(long timeout, TimeUnit unit) throws InterruptedException {
+        return surfaceReady.await(timeout, unit);
+    }
+
+    public boolean isSurfaceReady() {
+        return surfaceReady.getCount() == 0;
     }
 
     @Override

@@ -322,9 +322,16 @@ public class GLXExtension extends Extension {
         Window window = xServer.windowManager.getWindow(windowId);
         if (window != null) {
             Drawable drawable = window.getContent();
-            if (drawable.getData() != null) {
+            synchronized (drawable.renderLock) {
+                /*
+                 * The texture is allocated and consumed by GLRenderer's EGL
+                 * context. Deleting it here runs on Wine's GLX request thread,
+                 * where the same numeric name belongs to a different context,
+                 * and used to race the renderer's upload/draw. Drawable sizes
+                 * are immutable, so retain the Android-owned texture and let
+                 * the next CPU-backed frame update it in place.
+                 */
                 drawable.setData(null);
-                drawable.getTexture().destroy();
             }
         }
     }
