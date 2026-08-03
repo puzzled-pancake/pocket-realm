@@ -73,6 +73,9 @@
             android:name=".client.ClientRuntimeService"
             android:process=":client"
             android:exported="false" />
+        <service
+            android:name=".client.ClientDisplayService"
+            android:exported="false" />
 
         <!-- O11: finite SAF copy/data preparation lives in its own restartable
              process; the only long-running capability is user-visible data sync. -->

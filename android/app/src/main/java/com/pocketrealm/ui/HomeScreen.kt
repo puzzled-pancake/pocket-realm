@@ -9,25 +9,40 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.pocketrealm.R
+import com.pocketrealm.client.IntegratedClientDisplay
 import com.pocketrealm.realm.RealmState
 import com.pocketrealm.service.RealmService
 import com.pocketrealm.supervisor.RuntimeSupervisorClient
+import kotlinx.coroutines.launch
 
 /**
  * The one-screen-with-one-primary-action Home. Status reflects the real
@@ -40,12 +55,24 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
     val supervisorClient = remember(context) { RuntimeSupervisorClient(context) }
     val stateUpdates = remember(supervisorClient) { supervisorClient.observeRealmState() }
     val state by stateUpdates.collectAsState(initial = RealmState.Idle)
+    val displayHost by IntegratedClientDisplay.host.collectAsState()
+    val scope = rememberCoroutineScope()
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var gmAccount by remember { mutableStateOf(false) }
+    var accountStatus by remember { mutableStateOf("Create a local account after the world is ready") }
+
+    DisposableEffect(displayHost) {
+        displayHost?.onResume()
+        onDispose { displayHost?.onPause() }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(contentPadding)
-            .padding(24.dp),
+            .padding(24.dp)
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -68,6 +95,70 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
             is RealmState.Starting, is RealmState.Saving, is RealmState.Stopping, is RealmState.Recovering -> {
                 OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
                     Text("Working…")
+                }
+            }
+        }
+
+        if (state is RealmState.Running) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Local account", style = MaterialTheme.typography.titleMedium)
+                    OutlinedTextField(
+                        value = username,
+                        onValueChange = { username = it },
+                        singleLine = true,
+                        label = { Text("Username") },
+                        modifier = Modifier.fillMaxWidth().testTag("account-username"),
+                    )
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        singleLine = true,
+                        label = { Text("Password") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth().testTag("account-password"),
+                    )
+                    androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(checked = gmAccount, onCheckedChange = { gmAccount = it },
+                            modifier = Modifier.testTag("account-gm"))
+                        Text(if (gmAccount) " Local administrator (GM 3)" else " Normal local account (GM 0)")
+                    }
+                    Button(
+                        onClick = {
+                            accountStatus = "Creating through the core control channelâ€¦"
+                            scope.launch {
+                                val result = runCatching {
+                                    supervisorClient.createAccount(username, password, if (gmAccount) 3 else 0)
+                                }
+                                password = ""
+                                accountStatus = result.fold(
+                                    onSuccess = { value ->
+                                        "${value.optString("code")}: account ${value.optLong("accountId")} " +
+                                            "GM ${value.optInt("gmLevel")}"
+                                    },
+                                    onFailure = { "Account control failed: ${it.javaClass.simpleName}" },
+                                )
+                            }
+                        },
+                        enabled = username.isNotBlank() && password.isNotBlank(),
+                        modifier = Modifier.fillMaxWidth().testTag("account-create"),
+                    ) { Text("Create local account") }
+                    Text(accountStatus, style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.testTag("account-status"))
+                }
+            }
+        }
+
+        displayHost?.let { host ->
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("WoW 1.12.1 â€¢ local realm â€¢ audio off",
+                        style = MaterialTheme.typography.labelMedium)
+                    androidx.compose.foundation.layout.Box(
+                        Modifier.fillMaxWidth().height(480.dp).background(Color.Black)
+                            .testTag("integrated-client-surface")) {
+                        AndroidView(factory = { host.view }, modifier = Modifier.fillMaxSize())
+                    }
                 }
             }
         }

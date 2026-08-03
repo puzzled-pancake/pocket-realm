@@ -8,6 +8,8 @@
 #define COMPILE_STATUS_PENDING 1
 #define COMPILE_STATUS_SUCCESS 2
 
+#define GD_WINE_VS_CONSTANT_COUNT 255
+
 typedef struct ShaderFunction {
     char* name;
     int lineStart;
@@ -53,6 +55,7 @@ typedef struct ShaderObject {
     ShaderCode code;
     bool attached;
     bool deleted;
+    bool usesReducedWineConstants;
     char compileStatus;
 } ShaderObject;
 
@@ -62,6 +65,8 @@ typedef struct ShaderProgram {
     ArrayList attachedShaders;
     bool hasBuiltinUniforms;
     bool hasBuiltinColor;
+    bool usesReducedWineConstants;
+    GLint wineConstantsBaseLocation;
 
     struct {
         int attributes[VERTEX_ATTRIB_COUNT];

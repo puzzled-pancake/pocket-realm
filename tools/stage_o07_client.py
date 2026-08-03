@@ -46,6 +46,7 @@ SET Sound_EnableAmbience "0"\r
 SET ffxGlow "0"\r
 SET ffxDeath "0"\r
 SET farclip "177"\r
+SET realmName "MaNGOS"\r
 """
 REQUIRED_MPQS = {
     "base.mpq", "dbc.mpq", "fonts.mpq", "interface.mpq", "misc.mpq",

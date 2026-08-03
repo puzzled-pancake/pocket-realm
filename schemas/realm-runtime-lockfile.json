@@ -21,10 +21,9 @@
   "artifacts": [
     {
       "path": "native/.build-o09-x86_64/realm-staging/jniLibs/x86_64/libpocket_realmd_runtime.so",
-      "size": 5113040,
-      "sha256": "d864a691cf969dadfb6e2f9185e13cf5dc60861c21a91f5b3be12bab39e1c596",
+      "size": 5391112,
+      "sha256": "1519ebeb15f0360fc31dfd0f6f581eb2b5cda3b919deb59e1f0f34adfb966704",
       "needed": [
-        "libc++_shared.so",
         "libc.so",
         "libdl.so",
         "libm.so",
@@ -38,10 +37,9 @@
     },
     {
       "path": "native/.build-o09-x86_64/realm-staging/jniLibs/x86_64/libpocket_world_runtime.so",
-      "size": 15282448,
-      "sha256": "1c7b56ec39f5544e490d4eca29a53d4d4070fd185f78e5aa04c2e216c45c161a",
+      "size": 15844824,
+      "sha256": "b04b51d4e7bcbfc34c37c9999dd75bac078ff3406f8bfe1471a4b2d22641b355",
       "needed": [
-        "libc++_shared.so",
         "libc.so",
         "libdl.so",
         "libm.so",

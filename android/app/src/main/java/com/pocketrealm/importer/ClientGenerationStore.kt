@@ -199,6 +199,7 @@ SET Sound_EnableAmbience "0"\r
 SET ffxGlow "0"\r
 SET ffxDeath "0"\r
 SET farclip "177"\r
+SET realmName "MaNGOS"\r
 """
     }
 }

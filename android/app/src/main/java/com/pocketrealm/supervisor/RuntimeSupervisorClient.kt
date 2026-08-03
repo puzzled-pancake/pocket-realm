@@ -13,7 +13,12 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import org.json.JSONObject
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /** Main-process observer for the foreground supervisor living in :supervisor. */
 class RuntimeSupervisorClient(context: Context) {
@@ -43,6 +48,55 @@ class RuntimeSupervisorClient(context: Context) {
             runCatching { appContext.unbindService(connection) }
         }
     }
+
+    suspend fun createAccount(username: String, password: String, gmLevel: Int): JSONObject =
+        withContext(Dispatchers.IO) {
+            transact { remote -> JSONObject(remote.createAccount(username, password, gmLevel)) }
+        }
+
+    suspend fun createBackup(name: String): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.createBackup(name)) }
+    }
+
+    suspend fun listBackups(): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.listBackups()) }
+    }
+
+    suspend fun restoreBackup(snapshotId: String): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.restoreBackup(snapshotId)) }
+    }
+
+    suspend fun backupStatus(): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.backupStatus()) }
+    }
+
+    private suspend fun <T> transact(block: (IRuntimeSupervisorControl) -> T): T =
+        suspendCancellableCoroutine { continuation ->
+            lateinit var connection: ServiceConnection
+            connection = object : ServiceConnection {
+                override fun onServiceConnected(name: ComponentName?, service: IBinder) {
+                    try {
+                        val value = block(IRuntimeSupervisorControl.Stub.asInterface(service))
+                        if (continuation.isActive) continuation.resume(value)
+                    } catch (error: Throwable) {
+                        if (continuation.isActive) continuation.resumeWithException(error)
+                    } finally {
+                        runCatching { appContext.unbindService(connection) }
+                    }
+                }
+                override fun onServiceDisconnected(name: ComponentName?) = Unit
+                override fun onNullBinding(name: ComponentName?) {
+                    if (continuation.isActive) continuation.resumeWithException(
+                        IllegalStateException("RuntimeSupervisor returned null Binder"))
+                    runCatching { appContext.unbindService(connection) }
+                }
+            }
+            if (!appContext.bindService(
+                    Intent(appContext, RealmService::class.java), connection, Context.BIND_AUTO_CREATE)) {
+                continuation.resumeWithException(IllegalStateException("RuntimeSupervisor bind failed"))
+            }
+            continuation.invokeOnCancellation { runCatching { appContext.unbindService(connection) } }
+        }
 
     private fun decodeRealmState(raw: String): RealmState {
         val value = JSONObject(raw)

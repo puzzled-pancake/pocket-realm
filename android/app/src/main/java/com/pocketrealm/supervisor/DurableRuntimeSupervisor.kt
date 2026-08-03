@@ -128,6 +128,33 @@ class DurableRuntimeSupervisor(
         operation(ok, if (ok) "recovery complete" else _state.value.lastError ?: "recovery failed")
     }
 
+    suspend fun provisionAccount(
+        username: String,
+        password: String,
+        gmLevel: Int,
+    ): AccountProvisionResult = operationLock.withLock {
+        if (username.length !in 1..16 || !username.all { it.isLetterOrDigit() && it.code < 128 }) {
+            return@withLock AccountProvisionResult(false, "ACCOUNT_INVALID", detail = "invalid username")
+        }
+        if (password.length !in 1..16 || !password.all { it.isLetterOrDigit() && it.code < 128 }) {
+            return@withLock AccountProvisionResult(false, "ACCOUNT_INVALID", detail = "invalid password")
+        }
+        if (gmLevel !in 0..3) {
+            return@withLock AccountProvisionResult(false, "ACCOUNT_INVALID", detail = "invalid GM level")
+        }
+        val current = _state.value
+        if (current.phase !in setOf(RuntimePhase.WORLD_READY, RuntimePhase.RUNNING, RuntimePhase.CLIENT_FAILED)) {
+            return@withLock AccountProvisionResult(false, "WORLD_NOT_READY")
+        }
+        val owner = ownerOf(RuntimeComponent.WORLD)
+            ?: return@withLock AccountProvisionResult(false, "WORLD_NOT_OWNED")
+        val result = runCatching { backend.provisionAccount(owner, username, password, gmLevel) }
+            .getOrElse { AccountProvisionResult(false, "ACCOUNT_CONTROL_FAILED", detail = it.javaClass.simpleName) }
+        publish(_state.value.copy(lastDurableAction = if (result.ok)
+            "account-provisioned-core-command" else "account-provision-failed"))
+        result
+    }
+
     suspend fun componentFailed(component: RuntimeComponent, detail: String): RuntimeOperation =
         operationLock.withLock {
             if (component == RuntimeComponent.CLIENT) {

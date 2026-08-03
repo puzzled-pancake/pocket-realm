@@ -118,6 +118,38 @@ class DurableRuntimeSupervisorTest {
         assertTrue(backend.actions.containsAll(listOf("stop:REALM", "stop:DATABASE")))
     }
 
+    @Test fun accountProvisioningRequiresOwnedWorldAndNeverJournalsCredentials() = runTest {
+        val backend = FakeBackend()
+        val journal = MemoryJournal()
+        val runtime = runtime(backend, journal)
+
+        assertEquals("WORLD_NOT_READY", runtime.provisionAccount("PLAYER", "Secret7", 0).code)
+        assertTrue(runtime.start("mobile-low-v1", includeClient = false).ok)
+
+        val created = runtime.provisionAccount("PLAYER", "Secret7", 3)
+
+        assertTrue(created.ok)
+        assertEquals(7, created.accountId)
+        assertEquals(3, created.gmLevel)
+        assertEquals("account-provisioned-core-command", journal.last!!.lastDurableAction)
+        assertFalse(journal.writes.joinToString().contains("PLAYER"))
+        assertFalse(journal.writes.joinToString().contains("Secret7"))
+        assertEquals("account:3", backend.actions.last())
+    }
+
+    @Test fun invalidAccountInputIsRejectedBeforeBackendInvocation() = runTest {
+        val backend = FakeBackend()
+        val runtime = runtime(backend)
+        assertTrue(runtime.start("mobile-low-v1", includeClient = false).ok)
+        backend.actions.clear()
+
+        val rejected = runtime.provisionAccount("PLAYER", "bad password", 0)
+
+        assertFalse(rejected.ok)
+        assertEquals("ACCOUNT_INVALID", rejected.code)
+        assertTrue(backend.actions.isEmpty())
+    }
+
     private fun runtime(
         backend: FakeBackend,
         journal: MemoryJournal = MemoryJournal(),
@@ -197,6 +229,16 @@ class DurableRuntimeSupervisorTest {
         override suspend fun saveWorld(owner: ComponentOwner): RuntimeActionResult {
             actions += "save:WORLD"
             return RuntimeActionResult(true, "saved")
+        }
+
+        override suspend fun provisionAccount(
+            owner: ComponentOwner,
+            username: String,
+            password: String,
+            gmLevel: Int,
+        ): AccountProvisionResult {
+            actions += "account:$gmLevel"
+            return AccountProvisionResult(true, "ACCOUNT_CREATED", 7, gmLevel)
         }
 
         override suspend fun recoverDatabase(): RuntimeActionResult {

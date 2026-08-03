@@ -10,7 +10,12 @@ import java.security.MessageDigest
 internal class DatabaseSnapshotStore(private val snapshotsRoot: File) {
     data class Snapshot(val id: String, val root: File, val manifest: File, val digest: String)
 
-    fun create(datadir: File, id: String, databaseStopped: Boolean): Snapshot {
+    fun create(
+        datadir: File,
+        id: String,
+        databaseStopped: Boolean,
+        compatibility: JSONObject = JSONObject(),
+    ): Snapshot {
         check(databaseStopped) { "DB-SNAPSHOT: refusing to copy a live datadir" }
         check(ID.matches(id)) { "invalid snapshot id" }
         val target = File(snapshotsRoot, id)
@@ -28,6 +33,7 @@ internal class DatabaseSnapshotStore(private val snapshotsRoot: File) {
             }
         val body = JSONObject().put("schema", 1).put("snapshotId", id)
             .put("createdAt", System.currentTimeMillis()).put("files", files)
+            .put("compatibility", compatibility)
         val manifest = File(target, "manifest.json")
         writeFsync(manifest, body.toString())
         return Snapshot(id, target, manifest, sha256(manifest))
@@ -71,6 +77,11 @@ internal class DatabaseSnapshotStore(private val snapshotsRoot: File) {
         check(manifest.isFile) { "snapshot manifest missing: $id" }
         return Snapshot(id, root, manifest, sha256(manifest))
     }
+
+    fun list(): List<Snapshot> = snapshotsRoot.listFiles().orEmpty()
+        .filter { File(it, "manifest.json").isFile }
+        .map { load(it.name) }
+        .sortedByDescending { it.root.lastModified() }
 
     fun retainNewest(count: Int) {
         snapshotsRoot.listFiles()?.filter { File(it, "manifest.json").isFile }

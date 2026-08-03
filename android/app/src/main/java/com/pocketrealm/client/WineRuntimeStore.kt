@@ -117,7 +117,7 @@ internal class WineRuntimeStore(private val context: Context) {
                     .put("client_sha256", "3344560af7565a32b25acbcd927a6b35cccbb5997f0280d444f87316b2510d06")
                     .put("server", "pocket-gladio-o07v1")
                     .put("server_sha256", "2d20db2c12b007b2251edce9421264ea168da0bb463718d9baa8f2c02403584f")
-                    .put("api", "OpenGL 3.0 / GLSL 1.30 over GLES 3.1")
+                    .put("api", "OpenGL 3.0 / GLSL 1.30 over GLES 3.0")
                     .put("internal_format_queries", true)
                     .put("modern_instancing", false))
                 .put("client_executable_sha256", identity.getString("sha256"))
@@ -131,7 +131,7 @@ internal class WineRuntimeStore(private val context: Context) {
                     .put("realm_endpoint", "127.0.0.1")
                     .put("addons", "off"))
                 .put("known_deviations", JSONArray()
-                    .put("GLES shader target is 310 es")
+                    .put("GLES shader target is 300 es")
                     .put("renderer advertises a constrained GL 3.0 capability subset")
                     .put("texture copy uses GLES readback/upload instead of glCopyTexImage2D"))
         }
@@ -189,6 +189,7 @@ SET Sound_EnableAmbience "0"
 SET ffxGlow "0"
 SET ffxDeath "0"
 SET farclip "177"
+SET realmName "MaNGOS"
 """.replace("\n", "\r\n")
         writeAtomic(File(p.workingDir, "realmlist.wtf"), realmlist)
         File(p.workingDir, "WTF").mkdirs()
@@ -197,7 +198,7 @@ SET farclip "177"
             .put("schema", 1).put("client_id", p.clientId)
             .put("renderer", "wined3d").put("resolution", "1280x720")
             .put("fps_cap", 30).put("audio", "off")
-            .put("realm_endpoint", "127.0.0.1").put("addons", "off")
+            .put("realm_endpoint", "127.0.0.1").put("realm_name", "MaNGOS").put("addons", "off")
             .put("passwords_stored", false).put("source_modified", false)
         writeAtomic(File(p.workingDir, "managed-safe-profile.json"), record.toString(2))
     }

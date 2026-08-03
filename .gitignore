@@ -96,6 +96,12 @@ generations/realm/
 *.sqlite
 *.sqlite3
 
+# ===== Local scratch / investigation dir =====
+# tmp/ holds ephemeral screenshots, MPQ-extracted Lua/XML, and on-device pulls
+# produced while investigating a gate. None of it is source; much of it is
+# proprietary client data. Keep it strictly local.
+tmp/
+
 # ===== Diagnostics / logs =====
 logs/
 *.log

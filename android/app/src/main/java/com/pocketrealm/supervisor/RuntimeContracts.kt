@@ -15,9 +15,23 @@ interface RuntimeBackend : AutoCloseable {
     suspend fun stop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult
     suspend fun forceStop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult
     suspend fun saveWorld(owner: ComponentOwner): RuntimeActionResult
+    suspend fun provisionAccount(
+        owner: ComponentOwner,
+        username: String,
+        password: String,
+        gmLevel: Int,
+    ): AccountProvisionResult
     suspend fun recoverDatabase(): RuntimeActionResult
     override fun close() = Unit
 }
+
+data class AccountProvisionResult(
+    val ok: Boolean,
+    val code: String,
+    val accountId: Long = 0,
+    val gmLevel: Int = 0,
+    val detail: String = code,
+)
 
 interface RuntimeClock {
     fun wallMs(): Long

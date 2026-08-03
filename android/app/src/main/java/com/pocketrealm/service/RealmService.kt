@@ -35,8 +35,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Foreground durable RuntimeSupervisor, isolated in the :supervisor process. */
 class RealmService : Service() {
@@ -47,6 +49,9 @@ class RealmService : Service() {
     private var monitor: Job? = null
     @Volatile private var activeGeneration = false
     @Volatile private var foregroundActive = false
+    private val maintenanceActive = AtomicBoolean(false)
+    @Volatile private var maintenanceStatus = JSONObject().put("ok", true)
+        .put("phase", "IDLE").toString()
 
     override fun onCreate() {
         super.onCreate()
@@ -73,7 +78,9 @@ class RealmService : Service() {
         startForeground(NOTIF_ID, buildNotification(supervisor.state.value))
         when (intent?.action) {
             ACTION_START -> launchOperation("start") {
-                supervisor.start(AndroidRuntimeBackend.DEFAULT_PROFILE, includeClient = false)
+                if (maintenanceActive.get()) RuntimeOperation(false, supervisor.state.value,
+                    "maintenance operation is active")
+                else supervisor.start(AndroidRuntimeBackend.INTEGRATED_PROFILE, includeClient = true)
             }
             ACTION_SAVE_EXIT -> launchOperation("save-stop") { supervisor.stop(StopMode.GRACEFUL) }
             ACTION_STOP -> launchOperation("forced-stop") { supervisor.stop(StopMode.FORCED) }
@@ -86,9 +93,10 @@ class RealmService : Service() {
             .put("supervisorGenerationActive", activeGeneration)
             .toString()
 
-        override fun start(profileId: String, includeClient: Boolean): String = accepted("start") {
-            supervisor.start(profileId, includeClient)
-        }
+        override fun start(profileId: String, includeClient: Boolean): String =
+            if (maintenanceActive.get()) JSONObject().put("ok", false)
+                .put("error", "maintenance operation is active").toString()
+            else accepted("start") { supervisor.start(profileId, includeClient) }
 
         override fun stop(forced: Boolean): String = accepted("stop") {
             supervisor.stop(if (forced) StopMode.FORCED else StopMode.GRACEFUL)
@@ -96,6 +104,40 @@ class RealmService : Service() {
 
         override fun relaunchClient(): String = accepted("relaunch-client") { supervisor.relaunchClient() }
         override fun recover(): String = accepted("recover") { supervisor.recover() }
+        override fun createAccount(username: String, password: String, gmLevel: Int): String =
+            runBlocking(Dispatchers.IO) {
+                val result = supervisor.provisionAccount(username, password, gmLevel)
+                AppLog.i(TAG, "account control code=${result.code} id=${result.accountId} gm=${result.gmLevel}")
+                JSONObject().put("ok", result.ok).put("code", result.code)
+                    .put("accountId", result.accountId).put("gmLevel", result.gmLevel)
+                    .put("detail", result.detail).toString()
+            }
+        override fun createBackup(name: String): String = maintenance("backup") {
+            backend.createNamedBackup(name)
+        }
+        override fun listBackups(): String = runBlocking(Dispatchers.IO) {
+            backend.listBackups().toString()
+        }
+        override fun restoreBackup(snapshotId: String): String = maintenance("restore") {
+            val begun = backend.beginRestore(snapshotId)
+            val token = begun.getString("restoreToken")
+            try {
+                val started = supervisor.start(AndroidRuntimeBackend.INTEGRATED_PROFILE, includeClient = false)
+                check(started.ok && started.snapshot.phase == RuntimePhase.WORLD_READY) {
+                    "restored candidate did not reach world-ready: ${started.detail}"
+                }
+                val stopped = supervisor.stop(StopMode.GRACEFUL)
+                check(stopped.ok && stopped.snapshot.clean) {
+                    "restored candidate did not clean-stop: ${stopped.detail}"
+                }
+                backend.commitRestore(token).put("worldReadyVerified", true)
+            } catch (error: Throwable) {
+                runCatching { supervisor.stop(StopMode.FORCED) }
+                runCatching { backend.rollbackRestore(token) }
+                throw error
+            }
+        }
+        override fun backupStatus(): String = maintenanceStatus
 
         override fun forceComponentForTest(component: String): String {
             val selected = RuntimeComponent.valueOf(component.uppercase())
@@ -129,6 +171,44 @@ class RealmService : Service() {
             .put("operationId", operationId).toString()
     }
 
+    private fun maintenance(name: String, block: suspend () -> JSONObject): String {
+        val snapshot = supervisor.state.value
+        if (snapshot.phase != RuntimePhase.STOPPED || !snapshot.clean) {
+            return JSONObject().put("ok", false).put("error", "maintenance requires a clean stopped runtime")
+                .toString()
+        }
+        if (!maintenanceActive.compareAndSet(false, true)) {
+            return JSONObject().put("ok", false).put("error", "another maintenance operation is active")
+                .toString()
+        }
+        foregroundActive = true
+        startForeground(NOTIF_ID, buildNotification(snapshot))
+        val operationId = UUID.randomUUID().toString()
+        maintenanceStatus = JSONObject().put("ok", true).put("phase", "RUNNING")
+            .put("kind", name).put("operationId", operationId).toString()
+        scope.launch(Dispatchers.IO) {
+            operationWakeLock.acquire(OPERATION_WAKE_LOCK_TIMEOUT_MS)
+            maintenanceStatus = try {
+                val result = block()
+                result.put("phase", "COMPLETE").put("kind", name)
+                    .put("operationId", operationId).toString()
+            } catch (error: Throwable) {
+                AppLog.e(TAG, "$name maintenance failed", error)
+                JSONObject().put("ok", false).put("phase", "FAILED").put("kind", name)
+                    .put("operationId", operationId).put("errorClass", error.javaClass.simpleName)
+                    .put("error", (error.message ?: "$name failed").take(512)).toString()
+            } finally {
+                runCatching { operationWakeLock.release() }
+                maintenanceActive.set(false)
+                foregroundActive = false
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
+        }
+        return JSONObject().put("ok", true).put("accepted", true)
+            .put("operationId", operationId).toString()
+    }
+
     private fun launchOperation(name: String, block: suspend () -> RuntimeOperation) {
         scope.launch {
             operationWakeLock.acquire(OPERATION_WAKE_LOCK_TIMEOUT_MS)
@@ -157,7 +237,11 @@ class RealmService : Service() {
             if (!activeGeneration) continue
             val snapshot = supervisor.state.value
             if (snapshot.phase !in MONITORED_PHASES) continue
-            for (component in listOf(RuntimeComponent.DATABASE, RuntimeComponent.REALM, RuntimeComponent.WORLD)) {
+            val monitored = buildList {
+                add(RuntimeComponent.DATABASE); add(RuntimeComponent.REALM); add(RuntimeComponent.WORLD)
+                if (snapshot.phase == RuntimePhase.RUNNING) add(RuntimeComponent.CLIENT)
+            }
+            for (component in monitored) {
                 val expected = snapshot.components.getValue(component)
                 if (expected.state != ComponentLifecycle.READY) continue
                 val observed = runCatching { backend.observe(component) }.getOrNull()

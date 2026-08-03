@@ -3,6 +3,7 @@ package com.pocketrealm.database
 import android.content.Context
 import android.os.Process
 import com.pocketrealm.storage.StorageRoots
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -10,6 +11,7 @@ import java.security.DigestInputStream
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.concurrent.TimeUnit
+import java.util.UUID
 import java.util.zip.GZIPInputStream
 
 /**
@@ -33,6 +35,7 @@ internal class DatabaseEngine(private val context: Context) {
     private val secretFile = File(roots.databaseRoot, "secrets.json")
     private val configFile = File(runDir, "my.cnf")
     private val snapshotStore = DatabaseSnapshotStore(roots.databaseSnapshots)
+    private val restoreRecord = File(roots.databaseRoot, "restore-transaction.json")
     @Volatile private var state = State.STOPPED
     @Volatile private var daemonResult: DatabaseRunResult? = null
     @Volatile private var daemonThread: Thread? = null
@@ -47,6 +50,7 @@ internal class DatabaseEngine(private val context: Context) {
             .put("socketExists", socket.exists())
             .put("tcpDisabled", true)
             .put("cleanMarker", cleanMarker.exists())
+            .put("restorePending", restoreRecord.isFile)
             .put("datadir", datadir.absolutePath)
             .put("pid", Process.myPid())
             .put("lastExit", daemonResult?.exitCode ?: JSONObject.NULL)
@@ -324,6 +328,99 @@ internal class DatabaseEngine(private val context: Context) {
             check(original.renameTo(datadir)) { "DB-SNAPSHOT: failed to restore quarantined original" }
             throw failure
         }
+    }
+
+    fun createNamedBackup(name: String): JSONObject = synchronized(lock) {
+        requireStopped()
+        check(initialized() && cleanMarker.isFile) { "DB-SNAPSHOT: clean stopped datadir required" }
+        check(BACKUP_NAME.matches(name)) { "DB-SNAPSHOT: invalid backup name" }
+        check(!restoreRecord.exists()) { "DB-SNAPSHOT: restore verification is pending" }
+        val id = "manual-$name-${System.currentTimeMillis()}"
+        val compatibility = JSONObject()
+            .put("provider", PROVIDER_ID)
+            .put("runtimeBuildId", "o09-cmangos-c096bada-nobots-v1")
+            .put("databaseFamily", "cmangos-classic")
+        val snapshot = snapshotStore.create(datadir, id, databaseStopped = true,
+            compatibility = compatibility)
+        JSONObject().put("ok", true).put("snapshotId", snapshot.id)
+            .put("snapshotDigest", snapshot.digest).put("liveDatadirCopied", false)
+    }
+
+    fun listBackups(): JSONObject = synchronized(lock) {
+        val values = JSONArray()
+        snapshotStore.list().filter { it.id.startsWith("manual-") }.forEach { snapshot ->
+            val manifest = JSONObject(snapshot.manifest.readText())
+            values.put(JSONObject().put("snapshotId", snapshot.id)
+                .put("snapshotDigest", snapshot.digest)
+                .put("createdAt", manifest.getLong("createdAt")))
+        }
+        JSONObject().put("ok", true).put("backups", values)
+    }
+
+    fun beginRestore(snapshotId: String): JSONObject = synchronized(lock) {
+        requireStopped()
+        check(snapshotId.startsWith("manual-") && snapshotId.length <= 128) {
+            "DB-SNAPSHOT: only named backups may be restored"
+        }
+        check(initialized() && cleanMarker.isFile) { "DB-SNAPSHOT: clean stopped datadir required" }
+        check(!restoreRecord.exists()) { "DB-SNAPSHOT: another restore verification is pending" }
+        val snapshot = snapshotStore.load(snapshotId)
+        val manifest = JSONObject(snapshot.manifest.readText())
+        val compatibility = manifest.optJSONObject("compatibility") ?: JSONObject()
+        check(compatibility.optString("provider") == PROVIDER_ID) {
+            "DB-REVISION: backup provider is incompatible"
+        }
+        val required = datadir.walkTopDown().filter { it.isFile }.sumOf { it.length() } + MIN_START_BYTES
+        checkStorage(required)
+        val token = UUID.randomUUID().toString()
+        val candidate = File(roots.databaseRoot, "restore-candidate-$token")
+        val quarantine = File(roots.databaseRoot, "restore-original-$token")
+        atomicWrite(restoreRecord, JSONObject().put("schema", 1).put("token", token)
+            .put("snapshotId", snapshot.id).put("snapshotDigest", snapshot.digest)
+            .put("candidate", candidate.name).put("quarantine", quarantine.name)
+            .put("phase", "PREPARING").toString())
+        try {
+            snapshotStore.restore(snapshot, candidate, databaseStopped = true)
+            check(datadir.renameTo(quarantine)) { "DB-SNAPSHOT: could not quarantine active datadir" }
+            check(candidate.renameTo(datadir)) { "DB-SNAPSHOT: could not stage restored datadir" }
+            atomicWrite(restoreRecord, JSONObject(restoreRecord.readText())
+                .put("phase", "CANDIDATE_ACTIVE").toString())
+            atomicWrite(cleanMarker, JSONObject().put("schema", 1)
+                .put("restoreCandidate", snapshot.id).put("stoppedAt", System.currentTimeMillis()).toString())
+            JSONObject().put("ok", true).put("restoreToken", token)
+                .put("snapshotId", snapshot.id).put("snapshotDigest", snapshot.digest)
+                .put("candidateActive", false).put("requiresWorldReady", true)
+        } catch (failure: Throwable) {
+            rollbackRestoreInternal(token)
+            throw failure
+        }
+    }
+
+    fun commitRestore(restoreToken: String): JSONObject = synchronized(lock) {
+        requireStopped()
+        val record = requireRestore(restoreToken)
+        check(cleanMarker.isFile) { "DB-SNAPSHOT: restored candidate did not clean-stop" }
+        val quarantine = File(roots.databaseRoot, record.getString("quarantine"))
+        check(quarantine.isDirectory) { "DB-SNAPSHOT: pre-restore safety copy is missing" }
+        quarantine.deleteRecursively()
+        check(!quarantine.exists()) { "DB-SNAPSHOT: could not retire safety copy" }
+        restoreRecord.delete()
+        JSONObject().put("ok", true).put("committed", true)
+            .put("snapshotId", record.getString("snapshotId"))
+    }
+
+    fun rollbackRestore(restoreToken: String): JSONObject = synchronized(lock) {
+        requireStopped()
+        rollbackRestoreInternal(restoreToken)
+        JSONObject().put("ok", true).put("rolledBack", true)
+    }
+
+    fun rollbackPendingRestore(): JSONObject = synchronized(lock) {
+        requireStopped()
+        if (!restoreRecord.isFile) return@synchronized JSONObject().put("ok", true).put("pending", false)
+        val token = JSONObject(restoreRecord.readText()).getString("token")
+        rollbackRestoreInternal(token)
+        JSONObject().put("ok", true).put("pending", true).put("rolledBack", true)
     }
 
     fun storageFullTest(): JSONObject = synchronized(lock) {
@@ -606,6 +703,28 @@ internal class DatabaseEngine(private val context: Context) {
             .put("stoppedAt", System.currentTimeMillis()).toString())
     }
 
+    private fun requireRestore(token: String): JSONObject {
+        check(restoreRecord.isFile) { "DB-SNAPSHOT: no restore verification is pending" }
+        val record = JSONObject(restoreRecord.readText())
+        check(record.getString("token") == token) { "DB-SNAPSHOT: restore token mismatch" }
+        return record
+    }
+
+    private fun rollbackRestoreInternal(token: String) {
+        val record = requireRestore(token)
+        val candidate = File(roots.databaseRoot, record.getString("candidate"))
+        val quarantine = File(roots.databaseRoot, record.getString("quarantine"))
+        if (quarantine.isDirectory) {
+            datadir.deleteRecursively()
+            check(quarantine.renameTo(datadir)) { "DB-SNAPSHOT: could not restore pre-restore datadir" }
+        }
+        candidate.deleteRecursively()
+        atomicWrite(cleanMarker, JSONObject().put("schema", 1)
+            .put("restoreRolledBack", record.getString("snapshotId"))
+            .put("stoppedAt", System.currentTimeMillis()).toString())
+        restoreRecord.delete()
+    }
+
     private fun providerReady(): Boolean = mariadbd.isFile && mariadb.isFile &&
         runCatching { context.assets.open("database/provider/bootstrap.sql").close() }.isSuccess
     private fun requireProvider() = check(providerReady()) { "DB-LINK: pinned MariaDB provider is not staged" }
@@ -661,13 +780,14 @@ internal class DatabaseEngine(private val context: Context) {
 
     companion object {
         private const val TAG = "DatabaseEngine"
-        private const val PROVIDER_ID = "mariadb-11.5.2-termux-glibc"
-        private const val PROVIDER_VERSION = "11.5.2"
+        private const val PROVIDER_ID = DatabaseRuntimeContract.PROVIDER_ID
+        private const val PROVIDER_VERSION = DatabaseRuntimeContract.PROVIDER_VERSION
         private const val MIN_INITIALIZE_BYTES = 768L * 1024 * 1024
         private const val MIN_START_BYTES = 128L * 1024 * 1024
         private const val MIN_MIGRATION_BYTES = 1536L * 1024 * 1024
         private const val MAX_DIAGNOSTIC = 16 * 1024
         private const val MIGRATION_MANIFEST = "database/migrations/manifest.json"
+        private val BACKUP_NAME = Regex("[A-Za-z0-9._-]{1,32}")
         private val MIGRATION_ID = Regex("[A-Za-z0-9._-]{1,191}")
         private val DATABASE_NAME = Regex("[a-z][a-z0-9_]{0,63}")
         private val SAFE_FILE = Regex("[A-Za-z0-9._+-]{1,255}")

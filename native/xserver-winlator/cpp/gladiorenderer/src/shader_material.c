@@ -86,7 +86,7 @@ static void setupMaterial(ShaderMaterial* material, MaterialOptions* options) {
 
 static const char* getVertexShaderHead() {
     return
-        "#version 310 es\n"
+        "#version 300 es\n"
 
         "#define GD_MAX_LIGHTS 0\n"
         "#define GD_USE_TEXTURE 0\n"
@@ -223,7 +223,7 @@ static const char* getVertexShaderBody() {
 
 static const char* getFragmentShaderHead() {
     return
-        "#version 310 es\n"
+        "#version 300 es\n"
         "precision highp float;\n"
         "precision highp int;\n"
 

@@ -239,7 +239,11 @@ public class InputDeviceManager implements Pointer.OnPointerMotionListener, Keyb
     @Override
     public void onKeyPress(byte keycode, int keysym) {
         Window focusedWindow = xServer.windowManager.getFocusedWindow();
-        if (focusedWindow == null) return;
+        if (focusedWindow == null) {
+            System.out.println("xinput: dropped keypress: no focused window keycode=" +
+                    (keycode & 0xff) + " keysym=" + keysym);
+            return;
+        }
         updatePointWindow();
 
         Window eventWindow = null;
@@ -249,7 +253,13 @@ public class InputDeviceManager implements Pointer.OnPointerMotionListener, Keyb
             child = eventWindow.isAncestorOf(pointWindow) ? pointWindow : null;
         }
         if (eventWindow == null) {
-            if (!focusedWindow.hasEventListenerFor(Event.KEY_PRESS)) return;
+            if (!focusedWindow.hasEventListenerFor(Event.KEY_PRESS)) {
+                System.out.println("xinput: dropped keypress: focused window " +
+                        focusedWindow.id + " has no listener; point=" +
+                        (pointWindow != null ? pointWindow.id : 0) + " keycode=" +
+                        (keycode & 0xff) + " keysym=" + keysym);
+                return;
+            }
             eventWindow = focusedWindow;
         }
 
@@ -273,6 +283,10 @@ public class InputDeviceManager implements Pointer.OnPointerMotionListener, Keyb
         }
 
         eventWindow.sendEvent(Event.KEY_PRESS, new KeyPress(keycode, xServer.windowManager.rootWindow, eventWindow, child, x, y, localPoint[0], localPoint[1], keyButMask));
+        System.out.println("xinput: sent keypress keycode=" + (keycode & 0xff) +
+                " keysym=" + keysym + " focused=" + focusedWindow.id +
+                " point=" + (pointWindow != null ? pointWindow.id : 0) +
+                " event=" + eventWindow.id);
     }
 
     @Override

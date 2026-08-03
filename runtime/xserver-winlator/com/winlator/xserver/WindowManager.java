@@ -13,6 +13,7 @@ import com.winlator.xserver.events.ConfigureRequest;
 import com.winlator.xserver.events.DestroyNotify;
 import com.winlator.xserver.events.Event;
 import com.winlator.xserver.events.Expose;
+import com.winlator.xserver.events.FocusNotify;
 import com.winlator.xserver.events.MapNotify;
 import com.winlator.xserver.events.MapRequest;
 import com.winlator.xserver.events.ResizeRequest;
@@ -150,20 +151,33 @@ public class WindowManager extends XResourceManager {
     public void revertFocus() {
         switch (focusRevertTo) {
             case NONE:
-                focusedWindow = null;
+                setFocus(null, FocusRevertTo.NONE);
                 break;
             case POINTER_ROOT:
-                focusedWindow = rootWindow;
+                setFocus(rootWindow, FocusRevertTo.POINTER_ROOT);
                 break;
             case PARENT:
-                if (focusedWindow.getParent() != null) focusedWindow = focusedWindow.getParent();
+                if (focusedWindow != null && focusedWindow.getParent() != null) {
+                    setFocus(focusedWindow.getParent(), FocusRevertTo.PARENT);
+                }
                 break;
         }
     }
 
     public void setFocus(Window focusedWindow, FocusRevertTo focusRevertTo) {
+        Window previous = this.focusedWindow;
+        if (previous == focusedWindow) {
+            this.focusRevertTo = focusRevertTo;
+            return;
+        }
+        if (previous != null) {
+            previous.sendEvent(Event.FOCUS_CHANGE, new FocusNotify(false, previous));
+        }
         this.focusedWindow = focusedWindow;
         this.focusRevertTo = focusRevertTo;
+        if (focusedWindow != null) {
+            focusedWindow.sendEvent(Event.FOCUS_CHANGE, new FocusNotify(true, focusedWindow));
+        }
     }
 
     public FocusRevertTo getFocusRevertTo() {

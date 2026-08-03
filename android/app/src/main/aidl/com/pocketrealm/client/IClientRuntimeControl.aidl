@@ -1,7 +1,10 @@
 package com.pocketrealm.client;
 
+import android.os.IBinder;
+
 /** Versioned, app-private control plane for the :client Wine process. */
 interface IClientRuntimeControl {
+    String claim(String sessionId, String instanceToken, IBinder ownerLease);
     String probe(String requestJson);
     String preparePrefix(String requestJson);
     String launch(String requestJson);
@@ -10,4 +13,8 @@ interface IClientRuntimeControl {
     String status(String sessionId);
     String collectDiagnostics(String sessionId);
     String reportWindowVisible(String sessionId);
+    String statusCurrent();
+    String closeOwned(String instanceToken);
+    String releaseOwned(String instanceToken);
+    String forceStopOwned(String instanceToken);
 }

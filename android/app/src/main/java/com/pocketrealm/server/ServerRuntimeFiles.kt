@@ -28,9 +28,9 @@ internal class ServerRuntimeFiles(context: Context) {
             BindIP = "127.0.0.1"
             RealmsStateUpdateDelay = 20
             ListenerThreads = 1
-            LogLevel = 1
+            LogLevel = 3
             LogFile = "${logs.resolve("realmd.log").absolutePath}"
-            LogFileLevel = 1
+            LogFileLevel = 3
         """.trimIndent() + "\n")
     }
 
@@ -64,9 +64,9 @@ internal class ServerRuntimeFiles(context: Context) {
             vmap.enableHeight = ${if (normalPlay) 1 else 0}
             vmap.enableIndoorCheck = ${if (normalPlay) 1 else 0}
             mmap.enabled = ${if (normalPlay) 1 else 0}
-            LogLevel = 1
+            LogLevel = 3
             LogFile = "${logs.resolve("world.log").absolutePath}"
-            LogFileLevel = 1
+            LogFileLevel = 3
             DBErrorLogFile = "${logs.resolve("database-errors.log").absolutePath}"
             PlayerLimit = 10
             MaxCoreStuckTime = 0

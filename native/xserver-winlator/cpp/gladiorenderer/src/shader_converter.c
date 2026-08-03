@@ -1334,7 +1334,11 @@ static void injectBuiltinVariables(ShaderProgram* program, ShaderObject* shader)
     }
 
     int head = 0;
-    insertCodeLine(shader, head++, strdup("#version 310 es"));
+    /* Android's API 35 x86_64 emulator exposes the GLES 3.0 product floor.
+     * The fixed-function/OpenGL 3.0 subset translated here does not require
+     * ES 3.1; declaring 310 causes the driver to reject otherwise valid
+     * shaders and the legacy upstream error path terminates the UI process. */
+    insertCodeLine(shader, head++, strdup("#version 300 es"));
     if (shader->type == GL_FRAGMENT_SHADER) {
         insertCodeLine(shader, head++, strdup("precision highp float;"));
         insertCodeLine(shader, head++, strdup("precision highp int;"));
@@ -1504,6 +1508,42 @@ void ShaderConverter_setShaderSource(GLuint shaderId, GLsizei count, ArrayBuffer
 
     removeReservedBuiltinNames(shader);
     checkGlobalInitializerConsts(shader);
+    if (shader->type == GL_VERTEX_SHADER) {
+        bool usesLegacyClipDistance = false;
+        for (int i = 0; i < shader->code.lines.size; i++) {
+            char* line = shader->code.lines.elements[i];
+            if (strstr(line, "gl_ClipDistance")) {
+                shader->code.lines.elements[i] =
+                    str_replace("gl_ClipDistance", "gd_ClipDistance", line);
+                free(line);
+                usesLegacyClipDistance = true;
+            }
+        }
+        if (usesLegacyClipDistance) {
+            /* gl_ClipDistance is core only beyond the GLES 3.0 product floor.
+             * WoW 1.12 uses the six compatibility clip planes for ancillary
+             * fixed-function passes. Retain the shader writes as private
+             * scratch values so those programs compile; rasterizer user-plane
+             * clipping is intentionally disabled on this constrained path. */
+            insertCodeLine(shader, 0, strdup("float gd_ClipDistance[6];"));
+        }
+
+        for (int i = 0; i < shader->code.lines.size; i++) {
+            char* line = shader->code.lines.elements[i];
+            if (strcmp(line, "uniform vec4 vs_c[256];") == 0) {
+                /* gfxstream enforces the GLES 3.0 minimum of 256 vertex
+                 * uniform vectors. Wine declares 256 D3D registers and a
+                 * separate pos_fixup vector, even when register 255 is not
+                 * referenced by the generated shader. Keep the transform
+                 * uniform real and trim that unused tail register. Uploads
+                 * are clamped in request_handler.c so an initial 256-register
+                 * update cannot invalidate the remaining 255. */
+                shader->code.lines.elements[i] = strdup("uniform vec4 vs_c[255];");
+                free(line);
+                shader->usesReducedWineConstants = true;
+            }
+        }
+    }
     GLX_CONTEXT_UNLOCK();
 }
 
@@ -1583,6 +1623,7 @@ GLuint ShaderConverter_createProgram() {
     GLuint programId = glCreateProgram();
     ShaderProgram* program = calloc(1, sizeof(ShaderProgram));
     program->id = programId;
+    program->wineConstantsBaseLocation = -1;
     for (int i = 0; i < sizeof(program->location); i += sizeof(GLint)) *(GLint*)((char*)&program->location + i) = -1;
 
     SparseArray_put(currentRenderer->clientState.programs, programId, program);
@@ -1700,6 +1741,11 @@ static void mergeSeparateShaders(ShaderProgram* program, ShaderObject* mainShade
 }
 
 static void linkShaderProgram(ShaderProgram* program) {
+    program->usesReducedWineConstants = false;
+    for (int i = 0; i < program->attachedShaders.size; i++) {
+        ShaderObject* shader = program->attachedShaders.elements[i];
+        if (shader->usesReducedWineConstants) program->usesReducedWineConstants = true;
+    }
     glLinkProgram(program->id);
 
     GLint linkStatus = GL_FALSE;
@@ -1711,6 +1757,28 @@ static void linkShaderProgram(ShaderProgram* program) {
         glGetProgramInfoLog(program->id, sizeof(infoLog) - 1, NULL, infoLog);
         println("gladio: program %u (logLength=%d) link error:\n%s",
                 program->id, infoLogLength, infoLog);
+        for (int i = 0; i < program->attachedShaders.size; i++) {
+            ShaderObject* shader = program->attachedShaders.elements[i];
+            ArrayBuffer source = {0};
+            ShaderConverter_getShaderSource(shader, &source);
+            char* lines = strdup(source.buffer);
+            char* save = NULL;
+            for (char* line = strtok_r(lines, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
+                if (strstr(line, "uniform") || strstr(line, "pos_fixup")) {
+                    println("gladio: failed-uniform shader=%u type=0x%x %s",
+                            shader->id, shader->type, line);
+                }
+            }
+            free(lines);
+            ArrayBuffer_free(&source);
+        }
+    }
+
+    if (!linkStatus) {
+        /* A failed program must never participate in the virtual constant
+         * upload path. Otherwise later WineD3D uniform writes target buffer
+         * zero and bury the useful link failure in GL_INVALID_OPERATION. */
+        program->usesReducedWineConstants = false;
     }
 
 #if IS_DEBUG_ENABLED(DEBUG_MODE_SHADER_INFO)

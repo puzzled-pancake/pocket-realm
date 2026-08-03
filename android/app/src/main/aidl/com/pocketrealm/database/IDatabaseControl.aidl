@@ -20,5 +20,11 @@ interface IDatabaseControl {
     String killForTest();
     String recover();
     String snapshotAndRestoreTest();
+    String createNamedBackup(String name);
+    String listBackups();
+    String beginRestore(String snapshotId);
+    String commitRestore(String restoreToken);
+    String rollbackRestore(String restoreToken);
+    String rollbackPendingRestore();
     String storageFullTest();
 }

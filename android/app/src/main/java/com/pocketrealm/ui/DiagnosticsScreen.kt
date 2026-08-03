@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -18,14 +20,20 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pocketrealm.log.AppLog
+import com.pocketrealm.diagnostics.SupportBundleExporter
 import com.pocketrealm.storage.StorageRoots
+import com.pocketrealm.supervisor.RuntimeSupervisorClient
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -36,6 +44,11 @@ fun DiagnosticsScreen(contentPadding: PaddingValues = PaddingValues()) {
     val context = LocalContext.current
     val roots = remember(context) { StorageRoots.get(context) }
     val report = remember(context) { roots.verify() }
+    val supervisor = remember(context) { RuntimeSupervisorClient(context) }
+    val scope = rememberCoroutineScope()
+    var maintenance by remember { mutableStateOf("No backup operation running") }
+    var newestBackup by remember { mutableStateOf<String?>(null) }
+    var supportStatus by remember { mutableStateOf("No support bundle created") }
 
     var logLines by remember { mutableStateOf(AppLog.snapshot()) }
     LaunchedEffect(Unit) {
@@ -65,6 +78,66 @@ fun DiagnosticsScreen(contentPadding: PaddingValues = PaddingValues()) {
                         Text("• ${r.name}: ${if (r.exists) "ok" else "MISSING"} · ${r.usableBytes / (1024 * 1024)} MB free",
                             style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
                     }
+                }
+            }
+        }
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Backup and restore", style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold)
+                    Button(onClick = {
+                        scope.launch {
+                            val name = "backup-${System.currentTimeMillis()}"
+                            val accepted = runCatching { supervisor.createBackup(name) }
+                            maintenance = accepted.fold(
+                                { if (it.optBoolean("ok")) "Backup accepted" else it.optString("error") },
+                                { "Backup failed: ${it.javaClass.simpleName}" },
+                            )
+                            while (accepted.getOrNull()?.optBoolean("ok") == true) {
+                                delay(500)
+                                val status = runCatching { supervisor.backupStatus() }.getOrNull() ?: break
+                                maintenance = "${status.optString("kind")}: ${status.optString("phase")}"
+                                if (status.optString("phase") in setOf("COMPLETE", "FAILED")) break
+                            }
+                            newestBackup = runCatching { supervisor.listBackups() }.getOrNull()
+                                ?.optJSONArray("backups")?.takeIf { it.length() > 0 }
+                                ?.getJSONObject(0)?.getString("snapshotId")
+                        }
+                    }, modifier = Modifier.fillMaxWidth()) { Text("Create named backup") }
+                    OutlinedButton(onClick = {
+                        newestBackup?.let { id ->
+                            scope.launch {
+                                val accepted = runCatching { supervisor.restoreBackup(id) }
+                                maintenance = accepted.fold(
+                                    { if (it.optBoolean("ok")) "Restore verification accepted" else it.optString("error") },
+                                    { "Restore failed: ${it.javaClass.simpleName}" },
+                                )
+                            }
+                        }
+                    }, enabled = newestBackup != null, modifier = Modifier.fillMaxWidth()) {
+                        Text("Restore newest backup")
+                    }
+                    Text(maintenance, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Redacted support bundle", style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold)
+                    Button(onClick = {
+                        scope.launch {
+                            supportStatus = runCatching {
+                                withContext(Dispatchers.IO) { SupportBundleExporter(context).export() }
+                            }.fold(
+                                { "Created ${it.entries} entries â€¢ manifest ${it.manifestSha256.take(12)}â€¦" },
+                                { "Export failed: ${it.javaClass.simpleName}" },
+                            )
+                        }
+                    }, modifier = Modifier.fillMaxWidth()) { Text("Create support bundle") }
+                    Text(supportStatus, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }

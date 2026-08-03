@@ -119,12 +119,27 @@ public class Keyboard {
             String chars = event.getCharacters();
             if (chars != null && chars.length() == 1) {
                 int keysym = chars.charAt(0);
-                XKeycode xKeycode = getCustomXKeycodeForKeysym(keysym);
+                XKeycode xKeycode = getXKeycodeForKeysym(keysym);
                 xServer.injectKeyPress(xKeycode, keysym);
                 AppUtils.runDelayed(() -> xServer.injectKeyRelease(xKeycode), 30);
             }
         }
         return true;
+    }
+
+    private XKeycode getXKeycodeForKeysym(int keysym) {
+        // Prefer the stable core keyboard map advertised when the X client
+        // connects. Wine caches that map; allocating a custom key and sending
+        // MappingNotify immediately before KeyPress can race its refresh and
+        // drop committed Android IME text. Custom slots remain the fallback
+        // for characters that do not exist on the core US layout.
+        for (XKeycode xKeycode : XKeycode.values()) {
+            // XKeycode stores the wire id in a signed byte; enum entries above
+            // 127 therefore appear negative and are outside this 8..255 map.
+            if (xKeycode.id >= MIN_KEYCODE && !xKeycode.isCustomKey() &&
+                hasKeysym(xKeycode.id, keysym)) return xKeycode;
+        }
+        return getCustomXKeycodeForKeysym(keysym);
     }
 
     private XKeycode getCustomXKeycodeForKeysym(int keysym) {

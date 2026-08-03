@@ -4,7 +4,9 @@ import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.Process
 import com.pocketrealm.log.AppLog
+import com.pocketrealm.supervisor.ComponentOwnership
 import com.pocketrealm.wine.WineSpikeNative
 import org.json.JSONObject
 import java.io.File
@@ -19,6 +21,7 @@ class ClientRuntimeService : Service() {
     private val lock = Any()
     private val executor = Executors.newSingleThreadExecutor()
     private lateinit var store: WineRuntimeStore
+    private lateinit var ownership: ComponentOwnership
     private var prepared: WineRuntimeStore.Prepared? = null
     private var session: SessionRecord? = null
 
@@ -39,10 +42,20 @@ class ClientRuntimeService : Service() {
     override fun onCreate() {
         super.onCreate()
         store = WineRuntimeStore(applicationContext)
+        ownership = ComponentOwnership("client") {
+            Thread({
+                runCatching { WineSpikeNative.cancelActiveDirectNative() }
+                stopSelf()
+                Process.killProcess(Process.myPid())
+            }, "client-owner-loss").start()
+        }
         AppLog.i(TAG, "ClientRuntimeService started pid=${android.os.Process.myPid()}")
     }
 
     private val binder = object : IClientRuntimeControl.Stub() {
+        override fun claim(sessionId: String, instanceToken: String, ownerLease: IBinder): String =
+            guarded(instanceToken) { ownership.claim(sessionId, instanceToken, ownerLease) }
+
         override fun probe(requestJson: String): String = guarded(requestJson) {
             val request = JSONObject(requestJson)
             requireProtocol(request)
@@ -151,6 +164,56 @@ class ClientRuntimeService : Service() {
             }
             eventJson(r)
         }
+
+        override fun statusCurrent(): String = guarded("") {
+            val value = synchronized(lock) {
+                session?.let(::eventJsonUnsafe) ?: JSONObject().put("ok", true)
+                    .put("sequence", 0).put("state", ClientState.EXITED.name)
+                    .put("detail", "no active client session")
+            }
+            ownership.decorate(value)
+        }
+
+        override fun closeOwned(instanceToken: String): String = guarded(instanceToken) {
+            ownership.requireOwner(instanceToken)
+            val r = synchronized(lock) { checkNotNull(session) { "no client session" } }
+            synchronized(lock) {
+                if (r.state !in TERMINAL_STATES) {
+                    r.closeFile.parentFile!!.mkdirs()
+                    r.closeFile.writeText(r.id.toString())
+                    transition(r, ClientState.CLOSE_REQUESTED, "owned graceful close requested")
+                }
+            }
+            eventJson(r)
+        }
+
+        override fun releaseOwned(instanceToken: String): String = guarded(instanceToken) {
+            ownership.requireOwner(instanceToken)
+            val r = synchronized(lock) { checkNotNull(session) { "no client session" } }
+            check(r.state in TERMINAL_STATES) { "client session is not terminal" }
+            ownership.clear(instanceToken)
+            JSONObject().put("ok", true).put("released", true).put("state", r.state.name)
+        }
+
+        override fun forceStopOwned(instanceToken: String): String = guarded(instanceToken) {
+            ownership.requireOwner(instanceToken)
+            val r = synchronized(lock) { checkNotNull(session) { "no client session" } }
+            if (r.state !in TERMINAL_STATES) {
+                val cancelled = WineSpikeNative.cancelActiveDirectNative()
+                synchronized(lock) {
+                    r.forced = true
+                    transition(r, ClientState.FORCE_STOPPED,
+                        if (cancelled) "owned process group killed" else "owned session already absent")
+                }
+            }
+            ownership.clear(instanceToken)
+            Thread({
+                Thread.sleep(150)
+                stopSelf()
+                Process.killProcess(Process.myPid())
+            }, "client-force-retire").start()
+            JSONObject().put("ok", true).put("state", r.state.name)
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
@@ -226,9 +289,13 @@ class ClientRuntimeService : Service() {
     }
 
     private fun eventJson(r: SessionRecord) = synchronized(lock) {
-        JSONObject().put("ok", true).put("sequence", r.sequence).put("state", r.state.name)
-            .put("detail", r.detail)
+        eventJsonUnsafe(r)
     }
+
+    private fun eventJsonUnsafe(r: SessionRecord) = JSONObject().put("ok", true)
+        .put("sequence", r.sequence).put("state", r.state.name).put("detail", r.detail)
+        .put("cleanExit", r.cleanExit).put("forced", r.forced)
+        .put("windowVisible", r.windowVisible)
 
     private fun diagnosticsJson(r: SessionRecord) = synchronized(lock) {
         JSONObject().put("ok", true).put("sessionId", r.id.toString()).put("state", r.state.name)

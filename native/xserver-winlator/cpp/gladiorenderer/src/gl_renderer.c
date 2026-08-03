@@ -492,7 +492,13 @@ void GLRenderer_setCapabilityState(GLRenderer* renderer, GLenum cap, bool state,
                 if (state) glEnablei(cap, index);
                 else glDisablei(cap, index);
             }
-            else if (state) glEnable(cap);
+            else if (state) {
+                glEnable(cap);
+                GLenum error = glGetError();
+                if (error != GL_NO_ERROR) {
+                    println("gladio:setCapabilityState: glEnable cap=%x error=%x", cap, error);
+                }
+            }
             else glDisable(cap);
             break;
     }

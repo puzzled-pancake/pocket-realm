@@ -47,6 +47,12 @@ class DatabaseService : Service() {
         override fun killForTest(): String = guarded { engine.killForTest() }
         override fun recover(): String = guarded { engine.recover() }
         override fun snapshotAndRestoreTest(): String = guarded { engine.snapshotAndRestoreTest() }
+        override fun createNamedBackup(name: String): String = guarded { engine.createNamedBackup(name) }
+        override fun listBackups(): String = guarded { engine.listBackups() }
+        override fun beginRestore(snapshotId: String): String = guarded { engine.beginRestore(snapshotId) }
+        override fun commitRestore(restoreToken: String): String = guarded { engine.commitRestore(restoreToken) }
+        override fun rollbackRestore(restoreToken: String): String = guarded { engine.rollbackRestore(restoreToken) }
+        override fun rollbackPendingRestore(): String = guarded { engine.rollbackPendingRestore() }
         override fun storageFullTest(): String = guarded { engine.storageFullTest() }
     }
 

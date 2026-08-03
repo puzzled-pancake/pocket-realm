@@ -29,17 +29,38 @@ class WorldRuntimeService : Service() {
         override fun claim(sessionId: String, instanceToken: String, ownerLease: IBinder) =
             guarded { ownership.claim(sessionId, instanceToken, ownerLease) }
         override fun status() = guarded { ownership.decorate(
-            ServerStatusJson.world(WorldNative.statusNative(), WorldNative.detailNative())) }
+            ServerStatusJson.world(WorldNative.statusNative(), WorldNative.detailNative())
+                .put("onlinePlayers", WorldNative.onlinePlayersNative())) }
         override fun start() = guarded {
             files.writeLifecycle("world", false, "start")
             val rc = WorldNative.startNative(files.worldConfig().absolutePath)
             ServerStatusJson.operation("world", "start", rc)
         }
+        override fun startNormal() = guarded {
+            files.writeLifecycle("world", false, "start-normal")
+            val rc = WorldNative.startNative(files.worldConfigNormal().absolutePath)
+            ServerStatusJson.operation("world", "start-normal", rc)
+        }
         override fun createAccount(username: String, password: String) = guarded {
             ServerRuntimeContract.requireAccountToken("username", username)
             ServerRuntimeContract.requireAccountToken("password", password)
             val rc = WorldNative.createAccountNative(username, password, ServerRuntimeContract.CONTROL_TIMEOUT_MS)
-            ServerStatusJson.operation("world", "create-account", rc)
+            accountResult("create-account", username, rc)
+        }
+        override fun setAccountGmLevel(username: String, level: Int) = guarded {
+            ServerRuntimeContract.requireAccountToken("username", username)
+            require(level in 0..3) { "GM level must be in 0..3" }
+            val rc = WorldNative.setAccountGmLevelNative(
+                username, level, ServerRuntimeContract.CONTROL_TIMEOUT_MS)
+            accountResult("set-account-gmlevel", username, rc)
+        }
+        override fun accountStatus(username: String) = guarded {
+            ServerRuntimeContract.requireAccountToken("username", username)
+            accountResult("account-status", username, 0)
+        }
+        override fun realmStatus() = guarded {
+            JSONObject(WorldNative.realmInfoNative())
+                .put("schema", 1).put("ok", true).put("component", "world")
         }
         override fun save() = guarded {
             val rc = WorldNative.saveNative(ServerRuntimeContract.CONTROL_TIMEOUT_MS)
@@ -95,5 +116,15 @@ class WorldRuntimeService : Service() {
     private fun failure(error: Throwable) = JSONObject().put("schema", 1).put("ok", false)
         .put("component", "world").put("errorClass", error.javaClass.simpleName)
         .put("error", (error.message ?: "world request failed").take(512)).toString()
+    private fun accountResult(operation: String, username: String, rc: Int): JSONObject {
+        val info = WorldNative.accountInfoNative(username)
+        val exists = info.size >= 2 && info[0] > 0
+        val accepted = rc == 0 || (rc == 10 && exists)
+        return JSONObject().put("schema", 1).put("ok", accepted)
+            .put("component", "world").put("operation", operation)
+            .put("code", ServerRuntimeContract.errorName(rc.toLong()))
+            .put("accountExists", exists).put("accountId", info.getOrElse(0) { 0 })
+            .put("gmLevel", info.getOrElse(1) { -1 })
+    }
     companion object { private const val TAG = "WorldRuntimeService" }
 }

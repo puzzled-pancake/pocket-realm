@@ -1690,7 +1690,12 @@ void gd_handle_glGetUniformLocation(GLContext* context) {
     GLuint program = ArrayBuffer_getInt(&context->inputBuffer);
     GLchar* name = context->inputBuffer.buffer + context->inputBuffer.position;
 
+    ShaderProgram* shaderProgram = ShaderConverter_getProgram(program);
     GLint result = glGetUniformLocation(program, name);
+    if (shaderProgram && shaderProgram->usesReducedWineConstants &&
+        (strcmp(name, "vs_c") == 0 || strcmp(name, "vs_c[0]") == 0)) {
+        shaderProgram->wineConstantsBaseLocation = result;
+    }
     gl_send(context->clientRing, REQUEST_CODE_GL_GET_UNIFORM_LOCATION, &result, sizeof(GLint));
 }
 
@@ -2939,6 +2944,14 @@ void gd_handle_glUniform4fv(GLContext* context) {
     GLsizei count = ArrayBuffer_getInt(&context->inputBuffer);
     GLfloat* value = ArrayBuffer_getBytes(&context->inputBuffer, count * 4 * sizeof(GLfloat));
 
+    ShaderProgram* program = currentRenderer->clientState.program;
+    if (program && program->usesReducedWineConstants &&
+        program->wineConstantsBaseLocation >= 0 &&
+        location >= program->wineConstantsBaseLocation &&
+        location < program->wineConstantsBaseLocation + GD_WINE_VS_CONSTANT_COUNT) {
+        GLint offset = location - program->wineConstantsBaseLocation;
+        count = MIN(count, GD_WINE_VS_CONSTANT_COUNT - offset);
+    }
     glUniform4fv(location, count, value);
 }
 

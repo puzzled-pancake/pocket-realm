@@ -61,7 +61,7 @@ data class ClientDiagnostics(
 object ClientRuntimeContract {
     const val PROTOCOL_VERSION = 1
     const val RUNTIME_BUILD_ID = "kron4ek-wine-11.14-amd64-wow64-vanilla"
-    const val RENDERER_BUILD_ID = "gladio-eaa2a8d-o07v1"
+    const val RENDERER_BUILD_ID = "gladio-eaa2a8d-o12-gles30-v2"
     const val SELF_TEST_ID = "pocket-selftest-v1"
     const val WOW_5875_ID = "wow-1.12.1-5875"
     const val PREFIX_SCHEMA = 1

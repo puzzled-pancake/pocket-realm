@@ -3,6 +3,7 @@
 #include "Common.h"
 #include "Config/Config.h"
 #include "Database/DatabaseEnv.h"
+#include "Globals/ObjectAccessor.h"
 #include "Log/Log.h"
 #include "Master.h"
 #include "World/World.h"
@@ -16,10 +17,12 @@
 #include <cctype>
 #include <condition_variable>
 #include <cstring>
+#include <sstream>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
 
 namespace {
 
@@ -82,6 +85,51 @@ public:
         return result == POCKET_SERVER_TIMEOUT ? result : POCKET_SERVER_ACCOUNT_REJECTED;
     }
 
+    int set_account_gmlevel(const std::string& username, int level, uint64_t timeout_ms)
+    {
+        if (m_state.state() != POCKET_SERVER_READY) return POCKET_SERVER_WRONG_STATE;
+        if (username.empty() || username.size() > 16 || level < 0 || level > 3)
+            return POCKET_SERVER_INVALID_ARGUMENT;
+        if (!std::all_of(username.begin(), username.end(),
+                [](unsigned char c) { return std::isalnum(c); }))
+            return POCKET_SERVER_INVALID_ARGUMENT;
+        const std::string command = "account set gmlevel " + username + " " + std::to_string(level);
+        const int result = issue_command(command, timeout_ms, nullptr);
+        return result == POCKET_SERVER_OK ? result :
+            (result == POCKET_SERVER_TIMEOUT ? result : POCKET_SERVER_ACCOUNT_REJECTED);
+    }
+
+    std::pair<uint32_t, int32_t> account_info(const std::string& username)
+    {
+        if (username.empty() || username.size() > 16) return {0, -1};
+        std::string escaped = username;
+        LoginDatabase.escape_string(escaped);
+        auto result = LoginDatabase.PQuery(
+            "SELECT id,gmlevel FROM account WHERE username='%s' LIMIT 1", escaped.c_str());
+        if (!result) return {0, -1};
+        Field* fields = result->Fetch();
+        return {fields[0].GetUInt32(), fields[1].GetInt32()};
+    }
+
+    std::string realm_info()
+    {
+        if (m_state.state() != POCKET_SERVER_READY && m_state.state() != POCKET_SERVER_SAVING)
+            return "{\"found\":false,\"reason\":\"world-not-ready\"}";
+        auto result = LoginDatabase.Query(
+            "SELECT id,name,address,port,realmflags,realmbuilds FROM realmlist WHERE id=1 LIMIT 1");
+        if (!result) return "{\"found\":false,\"reason\":\"realm-row-missing\"}";
+        Field* fields = result->Fetch();
+        std::ostringstream json;
+        json << "{\"found\":true"
+             << ",\"id\":" << fields[0].GetUInt32()
+             << ",\"name\":\"" << json_escape(fields[1].GetCppString()) << "\""
+             << ",\"address\":\"" << json_escape(fields[2].GetCppString()) << "\""
+             << ",\"port\":" << fields[3].GetUInt32()
+             << ",\"flags\":" << fields[4].GetUInt32()
+             << ",\"builds\":\"" << json_escape(fields[5].GetCppString()) << "\"}";
+        return json.str();
+    }
+
     int stop(uint64_t timeout_ms)
     {
         {
@@ -125,6 +173,14 @@ public:
         pocket_server::copy_detail(out->detail, sizeof(out->detail), m_state.detail());
     }
 
+    uint32_t online_players()
+    {
+        const auto state = m_state.state();
+        if (state != POCKET_SERVER_READY && state != POCKET_SERVER_SAVING) return 0;
+        HashMapHolder<Player>::ReadGuard guard(HashMapHolder<Player>::GetLock());
+        return static_cast<uint32_t>(sObjectAccessor.GetPlayers().size());
+    }
+
     void record_tick(uint32_t duration)
     {
         m_ticks.fetch_add(1, std::memory_order_relaxed);
@@ -136,6 +192,29 @@ public:
     }
 
 private:
+    static std::string json_escape(const std::string& value)
+    {
+        std::string escaped;
+        escaped.reserve(value.size());
+        for (unsigned char c : value)
+        {
+            switch (c)
+            {
+                case '\\': escaped += "\\\\"; break;
+                case '"': escaped += "\\\""; break;
+                case '\b': escaped += "\\b"; break;
+                case '\f': escaped += "\\f"; break;
+                case '\n': escaped += "\\n"; break;
+                case '\r': escaped += "\\r"; break;
+                case '\t': escaped += "\\t"; break;
+                default:
+                    if (c >= 0x20) escaped.push_back(static_cast<char>(c));
+                    break;
+            }
+        }
+        return escaped;
+    }
+
     void run(const std::string& config)
     {
         try
@@ -270,6 +349,28 @@ Java_com_pocketrealm_server_WorldNative_createAccountNative(
 }
 
 extern "C" JNIEXPORT jint JNICALL
+Java_com_pocketrealm_server_WorldNative_setAccountGmLevelNative(
+    JNIEnv* env, jclass, jstring username, jint level, jlong timeout_ms)
+{
+    return g_runtime.set_account_gmlevel(from_jstring(env, username), static_cast<int>(level),
+        static_cast<uint64_t>(std::max<jlong>(0, timeout_ms)));
+}
+
+extern "C" JNIEXPORT jlongArray JNICALL
+Java_com_pocketrealm_server_WorldNative_accountInfoNative(JNIEnv* env, jclass, jstring username)
+{
+    const auto info = g_runtime.account_info(from_jstring(env, username));
+    jlong values[2] = {static_cast<jlong>(info.first), static_cast<jlong>(info.second)};
+    jlongArray result = env->NewLongArray(2);
+    env->SetLongArrayRegion(result, 0, 2, values);
+    return result;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_pocketrealm_server_WorldNative_realmInfoNative(JNIEnv* env, jclass)
+{ return to_jstring(env, g_runtime.realm_info()); }
+
+extern "C" JNIEXPORT jint JNICALL
 Java_com_pocketrealm_server_WorldNative_stopNative(JNIEnv*, jclass, jlong timeout_ms)
 { return g_runtime.stop(static_cast<uint64_t>(std::max<jlong>(0, timeout_ms))); }
 
@@ -293,3 +394,7 @@ Java_com_pocketrealm_server_WorldNative_detailNative(JNIEnv* env, jclass)
     g_runtime.status(&status);
     return to_jstring(env, status.detail);
 }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_pocketrealm_server_WorldNative_onlinePlayersNative(JNIEnv*, jclass)
+{ return static_cast<jint>(g_runtime.online_players()); }
