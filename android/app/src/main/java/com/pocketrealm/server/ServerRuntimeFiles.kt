@@ -69,6 +69,10 @@ internal class ServerRuntimeFiles(context: Context) {
             LogFileLevel = 3
             DBErrorLogFile = "${logs.resolve("database-errors.log").absolutePath}"
             PlayerLimit = 10
+            # The production realm is app-private and loopback-only. Wine's
+            # clock can deliver buffered CMSG_PING packets in a burst after a
+            # slow emulated frame; CMaNGOS documents 0 as disabling this kick.
+            MaxOverspeedPings = 0
             MaxCoreStuckTime = 0
         """.trimIndent() + "\n")
     }

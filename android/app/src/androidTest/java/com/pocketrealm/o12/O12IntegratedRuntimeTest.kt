@@ -73,6 +73,9 @@ class O12IntegratedRuntimeTest {
                 IWorldControl.Stub::asInterface,
             )
             val worldApi = requireNotNull(world).api
+            val worldConfig = File(context.noBackupFilesDir, "server/run/mangosd.conf").readText()
+            assertTrue("loopback realm must not kick Wine for burst-delivered pings",
+                Regex("(?m)^MaxOverspeedPings\\s*=\\s*0$").containsMatchIn(worldConfig))
             val displayStatus = JSONObject(display.api.status())
             assertTrue(displayStatus.toString(), displayStatus.getBoolean("windowVisible"))
 
@@ -326,6 +329,7 @@ class O12IntegratedRuntimeTest {
                 .put("interactionWorldLog", "O12_INTERACTION_world.log")
                 .put("zeroBotSoakRequestedSeconds", soakSeconds)
                 .put("zeroBotSoakSamples", soakSamples)
+                .put("loopbackOverspeedPingKickDisabled", true)
                 .put("accountGmLevel", account.getInt("gmLevel"))
                 .put("cleanStop", true).put("backupSnapshot", snapshotId)
                 .put("restoreWorldReadyVerified", true)
