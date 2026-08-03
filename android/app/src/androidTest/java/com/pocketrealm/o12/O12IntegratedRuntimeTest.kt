@@ -418,6 +418,24 @@ class O12IntegratedRuntimeTest {
 
     private fun replaceDisplayText(value: String) {
         val host = requireNotNull(IntegratedClientDisplay.host.value)
+        // The managed profile survives package upgrades and clean server
+        // cycles. Clear any field value retained by the real client before
+        // typing; the old helper's name promised replacement but it only
+        // appended, which made a hidden remembered password intermittent.
+        instrumentation.runOnMainSync {
+            val now = android.os.SystemClock.uptimeMillis()
+            host.dispatchKey(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MOVE_END, 0))
+            host.dispatchKey(KeyEvent(now, now + 20, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MOVE_END, 0))
+        }
+        Thread.sleep(100)
+        repeat(32) {
+            instrumentation.runOnMainSync {
+                val now = android.os.SystemClock.uptimeMillis()
+                host.dispatchKey(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL, 0))
+                host.dispatchKey(KeyEvent(now, now + 20, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL, 0))
+            }
+            Thread.sleep(20)
+        }
         value.forEach { character ->
             val keyCode = when (character) {
                 in 'a'..'z' -> KeyEvent.KEYCODE_A + (character - 'a')

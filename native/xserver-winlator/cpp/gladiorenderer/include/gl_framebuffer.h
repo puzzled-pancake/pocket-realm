@@ -25,6 +25,7 @@ typedef struct GLFramebuffer {
 
 extern GLuint GLFramebuffer_create();
 extern void GLFramebuffer_bind(GLenum target, GLuint id);
+extern void GLFramebuffer_bindReadback(GLuint id);
 extern GLFramebuffer* GLFramebuffer_getBound(GLenum target);
 extern void GLFramebuffer_setAttachment(GLenum target, GLenum attachment, GLenum objectType, GLuint objectId, uint8_t level);
 extern void GLFramebuffer_delete(GLuint id);

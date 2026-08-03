@@ -129,14 +129,17 @@ static void swapDisplayBuffers(GLContext* context, int drawableId) {
      * emulated default front/back buffers remain untouched. This occurs both
      * with and without a preceding shared-context switch, so select from the
      * current GL binding rather than GLX-context history. */
-    GLFramebuffer_bind(GL_READ_FRAMEBUFFER,
-                       useReadFallback ? readFramebuffer : drawFramebuffer);
+    /* Presentation is an implementation readback, not a guest GL bind. Keep
+     * Wine's cached framebuffer state intact and restore the real GLES read
+     * binding immediately after Java has copied the pixels. */
+    GLFramebuffer_bindReadback(useReadFallback ? readFramebuffer : drawFramebuffer);
 
     JMethods* jmethods = &context->jmethods;
     bool result = (*jmethods->env)->CallBooleanMethod(
         jmethods->env, jmethods->obj, jmethods->updateWindowContent,
         drawableId, currentRenderer->displaySize[0], currentRenderer->displaySize[1],
         useReadFallback ? JNI_FALSE : JNI_TRUE);
+    GLFramebuffer_bindReadback(readFramebuffer);
     if (result) {
         if (currentRenderer->swapBuffers) {
             SWAP(currentRenderer->displayBuffers[0], currentRenderer->displayBuffers[1], GLuint);

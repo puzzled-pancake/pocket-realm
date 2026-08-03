@@ -74,6 +74,20 @@ void GLFramebuffer_bind(GLenum target, GLuint id) {
     GLX_CONTEXT_UNLOCK();
 }
 
+void GLFramebuffer_bindReadback(GLuint id) {
+    GLX_CONTEXT_LOCK();
+    if (id == 0) id = currentRenderer->displayBuffers[1];
+    GLFramebuffer* framebuffer = SparseArray_get(currentRenderer->clientState.framebuffers, id);
+    if (!framebuffer) framebuffer = createNamedFramebuffer(id);
+
+    if (currentRenderer->contextId != framebuffer->ownerId) {
+        recreateFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
+        framebuffer->ownerId = currentRenderer->contextId;
+    }
+    else glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer->id);
+    GLX_CONTEXT_UNLOCK();
+}
+
 GLFramebuffer* GLFramebuffer_getBound(GLenum target) {
     GLX_CONTEXT_LOCK();
     GLuint id = currentRenderer->clientState.framebuffer[indexOfGLTarget(target)];
