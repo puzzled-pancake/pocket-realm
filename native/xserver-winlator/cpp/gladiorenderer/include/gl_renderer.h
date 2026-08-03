@@ -130,7 +130,6 @@ typedef struct GLRenderer {
     short displaySize[2];
     GLuint displayBuffers[2];
     bool swapBuffers;
-    bool preferReadFramebuffer;
     GLuint bufferIds[VERTEX_ATTRIB_COUNT+1];
 
     GLState state;

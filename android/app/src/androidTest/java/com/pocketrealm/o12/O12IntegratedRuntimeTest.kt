@@ -44,6 +44,12 @@ class O12IntegratedRuntimeTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
 
     @Test fun integratedStartAccountClientCleanStopBackupAndRestore() {
+        val arguments = InstrumentationRegistry.getArguments()
+        val soakSeconds = arguments.getString("o12SoakSeconds")?.toIntOrNull() ?: 0
+        val cleanCycles = arguments.getString("o12CleanCycles")?.toIntOrNull() ?: 1
+        val forcedRecovery = arguments.getString("o12ForcedRecovery")?.toBooleanStrictOrNull() ?: false
+        require(soakSeconds in 0..3_600) { "o12SoakSeconds must be in 0..3600" }
+        require(cleanCycles in 1..20) { "o12CleanCycles must be in 1..20" }
         val activity = ActivityScenario.launch(MainActivity::class.java)
         val supervisor = bind(
             Intent(context, RealmService::class.java),
@@ -162,6 +168,7 @@ class O12IntegratedRuntimeTest {
                 waitForMateriallyChangedDisplay(firstComplexWorldFrame, 30_000, 128)
             val inWorldFile = File(context.filesDir, "evidence/O12_IN_WORLD.png")
             inWorldFile.outputStream().use { inWorldFrame.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            val soakSamples = runZeroBotSoak(worldApi, soakSeconds)
 
             val interactionWorld = JSONObject(worldApi.status())
             val interactionSessions = interactionWorld.getLong("activeSessions")
@@ -222,8 +229,72 @@ class O12IntegratedRuntimeTest {
             assertEquals("restored character durable state changed",
                 persistenceBeforeStop.getString("durableSha256"),
                 persistenceAfterRestore.getString("durableSha256"))
-            assertAccepted(supervisor.api.stop(false))
-            assertTrue(waitPhase(supervisor.api, RuntimePhase.STOPPED, 180_000).getBoolean("clean"))
+            val cleanCycleEvidence = JSONArray()
+            for (cycle in 1..cleanCycles) {
+                val cycleState = if (cycle == 1) persistenceAfterRestore else JSONObject(
+                    requireNotNull(world).api.characterPersistence(accountName, characterName))
+                assertTrue("character missing on clean cycle $cycle: $cycleState",
+                    cycleState.getBoolean("found"))
+                assertEquals("character durable state changed on clean cycle $cycle",
+                    persistenceBeforeStop.getString("durableSha256"),
+                    cycleState.getString("durableSha256"))
+                cleanCycleEvidence.put(JSONObject()
+                    .put("cycle", cycle)
+                    .put("durableSha256", cycleState.getString("durableSha256"))
+                    .put("inventorySha256", cycleState.getString("inventorySha256"))
+                    .put("questSha256", cycleState.getString("questSha256")))
+                assertAccepted(supervisor.api.stop(false))
+                assertTrue("clean cycle $cycle did not commit cleanly",
+                    waitPhase(supervisor.api, RuntimePhase.STOPPED, 180_000).getBoolean("clean"))
+                world?.close()
+                world = null
+                if (cycle < cleanCycles) {
+                    assertAccepted(supervisor.api.start(AndroidRuntimeBackend.INTEGRATED_PROFILE, false))
+                    waitPhase(supervisor.api, RuntimePhase.WORLD_READY, 360_000)
+                    world = bind(
+                        Intent(context, WorldRuntimeService::class.java),
+                        IWorldControl.Stub::asInterface,
+                    )
+                }
+            }
+
+            var forcedRecoveryEvidence = JSONObject().put("requested", false)
+            if (forcedRecovery) {
+                assertAccepted(supervisor.api.start(AndroidRuntimeBackend.INTEGRATED_PROFILE, false))
+                waitPhase(supervisor.api, RuntimePhase.WORLD_READY, 360_000)
+                world = bind(
+                    Intent(context, WorldRuntimeService::class.java),
+                    IWorldControl.Stub::asInterface,
+                )
+                val beforeFailure = JSONObject(
+                    requireNotNull(world).api.characterPersistence(accountName, characterName))
+                assertEquals(persistenceBeforeStop.getString("durableSha256"),
+                    beforeFailure.getString("durableSha256"))
+                assertAccepted(supervisor.api.forceComponentForTest("world"))
+                val failed = waitPhase(supervisor.api, RuntimePhase.ERROR, 120_000)
+                assertFalse("forced world failure was incorrectly marked clean", failed.getBoolean("clean"))
+                world?.close()
+                world = null
+                assertAccepted(supervisor.api.start(AndroidRuntimeBackend.INTEGRATED_PROFILE, false))
+                waitPhase(supervisor.api, RuntimePhase.WORLD_READY, 360_000, tolerateInitialError = true)
+                world = bind(
+                    Intent(context, WorldRuntimeService::class.java),
+                    IWorldControl.Stub::asInterface,
+                )
+                val afterRecovery = JSONObject(
+                    requireNotNull(world).api.characterPersistence(accountName, characterName))
+                assertEquals("character durable state changed across forced recovery",
+                    persistenceBeforeStop.getString("durableSha256"),
+                    afterRecovery.getString("durableSha256"))
+                forcedRecoveryEvidence = JSONObject().put("requested", true)
+                    .put("failurePhase", failed.getString("phase"))
+                    .put("failureClean", failed.getBoolean("clean"))
+                    .put("durableSha256", afterRecovery.getString("durableSha256"))
+                assertAccepted(supervisor.api.stop(false))
+                assertTrue(waitPhase(supervisor.api, RuntimePhase.STOPPED, 180_000).getBoolean("clean"))
+                world?.close()
+                world = null
+            }
 
             val support = SupportBundleExporter(context).export(
                 explicitCanaries = listOf(accountName, accountPassword),
@@ -236,6 +307,7 @@ class O12IntegratedRuntimeTest {
                 .put("pageSize", Os.sysconf(OsConstants._SC_PAGESIZE))
                 .put("profile", AndroidRuntimeBackend.INTEGRATED_PROFILE)
                 .put("clientWindowVisible", true).put("accountCreated", true)
+                .put("accountName", accountName)
                 .put("loginFrameNonBlackPixels", nonBlackPixels)
                 .put("loginFrame", "O12_LOGIN_SCREEN.png")
                 .put("postLoginFrameNonBlackPixels", postLoginNonBlack)
@@ -252,12 +324,17 @@ class O12IntegratedRuntimeTest {
                 .put("interactionRealmStatus", interactionRealm)
                 .put("interactionRealmLog", "O12_INTERACTION_realmd.log")
                 .put("interactionWorldLog", "O12_INTERACTION_world.log")
+                .put("zeroBotSoakRequestedSeconds", soakSeconds)
+                .put("zeroBotSoakSamples", soakSamples)
                 .put("accountGmLevel", account.getInt("gmLevel"))
                 .put("cleanStop", true).put("backupSnapshot", snapshotId)
                 .put("restoreWorldReadyVerified", true)
                 .put("persistenceBeforeStop", persistenceBeforeStop)
                 .put("persistenceAfterRestore", persistenceAfterRestore)
                 .put("restoreDurableStateExact", true)
+                .put("cleanCycleCount", cleanCycles)
+                .put("cleanCycles", cleanCycleEvidence)
+                .put("forcedRecovery", forcedRecoveryEvidence)
                 .put("supportBundleEntries", support.entries)
                 .put("supportManifestSha256", support.manifestSha256)
                 .put("components", running.getJSONObject("components"))
@@ -431,6 +508,47 @@ class O12IntegratedRuntimeTest {
         } while (android.os.SystemClock.elapsedRealtime() < deadline)
         throw AssertionError("world renderer remained on its first complex frame " +
             "(nonBlack=$lastNonBlack distinctColors=$lastDistinct changed=$lastChanged)")
+    }
+
+    private fun runZeroBotSoak(api: IWorldControl, requestedSeconds: Int): JSONArray {
+        val samples = JSONArray()
+        if (requestedSeconds == 0) return samples
+        val started = android.os.SystemClock.elapsedRealtime()
+        val deadline = started + TimeUnit.SECONDS.toMillis(requestedSeconds.toLong())
+        var nextSample = started
+        var previousTick = -1L
+        while (true) {
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now >= nextSample || now >= deadline) {
+                val status = JSONObject(api.status())
+                assertTrue("player disconnected during zero-bot soak: $status",
+                    status.getLong("onlinePlayers") > 0 && status.getLong("activeSessions") > 0)
+                assertFalse("playerbots were compiled into the zero-bot soak", status.getBoolean("compiledPlayerbots"))
+                assertFalse("AHBot was enabled during the zero-bot soak", status.getBoolean("auctionHouseBot"))
+                val tick = status.getLong("tickCount")
+                if (previousTick >= 0) assertTrue("world ticks stopped during soak: $status", tick > previousTick)
+                previousTick = tick
+                val frame = captureDisplay()
+                val pixels = frame.getPixelsCopy()
+                val nonBlack = pixels.count { (it and 0x00ffffff) != 0 }
+                val distinct = pixels.asSequence().map { it and 0x00ffffff }.distinct().take(128).count()
+                assertTrue("client framebuffer degraded during soak ($nonBlack/$distinct)",
+                    nonBlack > pixels.size / 100 && distinct >= 128)
+                samples.put(JSONObject()
+                    .put("elapsedSeconds", (now - started) / 1_000)
+                    .put("tickCount", tick)
+                    .put("lastTickMs", status.getLong("lastTickMs"))
+                    .put("maxTickMs", status.getLong("maxTickMs"))
+                    .put("onlinePlayers", status.getLong("onlinePlayers"))
+                    .put("activeSessions", status.getLong("activeSessions"))
+                    .put("frameNonBlackPixels", nonBlack)
+                    .put("frameDistinctColors", distinct))
+                if (now >= deadline) break
+                nextSample = minOf(nextSample + 60_000, deadline)
+            }
+            Thread.sleep(minOf(1_000, maxOf(1, minOf(nextSample, deadline) - android.os.SystemClock.elapsedRealtime())))
+        }
+        return samples
     }
 
     private fun uniqueCharacterName(seed: Long): String {

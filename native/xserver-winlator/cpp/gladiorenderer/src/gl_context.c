@@ -121,15 +121,14 @@ static void setCurrentRenderWindow(GLContext* context, int windowId) {
 static void swapDisplayBuffers(GLContext* context, int drawableId) {
     GLuint drawFramebuffer = currentRenderer->clientState.framebuffer[indexOfGLTarget(GL_DRAW_FRAMEBUFFER)];
     GLuint readFramebuffer = currentRenderer->clientState.framebuffer[indexOfGLTarget(GL_READ_FRAMEBUFFER)];
-    bool useReadFallback = currentRenderer->preferReadFramebuffer &&
-                           readFramebuffer > 0 &&
+    bool useReadFallback = readFramebuffer > 0 &&
                            readFramebuffer != drawFramebuffer &&
                            readFramebuffer != currentRenderer->displayBuffers[0] &&
                            readFramebuffer != currentRenderer->displayBuffers[1];
-    /* WineD3D's second shared GLX context leaves the composed frame in its
-     * explicit read FBO while the newly-created default front/back buffers are
-     * untouched. Present that FBO for switched contexts; the first context
-     * continues to present its normal draw buffer. */
+    /* WineD3D can leave the composed frame in an explicit read FBO while its
+     * emulated default front/back buffers remain untouched. This occurs both
+     * with and without a preceding shared-context switch, so select from the
+     * current GL binding rather than GLX-context history. */
     GLFramebuffer_bind(GL_READ_FRAMEBUFFER,
                        useReadFallback ? readFramebuffer : drawFramebuffer);
 
@@ -191,12 +190,10 @@ static void* requestHandlerThread(void* param) {
                 GLXContext* glxContext = (GLXContext*)(*jmethods->env)->CallLongMethod(jmethods->env, jmethods->obj, jmethods->getGLXContextPtr, context->clientFd, contextId);
 
                 if (glxContext && context->glxContext != glxContext) {
-                    bool switchedFromExistingContext = context->glxContext != NULL;
                     destroyDisplayBuffers();
                     eglMakeCurrent(eglGetDisplay(EGL_DEFAULT_DISPLAY), EGL_NO_SURFACE, EGL_NO_SURFACE, glxContext->eglContext);
                     context->glxContext = glxContext;
                     currentRenderer = &glxContext->renderer;
-                    if (switchedFromExistingContext) currentRenderer->preferReadFramebuffer = true;
                     GLRenderer_resetFrameCount(currentRenderer);
                 }
 
