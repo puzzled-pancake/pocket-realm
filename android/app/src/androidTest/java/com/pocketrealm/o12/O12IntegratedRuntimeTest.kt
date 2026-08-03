@@ -617,6 +617,12 @@ class O12IntegratedRuntimeTest {
                 val distinct = pixels.asSequence().map { it and 0x00ffffff }.distinct().take(128).count()
                 assertTrue("client framebuffer degraded during soak ($nonBlack/$distinct)",
                     nonBlack > pixels.size / 100 && distinct >= 128)
+                // Vanilla marks an unattended character AFK and CMaNGOS then
+                // applies its normal 15-minute AFK logout policy. This is an
+                // active-play soak, so send a harmless in-place jump through
+                // the production Android -> X11 -> Wine input bridge once per
+                // sample. Do not disable or weaken the server's AFK policy.
+                pulsePlayerActivity()
                 samples.put(JSONObject()
                     .put("elapsedSeconds", (now - started) / 1_000)
                     .put("tickCount", tick)
@@ -625,13 +631,27 @@ class O12IntegratedRuntimeTest {
                     .put("onlinePlayers", status.getLong("onlinePlayers"))
                     .put("activeSessions", status.getLong("activeSessions"))
                     .put("frameNonBlackPixels", nonBlack)
-                    .put("frameDistinctColors", distinct))
+                    .put("frameDistinctColors", distinct)
+                    .put("activityPulse", "jump"))
                 if (now >= deadline) break
                 nextSample = minOf(nextSample + 60_000, deadline)
             }
             Thread.sleep(minOf(1_000, maxOf(1, minOf(nextSample, deadline) - android.os.SystemClock.elapsedRealtime())))
         }
         return samples
+    }
+
+    private fun pulsePlayerActivity() {
+        val host = requireNotNull(IntegratedClientDisplay.host.value)
+        instrumentation.runOnMainSync {
+            val now = android.os.SystemClock.uptimeMillis()
+            host.dispatchKey(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_SPACE, 0))
+        }
+        Thread.sleep(100)
+        instrumentation.runOnMainSync {
+            val now = android.os.SystemClock.uptimeMillis()
+            host.dispatchKey(KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_SPACE, 0))
+        }
     }
 
     private fun uniqueCharacterName(seed: Long): String {
