@@ -606,7 +606,8 @@ class O12IntegratedRuntimeTest {
                 val status = JSONObject(api.status())
                 assertTrue("player disconnected during zero-bot soak: $status",
                     status.getLong("onlinePlayers") > 0 && status.getLong("activeSessions") > 0)
-                assertFalse("playerbots were compiled into the zero-bot soak", status.getBoolean("compiledPlayerbots"))
+                assertTrue("the O13-capable runtime was not packaged", status.getBoolean("compiledPlayerbots"))
+                assertFalse("playerbots were enabled during the zero-bot soak", status.getBoolean("playerbotsEnabled"))
                 assertFalse("AHBot was enabled during the zero-bot soak", status.getBoolean("auctionHouseBot"))
                 val tick = status.getLong("tickCount")
                 if (previousTick >= 0) assertTrue("world ticks stopped during soak: $status", tick > previousTick)

@@ -8,6 +8,9 @@ interface IWorldControl {
     String status();
     String start();
     String startNormal();
+    String startBotProfile(String profileId);
+    String setBotTarget(int target);
+    String botStatus();
     String createAccount(String username, String password);
     String setAccountGmLevel(String username, int level);
     String accountStatus(String username);

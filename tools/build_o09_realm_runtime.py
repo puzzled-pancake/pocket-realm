@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Reproducibly build and stage O09's Android x86_64 no-bot server libraries."""
+"""Reproducibly build and stage the current Android x86_64 realm libraries.
+
+The O13 product runtime compiles the pinned Playerbots module but keeps it
+disabled unless an app-generated measured profile is supplied. AHBot remains
+excluded. Historical O09/O12 zero-bot behavior is therefore still selectable.
+"""
 from __future__ import annotations
 
 import argparse
@@ -24,12 +29,34 @@ LOCKFILE = ROOT / "schemas" / "realm-runtime-lockfile.json"
 CONNECTOR_URL = "https://github.com/MariaDB/mariadb-connector-c.git"
 CONNECTOR_COMMIT = "de6305915f86bb33c83b1fe782a2b8a76920aec1"
 CMANGOS_COMMIT = "c096bada9e4ed23ad4ca706c67160a26d7121337"
+PLAYERBOTS_COMMIT = "1abeac646f4be02bfb47abcc779f3f9089d67f3e"
 MAX_PAGE = 0x4000
 CMANGOS_OVERLAYS = [
     {
         "id": "mmap-disabled-load-guard",
         "path": "src/game/Maps/GridMap.cpp",
         "reason": "Do not enter MMapManager::loadMap when mmap.enabled=0; the disabled manager intentionally has no map instance.",
+    },
+    {
+        "id": "embedded-world-thread-rearm",
+        "path": "src/mangosd/Master.cpp",
+        "reason": "Re-arm CMaNGOS process-global stop state immediately before each embedded world-thread launch.",
+    },
+    {
+        "id": "result-callback-outside-queue-lock",
+        "path": "src/shared/Database/SqlOperations.cpp",
+        "reason": "Execute async result callbacks outside the result-queue mutex so callbacks may safely issue direct statements while the database worker publishes another result.",
+    },
+]
+PLAYERBOTS_OVERLAYS = [
+    {
+        "id": "bounded-resumable-mobile-generation",
+        "paths": [
+            "playerbot/PlayerbotAIConfig.h",
+            "playerbot/PlayerbotAIConfig.cpp",
+            "playerbot/RandomPlayerbotFactory.cpp",
+        ],
+        "reason": "Persist each character normally, then yield after a profile-bounded batch so interrupted generation resumes from existing account/character rows.",
     },
 ]
 MMAP_GUARD_UPSTREAM = """    if (!MMAP::MMapFactory::createOrGetMMapManager()->IsMMapIsLoaded(m_mapId, x, y))
@@ -43,7 +70,123 @@ MMAP_GUARD_ANDROID = """    auto* mmap = MMAP::MMapFactory::createOrGetMMapManag
     {
         // load navmesh only when mmap pathfinding is enabled and initialized
         mmap->loadMap(sWorld.GetDataPath(), m_mapId, x, y);
+}
+"""
+WORLD_THREAD_UPSTREAM = """    // Launch the world update thread.
+    m_worldThread.reset(new MaNGOS::Thread(new WorldRunnable));
+"""
+WORLD_THREAD_ANDROID = """    // Re-arm process-global world-loop state before every embedded launch. A
+    // prior clean stop, failed start, or service restart may leave it set.
+    World::ResetForReinit();
+
+    // Launch the world update thread.
+    m_worldThread.reset(new MaNGOS::Thread(new WorldRunnable));
+"""
+RESULT_QUEUE_UPSTREAM = """void SqlResultQueue::Update()
+{
+    std::lock_guard<std::mutex> guard(m_mutex);
+
+    /// execute the callbacks waiting in the synchronization queue
+    while (!m_queue.empty())
+    {
+        auto const callback = std::move(m_queue.front());
+        m_queue.pop();
+        callback->Execute();
     }
+}
+"""
+RESULT_QUEUE_ANDROID = """void SqlResultQueue::Update()
+{
+    /// Pop under the queue lock, but execute outside it. Playerbot login
+    /// callbacks can issue direct statements on the async connection while the
+    /// database worker is publishing another callback. Holding both locks in
+    /// opposite orders deadlocks the world thread on its first update.
+    while (true)
+    {
+        std::unique_ptr<MaNGOS::IQueryCallback> callback;
+        {
+            std::lock_guard<std::mutex> guard(m_mutex);
+            if (m_queue.empty())
+                break;
+            callback = std::move(m_queue.front());
+            m_queue.pop();
+        }
+        callback->Execute();
+    }
+}
+"""
+PB_CONFIG_HEADER_UPSTREAM = """    bool randomBotAutoCreate;
+    uint32 minRandomBots, maxRandomBots;
+"""
+PB_CONFIG_HEADER_ANDROID = """    bool randomBotAutoCreate;
+    uint32 pocketGenerationBatchSize, pocketGenerationYieldMs;
+    uint32 minRandomBots, maxRandomBots;
+"""
+PB_CONFIG_CPP_UPSTREAM = """    randomBotAutoCreate = config.GetBoolDefault("AiPlayerbot.RandomBotAutoCreate", true);
+    minRandomBots = config.GetIntDefault("AiPlayerbot.MinRandomBots", 50);
+"""
+PB_CONFIG_CPP_ANDROID = """    randomBotAutoCreate = config.GetBoolDefault("AiPlayerbot.RandomBotAutoCreate", true);
+    pocketGenerationBatchSize = config.GetIntDefault("PocketRealm.GenerationBatchSize", 5);
+    pocketGenerationYieldMs = config.GetIntDefault("PocketRealm.GenerationYieldMs", 250);
+    minRandomBots = config.GetIntDefault("AiPlayerbot.MinRandomBots", 50);
+"""
+PB_CONFIG_SOURCE_DECL_UPSTREAM = """    bool Initialize();
+"""
+PB_CONFIG_SOURCE_DECL_ANDROID = """    bool Initialize();
+    void SetConfigSource(const std::string& source) { configSource = source; }
+"""
+PB_CONFIG_SOURCE_FIELD_UPSTREAM = """    Config config;
+"""
+PB_CONFIG_SOURCE_FIELD_ANDROID = """    Config config;
+    std::string configSource = _D_AIPLAYERBOT_CONFIG;
+"""
+PB_CONFIG_SOURCE_USE_UPSTREAM = """    if (!config.SetSource(_D_AIPLAYERBOT_CONFIG, "PlayerBots_"))
+"""
+PB_CONFIG_SOURCE_USE_ANDROID = """    if (!config.SetSource(configSource, "PlayerBots_"))
+"""
+PB_FACTORY_INCLUDE_UPSTREAM = """#include <random>
+"""
+PB_FACTORY_INCLUDE_ANDROID = """#include <chrono>
+#include <random>
+#include <thread>
+"""
+PB_FACTORY_BATCH_UPSTREAM = """    uint32 botsCreated = 0;
+    BarGoLink bar1(sPlayerbotAIConfig.randomBotAccountCount*
+"""
+PB_FACTORY_BATCH_ANDROID = """    uint32 botsCreated = 0;
+    const auto checkpointYield = [&botsCreated]() {
+        const uint32 batch = sPlayerbotAIConfig.pocketGenerationBatchSize;
+        if (batch && botsCreated && botsCreated % batch == 0 &&
+            sPlayerbotAIConfig.pocketGenerationYieldMs)
+        {
+            sLog.outString("POCKET_BOT_GENERATION_CHECKPOINT created=%u", botsCreated);
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(sPlayerbotAIConfig.pocketGenerationYieldMs));
+        }
+    };
+    BarGoLink bar1(sPlayerbotAIConfig.randomBotAccountCount*
+"""
+PB_FACTORY_FIXED_UPSTREAM = """\t                created++;
+\t                botsCreated++;
+\t                bar1.step();
+"""
+PB_FACTORY_FIXED_ANDROID = """\t                created++;
+\t                botsCreated++;
+\t                bar1.step();
+\t                checkpointYield();
+"""
+PB_FACTORY_RANDOM_UPSTREAM = """                    uint8 rclss = factory.GetRandomClass();
+                    botsCreated++;
+                    factory.CreateRandomBot(rclss);
+                    bar1.step();
+"""
+PB_FACTORY_RANDOM_ANDROID = """                    uint8 rclss = factory.GetRandomClass();
+                    if (factory.CreateRandomBot(rclss))
+                    {
+                        botsCreated++;
+                        bar1.step();
+                        checkpointYield();
+                    }
 """
 
 
@@ -88,11 +231,12 @@ def tools() -> tuple[Path, Path, Path, Path]:
 
 def replace_anchor(path: Path, old: str, new: str) -> None:
     text = path.read_text(encoding="utf-8")
+    if new in text:
+        return
     if old in text:
         path.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")
         return
-    if new not in text:
-        raise RuntimeError(f"source overlay anchor drift: {path}: {old}")
+    raise RuntimeError(f"source overlay anchor drift: {path}: {old}")
 
 
 def prepare_connector_source() -> None:
@@ -119,11 +263,44 @@ def prepare_cmangos_source() -> None:
     actual = output(["git", "rev-parse", "HEAD"], cmangos)
     if actual != CMANGOS_COMMIT:
         raise RuntimeError(f"CMaNGOS pin mismatch: {actual}")
+    playerbots = NATIVE / "playerbots"
+    playerbots_actual = output(["git", "rev-parse", "HEAD"], playerbots)
+    if playerbots_actual != PLAYERBOTS_COMMIT:
+        raise RuntimeError(f"Playerbots pin mismatch: {playerbots_actual}")
+    if subprocess.run(["git", "diff", "--quiet"], cwd=playerbots).returncode != 0:
+        raise RuntimeError("Playerbots submodule has unrecorded changes; build overlays belong in this driver")
+    mirror = cmangos / "src" / "modules" / "PlayerBots"
+    # Recreate the CMake mirror for every build so overlays are always applied
+    # to the pinned pristine source rather than to a previous build's mirror.
+    if mirror.exists():
+        shutil.rmtree(mirror)
+    shutil.copytree(playerbots, mirror, ignore=shutil.ignore_patterns(".git"))
+    (mirror / ".pocket-realm-commit").write_text(PLAYERBOTS_COMMIT + "\n", encoding="utf-8")
     replace_anchor(
         cmangos / "src" / "game" / "Maps" / "GridMap.cpp",
         MMAP_GUARD_UPSTREAM,
         MMAP_GUARD_ANDROID,
     )
+    replace_anchor(
+        cmangos / "src" / "mangosd" / "Master.cpp",
+        WORLD_THREAD_UPSTREAM,
+        WORLD_THREAD_ANDROID,
+    )
+    replace_anchor(
+        cmangos / "src" / "shared" / "Database" / "SqlOperations.cpp",
+        RESULT_QUEUE_UPSTREAM,
+        RESULT_QUEUE_ANDROID,
+    )
+    bot_root = mirror / "playerbot"
+    replace_anchor(bot_root / "PlayerbotAIConfig.h", PB_CONFIG_HEADER_UPSTREAM, PB_CONFIG_HEADER_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAIConfig.h", PB_CONFIG_SOURCE_DECL_UPSTREAM, PB_CONFIG_SOURCE_DECL_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAIConfig.h", PB_CONFIG_SOURCE_FIELD_UPSTREAM, PB_CONFIG_SOURCE_FIELD_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAIConfig.cpp", PB_CONFIG_CPP_UPSTREAM, PB_CONFIG_CPP_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAIConfig.cpp", PB_CONFIG_SOURCE_USE_UPSTREAM, PB_CONFIG_SOURCE_USE_ANDROID)
+    replace_anchor(bot_root / "RandomPlayerbotFactory.cpp", PB_FACTORY_INCLUDE_UPSTREAM, PB_FACTORY_INCLUDE_ANDROID)
+    replace_anchor(bot_root / "RandomPlayerbotFactory.cpp", PB_FACTORY_BATCH_UPSTREAM, PB_FACTORY_BATCH_ANDROID)
+    replace_anchor(bot_root / "RandomPlayerbotFactory.cpp", PB_FACTORY_FIXED_UPSTREAM, PB_FACTORY_FIXED_ANDROID)
+    replace_anchor(bot_root / "RandomPlayerbotFactory.cpp", PB_FACTORY_RANDOM_UPSTREAM, PB_FACTORY_RANDOM_ANDROID)
 
 
 def restore_cmangos_source() -> None:
@@ -132,6 +309,16 @@ def restore_cmangos_source() -> None:
         NATIVE / "cmangos" / "src" / "game" / "Maps" / "GridMap.cpp",
         MMAP_GUARD_ANDROID,
         MMAP_GUARD_UPSTREAM,
+    )
+    replace_anchor(
+        NATIVE / "cmangos" / "src" / "mangosd" / "Master.cpp",
+        WORLD_THREAD_ANDROID,
+        WORLD_THREAD_UPSTREAM,
+    )
+    replace_anchor(
+        NATIVE / "cmangos" / "src" / "shared" / "Database" / "SqlOperations.cpp",
+        RESULT_QUEUE_ANDROID,
+        RESULT_QUEUE_UPSTREAM,
     )
 
 
@@ -173,7 +360,7 @@ def configure_and_build(force: bool) -> tuple[Path, Path]:
     CMANGOS_BUILD.mkdir(parents=True, exist_ok=True)
     run([cmake, "-S", cmangos, "-B", CMANGOS_BUILD, *common,
          "-DBUILD_GAME_SERVER=ON", "-DBUILD_LOGIN_SERVER=ON", "-DBUILD_SCRIPTDEV=ON",
-         "-DBUILD_EXTRACTORS=OFF", "-DBUILD_PLAYERBOTS=OFF", "-DBUILD_AHBOT=OFF",
+         "-DBUILD_EXTRACTORS=OFF", "-DBUILD_PLAYERBOTS=ON", "-DBUILD_AHBOT=OFF",
          "-DBUILD_DEPRECATED_PLAYERBOT=OFF", "-DBUILD_POCKET_RUNTIME=ON",
          f"-DPOCKET_RUNTIME_DIR={NATIVE / 'realm-runtime'}", "-DDO_MYSQL=ON", "-DDO_SQLITE=OFF",
          f"-DBOOST_ROOT={deps}", f"-DBoost_DIR={deps / 'lib' / 'cmake' / 'Boost-1.86.0'}",
@@ -223,9 +410,11 @@ def stage(llvm: Path) -> dict:
                         "sha256": sha256(target), "needed": needed, "load_alignments": aligns})
     record = {
         "schema": 1, "built_at_utc": datetime.now(timezone.utc).isoformat(), "abi": "x86_64",
-        "min_api": 26, "elf_max_page_size": "0x4000", "playerbots": False,
+        "min_api": 26, "elf_max_page_size": "0x4000", "playerbots": True,
         "auction_house_bot": False, "cmangos_commit": CMANGOS_COMMIT,
+        "playerbots_commit": PLAYERBOTS_COMMIT,
         "cmangos_source_overlays": CMANGOS_OVERLAYS,
+        "playerbots_source_overlays": PLAYERBOTS_OVERLAYS,
         "mariadb_connector_c": {"url": CONNECTOR_URL, "commit": CONNECTOR_COMMIT,
                                 "license": "LGPL-2.1-or-later"},
         "artifacts": records,

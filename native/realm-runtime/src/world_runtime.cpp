@@ -7,12 +7,17 @@
 #include "Log/Log.h"
 #include "Master.h"
 #include "World/World.h"
+#ifdef ENABLE_PLAYERBOTS
+#include "playerbot/PlayerbotAIConfig.h"
+#include "playerbot/RandomPlayerbotMgr.h"
+#endif
 
 #include <jni.h>
 #include <openssl/provider.h>
 #include <openssl/sha.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cctype>
@@ -25,6 +30,7 @@
 #include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -49,6 +55,17 @@ public:
         m_ticks.store(0, std::memory_order_release);
         m_last_tick.store(0, std::memory_order_release);
         m_max_tick.store(0, std::memory_order_release);
+        {
+            std::lock_guard<std::mutex> tick_guard(m_tick_window_mutex);
+            m_tick_window_count = 0;
+            m_tick_window_cursor = 0;
+        }
+        m_bot_enabled.store(false, std::memory_order_release);
+        m_bots_available.store(0, std::memory_order_release);
+        m_bots_online.store(0, std::memory_order_release);
+        m_bot_accounts.store(0, std::memory_order_release);
+        m_effective_bot_target.store(0, std::memory_order_release);
+        m_pending_bot_target.store(-1, std::memory_order_release);
         m_state.transition(POCKET_SERVER_STARTING);
         m_worker = std::thread([this, config] { run(config); });
         return POCKET_SERVER_OK;
@@ -64,6 +81,67 @@ public:
                 result == POCKET_SERVER_OK ? POCKET_SERVER_OK : POCKET_SERVER_TIMEOUT,
                 result == POCKET_SERVER_OK ? "" : "world save acknowledgement timed out");
         return result;
+    }
+
+    int set_bot_target(int target, uint64_t timeout_ms)
+    {
+#ifndef ENABLE_PLAYERBOTS
+        (void)target; (void)timeout_ms;
+        return POCKET_SERVER_WRONG_STATE;
+#else
+        if (m_state.state() != POCKET_SERVER_READY || !m_bot_enabled.load(std::memory_order_acquire))
+            return POCKET_SERVER_WRONG_STATE;
+        if (target < m_bot_min.load(std::memory_order_acquire) ||
+            target > m_bot_max.load(std::memory_order_acquire))
+            return POCKET_SERVER_INVALID_ARGUMENT;
+        m_pending_bot_target.store(target, std::memory_order_release);
+        const uint64_t deadline = pocket_server::monotonic_ms() + timeout_ms;
+        while (pocket_server::monotonic_ms() < deadline)
+        {
+            if (m_effective_bot_target.load(std::memory_order_acquire) == target)
+                return POCKET_SERVER_OK;
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        return POCKET_SERVER_TIMEOUT;
+#endif
+    }
+
+    void bot_status(jlong* values)
+    {
+        values[0] = POCKET_SERVER_ABI_VERSION;
+#ifdef ENABLE_PLAYERBOTS
+        values[1] = 1;
+#else
+        values[1] = 0;
+#endif
+        values[2] = m_bot_enabled.load(std::memory_order_acquire) ? 1 : 0;
+        values[3] = m_bots_available.load(std::memory_order_acquire);
+        values[4] = m_bots_online.load(std::memory_order_acquire);
+        values[5] = m_effective_bot_target.load(std::memory_order_acquire);
+        values[6] = m_bot_accounts.load(std::memory_order_acquire);
+    }
+
+    void performance_status(jlong* values)
+    {
+        values[0] = POCKET_SERVER_ABI_VERSION;
+        std::vector<uint32_t> samples;
+        {
+            std::lock_guard<std::mutex> guard(m_tick_window_mutex);
+            samples.assign(m_tick_window.begin(), m_tick_window.begin() + m_tick_window_count);
+        }
+        values[1] = static_cast<jlong>(samples.size());
+        if (samples.empty()) return;
+        std::sort(samples.begin(), samples.end());
+        const auto percentile = [&samples](size_t numerator, size_t denominator) {
+            const size_t rank = (samples.size() * numerator + denominator - 1) / denominator;
+            return samples[std::min(samples.size() - 1, std::max<size_t>(1, rank) - 1)];
+        };
+        values[2] = percentile(50, 100);
+        values[3] = percentile(95, 100);
+        values[4] = percentile(99, 100);
+        values[5] = samples.back();
+        values[6] = static_cast<jlong>(std::count_if(samples.begin(), samples.end(),
+            [](uint32_t duration) { return duration > 1000; }));
     }
 
     int create_account(const std::string& username, const std::string& password, uint64_t timeout_ms)
@@ -298,6 +376,25 @@ public:
         uint32_t previous = m_max_tick.load(std::memory_order_relaxed);
         while (duration > previous &&
                !m_max_tick.compare_exchange_weak(previous, duration, std::memory_order_release)) {}
+        {
+            std::lock_guard<std::mutex> guard(m_tick_window_mutex);
+            m_tick_window[m_tick_window_cursor] = duration;
+            m_tick_window_cursor = (m_tick_window_cursor + 1) % m_tick_window.size();
+            m_tick_window_count = std::min(m_tick_window_count + 1, m_tick_window.size());
+        }
+#ifdef ENABLE_PLAYERBOTS
+        if (m_bot_enabled.load(std::memory_order_acquire))
+        {
+            const int pending = m_pending_bot_target.exchange(-1, std::memory_order_acq_rel);
+            if (pending >= 0)
+            {
+                sRandomPlayerbotMgr.SetValue(uint32(0), "bot_count", static_cast<uint32>(pending));
+                m_effective_bot_target.store(pending, std::memory_order_release);
+            }
+            m_bots_online.store(sRandomPlayerbotMgr.GetPlayerbotsAmount(),
+                std::memory_order_release);
+        }
+#endif
         m_state.beat();
     }
 
@@ -343,6 +440,11 @@ private:
             OSSL_PROVIDER_load(nullptr, "default");
             if (!sConfig.SetSource(config, "Mangosd_"))
                 return fail(POCKET_SERVER_CONFIG, "world configuration rejected");
+#ifdef ENABLE_PLAYERBOTS
+            sPlayerbotAIConfig.SetConfigSource(
+                sConfig.GetStringDefault("PocketRealm.PlayerbotConfig", ""));
+            const int configured_bot_target = sConfig.GetIntDefault("PocketRealm.BotTarget", 0);
+#endif
             sLog.Initialize();
             if (!sMaster.StartDatabasesEmbedded())
                 return fail(POCKET_SERVER_DB_REVISION, "world database connect or revision check failed");
@@ -350,6 +452,37 @@ private:
             if (!sMaster.InitWorldEmbedded(&client_data_gate))
                 return fail(client_data_gate ? POCKET_SERVER_DATA_MISSING : POCKET_SERVER_DATA_BUILD,
                             client_data_gate ? "verified client-derived data is missing" : "world data load failed");
+#ifdef ENABLE_PLAYERBOTS
+            if (sPlayerbotAIConfig.enabled)
+            {
+                if (configured_bot_target < static_cast<int>(sPlayerbotAIConfig.minRandomBots) ||
+                    configured_bot_target > static_cast<int>(sPlayerbotAIConfig.maxRandomBots))
+                    return fail(POCKET_SERVER_CONFIG, "bot target is outside the measured profile bounds");
+                m_bot_min.store(sPlayerbotAIConfig.minRandomBots, std::memory_order_release);
+                m_bot_max.store(sPlayerbotAIConfig.maxRandomBots, std::memory_order_release);
+                m_bot_accounts.store(sPlayerbotAIConfig.randomBotAccounts.size(), std::memory_order_release);
+                sRandomPlayerbotMgr.SetValue(uint32(0), "bot_count", configured_bot_target);
+                m_effective_bot_target.store(configured_bot_target, std::memory_order_release);
+                m_bot_enabled.store(true, std::memory_order_release);
+
+                uint32_t available = 0;
+                if (!sPlayerbotAIConfig.randomBotAccounts.empty())
+                {
+                    std::ostringstream ids;
+                    bool first = true;
+                    for (const uint32_t account : sPlayerbotAIConfig.randomBotAccounts)
+                    {
+                        if (!first) ids << ',';
+                        ids << account;
+                        first = false;
+                    }
+                    if (auto count = CharacterDatabase.PQuery(
+                            "SELECT COUNT(*) FROM characters WHERE account IN (%s)", ids.str().c_str()))
+                        available = count->Fetch()[0].GetUInt32();
+                }
+                m_bots_available.store(available, std::memory_order_release);
+            }
+#endif
             if (!sMaster.StartNetworkEmbedded(1))
                 return fail(POCKET_SERVER_PORT_IN_USE, "world listener failed");
             m_started = true;
@@ -431,6 +564,18 @@ private:
     std::atomic<uint64_t> m_ticks{0};
     std::atomic<uint32_t> m_last_tick{0};
     std::atomic<uint32_t> m_max_tick{0};
+    std::atomic<bool> m_bot_enabled{false};
+    std::atomic<uint32_t> m_bots_available{0};
+    std::atomic<uint32_t> m_bots_online{0};
+    std::atomic<uint32_t> m_bot_accounts{0};
+    std::atomic<int> m_bot_min{0};
+    std::atomic<int> m_bot_max{0};
+    std::atomic<int> m_effective_bot_target{0};
+    std::atomic<int> m_pending_bot_target{-1};
+    std::array<uint32_t, 2048> m_tick_window{};
+    size_t m_tick_window_count{0};
+    size_t m_tick_window_cursor{0};
+    std::mutex m_tick_window_mutex;
     std::mutex m_lifecycle;
     std::thread m_worker;
     bool m_started{false};
@@ -455,6 +600,30 @@ extern "C" void pocket_world_record_tick(uint32_t duration_ms) { g_runtime.recor
 extern "C" JNIEXPORT jint JNICALL
 Java_com_pocketrealm_server_WorldNative_startNative(JNIEnv* env, jclass, jstring config)
 { return g_runtime.start(from_jstring(env, config)); }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_pocketrealm_server_WorldNative_setBotTargetNative(JNIEnv*, jclass, jint target)
+{ return g_runtime.set_bot_target(static_cast<int>(target), 5'000); }
+
+extern "C" JNIEXPORT jlongArray JNICALL
+Java_com_pocketrealm_server_WorldNative_botStatusNative(JNIEnv* env, jclass)
+{
+    jlong values[7]{};
+    g_runtime.bot_status(values);
+    jlongArray result = env->NewLongArray(7);
+    env->SetLongArrayRegion(result, 0, 7, values);
+    return result;
+}
+
+extern "C" JNIEXPORT jlongArray JNICALL
+Java_com_pocketrealm_server_WorldNative_performanceStatusNative(JNIEnv* env, jclass)
+{
+    jlong values[7]{};
+    g_runtime.performance_status(values);
+    jlongArray result = env->NewLongArray(7);
+    env->SetLongArrayRegion(result, 0, 7, values);
+    return result;
+}
 
 extern "C" JNIEXPORT jint JNICALL
 Java_com_pocketrealm_server_WorldNative_saveNative(JNIEnv*, jclass, jlong timeout_ms)

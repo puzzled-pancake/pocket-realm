@@ -3,7 +3,7 @@ package com.pocketrealm.server
 internal object ServerRuntimeContract {
     const val ABI_VERSION = 1L
     const val CONTROL_SCHEMA = 1
-    const val RUNTIME_BUILD_ID = "o09-cmangos-c096bada-nobots-v1"
+    const val RUNTIME_BUILD_ID = "o13-cmangos-c096bada-playerbots-v1"
     const val REALM_PORT = 3724
     const val WORLD_PORT = 8085
     const val CONTROL_TIMEOUT_MS = 30_000L

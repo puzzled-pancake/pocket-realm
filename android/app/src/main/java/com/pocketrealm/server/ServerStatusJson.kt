@@ -18,7 +18,6 @@ internal object ServerStatusJson {
             .put("tickCount", values[4]).put("lastTickMs", values[5])
             .put("maxTickMs", values[6]).put("activeSessions", values[7])
             .put("listenAddress", "127.0.0.1").put("listenPort", ServerRuntimeContract.WORLD_PORT)
-            .put("compiledPlayerbots", false).put("auctionHouseBot", false)
     }
 
     fun operation(component: String, operation: String, result: Int): JSONObject = JSONObject()

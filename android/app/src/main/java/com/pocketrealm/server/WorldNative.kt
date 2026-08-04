@@ -3,6 +3,9 @@ package com.pocketrealm.server
 internal object WorldNative {
     init { System.loadLibrary("pocket_world_runtime") }
     external fun startNative(configPath: String): Int
+    external fun setBotTargetNative(target: Int): Int
+    external fun botStatusNative(): LongArray
+    external fun performanceStatusNative(): LongArray
     external fun createAccountNative(username: String, password: String, timeoutMs: Long): Int
     external fun setAccountGmLevelNative(username: String, level: Int, timeoutMs: Long): Int
     external fun accountInfoNative(username: String): LongArray

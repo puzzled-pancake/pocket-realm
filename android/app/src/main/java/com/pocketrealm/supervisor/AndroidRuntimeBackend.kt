@@ -7,6 +7,7 @@ import android.content.ServiceConnection
 import android.os.Build
 import android.os.Binder
 import android.os.IBinder
+import com.pocketrealm.bots.BotProfiles
 import com.pocketrealm.client.ClientRuntimeContract
 import com.pocketrealm.client.ClientDisplayService
 import com.pocketrealm.client.ClientRuntimeService
@@ -51,13 +52,13 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
     }
 
     override suspend fun preflight(profileId: String): RuntimeActionResult = withContext(Dispatchers.IO) {
-        if (profileId !in setOf(DEFAULT_PROFILE, INTEGRATED_PROFILE)) {
+        if (profileId !in setOf(DEFAULT_PROFILE, INTEGRATED_PROFILE) && BotProfiles.find(profileId) == null) {
             return@withContext RuntimeActionResult(false, "unknown profile")
         }
         if (!Build.SUPPORTED_ABIS.contains("x86_64")) return@withContext RuntimeActionResult(false, "x86_64 ABI unavailable")
         val db = json(database.api().status())
         if (!db.optBoolean("initialized")) return@withContext RuntimeActionResult(false, "database is not initialized")
-        if (profileId == INTEGRATED_PROFILE) {
+        if (profileId != DEFAULT_PROFILE) {
             runCatching {
                 PreparedDataStore(File(StorageRoots.get(appContext).content, "o11-server")).requireActive()
             }
@@ -104,8 +105,11 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
             }
             RuntimeComponent.WORLD -> {
                 json(world.api().claim(owner.sessionId, owner.instanceToken, ownerLease))
-                if (profileId == INTEGRATED_PROFILE) json(world.api().startNormal())
-                else json(world.api().start())
+                when {
+                    BotProfiles.find(profileId) != null -> json(world.api().startBotProfile(profileId))
+                    profileId == INTEGRATED_PROFILE -> json(world.api().startNormal())
+                    else -> json(world.api().start())
+                }
                 waitReady(component) { json(world.api().status()) }
             }
             RuntimeComponent.CLIENT -> startClient(owner, profileId)
@@ -231,7 +235,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
     }
 
     private suspend fun startClient(owner: ComponentOwner, profileId: String): ComponentObservation {
-        if (profileId != INTEGRATED_PROFILE) {
+        if (profileId != INTEGRATED_PROFILE && BotProfiles.find(profileId) == null) {
             return ComponentObservation(RuntimeComponent.CLIENT, ComponentLifecycle.FAILED, false, owner,
                 detail = "client is not authorized for the O10 baseline profile")
         }
@@ -345,6 +349,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
     companion object {
         const val DEFAULT_PROFILE = "mobile-low-v1"
         const val INTEGRATED_PROFILE = "mobile-low-v2-normal"
+        const val BOT_LOW_25_PROFILE = "mobile-low-b1-25-v1"
         const val CLIENT_BUILD_ID = ClientRuntimeContract.WOW_5875_ID
     }
 }

@@ -53,7 +53,8 @@ class O09RealmRuntimeTest {
         assertOk(world.api.start())
         val worldReady = waitStatus(180_000) { JSONObject(world.api.status()) }
         assertEquals("READY", worldReady.getString("state"))
-        assertTrue(!worldReady.getBoolean("compiledPlayerbots"))
+        assertTrue(worldReady.getBoolean("compiledPlayerbots"))
+        assertTrue(!worldReady.getBoolean("playerbotsEnabled"))
         assertLoopbackReachable(ServerRuntimeContract.WORLD_PORT)
         val invalidAccounts = listOf(
             "" to "SafePass9", "HAS SPACE" to "SafePass9", "QUOTE'" to "SafePass9",

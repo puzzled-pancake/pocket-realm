@@ -3,6 +3,7 @@ package com.pocketrealm.server
 import android.content.Context
 import android.system.Os
 import android.system.OsConstants
+import com.pocketrealm.bots.BotProfile
 import com.pocketrealm.storage.StorageRoots
 import org.json.JSONObject
 import java.io.File
@@ -43,10 +44,25 @@ internal class ServerRuntimeFiles(context: Context) {
     /** O12+ production entry point; refuses normal play unless every O11 artifact verifies. */
     fun worldConfigNormal(): File = worldConfig(normalData.requireActive().root, normalPlay = true)
 
-    private fun worldConfig(data: File, normalPlay: Boolean): File {
+    /** O13 measured profile entry point. Auction-house automation remains disabled. */
+    fun worldConfigBot(profile: BotProfile): File =
+        worldConfig(normalData.requireActive().root, normalPlay = true, botProfile = profile)
+
+    private fun worldConfig(data: File, normalPlay: Boolean, botProfile: BotProfile? = null): File {
         val secret = coreSecret()
         val socket = roots.databaseRun.resolve("mariadb.sock").absolutePath
         fun db(name: String) = ".;$socket;pocket_core;$secret;$name"
+        val botConfig = botProfile?.let {
+            secureWrite(File(run, "aiplayerbot-${it.id}.conf"), it.playerbotConfig())
+        } ?: secureWrite(File(run, "aiplayerbot-disabled.conf"), """
+            AiPlayerbot.Enabled = 0
+            AiPlayerbot.RandomBotAutologin = 0
+            AiPlayerbot.RandomBotLoginAtStartup = 0
+            AiPlayerbot.RandomBotAutoCreate = 0
+            AiPlayerbot.CommandServerPort = 0
+            AiPlayerbot.LLMEnabled = 0
+            AiPlayerbot.ShowProgressBars = 0
+        """.trimIndent() + "\n")
         return secureWrite(File(run, "mangosd.conf"), """
             DataDir = "${data.absolutePath}"
             LoginDatabaseInfo = "${db("classicrealmd")}"
@@ -64,9 +80,9 @@ internal class ServerRuntimeFiles(context: Context) {
             vmap.enableHeight = ${if (normalPlay) 1 else 0}
             vmap.enableIndoorCheck = ${if (normalPlay) 1 else 0}
             mmap.enabled = ${if (normalPlay) 1 else 0}
-            LogLevel = 3
+            LogLevel = ${if (botProfile == null) 3 else 1}
             LogFile = "${logs.resolve("world.log").absolutePath}"
-            LogFileLevel = 3
+            LogFileLevel = ${if (botProfile == null) 3 else 1}
             DBErrorLogFile = "${logs.resolve("database-errors.log").absolutePath}"
             PlayerLimit = 10
             # The production realm is app-private and loopback-only. Wine's
@@ -74,6 +90,8 @@ internal class ServerRuntimeFiles(context: Context) {
             # slow emulated frame; CMaNGOS documents 0 as disabling this kick.
             MaxOverspeedPings = 0
             MaxCoreStuckTime = 0
+            PocketRealm.PlayerbotConfig = "${botConfig.absolutePath}"
+            PocketRealm.BotTarget = ${botProfile?.selectedTarget ?: 0}
         """.trimIndent() + "\n")
     }
 

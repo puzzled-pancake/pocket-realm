@@ -50,6 +50,17 @@ target_link_libraries(pocket_realmd_runtime PRIVATE
 target_link_libraries(pocket_world_runtime PRIVATE
     game shared gsoap ${MYSQL_LIBRARY} OpenSSL::SSL OpenSSL::Crypto z dl
 )
+if(BUILD_PLAYERBOTS)
+    # CMaNGOS applies this directory-locally to game/mangosd, so the embedded
+    # facade must opt in explicitly even though libplayerbots is linked through
+    # game. Without it, the typed O13 bridge compiles out silently.
+    target_compile_definitions(pocket_world_runtime PRIVATE ENABLE_PLAYERBOTS)
+    target_include_directories(pocket_world_runtime PRIVATE
+        ${CMAKE_SOURCE_DIR}/dep/g3dlite
+        ${CMAKE_SOURCE_DIR}/dep/recastnavigation
+        ${CMAKE_SOURCE_DIR}/dep/recastnavigation/Detour/Include
+    )
+endif()
 
 set_target_properties(pocket_realmd_runtime PROPERTIES OUTPUT_NAME pocket_realmd_runtime)
 set_target_properties(pocket_world_runtime PROPERTIES OUTPUT_NAME pocket_world_runtime)
