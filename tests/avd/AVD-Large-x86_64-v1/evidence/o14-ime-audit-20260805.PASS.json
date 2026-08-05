@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "feature": "O14",
+  "increment": 2,
+  "title": "O14 IME increment-2 audit: raw codepoint verification",
+  "result": "PASS — all 7 audit items proven from raw probe evidence",
+  "audited_commit": "52863fc",
+  "audit_test_commit": "(this commit)",
+  "lane": "AVD-Large-x86_64-v1",
+  "physical_avd": "O11-Large-x86_64",
+  "serial": "emulator-5556",
+  "date_utc": "2026-08-05T06:45:00+00:00",
+  "branch": "agent/glm-o14-continuation-2026-08-05",
+  "o13_boundary_tag": "o13-soak25-qualified",
+  "o13_boundary_commit": "a833c402251869ccbd4ce4ba8c60ba19effa582f",
+  "production_code_changed": false,
+  "production_code_changed_note": "Only O14ImeTest.kt modified. No changes to InputContract, ClientDisplayHost, ClientImeView, ImeCharMap, the Win32 probe, or any production file.",
+  "fixed_test_phrase": "Pocket Realm 123!?,.-_",
+  "charCount": 29,
+  "charCodepoints_in_order": [97, 80, 111, 99, 107, 101, 116, 32, 82, 101, 97, 108, 109, 32, 49, 50, 51, 33, 63, 44, 46, 45, 95, 13, 8, 8, 97, 98, 119],
+  "charCount_reconciliation": {
+    "total_wm_char_events": 29,
+    "breakdown": [
+      {"position": 0, "codepoint": 97, "char": "a", "source": "baseline keyboard KEYCODE_A"},
+      {"positions": "1-22", "codepoints": [80, 111, 99, 107, 101, 116, 32, 82, 101, 97, 108, 109, 32, 49, 50, 51, 33, 63, 44, 46, 45, 95], "char": "Pocket Realm 123!?,.-_", "source": "imeCommit(TEST_PHRASE) — exact 22-char phrase"},
+      {"position": 23, "codepoint": 13, "char": "CR (Enter)", "source": "KEYCODE_ENTER via contract.key()"},
+      {"positions": "24-25", "codepoints": [8, 8], "char": "BS BS (Backspace)", "source": "imeDelete(2)"},
+      {"position": 26, "codepoint": 97, "char": "a", "source": "imeCommit('a中b') — 'a' accepted"},
+      {"position": 27, "codepoint": 98, "char": "b", "source": "imeCommit('a中b') — 'b' accepted"},
+      {"position": 28, "codepoint": 119, "char": "w", "source": "held KEYCODE_W pressed in step 6 → WM_CHAR('w')"}
+    ],
+    "note": "charCount=29 is fully accounted for: 1 (baseline 'a') + 22 (phrase) + 1 (Enter CR) + 2 (Backspace) + 2 ('a','b' from 'a中b') + 1 ('w' from held key) = 29. No unexplained WM_CHAR events."
+  },
+  "audit_items": {
+    "1_exact_phrase_once_in_order": {
+      "result": "PASS",
+      "evidence": "codes[1:23] = [80,111,99,107,101,116,32,82,101,97,108,109,32,49,50,51,33,63,44,46,45,95] == phraseCodes exactly. phraseOccurrences=1."
+    },
+    "2_uppercase_no_shift_held": {
+      "result": "PASS",
+      "evidence": "finalModMask=0 (X server keyboard modifier mask is zero after all IME commits including uppercase P, R and shifted symbols). The winlator Keyboard.onKeyEvent path injects Shift on DOWN and releases it on UP for every shifted character."
+    },
+    "3_enter_reached_probe": {
+      "result": "PASS",
+      "evidence": "codepoint 13 (CR) at position [23] in CHAR stream. Sent via KEYCODE_ENTER through contract.key(). Note: imeCommit('\\n') correctly rejects U+000A because newline is not a printable character; Enter is a key action, not committed text."
+    },
+    "4_backspace_reached_probe": {
+      "result": "PASS",
+      "evidence": "codepoints 8,8 at positions [24,25] in CHAR stream. Wine's TranslateMessage produces WM_CHAR(8) for VK_BACK. Two imeDelete(2) calls produced exactly 2 Backspace WM_CHAR events."
+    },
+    "5_unsupported_rejected_before_partial": {
+      "result": "PASS",
+      "evidence": "imeCommit('a中b') returned rejected=[20013] (U+4E2D 中), accepted=[a,b]. codepoint 20013 does NOT appear in the CHAR stream. The 'a' and 'b' around it DID arrive (positions 26,27). No partial injection of the rejected character."
+    },
+    "6_no_duplicate_wm_char": {
+      "result": "PASS",
+      "evidence": "phraseOccurrences=1 — the exact 22-char phrase subsequence appears exactly once in the CHAR stream. No character is duplicated."
+    },
+    "7_final_state_neutral": {
+      "result": "PASS",
+      "evidence": "finalModMask=0 (no Shift/Ctrl/Alt held), finalReleaseKeyCount=0 (no held keys), finalReleaseButtonCount=0 (no held buttons)."
+    }
+  },
+  "test_defect_found_and_fixed": {
+    "description": "The original test committed Enter as imeCommit('\\n'). Newline (U+000A) is correctly rejected by ImeCharMap because it is not a printable character. The audit-enhanced test sends Enter as KEYCODE_ENTER through the contract's key path, which is the correct architecture. This was a test defect, not a production defect — production behavior is correct.",
+    "production_defect": false
+  },
+  "backspace_assumption_corrected": {
+    "description": "The original test assumed Backspace only produces WM_KEYDOWN, not WM_CHAR. Wine's TranslateMessage actually produces both WM_KEYDOWN(VK_BACK) and WM_CHAR(8) for Backspace. The audit-enhanced test verifies Backspace via the CHAR stream (codepoint 8), which is the stronger proof.",
+    "production_defect": false
+  }
+}

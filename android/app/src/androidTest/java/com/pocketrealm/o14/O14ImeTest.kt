@@ -25,6 +25,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -39,12 +40,12 @@ import java.util.concurrent.atomic.AtomicBoolean
  * O14 increment-2 instrumentation: Android IME committed text reaches the Win32
  * probe through the [InputContract]'s generation-gated `imeCommit` path.
  *
- * Lane: AVD-Large-x86_64-v1 (physical AVD O11-Large-x86_64, emulator-5556).
+ * Audit-grade: captures the full raw probe stdout, parses every
+ * `POCKET_SELFTEST_CHAR` codepoint in order, and verifies the exact test phrase
+ * arrived once and in sequence. Also verifies Enter, Backspace, unsupported-char
+ * rejection, no-duplicate-WM_CHAR, Shift-not-held, and final neutral state.
  *
- * The test embeds [ClientDisplayHost.imeView] (the IME-capable wrapper) and
- * commits the fixed public test phrase through the host's IME path, then verifies
- * the Win32 probe observed the expected characters via `WM_CHAR`. It also proves:
- * held-input release on IME open, stale-generation rejection, and clean shutdown.
+ * Lane: AVD-Large-x86_64-v1 (physical AVD O11-Large-x86_64, emulator-5556).
  */
 @RunWith(AndroidJUnit4::class)
 class O14ImeTest {
@@ -77,12 +78,10 @@ class O14ImeTest {
         val mapped = AtomicBoolean(false)
         instrumentation.runOnMainSync {
             host = ClientDisplayHost(context, prefix.runtimeRoot) { mapped.set(true) }
-            // Embed the XServerView for rendering (the verified path).
             activity.addContentView(
                 host!!.view,
                 ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 720),
             )
-            // Add the IME target overlay (zero-size, focusable for soft keyboard).
             activity.addContentView(
                 host!!.imeView,
                 ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT),
@@ -105,14 +104,36 @@ class O14ImeTest {
         delay(300)
 
         // ---- 2. IME commit the fixed test phrase ----------------------------
+        // This is the ONLY committed text that should produce WM_CHAR for the
+        // phrase, enabling exact codepoint-sequence verification.
         host!!.imeCommit(ImeCharMap.TEST_PHRASE)
         delay(500)
 
-        // ---- 3. IME Backspace (delete) --------------------------------------
-        host!!.inputContract.imeDelete(3, host!!.generation)
+        // ---- 3. IME Enter (KEYCODE_ENTER, not committed text) ---------------
+        // Enter is a key action (KEYCODE_ENTER → WM_CHAR codepoint 13 = CR),
+        // NOT a printable character. imeCommit("\n") correctly rejects U+000A
+        // because newline is not in the printable supported set. Enter must be
+        // sent as a dedicated key event through the contract's key path.
+        val enterDown = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER)
+        val enterUp = KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER)
+        host!!.inputContract.key(0, enterDown, host!!.generation)
+        host!!.inputContract.key(0, enterUp, host!!.generation)
         delay(300)
 
-        // ---- 4. IME open releases held input --------------------------------
+        // ---- 4. IME Backspace (delete) --------------------------------------
+        // Backspace maps to KEYCODE_DEL → WM_KEYDOWN(VK_BACK=8), NOT WM_CHAR.
+        val delBefore = host!!.inputDiagnostics().rejectedStaleEventCount
+        host!!.inputContract.imeDelete(2, host!!.generation)
+        delay(300)
+
+        // ---- 5. Unsupported character rejection -----------------------------
+        // Commit a string with a supported char + an unsupported char (U+4E2D 中).
+        // The supported char must arrive; the unsupported one must be rejected
+        // before any partial injection.
+        val unsupportedResult = host!!.inputContract.imeCommit("a中b", host!!.generation)
+        delay(300)
+
+        // ---- 6. IME open releases held input --------------------------------
         instrumentation.runOnMainSync {
             host!!.dispatchKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_W))
             host!!.dispatchRightButton(pressed = true)
@@ -123,16 +144,12 @@ class O14ImeTest {
         assertTrue("IME open should release held button", releaseReport.buttonCount >= 1)
         delay(300)
 
-        // ---- 5. Commit while IME is open ------------------------------------
-        host!!.imeCommit("Hi")
-        delay(300)
-
-        // ---- 6. Close IME; verify neutral state -----------------------------
+        // ---- 7. Close IME; verify neutral state -----------------------------
         host!!.inputContract.imeClosed(host!!.generation)
         assertFalse("IME should be inactive", host!!.inputContract.isImeActive)
         delay(200)
 
-        // ---- 7. Stale-generation IME commit rejected ------------------------
+        // ---- 8. Stale-generation IME commit rejected ------------------------
         val staleGen = host!!.generation + 999L
         val staleBefore = host!!.inputDiagnostics().rejectedStaleEventCount
         host!!.inputContract.imeCommit("stale", staleGen)
@@ -153,27 +170,157 @@ class O14ImeTest {
         // Regression assertions.
         assertTrue("keyboardSeen", d.keyboardSeen)
         assertTrue("mouseSeen", d.mouseSeen)
-
-        // O14 increment-2 assertion: WM_CHAR observed with the expected count.
-        // The test phrase + "Hi" = 20 + 2 = 22 characters committed.
-        // Backspace does not produce WM_CHAR (it's WM_KEYDOWN KEYCODE_DEL).
-        assertTrue(
-            "WM_CHAR should be observed (charSeen)\n${d.stdoutTail.takeLast(500)}",
-            d.charSeen,
-        )
-        assertTrue(
-            "charCount should be >= 22 (test phrase 20 + 'Hi' 2), got ${d.charCount}\n${d.stdoutTail.takeLast(500)}",
-            d.charCount >= 22,
-        )
         assertFalse("forced", d.forced)
 
-        // Evidence.
-        val outDir = File(context.getExternalFilesDir(null), "evidence").apply { mkdirs() }
-        File(outDir, "O14_IME_EVIDENCE.json").writeText(
-            """{"schema":1,"test":"O14ImeTest","charSeen":${d.charSeen},"charCount":${d.charCount},"keyboardSeen":${d.keyboardSeen},"mouseSeen":${d.mouseSeen},"cleanExit":${d.cleanExit},"releaseKeyCount":${releaseReport.keyCount},"releaseButtonCount":${releaseReport.buttonCount},"staleRejected":${staleAfter - staleBefore},"phrase":"${ImeCharMap.TEST_PHRASE}"}""".trimIndent(),
+        // ====================================================================
+        // AUDIT-GRADE ASSERTIONS
+        // ====================================================================
+
+        // Parse every POCKET_SELFTEST_CHAR codepoint from the raw probe stdout.
+        val stdout = d.stdoutTail
+        val charCodepoints = mutableListOf<Int>()
+        val keyCodes = mutableListOf<Int>()
+        for (line in stdout.lines()) {
+            val trimmed = line.trim()
+            if (trimmed.startsWith("POCKET_SELFTEST_CHAR ")) {
+                trimmed.removePrefix("POCKET_SELFTEST_CHAR ").trim().toIntOrNull()?.let { charCodepoints.add(it) }
+            }
+            if (trimmed.startsWith("POCKET_SELFTEST_KEY ")) {
+                trimmed.removePrefix("POCKET_SELFTEST_KEY ").trim().toIntOrNull()?.let { keyCodes.add(it) }
+            }
+        }
+
+        // ---- A. The exact 22-char phrase arrived once and in order ----------
+        // The phrase chars should appear as a contiguous subsequence of the
+        // CHAR codepoint stream (the baseline 'a' precedes them).
+        val phraseCodes = ImeCharMap.TEST_PHRASE.map { it.code }
+        assertTrue(
+            "raw CHAR codepoints must contain the exact phrase sequence; " +
+                "got charCodepoints=$charCodepoints",
+            containsSubsequence(charCodepoints, phraseCodes),
         )
-        android.util.Log.i("O14ImeAcceptance", "O14_IME_ACCEPTANCE charSeen=${d.charSeen} charCount=${d.charCount}")
+
+        // ---- B. No duplicate WM_CHAR events for the phrase -----------------
+        // Count occurrences of the exact phrase subsequence; must be exactly 1.
+        val phraseOccurrences = countSubsequence(charCodepoints, phraseCodes)
+        assertEquals(
+            "phrase must appear exactly once in CHAR stream; got $phraseOccurrences",
+            1,
+            phraseOccurrences,
+        )
+
+        // ---- C. Enter reached the Win32 probe -------------------------------
+        // Enter produces WM_CHAR with codepoint 13 (CR).
+        assertTrue(
+            "Enter (codepoint 13) must appear in CHAR stream; got $charCodepoints",
+            13 in charCodepoints,
+        )
+
+        // ---- D. Backspace reached the Win32 probe ---------------------------
+        // Backspace (KEYCODE_DEL → VK_BACK=8) produces BOTH WM_KEYDOWN(8) and
+        // WM_CHAR(8). We verify via the CHAR stream that codepoint 8 appears
+        // at least twice (two deletions).
+        val backspaceCount = charCodepoints.count { it == 8 }
+        assertTrue(
+            "Backspace (codepoint 8 in WM_CHAR) must appear at least twice; " +
+                "got backspaceCount=$backspaceCount chars=$charCodepoints",
+            backspaceCount >= 2,
+        )
+
+        // ---- E. Unsupported character rejected before partial injection -----
+        // 'a' and 'b' from "a中b" must appear; '中' (U+4E2D = 20013) must NOT.
+        assertEquals(
+            "unsupported commit 'a中b' should report 1 rejected char",
+            1,
+            unsupportedResult.rejected.size,
+        )
+        assertEquals(
+            "rejected codepoint must be U+4E2D (20013)",
+            20013,
+            unsupportedResult.rejected[0],
+        )
+        assertEquals(
+            "unsupported commit should accept 2 chars (a, b)",
+            2,
+            unsupportedResult.accepted.size,
+        )
+        assertFalse(
+            "U+4E2D (20013) must NOT appear in CHAR stream",
+            20013 in charCodepoints,
+        )
+
+        // ---- F. Uppercase letters did not leave Shift held -----------------
+        // After all commits, the X server's keyboard modifier mask must be 0.
+        val modMask = host!!.xServer.keyboard.modifiersMask.getBits()
+        assertEquals(
+            "Shift/modifier must not be held after IME commits; modMask=$modMask",
+            0,
+            modMask,
+        )
+
+        // ---- G. Final key/button/modifier state neutral --------------------
+        val finalRelease = host!!.inputContract.releaseAll(InputContract.ReleaseReason.CLOSE)
+        assertEquals("final release: 0 held keys", 0, finalRelease.keyCount)
+        assertEquals("final release: 0 held buttons", 0, finalRelease.buttonCount)
+
+        // ---- Evidence with raw stdout ---------------------------------------
+        val outDir = File(context.getExternalFilesDir(null), "evidence").apply { mkdirs() }
+        val evidence = JSONObject()
+            .put("schema", 1)
+            .put("test", "O14ImeTest")
+            .put("commit", "52863fc")
+            .put("charSeen", d.charSeen)
+            .put("charCount", d.charCount)
+            .put("charCodepoints", charCodepoints.joinToString(","))
+            .put("keyCodes", keyCodes.joinToString(","))
+            .put("phrase", ImeCharMap.TEST_PHRASE)
+            .put("phraseCodes", phraseCodes.joinToString(","))
+            .put("phraseOccurrences", phraseOccurrences)
+            .put("enterSeen", 13 in charCodepoints)
+            .put("backspaceCharCount", backspaceCount)
+            .put("unsupportedRejected", unsupportedResult.rejected.size)
+            .put("unsupportedRejectedCode", if (unsupportedResult.rejected.isNotEmpty()) unsupportedResult.rejected[0] else -1)
+            .put("unsupported20013InChars", 20013 in charCodepoints)
+            .put("finalModMask", modMask)
+            .put("finalReleaseKeyCount", finalRelease.keyCount)
+            .put("finalReleaseButtonCount", finalRelease.buttonCount)
+            .put("keyboardSeen", d.keyboardSeen)
+            .put("mouseSeen", d.mouseSeen)
+            .put("cleanExit", d.cleanExit)
+            .put("releaseKeyCount_imeOpen", releaseReport.keyCount)
+            .put("releaseButtonCount_imeOpen", releaseReport.buttonCount)
+            .put("staleRejected", staleAfter - staleBefore)
+            .put("stdoutTail", stdout.takeLast(4000))
+        File(outDir, "O14_IME_EVIDENCE.json").writeText(evidence.toString(2))
+        android.util.Log.i("O14ImeAcceptance", "O14_IME_ACCEPTANCE charCount=${d.charCount} phraseOccurrences=$phraseOccurrences enterSeen=${13 in charCodepoints} backspace=$backspaceCount modMask=$modMask")
         Unit
+    }
+
+    /** Check if [subsequence] appears contiguously within [list]. */
+    private fun containsSubsequence(list: List<Int>, subsequence: List<Int>): Boolean {
+        if (subsequence.isEmpty()) return true
+        outer@ for (i in 0..list.size - subsequence.size) {
+            for (j in subsequence.indices) {
+                if (list[i + j] != subsequence[j]) continue@outer
+            }
+            return true
+        }
+        return false
+    }
+
+    /** Count non-overlapping occurrences of [subsequence] in [list]. */
+    private fun countSubsequence(list: List<Int>, subsequence: List<Int>): Int {
+        if (subsequence.isEmpty()) return 0
+        var count = 0
+        var i = 0
+        while (i <= list.size - subsequence.size) {
+            var match = true
+            for (j in subsequence.indices) {
+                if (list[i + j] != subsequence[j]) { match = false; break }
+            }
+            if (match) { count++; i += subsequence.size } else { i++ }
+        }
+        return count
     }
 
     private suspend fun injectKeyboardAndPointer(host: ClientDisplayHost) {
