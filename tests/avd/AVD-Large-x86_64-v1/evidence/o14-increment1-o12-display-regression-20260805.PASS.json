@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "feature": "O14",
+  "increment": 1,
+  "title": "O12 display/renderer relaunch regression against the O14 InputContract",
+  "result": "PASS (display lifecycle); GAP DOCUMENTED (input across generations)",
+  "lane": "AVD-Large-x86_64-v1",
+  "physical_avd": "O11-Large-x86_64",
+  "serial": "emulator-5556",
+  "date_utc": "2026-08-05T21:17:00+00:00",
+  "branch": "agent/glm-o14-continuation-2026-08-05",
+  "commit": "40bdcb3158e8123ed6541789b836e6e8580c47c5",
+  "starting_commit_objective": "40bdcb3",
+  "o13_boundary_tag": "o13-soak25-qualified",
+  "o13_boundary_commit": "a833c402251869ccbd4ce4ba8c60ba19effa582f",
+  "o13_runtime_lockfile_hash": "f8005881b588961db327d4d23e0a3d123b345f4dc314ddf8c3e7f7c98865bd2b",
+  "input_contract_unchanged": true,
+  "client_display_host_unchanged": true,
+  "win32_probe_unchanged": true,
+  "avd": {
+    "avd_id": "AVD-Large-x86_64-v1",
+    "physical_avd_name": "O11-Large-x86_64",
+    "api_level": 35,
+    "abilist": "x86_64",
+    "page_size_bytes": 4096,
+    "ram_mib": 8192,
+    "data_gib": 30
+  },
+  "artifacts": {
+    "app_apk_variant": "realmRuntime",
+    "app_apk_sha256": "79de0a2dac70a6d49b1c5e42c9b06556c4fa34cb1d5e388009dd540d6bbb8c0d",
+    "test_apk_sha256": "c4ff93564b5c4e952711e38b2f99e3211040ab17d0b8bc1b7d8044dc20fe9818"
+  },
+  "commands": {
+    "run_o12_relaunch": "adb -s emulator-5556 shell am instrument -w -e class com.pocketrealm.o12.O12IntegratedRuntimeTest#rendererShareContextSurvivesRepeatedClientLaunches -e o12RendererLaunchCycles 2 com.pocketrealm.test/androidx.test.runner.AndroidJUnitRunner",
+    "run_o12_relaunch_result": "OK (1 test) — Time: 131.325s",
+    "run_o13_smoke_prerequisite": "adb -s emulator-5556 shell am instrument -w -e class com.pocketrealm.o13.O13BotTierTest -e o13SoakSeconds 60 com.pocketrealm.test/androidx.test.runner.AndroidJUnitRunner",
+    "run_o13_smoke_result": "OK (1 test) — Time: 89.076s (recovered the dirty-stop DB state the earlier interrupted O12 run left, restoring the realm stack to a clean-startable condition without restoring or clearing data)"
+  },
+  "display_lifecycle_evidence": {
+    "test": "O12IntegratedRuntimeTest.rendererShareContextSurvivesRepeatedClientLaunches",
+    "cycles": 2,
+    "cycle_1": {"rendererReady": true, "width": 912, "height": 1260, "nonBlackPixels": 231441},
+    "cycle_2": {"rendererReady": true, "width": 912, "height": 1260, "nonBlackPixels": 229571},
+    "clean_stop_each_cycle": true,
+    "note": "Each cycle creates a fresh ClientDisplayHost (= a fresh InputContract generation), recreates the EGL renderer surface, launches the Wine self-test client, waits for non-black output, and stops cleanly. This proves the O14 InputContract does not regress the verified O12 EGL share-context / renderer-recreation lifecycle."
+  },
+  "completion_audit_against_objective_requirements": {
+    "two_fresh_display_client_generations": "PASS — 2 cycles, each a fresh ClientDisplayHost/generation",
+    "non_black_rendered_output_after_each_relaunch": "PASS — 231441 and 229571 non-black pixels (>1% threshold)",
+    "clean_final_client_shutdown": "PASS — clean stop asserted each cycle",
+    "keyboard_absolute_pointer_left_click_observed_after_relaunch": "NOT COVERED by this test — the O12 relaunch test checks rendering only, not input delivery per cycle. Input delivery after a single launch is covered by O14InputContractTest (PASS) and ClientRuntimeLifecycleTest (PASS). Input delivery specifically across a host replacement is not covered by any existing checked-in test.",
+    "held_input_released_during_teardown": "NOT COVERED across relaunch by this test. Release-all on focus loss / pause / close for a single generation is covered by O14InputContractTest (PASS, lastReleaseReason=FOCUS_LOSS, 1 button + 1 key released).",
+    "stale_prior_generation_input_rejected": "NOT COVERED across relaunch by this test. Stale-generation rejection within a single host is covered by O14InputContractTest (PASS, rejectedStaleEventCount=1). Cross-generation stale rejection is not directly tested, though the InputContract's generation field is sourced from ClientDisplayHost (each host = unique generation), so a stale event from a prior host's generation is rejected by the new host's contract."
+  },
+  "test_infrastructure_gap": {
+    "gap": "No existing checked-in test exercises keyboard/pointer delivery, held-input release, AND stale-generation rejection specifically across a ClientDisplayHost replacement (host tear-down + fresh host + new generation + input on the new host + stale event from the old host rejected). The O12 relaunch test covers display lifecycle only; the O14/O06 tests cover input on a single host only.",
+    "preference_path_taken": "Option 1 (existing O12 relaunch test) was run and passed for display lifecycle. Option 2 (self-test client with repeated fresh host generations) is the correct next step for the input-across-generations coverage but is not implemented per the objective's 'propose without implementing' instruction.",
+    "proposed_minimal_test": "O14InputContractRelaunchTest: launch the self-test client through a ClientDisplayHost (generation N), inject keyboard+pointer+left-click, hold a button+key, tear down the host (onPause/close), create a fresh ClientDisplayHost (generation N+1), relaunch the self-test client, inject keyboard+pointer+left-click on the new host, attempt a stale event stamped with generation N (rejected), verify held input from generation N was released during teardown, verify non-black output after relaunch, clean shutdown. This reuses the existing O14InputContractTest harness (self-test client, dispatchKey/Pointer/RightButton, inputDiagnostics) across two host instances. No changes to InputContract, ClientDisplayHost, or the Win32 probe are needed — the test drives only public APIs already present at commit 40bdcb3."
+  },
+  "remaining_gaps_after_this_regression": [
+    "Input delivery (keyboard/pointer/click) across a ClientDisplayHost replacement is not directly tested (test-infrastructure gap documented above).",
+    "O14 remains pending: IME, gamepad, pointer capture, profile persistence, touch overlay not implemented; UX-T01 through UX-T08 NOT complete."
+  ]
+}
