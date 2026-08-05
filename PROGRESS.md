@@ -1,10 +1,10 @@
 # Current project state
 
-Last verified implementation milestone: `O12 — integrated login, persistence, backup, recovery, and diagnostics`
+Last verified implementation milestone: `O13 — G4 measured 25-playerbot tier, admission control, and world metrics`
 
-Active feature: `O13 — G4 measured playerbot tiers and admission control`
+Active feature: `O14 — G4 touch, gamepad, keyboard/mouse, IME, and minimal addon UX` (next eligible)
 
-Current gate: `G4 — bots and mobile input UX`. G0 production packaging, G1 direct-client proof, G2 native realm baseline, and G3 integrated x86 application are complete on their stated qualification lanes.
+Current gate: `G4 — bots and mobile input UX`. G0 production packaging, G1 direct-client proof, G2 native realm baseline, G3 integrated x86 application, and the O13 25-bot tier are complete on their stated qualification lanes.
 
 Plan/reference alignment: `3 August 2026`
 
@@ -346,12 +346,56 @@ Authoritative O12 evidence:
 
 - `tests/avd/AVD-Modern-x86_64-v1/evidence/o12-integrated-runtime-20260803.PASS.json`
 
+## O13 — G4 measured 25-playerbot tier (complete on the large-memory lane)
+
+- The pinned Playerbots module (commit `1abeac64...`) is now compiled into the
+  Android x86_64 world runtime (`libpocket_world_runtime.so`, sha256
+  `f8005881...`, recorded in `schemas/realm-runtime-lockfile.json`) while
+  remaining disabled unless an explicit measured profile is supplied. AHBot is
+  excluded at the core build target and its config is omitted. The zero-bot
+  O09/O12 baseline stays selectable and its tests now assert
+  `compiledPlayerbots=true && playerbotsEnabled=false`.
+- A measured `mobile-low-b1-25-v1` profile owns a fixed 25-bot selected / 20-bot
+  minimum tier, 3 `PRB13` accounts, bounded login/generation batches, and an
+  admission controller with a 768 MiB free-memory floor, a 2 GiB free-storage
+  floor, a 250 ms world p99 budget, a 3-minute startup warmup, and bounded
+  reduce/increase ramps. Generation is resumable and range-safe: it persists
+  each character then yields after a 5-character batch so an interrupted run
+  resumes from existing rows rather than duplicating ranges. A first-world-tick
+  deadlock traced to a Playerbots-login database lock inversion is fixed by an
+  overlaid `SqlOperations.cpp` that executes async result callbacks outside the
+  result-queue mutex.
+- The formal two-hour SOAK-25 passed on lane `AVD-Large-x86_64-v1` (physical AVD
+  `O11-Large-x86_64`, emulator-5556: API 35, x86_64, 4 KiB page, 8 GiB RAM,
+  30 GiB data). Run `7304.181 s` with `7200 s` measured across 719 10-s
+  samples: `effectiveTarget` stayed 25 with 0 adaptations; `botsOnline` 24..26
+  (>=20 throughout); tickCount advanced to 140011; p50 1..3 ms, p95 3..5 ms,
+  p99 4..7 ms with 0 samples >250 ms; 0 p99 violations; 0 hard-stall intervals;
+  PSS 938..1253 MiB; freeMemory 5380..5736 MiB (>=768 floor); freeStorage
+  7901 MiB (>=2048 floor); thermal `none` throughout. The verified O11
+  generation (`8d174e77-...`, manifest `be647885...`) and the completed
+  Playerbots equipment/item caches were reused; no regeneration. Shutdown was
+  clean and dependency-ordered (world/realm/db clean stop).
+- **Lane limitation (explicit):** this qualifies the 25-bot tier only on the
+  8-GiB/30-GiB large-memory profile. It does NOT prove the 25-bot tier on the
+  existing 2.5-GiB/10-GiB `AVD-Modern-x86_64-v1` profile, which remains
+  separately unsupported for O13 until qualified. 50/100-bot and AHBot tiers
+  remain unqualified Advanced profiles and were not attempted.
+
+Authoritative O13 evidence:
+
+- `tests/avd/AVD-Large-x86_64-v1/evidence/o13-bot-tier-soak25-20260805.PASS.json`
+- `tests/avd/AVD-Large-x86_64-v1/evidence/o13-bot-tier-soak25-20260805-run.log`
+- `tests/avd/AVD-Large-x86_64-v1.json` (lane capability record, physical AVD `O11-Large-x86_64`)
+- `tests/avd/AVD-Large-x86_64-v1/evidence/o13-bot-tier-smoke-20260805.PASS.json` (bounded smoke)
+- `tests/avd/AVD-Modern-x86_64-v1/evidence/o13-bot-tier-smoke-20260805.PROVENANCE.md` (corrects the earlier smoke path's physical lane identity)
+
 ## Next action
 
-Begin O13 from the recovered zero-bot baseline: enable the pinned playerbot
-schema/config only through a measured profile, make generation resumable and
-range-safe, add admission control and world/resource metrics, then qualify the
-25-bot tier before attempting 50/100 or auction-house automation.
+Begin O14 (G4 mobile input UX) from the O13-qualified baseline. O14 does not
+depend on bots, but the 25-bot tier is now available as a stable background
+load for any input/UX validation that wants it. 50/100-bot, AHBot, ARM64, and
+16 KiB qualification remain later gates; do not start them now.
 
 ## Session note
 
