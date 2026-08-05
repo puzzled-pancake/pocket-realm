@@ -267,13 +267,61 @@ class InputContractTest {
     @Test fun `IME commit rejects unsupported characters without partial injection`() {
         val (c, sink) = newContract()
         val result = c.imeCommit("a中b", 1)
-        // 'a' and 'b' accepted; '中' rejected.
-        assertEquals(2, result.accepted.size)
+        // Atomicity: the entire commit is rejected because '中' is unsupported.
+        // Zero key events are injected (no 'a', no 'b', no partial sequence).
+        assertFalse("commit with unsupported char must not be allAccepted", result.allAccepted)
+        assertEquals(2, result.accepted.size) // mapped but NOT injected
         assertEquals(1, result.rejected.size)
         assertEquals('中'.code, result.rejected[0])
-        // Only the 2 accepted characters' 4 key events should be injected.
+        // NO key events should be injected — atomicity means zero injection.
         val keyEvents = sink.events.filterIsInstance<SinkEvent.Key>()
-        assertEquals(4, keyEvents.size)
+        assertEquals("atomicity: zero key events for rejected commit", 0, keyEvents.size)
+    }
+
+    @Test fun `IME commit atomicity - valid commit after rejected still succeeds`() {
+        val (c, sink) = newContract()
+        // First: rejected commit injects nothing.
+        val rejected = c.imeCommit("a中b", 1)
+        assertFalse(rejected.allAccepted)
+        assertEquals(0, sink.events.size)
+        // Second: a fully-supported commit still injects correctly.
+        val accepted = c.imeCommit("cd", 1)
+        assertTrue(accepted.allAccepted)
+        val keyEvents = sink.events.filterIsInstance<SinkEvent.Key>()
+        assertEquals("valid commit after rejected: 2 chars * 2 events = 4", 4, keyEvents.size)
+    }
+
+    @Test fun `IME commit atomicity - multiple unsupported all reported`() {
+        val (c, sink) = newContract()
+        // Use BMP-only unsupported chars (no surrogate pairs) for exact counting.
+        val result = c.imeCommit("à中éñ", 1)
+        assertFalse(result.allAccepted)
+        assertEquals(0, result.accepted.size)
+        assertEquals(4, result.rejected.size)
+        assertEquals('à'.code, result.rejected[0])
+        assertEquals('中'.code, result.rejected[1])
+        assertEquals('é'.code, result.rejected[2])
+        assertEquals('ñ'.code, result.rejected[3])
+        assertEquals("zero injection for all-unsupported commit", 0, sink.events.size)
+    }
+
+    @Test fun `IME commit atomicity - no partial WM_CHAR sequence`() {
+        val (c, sink) = newContract()
+        // 'a' is supported, '中' is not → entire "a中" rejected, no 'a' injected.
+        c.imeCommit("a中", 1)
+        assertEquals("no partial injection", 0, sink.events.size)
+        // A subsequent valid 'a' alone succeeds — proves the contract wasn't corrupted.
+        c.imeCommit("a", 1)
+        assertEquals("subsequent valid commit injects", 2, sink.events.size)
+    }
+
+    @Test fun `IME commit atomicity - final state neutral after rejected`() {
+        val (c, sink) = newContract()
+        c.imeCommit("a中b", 1)
+        // No keys/buttons should be held after the rejected commit.
+        val report = c.releaseAll(InputContract.ReleaseReason.EXPLICIT_RELEASE_INPUT)
+        assertEquals("no held keys after rejected commit", 0, report.keyCount)
+        assertEquals("no held buttons after rejected commit", 0, report.buttonCount)
     }
 
     @Test fun `stale-generation IME commit is rejected`() {

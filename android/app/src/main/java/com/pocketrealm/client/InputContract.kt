@@ -334,15 +334,22 @@ class InputContract(
 
     /**
      * Commit IME text through the contract. Maps the text to keycode+shift
-     * sequences via [ImeCharMap], applies the generation gate, and injects each
-     * character as a DOWN+UP pair through the same keyboard path as physical
-     * keys. Unsupported characters are rejected (counted in the result) and NOT
-     * substituted. The commit is ordered deterministically: characters inject in
-     * sequence within the contract lock, interleaved safely with any keyboard
-     * events.
+     * sequences via [ImeCharMap], applies the generation gate, and — only if
+     * **every** character is supported — injects the complete string in order
+     * as DOWN+UP pairs through the same keyboard path as physical keys.
+     *
+     * **Atomicity (requirement):** if any character is unsupported, the entire
+     * commit is rejected: zero characters are injected, all unsupported
+     * codepoints are reported in the result, and no keys/modifiers/buttons are
+     * left held. This prevents partial-injection corruption (e.g. committing
+     * "a中b" injects nothing, not "ab").
+     *
+     * Empty commits are no-ops. The maximum commit length is enforced before
+     * injection. Generation gating and deterministic ordering are preserved.
      *
      * @return the [ImeCharMap.ImeCommitResult] describing accepted/rejected
-     *   characters; empty if the generation was stale
+     *   characters; empty (all lists) if the generation was stale or the commit
+     *   was empty
      */
     fun imeCommit(text: String, generation: Long): ImeCharMap.ImeCommitResult {
         if (generation != activeGeneration) {
@@ -350,6 +357,10 @@ class InputContract(
             return ImeCharMap.ImeCommitResult(emptyList(), emptyList())
         }
         val result = ImeCharMap.map(text)
+        // Atomicity: if any character is unsupported, reject the entire commit.
+        // Inject zero characters; report all unsupported codepoints.
+        if (!result.allAccepted) return result
+        // All characters supported: inject the complete string in order.
         val now = android.os.SystemClock.uptimeMillis()
         synchronized(lock) {
             for (m in result.accepted) {

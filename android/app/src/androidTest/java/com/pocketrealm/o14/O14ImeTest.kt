@@ -126,11 +126,17 @@ class O14ImeTest {
         host!!.inputContract.imeDelete(2, host!!.generation)
         delay(300)
 
-        // ---- 5. Unsupported character rejection -----------------------------
+        // ---- 5. Unsupported character rejection (atomicity) -----------------
         // Commit a string with a supported char + an unsupported char (U+4E2D 中).
-        // The supported char must arrive; the unsupported one must be rejected
-        // before any partial injection.
+        // Atomicity: the ENTIRE commit is rejected — zero characters injected.
         val unsupportedResult = host!!.inputContract.imeCommit("a中b", host!!.generation)
+        delay(300)
+        // Verify: '中' reported as rejected, 'a'/'b' mapped but NOT injected.
+        assertEquals("unsupported commit: 1 rejected", 1, unsupportedResult.rejected.size)
+        assertEquals("unsupported commit: U+4E2D", 20013, unsupportedResult.rejected[0])
+        assertFalse("unsupported commit: not allAccepted", unsupportedResult.allAccepted)
+        // A later valid commit still succeeds (proves contract wasn't corrupted).
+        host!!.inputContract.imeCommit("ok", host!!.generation)
         delay(300)
 
         // ---- 6. IME open releases held input --------------------------------
@@ -227,8 +233,12 @@ class O14ImeTest {
             backspaceCount >= 2,
         )
 
-        // ---- E. Unsupported character rejected before partial injection -----
-        // 'a' and 'b' from "a中b" must appear; '中' (U+4E2D = 20013) must NOT.
+        // ---- E. Unsupported character rejected — atomic, no partial injection -
+        // Atomicity: imeCommit("a中b") injected ZERO characters. '中' (U+4E2D)
+        // must NOT appear in the CHAR stream. Critically, the 'a' from this
+        // rejected commit must also NOT appear (no partial WM_CHAR sequence).
+        // The only 'a' (code 97) in the stream should be from the baseline
+        // keyboard and from "ok" — NOT from the rejected "a中b" commit.
         assertEquals(
             "unsupported commit 'a中b' should report 1 rejected char",
             1,
@@ -239,14 +249,18 @@ class O14ImeTest {
             20013,
             unsupportedResult.rejected[0],
         )
-        assertEquals(
-            "unsupported commit should accept 2 chars (a, b)",
-            2,
-            unsupportedResult.accepted.size,
-        )
         assertFalse(
             "U+4E2D (20013) must NOT appear in CHAR stream",
             20013 in charCodepoints,
+        )
+        // The "ok" commit after the rejected one must have produced 'o' and 'k'.
+        assertTrue(
+            "valid 'ok' commit after rejected must produce 'o' (111); got $charCodepoints",
+            111 in charCodepoints, // 'o'
+        )
+        assertTrue(
+            "valid 'ok' commit after rejected must produce 'k' (107); got $charCodepoints",
+            107 in charCodepoints, // 'k'
         )
 
         // ---- F. Uppercase letters did not leave Shift held -----------------
