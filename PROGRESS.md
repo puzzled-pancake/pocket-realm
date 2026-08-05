@@ -369,7 +369,13 @@ Authoritative O12 evidence:
   `O11-Large-x86_64`, emulator-5556: API 35, x86_64, 4 KiB page, 8 GiB RAM,
   30 GiB data). Run `7304.181 s` with `7200 s` measured across 719 10-s
   samples: `effectiveTarget` stayed 25 with 0 adaptations; `botsOnline` 24..26
-  (>=20 throughout); tickCount advanced to 140011; p50 1..3 ms, p95 3..5 ms,
+  (>=20 throughout; `GetPlayerbotsAmount()` counts bots only, not bots+players;
+  the observed 26 was one bot above the configured/effective target and
+  `MaxRandomBots` value of 25; the current formal test tolerates it because the
+  per-sample assertions are `botsOnline>=20` and `effectiveBotTarget in 20..25`
+  and do not assert `botsOnline<=25`; evidence shows the overshoot was transient
+  and caused no adaptation, performance failure, population instability, or
+  acceptance failure); tickCount advanced to 140011; p50 1..3 ms, p95 3..5 ms,
   p99 4..7 ms with 0 samples >250 ms; 0 p99 violations; 0 hard-stall intervals;
   PSS 938..1253 MiB; freeMemory 5380..5736 MiB (>=768 floor); freeStorage
   7901 MiB (>=2048 floor); thermal `none` throughout. The verified O11
