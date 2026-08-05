@@ -304,6 +304,12 @@ class ClientRuntimeService : Service() {
             .put("audioOff", r.stdout.contains("POCKET_SELFTEST_AUDIO skipped"))
             .put("keyboardSeen", r.stdout.contains("POCKET_SELFTEST_KEY "))
             .put("mouseSeen", r.stdout.contains("POCKET_SELFTEST_MOUSE "))
+            .put("rightButtonSeen", r.stdout.contains("POCKET_SELFTEST_MOUSE ") &&
+                r.stdout.contains("btn=r"))
+            .put("middleButtonSeen", r.stdout.contains("POCKET_SELFTEST_MOUSE ") &&
+                r.stdout.contains("btn=m"))
+            .put("wheelSeen", r.stdout.contains("POCKET_SELFTEST_WHEEL "))
+            .put("relativeMotionSeen", r.stdout.contains("POCKET_SELFTEST_RELMOVE "))
             .put("stdoutTail", r.stdout).put("stderrTail", r.stderr).put("detail", r.detail)
     }
 
@@ -324,6 +330,12 @@ class ClientRuntimeService : Service() {
         .put("audioOff", r.stdout.contains("POCKET_SELFTEST_AUDIO skipped"))
         .put("keyboardSeen", r.stdout.contains("POCKET_SELFTEST_KEY "))
         .put("mouseSeen", r.stdout.contains("POCKET_SELFTEST_MOUSE "))
+        .put("rightButtonSeen", r.stdout.contains("POCKET_SELFTEST_MOUSE ") &&
+            r.stdout.contains("btn=r"))
+        .put("middleButtonSeen", r.stdout.contains("POCKET_SELFTEST_MOUSE ") &&
+            r.stdout.contains("btn=m"))
+        .put("wheelSeen", r.stdout.contains("POCKET_SELFTEST_WHEEL "))
+        .put("relativeMotionSeen", r.stdout.contains("POCKET_SELFTEST_RELMOVE "))
         .put("stdoutTail", r.stdout.takeLast(ClientRuntimeContract.MAX_DIAGNOSTIC_CHARS))
         .put("stderrTail", r.stderr.takeLast(ClientRuntimeContract.MAX_DIAGNOSTIC_CHARS))
 

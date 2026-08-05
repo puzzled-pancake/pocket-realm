@@ -8,7 +8,6 @@ import com.winlator.XServerDisplayActivity
 import com.winlator.widget.XServerView
 import com.winlator.xconnector.UnixSocketConfig
 import com.winlator.xconnector.XConnectorEpoll
-import com.winlator.xserver.Pointer
 import com.winlator.xserver.Atom
 import com.winlator.xserver.events.Event
 import com.winlator.xserver.ScreenInfo
@@ -30,7 +29,15 @@ class ClientDisplayHost(
     val xServer: XServer
     val view: XServerView
     private val connector: XConnectorEpoll
+    private val contract: InputContract
     private val input: ClientInputBridge
+    /**
+     * Monotonic display/client generation owned by this host instance. A fresh
+     * host (surface recreate or client relaunch) gets a new generation; the
+     * [InputContract] rejects events stamped with any other generation so a
+     * stale touch from a recycled surface cannot reach the new WoW window.
+     */
+    val generation: Long
     @Volatile private var reportedWindow = false
     @Volatile private var activeWindow: Window? = null
     @Volatile private var closeRequested = false
@@ -42,6 +49,7 @@ class ClientDisplayHost(
 
     init {
         System.loadLibrary("winlator")
+        generation = nextGeneration()
         val tmp = java.io.File(runtimeRoot, "tmp").apply { mkdirs() }
         java.io.File(tmp, ".X11-unix").mkdirs()
         xServer = XServer(XServerDisplayActivity(), ScreenInfo(1280, 720))
@@ -51,7 +59,17 @@ class ClientDisplayHost(
             isFocusableInTouchMode = true
         }
         xServer.setRenderer(view.renderer)
-        input = ClientInputBridge(xServer, view)
+        contract = InputContract(XServerInputSink(xServer))
+        // Attach with no session yet; the bridge stamps every event with this
+        // host's generation. A session id is informational only and may be set
+        // later without changing the generation (the host IS the generation).
+        contract.attach(
+            sessionId = null,
+            generation = generation,
+            newProfile = InputProfile.DEFAULT,
+            aspectIdentity = aspectIdentityFor(view),
+        )
+        input = ClientInputBridge(contract, view, generation)
         val config = UnixSocketConfig.create(tmp.absolutePath, ".X11-unix/X0")
         connector = XConnectorEpoll(config, XClientConnectionHandler(xServer), XClientRequestHandler()).apply {
             setInitialInputBufferCapacity(4096)
@@ -110,6 +128,49 @@ class ClientDisplayHost(
         return input.dispatchKey(event)
     }
     fun dispatchPointer(event: MotionEvent): Boolean = input.dispatchPointer(event)
+
+    // ---- O14 increment 1: additional pointer entry points -----------------
+    // These route through the same [InputContract] generation gate and pressed-
+    // state tracking as touch/keyboard. They preserve the verified left-button
+    // path unchanged and add right/middle/wheel/relative for O14.
+
+    /** Right-button press/release (long-press / secondary). */
+    fun dispatchRightButton(pressed: Boolean) {
+        contract.pointerButton(DEFAULT_SOURCE, InputContract.PointerButton.RIGHT, pressed, generation)
+    }
+    /** Middle-button press/release. */
+    fun dispatchMiddleButton(pressed: Boolean) {
+        contract.pointerButton(DEFAULT_SOURCE, InputContract.PointerButton.MIDDLE, pressed, generation)
+    }
+    /** Wheel pulse. Positive vTicks = down, negative = up; hTicks right/left. */
+    fun dispatchWheel(vTicks: Int, hTicks: Int = 0) {
+        contract.wheel(DEFAULT_SOURCE, vTicks, hTicks, generation)
+    }
+    /** Relative pointer motion (camera-look / captured mouse), in X pixels. */
+    fun dispatchRelativePointer(dx: Int, dy: Int) {
+        contract.pointerRelative(DEFAULT_SOURCE, dx, dy, generation)
+    }
+    /**
+     * Bounded diagnostics snapshot for tests. Returns the contract's cumulative
+     * rejected-stale-event count and the last release report.
+     */
+    fun inputDiagnostics(): InputDiagnostics = InputDiagnostics(
+        generation = generation,
+        rejectedStaleEventCount = contract.rejectedStaleEventCount,
+        lastRelease = contract.lastReport,
+        profileReset = contract.isProfileReset,
+    )
+
+    /** Exposed for instrumentation tests that need to drive the contract directly. */
+    val inputContract: InputContract get() = contract
+
+    /** Bounded input diagnostics snapshot. */
+    data class InputDiagnostics(
+        val generation: Long,
+        val rejectedStaleEventCount: Long,
+        val lastRelease: InputContract.ReleaseReport,
+        val profileReset: Boolean,
+    )
     /** Best-effort user-facing graceful close. Wine translates Alt+F4 to the
      * focused Win32 top-level window; the supervisor retains a bounded forced
      * fallback if the application presents a confirmation dialog or stalls. */
@@ -174,13 +235,13 @@ class ClientDisplayHost(
         window.getProperty(protocols)?.let { property ->
             (0 until property.data.capacity() / 4).any { property.getInt(it) == deleteWindow }
         } == true
-    fun onPause() { input.releaseAll(); view.onPause() }
+    fun onPause() { contract.releaseAll(InputContract.ReleaseReason.ON_PAUSE); view.onPause() }
     fun onResume() { view.onResume(); view.requestFocus() }
 
     override fun close() {
         closeRequested = false
         view.removeCallbacks(closeRetry)
-        input.releaseAll()
+        contract.releaseAll(InputContract.ReleaseReason.CLOSE)
         connector.destroy()
     }
 
@@ -188,61 +249,81 @@ class ClientDisplayHost(
         private const val TAG = "ClientDisplay"
         private const val CLOSE_RETRY_MS = 500L
         private const val MAX_CLOSE_ATTEMPTS = 60
+        /** Default synthetic source id for programmatic pointer/wheel injection. */
+        internal const val DEFAULT_SOURCE: Int = -1
+
+        private val generationCounter = java.util.concurrent.atomic.AtomicLong(0L)
+        private fun nextGeneration(): Long = generationCounter.incrementAndGet()
+
+        /** Derive the active aspect identity from the rendered view's transformation. */
+        private fun aspectIdentityFor(view: XServerView): String {
+            val w = view.width.coerceAtLeast(0)
+            val h = view.height.coerceAtLeast(0)
+            return if (w == 0 || h == 0) {
+                // Not laid out yet; assume the fixed 1280x720 screen aspect.
+                InputProfile.DEFAULT_ASPECT_IDENTITY
+            } else {
+                InputProfile.aspectIdentity(w, h)
+            }
+        }
     }
 }
 
-/** Maintains pressed state per Android input source and synthesizes releases. */
-internal class ClientInputBridge(private val xServer: XServer, private val view: XServerView) {
-    private val keys = mutableMapOf<Int, MutableSet<Int>>()
-    private val pointerDown = mutableSetOf<Int>()
-
+/**
+ * Android→[InputContract] adapter. Owns only the Android-view→X letterbox
+ * transform (which is view-specific) and the source id; all pressed-state and
+ * X-server injection now lives in the contract. Preserves the verified O06/O12
+ * touch + keyboard behavior exactly: same transform math, same clamp, same
+ * left-button mapping, same `keyboard.onKeyEvent(event)` forward path.
+ *
+ * Stale-generation rejection: events arrive with the host's [generation]; if the
+ * surface was recreated (new host, new contract), the contract drops them before
+ * injection. The Android `deviceId` is the per-source key, matching the prior
+ * `keys`/`pointerDown` maps. An unmatched UP is dropped by the contract without
+ * synthesizing a phantom DOWN.
+ */
+internal class ClientInputBridge(
+    private val contract: InputContract,
+    private val view: XServerView,
+    private val generation: Long,
+) {
     init {
         view.setOnKeyListener { _, _, event -> dispatchKey(event) }
         view.setOnTouchListener { _, event -> dispatchPointer(event) }
         view.onFocusChangeListener = android.view.View.OnFocusChangeListener { _, hasFocus ->
-            if (!hasFocus) releaseAll()
+            if (!hasFocus) contract.focusLost()
         }
     }
 
-    fun dispatchKey(event: KeyEvent): Boolean {
-        val source = event.deviceId
-        when (event.action) {
-            KeyEvent.ACTION_DOWN -> keys.getOrPut(source) { mutableSetOf() }.add(event.keyCode)
-            KeyEvent.ACTION_UP -> keys[source]?.remove(event.keyCode)
-        }
-        return xServer.keyboard.onKeyEvent(event)
-    }
+    fun dispatchKey(event: KeyEvent): Boolean = contract.key(event.deviceId, event, generation)
 
     fun dispatchPointer(event: MotionEvent): Boolean {
         val t = view.renderer.viewTransformation
         val aspect = if (t.aspect > 0f) t.aspect else 1f
         val x = ((event.x - t.viewOffsetX) / aspect).roundToInt().coerceIn(0, 1279)
         val y = ((event.y - t.viewOffsetY) / aspect).roundToInt().coerceIn(0, 719)
-        xServer.injectPointerMove(x, y)
-        val source = event.deviceId
+        contract.pointerAbsolute(event.deviceId, x, y, generation)
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_BUTTON_PRESS -> {
-                pointerDown += source
-                xServer.injectPointerButtonPress(Pointer.Button.BUTTON_LEFT)
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_BUTTON_RELEASE, MotionEvent.ACTION_CANCEL -> {
-                pointerDown -= source
-                xServer.injectPointerButtonRelease(Pointer.Button.BUTTON_LEFT)
-            }
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_BUTTON_PRESS ->
+                contract.pointerButton(event.deviceId, InputContract.PointerButton.LEFT, pressed = true, generation = generation)
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_BUTTON_RELEASE ->
+                contract.pointerButton(event.deviceId, InputContract.PointerButton.LEFT, pressed = false, generation = generation)
+            MotionEvent.ACTION_CANCEL ->
+                contract.pointerButton(event.deviceId, InputContract.PointerButton.LEFT, pressed = false, generation = generation)
         }
         return true
     }
 
+    /**
+     * Release a single source (hot-plug removal) or all sources. Kept for the
+     * `releaseInput(source?)` public API on the host; routes through the
+     * contract's deterministic exit path.
+     */
     fun releaseAll(source: Int? = null) {
-        val sources = if (source == null) keys.keys.toList() else listOf(source)
-        for (id in sources) {
-            for (key in keys.remove(id).orEmpty().toList()) {
-                xServer.keyboard.onKeyEvent(KeyEvent(KeyEvent.ACTION_UP, key))
-            }
-        }
-        val pointerSources = if (source == null) pointerDown.toList() else listOf(source)
-        if (pointerSources.any { pointerDown.remove(it) }) {
-            xServer.injectPointerButtonRelease(Pointer.Button.BUTTON_LEFT)
+        if (source == null) {
+            contract.releaseAll(InputContract.ReleaseReason.EXPLICIT_RELEASE_INPUT)
+        } else {
+            contract.releaseSource(source)
         }
     }
 }

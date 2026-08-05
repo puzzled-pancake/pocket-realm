@@ -113,6 +113,8 @@ class X86DirectWineRuntime(context: Context) : ClientRuntime, AutoCloseable {
         UUID.fromString(v.getString("sessionId")), ClientState.valueOf(v.getString("state")),
         v.optBoolean("cleanExit"), v.optBoolean("forced"), v.optBoolean("windowVisible"),
         v.optBoolean("focusSeen"), v.optBoolean("audioOff"), v.optBoolean("keyboardSeen"), v.optBoolean("mouseSeen"),
+        v.optBoolean("rightButtonSeen"), v.optBoolean("middleButtonSeen"),
+        v.optBoolean("wheelSeen"), v.optBoolean("relativeMotionSeen"),
         v.optString("stdoutTail"), v.optString("stderrTail"), v.optString("detail"),
     )
 

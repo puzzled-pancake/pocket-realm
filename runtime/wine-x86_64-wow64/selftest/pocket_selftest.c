@@ -9,6 +9,8 @@
  *     (exercises winex11.drv -> libX11; proves the X11/display path)
  *   - handles WM_KEYDOWN/WM_KEYUP/WM_MOUSEMOVE/WM_LBUTTONDOWN/WM_LBUTTONUP
  *     (proves the input bridge end-to-end via the X server's InputDeviceManager)
+ *     plus WM_RBUTTONDOWN/UP, WM_MBUTTONDOWN/UP, and WM_MOUSEWHEEL for O14
+ *     right/middle/wheel coverage, and reports relative pointer motion
  *   - opens + immediately closes the winmm waveOut device, then prints whether
  *     audio init succeeded, so the spike can prove the audio-OFF path by
  *     observing that init is NOT attempted when audio is disabled
@@ -17,7 +19,10 @@
  *       POCKET_SELFTEST_START pid=<windows-pid>
  *       POCKET_SELFTEST_WINDOW 1280x720
  *       POCKET_SELFTEST_KEY <vk>
- *       POCKET_SELFTEST_MOUSE x=<x> y=<y> btn=<l|r>
+ *       POCKET_SELFTEST_MOUSE x=<x> y=<y> btn=<l|r|m>
+ *       POCKET_SELFTEST_MOUSEUP x=<x> y=<y> btn=<l|r|m>
+ *       POCKET_SELFTEST_WHEEL v=<delta> h=0
+ *       POCKET_SELFTEST_RELMOVE dx=<dx> dy=<dy>
  *       POCKET_SELFTEST_AUDIO <init|skipped|err=<code>>
  *       POCKET_SELFTEST_FOCUS <gained|lost>
  *       POCKET_SELFTEST_OK
@@ -40,6 +45,14 @@ static int g_audio_ok = 0;
 static int g_painted = 0;
 static int g_interactive = 0;
 static char g_close_file[MAX_PATH * 4];
+/* O14 input observations: last absolute position (for relative delta calc) and
+ * bounded counters so the host can confirm each new input path end-to-end. */
+static int g_last_mouse_x = -1;
+static int g_last_mouse_y = -1;
+static int g_right_seen = 0;
+static int g_middle_seen = 0;
+static int g_wheel_seen = 0;
+static int g_relmove_seen = 0;
 
 static void log_line(const char *fmt, ...) {
     char buf[256];
@@ -109,14 +122,31 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_KEYUP:
             log_line("POCKET_SELFTEST_KEYUP %d", (int)wp);
             return 0;
-        case WM_MOUSEMOVE:
-            /* Cheap: only log when a button is held, to avoid log flooding. */
-            if (wp & (MK_LBUTTON | MK_RBUTTON)) {
-                log_line("POCKET_SELFTEST_MOUSE x=%d y=%d btn=%s",
-                         (int)(short)LOWORD(lp), (int)(short)HIWORD(lp),
-                         (wp & MK_LBUTTON) ? "l" : "r");
+        case WM_MOUSEMOVE: {
+            int mx = (int)(short)LOWORD(lp);
+            int my = (int)(short)HIWORD(lp);
+            /* Relative-motion observation: emit a bounded RELMOVE line when the
+             * pointer moved from the last known position, regardless of button
+             * state. This lets the O14 test prove relative-pointer injection
+             * (camera-look / captured mouse) reaches Win32 as WM_MOUSEMOVE. */
+            if (g_last_mouse_x >= 0 || g_last_mouse_y >= 0) {
+                int dx = mx - g_last_mouse_x;
+                int dy = my - g_last_mouse_y;
+                if (dx != 0 || dy != 0) {
+                    g_relmove_seen = 1;
+                    log_line("POCKET_SELFTEST_RELMOVE dx=%d dy=%d", dx, dy);
+                }
+            }
+            g_last_mouse_x = mx;
+            g_last_mouse_y = my;
+            /* Cheap: only log the absolute-MOUSE line when a button is held, to
+             * avoid log flooding (unchanged from the original behavior). */
+            if (wp & (MK_LBUTTON | MK_RBUTTON | MK_MBUTTON)) {
+                const char *btn = (wp & MK_LBUTTON) ? "l" : (wp & MK_MBUTTON) ? "m" : "r";
+                log_line("POCKET_SELFTEST_MOUSE x=%d y=%d btn=%s", mx, my, btn);
             }
             return 0;
+        }
         case WM_LBUTTONDOWN:
             log_line("POCKET_SELFTEST_MOUSE x=%d y=%d btn=l",
                      (int)(short)LOWORD(lp), (int)(short)HIWORD(lp));
@@ -125,6 +155,35 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             log_line("POCKET_SELFTEST_MOUSEUP x=%d y=%d btn=l",
                      (int)(short)LOWORD(lp), (int)(short)HIWORD(lp));
             return 0;
+        case WM_RBUTTONDOWN:
+            g_right_seen = 1;
+            log_line("POCKET_SELFTEST_MOUSE x=%d y=%d btn=r",
+                     (int)(short)LOWORD(lp), (int)(short)HIWORD(lp));
+            return 0;
+        case WM_RBUTTONUP:
+            log_line("POCKET_SELFTEST_MOUSEUP x=%d y=%d btn=r",
+                     (int)(short)LOWORD(lp), (int)(short)HIWORD(lp));
+            return 0;
+        case WM_MBUTTONDOWN:
+            g_middle_seen = 1;
+            log_line("POCKET_SELFTEST_MOUSE x=%d y=%d btn=m",
+                     (int)(short)LOWORD(lp), (int)(short)HIWORD(lp));
+            return 0;
+        case WM_MBUTTONUP:
+            log_line("POCKET_SELFTEST_MOUSEUP x=%d y=%d btn=m",
+                     (int)(short)LOWORD(lp), (int)(short)HIWORD(lp));
+            return 0;
+        case WM_MOUSEWHEEL: {
+            /* GET_WHEEL_DELTA_WPARAM: positive = up, negative = down. Report
+             * the signed delta so the O14 test can prove vertical wheel pulses
+             * reach Win32 with correct direction. Horizontal is 0 (no
+             * WM_MOUSEHWHEEL handler in this increment; winlator maps horizontal
+             * scroll-click buttons to button events, not WM_MOUSEHWHEEL). */
+            int delta = (short)HIWORD(wp);
+            g_wheel_seen = 1;
+            log_line("POCKET_SELFTEST_WHEEL v=%d h=0", delta);
+            return 0;
+        }
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC dc = BeginPaint(hwnd, &ps);
@@ -151,8 +210,15 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         case WM_TIMER:
             if (wp == 1) {
-                if (!g_interactive ||
-                    (g_close_file[0] && GetFileAttributesA(g_close_file) != INVALID_FILE_ATTRIBUTES)) {
+                /* Close when (non-interactive) auto-fire after paint, or
+                 * (interactive) the close sentinel file appears. The O14 test
+                 * uses interactive mode: it injects right/middle/wheel/relmove
+                 * while the probe stays alive, then writes the close sentinel to
+                 * end the session. The four g_*_seen counters are reported in
+                 * the final OK line regardless of this gate. */
+                int close_file_set = g_close_file[0] &&
+                    GetFileAttributesA(g_close_file) != INVALID_FILE_ATTRIBUTES;
+                if (!g_interactive || close_file_set) {
                     KillTimer(hwnd, 1);
                     log_line("POCKET_SELFTEST_CLOSE requested");
                     SendMessageA(hwnd, WM_CLOSE, 0, 0);
@@ -212,7 +278,9 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmd, int show) {
         DispatchMessageA(&msg);
     }
 
-    log_line("POCKET_SELFTEST_OK audio_attempted=%d audio_ok=%d keys_seen=%d",
-             g_audio_attempted, g_audio_ok, g_vk_last ? 1 : 0);
+    log_line("POCKET_SELFTEST_OK audio_attempted=%d audio_ok=%d keys_seen=%d "
+             "right_seen=%d middle_seen=%d wheel_seen=%d relmove_seen=%d",
+             g_audio_attempted, g_audio_ok, g_vk_last ? 1 : 0,
+             g_right_seen, g_middle_seen, g_wheel_seen, g_relmove_seen);
     return 0;
 }

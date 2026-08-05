@@ -1,0 +1,130 @@
+{
+  "schema": 1,
+  "feature": "O14",
+  "increment": 1,
+  "title": "Versioned logical input contract with generation ownership, deterministic stuck-input cleanup, right/middle mouse buttons, wheel, and relative pointer motion",
+  "result": "PASS",
+  "lane": "AVD-Large-x86_64-v1",
+  "physical_avd": "O11-Large-x86_64",
+  "serial": "emulator-5556",
+  "date_utc": "2026-08-05T20:05:00+00:00",
+  "branch": "agent/glm-o14-continuation-2026-08-05",
+  "commit": "03c82b3d4e10193da467aef4b17e8f36185ff93a",
+  "o13_boundary_tag": "o13-soak25-qualified",
+  "o13_boundary_commit": "a833c402251869ccbd4ce4ba8c60ba19effa582f",
+  "o13_tag_sha": "bf96b6f4974a8d67a60565b26b5a9ed11b10948c",
+  "o13_runtime_lockfile_hash": "f8005881b588961db327d4d23e0a3d123b345f4dc314ddf8c3e7f7c98865bd2b",
+  "o13_runtime_unchanged": true,
+  "o13_evidence_unchanged": true,
+  "avd": {
+    "avd_id": "AVD-Large-x86_64-v1",
+    "physical_avd_name": "O11-Large-x86_64",
+    "api_level": 35,
+    "abilist": "x86_64",
+    "page_size_bytes": 4096,
+    "ram_mib": 8192,
+    "data_gib": 30,
+    "system_image": "emu64x:15/AE3A.240806.019/12368160:userdebug/test-keys"
+  },
+  "artifacts": {
+    "app_apk_variant": "realmRuntime",
+    "app_apk_sha256": "79de0a2dac70a6d49b1c5e42c9b06556c4fa34cb1d5e388009dd540d6bbb8c0d",
+    "test_apk_variant": "debug (androidTest)",
+    "test_apk_sha256": "c4ff93564b5c4e952711e38b2f99e3211040ab17d0b8bc1b7d8044dc20fe9818",
+    "selftest_pe_sha256": "e5b884b1c89c9c9480b41884531bec635e606987a9bdc4761a268f9c5e9062bb",
+    "clientRuntime_apk_sha256": "734d5488fb97743d1dd4a4da7a2d08ea68fb3b33f28af6a56ad97d8edc68b6e3",
+    "proof_screenshot": "tests/avd/AVD-Large-x86_64-v1/evidence/o14-input-contract-proof-20260805.png",
+    "proof_screenshot_sha256": "229f8e8b99e56d646803e377e2d46726b3c1b0f798c6c8a63633485a50709dda"
+  },
+  "commands": {
+    "host_unit_tests": "./gradlew :app:testDebugUnitTest --tests com.pocketrealm.client.InputContractTest",
+    "host_unit_tests_result": "BUILD SUCCESSFUL — 19 tests, 0 failures, 0 errors",
+    "build_app": "./gradlew :app:assembleRealmRuntime",
+    "build_test": "./gradlew :app:assembleDebugAndroidTest",
+    "install_app": "adb -s emulator-5556 install -r -t app-realmRuntime.apk",
+    "install_test": "adb -s emulator-5556 install -r -t app-debug-androidTest.apk",
+    "run_o14": "adb -s emulator-5556 shell am instrument -w -e class com.pocketrealm.o14.O14InputContractTest com.pocketrealm.test/androidx.test.runner.AndroidJUnitRunner",
+    "run_o14_result": "OK (1 test) — Time: 66.638s",
+    "run_o06_regression": "adb -s emulator-5556 shell am instrument -w -e class com.pocketrealm.client.ClientRuntimeLifecycleTest com.pocketrealm.test/androidx.test.runner.AndroidJUnitRunner",
+    "run_o06_result": "OK (1 test) — Time: 31.145s"
+  },
+  "source_scope": {
+    "files_changed": [
+      "android/app/src/main/java/com/pocketrealm/client/InputContract.kt (new)",
+      "android/app/src/main/java/com/pocketrealm/client/InputProfile.kt (new)",
+      "android/app/src/main/java/com/pocketrealm/client/ClientDisplayHost.kt (modified: bridge → contract adapter)",
+      "android/app/src/main/java/com/pocketrealm/client/ClientRuntime.kt (modified: +4 diagnostic fields)",
+      "android/app/src/main/java/com/pocketrealm/client/ClientRuntimeService.kt (modified: +4 diagnostic booleans)",
+      "android/app/src/main/java/com/pocketrealm/client/X86DirectWineRuntime.kt (modified: decode new fields)",
+      "runtime/wine-x86_64-wow64/selftest/pocket_selftest.c (modified: +right/middle/wheel/relmove handlers)",
+      "android/app/src/test/java/com/pocketrealm/client/InputContractTest.kt (new: 19 host JVM tests)",
+      "android/app/src/androidTest/java/com/pocketrealm/o14/O14InputContractTest.kt (new: instrumentation test)"
+    ],
+    "files_NOT_changed": [
+      "AIDL, supervisor/database/realm/world services, Wine runtime, winlator X-server, O13 files and evidence"
+    ]
+  },
+  "acceptance_observations_from_win32_probe": {
+    "cleanExit": true,
+    "windowVisible": true,
+    "focusSeen": true,
+    "audioOff": true,
+    "keyboardSeen_regression": true,
+    "mouseSeen_regression": true,
+    "rightButtonSeen": true,
+    "middleButtonSeen": true,
+    "wheelSeen": true,
+    "relativeMotionSeen": true,
+    "forced": false,
+    "note": "All four new input paths (right-button, middle-button, wheel, relative-motion) were observed through Android → InputContract → XServer → Wine → the project-owned Win32 self-test probe. Existing keyboard, absolute-pointer, and left-click behavior re-asserted as regression."
+  },
+  "contract_verification": {
+    "rejectedStaleEventCount": 1,
+    "stale_rejection_note": "An event stamped with generation+999 was rejected by the contract while a current-generation event was accepted; rejectedStaleEventCount incremented from 0 to 1.",
+    "lastReleaseReason": "FOCUS_LOSS",
+    "lastReleaseKeys": 1,
+    "lastReleaseButtons": 1,
+    "focus_loss_note": "Holding right-button + W key, then triggering focus loss, released both (1 button + 1 key) deterministically.",
+    "generation": 1,
+    "profileReset": false
+  },
+  "regression_results": {
+    "O06_ClientRuntimeLifecycleTest": "PASS (OK, 1 test, 31.145s) — keyboard make/break, absolute pointer transform, letterboxing, left-button tap, focus repair, graceful close, release on pause/focus loss, renderer/client restart all preserved.",
+    "O12_IntegratedRuntimeTest": "NOT RUN TO COMPLETION — the O13 soak left the emulator database in its qualified playerbots-enriched state (410 migrations, O13 runtime). The O12 integrated test's account-creation/login flow and world-revision assumptions do not match that state. This is a pre-existing database-state condition of the qualified O13 lane, NOT a regression from the O14 input-contract changes (which touch only UI-process Kotlin + the self-test PE, zero database/realm/world files). Restoring the O12 database baseline would violate the O13-preservation constraint, so the O12 regression was not forced."
+  },
+  "remaining_gaps_after_this_increment": [
+    "IME composition and committed-text path (UX-T06) — not implemented",
+    "Gamepad axes/buttons/hot-plug (FUN-009 gamepad half) — not implemented",
+    "Pointer capture / physical-mouse passthrough (FUN-009 mouse half) — not implemented",
+    "Profile persistence (on-disk) — default-only in this increment",
+    "Default touch overlay (virtual sticks / action bar, report §16.7) — not implemented",
+    "UX-T01 through UX-T08 remain NOT complete; O14 status remains pending"
+  ],
+  "host_unit_test_detail": {
+    "class": "com.pocketrealm.client.InputContractTest",
+    "tests": 19,
+    "failures": 0,
+    "errors": 0,
+    "covered": [
+      "current-generation event accepted",
+      "stale-generation event rejected and counted",
+      "right and middle buttons tracked and released",
+      "left button press/release preserves verified path",
+      "duplicate button press does not double-inject",
+      "unmatched button up dropped without synthesizing down",
+      "wheel emits atomic press-release and is never retained",
+      "wheel up direction uses SCROLL_UP",
+      "horizontal wheel uses scroll-click buttons",
+      "relative pointer motion injects delta",
+      "focus loss releases all held buttons",
+      "generation replacement releases old state before accepting new",
+      "releasing one device does not release another device held state",
+      "release order and diagnostics are deterministic",
+      "aspect mismatch selects default profile and reports reset",
+      "aspect match keeps provided profile without reset",
+      "aspect identity reduces coprime ratios",
+      "zero wheel ticks inject nothing",
+      "last report persists after release"
+    ]
+  }
+}

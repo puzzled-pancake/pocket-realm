@@ -396,12 +396,59 @@ Authoritative O13 evidence:
 - `tests/avd/AVD-Large-x86_64-v1/evidence/o13-bot-tier-smoke-20260805.PASS.json` (bounded smoke)
 - `tests/avd/AVD-Modern-x86_64-v1/evidence/o13-bot-tier-smoke-20260805.PROVENANCE.md` (corrects the earlier smoke path's physical lane identity)
 
+### O14 increment 1 — versioned input contract, right/middle/wheel/relative (2026-08-05)
+
+A versioned `InputContract` v1 (`android/app/src/main/java/com/pocketrealm/client/InputContract.kt`)
+now owns all pressed state between Android events and the existing in-process
+winlator `XServer` injection methods. It stamps every event with the active
+display/client `generation` (one per `ClientDisplayHost` instance), rejects
+stale-generation input before injection, preserves per-source DOWN-before-UP
+ordering, drops unmatched UPs without synthesizing phantom DOWNs, and provides
+one deterministic `releaseAll` exit path (right → middle → left buttons, then
+held keys in keycode order). A default versioned `InputProfile` (v1, default
+only, no on-disk persistence) carries an aspect identity and resets to default
+on mismatch. `ClientInputBridge` is now a thin Android→contract adapter that
+preserves the verified O06/O12 letterbox transform and left-button/keyboard
+forward paths exactly.
+
+Right-button, middle-button, vertical/horizontal wheel pulses, and relative
+pointer motion are wired through the contract and the existing XServer
+primitives (`injectPointerButtonPress/Release`, `injectPointerMoveDelta`,
+`BUTTON_SCROLL_*`). The project-owned Win32 self-test PE
+(`runtime/wine-x86_64-wow64/selftest/pocket_selftest.c`) was extended with
+bounded `WM_RBUTTONDOWN/UP`, `WM_MBUTTONDOWN/UP`, `WM_MOUSEWHEEL`, and
+relative-motion (`WM_MOUSEMOVE` delta) diagnostics.
+
+Verified on `AVD-Large-x86_64-v1` (`O11-Large-x86_64`, emulator-5556): the
+instrumentation test drove each new input through Android → contract → X →
+Wine → the Win32 probe and observed `rightButtonSeen`, `middleButtonSeen`,
+`wheelSeen`, and `relativeMotionSeen` all true. Stale-generation rejection was
+confirmed (`rejectedStaleEventCount=1`). Holding right-button + a key and
+triggering focus loss released both deterministically
+(`lastReleaseReason=FOCUS_LOSS`, 1 button + 1 key). Existing keyboard,
+absolute-pointer, left-click, focus, audio-off, and clean-close behavior is
+preserved (O06 `ClientRuntimeLifecycleTest` PASS). 19 host-JVM unit tests cover
+generation gating, stale rejection, button tracking, wheel atomicity, release
+ordering, source isolation, and profile reset. O14 remains `pending`: IME,
+gamepad, pointer capture, profile persistence, and the default touch overlay are
+not implemented, and UX-T01 through UX-T08 are NOT complete. No changes to AIDL,
+supervisor/database/realm/world services, the Wine runtime, the winlator
+X-server, or any O13 file. The tagged O13 boundary (`o13-soak25-qualified` →
+`a833c40`) and the qualified runtime hash (`f8005881…`) are unchanged.
+
+Authoritative O14 increment-1 evidence:
+
+- `tests/avd/AVD-Large-x86_64-v1/evidence/o14-input-contract-increment1-20260805.PASS.json`
+- `tests/avd/AVD-Large-x86_64-v1/evidence/o14-input-contract-proof-20260805.png`
+
 ## Next action
 
-Begin O14 (G4 mobile input UX) from the O13-qualified baseline. O14 does not
-depend on bots, but the 25-bot tier is now available as a stable background
-load for any input/UX validation that wants it. 50/100-bot, AHBot, ARM64, and
-16 KiB qualification remain later gates; do not start them now.
+O14 increment 1 is verified (see above). The next O14 increment is IME
+composition/committed-text (UX-T06) or gamepad axes/buttons (FUN-009), building
+on the InputContract v1 generation/session plumbing. IME, gamepad, pointer
+capture, profile persistence, and the default touch overlay remain unimplemented;
+UX-T01 through UX-T08 are NOT complete and O14 remains `pending`. Do not start
+O15 or any later gate.
 
 ## Session note
 
