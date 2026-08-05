@@ -28,6 +28,8 @@ class ClientDisplayHost(
 ) : AutoCloseable {
     val xServer: XServer
     val view: XServerView
+    /** IME-capable wrapper around [view] for soft-keyboard embedding (O14 increment 2). */
+    val imeView: ClientImeView
     private val connector: XConnectorEpoll
     private val contract: InputContract
     private val input: ClientInputBridge
@@ -70,6 +72,13 @@ class ClientDisplayHost(
             aspectIdentity = aspectIdentityFor(view),
         )
         input = ClientInputBridge(contract, view, generation)
+        imeView = ClientImeView(
+            context = context,
+            contractProvider = { contract },
+            generationProvider = { generation },
+            onImeOpened = { contract.imeOpened(generation) },
+            onImeClosed = { contract.imeClosed(generation) },
+        )
         val config = UnixSocketConfig.create(tmp.absolutePath, ".X11-unix/X0")
         connector = XConnectorEpoll(config, XClientConnectionHandler(xServer), XClientRequestHandler()).apply {
             setInitialInputBufferCapacity(4096)
@@ -163,6 +172,34 @@ class ClientDisplayHost(
 
     /** Exposed for instrumentation tests that need to drive the contract directly. */
     val inputContract: InputContract get() = contract
+
+    // ---- O14 increment 2: IME ---------------------------------------------
+    /**
+     * Show the Android soft IME targeting the [imeView]. The IME commits text
+     * through the [InputContract]'s generation-gated `imeCommit` path.
+     */
+    fun showIme() {
+        val imm = imeView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+            as android.view.inputmethod.InputMethodManager
+        imeView.requestFocus()
+        imm.showSoftInput(imeView, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    /** Hide the soft IME if it is showing. */
+    fun hideIme() {
+        val imm = imeView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+            as android.view.inputmethod.InputMethodManager
+        imm.hideSoftInputFromWindow(imeView.windowToken, 0)
+    }
+
+    /**
+     * Commit text directly through the contract's IME path (for instrumentation
+     * tests that need to bypass the real soft keyboard but still exercise the
+     * contract's generation-gated imeCommit).
+     */
+    fun imeCommit(text: String) {
+        contract.imeCommit(text, generation)
+    }
 
     /** Bounded input diagnostics snapshot. */
     data class InputDiagnostics(

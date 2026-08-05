@@ -95,6 +95,7 @@ class InputContract(
         CLOSE,
         EXPLICIT_RELEASE_INPUT,
         DEVICE_REMOVED,
+        IME_OPENED,
     }
 
     /**
@@ -292,6 +293,103 @@ class InputContract(
     /** Focus lost; releases all held input (deterministic order). */
     fun focusLost(): ReleaseReport = releaseAll(ReleaseReason.FOCUS_LOSS)
 
+    // ---- IME (increment 2) ------------------------------------------------
+
+    /**
+     * The IME is opening. Per report §16.8, this releases held movement/gameplay
+     * keys and pointer buttons, suspends camera-capture mode, and emits a bounded
+     * [ReleaseReport]. The input is left in a neutral state; previously held
+     * keys are NOT restored on [imeClosed].
+     *
+     * @param generation the active generation; stale = no-op
+     * @return the release report for what was held, or a zero report if stale
+     */
+    fun imeOpened(generation: Long): ReleaseReport {
+        if (generation != activeGeneration) {
+            rejectedStale.incrementAndGet()
+            return ReleaseReport(ReleaseReason.IME_OPENED, emptyList(), 0, 0, rejectedStale.get())
+        }
+        imeActive = true
+        return releaseAll(ReleaseReason.IME_OPENED)
+    }
+
+    /**
+     * The IME is closing. Leaves input in a neutral state; does NOT restore
+     * previously held keys. Clears the IME-active flag.
+     *
+     * @param generation the active generation; stale = no-op
+     */
+    fun imeClosed(generation: Long) {
+        if (generation != activeGeneration) {
+            rejectedStale.incrementAndGet()
+            return
+        }
+        imeActive = false
+    }
+
+    /** True while the IME is open (movement keys released, camera suspended). */
+    val isImeActive: Boolean get() = imeActive
+
+    @Volatile private var imeActive: Boolean = false
+
+    /**
+     * Commit IME text through the contract. Maps the text to keycode+shift
+     * sequences via [ImeCharMap], applies the generation gate, and injects each
+     * character as a DOWN+UP pair through the same keyboard path as physical
+     * keys. Unsupported characters are rejected (counted in the result) and NOT
+     * substituted. The commit is ordered deterministically: characters inject in
+     * sequence within the contract lock, interleaved safely with any keyboard
+     * events.
+     *
+     * @return the [ImeCharMap.ImeCommitResult] describing accepted/rejected
+     *   characters; empty if the generation was stale
+     */
+    fun imeCommit(text: String, generation: Long): ImeCharMap.ImeCommitResult {
+        if (generation != activeGeneration) {
+            rejectedStale.incrementAndGet()
+            return ImeCharMap.ImeCommitResult(emptyList(), emptyList())
+        }
+        val result = ImeCharMap.map(text)
+        val now = android.os.SystemClock.uptimeMillis()
+        synchronized(lock) {
+            for (m in result.accepted) {
+                val (down, up) = ImeCharMap.keyEvents(m, now)
+                // Track the keycode per the IME's synthetic source id, then
+                // inject DOWN+UP through the verified keyboard path.
+                val st = sources.getOrPut(IME_SOURCE) { SourceState() }
+                // DOWN: track + inject (forward path uses the real KeyEvent).
+                st.keys.add(m.keyCode)
+                sink.inject(SinkEvent.Key(down))
+                // UP: untrack + inject.
+                st.keys.remove(m.keyCode)
+                sink.inject(SinkEvent.Key(up))
+            }
+        }
+        return result
+    }
+
+    /**
+     * Delete [count] characters via Backspace. Each deletion is a DOWN+UP pair
+     * on KEYCODE_DEL, generation-gated.
+     */
+    fun imeDelete(count: Int, generation: Long): Int {
+        if (generation != activeGeneration) {
+            rejectedStale.incrementAndGet()
+            return 0
+        }
+        val toDelete = count.coerceAtLeast(0)
+        val now = android.os.SystemClock.uptimeMillis()
+        synchronized(lock) {
+            repeat(toDelete) {
+                val down = android.view.KeyEvent(now, now, android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DEL, 0)
+                val up = android.view.KeyEvent(now, now + 1, android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_DEL, 0)
+                sink.inject(SinkEvent.Key(down))
+                sink.inject(SinkEvent.Key(up))
+            }
+        }
+        return toDelete
+    }
+
     /**
      * The single deterministic exit path. Releases every genuinely held input
      * in a fixed order so logs and counts are reproducible:
@@ -392,5 +490,8 @@ class InputContract(
         private fun sortedMutableSet(): MutableSet<Int> = java.util.TreeSet()
         private fun sortedMutableButtonSet(): MutableSet<PointerButton> =
             java.util.TreeSet(compareByDescending { it.ordinal })
+
+        /** Synthetic source id for IME-committed text injection. */
+        internal const val IME_SOURCE: Int = -2
     }
 }

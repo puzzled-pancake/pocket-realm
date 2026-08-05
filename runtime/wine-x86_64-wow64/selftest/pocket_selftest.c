@@ -53,6 +53,7 @@ static int g_right_seen = 0;
 static int g_middle_seen = 0;
 static int g_wheel_seen = 0;
 static int g_relmove_seen = 0;
+static int g_char_count = 0; /* O14 increment-2: WM_CHAR observations */
 
 static void log_line(const char *fmt, ...) {
     char buf[256];
@@ -122,6 +123,18 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_KEYUP:
             log_line("POCKET_SELFTEST_KEYUP %d", (int)wp);
             return 0;
+        case WM_CHAR: {
+            /* O14 increment-2: Wine's TranslateMessage produces WM_CHAR from
+             * X key events. This observes committed text (both physical-key and
+             * IME-committed) as the actual character codepoint, proving the
+             * full Android → InputContract → X → Wine → WM_CHAR path. Only the
+             * fixed public test phrase is expected; log the codepoint so the
+             * harness can verify exact characters without logging secrets. */
+            int ch = (int)wp;
+            g_char_count++;
+            log_line("POCKET_SELFTEST_CHAR %d", ch);
+            return 0;
+        }
         case WM_MOUSEMOVE: {
             int mx = (int)(short)LOWORD(lp);
             int my = (int)(short)HIWORD(lp);
@@ -279,8 +292,8 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmd, int show) {
     }
 
     log_line("POCKET_SELFTEST_OK audio_attempted=%d audio_ok=%d keys_seen=%d "
-             "right_seen=%d middle_seen=%d wheel_seen=%d relmove_seen=%d",
+             "right_seen=%d middle_seen=%d wheel_seen=%d relmove_seen=%d char_count=%d",
              g_audio_attempted, g_audio_ok, g_vk_last ? 1 : 0,
-             g_right_seen, g_middle_seen, g_wheel_seen, g_relmove_seen);
+             g_right_seen, g_middle_seen, g_wheel_seen, g_relmove_seen, g_char_count);
     return 0;
 }

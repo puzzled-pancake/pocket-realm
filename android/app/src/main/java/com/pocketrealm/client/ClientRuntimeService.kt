@@ -310,6 +310,8 @@ class ClientRuntimeService : Service() {
                 r.stdout.contains("btn=m"))
             .put("wheelSeen", r.stdout.contains("POCKET_SELFTEST_WHEEL "))
             .put("relativeMotionSeen", r.stdout.contains("POCKET_SELFTEST_RELMOVE "))
+            .put("charSeen", r.stdout.contains("POCKET_SELFTEST_CHAR "))
+            .put("charCount", countOccurrences(r.stdout, "POCKET_SELFTEST_CHAR "))
             .put("stdoutTail", r.stdout).put("stderrTail", r.stderr).put("detail", r.detail)
     }
 
@@ -336,6 +338,8 @@ class ClientRuntimeService : Service() {
             r.stdout.contains("btn=m"))
         .put("wheelSeen", r.stdout.contains("POCKET_SELFTEST_WHEEL "))
         .put("relativeMotionSeen", r.stdout.contains("POCKET_SELFTEST_RELMOVE "))
+        .put("charSeen", r.stdout.contains("POCKET_SELFTEST_CHAR "))
+        .put("charCount", countOccurrences(r.stdout, "POCKET_SELFTEST_CHAR "))
         .put("stdoutTail", r.stdout.takeLast(ClientRuntimeContract.MAX_DIAGNOSTIC_CHARS))
         .put("stderrTail", r.stderr.takeLast(ClientRuntimeContract.MAX_DIAGNOSTIC_CHARS))
 
@@ -343,6 +347,15 @@ class ClientRuntimeService : Service() {
         val dir = File(root, "sessions")
         val files = dir.listFiles()?.sortedByDescending { it.lastModified() }.orEmpty()
         files.drop(8).forEach { it.deleteRecursively() }
+    }
+
+    /** Count non-overlapping occurrences of [needle] in [haystack]. */
+    private fun countOccurrences(haystack: String, needle: String): Int {
+        if (needle.isEmpty()) return 0
+        var count = 0
+        var idx = haystack.indexOf(needle)
+        while (idx >= 0) { count++; idx = haystack.indexOf(needle, idx + needle.length) }
+        return count
     }
 
     private inline fun guarded(input: String, block: () -> JSONObject): String {

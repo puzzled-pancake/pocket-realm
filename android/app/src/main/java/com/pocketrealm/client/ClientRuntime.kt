@@ -57,6 +57,8 @@ data class ClientDiagnostics(
     val middleButtonSeen: Boolean = false,
     val wheelSeen: Boolean = false,
     val relativeMotionSeen: Boolean = false,
+    val charSeen: Boolean = false,
+    val charCount: Int = 0,
     val stdoutTail: String,
     val stderrTail: String,
     val detail: String,

@@ -226,4 +226,106 @@ class InputContractTest {
             events.add(event)
         }
     }
+
+    // ---- IME extension tests (increment 2) --------------------------------
+
+    @Test fun `IME opening releases held keyboard and pointer state`() {
+        val (c, sink) = newContract()
+        c.pointerButton(0, InputContract.PointerButton.RIGHT, pressed = true, generation = 1)
+        // Simulate a held keyboard key via the contract's key path (stub KeyEvent).
+        val downEvent = android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_W)
+        c.key(0, downEvent, 1)
+        val report = c.imeOpened(1)
+        assertEquals(InputContract.ReleaseReason.IME_OPENED, report.reason)
+        assertTrue("IME open should release held key", report.keyCount >= 1)
+        assertTrue("IME open should release held button", report.buttonCount >= 1)
+        assertTrue("IME should be active", c.isImeActive)
+    }
+
+    @Test fun `IME closing leaves neutral state and does not restore keys`() {
+        val (c, _) = newContract()
+        c.pointerButton(0, InputContract.PointerButton.LEFT, pressed = true, generation = 1)
+        c.imeOpened(1) // releases the button
+        c.imeClosed(1)
+        assertFalse("IME should be inactive after close", c.isImeActive)
+        // After close, a releaseAll shows nothing held (neutral state).
+        val report = c.releaseAll(InputContract.ReleaseReason.EXPLICIT_RELEASE_INPUT)
+        assertEquals(0, report.buttonCount)
+        assertEquals(0, report.keyCount)
+    }
+
+    @Test fun `IME commit injects accepted characters in order`() {
+        val (c, sink) = newContract()
+        val result = c.imeCommit("ab", 1)
+        assertTrue(result.allAccepted)
+        assertEquals(2, result.accepted.size)
+        // Each character = DOWN + UP = 2 Key events; total 4.
+        val keyEvents = sink.events.filterIsInstance<SinkEvent.Key>()
+        assertEquals(4, keyEvents.size)
+    }
+
+    @Test fun `IME commit rejects unsupported characters without partial injection`() {
+        val (c, sink) = newContract()
+        val result = c.imeCommit("a中b", 1)
+        // 'a' and 'b' accepted; '中' rejected.
+        assertEquals(2, result.accepted.size)
+        assertEquals(1, result.rejected.size)
+        assertEquals('中'.code, result.rejected[0])
+        // Only the 2 accepted characters' 4 key events should be injected.
+        val keyEvents = sink.events.filterIsInstance<SinkEvent.Key>()
+        assertEquals(4, keyEvents.size)
+    }
+
+    @Test fun `stale-generation IME commit is rejected`() {
+        val (c, sink) = newContract(gen = 1)
+        val result = c.imeCommit("abc", generation = 99)
+        assertEquals(0, result.accepted.size)
+        assertTrue(sink.events.isEmpty())
+        assertTrue(c.rejectedStaleEventCount >= 1)
+    }
+
+    @Test fun `stale-generation IME open is rejected and does not release`() {
+        val (c, _) = newContract(gen = 1)
+        c.pointerButton(0, InputContract.PointerButton.LEFT, pressed = true, generation = 1)
+        val report = c.imeOpened(generation = 99)
+        assertEquals(0, report.buttonCount) // stale = no release
+        assertFalse("IME should not activate on stale generation", c.isImeActive)
+        assertTrue(c.rejectedStaleEventCount >= 1)
+    }
+
+    @Test fun `empty IME commit is a no-op`() {
+        val (c, sink) = newContract()
+        val result = c.imeCommit("", 1)
+        assertTrue(result.allAccepted)
+        assertEquals(0, result.accepted.size)
+        assertTrue(sink.events.isEmpty())
+    }
+
+    @Test fun `IME delete injects backspace pairs`() {
+        val (c, sink) = newContract()
+        val deleted = c.imeDelete(3, 1)
+        assertEquals(3, deleted)
+        val keyEvents = sink.events.filterIsInstance<SinkEvent.Key>()
+        // 3 deletions * (DOWN + UP) = 6 events.
+        assertEquals(6, keyEvents.size)
+    }
+
+    @Test fun `IME commit ordering is deterministic with keyboard events`() {
+        val (c, sink) = newContract()
+        // Inject a keyboard key, then commit IME text, then another key.
+        c.key(0, android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_A), 1)
+        c.imeCommit("b", 1)
+        c.key(0, android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_A), 1)
+        // The order must be: A-DOWN, b-DOWN, b-UP, A-UP — deterministic.
+        val keys = sink.events.filterIsInstance<SinkEvent.Key>()
+        assertEquals(4, keys.size)
+    }
+
+    @Test fun `IME commit within max length succeeds`() {
+        val (c, _) = newContract()
+        val text = "a".repeat(ImeCharMap.MAX_COMMIT_LENGTH)
+        val result = c.imeCommit(text, 1)
+        assertEquals(ImeCharMap.MAX_COMMIT_LENGTH, result.accepted.size)
+    }
 }
+
