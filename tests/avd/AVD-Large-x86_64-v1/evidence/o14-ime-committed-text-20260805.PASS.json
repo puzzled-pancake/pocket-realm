@@ -47,7 +47,7 @@
     "space": "1 char",
     "punctuation_unshifted": "- = [ ] \\ ; ' , . / `",
     "punctuation_shifted": "! @ # $ % ^ & * ( ) _ + { } | : \" < > ? ~",
-    "total_supported": 87,
+    "total_supported": 95,
     "unsupported_examples": "accented letters (à â ñ é), CJK (中文), emoji (😀) — rejected visibly, not substituted",
     "max_commit_length": 256,
     "policy": "Each supported character maps to an Android keycode + shift state that the existing Keyboard.onKeyEvent path translates through the X keysym table to Wine WM_CHAR. Unsupported characters are rejected with their codepoints reported; no silent substitution."
