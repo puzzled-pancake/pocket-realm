@@ -1,10 +1,13 @@
 package com.pocketrealm.importer
 
 import android.net.Uri
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.pocketrealm.BuildConfig
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
+import org.junit.Assume.assumeTrue
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -18,12 +21,21 @@ import java.io.File
  * fsynced, and atomically published the app-private generation. This avoids
  * retaining two 5-GiB source copies while DBC/maps/vmaps/mmaps are extracted on
  * the bounded large AVD; production UI imports continue to use the normal,
- * more-conservative storage planner.
+ * more-conservative storage planner. The destructive bridge is skipped unless
+ * it is run against `realmRuntime` with `-e o11HostPrepare true`.
  */
 @RunWith(AndroidJUnit4::class)
 class O11HostClientPreparationTest {
     @Test
     fun importHostStagingAndPrepareNormalData() = runBlocking {
+        assumeTrue(
+            "explicit -e o11HostPrepare true opt-in is required",
+            InstrumentationRegistry.getArguments().getString("o11HostPrepare") == "true",
+        )
+        assumeTrue(
+            "host-client preparation is restricted to realmRuntime",
+            BuildConfig.BUILD_TYPE == "realmRuntime",
+        )
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val hostRoot = File(context.getExternalFilesDir(null), "wow")
         assertTrue("debug host staging root is absent", File(hostRoot, "WoW.exe").isFile)
