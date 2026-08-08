@@ -294,7 +294,7 @@ class O14ImeTest {
         val evidence = JSONObject()
             .put("schema", 1)
             .put("test", "O14ImeTest")
-            .put("commit", "52863fc")
+            .put("commit", "see checked-in evidence")
             .put("showImeRequested", true)
             .put("charSeen", d.charSeen)
             .put("charCount", d.charCount)

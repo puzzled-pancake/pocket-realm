@@ -310,7 +310,7 @@ class O14InputContractRelaunchTest {
         val evidence = JSONObject()
             .put("schema", 1)
             .put("test", "O14InputContractRelaunchTest")
-            .put("commit", "40bdcb3")
+            .put("commit", "see checked-in evidence")
             .put("startedUtc", java.time.Instant.now().toString())
             .put("generationN", generationN)
             .put("generationN1", generationN1)
