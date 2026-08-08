@@ -15,6 +15,7 @@
   "android_test_apk_sha256": "b36ae3f72b6c7a0ae4e4e9265a066560376cbcc06dca356759da1d7ad77949a2",
   "phrase": "Pocket Realm 123!?,.-_",
   "phraseOccurrences": 1,
+  "showImeRequested": true,
   "charCount": 29,
   "enterSeen": true,
   "backspaceCharCount": 2,
