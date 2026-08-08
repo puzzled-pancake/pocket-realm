@@ -444,6 +444,9 @@ Authoritative O14 increment-1 evidence:
 - `tests/avd/AVD-Large-x86_64-v1/evidence/o14-input-contract-increment1-20260805.PASS.json`
 - `tests/avd/AVD-Large-x86_64-v1/evidence/o14-input-contract-proof-20260805.png`
 - `tests/avd/AVD-Large-x86_64-v1/evidence/o14-profile-persistence-20260808.PASS.json`
+- `tests/avd/AVD-Large-x86_64-v1/evidence/o14-input-contract-20260808.PASS.json`
+- `tests/avd/AVD-Large-x86_64-v1/evidence/o14-relaunch-20260808.PASS.json`
+- `tests/avd/AVD-Large-x86_64-v1/evidence/o14-ime-20260808.PASS.json`
 
 ### O14 increment 2 — gamepad, pointer capture, persisted profile, and touch overlay (implementation complete; device proof open)
 
@@ -461,12 +464,13 @@ touch-only FUN-008/FUN-009 evidence remain open.
 ## Next action
 
 O14 implementation increments 1 and 2 are complete in source and host tests.
-The remaining work is a fresh device run through the production container:
-exercise the real IME/InputConnection, touch-only UX-T01–T08, gamepad
-hot-plug, physical mouse pointer capture, profile persistence across relaunch,
-orientation/resume, and safe overlay hide/show. UX-T01 through UX-T08 are NOT
-complete and O14 remains `pending` until those artifacts exist. Do not start O15
-or any later gate.
+Fresh clientRuntime evidence now passes the attached IME InputConnection path,
+input-contract mapping, generation replacement, and profile save/load/aspect
+reset. The remaining device run must cover physical gamepad hot-plug, mouse
+pointer capture, overlay hide/show, orientation/resume, and the complete
+touch-only UX-T01–T08 sequence. UX-T01 through UX-T08 are NOT complete and O14
+remains `pending` until those artifacts exist. Do not start O15 or any later
+gate.
 
 ## Session note
 

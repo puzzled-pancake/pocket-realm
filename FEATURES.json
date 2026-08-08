@@ -375,9 +375,12 @@
       "evidence": [
         "tests/avd/AVD-Large-x86_64-v1/evidence/o14-input-contract-increment1-20260805.PASS.json",
         "tests/avd/AVD-Large-x86_64-v1/evidence/o14-input-relaunch-generations-20260805.PASS.json",
+        "tests/avd/AVD-Large-x86_64-v1/evidence/o14-input-contract-20260808.PASS.json",
+        "tests/avd/AVD-Large-x86_64-v1/evidence/o14-relaunch-20260808.PASS.json",
+        "tests/avd/AVD-Large-x86_64-v1/evidence/o14-ime-20260808.PASS.json",
         "tests/avd/AVD-Large-x86_64-v1/evidence/o14-profile-persistence-20260808.PASS.json"
       ],
-      "evidence_status": "The prior IME PASS artifact is superseded: it bypassed the production InputConnection and predates the attached-container, editor-action, rejection-feedback, and IME-active pointer-suppression fixes. The current implementation also includes persisted versioned input profiles, gamepad dead-zone/WASD and camera-axis translation, pointer capture, and a hideable touch overlay with movement/action/chat controls. Regenerate on-device evidence for the production InputConnection, gamepad hot-plug, pointer capture, overlay, profile persistence, and UX-T01-T08 before changing O14 to done.",
+      "evidence_status": "Fresh 2026-08-08 clientRuntime evidence now covers the attached ClientImeView InputConnection path, contract mapping, and generation relaunch; profile save/load and aspect reset also pass on-device. The previous IME PASS artifact is superseded. Remaining device evidence is physical gamepad hot-plug, pointer capture, overlay hide/show, and the full touch-only UX-T01-T08 sequence; do not mark O14 done until those are captured.",
       "reference": "Report sections 16.5-16.10 and 25.2 FUN-008/FUN-009"
     },
     {
