@@ -1,6 +1,7 @@
 package com.pocketrealm.client
 
 import android.content.Context
+import android.hardware.input.InputManager
 import android.os.Build
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -41,6 +42,12 @@ class ClientDisplayHost(
      */
     val container: FrameLayout
     private val connector: XConnectorEpoll
+    private val inputManager = context.getSystemService(Context.INPUT_SERVICE) as InputManager
+    private val inputDeviceListener = object : InputManager.InputDeviceListener {
+        override fun onInputDeviceAdded(deviceId: Int) = Unit
+        override fun onInputDeviceChanged(deviceId: Int) = Unit
+        override fun onInputDeviceRemoved(deviceId: Int) { releaseInput(deviceId) }
+    }
     private val contract: InputContract
     private val input: ClientInputBridge
     private val profileStore = InputProfileStore(context)
@@ -84,7 +91,8 @@ class ClientDisplayHost(
             aspectIdentity = aspectIdentityFor(view),
         )
         profileStore.save(contract.activeProfile)
-        input = ClientInputBridge(contract, view, generation)
+        input = ClientInputBridge(contract, view, generation, ::ensureKeyboardFocus)
+        inputManager.registerInputDeviceListener(inputDeviceListener, null)
         view.addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
             val width = right - left
             val height = bottom - top
@@ -148,7 +156,7 @@ class ClientDisplayHost(
     fun awaitRendererReady(timeoutMs: Long): Boolean =
         view.renderer.awaitSurfaceReady(timeoutMs, TimeUnit.MILLISECONDS)
 
-    fun dispatchKey(event: KeyEvent): Boolean {
+    private fun ensureKeyboardFocus() {
         // DesktopHelper owns normal application focus on map and pointer
         // press. Preserve it; the deepest composited D3D child often selects
         // no keyboard events. Only repair focus when no usable target exists.
@@ -169,8 +177,8 @@ class ClientDisplayHost(
         target?.let { window ->
             xServer.windowManager.setFocus(window, WindowManager.FocusRevertTo.POINTER_ROOT)
         }
-        return input.dispatchKey(event)
     }
+    fun dispatchKey(event: KeyEvent): Boolean = input.dispatchKey(event)
     fun dispatchPointer(event: MotionEvent): Boolean = input.dispatchPointer(event)
     fun dispatchGamepad(event: MotionEvent): Boolean = input.dispatchGamepad(event)
 
@@ -187,7 +195,10 @@ class ClientDisplayHost(
         } else {
             view.releasePointerCapture()
         }
-        return view.hasPointerCapture()
+        // requestPointerCapture() is asynchronous. Returning the requested
+        // state lets the UI acknowledge the mode change immediately; callers
+        // that need proof use [isPointerCaptured] after Android's callback.
+        return enabled
     }
 
     val isPointerCaptured: Boolean
@@ -233,6 +244,8 @@ class ClientDisplayHost(
         generation = generation,
         rejectedStaleEventCount = contract.rejectedStaleEventCount,
         lastRelease = contract.lastReport,
+        releasedKeyCount = contract.releasedKeyCount,
+        releasedButtonCount = contract.releasedButtonCount,
         profileReset = contract.isProfileReset,
     )
 
@@ -274,6 +287,8 @@ class ClientDisplayHost(
         val generation: Long,
         val rejectedStaleEventCount: Long,
         val lastRelease: InputContract.ReleaseReport,
+        val releasedKeyCount: Long,
+        val releasedButtonCount: Long,
         val profileReset: Boolean,
     )
     /** Best-effort user-facing graceful close. Wine translates Alt+F4 to the
@@ -352,6 +367,7 @@ class ClientDisplayHost(
         view.removeCallbacks(closeRetry)
         setPointerCapture(false)
         contract.releaseAll(InputContract.ReleaseReason.CLOSE)
+        inputManager.unregisterInputDeviceListener(inputDeviceListener)
         connector.destroy()
     }
 
@@ -398,10 +414,12 @@ internal class ClientInputBridge(
     private val contract: InputContract,
     private val view: XServerView,
     private val generation: Long,
+    private val ensureKeyboardFocus: () -> Unit,
 ) {
     init {
         view.setOnKeyListener { _, _, event -> dispatchKey(event) }
         view.setOnTouchListener { _, event -> dispatchPointer(event) }
+        view.setOnGenericMotionListener { _, event -> dispatchGenericMotion(event) }
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             view.setOnCapturedPointerListener { _, event -> dispatchCapturedPointer(event) }
         }
@@ -410,13 +428,16 @@ internal class ClientInputBridge(
         }
     }
 
-    fun dispatchKey(event: KeyEvent): Boolean = if (
-        event.isFromSource(android.view.InputDevice.SOURCE_GAMEPAD) ||
-        event.isFromSource(android.view.InputDevice.SOURCE_JOYSTICK)
-    ) {
-        contract.gamepadButton(event.deviceId, event.keyCode, event.action == KeyEvent.ACTION_DOWN, generation)
-    } else {
-        contract.key(event.deviceId, event, generation)
+    fun dispatchKey(event: KeyEvent): Boolean {
+        ensureKeyboardFocus()
+        return if (
+            event.isFromSource(android.view.InputDevice.SOURCE_GAMEPAD) ||
+            event.isFromSource(android.view.InputDevice.SOURCE_JOYSTICK)
+        ) {
+            contract.gamepadButton(event.deviceId, event.keyCode, event.action == KeyEvent.ACTION_DOWN, generation)
+        } else {
+            contract.key(event.deviceId, event, generation)
+        }
     }
 
     fun dispatchPointer(event: MotionEvent): Boolean {
@@ -429,19 +450,46 @@ internal class ClientInputBridge(
         val y = ((event.y - t.viewOffsetY) / aspect).roundToInt().coerceIn(0, 719)
         contract.pointerAbsolute(event.deviceId, x, y, generation)
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_BUTTON_PRESS ->
+            MotionEvent.ACTION_DOWN ->
                 contract.pointerButton(event.deviceId, InputContract.PointerButton.LEFT, pressed = true, generation = generation)
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_BUTTON_RELEASE ->
+            MotionEvent.ACTION_UP ->
                 contract.pointerButton(event.deviceId, InputContract.PointerButton.LEFT, pressed = false, generation = generation)
-            MotionEvent.ACTION_CANCEL ->
-                contract.pointerButton(event.deviceId, InputContract.PointerButton.LEFT, pressed = false, generation = generation)
+            MotionEvent.ACTION_BUTTON_PRESS -> dispatchMouseButton(event, pressed = true)
+            MotionEvent.ACTION_BUTTON_RELEASE -> dispatchMouseButton(event, pressed = false)
+            MotionEvent.ACTION_CANCEL -> contract.releaseSource(
+                event.deviceId, InputContract.ReleaseReason.EXPLICIT_RELEASE_INPUT,
+            )
         }
         return true
+    }
+
+    private fun dispatchGenericMotion(event: MotionEvent): Boolean {
+        if (event.isFromSource(android.view.InputDevice.SOURCE_JOYSTICK)) {
+            return dispatchGamepad(event)
+        }
+        if (!event.isFromSource(android.view.InputDevice.SOURCE_MOUSE)) return false
+        return when (event.actionMasked) {
+            MotionEvent.ACTION_SCROLL -> {
+                dispatchMouseWheel(event)
+                true
+            }
+            MotionEvent.ACTION_BUTTON_PRESS, MotionEvent.ACTION_BUTTON_RELEASE -> {
+                // Preserve absolute pointer location, then route the actual
+                // primary/secondary/tertiary button rather than treating every
+                // physical mouse button as a left click.
+                dispatchPointer(event)
+            }
+            MotionEvent.ACTION_HOVER_MOVE, MotionEvent.ACTION_MOVE -> {
+                dispatchPointer(event)
+            }
+            else -> false
+        }
     }
 
     fun dispatchGamepad(event: MotionEvent): Boolean {
         if (!event.isFromSource(android.view.InputDevice.SOURCE_JOYSTICK)) return false
         if (event.actionMasked != MotionEvent.ACTION_MOVE) return true
+        ensureKeyboardFocus()
         val source = event.deviceId
         contract.gamepadAxis(source, InputContract.GamepadAxis.LEFT_X,
             event.getAxisValue(MotionEvent.AXIS_X), generation)
@@ -456,13 +504,50 @@ internal class ClientInputBridge(
 
     private fun dispatchCapturedPointer(event: MotionEvent): Boolean {
         if (!event.isFromSource(android.view.InputDevice.SOURCE_MOUSE)) return false
+        if (event.actionMasked == MotionEvent.ACTION_SCROLL) {
+            dispatchMouseWheel(event)
+            return true
+        }
+        if (event.actionMasked == MotionEvent.ACTION_BUTTON_PRESS ||
+            event.actionMasked == MotionEvent.ACTION_BUTTON_RELEASE) {
+            dispatchMouseButton(event, event.actionMasked == MotionEvent.ACTION_BUTTON_PRESS)
+            return true
+        }
         val dx = event.getAxisValue(MotionEvent.AXIS_RELATIVE_X).roundToInt()
         val dy = event.getAxisValue(MotionEvent.AXIS_RELATIVE_Y).roundToInt()
         if (dx != 0 || dy != 0) contract.pointerRelative(event.deviceId, dx, dy, generation)
         return true
     }
 
+    private fun dispatchMouseButton(event: MotionEvent, pressed: Boolean) {
+        // Real Android button events expose actionButton. Some instrumentation
+        // event factories expose only buttonState, so accept that as a press
+        // fallback without changing real-device behavior.
+        val actionButton = event.actionButton.takeIf { it != 0 } ?: event.buttonState
+        val button = when {
+            actionButton and MotionEvent.BUTTON_PRIMARY != 0 -> InputContract.PointerButton.LEFT
+            actionButton and MotionEvent.BUTTON_SECONDARY != 0 -> InputContract.PointerButton.RIGHT
+            actionButton and MotionEvent.BUTTON_TERTIARY != 0 -> InputContract.PointerButton.MIDDLE
+            else -> return
+        }
+        contract.pointerButton(event.deviceId, button, pressed, generation)
+    }
+
+    private fun dispatchMouseWheel(event: MotionEvent) {
+        val vertical = axisTicks(event.getAxisValue(MotionEvent.AXIS_VSCROLL), invert = true)
+        val horizontal = axisTicks(event.getAxisValue(MotionEvent.AXIS_HSCROLL), invert = false)
+        contract.wheel(event.deviceId, vertical, horizontal, generation)
+    }
+
+    private fun axisTicks(value: Float, invert: Boolean): Int {
+        if (value == 0f) return 0
+        val magnitude = kotlin.math.ceil(kotlin.math.abs(value).toDouble()).toInt()
+        val signed = if (value > 0f) magnitude else -magnitude
+        return if (invert) -signed else signed
+    }
+
     fun dispatchVirtualKey(keyCode: Int, pressed: Boolean, source: Int): Boolean {
+        ensureKeyboardFocus()
         val now = android.os.SystemClock.uptimeMillis()
         val event = KeyEvent(now, now, if (pressed) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP, keyCode, 0)
         return contract.key(source, event, generation)

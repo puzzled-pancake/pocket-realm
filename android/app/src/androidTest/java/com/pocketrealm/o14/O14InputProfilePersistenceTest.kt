@@ -5,6 +5,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.pocketrealm.client.InputProfile
 import com.pocketrealm.client.InputProfileStore
+import com.pocketrealm.storage.Settings
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -34,6 +37,21 @@ class O14InputProfilePersistenceTest {
             val edit = prefs.edit()
             if (original == null) edit.remove("profile_v2") else edit.putString("profile_v2", original)
             edit.commit()
+        }
+    }
+
+    @Test
+    fun inputSafeModePersistsWithoutTouchingRuntimeGenerations() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val settings = Settings(context)
+        val original = settings.flow.first()
+        try {
+            settings.update { it.copy(inputSafeMode = true) }
+            assertTrue(Settings(context).flow.first().inputSafeMode)
+            settings.update { it.copy(inputSafeMode = false) }
+            assertFalse(Settings(context).flow.first().inputSafeMode)
+        } finally {
+            settings.update { original }
         }
     }
 }

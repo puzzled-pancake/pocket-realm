@@ -23,6 +23,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pocketrealm.storage.Settings
@@ -93,6 +94,23 @@ fun SettingsScreen(contentPadding: PaddingValues = PaddingValues()) {
                 valueRange = 100f..1500f,
             )
             Text("Hundreds of total bots on RP6; not a fixed visible capacity.",
+                style = MaterialTheme.typography.bodySmall)
+        }
+
+        HorizontalDivider()
+        SettingCard("Input safe mode") {
+            androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = snap.inputSafeMode,
+                    onCheckedChange = { enabled ->
+                        scope.launch { settings.update { it.copy(inputSafeMode = enabled) } }
+                    },
+                    modifier = Modifier.testTag("input-safe-mode"),
+                )
+                Text("  Disable project addons and the touch overlay",
+                    style = MaterialTheme.typography.bodyMedium)
+            }
+            Text("Realm and character data are not changed.",
                 style = MaterialTheme.typography.bodySmall)
         }
 

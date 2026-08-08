@@ -104,28 +104,32 @@ class O14ImeTest {
         injectKeyboardAndPointer(host!!)
         delay(300)
 
-        // Exercise the production affordance/IMM request before obtaining the
-        // connection. The test still retains the direct connection handle so
-        // the committed sequence is deterministic across emulator keyboards.
-        instrumentation.runOnMainSync { host!!.showIme() }
-        delay(300)
-
-        // Hold gameplay input after the first IMM request; obtaining the
-        // connection below must release it through the same IME-open path.
+        // Hold gameplay input first, then exercise the production
+        // affordance/IMM request. The real onCreateInputConnection callback
+        // must release both before any text is accepted.
+        val releasedBeforeIme = host!!.inputDiagnostics()
         instrumentation.runOnMainSync {
             host!!.dispatchKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_W))
             host!!.dispatchRightButton(pressed = true)
+            host!!.showIme()
         }
+        withTimeout(5_000) {
+            while (!host!!.inputContract.isImeActive) delay(25)
+        }
+        val releasedAfterIme = host!!.inputDiagnostics()
+        assertTrue("IME open should release held key",
+            releasedAfterIme.releasedKeyCount > releasedBeforeIme.releasedKeyCount)
+        assertTrue("IME open should release held button",
+            releasedAfterIme.releasedButtonCount > releasedBeforeIme.releasedButtonCount)
 
+        // Retain a direct handle to the same production InputConnection so the
+        // committed sequence is deterministic across emulator keyboards.
         lateinit var imeConnection: InputConnection
         instrumentation.runOnMainSync {
             val editorInfo = EditorInfo()
             imeConnection = host!!.imeView.onCreateInputConnection(editorInfo)
             assertEquals(EditorInfo.IME_ACTION_DONE, editorInfo.actionId)
         }
-        val releaseReport = host!!.inputDiagnostics().lastRelease
-        assertTrue("IME open should release held key", releaseReport.keyCount >= 1)
-        assertTrue("IME open should release held button", releaseReport.buttonCount >= 1)
 
         // ---- 2. IME commit the fixed test phrase ----------------------------
         // This is the ONLY committed text that should produce WM_CHAR for the
@@ -314,8 +318,10 @@ class O14ImeTest {
             .put("keyboardSeen", d.keyboardSeen)
             .put("mouseSeen", d.mouseSeen)
             .put("cleanExit", d.cleanExit)
-            .put("releaseKeyCount_imeOpen", releaseReport.keyCount)
-            .put("releaseButtonCount_imeOpen", releaseReport.buttonCount)
+            .put("releaseKeyCount_imeOpen",
+                releasedAfterIme.releasedKeyCount - releasedBeforeIme.releasedKeyCount)
+            .put("releaseButtonCount_imeOpen",
+                releasedAfterIme.releasedButtonCount - releasedBeforeIme.releasedButtonCount)
             .put("staleRejected", staleAfter - staleBefore)
             .put("stdoutTail", stdout.takeLast(4000))
         File(outDir, "O14_IME_EVIDENCE.json").writeText(evidence.toString(2))

@@ -32,6 +32,7 @@ class Settings(private val context: Context) {
         val botPopulationTarget: Int = 400,
         val setupComplete: Boolean = false,
         val lastActiveGeneration: Int = 0,
+        val inputSafeMode: Boolean = false,
     )
 
     val flow: Flow<Snapshot> = store.data.map { it.toSnapshot() }
@@ -46,6 +47,7 @@ class Settings(private val context: Context) {
             prefs[Keys.BOTS] = next.botPopulationTarget
             prefs[Keys.SETUP_DONE] = if (next.setupComplete) 1 else 0
             prefs[Keys.GENERATION] = next.lastActiveGeneration
+            prefs[Keys.INPUT_SAFE_MODE] = if (next.inputSafeMode) 1 else 0
         }
     }
 
@@ -56,6 +58,7 @@ class Settings(private val context: Context) {
         val BOTS = intPreferencesKey("bot_population_target")
         val SETUP_DONE = intPreferencesKey("setup_complete")
         val GENERATION = intPreferencesKey("last_active_generation")
+        val INPUT_SAFE_MODE = intPreferencesKey("input_safe_mode")
     }
 
     private fun Preferences.toSnapshot() = Snapshot(
@@ -65,5 +68,6 @@ class Settings(private val context: Context) {
         botPopulationTarget = this[Keys.BOTS] ?: 400,
         setupComplete = (this[Keys.SETUP_DONE] ?: 0) == 1,
         lastActiveGeneration = this[Keys.GENERATION] ?: 0,
+        inputSafeMode = (this[Keys.INPUT_SAFE_MODE] ?: 0) == 1,
     )
 }

@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,6 +48,7 @@ import com.pocketrealm.client.LaunchRequest
 import com.pocketrealm.client.PrefixRequest
 import com.pocketrealm.client.X86DirectWineRuntime
 import com.pocketrealm.importer.ImportWorkerService
+import com.pocketrealm.storage.Settings
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -60,6 +62,8 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val runtime = remember { X86DirectWineRuntime(context) }
+    val settings = remember(context) { Settings(context) }
+    val settingsSnapshot by settings.flow.collectAsState(initial = Settings.Snapshot())
     var host by remember { mutableStateOf<ClientDisplayHost?>(null) }
     var sessionId by remember { mutableStateOf<UUID?>(null) }
     var state by remember { mutableStateOf<ClientState?>(null) }
@@ -196,7 +200,7 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
                 key(current.generation) {
                     AndroidView(factory = { current.container }, modifier = Modifier.fillMaxSize())
                 }
-                TouchOverlay(current)
+                if (!settingsSnapshot.inputSafeMode) TouchOverlay(current)
             } ?: Text("The Windows surface is created before launch", color = Color.White, modifier = Modifier.padding(16.dp))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

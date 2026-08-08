@@ -129,6 +129,8 @@ class InputContract(
     @Volatile private var profileReset: Boolean = false
 
     private val rejectedStale = AtomicLong(0L)
+    private val releasedKeys = AtomicLong(0L)
+    private val releasedButtons = AtomicLong(0L)
     private val reportRef = AtomicReference(ReleaseReport(ReleaseReason.EXPLICIT_RELEASE_INPUT, emptyList(), 0, 0, 0L))
 
     // Single mutex guards all pressed-state mutation + injection so release
@@ -210,6 +212,9 @@ class InputContract(
 
     /** Cumulative count of events rejected for stale-generation or out-of-order. */
     val rejectedStaleEventCount: Long get() = rejectedStale.get()
+    /** Cumulative release counts retained for bounded lifecycle diagnostics. */
+    val releasedKeyCount: Long get() = releasedKeys.get()
+    val releasedButtonCount: Long get() = releasedButtons.get()
 
     // ---- pointer ----------------------------------------------------------
 
@@ -497,6 +502,8 @@ class InputContract(
             for (b in buttons) sink.inject(SinkEvent.PointerButton(b.toSink(), pressed = false))
             val keys = st.keys.toList().sorted()
             for (k in keys) injectAndroidKey(k, pressed = false)
+            releasedKeys.addAndGet(keys.size.toLong())
+            releasedButtons.addAndGet(buttons.size.toLong())
             ReleaseReport(reason, listOf(src), keys.size, buttons.size, rejectedStale.get())
                 .also { reportRef.set(it) }
         }
@@ -517,6 +524,8 @@ class InputContract(
             totalKeys += keys.size
         }
         val report = ReleaseReport(reason, all.keys.toList().sorted(), totalKeys, totalButtons, rejectedStale.get())
+        releasedKeys.addAndGet(totalKeys.toLong())
+        releasedButtons.addAndGet(totalButtons.toLong())
         reportRef.set(report)
         return report
     }

@@ -45,6 +45,7 @@ import com.pocketrealm.R
 import com.pocketrealm.client.IntegratedClientDisplay
 import com.pocketrealm.realm.RealmState
 import com.pocketrealm.service.RealmService
+import com.pocketrealm.storage.Settings
 import com.pocketrealm.supervisor.RuntimeSupervisorClient
 import kotlinx.coroutines.launch
 
@@ -58,6 +59,8 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val supervisorClient = remember(context) { RuntimeSupervisorClient(context) }
+    val settings = remember(context) { Settings(context) }
+    val settingsSnapshot by settings.flow.collectAsState(initial = Settings.Snapshot())
     val stateUpdates = remember(supervisorClient) { supervisorClient.observeRealmState() }
     val state by stateUpdates.collectAsState(initial = RealmState.Idle)
     val displayHost by IntegratedClientDisplay.host.collectAsState()
@@ -182,7 +185,7 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
                         key(host) {
                             AndroidView(factory = { host.container }, modifier = Modifier.fillMaxSize())
                         }
-                        TouchOverlay(host)
+                        if (!settingsSnapshot.inputSafeMode) TouchOverlay(host)
                     }
                 }
             }
