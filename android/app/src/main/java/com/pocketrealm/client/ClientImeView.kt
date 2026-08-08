@@ -32,6 +32,7 @@ class ClientImeView(
     context: Context,
     private val contractProvider: () -> InputContract,
     private val generationProvider: () -> Long,
+    private val beforeImeInput: () -> Unit,
     private val onImeOpened: () -> Unit,
     private val onImeClosed: () -> Unit,
 ) : View(context) {
@@ -52,8 +53,9 @@ class ClientImeView(
             EditorInfo.IME_FLAG_NO_FULLSCREEN or EditorInfo.IME_ACTION_DONE
         outAttrs.actionId = EditorInfo.IME_ACTION_DONE
         outAttrs.actionLabel = "Send"
+        beforeImeInput()
         onImeOpened()
-        return ClientInputConnection(this, contractProvider, generationProvider)
+        return ClientInputConnection(this, contractProvider, generationProvider, beforeImeInput)
     }
 
     /**
@@ -81,9 +83,11 @@ class ClientImeView(
         private val view: ClientImeView,
         private val contractProvider: () -> InputContract,
         private val generationProvider: () -> Long,
+        private val beforeImeInput: () -> Unit,
     ) : BaseInputConnection(view, false) {
 
         override fun commitText(text: CharSequence, newCursorPosition: Int): Boolean {
+            beforeImeInput()
             val result = contractProvider().imeCommit(text.toString(), generationProvider())
             if (!result.allAccepted) {
                 android.util.Log.w(TAG, "IME commit rejected codepoints=${result.rejected}")
@@ -100,6 +104,7 @@ class ClientImeView(
         }
 
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+            beforeImeInput()
             contractProvider().imeDelete(beforeLength, generationProvider())
             return true
         }
@@ -112,6 +117,7 @@ class ClientImeView(
                     EditorInfo.IME_ACTION_SEARCH,
                     EditorInfo.IME_ACTION_SEND,
                 )) return false
+            beforeImeInput()
             val now = android.os.SystemClock.uptimeMillis()
             val down = android.view.KeyEvent(
                 now, now, android.view.KeyEvent.ACTION_DOWN,

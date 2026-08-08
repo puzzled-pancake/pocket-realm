@@ -92,7 +92,14 @@ class ClientDisplayHost(
         )
         profileStore.save(contract.activeProfile)
         input = ClientInputBridge(contract, view, generation, ::ensureKeyboardFocus)
-        inputManager.registerInputDeviceListener(inputDeviceListener, null)
+        // IntegratedClientDisplay constructs hosts from its Binder worker;
+        // InputManager's null-handler overload assumes the calling thread has
+        // a Looper. Device callbacks mutate the UI-owned input contract, so
+        // bind them explicitly to the main Looper on every construction path.
+        inputManager.registerInputDeviceListener(
+            inputDeviceListener,
+            android.os.Handler(android.os.Looper.getMainLooper()),
+        )
         view.addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
             val width = right - left
             val height = bottom - top
@@ -109,6 +116,7 @@ class ClientDisplayHost(
             context = context,
             contractProvider = { contract },
             generationProvider = { generation },
+            beforeImeInput = ::ensureKeyboardFocus,
             onImeOpened = { contract.imeOpened(generation) },
             onImeClosed = {
                 contract.imeClosed(generation)
@@ -158,13 +166,19 @@ class ClientDisplayHost(
 
     private fun ensureKeyboardFocus() {
         // DesktopHelper owns normal application focus on map and pointer
-        // press. Preserve it; the deepest composited D3D child often selects
-        // no keyboard events. Only repair focus when no usable target exists.
+        // press. Preserve it only when it is a real client window; the root
+        // window can select KEY_PRESS for desktop bookkeeping but cannot
+        // deliver text to Wine. The deepest composited D3D child often selects
+        // no keyboard events, so fall back to the active/top-level WoW client.
+        fun Window.acceptsClientKeys(): Boolean =
+            this !== xServer.windowManager.rootWindow &&
+                originClient != null &&
+                hasEventListenerFor(Event.KEY_PRESS)
         val focused = xServer.windowManager.focusedWindow
-        val target = focused?.takeIf { it.hasEventListenerFor(Event.KEY_PRESS) }
-            ?: activeWindow?.takeIf { it.hasEventListenerFor(Event.KEY_PRESS) }
+        val target = focused?.takeIf { it.acceptsClientKeys() }
+            ?: activeWindow?.takeIf { it.acceptsClientKeys() }
             ?: xServer.windowManager.mappedClientWindows.asSequence()
-                .filter { it.originClient != null && it.hasEventListenerFor(Event.KEY_PRESS) }
+                .filter { it.acceptsClientKeys() }
                 .maxByOrNull { window ->
                     val identity = "${window.name} ${window.className}".lowercase()
                     val wowPreference = if ("wow" in identity || "world of warcraft" in identity) {
@@ -260,6 +274,7 @@ class ClientDisplayHost(
     fun showIme() {
         val imm = imeView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
             as android.view.inputmethod.InputMethodManager
+        ensureKeyboardFocus()
         imeView.requestFocus()
         imm.showSoftInput(imeView, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
     }
@@ -450,8 +465,16 @@ internal class ClientInputBridge(
         val y = ((event.y - t.viewOffsetY) / aspect).roundToInt().coerceIn(0, 719)
         contract.pointerAbsolute(event.deviceId, x, y, generation)
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN ->
+            MotionEvent.ACTION_DOWN -> {
+                // Some Wine top-levels (notably WoW 1.12) advertise WM_CLASS
+                // but no WM_NAME/window-group, so Winlator's DesktopHelper does
+                // not classify them as application windows. Repair X focus
+                // before ButtonPress; focusing only when the first key arrives
+                // makes the click an activation click and leaves the Win32 edit
+                // control unfocused.
+                ensureKeyboardFocus()
                 contract.pointerButton(event.deviceId, InputContract.PointerButton.LEFT, pressed = true, generation = generation)
+            }
             MotionEvent.ACTION_UP ->
                 contract.pointerButton(event.deviceId, InputContract.PointerButton.LEFT, pressed = false, generation = generation)
             MotionEvent.ACTION_BUTTON_PRESS -> dispatchMouseButton(event, pressed = true)
