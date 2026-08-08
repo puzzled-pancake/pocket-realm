@@ -10,6 +10,8 @@ import android.system.Os
 import android.system.OsConstants
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -115,6 +117,9 @@ class O12IntegratedRuntimeTest {
             replaceDisplayText(accountPassword)
             tapDisplay(292f, 696f)
             Thread.sleep(10_000)
+            // Capture the post-submit client state before an authentication
+            // assertion can abort cleanup and discard the relevant UI state.
+            captureEvidenceFrame("O12_AFTER_LOGIN_SUBMIT.png")
             val preWizardWorld = waitForActiveSession(worldApi, 30_000)
             assertTrue("new account did not authenticate before realm setup: $preWizardWorld",
                 preWizardWorld.getLong("activeSessions") > 0)
@@ -127,23 +132,22 @@ class O12IntegratedRuntimeTest {
             // safe profile, so the world session opens directly. A pristine
             // 1.12 profile still presents its one-time language/style overlay;
             // complete it and accept the already-assigned local realm.
-            Thread.sleep(3_000)
+            // Authentication becomes visible to the server before the 1.12
+            // GlueXML flow has dismissed "Connected", retrieved the realm,
+            // and presented the first-run realm-style wizard. The earlier
+            // fixed three-second delay raced those screens and spent the
+            // wizard clicks on the login/character-list loading dialogs.
+            Thread.sleep(20_000)
             tapDisplay(423f, 544f)
-            Thread.sleep(2_000)
+            Thread.sleep(1_000)
             captureEvidenceFrame("O12_REALM_LANGUAGE_SELECTED.png")
             tapDisplay(482f, 664f)
-            Thread.sleep(3_000)
+            // Suggested Realm connects directly to the sole loopback realm.
+            // There is no second realm-list confirmation in this profile;
+            // clicking through the loading dialog can cancel retrieval.
+            Thread.sleep(20_000)
             captureEvidenceFrame("O12_REALM_ASSIGNED.png")
-            tapDisplay(346f, 621f)
-            Thread.sleep(3_000)
             captureEvidenceFrame("O12_REALM_LIST.png")
-            // Select the sole app-owned realm explicitly and confirm it. The
-            // row is preselected for this one-realm profile, but clicking it
-            // also proves normal pointer selection before the Okay action.
-            tapDisplay(270f, 503f)
-            Thread.sleep(500)
-            tapDisplay(355f, 734f)
-            Thread.sleep(10_000)
             val characterFrame = captureDisplay()
             val characterNonBlack = characterFrame.getPixelsCopy().count { (it and 0x00ffffff) != 0 }
             val characterFile = File(context.filesDir, "evidence/O12_CHARACTER_SCREEN.png")
@@ -470,10 +474,23 @@ class O12IntegratedRuntimeTest {
 
     private fun tapDisplay(x: Float, y: Float) {
         val host = requireNotNull(IntegratedClientDisplay.host.value)
+        val downAt = android.os.SystemClock.uptimeMillis()
         instrumentation.runOnMainSync {
-            val now = android.os.SystemClock.uptimeMillis()
-            host.dispatchPointer(MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0))
-            host.dispatchPointer(MotionEvent.obtain(now, now + 20, MotionEvent.ACTION_UP, x, y, 0))
+            host.dispatchPointer(MotionEvent.obtain(
+                downAt, downAt, MotionEvent.ACTION_DOWN, x, y, 0,
+            ))
+        }
+        // The real client polls DirectInput state once per rendered frame. A
+        // synthetic DOWN+UP dispatched in one main-loop turn can disappear
+        // between polls even though the Win32 probe's queued messages see it.
+        // Hold the production pointer state across multiple frames, matching a
+        // normal human tap instead of relying on MotionEvent timestamps alone.
+        Thread.sleep(80)
+        instrumentation.runOnMainSync {
+            val upAt = android.os.SystemClock.uptimeMillis()
+            host.dispatchPointer(MotionEvent.obtain(
+                downAt, upAt, MotionEvent.ACTION_UP, x, y, 0,
+            ))
         }
         // X events are delivered asynchronously to Wine. Wait for the Win32
         // control to consume ButtonRelease and move keyboard focus before the
@@ -485,34 +502,30 @@ class O12IntegratedRuntimeTest {
         val host = requireNotNull(IntegratedClientDisplay.host.value)
         // The managed profile survives package upgrades and clean server
         // cycles. Clear any field value retained by the real client before
-        // typing; the old helper's name promised replacement but it only
-        // appended, which made a hidden remembered password intermittent.
+        // typing. Drive the same production InputConnection + paced IME FIFO
+        // used by the touch Keyboard affordance; instantaneous DOWN+UP pairs
+        // can disappear between WoW 1.12's DirectInput frame polls.
+        lateinit var connection: InputConnection
+        var endAccepted = false
+        var clearAccepted = false
+        var valueAccepted = false
         instrumentation.runOnMainSync {
-            val now = android.os.SystemClock.uptimeMillis()
-            host.dispatchKey(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MOVE_END, 0))
-            host.dispatchKey(KeyEvent(now, now + 20, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MOVE_END, 0))
+            connection = requireNotNull(host.imeView.onCreateInputConnection(EditorInfo()))
+            endAccepted = host.inputContract.imeKeyTap(KeyEvent.KEYCODE_MOVE_END, host.generation)
+            clearAccepted = connection.deleteSurroundingText(32, 0)
+            valueAccepted = connection.commitText(value, 1)
         }
-        Thread.sleep(100)
-        repeat(32) {
-            instrumentation.runOnMainSync {
-                val now = android.os.SystemClock.uptimeMillis()
-                host.dispatchKey(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL, 0))
-                host.dispatchKey(KeyEvent(now, now + 20, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL, 0))
-            }
-            Thread.sleep(20)
+        assertTrue("IME end-key enqueue was rejected", endAccepted)
+        assertTrue("IME clear was rejected", clearAccepted)
+        assertTrue("IME value contained an unsupported character", valueAccepted)
+        val deadline = android.os.SystemClock.elapsedRealtime() + 10_000
+        while (!host.inputContract.isImeInputIdle &&
+            android.os.SystemClock.elapsedRealtime() < deadline) {
+            Thread.sleep(10)
         }
-        value.forEach { character ->
-            val keyCode = when (character) {
-                in 'a'..'z' -> KeyEvent.KEYCODE_A + (character - 'a')
-                in '0'..'9' -> KeyEvent.KEYCODE_0 + (character - '0')
-                else -> error("O12 credential uses unsupported test character: $character")
-            }
-            instrumentation.runOnMainSync {
-                val now = android.os.SystemClock.uptimeMillis()
-                host.dispatchKey(KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0))
-                host.dispatchKey(KeyEvent(now, now + 20, KeyEvent.ACTION_UP, keyCode, 0))
-            }
-            Thread.sleep(75)
+        assertTrue("paced IME input did not drain", host.inputContract.isImeInputIdle)
+        instrumentation.runOnMainSync {
+            host.hideIme()
         }
     }
 
