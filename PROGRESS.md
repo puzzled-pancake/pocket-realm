@@ -460,26 +460,35 @@ controls. All paths share the existing generation-gated `InputContract`, source
 release ordering, IME suspension, and lifecycle cleanup. Host tests cover axis
 crossing, camera deltas, button mapping/hot-unplug release, and profile JSON
 round-trip/migration. The exact 2026-08-08 `clientRuntime` and Android-test APKs
-passed all 6 O14 instrumentation tests in 87.84 seconds on
+passed all 6 O14 instrumentation tests in 88.754 seconds on
 `O11-Large-x86_64`/API 35/4 KiB. That run proves production Compose movement
 and camera controls, overlay hide/show, attached IME and punctuation/editor
 action, pointer-capture round trip, synthetic joystick/gamepad/mouse/device
 removal, safe-mode/profile persistence, generation replacement, deterministic
-release, and clean Wine-probe exit. It does not claim named physical-device
-qualification or the real WoW gameplay sequence.
+release, atomic/idempotent off-main teardown, bounded paced IME input with
+stale-callback cancellation, and clean Wine-probe exit. The exact host suite
+also passed 99 tests with zero failures. It does not claim named
+physical-device qualification or the real WoW gameplay sequence.
 
 ## Next action
 
 O14 implementation increments 1 and 2 and their production-path Win32-probe
 qualification are complete. A real build-5875 client was imported and its
-normal-play data extracted on the large lane, but an exploratory login run did
-not qualify UX-T01: Android-to-X key events reached the focused WoW top-level
-while its login edit controls did not consume the injected text. That result is
-diagnostic only and is not recorded as PASS evidence. The remaining acceptance
-work is the complete real-client touch-only UX-T01–T08 sequence (including
-orientation/resume) and named physical gamepad/keyboard/mouse hot-plug and
-restart qualification. O14 remains `pending` until those report-defined
-artifacts exist. Do not start O15 or any later gate.
+normal-play data extracted on the large lane. Root-cause work showed that
+instantaneous synthetic key taps could disappear between WoW's frame-polled
+DirectInput samples. The production attached InputConnection now serializes
+committed text, delete, and editor actions with a bounded 50-ms dwell/10-ms
+gap FIFO. With that production path the real client consumed account/password
+input, authenticated to the embedded realm, and advanced through realm and
+character-list loading; an 80-ms test-only pointer dwell likewise fixed the
+zero-duration synthetic-click blind spot. These are diagnostic advances, not
+UX-T01 PASS evidence: the fixed-time first-run choreography raced the realm
+wizard, and a later clean retry stopped at a black renderer before input.
+The remaining acceptance work is a clean complete real-client touch-only
+UX-T01–T08 sequence (including orientation/resume) and named physical
+gamepad/keyboard/mouse hot-plug and restart qualification. O14 remains
+`pending` until those report-defined artifacts exist. Do not start O15 or any
+later gate.
 
 ## Session note
 
