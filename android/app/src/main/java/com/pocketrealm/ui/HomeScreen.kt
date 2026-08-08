@@ -38,6 +38,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.pocketrealm.R
 import com.pocketrealm.client.IntegratedClientDisplay
 import com.pocketrealm.realm.RealmState
@@ -53,6 +56,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val supervisorClient = remember(context) { RuntimeSupervisorClient(context) }
     val stateUpdates = remember(supervisorClient) { supervisorClient.observeRealmState() }
     val state by stateUpdates.collectAsState(initial = RealmState.Idle)
@@ -63,9 +67,22 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
     var gmAccount by remember { mutableStateOf(false) }
     var accountStatus by remember { mutableStateOf("Create a local account after the world is ready") }
 
-    DisposableEffect(displayHost) {
-        displayHost?.onResume()
-        onDispose { displayHost?.onPause() }
+    DisposableEffect(lifecycleOwner, displayHost) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> displayHost?.onPause()
+                Lifecycle.Event.ON_RESUME -> displayHost?.onResume()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            displayHost?.onResume()
+        }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            displayHost?.onPause()
+        }
     }
 
     Column(
@@ -155,11 +172,15 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
                 Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("WoW 1.12.1 â€¢ local realm â€¢ audio off",
                         style = MaterialTheme.typography.labelMedium)
+                    OutlinedButton(
+                        onClick = { host.showIme() },
+                        modifier = Modifier.fillMaxWidth().testTag("integrated-client-ime-open"),
+                    ) { Text("Open keyboard") }
                     androidx.compose.foundation.layout.Box(
                         Modifier.fillMaxWidth().height(480.dp).background(Color.Black)
-                            .testTag("integrated-client-surface")) {
+                        .testTag("integrated-client-surface")) {
                         key(host) {
-                            AndroidView(factory = { host.view }, modifier = Modifier.fillMaxSize())
+                            AndroidView(factory = { host.container }, modifier = Modifier.fillMaxSize())
                         }
                     }
                 }

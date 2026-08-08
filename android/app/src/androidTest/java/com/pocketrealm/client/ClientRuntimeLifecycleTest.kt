@@ -66,7 +66,7 @@ class ClientRuntimeLifecycleTest {
         instrumentation.runOnMainSync {
             host = ClientDisplayHost(context, prefix.runtimeRoot) { mapped.set(true) }
             activity.addContentView(
-                host!!.view,
+                host!!.container,
                 ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 720),
             )
             host!!.onResume()

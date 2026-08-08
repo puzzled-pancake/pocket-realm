@@ -1,3 +1,5 @@
+import java.security.MessageDigest
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -294,6 +296,56 @@ val validateDatabaseRuntime by tasks.registering {
     }
 }
 
+val validateRealmRuntime by tasks.registering {
+    group = "pocket realm"
+    description = "Require realm ELF artifacts to match both the lockfile and generated provenance."
+    val repoRoot = layout.projectDirectory.dir("../..").asFile
+    doLast {
+        fun sha256Hex(file: File): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(1 shl 16)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it) }
+        }
+        val lockPath = "native/.build-o09-x86_64/realm-staging/jniLibs/x86_64/"
+        val lockText = File(repoRoot, "schemas/realm-runtime-lockfile.json").readText()
+        val provenance = File(repoRoot, "native/.build-o09-x86_64/realm-staging/BUILD_PROVENANCE.json")
+        check(provenance.isFile) { "O09 BUILD_PROVENANCE.json is missing; rebuild realm runtime" }
+        val provenanceText = provenance.readText()
+        val files = listOf("libpocket_realmd_runtime.so", "libpocket_world_runtime.so")
+        for (name in files) {
+            val relative = "$lockPath$name"
+            val recordPattern = Regex(
+                "(?s)\\{\\s*\"path\"\\s*:\\s*\"" +
+                    Regex.escape(relative) +
+                    "\"\\s*,\\s*\"size\"\\s*:\\s*(\\d+)\\s*,\\s*\"sha256\"\\s*:\\s*\"([0-9a-fA-F]{64})\""
+            )
+            val lock = recordPattern.find(lockText)
+                ?: error("realm lockfile has no record for $relative")
+            val provenanceRecord = recordPattern.find(provenanceText)
+                ?: error("realm provenance has no record for $relative")
+            check(lock.groupValues[1] == provenanceRecord.groupValues[1] &&
+                lock.groupValues[2].equals(provenanceRecord.groupValues[2], ignoreCase = true)) {
+                "realm provenance disagrees with lockfile for $name"
+            }
+            val artifact = File(repoRoot, relative)
+            check(artifact.isFile) { "missing staged realm artifact: $artifact" }
+            check(artifact.length() == lock.groupValues[1].toLong()) {
+                "realm artifact size disagrees with lockfile: $name"
+            }
+            check(sha256Hex(artifact).equals(lock.groupValues[2], ignoreCase = true)) {
+                "realm artifact SHA-256 disagrees with lockfile: $name"
+            }
+        }
+    }
+}
+
 // Make every APK-producing variant depend on staging the native closure, and
 // force the pkgExperiment variant to extract .so to disk with +x so the PKG-01
 // launcher has an executable filesystem path in nativeLibraryDir.
@@ -316,7 +368,7 @@ androidComponents {
         if (variant.name == "realmRuntime") {
             tasks.matching { it.name == "merge${cap}JniLibFolders" ||
                 it.name == "merge${cap}Assets" || it.name == "assemble${cap}" }
-                .configureEach { dependsOn(validateDatabaseRuntime) }
+                .configureEach { dependsOn(validateDatabaseRuntime, validateRealmRuntime) }
         }
     }
 }

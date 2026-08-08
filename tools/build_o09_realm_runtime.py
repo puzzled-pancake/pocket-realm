@@ -267,6 +267,9 @@ def prepare_cmangos_source() -> None:
     playerbots_actual = output(["git", "rev-parse", "HEAD"], playerbots)
     if playerbots_actual != PLAYERBOTS_COMMIT:
         raise RuntimeError(f"Playerbots pin mismatch: {playerbots_actual}")
+    if subprocess.run(["git", "status", "--porcelain"], cwd=cmangos,
+                      capture_output=True, text=True, check=True).stdout.strip():
+        raise RuntimeError("CMaNGOS submodule has unrecorded changes; build overlays belong in this driver")
     if subprocess.run(["git", "diff", "--quiet"], cwd=playerbots).returncode != 0:
         raise RuntimeError("Playerbots submodule has unrecorded changes; build overlays belong in this driver")
     mirror = cmangos / "src" / "modules" / "PlayerBots"
@@ -305,21 +308,30 @@ def prepare_cmangos_source() -> None:
 
 def restore_cmangos_source() -> None:
     """Restore the pinned submodule byte-for-byte after the overlay build."""
-    replace_anchor(
+    restore_anchor(
         NATIVE / "cmangos" / "src" / "game" / "Maps" / "GridMap.cpp",
         MMAP_GUARD_ANDROID,
         MMAP_GUARD_UPSTREAM,
     )
-    replace_anchor(
+    restore_anchor(
         NATIVE / "cmangos" / "src" / "mangosd" / "Master.cpp",
         WORLD_THREAD_ANDROID,
         WORLD_THREAD_UPSTREAM,
     )
-    replace_anchor(
+    restore_anchor(
         NATIVE / "cmangos" / "src" / "shared" / "Database" / "SqlOperations.cpp",
         RESULT_QUEUE_ANDROID,
         RESULT_QUEUE_UPSTREAM,
     )
+
+
+def restore_anchor(path: Path, applied: str, original: str) -> None:
+    """Undo an overlay if present, while making cleanup idempotent."""
+    text = path.read_text(encoding="utf-8")
+    if applied in text:
+        path.write_text(text.replace(applied, original, 1), encoding="utf-8", newline="\n")
+    elif original not in text:
+        raise RuntimeError(f"source overlay cleanup anchor drift: {path}")
 
 
 def configure_and_build(force: bool) -> tuple[Path, Path]:
@@ -431,12 +443,20 @@ def main() -> int:
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
     prepare_connector_source()
-    prepare_cmangos_source()
+    # Refuse to consume arbitrary working-tree edits.  Only after this clean
+    # check succeeds is cleanup armed; a rejected dirty tree is never touched.
+    cmangos = NATIVE / "cmangos"
+    if subprocess.run(["git", "status", "--porcelain"], cwd=cmangos,
+                      capture_output=True, text=True, check=True).stdout.strip():
+        raise RuntimeError("CMaNGOS submodule has unrecorded changes; clean it before building")
+    cleanup_armed = True
     try:
+        prepare_cmangos_source()
         llvm, _ = configure_and_build(args.force)
         record = stage(llvm)
     finally:
-        restore_cmangos_source()
+        if cleanup_armed:
+            restore_cmangos_source()
     print(json.dumps(record, indent=2))
     return 0
 

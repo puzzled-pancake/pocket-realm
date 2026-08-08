@@ -1,5 +1,6 @@
 {
   "schema": 1,
+  "status": "INVALIDATED",
   "feature": "O14",
   "increment": 2,
   "title": "O14 IME increment-2 audit: raw codepoint verification",

@@ -28,6 +28,8 @@ class WorldRuntimeService : Service() {
     @Volatile private var admissionState: BotAdmissionState? = null
     @Volatile private var latestMetrics: BotRuntimeMetrics? = null
     @Volatile private var admissionError = ""
+    /** Desired native target awaiting acknowledgement; retained across a timeout. */
+    @Volatile private var pendingAdmissionTarget: Int? = null
     override fun onCreate() {
         super.onCreate()
         files = ServerRuntimeFiles(applicationContext)
@@ -215,6 +217,7 @@ class WorldRuntimeService : Service() {
                 .put("resourceSampleElapsedMs", metrics.sampledAtElapsedMs)
         }
         if (admissionError.isNotEmpty()) value.put("botAdmissionError", admissionError.take(256))
+        pendingAdmissionTarget?.let { value.put("botAdmissionPendingTarget", it) }
     }
 
     private fun startAdmissionMonitor(profile: BotProfile) {
@@ -223,6 +226,7 @@ class WorldRuntimeService : Service() {
         admissionState = null
         latestMetrics = null
         admissionError = ""
+        pendingAdmissionTarget = null
         val controller = BotAdmissionController(profile)
         val startedAt = SystemClock.elapsedRealtime()
         admissionRunning.set(true)
@@ -231,6 +235,24 @@ class WorldRuntimeService : Service() {
                 try {
                     val bot = WorldNative.botStatusNative()
                     if (bot.size == 7 && bot[2] != 0L) {
+                        // A timed-out setBotTarget call may still be in flight
+                        // on the world tick thread. Retry the same desired
+                        // target before allowing policy to advance, so the
+                        // reported adaptation cannot silently diverge from
+                        // native state.
+                        pendingAdmissionTarget?.let { target ->
+                            val rc = WorldNative.setBotTargetNative(target)
+                            if (rc == 0) {
+                                pendingAdmissionTarget = null
+                                admissionError = ""
+                            } else {
+                                admissionError = "target $target: ${ServerRuntimeContract.errorName(rc.toLong())}"
+                            }
+                        }
+                        if (pendingAdmissionTarget != null) {
+                            Thread.sleep(ADMISSION_INTERVAL_MS)
+                            continue
+                        }
                         val metrics = resourceSampler.read(WorldNative.performanceStatusNative())
                         latestMetrics = metrics
                         val state = controller.observe(BotResourceSample(
@@ -244,9 +266,15 @@ class WorldRuntimeService : Service() {
                         ))
                         admissionState = state
                         if (state.changed) {
+                            pendingAdmissionTarget = state.effectiveTarget
                             val rc = WorldNative.setBotTargetNative(state.effectiveTarget)
-                            admissionError = if (rc == 0) "" else
-                                "target ${state.effectiveTarget}: ${ServerRuntimeContract.errorName(rc.toLong())}"
+                            if (rc == 0) {
+                                pendingAdmissionTarget = null
+                                admissionError = ""
+                            } else {
+                                admissionError = "target ${state.effectiveTarget}: " +
+                                    ServerRuntimeContract.errorName(rc.toLong())
+                            }
                         }
                     }
                     Thread.sleep(ADMISSION_INTERVAL_MS)
@@ -269,6 +297,7 @@ class WorldRuntimeService : Service() {
         admissionState = null
         latestMetrics = null
         admissionError = ""
+        pendingAdmissionTarget = null
     }
     companion object {
         private const val TAG = "WorldRuntimeService"

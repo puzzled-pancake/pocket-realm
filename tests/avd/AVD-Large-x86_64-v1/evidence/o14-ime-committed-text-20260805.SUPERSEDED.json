@@ -1,5 +1,6 @@
 {
   "schema": 1,
+  "status": "SUPERSEDED",
   "feature": "O14",
   "increment": 2,
   "title": "Android IME committed-text input through InputContract v1 and X/Wine boundary",

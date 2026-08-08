@@ -254,6 +254,19 @@ class InputContractTest {
         assertEquals(0, report.keyCount)
     }
 
+    @Test fun `IME active suppresses gameplay pointer injection until closed`() {
+        val (c, sink) = newContract()
+        c.imeOpened(1)
+        c.pointerAbsolute(0, 10, 20, 1)
+        c.pointerRelative(0, 3, -2, 1)
+        c.pointerButton(0, InputContract.PointerButton.LEFT, pressed = true, generation = 1)
+        c.wheel(0, 1, 1, 1)
+        assertTrue("IME should suppress gameplay pointer events", sink.events.isEmpty())
+        c.imeClosed(1)
+        c.pointerAbsolute(0, 10, 20, 1)
+        assertEquals(1, sink.events.size)
+    }
+
     @Test fun `IME commit injects accepted characters in order`() {
         val (c, sink) = newContract()
         val result = c.imeCommit("ab", 1)
@@ -376,4 +389,3 @@ class InputContractTest {
         assertEquals(ImeCharMap.MAX_COMMIT_LENGTH, result.accepted.size)
     }
 }
-

@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -192,7 +193,9 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
         }
         Box(Modifier.fillMaxWidth().height(360.dp).background(Color.Black).testTag("client-surface")) {
             host?.let { current ->
-                AndroidView(factory = { current.view }, modifier = Modifier.fillMaxSize())
+                key(current.generation) {
+                    AndroidView(factory = { current.container }, modifier = Modifier.fillMaxSize())
+                }
             } ?: Text("The Windows surface is created before launch", color = Color.White, modifier = Modifier.padding(16.dp))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -209,6 +212,11 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
                 enabled = sessionId != null && state !in setOf(ClientState.EXITED, ClientState.FAILED, ClientState.FORCE_STOPPED),
                 modifier = Modifier.testTag("client-force-stop"),
             ) { Text("Force stop") }
+            OutlinedButton(
+                onClick = { host?.showIme() },
+                enabled = host != null,
+                modifier = Modifier.testTag("client-ime-open"),
+            ) { Text("Keyboard") }
         }
     }
 }

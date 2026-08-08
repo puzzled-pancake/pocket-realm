@@ -158,6 +158,9 @@ class InputContract(
         val report = releaseAllLocked(ReleaseReason.GENERATION_REPLACED)
         activeSession = sessionId
         activeGeneration = generation
+        // A new display generation must not inherit the previous editor's
+        // capture/suspension state.
+        imeActive = false
         profile = if (newProfile.aspectIdentity == aspectIdentity) {
             profileReset = false
             newProfile
@@ -193,6 +196,7 @@ class InputContract(
     fun pointerAbsolute(src: Int, x: Int, y: Int, generation: Long) {
         if (!accept(src, generation)) return
         synchronized(lock) {
+            if (imeActive) return
             sink.inject(SinkEvent.PointerMove(x, y))
         }
     }
@@ -201,6 +205,7 @@ class InputContract(
     fun pointerRelative(src: Int, dx: Int, dy: Int, generation: Long) {
         if (!accept(src, generation)) return
         synchronized(lock) {
+            if (imeActive) return
             sink.inject(SinkEvent.PointerMoveDelta(dx, dy))
         }
     }
@@ -215,6 +220,7 @@ class InputContract(
     fun pointerButton(src: Int, button: PointerButton, pressed: Boolean, generation: Long) {
         if (!accept(src, generation)) return
         synchronized(lock) {
+            if (imeActive) return
             val st = sources.getOrPut(src) { SourceState() }
             if (pressed) {
                 if (button !in st.buttons) {
@@ -244,6 +250,7 @@ class InputContract(
         if (!accept(src, generation)) return
         if (vTicks == 0 && hTicks == 0) return
         synchronized(lock) {
+            if (imeActive) return
             // Vertical: repeat per tick to preserve direction granularity.
             repeat(kotlin.math.abs(vTicks)) {
                 val b = if (vTicks > 0) SinkButton.SCROLL_DOWN else SinkButton.SCROLL_UP

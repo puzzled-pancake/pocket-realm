@@ -1,10 +1,10 @@
 # Current project state
 
-Last verified implementation milestone: `O13 — G4 measured 25-playerbot tier, admission control, and world metrics`
+Last verified implementation milestone: `O13 — G4 measured 25-playerbot tier on the large x86_64 lane` (O13 remains open for interruption/admission evidence)
 
-Active feature: `O14 — G4 touch, gamepad, keyboard/mouse, IME, and minimal addon UX` (next eligible)
+Active feature: `O14 — G4 touch, gamepad, keyboard/mouse, IME, and minimal addon UX` (active)
 
-Current gate: `G4 — bots and mobile input UX`. G0 production packaging, G1 direct-client proof, G2 native realm baseline, G3 integrated x86 application, and the O13 25-bot tier are complete on their stated qualification lanes.
+Current gate: `G4 — bots and mobile input UX`. G0 production packaging, G1 direct-client proof, G2 native realm baseline, and G3 integrated x86 application are complete on their stated lanes; O13's 25-bot soak is qualified on the large lane but its remaining sub-acceptance paths are still open.
 
 Plan/reference alignment: `3 August 2026`
 
@@ -429,11 +429,14 @@ triggering focus loss released both deterministically
 absolute-pointer, left-click, focus, audio-off, and clean-close behavior is
 preserved (O06 `ClientRuntimeLifecycleTest` PASS). 19 host-JVM unit tests cover
 generation gating, stale rejection, button tracking, wheel atomicity, release
-ordering, source isolation, and profile reset. O14 remains `pending`: IME,
-gamepad, pointer capture, profile persistence, and the default touch overlay are
-not implemented, and UX-T01 through UX-T08 are NOT complete. No changes to AIDL,
-supervisor/database/realm/world services, the Wine runtime, the winlator
-X-server, or any O13 file. The tagged O13 boundary (`o13-soak25-qualified` →
+ordering, source isolation, and profile reset. O14's IME increment now has a
+production-attached `ClientImeView`/`BaseInputConnection`, a visible Keyboard
+affordance, editor-action/delete routing, bounded rejection feedback, and
+pointer suppression while the IME is active. The real InputConnection path
+still needs a fresh on-device run; the checked-in 2026-08-05 evidence bypassed
+that path and is not reused as acceptance evidence. Gamepad, pointer capture,
+profile persistence, and the default touch overlay remain open; UX-T01 through
+UX-T08 are NOT complete. The tagged O13 boundary (`o13-soak25-qualified` →
 `a833c40`) and the qualified runtime hash (`f8005881…`) are unchanged.
 
 Authoritative O14 increment-1 evidence:
@@ -443,12 +446,12 @@ Authoritative O14 increment-1 evidence:
 
 ## Next action
 
-O14 increment 1 is verified (see above). The next O14 increment is IME
-composition/committed-text (UX-T06) or gamepad axes/buttons (FUN-009), building
-on the InputContract v1 generation/session plumbing. IME, gamepad, pointer
-capture, profile persistence, and the default touch overlay remain unimplemented;
-UX-T01 through UX-T08 are NOT complete and O14 remains `pending`. Do not start
-O15 or any later gate.
+O14 increment 1 is verified (see above). The active increment is now the real
+IME `InputConnection` path (UX-T06): rerun the instrumentation test through the
+attached production container, then proceed to gamepad axes/buttons (FUN-009),
+pointer capture, profile persistence, and the default touch overlay. UX-T01
+through UX-T08 are NOT complete and O14 remains `pending`. Do not start O15 or
+any later gate.
 
 ## Session note
 

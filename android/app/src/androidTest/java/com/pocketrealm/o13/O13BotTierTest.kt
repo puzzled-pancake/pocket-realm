@@ -48,6 +48,7 @@ class O13BotTierTest {
         val database = bind(DatabaseService::class.java) { IDatabaseControl.Stub.asInterface(it) }
         var realm: Bound<IRealmControl>? = null
         var world: Bound<IWorldControl>? = null
+        var evidenceOutput: Pair<File, JSONObject>? = null
         try {
             val initial = JSONObject(database.api.status())
             if (initial.getString("state") == "RUNNING") assertOk(database.api.stop())
@@ -66,7 +67,7 @@ class O13BotTierTest {
 
             realm = bind(RealmRuntimeService::class.java) { IRealmControl.Stub.asInterface(it) }
             assertOk(realm.api.start())
-            waitReady(120_000) { JSONObject(realm.api.status()) }
+            waitReady(120_000) { JSONObject(requireNotNull(realm).api.status()) }
             world = bind(WorldRuntimeService::class.java) { IWorldControl.Stub.asInterface(it) }
 
             val worldLog = File(context.noBackupFilesDir, "server/logs/world.log")
@@ -111,6 +112,7 @@ class O13BotTierTest {
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(soakSeconds.toLong())
             var p99Violations = 0
             var hardStallIntervals = 0
+            var overshootSamples = 0
             while (System.nanoTime() < deadline) {
                 val status = JSONObject(requireNotNull(world).api.status())
                 Log.i(TAG, "soak status=$status")
@@ -119,6 +121,10 @@ class O13BotTierTest {
                 assertFalse(status.toString(), status.getBoolean("auctionHouseBot"))
                 assertTrue(status.toString(), status.getLong("botsOnline") >= 20)
                 assertTrue(status.toString(), status.getLong("effectiveBotTarget") in 20..25)
+                val selectedTarget = status.getLong("selectedBotTarget")
+                assertTrue("bot overshoot must stay within the documented one-bot grace",
+                    status.getLong("botsOnline") <= selectedTarget + 1)
+                if (status.getLong("botsOnline") > selectedTarget) overshootSamples++
                 assertTrue(status.toString(), status.getLong("freeMemoryMiB") >= 768)
                 assertTrue(status.toString(), status.getLong("freeStorageMiB") >= 2_048)
                 if (status.getLong("worldTickP99Ms") > 250) p99Violations++
@@ -161,15 +167,37 @@ class O13BotTierTest {
                 .put("soakSeconds", soakSeconds)
                 .put("p99Violations", p99Violations)
                 .put("hardStallIntervals", hardStallIntervals)
+                .put("overshootSamples", overshootSamples)
+                .put("shutdownVerified", true)
                 .put("finalStatus", finalStatus).put("timeline", timeline).put("samples", samples)
             val output = File(context.getExternalFilesDir(null),
                 "evidence/O13_BOT_TIER_${if (formalSoak) "SOAK25" else "SMOKE"}.json")
-            output.parentFile!!.mkdirs(); output.writeText(evidence.toString(2))
+            evidenceOutput = output to evidence
         } finally {
-            world?.let { runCatching { assertOk(it.api.stop()) }; it.close() }
-            realm?.let { runCatching { assertOk(it.api.stop()) }; it.close() }
-            runCatching { assertOk(database.api.stop()) }
+            var cleanupFailure: Throwable? = null
+            fun attempt(name: String, action: () -> Unit) {
+                try { action() } catch (failure: Throwable) {
+                    cleanupFailure?.addSuppressed(failure)
+                        ?: run { cleanupFailure = AssertionError("O13 $name cleanup failed", failure) }
+                }
+            }
+            attempt("world") {
+                world?.let { bound ->
+                    try { assertOk(bound.api.stop()) } finally { bound.close(); world = null }
+                }
+            }
+            attempt("realm") {
+                realm?.let { bound ->
+                    try { assertOk(bound.api.stop()) } finally { bound.close(); realm = null }
+                }
+            }
+            attempt("database") { assertOk(database.api.stop()) }
             database.close()
+            if (cleanupFailure != null) throw cleanupFailure as Throwable
+        }
+        evidenceOutput?.let { (output, evidence) ->
+            output.parentFile!!.mkdirs()
+            output.writeText(evidence.toString(2))
         }
     }
 
@@ -191,7 +219,6 @@ class O13BotTierTest {
                 }
                 Regex("POCKET_BOT_GENERATION_CHECKPOINT created=\\d+").find(appended)
                     ?.value?.let { return it }
-                if (appended.contains("No new random bots needed")) return "already-complete"
             }
             Thread.sleep(50)
         }

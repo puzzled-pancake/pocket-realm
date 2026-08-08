@@ -3,6 +3,7 @@ package com.pocketrealm.client
 import android.content.Context
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.widget.FrameLayout
 import com.pocketrealm.log.AppLog
 import com.winlator.XServerDisplayActivity
 import com.winlator.widget.XServerView
@@ -30,6 +31,14 @@ class ClientDisplayHost(
     val view: XServerView
     /** IME-capable wrapper around [view] for soft-keyboard embedding (O14 increment 2). */
     val imeView: ClientImeView
+    /**
+     * The complete attached display surface.  Keeping the X surface and the
+     * focusable IME target in one container is important: a View that is only
+     * constructed (but not attached to a window) cannot become an Android IME
+     * target.  Callers should attach this container instead of attaching
+     * [view] and [imeView] separately.
+     */
+    val container: FrameLayout
     private val connector: XConnectorEpoll
     private val contract: InputContract
     private val input: ClientInputBridge
@@ -77,8 +86,18 @@ class ClientDisplayHost(
             contractProvider = { contract },
             generationProvider = { generation },
             onImeOpened = { contract.imeOpened(generation) },
-            onImeClosed = { contract.imeClosed(generation) },
+            onImeClosed = {
+                contract.imeClosed(generation)
+                view.requestFocus()
+            },
         )
+        container = FrameLayout(context).apply {
+            addView(view, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ))
+            addView(imeView, FrameLayout.LayoutParams(1, 1))
+        }
         val config = UnixSocketConfig.create(tmp.absolutePath, ".X11-unix/X0")
         connector = XConnectorEpoll(config, XClientConnectionHandler(xServer), XClientRequestHandler()).apply {
             setInitialInputBufferCapacity(4096)
@@ -190,6 +209,8 @@ class ClientDisplayHost(
         val imm = imeView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
             as android.view.inputmethod.InputMethodManager
         imm.hideSoftInputFromWindow(imeView.windowToken, 0)
+        contract.imeClosed(generation)
+        view.requestFocus()
     }
 
     /**

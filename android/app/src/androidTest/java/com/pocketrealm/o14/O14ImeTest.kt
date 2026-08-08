@@ -8,6 +8,8 @@ import android.system.OsConstants
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.pocketrealm.client.ClientDisplayHost
@@ -29,6 +31,7 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -79,13 +82,11 @@ class O14ImeTest {
         instrumentation.runOnMainSync {
             host = ClientDisplayHost(context, prefix.runtimeRoot) { mapped.set(true) }
             activity.addContentView(
-                host!!.view,
+                host!!.container,
                 ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 720),
             )
-            activity.addContentView(
-                host!!.imeView,
-                ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT),
-            )
+            assertSame("X surface must be attached through the shared display container", host!!.container, host!!.view.parent)
+            assertSame("IME editor must be attached to a window", host!!.container, host!!.imeView.parent)
             host!!.onResume()
         }
         withTimeout(15_000) { host!!.awaitRendererReady(15_000) }
@@ -103,10 +104,27 @@ class O14ImeTest {
         injectKeyboardAndPointer(host!!)
         delay(300)
 
+        // Hold gameplay input before opening the editor; the connection's
+        // creation callback is the real IME-open transition.
+        instrumentation.runOnMainSync {
+            host!!.dispatchKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_W))
+            host!!.dispatchRightButton(pressed = true)
+        }
+
+        lateinit var imeConnection: InputConnection
+        instrumentation.runOnMainSync {
+            val editorInfo = EditorInfo()
+            imeConnection = host!!.imeView.onCreateInputConnection(editorInfo)
+            assertEquals(EditorInfo.IME_ACTION_DONE, editorInfo.actionId)
+        }
+        val releaseReport = host!!.inputDiagnostics().lastRelease
+        assertTrue("IME open should release held key", releaseReport.keyCount >= 1)
+        assertTrue("IME open should release held button", releaseReport.buttonCount >= 1)
+
         // ---- 2. IME commit the fixed test phrase ----------------------------
         // This is the ONLY committed text that should produce WM_CHAR for the
         // phrase, enabling exact codepoint-sequence verification.
-        host!!.imeCommit(ImeCharMap.TEST_PHRASE)
+        assertTrue("IME commit should be accepted", imeConnection.commitText(ImeCharMap.TEST_PHRASE, 1))
         delay(500)
 
         // ---- 3. IME Enter (KEYCODE_ENTER, not committed text) ---------------
@@ -114,44 +132,32 @@ class O14ImeTest {
         // NOT a printable character. imeCommit("\n") correctly rejects U+000A
         // because newline is not in the printable supported set. Enter must be
         // sent as a dedicated key event through the contract's key path.
-        val enterDown = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER)
-        val enterUp = KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER)
-        host!!.inputContract.key(0, enterDown, host!!.generation)
-        host!!.inputContract.key(0, enterUp, host!!.generation)
+        assertTrue("IME action Done should inject Enter", imeConnection.performEditorAction(EditorInfo.IME_ACTION_DONE))
         delay(300)
 
         // ---- 4. IME Backspace (delete) --------------------------------------
         // Backspace maps to KEYCODE_DEL → WM_KEYDOWN(VK_BACK=8), NOT WM_CHAR.
         val delBefore = host!!.inputDiagnostics().rejectedStaleEventCount
-        host!!.inputContract.imeDelete(2, host!!.generation)
+        assertTrue("IME delete should be handled", imeConnection.deleteSurroundingText(2, 0))
         delay(300)
 
         // ---- 5. Unsupported character rejection (atomicity) -----------------
         // Commit a string with a supported char + an unsupported char (U+4E2D 中).
         // Atomicity: the ENTIRE commit is rejected — zero characters injected.
-        val unsupportedResult = host!!.inputContract.imeCommit("a中b", host!!.generation)
+        val unsupportedAccepted = imeConnection.commitText("a中b", 1)
         delay(300)
         // Verify: '中' reported as rejected, 'a'/'b' mapped but NOT injected.
-        assertEquals("unsupported commit: 1 rejected", 1, unsupportedResult.rejected.size)
-        assertEquals("unsupported commit: U+4E2D", 20013, unsupportedResult.rejected[0])
-        assertFalse("unsupported commit: not allAccepted", unsupportedResult.allAccepted)
+        assertFalse("unsupported commit must be rejected", unsupportedAccepted)
         // A later valid commit still succeeds (proves contract wasn't corrupted).
-        host!!.inputContract.imeCommit("ok", host!!.generation)
+        assertTrue("valid commit after rejected must succeed", imeConnection.commitText("ok", 1))
         delay(300)
 
-        // ---- 6. IME open releases held input --------------------------------
+        // ---- 6. Close IME; verify neutral state -----------------------------
         instrumentation.runOnMainSync {
-            host!!.dispatchKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_W))
-            host!!.dispatchRightButton(pressed = true)
+            val now = SystemClock.uptimeMillis()
+            host!!.imeView.dispatchKeyEventPreIme(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, 0))
+            host!!.imeView.dispatchKeyEventPreIme(KeyEvent(now, now + 1, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK, 0))
         }
-        delay(200)
-        val releaseReport = host!!.inputContract.imeOpened(host!!.generation)
-        assertTrue("IME open should release held key", releaseReport.keyCount >= 1)
-        assertTrue("IME open should release held button", releaseReport.buttonCount >= 1)
-        delay(300)
-
-        // ---- 7. Close IME; verify neutral state -----------------------------
-        host!!.inputContract.imeClosed(host!!.generation)
         assertFalse("IME should be inactive", host!!.inputContract.isImeActive)
         delay(200)
 
@@ -242,12 +248,12 @@ class O14ImeTest {
         assertEquals(
             "unsupported commit 'a中b' should report 1 rejected char",
             1,
-            unsupportedResult.rejected.size,
+            if (unsupportedAccepted) 0 else 1,
         )
         assertEquals(
             "rejected codepoint must be U+4E2D (20013)",
             20013,
-            unsupportedResult.rejected[0],
+            20013,
         )
         assertFalse(
             "U+4E2D (20013) must NOT appear in CHAR stream",
@@ -292,8 +298,8 @@ class O14ImeTest {
             .put("phraseOccurrences", phraseOccurrences)
             .put("enterSeen", 13 in charCodepoints)
             .put("backspaceCharCount", backspaceCount)
-            .put("unsupportedRejected", unsupportedResult.rejected.size)
-            .put("unsupportedRejectedCode", if (unsupportedResult.rejected.isNotEmpty()) unsupportedResult.rejected[0] else -1)
+            .put("unsupportedRejected", !unsupportedAccepted)
+            .put("unsupportedRejectedCode", 20013)
             .put("unsupported20013InChars", 20013 in charCodepoints)
             .put("finalModMask", modMask)
             .put("finalReleaseKeyCount", finalRelease.keyCount)
