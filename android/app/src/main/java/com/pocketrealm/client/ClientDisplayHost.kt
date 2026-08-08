@@ -61,6 +61,9 @@ class ClientDisplayHost(
     @Volatile private var reportedWindow = false
     @Volatile private var activeWindow: Window? = null
     @Volatile private var closeRequested = false
+    private val closeStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val closed: Boolean get() = closeStarted.get()
+    @Volatile private var paused = false
     private var closeAttempts = 0
     private var deleteTargetLogged = false
     private val closeRetry = Runnable { attemptClose() }
@@ -79,7 +82,12 @@ class ClientDisplayHost(
             isFocusableInTouchMode = true
         }
         xServer.setRenderer(view.renderer)
-        contract = InputContract(XServerInputSink(xServer))
+        contract = InputContract(
+            XServerInputSink(xServer),
+            ImePulseScheduler { delayMillis, action ->
+                view.postDelayed(action, delayMillis)
+            },
+        )
         // Attach with no session yet; the bridge stamps every event with this
         // host's generation. A session id is informational only and may be set
         // later without changing the generation (the host IS the generation).
@@ -117,10 +125,14 @@ class ClientDisplayHost(
             contractProvider = { contract },
             generationProvider = { generation },
             beforeImeInput = ::ensureKeyboardFocus,
-            onImeOpened = { contract.imeOpened(generation) },
+            onImeOpened = {
+                if (!paused && !closed) contract.imeOpened(generation)
+            },
             onImeClosed = {
-                contract.imeClosed(generation)
-                view.requestFocus()
+                if (!closed) {
+                    contract.imeClosed(generation)
+                    if (!paused) view.requestFocus()
+                }
             },
         )
         container = FrameLayout(context).apply {
@@ -165,6 +177,7 @@ class ClientDisplayHost(
         view.renderer.awaitSurfaceReady(timeoutMs, TimeUnit.MILLISECONDS)
 
     private fun ensureKeyboardFocus() {
+        if (closed || paused) return
         // DesktopHelper owns normal application focus on map and pointer
         // press. Preserve it only when it is a real client window; the root
         // window can select KEY_PRESS for desktop bookkeeping but cannot
@@ -272,6 +285,7 @@ class ClientDisplayHost(
      * through the [InputContract]'s generation-gated `imeCommit` path.
      */
     fun showIme() {
+        if (closed || paused) return
         val imm = imeView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
             as android.view.inputmethod.InputMethodManager
         ensureKeyboardFocus()
@@ -283,6 +297,7 @@ class ClientDisplayHost(
     fun hideIme() = hideIme(restoreGameplayFocus = true)
 
     private fun hideIme(restoreGameplayFocus: Boolean) {
+        if (closed) return
         val imm = imeView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
             as android.view.inputmethod.InputMethodManager
         imm.hideSoftInputFromWindow(imeView.windowToken, 0)
@@ -374,6 +389,8 @@ class ClientDisplayHost(
             (0 until property.data.capacity() / 4).any { property.getInt(it) == deleteWindow }
         } == true
     fun onPause() {
+        if (closed) return
+        paused = true
         setPointerCapture(false)
         // Lifecycle pause must close the contract-side IME state as well as
         // hiding the Android window. Otherwise a background/orientation round
@@ -382,15 +399,44 @@ class ClientDisplayHost(
         contract.releaseAll(InputContract.ReleaseReason.ON_PAUSE)
         view.onPause()
     }
-    fun onResume() { view.onResume(); view.requestFocus() }
+    fun onResume() {
+        if (closed) return
+        paused = false
+        view.onResume()
+        view.requestFocus()
+    }
 
     override fun close() {
+        if (!closeStarted.compareAndSet(false, true)) return
+        paused = true
         closeRequested = false
-        view.removeCallbacks(closeRetry)
-        setPointerCapture(false)
-        contract.releaseAll(InputContract.ReleaseReason.CLOSE)
-        inputManager.unregisterInputDeviceListener(inputDeviceListener)
-        connector.destroy()
+        // Invalidate the input generation immediately on whichever thread won
+        // the close race. Binder release and Compose disposal can arrive
+        // concurrently, but only this caller owns teardown from here onward.
+        contract.detach()
+        val finished = java.util.concurrent.CountDownLatch(1)
+        val cleanup = Runnable {
+            try {
+                view.removeCallbacks(closeRetry)
+                val imm = imeView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                    as android.view.inputmethod.InputMethodManager
+                imm.hideSoftInputFromWindow(imeView.windowToken, 0)
+                imeView.clearFocus()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) view.releasePointerCapture()
+                inputManager.unregisterInputDeviceListener(inputDeviceListener)
+                connector.destroy()
+            } finally {
+                finished.countDown()
+            }
+        }
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            cleanup.run()
+        } else {
+            android.os.Handler(android.os.Looper.getMainLooper()).post(cleanup)
+            if (!finished.await(5, TimeUnit.SECONDS)) {
+                AppLog.w(TAG, "timed out waiting for main-thread display cleanup")
+            }
+        }
     }
 
     companion object {

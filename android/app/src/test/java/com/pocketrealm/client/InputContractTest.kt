@@ -1,5 +1,6 @@
 package com.pocketrealm.client
 
+import android.view.KeyEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -27,6 +28,9 @@ class InputContractTest {
         c.attach(sessionId = null, generation = gen)
         return c to sink
     }
+
+    private fun newImeContract(gen: Long = 1L): Pair<InputContract, RecordingSink> =
+        newContract(gen).also { (contract, _) -> contract.imeOpened(gen) }
 
     @Test fun `current-generation event is accepted`() {
         val (c, sink) = newContract(gen = 7L)
@@ -238,6 +242,24 @@ class InputContractTest {
         override fun inject(event: SinkEvent) {
             events.add(event)
         }
+
+        fun keyEventCount(): Int = events.count { it is SinkEvent.Key }
+    }
+
+    private class ManualImeScheduler : ImePulseScheduler {
+        private val pending = java.util.ArrayDeque<() -> Unit>()
+        val delays = mutableListOf<Long>()
+
+        override fun postDelayed(delayMillis: Long, action: () -> Unit) {
+            delays += delayMillis
+            pending.addLast(action)
+        }
+
+        fun runNext() = checkNotNull(pending.pollFirst()) { "no scheduled IME step" }.invoke()
+
+        fun drain() {
+            while (pending.isNotEmpty()) pending.removeFirst().invoke()
+        }
     }
 
     // ---- IME extension tests (increment 2) --------------------------------
@@ -316,7 +338,7 @@ class InputContractTest {
     }
 
     @Test fun `IME commit injects accepted characters in order`() {
-        val (c, sink) = newContract()
+        val (c, sink) = newImeContract()
         val result = c.imeCommit("ab", 1)
         assertTrue(result.allAccepted)
         assertEquals(2, result.accepted.size)
@@ -325,8 +347,179 @@ class InputContractTest {
         assertEquals(4, keyEvents.size)
     }
 
-    @Test fun `IME commit rejects unsupported characters without partial injection`() {
+    @Test fun `scheduled IME pulses dwell and preserve inter-key ordering`() {
+        val sink = RecordingSink()
+        val scheduler = ManualImeScheduler()
+        val c = InputContract(sink, scheduler)
+        c.attach(sessionId = null, generation = 1)
+        c.imeOpened(1)
+
+        assertTrue(c.imeCommit("ab", 1).allAccepted)
+        assertEquals(listOf(InputContract.IME_KEY_DWELL_MS), scheduler.delays)
+        assertEquals(1, sink.keyEventCount())
+
+        scheduler.runNext()
+        assertEquals(InputContract.IME_KEY_GAP_MS, scheduler.delays.last())
+        assertEquals(2, sink.keyEventCount())
+        scheduler.runNext()
+        assertEquals(InputContract.IME_KEY_DWELL_MS, scheduler.delays.last())
+        scheduler.runNext()
+
+        assertEquals(4, sink.keyEventCount())
+        assertEquals(
+            listOf(
+                InputContract.IME_KEY_DWELL_MS,
+                InputContract.IME_KEY_GAP_MS,
+                InputContract.IME_KEY_DWELL_MS,
+            ),
+            scheduler.delays,
+        )
+        assertTrue(c.isImeInputIdle)
+    }
+
+    @Test fun `IME text delete and editor action share one FIFO`() {
+        val sink = RecordingSink()
+        val scheduler = ManualImeScheduler()
+        val c = InputContract(sink, scheduler)
+        c.attach(sessionId = null, generation = 1)
+        c.imeOpened(1)
+
+        c.imeCommit("a", 1)
+        c.imeDelete(1, 1)
+        c.imeKeyTap(KeyEvent.KEYCODE_ENTER, 1)
+        scheduler.drain()
+
+        assertEquals(6, sink.keyEventCount())
+        assertEquals(
+            listOf(
+                KeyEvent.KEYCODE_A to true,
+                KeyEvent.KEYCODE_A to false,
+                KeyEvent.KEYCODE_DEL to true,
+                KeyEvent.KEYCODE_DEL to false,
+                KeyEvent.KEYCODE_ENTER to true,
+                KeyEvent.KEYCODE_ENTER to false,
+            ),
+            sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode to it.pressed },
+        )
+        assertEquals(listOf(50L, 10L, 50L, 10L, 50L), scheduler.delays)
+        assertTrue(c.isImeInputIdle)
+    }
+
+    @Test fun `release cancels pending IME pulses without a late event`() {
+        val sink = RecordingSink()
+        val scheduler = ManualImeScheduler()
+        val c = InputContract(sink, scheduler)
+        c.attach(sessionId = null, generation = 1)
+        c.imeOpened(1)
+
+        c.imeCommit("aa", 1)
+        assertEquals(1, sink.keyEventCount())
+        val release = c.releaseAll(InputContract.ReleaseReason.ON_PAUSE)
+        assertEquals(1, release.keyCount)
+        assertEquals(2, sink.keyEventCount())
+        scheduler.drain()
+        assertEquals(2, sink.events.size)
+        assertTrue(c.isImeInputIdle)
+    }
+
+    @Test fun `IME close releases a mid-dwell key exactly once`() {
+        val sink = RecordingSink()
+        val scheduler = ManualImeScheduler()
+        val c = InputContract(sink, scheduler)
+        c.attach(sessionId = null, generation = 1)
+        c.imeOpened(1)
+
+        c.imeCommit("a", 1)
+        c.imeClosed(1)
+        assertEquals(
+            listOf(KeyEvent.KEYCODE_A to true, KeyEvent.KEYCODE_A to false),
+            sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode to it.pressed },
+        )
+        scheduler.drain()
+        assertEquals(2, sink.keyEventCount())
+        assertTrue(c.isImeInputIdle)
+    }
+
+    @Test fun `pause during inter-key gap prevents the next down`() {
+        val sink = RecordingSink()
+        val scheduler = ManualImeScheduler()
+        val c = InputContract(sink, scheduler)
+        c.attach(sessionId = null, generation = 1)
+        c.imeOpened(1)
+
+        c.imeCommit("ab", 1)
+        scheduler.runNext() // A up; gap callback is now pending.
+        c.releaseAll(InputContract.ReleaseReason.ON_PAUSE)
+        scheduler.drain()
+        assertEquals(2, sink.keyEventCount())
+        assertTrue(c.isImeInputIdle)
+    }
+
+    @Test fun `detach is idempotent and rejects retained IME connections`() {
+        val sink = RecordingSink()
+        val scheduler = ManualImeScheduler()
+        val c = InputContract(sink, scheduler)
+        c.attach(sessionId = null, generation = 1)
+        c.imeOpened(1)
+        c.imeCommit("a", 1)
+
+        assertEquals(1, c.detach().keyCount)
+        assertEquals(0, c.detach().keyCount)
+        val rejected = c.imeCommit("b", 1)
+        assertEquals(ImeCharMap.Rejection.STALE_GENERATION, rejected.rejection)
+        scheduler.drain()
+        assertEquals(2, sink.keyEventCount())
+    }
+
+    @Test fun `old callback cannot interfere with a new generation queue`() {
+        val sink = RecordingSink()
+        val scheduler = ManualImeScheduler()
+        val c = InputContract(sink, scheduler)
+        c.attach(sessionId = null, generation = 1)
+        c.imeOpened(1)
+        c.imeCommit("a", 1)
+
+        c.attach(sessionId = null, generation = 2)
+        c.imeOpened(2)
+        c.imeCommit("b", 2)
+        scheduler.drain()
+
+        assertEquals(
+            listOf(
+                KeyEvent.KEYCODE_A to true,
+                KeyEvent.KEYCODE_A to false,
+                KeyEvent.KEYCODE_B to true,
+                KeyEvent.KEYCODE_B to false,
+            ),
+            sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode to it.pressed },
+        )
+        assertTrue(c.isImeInputIdle)
+    }
+
+    @Test fun `IME queue backpressure rejects whole operations`() {
+        val sink = RecordingSink()
+        val scheduler = ManualImeScheduler()
+        val c = InputContract(sink, scheduler)
+        c.attach(sessionId = null, generation = 1)
+        c.imeOpened(1)
+
+        assertTrue(c.imeCommit("a".repeat(InputContract.MAX_PENDING_IME_PULSES), 1).allAccepted)
+        assertEquals(ImeCharMap.Rejection.QUEUE_FULL, c.imeCommit("b", 1).rejection)
+        assertEquals(0, c.imeDelete(1, 1))
+        assertFalse(c.imeKeyTap(KeyEvent.KEYCODE_ENTER, 1))
+        assertEquals(1, sink.keyEventCount())
+    }
+
+    @Test fun `IME input is rejected outside an active editor session`() {
         val (c, sink) = newContract()
+        assertEquals(ImeCharMap.Rejection.IME_INACTIVE, c.imeCommit("a", 1).rejection)
+        assertEquals(0, c.imeDelete(1, 1))
+        assertFalse(c.imeKeyTap(KeyEvent.KEYCODE_ENTER, 1))
+        assertTrue(sink.events.isEmpty())
+    }
+
+    @Test fun `IME commit rejects unsupported characters without partial injection`() {
+        val (c, sink) = newImeContract()
         val result = c.imeCommit("a中b", 1)
         // Atomicity: the entire commit is rejected because '中' is unsupported.
         // Zero key events are injected (no 'a', no 'b', no partial sequence).
@@ -340,7 +533,7 @@ class InputContractTest {
     }
 
     @Test fun `IME commit atomicity - valid commit after rejected still succeeds`() {
-        val (c, sink) = newContract()
+        val (c, sink) = newImeContract()
         // First: rejected commit injects nothing.
         val rejected = c.imeCommit("a中b", 1)
         assertFalse(rejected.allAccepted)
@@ -353,7 +546,7 @@ class InputContractTest {
     }
 
     @Test fun `IME commit atomicity - multiple unsupported all reported`() {
-        val (c, sink) = newContract()
+        val (c, sink) = newImeContract()
         // Use BMP-only unsupported chars (no surrogate pairs) for exact counting.
         val result = c.imeCommit("à中éñ", 1)
         assertFalse(result.allAccepted)
@@ -367,7 +560,7 @@ class InputContractTest {
     }
 
     @Test fun `IME commit atomicity - no partial WM_CHAR sequence`() {
-        val (c, sink) = newContract()
+        val (c, sink) = newImeContract()
         // 'a' is supported, '中' is not → entire "a中" rejected, no 'a' injected.
         c.imeCommit("a中", 1)
         assertEquals("no partial injection", 0, sink.events.size)
@@ -377,7 +570,7 @@ class InputContractTest {
     }
 
     @Test fun `IME commit atomicity - final state neutral after rejected`() {
-        val (c, sink) = newContract()
+        val (c, sink) = newImeContract()
         c.imeCommit("a中b", 1)
         // No keys/buttons should be held after the rejected commit.
         val report = c.releaseAll(InputContract.ReleaseReason.EXPLICIT_RELEASE_INPUT)
@@ -386,7 +579,7 @@ class InputContractTest {
     }
 
     @Test fun `stale-generation IME commit is rejected`() {
-        val (c, sink) = newContract(gen = 1)
+        val (c, sink) = newImeContract(gen = 1)
         val result = c.imeCommit("abc", generation = 99)
         assertEquals(0, result.accepted.size)
         assertTrue(sink.events.isEmpty())
@@ -403,7 +596,7 @@ class InputContractTest {
     }
 
     @Test fun `empty IME commit is a no-op`() {
-        val (c, sink) = newContract()
+        val (c, sink) = newImeContract()
         val result = c.imeCommit("", 1)
         assertTrue(result.allAccepted)
         assertEquals(0, result.accepted.size)
@@ -411,7 +604,7 @@ class InputContractTest {
     }
 
     @Test fun `IME delete injects backspace pairs`() {
-        val (c, sink) = newContract()
+        val (c, sink) = newImeContract()
         val deleted = c.imeDelete(3, 1)
         assertEquals(3, deleted)
         val keyEvents = sink.events.filterIsInstance<SinkEvent.Key>()
@@ -419,19 +612,16 @@ class InputContractTest {
         assertEquals(6, keyEvents.size)
     }
 
-    @Test fun `IME commit ordering is deterministic with keyboard events`() {
-        val (c, sink) = newContract()
-        // Inject a keyboard key, then commit IME text, then another key.
-        c.key(0, android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_A), 1)
+    @Test fun `IME commit ordering is deterministic with editor action`() {
+        val (c, sink) = newImeContract()
         c.imeCommit("b", 1)
-        c.key(0, android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_A), 1)
-        // The order must be: A-DOWN, b-DOWN, b-UP, A-UP — deterministic.
+        c.imeKeyTap(KeyEvent.KEYCODE_ENTER, 1)
         val keys = sink.events.filterIsInstance<SinkEvent.Key>()
         assertEquals(4, keys.size)
     }
 
     @Test fun `IME commit within max length succeeds`() {
-        val (c, _) = newContract()
+        val (c, _) = newImeContract()
         val text = "a".repeat(ImeCharMap.MAX_COMMIT_LENGTH)
         val result = c.imeCommit(text, 1)
         assertEquals(ImeCharMap.MAX_COMMIT_LENGTH, result.accepted.size)

@@ -113,12 +113,15 @@ object ImeCharMap {
     data class ImeCommitResult(
         val accepted: List<Mapping>,
         val rejected: List<Int>,
+        val rejection: Rejection? = null,
     ) {
         /** True if every character was supported. */
-        val allAccepted: Boolean get() = rejected.isEmpty()
+        val allAccepted: Boolean get() = rejected.isEmpty() && rejection == null
         /** Number of accepted characters. */
         val acceptedCount: Int get() = accepted.size
     }
+
+    enum class Rejection { STALE_GENERATION, IME_INACTIVE, QUEUE_FULL }
 
     /**
      * Map a committed-text string to the keycode+shift sequence. Characters

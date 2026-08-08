@@ -90,12 +90,17 @@ class ClientImeView(
             beforeImeInput()
             val result = contractProvider().imeCommit(text.toString(), generationProvider())
             if (!result.allAccepted) {
-                android.util.Log.w(TAG, "IME commit rejected codepoints=${result.rejected}")
-                val codepoints = result.rejected.take(4).joinToString(", ") { "U+%04X".format(it) }
+                android.util.Log.w(TAG, "IME commit rejected reason=${result.rejection} codepoints=${result.rejected}")
+                val feedback = if (result.rejection != null) {
+                    "Keyboard input unavailable: ${result.rejection.name.lowercase().replace('_', ' ')}"
+                } else {
+                    val codepoints = result.rejected.take(4).joinToString(", ") { "U+%04X".format(it) }
+                    "Unsupported text character(s): $codepoints"
+                }
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                     android.widget.Toast.makeText(
                         view.context,
-                        "Unsupported text character(s): $codepoints",
+                        feedback,
                         android.widget.Toast.LENGTH_SHORT,
                     ).show()
                 }
@@ -105,8 +110,8 @@ class ClientImeView(
 
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
             beforeImeInput()
-            contractProvider().imeDelete(beforeLength, generationProvider())
-            return true
+            val requested = beforeLength.coerceAtLeast(0)
+            return contractProvider().imeDelete(requested, generationProvider()) == requested
         }
 
         override fun performEditorAction(actionCode: Int): Boolean {
@@ -116,20 +121,12 @@ class ClientImeView(
                     EditorInfo.IME_ACTION_NEXT,
                     EditorInfo.IME_ACTION_SEARCH,
                     EditorInfo.IME_ACTION_SEND,
-                )) return false
+            )) return false
             beforeImeInput()
-            val now = android.os.SystemClock.uptimeMillis()
-            val down = android.view.KeyEvent(
-                now, now, android.view.KeyEvent.ACTION_DOWN,
-                android.view.KeyEvent.KEYCODE_ENTER, 0,
+            return contractProvider().imeKeyTap(
+                android.view.KeyEvent.KEYCODE_ENTER,
+                generationProvider(),
             )
-            val up = android.view.KeyEvent(
-                now, now + 1, android.view.KeyEvent.ACTION_UP,
-                android.view.KeyEvent.KEYCODE_ENTER, 0,
-            )
-            val contract = contractProvider()
-            return contract.key(InputContract.IME_SOURCE, down, generationProvider()) &&
-                contract.key(InputContract.IME_SOURCE, up, generationProvider())
         }
 
         override fun finishComposingText(): Boolean = true

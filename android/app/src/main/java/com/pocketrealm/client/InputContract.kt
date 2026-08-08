@@ -18,6 +18,15 @@ fun interface InputSink {
     fun inject(event: SinkEvent)
 }
 
+/**
+ * Schedules the next step of a serialized IME key pulse without blocking the
+ * Android UI thread. Production uses the display View's main-loop scheduler;
+ * host tests may use the immediate default or a deterministic fake.
+ */
+fun interface ImePulseScheduler {
+    fun postDelayed(delayMillis: Long, action: () -> Unit)
+}
+
 /** Pointer button codes the sink understands (mirrors winlator's set). */
 enum class SinkButton { LEFT, MIDDLE, RIGHT, SCROLL_UP, SCROLL_DOWN, SCROLL_CLICK_LEFT, SCROLL_CLICK_RIGHT }
 
@@ -26,7 +35,11 @@ sealed class SinkEvent {
     data class PointerMove(val x: Int, val y: Int) : SinkEvent()
     data class PointerMoveDelta(val dx: Int, val dy: Int) : SinkEvent()
     data class PointerButton(val button: SinkButton, val pressed: Boolean) : SinkEvent()
-    data class Key(val event: KeyEvent) : SinkEvent()
+    data class Key(
+        val event: KeyEvent,
+        val logicalKeyCode: Int = event.keyCode,
+        val pressed: Boolean = event.action == KeyEvent.ACTION_DOWN,
+    ) : SinkEvent()
 }
 
 /** Production sink: forwards each [SinkEvent] to the existing XServer primitives. */
@@ -83,6 +96,7 @@ class XServerInputSink(private val xServer: XServer) : InputSink {
  */
 class InputContract(
     private val sink: InputSink,
+    private val imeScheduler: ImePulseScheduler = ImePulseScheduler { _, action -> action() },
 ) {
     /** Logical pointer buttons the contract understands. */
     enum class PointerButton { LEFT, MIDDLE, RIGHT }
@@ -125,6 +139,7 @@ class InputContract(
     // ---- generation/session ownership -------------------------------------
     @Volatile private var activeGeneration: Long = 0L
     @Volatile private var activeSession: UUID? = null
+    @Volatile private var acceptingInput: Boolean = false
     @Volatile private var profile: InputProfile = InputProfile.DEFAULT
     @Volatile private var profileReset: Boolean = false
 
@@ -138,6 +153,11 @@ class InputContract(
     // concurrent Android dispatch threads.
     private val lock = Any()
     private val sources = LinkedHashMap<Int, SourceState>()
+    private data class ImePulse(val keyCode: Int, val metaState: Int)
+    private val imeQueue = java.util.ArrayDeque<ImePulse>()
+    private var imePulseEpoch = 0L
+    private var imeStepScheduled = false
+    private var imeInFlightKey: Int? = null
 
     /**
      * Attach this contract to a new display/client generation. Any pressed
@@ -164,6 +184,7 @@ class InputContract(
         val report = releaseAllLocked(ReleaseReason.GENERATION_REPLACED)
         activeSession = sessionId
         activeGeneration = generation
+        acceptingInput = true
         // A new display generation must not inherit the previous editor's
         // capture/suspension state.
         imeActive = false
@@ -175,6 +196,21 @@ class InputContract(
             InputProfile.DEFAULT.copy(aspectIdentity = aspectIdentity)
         }
         report
+    }
+
+    /**
+     * Permanently detach this contract from its display host. The operation is
+     * idempotent and atomically prevents every later event before releasing
+     * held state and invalidating delayed IME callbacks.
+     */
+    fun detach(): ReleaseReport = synchronized(lock) {
+        if (!acceptingInput) {
+            return ReleaseReport(ReleaseReason.CLOSE, emptyList(), 0, 0, rejectedStale.get())
+        }
+        acceptingInput = false
+        imeActive = false
+        activeSession = null
+        releaseAllLocked(ReleaseReason.CLOSE)
     }
 
     /** Currently active generation; 0 before the first [attach]. */
@@ -192,8 +228,7 @@ class InputContract(
     /** Replace the profile for the current generation after releasing held input. */
     fun switchProfile(newProfile: InputProfile, aspectIdentity: String, generation: Long): ReleaseReport =
         synchronized(lock) {
-            if (generation != activeGeneration) {
-                rejectedStale.incrementAndGet()
+            if (!acceptLocked(generation)) {
                 return ReleaseReport(ReleaseReason.GENERATION_REPLACED, emptyList(), 0, 0, rejectedStale.get())
             }
             val report = releaseAllLocked(ReleaseReason.EXPLICIT_RELEASE_INPUT)
@@ -224,8 +259,8 @@ class InputContract(
      * verified path); the contract only stamps and injects.
      */
     fun pointerAbsolute(src: Int, x: Int, y: Int, generation: Long) {
-        if (!accept(src, generation)) return
         synchronized(lock) {
+            if (!acceptLocked(generation)) return
             if (imeActive) return
             sink.inject(SinkEvent.PointerMove(x, y))
         }
@@ -233,8 +268,8 @@ class InputContract(
 
     /** Relative pointer motion (camera-look / captured mouse). */
     fun pointerRelative(src: Int, dx: Int, dy: Int, generation: Long) {
-        if (!accept(src, generation)) return
         synchronized(lock) {
+            if (!acceptLocked(generation)) return
             if (imeActive) return
             sink.inject(SinkEvent.PointerMoveDelta(dx, dy))
         }
@@ -248,8 +283,8 @@ class InputContract(
      * for buttons we forward only the state transition).
      */
     fun pointerButton(src: Int, button: PointerButton, pressed: Boolean, generation: Long) {
-        if (!accept(src, generation)) return
         synchronized(lock) {
+            if (!acceptLocked(generation)) return
             if (imeActive) return
             val st = sources.getOrPut(src) { SourceState() }
             if (pressed) {
@@ -277,9 +312,9 @@ class InputContract(
      *   none. Injected via winlator's scroll-click left/right buttons.
      */
     fun wheel(src: Int, vTicks: Int, hTicks: Int, generation: Long) {
-        if (!accept(src, generation)) return
         if (vTicks == 0 && hTicks == 0) return
         synchronized(lock) {
+            if (!acceptLocked(generation)) return
             if (imeActive) return
             // Vertical: repeat per tick to preserve direction granularity.
             repeat(kotlin.math.abs(vTicks)) {
@@ -310,18 +345,9 @@ class InputContract(
      * returns `keyboard.onKeyEvent`'s result).
      */
     fun key(src: Int, event: KeyEvent, generation: Long): Boolean {
-        if (!accept(src, generation)) return false
-        val pressed = event.action == KeyEvent.ACTION_DOWN
         synchronized(lock) {
-            val st = sources.getOrPut(src) { SourceState() }
-            if (pressed) {
-                st.keys.add(event.keyCode)
-            } else {
-                if (event.keyCode !in st.keys) return false // unmatched UP: drop, no synth
-                st.keys.remove(event.keyCode)
-            }
-            sink.inject(SinkEvent.Key(event))
-            return true
+            if (!acceptLocked(generation)) return false
+            return keyLocked(src, event)
         }
     }
 
@@ -332,9 +358,11 @@ class InputContract(
      * keyboard source.
      */
     fun gamepadButton(src: Int, keyCode: Int, pressed: Boolean, generation: Long): Boolean {
-        if (imeActive) return false
         val logical = logicalGamepadKey(keyCode) ?: return false
-        return key(src, KeyEvent(if (pressed) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP, logical), generation)
+        return synchronized(lock) {
+            if (!acceptLocked(generation) || imeActive) return@synchronized false
+            keyLocked(src, KeyEvent(if (pressed) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP, logical))
+        }
     }
 
     /**
@@ -344,8 +372,8 @@ class InputContract(
      * neutral/no-op.
      */
     fun gamepadAxis(src: Int, axis: GamepadAxis, value: Float, generation: Long): Boolean {
-        if (!accept(src, generation)) return false
         synchronized(lock) {
+            if (!acceptLocked(generation)) return false
             if (imeActive) return false
             val bounded = value.coerceIn(-1f, 1f)
             val st = sources.getOrPut(src) { SourceState() }
@@ -376,13 +404,12 @@ class InputContract(
      * @param generation the active generation; stale = no-op
      * @return the release report for what was held, or a zero report if stale
      */
-    fun imeOpened(generation: Long): ReleaseReport {
-        if (generation != activeGeneration) {
-            rejectedStale.incrementAndGet()
+    fun imeOpened(generation: Long): ReleaseReport = synchronized(lock) {
+        if (!acceptLocked(generation)) {
             return ReleaseReport(ReleaseReason.IME_OPENED, emptyList(), 0, 0, rejectedStale.get())
         }
         imeActive = true
-        return releaseAll(ReleaseReason.IME_OPENED)
+        releaseAllLocked(ReleaseReason.IME_OPENED)
     }
 
     /**
@@ -391,12 +418,14 @@ class InputContract(
      *
      * @param generation the active generation; stale = no-op
      */
-    fun imeClosed(generation: Long) {
-        if (generation != activeGeneration) {
-            rejectedStale.incrementAndGet()
-            return
-        }
+    fun imeClosed(generation: Long) = synchronized(lock) {
+        if (!acceptLocked(generation)) return@synchronized
         imeActive = false
+        cancelImeQueueLocked()
+        val state = sources.remove(IME_SOURCE)
+        val keys = state?.keys?.toList()?.sorted().orEmpty()
+        for (key in keys) injectAndroidKey(key, pressed = false)
+        releasedKeys.addAndGet(keys.size.toLong())
     }
 
     /** True while the IME is open (movement keys released, camera suspended). */
@@ -411,10 +440,10 @@ class InputContract(
      * as DOWN+UP pairs through the same keyboard path as physical keys.
      *
      * **Atomicity (requirement):** if any character is unsupported, the entire
-     * commit is rejected: zero characters are injected, all unsupported
+     * commit is rejected: zero characters are queued, all unsupported
      * codepoints are reported in the result, and no keys/modifiers/buttons are
-     * left held. This prevents partial-injection corruption (e.g. committing
-     * "a中b" injects nothing, not "ab").
+     * left held. Accepted keys are serialized with a real dwell so frame-polled
+     * DirectInput consumers cannot miss an instantaneous DOWN+UP pair.
      *
      * Empty commits are no-ops. The maximum commit length is enforced before
      * injection. Generation gating and deterministic ordering are preserved.
@@ -424,53 +453,133 @@ class InputContract(
      *   was empty
      */
     fun imeCommit(text: String, generation: Long): ImeCharMap.ImeCommitResult {
-        if (generation != activeGeneration) {
-            rejectedStale.incrementAndGet()
-            return ImeCharMap.ImeCommitResult(emptyList(), emptyList())
-        }
         val result = ImeCharMap.map(text)
-        // Atomicity: if any character is unsupported, reject the entire commit.
-        // Inject zero characters; report all unsupported codepoints.
-        if (!result.allAccepted) return result
-        // All characters supported: inject the complete string in order.
-        val now = android.os.SystemClock.uptimeMillis()
-        synchronized(lock) {
-            for (m in result.accepted) {
-                val (down, up) = ImeCharMap.keyEvents(m, now)
-                // Track the keycode per the IME's synthetic source id, then
-                // inject DOWN+UP through the verified keyboard path.
-                val st = sources.getOrPut(IME_SOURCE) { SourceState() }
-                // DOWN: track + inject (forward path uses the real KeyEvent).
-                st.keys.add(m.keyCode)
-                sink.inject(SinkEvent.Key(down))
-                // UP: untrack + inject.
-                st.keys.remove(m.keyCode)
-                sink.inject(SinkEvent.Key(up))
+        return synchronized(lock) {
+            if (!acceptLocked(generation)) {
+                return@synchronized ImeCharMap.ImeCommitResult(
+                    emptyList(), emptyList(), ImeCharMap.Rejection.STALE_GENERATION,
+                )
             }
+            if (!imeActive) {
+                return@synchronized result.copy(rejection = ImeCharMap.Rejection.IME_INACTIVE)
+            }
+            // Atomicity: if any character is unsupported, reject the entire
+            // commit after the lifecycle/session gate and queue nothing.
+            if (!result.allAccepted) return@synchronized result
+            if (pendingImePulseCountLocked() + result.accepted.size > MAX_PENDING_IME_PULSES) {
+                return@synchronized result.copy(rejection = ImeCharMap.Rejection.QUEUE_FULL)
+            }
+            for (m in result.accepted) {
+                val meta = if (m.shift) {
+                    KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON
+                } else 0
+                imeQueue.addLast(ImePulse(m.keyCode, meta))
+            }
+            startImeQueueLocked(generation)
+            result
         }
-        return result
     }
 
     /**
-     * Delete [count] characters via Backspace. Each deletion is a DOWN+UP pair
-     * on KEYCODE_DEL, generation-gated.
+     * Delete [count] characters via serialized Backspace pulses. Delete shares
+     * the same FIFO as committed text and editor actions, so it cannot overtake
+     * a pending commit.
      */
     fun imeDelete(count: Int, generation: Long): Int {
-        if (generation != activeGeneration) {
-            rejectedStale.incrementAndGet()
-            return 0
+        if (count !in 0..ImeCharMap.MAX_COMMIT_LENGTH) return 0
+        val toDelete = count
+        return synchronized(lock) {
+            if (!acceptLocked(generation) || !imeActive) return@synchronized 0
+            if (pendingImePulseCountLocked() + toDelete > MAX_PENDING_IME_PULSES) {
+                return@synchronized 0
+            }
+            repeat(toDelete) { imeQueue.addLast(ImePulse(KeyEvent.KEYCODE_DEL, 0)) }
+            startImeQueueLocked(generation)
+            toDelete
         }
-        val toDelete = count.coerceAtLeast(0)
+    }
+
+    /** Queue one IME-owned key (for example Enter) behind pending text. */
+    fun imeKeyTap(keyCode: Int, generation: Long): Boolean {
+        return synchronized(lock) {
+            if (!acceptLocked(generation) || !imeActive) return@synchronized false
+            if (pendingImePulseCountLocked() >= MAX_PENDING_IME_PULSES) return@synchronized false
+            imeQueue.addLast(ImePulse(keyCode, 0))
+            startImeQueueLocked(generation)
+            true
+        }
+    }
+
+    /** True when no committed-text, delete, or editor-action pulse is pending. */
+    val isImeInputIdle: Boolean
+        get() = synchronized(lock) {
+            !imeStepScheduled && imeInFlightKey == null && imeQueue.isEmpty()
+        }
+
+    private fun pendingImePulseCountLocked(): Int =
+        imeQueue.size + if (imeInFlightKey == null) 0 else 1
+
+    private fun startImeQueueLocked(generation: Long) {
+        if (imeStepScheduled || imeQueue.isEmpty()) return
+        imeStepScheduled = true
+        beginImePulseLocked(imePulseEpoch, generation)
+    }
+
+    private fun beginImePulseLocked(epoch: Long, generation: Long) {
+        if (epoch != imePulseEpoch || !acceptingInput || generation != activeGeneration || !imeActive) return
+        val pulse = if (imeQueue.isEmpty()) null else imeQueue.removeFirst()
+        if (pulse == null) {
+            imeStepScheduled = false
+            return
+        }
         val now = android.os.SystemClock.uptimeMillis()
-        synchronized(lock) {
-            repeat(toDelete) {
-                val down = android.view.KeyEvent(now, now, android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DEL, 0)
-                val up = android.view.KeyEvent(now, now + 1, android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_DEL, 0)
-                sink.inject(SinkEvent.Key(down))
-                sink.inject(SinkEvent.Key(up))
+        val state = sources.getOrPut(IME_SOURCE) { SourceState() }
+        state.keys.add(pulse.keyCode)
+        imeInFlightKey = pulse.keyCode
+        sink.inject(SinkEvent.Key(
+            KeyEvent(now, now, KeyEvent.ACTION_DOWN, pulse.keyCode, 0, pulse.metaState),
+            logicalKeyCode = pulse.keyCode,
+            pressed = true,
+        ))
+        imeScheduler.postDelayed(IME_KEY_DWELL_MS) {
+            synchronized(lock) {
+                if (epoch != imePulseEpoch || !acceptingInput || generation != activeGeneration || !imeActive) {
+                    return@synchronized
+                }
+                val current = sources[IME_SOURCE]
+                if (current?.keys?.remove(pulse.keyCode) == true) {
+                    val releaseAt = android.os.SystemClock.uptimeMillis()
+                    sink.inject(SinkEvent.Key(
+                        KeyEvent(releaseAt, releaseAt, KeyEvent.ACTION_UP, pulse.keyCode, 0, pulse.metaState),
+                        logicalKeyCode = pulse.keyCode,
+                        pressed = false,
+                    ))
+                }
+                if (current != null && current.keys.isEmpty() && current.buttons.isEmpty()) {
+                    sources.remove(IME_SOURCE)
+                }
+                imeInFlightKey = null
+                if (imeQueue.isEmpty()) {
+                    imeStepScheduled = false
+                } else {
+                    imeScheduler.postDelayed(IME_KEY_GAP_MS) {
+                        synchronized(lock) {
+                            if (epoch == imePulseEpoch && acceptingInput &&
+                                generation == activeGeneration && imeActive) {
+                                beginImePulseLocked(epoch, generation)
+                            }
+                        }
+                    }
+                }
             }
         }
-        return toDelete
+    }
+
+    private fun cancelImeQueueLocked() {
+        imePulseEpoch++
+        imeQueue.clear()
+        imeStepScheduled = false
+        imeInFlightKey = null
     }
 
     /**
@@ -497,6 +606,7 @@ class InputContract(
      */
     fun releaseSource(src: Int, reason: ReleaseReason = ReleaseReason.DEVICE_REMOVED): ReleaseReport =
         synchronized(lock) {
+            if (src == IME_SOURCE) cancelImeQueueLocked()
             val st = sources.remove(src) ?: return ReleaseReport(reason, emptyList(), 0, 0, rejectedStale.get())
             val buttons = st.buttons.toList().sortedWith(BUTTON_RELEASE_ORDER)
             for (b in buttons) sink.inject(SinkEvent.PointerButton(b.toSink(), pressed = false))
@@ -509,6 +619,7 @@ class InputContract(
         }
 
     private fun releaseAllLocked(reason: ReleaseReason): ReleaseReport {
+        cancelImeQueueLocked()
         val all = sources.toMap()
         sources.clear()
         var totalKeys = 0
@@ -532,6 +643,19 @@ class InputContract(
 
     // ---- internal ---------------------------------------------------------
 
+    private fun keyLocked(src: Int, event: KeyEvent): Boolean {
+        val pressed = event.action == KeyEvent.ACTION_DOWN
+        val state = sources.getOrPut(src) { SourceState() }
+        if (pressed) {
+            state.keys.add(event.keyCode)
+        } else {
+            if (event.keyCode !in state.keys) return false
+            state.keys.remove(event.keyCode)
+        }
+        sink.inject(SinkEvent.Key(event))
+        return true
+    }
+
     /**
      * Generation + ordering gate. Returns false (and increments the stale
      * counter) when the event's generation differs from the active one. Does NOT
@@ -540,8 +664,8 @@ class InputContract(
      * (non-monotonic) eventTime; it preserves per-source DOWN-before-UP via the
      * tracked pressed-state sets alone.
      */
-    private fun accept(src: Int, generation: Long): Boolean {
-        if (generation != activeGeneration) {
+    private fun acceptLocked(generation: Long): Boolean {
+        if (!acceptingInput || generation != activeGeneration) {
             rejectedStale.incrementAndGet()
             return false
         }
@@ -556,7 +680,11 @@ class InputContract(
      */
     private fun injectAndroidKey(keyCode: Int, pressed: Boolean) {
         val action = if (pressed) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
-        sink.inject(SinkEvent.Key(KeyEvent(action, keyCode)))
+        sink.inject(SinkEvent.Key(
+            KeyEvent(action, keyCode),
+            logicalKeyCode = keyCode,
+            pressed = pressed,
+        ))
     }
 
     private fun updateAxisKeyLocked(
@@ -621,6 +749,9 @@ class InputContract(
 
         /** Synthetic source id for IME-committed text injection. */
         internal const val IME_SOURCE: Int = -2
+        internal const val IME_KEY_DWELL_MS: Long = 50L
+        internal const val IME_KEY_GAP_MS: Long = 10L
+        internal const val MAX_PENDING_IME_PULSES: Int = 256
         private const val GAMEPAD_CAMERA_SCALE = 8f
 
         internal fun logicalGamepadKey(keyCode: Int): Int? = when (keyCode) {

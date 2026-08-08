@@ -7,6 +7,7 @@ import android.system.OsConstants
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.inputmethod.EditorInfo
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -37,6 +38,7 @@ import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -132,6 +134,13 @@ class O14TouchOverlayAcceptanceTest {
         compose.waitUntil(5_000) { host!!.inputContract.isImeActive }
         compose.runOnIdle { host!!.onPause() }
         compose.waitUntil(5_000) { !host!!.inputContract.isImeActive }
+        var lateCommitAccepted = true
+        compose.runOnIdle {
+            val retained = requireNotNull(host!!.imeView.onCreateInputConnection(EditorInfo()))
+            lateCommitAccepted = retained.commitText("late", 1)
+        }
+        assertFalse("paused host accepted a late retained-IME commit", lateCommitAccepted)
+        assertTrue(host!!.inputContract.isImeInputIdle)
         compose.runOnIdle { host!!.onResume() }
 
         compose.onNodeWithTag("touch-pointer-capture").performClick()
@@ -185,6 +194,26 @@ class O14TouchOverlayAcceptanceTest {
         assertTrue("physical-mouse secondary button route did not reach Win32", diagnostics.rightButtonSeen)
         assertTrue("self-test did not close cleanly", diagnostics.cleanExit)
 
+        // Exercise the real off-main close path used by the AIDL release
+        // callback and race it against a second lifecycle disposer. Exactly one
+        // caller owns main-thread View/IMM/connector cleanup; later closes are
+        // harmless no-ops.
+        val closeStart = java.util.concurrent.CountDownLatch(1)
+        val closeFailure = java.util.concurrent.atomic.AtomicReference<Throwable?>()
+        val closers = List(2) {
+            Thread {
+                runCatching {
+                    closeStart.await()
+                    host!!.close()
+                }.exceptionOrNull()?.let { closeFailure.compareAndSet(null, it) }
+            }.apply { start() }
+        }
+        closeStart.countDown()
+        closers.forEach { it.join(10_000) }
+        assertTrue("concurrent host close did not finish", closers.none { it.isAlive })
+        closeFailure.get()?.let { throw AssertionError("concurrent host close failed", it) }
+        compose.runOnIdle { host!!.close() }
+
         val evidence = JSONObject()
             .put("schema", 1)
             .put("test", "O14TouchOverlayAcceptanceTest")
@@ -193,6 +222,8 @@ class O14TouchOverlayAcceptanceTest {
             .put("overlayHideShow", true)
             .put("productionImeRequested", true)
             .put("pauseClosedImeAndResumedInput", true)
+            .put("pausedLateImeRejected", true)
+            .put("concurrentOffMainCloseIdempotent", true)
             .put("pointerCaptureRoundTrip", true)
             .put("syntheticGamepadMotion", true)
             .put("syntheticGamepadButton", true)

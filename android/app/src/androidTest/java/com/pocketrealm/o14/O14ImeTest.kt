@@ -135,7 +135,7 @@ class O14ImeTest {
         // This is the ONLY committed text that should produce WM_CHAR for the
         // phrase, enabling exact codepoint-sequence verification.
         assertTrue("IME commit should be accepted", imeConnection.commitText(ImeCharMap.TEST_PHRASE, 1))
-        delay(500)
+        awaitImeIdle()
 
         // ---- 3. IME Enter (KEYCODE_ENTER, not committed text) ---------------
         // Enter is a key action (KEYCODE_ENTER → WM_CHAR codepoint 13 = CR),
@@ -143,13 +143,13 @@ class O14ImeTest {
         // because newline is not in the printable supported set. Enter must be
         // sent as a dedicated key event through the contract's key path.
         assertTrue("IME action Done should inject Enter", imeConnection.performEditorAction(EditorInfo.IME_ACTION_DONE))
-        delay(300)
+        awaitImeIdle()
 
         // ---- 4. IME Backspace (delete) --------------------------------------
         // Backspace maps to KEYCODE_DEL → WM_KEYDOWN(VK_BACK=8), NOT WM_CHAR.
         val delBefore = host!!.inputDiagnostics().rejectedStaleEventCount
         assertTrue("IME delete should be handled", imeConnection.deleteSurroundingText(2, 0))
-        delay(300)
+        awaitImeIdle()
 
         // ---- 5. Unsupported character rejection (atomicity) -----------------
         // Commit a string with a supported char + an unsupported char (U+4E2D 中).
@@ -160,7 +160,21 @@ class O14ImeTest {
         assertFalse("unsupported commit must be rejected", unsupportedAccepted)
         // A later valid commit still succeeds (proves contract wasn't corrupted).
         assertTrue("valid commit after rejected must succeed", imeConnection.commitText("ok", 1))
-        delay(300)
+        awaitImeIdle()
+
+        // ---- 5b. InputConnection backpressure is visible and atomic --------
+        assertFalse(
+            "oversized delete must not be partially queued",
+            imeConnection.deleteSurroundingText(ImeCharMap.MAX_COMMIT_LENGTH + 1, 0),
+        )
+        assertTrue(
+            "capacity-filling commit should be accepted atomically",
+            imeConnection.commitText("a".repeat(InputContract.MAX_PENDING_IME_PULSES), 1),
+        )
+        assertFalse(
+            "delete must report failure while the IME FIFO is full",
+            imeConnection.deleteSurroundingText(1, 0),
+        )
 
         // ---- 6. Close IME; verify neutral state -----------------------------
         instrumentation.runOnMainSync {
@@ -253,8 +267,8 @@ class O14ImeTest {
         // Atomicity: imeCommit("a中b") injected ZERO characters. '中' (U+4E2D)
         // must NOT appear in the CHAR stream. Critically, the 'a' from this
         // rejected commit must also NOT appear (no partial WM_CHAR sequence).
-        // The only 'a' (code 97) in the stream should be from the baseline
-        // keyboard and from "ok" — NOT from the rejected "a中b" commit.
+        // Any 'a' (code 97) in the stream comes from the baseline or the later
+        // queue-capacity probe — never from the rejected "a中b" commit.
         assertEquals(
             "unsupported commit 'a中b' should report 1 rejected char",
             1,
@@ -310,6 +324,7 @@ class O14ImeTest {
             .put("enterSeen", 13 in charCodepoints)
             .put("backspaceCharCount", backspaceCount)
             .put("unsupportedRejected", !unsupportedAccepted)
+            .put("inputConnectionBackpressureVisible", true)
             .put("unsupportedRejectedCode", 20013)
             .put("unsupported20013InChars", 20013 in charCodepoints)
             .put("finalModMask", modMask)
@@ -339,6 +354,12 @@ class O14ImeTest {
             return true
         }
         return false
+    }
+
+    private suspend fun awaitImeIdle(timeoutMs: Long = 10_000) {
+        withTimeout(timeoutMs) {
+            while (host?.inputContract?.isImeInputIdle != true) delay(10)
+        }
     }
 
     /** Count non-overlapping occurrences of [subsequence] in [list]. */
