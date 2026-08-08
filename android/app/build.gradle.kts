@@ -75,6 +75,11 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = false
+            // Runtime providers are pinned and verified as complete ELF
+            // artifacts. AGP's strip transform changes their bytes after the
+            // lockfile gate (and can alter loader behavior), so preserve every
+            // staged .so exactly as hashed by the Wine/MariaDB/realm manifests.
+            keepDebugSymbols += "**/*.so"
         }
     }
 
