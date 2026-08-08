@@ -69,6 +69,7 @@ class ClientDisplayHost(
     private val closeRetry = Runnable { attemptClose() }
     val windowVisible: Boolean get() = reportedWindow
     val rendererReady: Boolean get() = view.renderer.isSurfaceReady
+    val rendererSurfaceGeneration: Long get() = view.renderer.surfaceGeneration
 
     init {
         System.loadLibrary("winlator")

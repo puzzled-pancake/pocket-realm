@@ -382,6 +382,7 @@ class O12IntegratedRuntimeTest {
             IClientDisplayControl.Stub::asInterface,
         )
         val evidence = JSONArray()
+        var previousSurfaceGeneration = 0L
         try {
             normalizeStopped(supervisor.api)
             repeat(cycles) { index ->
@@ -391,11 +392,18 @@ class O12IntegratedRuntimeTest {
                 val status = JSONObject(display.api.status())
                 assertTrue("renderer was not ready before client launch: $status",
                     status.getBoolean("rendererReady"))
+                val surfaceGeneration = status.getLong("rendererSurfaceGeneration")
+                assertTrue("renderer did not publish a live surface generation: $status",
+                    surfaceGeneration > 0L)
+                assertTrue("renderer reused stale surface generation $surfaceGeneration",
+                    surfaceGeneration != previousSurfaceGeneration)
+                previousSurfaceGeneration = surfaceGeneration
                 assertTrue("client window was not mapped: $status", status.getBoolean("windowVisible"))
                 val (frame, nonBlack) = waitForVisibleDisplay(120_000)
                 evidence.put(JSONObject()
                     .put("cycle", index + 1)
                     .put("rendererReady", true)
+                    .put("rendererSurfaceGeneration", surfaceGeneration)
                     .put("width", frame.width)
                     .put("height", frame.height)
                     .put("nonBlackPixels", nonBlack))

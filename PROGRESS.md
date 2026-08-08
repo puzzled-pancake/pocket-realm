@@ -483,7 +483,12 @@ input, authenticated to the embedded realm, and advanced through realm and
 character-list loading; an 80-ms test-only pointer dwell likewise fixed the
 zero-duration synthetic-click blind spot. These are diagnostic advances, not
 UX-T01 PASS evidence: the fixed-time first-run choreography raced the realm
-wizard, and a later clean retry stopped at a black renderer before input.
+wizard, and the current clean renderer regression remains unresolved. The
+strict O12 visual gate fails before input: the GLX client creates context 7,
+creates its bounded 1x1 unmapped pbuffer, and returns success from two
+`glXMakeContextCurrent` calls, but the guest emits no
+`SWAP_DISPLAY_BUFFERS` request and the captured display remains unchanged.
+This is a current O14 blocker, not a change to the historical O07 PASS.
 The remaining acceptance work is a clean complete real-client touch-only
 UX-T01–T08 sequence (including orientation/resume) and named physical
 gamepad/keyboard/mouse hot-plug and restart qualification. O14 remains

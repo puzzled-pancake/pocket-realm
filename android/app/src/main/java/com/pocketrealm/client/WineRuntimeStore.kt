@@ -114,7 +114,7 @@ internal class WineRuntimeStore(private val context: Context) {
                 .put("renderer_build_id", ClientRuntimeContract.RENDERER_BUILD_ID)
                 .put("renderer_provider", JSONObject()
                     .put("client", "gladio-eaa2a8d")
-                    .put("client_sha256", "3344560af7565a32b25acbcd927a6b35cccbb5997f0280d444f87316b2510d06")
+                    .put("client_sha256", "7b60dafa5e071e11187c0936840201920e141160f0897609ce530cb6f69b60b6")
                     .put("server", "pocket-gladio-o07v1")
                     .put("server_sha256", "2d20db2c12b007b2251edce9421264ea168da0bb463718d9baa8f2c02403584f")
                     .put("api", "OpenGL 3.0 / GLSL 1.30 over GLES 3.0")

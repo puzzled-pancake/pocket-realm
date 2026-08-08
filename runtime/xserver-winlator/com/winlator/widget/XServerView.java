@@ -3,6 +3,7 @@ package com.winlator.widget;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.opengl.GLSurfaceView;
+import android.view.SurfaceHolder;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
@@ -26,5 +27,11 @@ public class XServerView extends GLSurfaceView {
 
     public GLRenderer getRenderer() {
         return renderer;
+    }
+
+    @Override
+    public void surfaceDestroyed(SurfaceHolder holder) {
+        renderer.onSurfaceDestroyed();
+        super.surfaceDestroyed(holder);
     }
 }

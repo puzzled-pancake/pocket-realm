@@ -3,8 +3,7 @@
 #include "gl_dsa.h"
 #include "sysvshared_memory.h"
 #include "request_handler.h"
-
-extern EGLContext globalEGLContext;
+#include "egl_context_registry.h"
 
 pthread_mutex_t glx_context_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -276,7 +275,8 @@ static void* requestHandlerThread(void* param) {
 
                 if (glxContext && context->glxContext != glxContext) {
                     destroyDisplayBuffers();
-                    eglMakeCurrent(eglGetDisplay(EGL_DEFAULT_DISPLAY), EGL_NO_SURFACE, EGL_NO_SURFACE, glxContext->eglContext);
+                    eglMakeCurrent(eglGetDisplay(EGL_DEFAULT_DISPLAY), EGL_NO_SURFACE,
+                                   EGL_NO_SURFACE, glxContext->eglContext);
                     context->glxContext = glxContext;
                     currentRenderer = &glxContext->renderer;
                     context->presentationSource = PRESENTATION_UNKNOWN;
@@ -406,7 +406,7 @@ GLXContext* createGLXContext(int contextId, GLXContext* sharedContext) {
     EGLBoolean success;
 
     EGLDisplay eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-    if (!eglDisplay) return NULL;
+    if (eglDisplay == EGL_NO_DISPLAY) return NULL;
 
     EGLint major, minor;
     success = eglInitialize(eglDisplay, &major, &minor);
@@ -417,16 +417,57 @@ GLXContext* createGLXContext(int contextId, GLXContext* sharedContext) {
     success = eglChooseConfig(eglDisplay, confAttribList, &eglConfig, 1, &numConfigs);
     if (!success || numConfigs != 1) return NULL;
 
-    EGLContext eglContext = eglCreateContext(eglDisplay, eglConfig, sharedContext ? sharedContext->eglContext : globalEGLContext, ctxAttribList);
+    EGLContext eglContext;
+    uint64_t shareGeneration = 0;
+    if (sharedContext) {
+        eglContext = eglCreateContext(
+            eglDisplay, eglConfig, sharedContext->eglContext, ctxAttribList);
+    }
+    else {
+        /* Keep surface invalidation from racing the creation of its first
+         * shared child. Once eglCreateContext succeeds the child keeps the
+         * share group alive even if Android later replaces the surface. */
+        pthread_mutex_lock(&globalEGLContextMutex);
+        EGLContext shareContext = globalEGLContext;
+        shareGeneration = globalEGLContextGeneration;
+        eglContext = shareContext == EGL_NO_CONTEXT || shareGeneration == 0
+            ? EGL_NO_CONTEXT
+            : eglCreateContext(eglDisplay, eglConfig, shareContext, ctxAttribList);
+        pthread_mutex_unlock(&globalEGLContextMutex);
+    }
+    if (eglContext == EGL_NO_CONTEXT) {
+        EGLint error = eglGetError();
+        __android_log_print(ANDROID_LOG_ERROR, "PR/Gladio",
+                            "EGL create failed context=%d shareGeneration=%llu error=0x%x",
+                            contextId, (unsigned long long)shareGeneration, error);
+        return NULL;
+    }
 
     GLXContext* context = calloc(1, sizeof(GLXContext));
+    if (!context) {
+        eglDestroyContext(eglDisplay, eglContext);
+        return NULL;
+    }
     context->eglContext = eglContext;
     context->renderer.contextId = contextId;
-    GLVertexArrayObject_setBound(&context->renderer.clientState, 0);
-    GLClientState_init(&context->renderer.clientState, sharedContext ? &sharedContext->renderer.clientState : NULL);
 
     GLX_CONTEXT_LOCK();
-    eglMakeCurrent(eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, context->eglContext);
+    success = eglMakeCurrent(
+        eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, context->eglContext);
+    if (!success) {
+        EGLint error = eglGetError();
+        GLX_CONTEXT_UNLOCK();
+        __android_log_print(ANDROID_LOG_ERROR, "PR/Gladio",
+                            "EGL make-current failed context=%d shareGeneration=%llu error=0x%x",
+                            contextId, (unsigned long long)shareGeneration, error);
+        eglDestroyContext(eglDisplay, eglContext);
+        free(context);
+        return NULL;
+    }
+    GLClientState_init(
+        &context->renderer.clientState,
+        sharedContext ? &sharedContext->renderer.clientState : NULL);
+    GLVertexArrayObject_setBound(&context->renderer.clientState, 0);
     GLRenderer_initOnEGLContext(&context->renderer);
     eglMakeCurrent(eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     GLX_CONTEXT_UNLOCK();

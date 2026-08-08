@@ -80,6 +80,7 @@ class ClientDisplayService : Service() {
             JSONObject().put("ok", true).put("prepared", host != null)
                 .put("windowVisible", host?.windowVisible == true)
                 .put("rendererReady", host?.rendererReady == true)
+                .put("rendererSurfaceGeneration", host?.rendererSurfaceGeneration ?: 0L)
                 .put("hasOwner", ownerToken != null)
         }
 

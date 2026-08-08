@@ -11,8 +11,11 @@
 
 #include "winlator.h"
 #include "file_utils.h"
+#include "egl_context_registry.h"
 
 EGLContext globalEGLContext = EGL_NO_CONTEXT;
+uint64_t globalEGLContextGeneration = 0;
+pthread_mutex_t globalEGLContextMutex = PTHREAD_MUTEX_INITIALIZER;
 
 JNIEXPORT jobjectArray JNICALL
 Java_com_winlator_core_GPUHelper_vkGetDeviceExtensions(JNIEnv *env, jclass obj) {
@@ -124,7 +127,28 @@ done:
     return version;
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_winlator_core_GPUHelper_setGlobalEGLContext(JNIEnv *env, jclass obj,
+                                                      jlong generation) {
+    EGLContext context = eglGetCurrentContext();
+    if (context == EGL_NO_CONTEXT || generation <= 0) return JNI_FALSE;
+
+    pthread_mutex_lock(&globalEGLContextMutex);
+    bool accepted = (uint64_t)generation > globalEGLContextGeneration;
+    if (accepted) {
+        globalEGLContext = context;
+        globalEGLContextGeneration = (uint64_t)generation;
+    }
+    pthread_mutex_unlock(&globalEGLContextMutex);
+    return accepted ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT void JNICALL
-Java_com_winlator_core_GPUHelper_setGlobalEGLContext(JNIEnv *env, jclass obj) {
-    globalEGLContext = eglGetCurrentContext();
+Java_com_winlator_core_GPUHelper_clearGlobalEGLContext(JNIEnv *env, jclass obj,
+                                                        jlong generation) {
+    pthread_mutex_lock(&globalEGLContextMutex);
+    if (generation > 0 && (uint64_t)generation == globalEGLContextGeneration) {
+        globalEGLContext = EGL_NO_CONTEXT;
+    }
+    pthread_mutex_unlock(&globalEGLContextMutex);
 }

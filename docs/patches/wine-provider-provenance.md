@@ -73,8 +73,8 @@ Final paired-runtime qualification is recorded in:
   adaptations are retained as normal in-tree source changes.
 - **GLX client source:** `https://github.com/brunodev85/gladio` commit
   `eaa2a8d6eda3a1a6af755370ea9fac6cf7792ac3`; built for native x86_64 glibc by
-  `tools/build_gladio_client.py` as `libGL.so.1` (SHA-256
-  `3344560af7565a32b25acbcd927a6b35cccbb5997f0280d444f87316b2510d06`).
+  `tools/build_gladio_client.py` as a 544456-byte `libGL.so.1` (SHA-256
+  `7b60dafa5e071e11187c0936840201920e141160f0897609ce530cb6f69b60b6`).
 - **License:** LGPL-2.1 (Winlator is LGPL-2.1; source retained in-tree for the
   source-offer obligation)
 - **schemas/sources.json id:** `xserver-winlator-ca3d735`
@@ -131,11 +131,20 @@ Final paired-runtime qualification is recorded in:
    `POCKET_GLADIO_X11_SOCKET`. Client and server use a private, explicit
    `(attribute index, kind, byte count, bytes)` record format, bounds-check every
    record, preserve BGRA VBO offsets, and upload transient client arrays through
-   per-attribute GLES VBOs. Shaders target the emulator's GLES 3.1 ceiling
+   per-attribute GLES VBOs. Signature-locked GLX pbuffer calls use bounded,
+   unmapped X drawables so WineD3D can complete its final shared-context probe.
+   Shaders target the emulator's GLES 3.1 ceiling
    (`#version 310 es`). The server advertises the qualified OpenGL 3.0 / GLSL
    1.30 subset: internal-format queries remain for WineD3D backbuffer format
    classification, while unsupported modern instancing/base-vertex, sampler,
    UBO, compute, and tessellation paths are withheld.
+
+   The pbuffer adaptation does not close the current O14 real-client renderer
+   regression. On the strict O12 visual gate, context 7 is created and made
+   current successfully, but the guest emits no `SWAP_DISPLAY_BUFFERS` request
+   and the captured display remains unchanged. This is an unresolved FAIL, not
+   new O07 acceptance evidence; the historical O07 qualification remains as
+   recorded.
 4. **S-3 harness** — `WineSpikeRunner.runS3`: creates `<appTmp>/.X11-unix/X0`,
    starts the X-server (XConnectorEpoll + XClientConnectionHandler +
    XClientRequestHandler, headless for the spike), launches the project-owned

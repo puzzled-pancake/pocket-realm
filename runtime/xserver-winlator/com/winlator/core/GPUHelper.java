@@ -8,5 +8,9 @@
 package com.winlator.core;
 
 public class GPUHelper {
-    public static native void setGlobalEGLContext();
+    /** Register the caller's current EGL context for one live surface generation. */
+    public static native boolean setGlobalEGLContext(long generation);
+
+    /** Clear the global share context only when the same surface generation owns it. */
+    public static native void clearGlobalEGLContext(long generation);
 }

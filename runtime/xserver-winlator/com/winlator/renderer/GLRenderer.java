@@ -33,8 +33,8 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.IntBuffer;
 import java.util.ArrayList;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
@@ -69,7 +69,9 @@ public class GLRenderer implements GLSurfaceView.Renderer, WindowManager.OnWindo
      * so the client launcher waits on this one-shot readiness boundary before
      * it permits Wine to create its first GLX context.
      */
-    private final CountDownLatch surfaceReady = new CountDownLatch(1);
+    private static final AtomicLong NEXT_SURFACE_GENERATION = new AtomicLong();
+    private final Object surfaceStateLock = new Object();
+    private volatile long activeSurfaceGeneration;
 
     public GLRenderer(XServerView xServerView, XServer xServer) {
         this.xServerView = xServerView;
@@ -89,9 +91,6 @@ public class GLRenderer implements GLSurfaceView.Renderer, WindowManager.OnWindo
 
     @Override
     public void onSurfaceCreated(GL10 gl, EGLConfig config) {
-        GPUHelper.setGlobalEGLContext();
-        surfaceReady.countDown();
-
         GLES20.glFrontFace(GLES20.GL_CCW);
         GLES20.glDisable(GLES20.GL_CULL_FACE);
 
@@ -101,14 +100,50 @@ public class GLRenderer implements GLSurfaceView.Renderer, WindowManager.OnWindo
         GLES20.glEnable(GLES20.GL_BLEND);
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
         GLES20.glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+
+        long generation = NEXT_SURFACE_GENERATION.incrementAndGet();
+        if (GPUHelper.setGlobalEGLContext(generation)) {
+            synchronized (surfaceStateLock) {
+                activeSurfaceGeneration = generation;
+                surfaceStateLock.notifyAll();
+            }
+        }
+    }
+
+    /**
+     * GLSurfaceView has no renderer-side destruction callback. XServerView
+     * forwards SurfaceHolder destruction here before GLSurfaceView tears down
+     * its EGL context, so a later Wine GLX context cannot share against a
+     * stale native pointer.
+     */
+    public void onSurfaceDestroyed() {
+        long generation;
+        synchronized (surfaceStateLock) {
+            generation = activeSurfaceGeneration;
+            activeSurfaceGeneration = 0;
+            surfaceStateLock.notifyAll();
+        }
+        if (generation != 0) GPUHelper.clearGlobalEGLContext(generation);
     }
 
     public boolean awaitSurfaceReady(long timeout, TimeUnit unit) throws InterruptedException {
-        return surfaceReady.await(timeout, unit);
+        long remainingNanos = unit.toNanos(timeout);
+        long deadline = System.nanoTime() + remainingNanos;
+        synchronized (surfaceStateLock) {
+            while (activeSurfaceGeneration == 0 && remainingNanos > 0) {
+                TimeUnit.NANOSECONDS.timedWait(surfaceStateLock, remainingNanos);
+                remainingNanos = deadline - System.nanoTime();
+            }
+            return activeSurfaceGeneration != 0;
+        }
     }
 
     public boolean isSurfaceReady() {
-        return surfaceReady.getCount() == 0;
+        return activeSurfaceGeneration != 0;
+    }
+
+    public long getSurfaceGeneration() {
+        return activeSurfaceGeneration;
     }
 
     @Override

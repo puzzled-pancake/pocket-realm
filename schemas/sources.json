@@ -225,7 +225,7 @@
       "upstream_url": "https://github.com/brunodev85/gladio",
       "commit": "eaa2a8d6eda3a1a6af755370ea9fac6cf7792ac3",
       "commit_date": "2026-04-15",
-      "role": "O07 x86_64 glibc libGL.so.1 client paired with the Winlator-derived Android/GLES Gladio server. Built by tools/build_gladio_client.py in the pinned CGCT image with 16 KB ELF alignment. Adaptations are signature-locked: app-private X11 socket selection through POCKET_GLADIO_X11_SOCKET, explicit bounded transient vertex-attribute records shared with the server, bound-BGRA offset preservation, and the qualified OpenGL 3.0 / GLSL 1.30 profile. Output SHA-256: 3344560af7565a32b25acbcd927a6b35cccbb5997f0280d444f87316b2510d06; DT_NEEDED is limited to the pinned glibc loader, libc, and libX11 closure.",
+      "role": "O07 x86_64 glibc libGL.so.1 client paired with the Winlator-derived Android/GLES Gladio server. Built by tools/build_gladio_client.py in the pinned CGCT image with 16 KB ELF alignment. Adaptations are signature-locked: app-private X11 socket selection through POCKET_GLADIO_X11_SOCKET, explicit bounded transient vertex-attribute records shared with the server, bound-BGRA offset preservation, bounded unmapped X drawables for GLX pbuffers, and the qualified OpenGL 3.0 / GLSL 1.30 profile. Output: 544456 bytes; SHA-256: 7b60dafa5e071e11187c0936840201920e141160f0897609ce530cb6f69b60b6; DT_NEEDED is limited to the pinned glibc loader, libc, and libX11 closure.",
       "build_script": "tools/build_gladio_client.py",
       "builder_image": "ghcr.io/termux/package-builder-cgct@sha256:69ffa5cfe02ca569e7d03d1c99e3c9a0f79390ad6bf11a3629d048c29c6ccb61",
       "generated_build_provenance": "native/.build-x86_64/gladio-client/BUILD_PROVENANCE.json",

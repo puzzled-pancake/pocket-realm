@@ -124,6 +124,91 @@ def prepare_source() -> None:
         text = text.replace(old, new)
     header.write_text(text, encoding="utf-8", newline="\n")
 
+    # WineD3D creates a small GLX pbuffer while probing its final shared
+    # context. Upstream Gladio advertises the entry point but returns XID 0,
+    # which makes WoW abort device creation before its first swap. The Android
+    # server already renders surfaceless EGL contexts and understands ordinary
+    # X windows as drawables, so use an unmapped X window as the private
+    # client/server pbuffer representation. It has real XID lifetime and size
+    # semantics without adding a second native-surface protocol.
+    glx_calls = SOURCE_TREE / "src" / "glx_calls.c"
+    text = glx_calls.read_text(encoding="utf-8")
+    replacements = (
+        (
+            '''GLXPbuffer glXCreatePbuffer(Display* dpy, GLXFBConfig config, const int* attrib_list) {
+    println(MSG_DEBUG_UNIMPLEMENTED_GLXCALL, "glXCreatePbuffer");
+    return 0;
+}
+''',
+            '''GLXPbuffer glXCreatePbuffer(Display* dpy, GLXFBConfig config, const int* attrib_list) {
+    if (!dpy || !config) return 0;
+
+    unsigned int width = 1;
+    unsigned int height = 1;
+    if (attrib_list) {
+        for (int i = 0; attrib_list[i] != None; i += 2) {
+            int value = attrib_list[i + 1];
+            if (attrib_list[i] == GLX_PBUFFER_WIDTH) {
+                if (value <= 0 || value > 16384) return 0;
+                width = value;
+            }
+            else if (attrib_list[i] == GLX_PBUFFER_HEIGHT) {
+                if (value <= 0 || value > 16384) return 0;
+                height = value;
+            }
+        }
+    }
+
+    Window root = DefaultRootWindow(dpy);
+    return (GLXPbuffer)XCreateSimpleWindow(
+            dpy, root, 0, 0, width, height, 0, 0, 0);
+}
+''',
+        ),
+        (
+            '''void glXDestroyPbuffer(Display* dpy, GLXPbuffer pbuf) {
+    println(MSG_DEBUG_UNIMPLEMENTED_GLXCALL, "glXDestroyPbuffer");
+}
+''',
+            '''void glXDestroyPbuffer(Display* dpy, GLXPbuffer pbuf) {
+    if (dpy && pbuf) XDestroyWindow(dpy, (Window)pbuf);
+}
+''',
+        ),
+        (
+            '''void glXQueryDrawable(Display* dpy, GLXDrawable draw, int attribute, unsigned int* value) {
+    println(MSG_DEBUG_UNIMPLEMENTED_GLXCALL, "glXQueryDrawable");
+}
+''',
+            '''void glXQueryDrawable(Display* dpy, GLXDrawable draw, int attribute, unsigned int* value) {
+    if (!value) return;
+    *value = 0;
+
+    if (attribute == GLX_FBCONFIG_ID) {
+        *value = DEFAULT_FBCONFIG_ID;
+        return;
+    }
+    if (attribute == GLX_PRESERVED_CONTENTS ||
+        attribute == GLX_LARGEST_PBUFFER || attribute == GLX_EVENT_MASK) return;
+    if (!dpy || !draw || (attribute != GLX_WIDTH && attribute != GLX_HEIGHT)) return;
+
+    Window root;
+    int x, y;
+    unsigned int width, height, border, depth;
+    if (XGetGeometry(dpy, (Drawable)draw, &root, &x, &y,
+                     &width, &height, &border, &depth)) {
+        *value = attribute == GLX_WIDTH ? width : height;
+    }
+}
+''',
+        ),
+    )
+    for old, new in replacements:
+        if text.count(old) != 1:
+            raise RuntimeError("pinned Gladio pbuffer anchor missing or ambiguous")
+        text = text.replace(old, new)
+    glx_calls.write_text(text, encoding="utf-8", newline="\n")
+
     # The pinned client/server protocol keeps a bound BGRA attribute's original
     # VBO offset on the server, but the client omitted that prefix from the
     # transient payload. The server then subtracted a larger offset from a
@@ -344,6 +429,8 @@ def verify() -> dict[str, object]:
             "Advertise the qualified OpenGL 3.0 / GLSL 1.30 compatibility "
             "profile; the paired server retains internal-format queries but "
             "omits unsupported modern draw capabilities.",
+            "Back GLX pbuffers with bounded, unmapped X drawables so WineD3D "
+            "can complete its final shared-context probe before first swap.",
         ],
         "soname": "libGL.so.1",
         "dt_needed": needed,
