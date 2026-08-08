@@ -103,6 +103,12 @@ android {
         }
         getByName("realmRuntime") {
             assets.srcDir("../../native/.build-x86_64/mariadb-staging/assets")
+            // The large-lane device preparation test imports a user-supplied
+            // client through the bounded debug DocumentsProvider. Keep this
+            // provider out of release/main while making it available to the
+            // custom realmRuntime build type used by instrumentation.
+            java.srcDir("src/debug/java")
+            manifest.srcFile("src/debug/AndroidManifest.xml")
         }
     }
 
