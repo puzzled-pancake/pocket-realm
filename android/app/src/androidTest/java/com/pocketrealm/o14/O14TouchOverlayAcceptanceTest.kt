@@ -130,7 +130,9 @@ class O14TouchOverlayAcceptanceTest {
 
         compose.onNodeWithTag("touch-chat").performClick()
         compose.waitUntil(5_000) { host!!.inputContract.isImeActive }
-        compose.runOnIdle { host!!.hideIme() }
+        compose.runOnIdle { host!!.onPause() }
+        compose.waitUntil(5_000) { !host!!.inputContract.isImeActive }
+        compose.runOnIdle { host!!.onResume() }
 
         compose.onNodeWithTag("touch-pointer-capture").performClick()
         compose.waitUntil(5_000) { host!!.isPointerCaptured }
@@ -190,6 +192,7 @@ class O14TouchOverlayAcceptanceTest {
             .put("touchCamera", true)
             .put("overlayHideShow", true)
             .put("productionImeRequested", true)
+            .put("pauseClosedImeAndResumedInput", true)
             .put("pointerCaptureRoundTrip", true)
             .put("syntheticGamepadMotion", true)
             .put("syntheticGamepadButton", true)

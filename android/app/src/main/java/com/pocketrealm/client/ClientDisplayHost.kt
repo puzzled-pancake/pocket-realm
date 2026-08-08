@@ -279,13 +279,16 @@ class ClientDisplayHost(
         imm.showSoftInput(imeView, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
     }
 
-    /** Hide the soft IME if it is showing. */
-    fun hideIme() {
+    /** Hide the soft IME if it is showing and restore gameplay focus. */
+    fun hideIme() = hideIme(restoreGameplayFocus = true)
+
+    private fun hideIme(restoreGameplayFocus: Boolean) {
         val imm = imeView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
             as android.view.inputmethod.InputMethodManager
         imm.hideSoftInputFromWindow(imeView.windowToken, 0)
         contract.imeClosed(generation)
-        view.requestFocus()
+        imeView.clearFocus()
+        if (restoreGameplayFocus) view.requestFocus()
     }
 
     /**
@@ -372,6 +375,10 @@ class ClientDisplayHost(
         } == true
     fun onPause() {
         setPointerCapture(false)
+        // Lifecycle pause must close the contract-side IME state as well as
+        // hiding the Android window. Otherwise a background/orientation round
+        // trip can leave pointer and gamepad input suppressed after resume.
+        hideIme(restoreGameplayFocus = false)
         contract.releaseAll(InputContract.ReleaseReason.ON_PAUSE)
         view.onPause()
     }
