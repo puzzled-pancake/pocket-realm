@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "feature": "O14",
+  "ok": true,
+  "capturedAt": "2026-08-08",
+  "implementationCommit": "0f94a00ff0b1937b03072d83431d59cd4abca2fe",
+  "lane": {
+    "record": "tests/avd/AVD-Large-x86_64-v1.json",
+    "avd": "O11-Large-x86_64",
+    "serial": "emulator-5554",
+    "api": 35,
+    "abi": "x86_64",
+    "pageSize": 4096
+  },
+  "artifacts": {
+    "clientRuntimeApk": {
+      "path": "android/app/build/outputs/apk/clientRuntime/app-clientRuntime.apk",
+      "size": 411016066,
+      "sha256": "3a230a1f183f3cd07e43d2bc74b1c00bcbe96d6d558f978e5c0b818c82896171"
+    },
+    "androidTestApk": {
+      "path": "android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+      "size": 1290098,
+      "sha256": "a1736cd1520bb5fb03c31c6fc1be47fb2e287bc88ee119a43b47672657e5bdf3"
+    }
+  },
+  "command": "adb -s emulator-5554 shell am instrument -w -r -e package com.pocketrealm.o14 com.pocketrealm.test/androidx.test.runner.AndroidJUnitRunner",
+  "result": {
+    "tests": 6,
+    "failures": 0,
+    "elapsedSeconds": 87.84,
+    "instrumentation": "OK (6 tests)"
+  },
+  "productionPathProof": {
+    "composeTouchMovementKey": true,
+    "composeTouchCameraDrag": true,
+    "overlayHideShow": true,
+    "attachedImeRequested": true,
+    "pointerCaptureRoundTrip": true,
+    "androidGenericJoystickMotion": true,
+    "androidGamepadButton": true,
+    "androidGenericMouseWheel": true,
+    "androidGenericMouseSecondaryButton": true,
+    "deviceRemovalReleaseKeys": 1,
+    "inputSafeModePersistence": true,
+    "generationRelaunch": true
+  },
+  "win32Observations": {
+    "keyboardSeen": true,
+    "relativeMotionSeen": true,
+    "wheelSeen": true,
+    "rightButtonSeen": true,
+    "imePhrase": "Pocket Realm 123!?,.-_",
+    "imePhraseOccurrences": 1,
+    "imeEnterSeen": true,
+    "unsupportedCommitAtomic": true,
+    "imeOpenReleasedKeys": 1,
+    "imeOpenReleasedButtons": 1,
+    "cleanExit": true
+  },
+  "limitations": [
+    "Joystick, gamepad-button, mouse-wheel, secondary-button, and device-removal events were synthetic Android framework events delivered through the production View listeners; this does not claim qualification of a named physical peripheral.",
+    "This self-test proves the production input bridge and overlay controls against the redistributable Win32 probe. It does not by itself complete the real-client UX-T01 through UX-T08 sequence.",
+    "Only the large-memory API-35 x86_64 4-KiB AVD lane is covered."
+  ]
+}

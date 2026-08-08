@@ -432,11 +432,12 @@ generation gating, stale rejection, button tracking, wheel atomicity, release
 ordering, source isolation, and profile reset. O14's IME increment now has a
 production-attached `ClientImeView`/`BaseInputConnection`, a visible Keyboard
 affordance, editor-action/delete routing, bounded rejection feedback, and
-pointer suppression while the IME is active. The real InputConnection path
-still needs a fresh on-device run; the checked-in 2026-08-05 evidence bypassed
-that path and is not reused as acceptance evidence. Gamepad, pointer capture,
-profile persistence, and the default touch overlay remain open; UX-T01 through
-UX-T08 are NOT complete. The tagged O13 boundary (`o13-soak25-qualified` →
+pointer suppression while the IME is active. A consolidated 2026-08-08 device
+run now exercises that production InputConnection and Compose surface rather
+than the earlier direct-contract shortcut. Gamepad, mouse, and hot-remove
+events in that run are framework-synthetic, so they do not qualify named
+physical peripherals; UX-T01 through UX-T08 are NOT complete. The tagged O13
+boundary (`o13-soak25-qualified` →
 `a833c40`) and the qualified runtime hash (`f8005881…`) are unchanged.
 
 Authoritative O14 increment-1 evidence:
@@ -447,8 +448,9 @@ Authoritative O14 increment-1 evidence:
 - `tests/avd/AVD-Large-x86_64-v1/evidence/o14-input-contract-20260808.PASS.json`
 - `tests/avd/AVD-Large-x86_64-v1/evidence/o14-relaunch-20260808.PASS.json`
 - `tests/avd/AVD-Large-x86_64-v1/evidence/o14-ime-20260808.PASS.json`
+- `tests/avd/AVD-Large-x86_64-v1/evidence/o14-production-input-suite-20260808.PASS.json`
 
-### O14 increment 2 — gamepad, pointer capture, persisted profile, and touch overlay (implementation complete; device proof open)
+### O14 increment 2 — gamepad, pointer capture, persisted profile, and touch overlay (implementation and probe qualification complete)
 
 The UI input path now includes a versioned app-private `InputProfileStore` with
 aspect-aware reset, gamepad button/axis translation (dead-zone WASD and relative
@@ -457,20 +459,27 @@ hideable Compose touch overlay with movement, action-bar, chat, and mouse-mode
 controls. All paths share the existing generation-gated `InputContract`, source
 release ordering, IME suspension, and lifecycle cleanup. Host tests cover axis
 crossing, camera deltas, button mapping/hot-unplug release, and profile JSON
-round-trip/migration. A fresh O11-Large-x86_64 run also passes the profile
-save/load and aspect-reset instrumentation check; physical gamepad/mouse and
-touch-only FUN-008/FUN-009 evidence remain open.
+round-trip/migration. The exact 2026-08-08 `clientRuntime` and Android-test APKs
+passed all 6 O14 instrumentation tests in 87.84 seconds on
+`O11-Large-x86_64`/API 35/4 KiB. That run proves production Compose movement
+and camera controls, overlay hide/show, attached IME and punctuation/editor
+action, pointer-capture round trip, synthetic joystick/gamepad/mouse/device
+removal, safe-mode/profile persistence, generation replacement, deterministic
+release, and clean Wine-probe exit. It does not claim named physical-device
+qualification or the real WoW gameplay sequence.
 
 ## Next action
 
-O14 implementation increments 1 and 2 are complete in source and host tests.
-Fresh clientRuntime evidence now passes the attached IME InputConnection path,
-input-contract mapping, generation replacement, and profile save/load/aspect
-reset. The remaining device run must cover physical gamepad hot-plug, mouse
-pointer capture, overlay hide/show, orientation/resume, and the complete
-touch-only UX-T01–T08 sequence. UX-T01 through UX-T08 are NOT complete and O14
-remains `pending` until those artifacts exist. Do not start O15 or any later
-gate.
+O14 implementation increments 1 and 2 and their production-path Win32-probe
+qualification are complete. A real build-5875 client was imported and its
+normal-play data extracted on the large lane, but an exploratory login run did
+not qualify UX-T01: Android-to-X key events reached the focused WoW top-level
+while its login edit controls did not consume the injected text. That result is
+diagnostic only and is not recorded as PASS evidence. The remaining acceptance
+work is the complete real-client touch-only UX-T01–T08 sequence (including
+orientation/resume) and named physical gamepad/keyboard/mouse hot-plug and
+restart qualification. O14 remains `pending` until those report-defined
+artifacts exist. Do not start O15 or any later gate.
 
 ## Session note
 
