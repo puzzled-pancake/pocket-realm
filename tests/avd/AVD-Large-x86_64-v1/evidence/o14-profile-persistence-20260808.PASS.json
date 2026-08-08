@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "status": "PASS",
+  "feature": "O14",
+  "increment": 2,
+  "test": "com.pocketrealm.o14.O14InputProfilePersistenceTest#profileSurvivesStoreReloadAndFlagsAspectChange",
+  "lane": "AVD-Large-x86_64-v1",
+  "physical_avd": "O11-Large-x86_64",
+  "serial": "emulator-5554",
+  "api": 35,
+  "abi": "x86_64",
+  "page_size": 4096,
+  "apk_sha256": "78024fd4ae63e4970ce911c4a85e2c3e2d6eed7adf6a7fc8497e12081c2930b",
+  "android_test_apk_sha256": "38c5d4b9af78841b9b514c068695e8ad926af8d0832b82edd0fa9b495dec18e0",
+  "result": "The versioned profile survives save/load with deadZone, cameraSensitivity, overlayOpacity, and aspect identity; a different aspect is flagged for reset.",
+  "command": "./gradlew :app:connectedDebugAndroidTest --no-daemon -Pandroid.testInstrumentationRunnerArguments.class=com.pocketrealm.o14.O14InputProfilePersistenceTest",
+  "device_run": "2026-08-08",
+  "limitations": [
+    "This proves profile storage only; it does not qualify UX-T01-T08 or physical gamepad/mouse behavior.",
+    "The existing O14 Wine/probe tests could not run on this debug APK because the runtime/ABI fixture is unavailable."
+  ]
+}

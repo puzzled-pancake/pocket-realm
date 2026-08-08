@@ -77,9 +77,9 @@ class XServerInputSink(private val xServer: XServer) : InputSink {
  * surface cannot reach the new WoW window. This hardens the O12 renderer-restart
  * fix without inventing a second lifecycle authority.
  *
- * This contract is intentionally **not** the place for IME composition, gamepad
- * axes, pointer capture, or profile persistence — those are later O14 increments
- * and build on top of the generation/session plumbing established here.
+ * IME composition, gamepad axes/buttons, pointer capture, and profile storage
+ * all enter through this same generation/session boundary; no input path gets a
+ * second lifecycle authority.
  */
 class InputContract(
     private val sink: InputSink,
@@ -111,10 +111,14 @@ class InputContract(
         val rejectedStaleEventCount: Long,
     )
 
+    /** Logical axes exposed by Android joystick/gamepad motion events. */
+    enum class GamepadAxis { LEFT_X, LEFT_Y, RIGHT_X, RIGHT_Y }
+
     /** Per-source pressed state. One entry per Android `deviceId`. */
     private data class SourceState(
         val keys: MutableSet<Int> = sortedMutableSet(),
         val buttons: MutableSet<PointerButton> = sortedMutableButtonSet(),
+        val axisKeys: MutableMap<GamepadAxis, Int?> = java.util.EnumMap(GamepadAxis::class.java),
         var lastSeq: Long = 0L,
     )
 
@@ -166,7 +170,7 @@ class InputContract(
             newProfile
         } else {
             profileReset = true
-            InputProfile.DEFAULT
+            InputProfile.DEFAULT.copy(aspectIdentity = aspectIdentity)
         }
         report
     }
@@ -179,6 +183,27 @@ class InputContract(
 
     /** True when the last [attach] reset to the default profile due to aspect mismatch. */
     val isProfileReset: Boolean get() = profileReset
+
+    /** Active profile used for dead-zone and captured-camera translation. */
+    val activeProfile: InputProfile get() = profile
+
+    /** Replace the profile for the current generation after releasing held input. */
+    fun switchProfile(newProfile: InputProfile, aspectIdentity: String, generation: Long): ReleaseReport =
+        synchronized(lock) {
+            if (generation != activeGeneration) {
+                rejectedStale.incrementAndGet()
+                return ReleaseReport(ReleaseReason.GENERATION_REPLACED, emptyList(), 0, 0, rejectedStale.get())
+            }
+            val report = releaseAllLocked(ReleaseReason.EXPLICIT_RELEASE_INPUT)
+            profile = if (newProfile.aspectIdentity == aspectIdentity) {
+                profileReset = false
+                newProfile
+            } else {
+                profileReset = true
+                InputProfile.DEFAULT.copy(aspectIdentity = aspectIdentity)
+            }
+            report
+        }
 
     /** Last [ReleaseReport] produced; convenient for diagnostics/tests. */
     val lastReport: ReleaseReport get() = reportRef.get()
@@ -291,6 +316,41 @@ class InputContract(
                 st.keys.remove(event.keyCode)
             }
             sink.inject(SinkEvent.Key(event))
+            return true
+        }
+    }
+
+    /**
+     * Gamepad button translation. The physical button is converted to a
+     * stable logical WoW key before entering the normal per-source key set.
+     * This keeps hot-plug release and generation replacement identical to a
+     * keyboard source.
+     */
+    fun gamepadButton(src: Int, keyCode: Int, pressed: Boolean, generation: Long): Boolean {
+        if (imeActive) return false
+        val logical = logicalGamepadKey(keyCode) ?: return false
+        return key(src, KeyEvent(if (pressed) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP, logical), generation)
+    }
+
+    /**
+     * Gamepad axis translation with dead-zone hysteresis. Left-stick axes
+     * synthesize WASD transitions; right-stick axes become relative camera
+     * deltas. Returning false means the event was stale or intentionally
+     * neutral/no-op.
+     */
+    fun gamepadAxis(src: Int, axis: GamepadAxis, value: Float, generation: Long): Boolean {
+        if (!accept(src, generation)) return false
+        synchronized(lock) {
+            if (imeActive) return false
+            val bounded = value.coerceIn(-1f, 1f)
+            val st = sources.getOrPut(src) { SourceState() }
+            val deadZone = profile.deadZone
+            when (axis) {
+                GamepadAxis.LEFT_X -> updateAxisKeyLocked(st, axis, bounded, deadZone, KeyEvent.KEYCODE_A, KeyEvent.KEYCODE_D)
+                GamepadAxis.LEFT_Y -> updateAxisKeyLocked(st, axis, bounded, deadZone, KeyEvent.KEYCODE_W, KeyEvent.KEYCODE_S)
+                GamepadAxis.RIGHT_X -> injectRelativeAxisLocked(st, axis, bounded, profile.cameraSensitivity, horizontal = true)
+                GamepadAxis.RIGHT_Y -> injectRelativeAxisLocked(st, axis, bounded, profile.cameraSensitivity, horizontal = false)
+            }
             return true
         }
     }
@@ -490,6 +550,47 @@ class InputContract(
         sink.inject(SinkEvent.Key(KeyEvent(action, keyCode)))
     }
 
+    private fun updateAxisKeyLocked(
+        state: SourceState,
+        axis: GamepadAxis,
+        value: Float,
+        deadZone: Float,
+        negativeKey: Int,
+        positiveKey: Int,
+    ) {
+        val next = when {
+            value < -deadZone -> negativeKey
+            value > deadZone -> positiveKey
+            else -> null
+        }
+        val previous = state.axisKeys[axis]
+        if (previous == next) return
+        previous?.let { emitSyntheticKeyLocked(state, it, KeyEvent.ACTION_UP) }
+        next?.let { emitSyntheticKeyLocked(state, it, KeyEvent.ACTION_DOWN) }
+        state.axisKeys[axis] = next
+    }
+
+    private fun injectRelativeAxisLocked(
+        state: SourceState,
+        axis: GamepadAxis,
+        value: Float,
+        sensitivity: Float,
+        horizontal: Boolean,
+    ) {
+        val delta = (value * sensitivity * GAMEPAD_CAMERA_SCALE).toInt()
+        if (delta == 0) return
+        // Keep the axis entry present so releaseSource/releaseAll can clear a
+        // future extension without inventing a key release for relative motion.
+        state.axisKeys.putIfAbsent(axis, null)
+        if (horizontal) sink.inject(SinkEvent.PointerMoveDelta(delta, 0))
+        else sink.inject(SinkEvent.PointerMoveDelta(0, delta))
+    }
+
+    private fun emitSyntheticKeyLocked(state: SourceState, keyCode: Int, action: Int) {
+        if (action == KeyEvent.ACTION_DOWN) state.keys.add(keyCode) else state.keys.remove(keyCode)
+        sink.inject(SinkEvent.Key(KeyEvent(action, keyCode)))
+    }
+
     private fun PointerButton.toSink(): SinkButton = when (this) {
         PointerButton.LEFT -> SinkButton.LEFT
         PointerButton.MIDDLE -> SinkButton.MIDDLE
@@ -511,5 +612,17 @@ class InputContract(
 
         /** Synthetic source id for IME-committed text injection. */
         internal const val IME_SOURCE: Int = -2
+        private const val GAMEPAD_CAMERA_SCALE = 8f
+
+        internal fun logicalGamepadKey(keyCode: Int): Int? = when (keyCode) {
+            KeyEvent.KEYCODE_BUTTON_A -> KeyEvent.KEYCODE_SPACE
+            KeyEvent.KEYCODE_BUTTON_B -> KeyEvent.KEYCODE_ESCAPE
+            KeyEvent.KEYCODE_BUTTON_X -> KeyEvent.KEYCODE_1
+            KeyEvent.KEYCODE_BUTTON_Y -> KeyEvent.KEYCODE_2
+            KeyEvent.KEYCODE_BUTTON_L1 -> KeyEvent.KEYCODE_Q
+            KeyEvent.KEYCODE_BUTTON_R1 -> KeyEvent.KEYCODE_E
+            KeyEvent.KEYCODE_BUTTON_START -> KeyEvent.KEYCODE_ESCAPE
+            else -> null
+        }
     }
 }

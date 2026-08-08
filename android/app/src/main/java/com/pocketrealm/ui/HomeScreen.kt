@@ -182,6 +182,7 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
                         key(host) {
                             AndroidView(factory = { host.container }, modifier = Modifier.fillMaxSize())
                         }
+                        TouchOverlay(host)
                     }
                 }
             }

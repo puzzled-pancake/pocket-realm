@@ -1,6 +1,7 @@
 package com.pocketrealm.client
 
 import android.content.Context
+import android.os.Build
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.widget.FrameLayout
@@ -42,6 +43,7 @@ class ClientDisplayHost(
     private val connector: XConnectorEpoll
     private val contract: InputContract
     private val input: ClientInputBridge
+    private val profileStore = InputProfileStore(context)
     /**
      * Monotonic display/client generation owned by this host instance. A fresh
      * host (surface recreate or client relaunch) gets a new generation; the
@@ -74,13 +76,27 @@ class ClientDisplayHost(
         // Attach with no session yet; the bridge stamps every event with this
         // host's generation. A session id is informational only and may be set
         // later without changing the generation (the host IS the generation).
+        val persistedProfile = profileStore.load(InputProfile.DEFAULT_ASPECT_IDENTITY).profile
         contract.attach(
             sessionId = null,
             generation = generation,
-            newProfile = InputProfile.DEFAULT,
+            newProfile = persistedProfile,
             aspectIdentity = aspectIdentityFor(view),
         )
+        profileStore.save(contract.activeProfile)
         input = ClientInputBridge(contract, view, generation)
+        view.addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
+            val width = right - left
+            val height = bottom - top
+            if (width > 0 && height > 0) {
+                val aspect = InputProfile.aspectIdentity(width, height)
+                if (aspect != contract.activeProfile.aspectIdentity) {
+                    val stored = profileStore.load(aspect).profile
+                    contract.switchProfile(stored, aspect, generation)
+                    profileStore.save(contract.activeProfile)
+                }
+            }
+        }
         imeView = ClientImeView(
             context = context,
             contractProvider = { contract },
@@ -156,6 +172,37 @@ class ClientDisplayHost(
         return input.dispatchKey(event)
     }
     fun dispatchPointer(event: MotionEvent): Boolean = input.dispatchPointer(event)
+    fun dispatchGamepad(event: MotionEvent): Boolean = input.dispatchGamepad(event)
+
+    /** Send one logical virtual-control key through the same source tracking. */
+    fun dispatchVirtualKey(keyCode: Int, pressed: Boolean, source: Int = VIRTUAL_SOURCE): Boolean =
+        input.dispatchVirtualKey(keyCode, pressed, source)
+
+    /** Request/release Android pointer capture for physical mouse camera-look. */
+    fun setPointerCapture(enabled: Boolean): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        if (enabled) {
+            view.requestFocus()
+            view.requestPointerCapture()
+        } else {
+            view.releasePointerCapture()
+        }
+        return view.hasPointerCapture()
+    }
+
+    val isPointerCaptured: Boolean
+        get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && view.hasPointerCapture()
+
+    val activeProfile: InputProfile
+        get() = contract.activeProfile
+
+    /** Persist a profile only after the contract has atomically switched to it. */
+    fun switchInputProfile(profile: InputProfile): InputContract.ReleaseReport {
+        val aspect = aspectIdentityFor(view)
+        val report = contract.switchProfile(profile, aspect, generation)
+        profileStore.save(contract.activeProfile)
+        return report
+    }
 
     // ---- O14 increment 1: additional pointer entry points -----------------
     // These route through the same [InputContract] generation gate and pressed-
@@ -293,12 +340,17 @@ class ClientDisplayHost(
         window.getProperty(protocols)?.let { property ->
             (0 until property.data.capacity() / 4).any { property.getInt(it) == deleteWindow }
         } == true
-    fun onPause() { contract.releaseAll(InputContract.ReleaseReason.ON_PAUSE); view.onPause() }
+    fun onPause() {
+        setPointerCapture(false)
+        contract.releaseAll(InputContract.ReleaseReason.ON_PAUSE)
+        view.onPause()
+    }
     fun onResume() { view.onResume(); view.requestFocus() }
 
     override fun close() {
         closeRequested = false
         view.removeCallbacks(closeRetry)
+        setPointerCapture(false)
         contract.releaseAll(InputContract.ReleaseReason.CLOSE)
         connector.destroy()
     }
@@ -309,6 +361,8 @@ class ClientDisplayHost(
         private const val MAX_CLOSE_ATTEMPTS = 60
         /** Default synthetic source id for programmatic pointer/wheel injection. */
         internal const val DEFAULT_SOURCE: Int = -1
+        /** Stable source id for the on-screen touch overlay. */
+        internal const val VIRTUAL_SOURCE: Int = -3
 
         private val generationCounter = java.util.concurrent.atomic.AtomicLong(0L)
         private fun nextGeneration(): Long = generationCounter.incrementAndGet()
@@ -348,14 +402,27 @@ internal class ClientInputBridge(
     init {
         view.setOnKeyListener { _, _, event -> dispatchKey(event) }
         view.setOnTouchListener { _, event -> dispatchPointer(event) }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            view.setOnCapturedPointerListener { _, event -> dispatchCapturedPointer(event) }
+        }
         view.onFocusChangeListener = android.view.View.OnFocusChangeListener { _, hasFocus ->
             if (!hasFocus) contract.focusLost()
         }
     }
 
-    fun dispatchKey(event: KeyEvent): Boolean = contract.key(event.deviceId, event, generation)
+    fun dispatchKey(event: KeyEvent): Boolean = if (
+        event.isFromSource(android.view.InputDevice.SOURCE_GAMEPAD) ||
+        event.isFromSource(android.view.InputDevice.SOURCE_JOYSTICK)
+    ) {
+        contract.gamepadButton(event.deviceId, event.keyCode, event.action == KeyEvent.ACTION_DOWN, generation)
+    } else {
+        contract.key(event.deviceId, event, generation)
+    }
 
     fun dispatchPointer(event: MotionEvent): Boolean {
+        if (event.isFromSource(android.view.InputDevice.SOURCE_JOYSTICK)) {
+            return dispatchGamepad(event)
+        }
         val t = view.renderer.viewTransformation
         val aspect = if (t.aspect > 0f) t.aspect else 1f
         val x = ((event.x - t.viewOffsetX) / aspect).roundToInt().coerceIn(0, 1279)
@@ -370,6 +437,35 @@ internal class ClientInputBridge(
                 contract.pointerButton(event.deviceId, InputContract.PointerButton.LEFT, pressed = false, generation = generation)
         }
         return true
+    }
+
+    fun dispatchGamepad(event: MotionEvent): Boolean {
+        if (!event.isFromSource(android.view.InputDevice.SOURCE_JOYSTICK)) return false
+        if (event.actionMasked != MotionEvent.ACTION_MOVE) return true
+        val source = event.deviceId
+        contract.gamepadAxis(source, InputContract.GamepadAxis.LEFT_X,
+            event.getAxisValue(MotionEvent.AXIS_X), generation)
+        contract.gamepadAxis(source, InputContract.GamepadAxis.LEFT_Y,
+            event.getAxisValue(MotionEvent.AXIS_Y), generation)
+        contract.gamepadAxis(source, InputContract.GamepadAxis.RIGHT_X,
+            event.getAxisValue(MotionEvent.AXIS_RX), generation)
+        contract.gamepadAxis(source, InputContract.GamepadAxis.RIGHT_Y,
+            event.getAxisValue(MotionEvent.AXIS_RY), generation)
+        return true
+    }
+
+    private fun dispatchCapturedPointer(event: MotionEvent): Boolean {
+        if (!event.isFromSource(android.view.InputDevice.SOURCE_MOUSE)) return false
+        val dx = event.getAxisValue(MotionEvent.AXIS_RELATIVE_X).roundToInt()
+        val dy = event.getAxisValue(MotionEvent.AXIS_RELATIVE_Y).roundToInt()
+        if (dx != 0 || dy != 0) contract.pointerRelative(event.deviceId, dx, dy, generation)
+        return true
+    }
+
+    fun dispatchVirtualKey(keyCode: Int, pressed: Boolean, source: Int): Boolean {
+        val now = android.os.SystemClock.uptimeMillis()
+        val event = KeyEvent(now, now, if (pressed) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP, keyCode, 0)
+        return contract.key(source, event, generation)
     }
 
     /**

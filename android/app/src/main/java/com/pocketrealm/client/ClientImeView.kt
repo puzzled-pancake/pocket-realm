@@ -15,7 +15,9 @@ import android.view.inputmethod.InputConnection
  * The winlator [com.winlator.widget.XServerView] is a `GLSurfaceView` that
  * cannot be modified and does not implement the text-editor contract. This view
  * is focused by [ClientDisplayHost.showIme] to become the IME target. It does
- * NOT contain or parent the XServerView — it is an independent overlay.
+ * It is attached as a one-pixel sibling of the XServerView in the host's
+ * shared display container, so Android can focus it without replacing the
+ * rendered surface.
  *
  * The [InputConnection] routes `commitText` through the [InputContract]'s
  * generation-gated `imeCommit`, preserving the verified input boundary. No text

@@ -443,15 +443,30 @@ Authoritative O14 increment-1 evidence:
 
 - `tests/avd/AVD-Large-x86_64-v1/evidence/o14-input-contract-increment1-20260805.PASS.json`
 - `tests/avd/AVD-Large-x86_64-v1/evidence/o14-input-contract-proof-20260805.png`
+- `tests/avd/AVD-Large-x86_64-v1/evidence/o14-profile-persistence-20260808.PASS.json`
+
+### O14 increment 2 — gamepad, pointer capture, persisted profile, and touch overlay (implementation complete; device proof open)
+
+The UI input path now includes a versioned app-private `InputProfileStore` with
+aspect-aware reset, gamepad button/axis translation (dead-zone WASD and relative
+camera deltas), Android pointer capture for physical mouse camera-look, and a
+hideable Compose touch overlay with movement, action-bar, chat, and mouse-mode
+controls. All paths share the existing generation-gated `InputContract`, source
+release ordering, IME suspension, and lifecycle cleanup. Host tests cover axis
+crossing, camera deltas, button mapping/hot-unplug release, and profile JSON
+round-trip/migration. A fresh O11-Large-x86_64 run also passes the profile
+save/load and aspect-reset instrumentation check; physical gamepad/mouse and
+touch-only FUN-008/FUN-009 evidence remain open.
 
 ## Next action
 
-O14 increment 1 is verified (see above). The active increment is now the real
-IME `InputConnection` path (UX-T06): rerun the instrumentation test through the
-attached production container, then proceed to gamepad axes/buttons (FUN-009),
-pointer capture, profile persistence, and the default touch overlay. UX-T01
-through UX-T08 are NOT complete and O14 remains `pending`. Do not start O15 or
-any later gate.
+O14 implementation increments 1 and 2 are complete in source and host tests.
+The remaining work is a fresh device run through the production container:
+exercise the real IME/InputConnection, touch-only UX-T01–T08, gamepad
+hot-plug, physical mouse pointer capture, profile persistence across relaunch,
+orientation/resume, and safe overlay hide/show. UX-T01 through UX-T08 are NOT
+complete and O14 remains `pending` until those artifacts exist. Do not start O15
+or any later gate.
 
 ## Session note
 

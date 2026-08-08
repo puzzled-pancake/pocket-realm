@@ -198,6 +198,19 @@ class InputContractTest {
         assertFalse(c.isProfileReset)
     }
 
+    @Test fun `input profile codec preserves persisted tuning and migrates version one`() {
+        val tuned = InputProfile(InputProfile.CURRENT_VERSION, 0.2f, "16:9", 1.75f, 0.6f)
+        val roundTrip = InputProfile.fromJson(InputProfile.toJson(tuned))
+        assertEquals(tuned, roundTrip)
+        val migrated = InputProfile.fromJson(org.json.JSONObject()
+            .put("version", 1)
+            .put("deadZone", 0.18)
+            .put("aspectIdentity", "16:9"))
+        assertEquals(InputProfile.CURRENT_VERSION, migrated.version)
+        assertEquals(1.0f, migrated.cameraSensitivity)
+        assertEquals(0.85f, migrated.overlayOpacity)
+    }
+
     @Test fun `aspect identity reduces coprime ratios`() {
         assertEquals("16:9", InputProfile.aspectIdentity(1920, 1080))
         assertEquals("16:9", InputProfile.aspectIdentity(1280, 720))
@@ -240,6 +253,41 @@ class InputContractTest {
         assertTrue("IME open should release held key", report.keyCount >= 1)
         assertTrue("IME open should release held button", report.buttonCount >= 1)
         assertTrue("IME should be active", c.isImeActive)
+    }
+
+    @Test fun `gamepad left stick crosses dead zone with balanced WASD`() {
+        val (c, sink) = newContract()
+        c.gamepadAxis(42, InputContract.GamepadAxis.LEFT_X, 0.8f, 1)
+        c.gamepadAxis(42, InputContract.GamepadAxis.LEFT_X, 0.0f, 1)
+        val keys = sink.events.filterIsInstance<SinkEvent.Key>()
+        assertEquals(2, keys.size)
+        assertEquals(0, c.releaseAll(InputContract.ReleaseReason.EXPLICIT_RELEASE_INPUT).keyCount)
+        assertEquals(android.view.KeyEvent.KEYCODE_SPACE,
+            InputContract.logicalGamepadKey(android.view.KeyEvent.KEYCODE_BUTTON_A))
+    }
+
+    @Test fun `gamepad right stick injects relative camera delta and stale input is rejected`() {
+        val (c, sink) = newContract()
+        c.gamepadAxis(7, InputContract.GamepadAxis.RIGHT_X, 0.5f, 1)
+        c.gamepadAxis(7, InputContract.GamepadAxis.RIGHT_Y, -0.25f, 1)
+        assertEquals(
+            listOf(SinkEvent.PointerMoveDelta(4, 0), SinkEvent.PointerMoveDelta(0, -2)),
+            sink.events,
+        )
+        c.gamepadAxis(7, InputContract.GamepadAxis.RIGHT_X, 1f, 99)
+        assertEquals(2, sink.events.size)
+        assertTrue(c.rejectedStaleEventCount >= 1)
+    }
+
+    @Test fun `gamepad buttons use logical mapping and hot unplug releases the logical key`() {
+        val (c, sink) = newContract()
+        assertTrue(c.gamepadButton(9, android.view.KeyEvent.KEYCODE_BUTTON_A, true, 1))
+        val report = c.releaseSource(9)
+        assertEquals(1, report.keyCount)
+        val keys = sink.events.filterIsInstance<SinkEvent.Key>()
+        assertEquals(2, keys.size)
+        assertEquals(android.view.KeyEvent.KEYCODE_SPACE,
+            InputContract.logicalGamepadKey(android.view.KeyEvent.KEYCODE_BUTTON_A))
     }
 
     @Test fun `IME closing leaves neutral state and does not restore keys`() {

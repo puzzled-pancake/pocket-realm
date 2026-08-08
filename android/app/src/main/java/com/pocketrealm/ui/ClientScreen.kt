@@ -196,6 +196,7 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
                 key(current.generation) {
                     AndroidView(factory = { current.container }, modifier = Modifier.fillMaxSize())
                 }
+                TouchOverlay(current)
             } ?: Text("The Windows surface is created before launch", color = Color.White, modifier = Modifier.padding(16.dp))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
