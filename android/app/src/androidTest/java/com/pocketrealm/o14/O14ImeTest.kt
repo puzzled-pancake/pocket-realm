@@ -104,8 +104,14 @@ class O14ImeTest {
         injectKeyboardAndPointer(host!!)
         delay(300)
 
-        // Hold gameplay input before opening the editor; the connection's
-        // creation callback is the real IME-open transition.
+        // Exercise the production affordance/IMM request before obtaining the
+        // connection. The test still retains the direct connection handle so
+        // the committed sequence is deterministic across emulator keyboards.
+        instrumentation.runOnMainSync { host!!.showIme() }
+        delay(300)
+
+        // Hold gameplay input after the first IMM request; obtaining the
+        // connection below must release it through the same IME-open path.
         instrumentation.runOnMainSync {
             host!!.dispatchKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_W))
             host!!.dispatchRightButton(pressed = true)
@@ -289,6 +295,7 @@ class O14ImeTest {
             .put("schema", 1)
             .put("test", "O14ImeTest")
             .put("commit", "52863fc")
+            .put("showImeRequested", true)
             .put("charSeen", d.charSeen)
             .put("charCount", d.charCount)
             .put("charCodepoints", charCodepoints.joinToString(","))
