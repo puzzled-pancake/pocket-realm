@@ -16,6 +16,7 @@ extern GLTexture* GLTexture_getBound(GLenum target);
 extern void GLTexture_bind(GLenum target, GLuint id);
 extern void GLTexture_setActiveUnit(GLenum unit);
 extern GLenum GLTexture_getType(GLuint id);
+extern bool GLTexture_getDimensions(GLuint id, GLint level, short* width, short* height);
 extern void GLTexture_delete(GLuint id);
 
 #endif

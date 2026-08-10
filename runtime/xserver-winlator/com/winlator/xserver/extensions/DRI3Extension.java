@@ -26,6 +26,7 @@ import com.winlator.xserver.errors.XRequestError;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import android.util.Log;
 
 public class DRI3Extension extends Extension {
     public static final byte MAJOR_VERSION = 1;
@@ -53,6 +54,7 @@ public class DRI3Extension extends Extension {
     }
 
     private void queryVersion(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
+        Log.i("PR/DRI3", "queryVersion");
         inputStream.skip(8);
 
         try (XStreamLock lock = outputStream.lock()) {
@@ -162,6 +164,8 @@ public class DRI3Extension extends Extension {
     }
 
     private void pixmapFromFd(XClient client, int pixmapId, short width, short height, int stride, int offset, byte depth, int fd, long size)  throws IOException, XRequestError {
+        Log.i("PR/DRI3", "pixmapFromFd id="+pixmapId+" size="+width+"x"+height+
+            " stride="+stride+" fd="+fd+" bytes="+size);
         try {
             ByteBuffer buffer = SysVSharedMemory.mapSHMSegment(fd, size, offset, true);
             if (buffer == null) throw new BadAlloc();

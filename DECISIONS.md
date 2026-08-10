@@ -65,6 +65,21 @@ The canonical offline decisions are ADR-001 through ADR-012 in
 43. The local Legacy Session Anchor preserves the client TCP/header-crypt session during backend handoff but owns no gameplay/economy decisions.
 44. Planned migration uses pre-copy, ordered deltas, barriers, equal semantic state roots, a higher epoch, atomic route switch, and source fencing. A standby applies authoritative deltas rather than independently simulating the world.
 45. Every queue, cache, snapshot, retry, buffer, imported archive, and network stream has an explicit bound and exhaustion behavior.
+46. Retroid Pocket 6 gameplay uses a dedicated immersive `sensorLandscape`
+    activity whose physical surface fills 1920x1080. The balanced profile
+    renders at 1280x720 and scales uniformly to the full surface; a 1920x1080
+    quality profile is accepted only by named-device measurement. This extends
+    decision #26 without changing its 1280x720/30-FPS deterministic safe
+    default, and it does not permit a surrounding portrait Compose card during
+    active play.
+47. The ARM laboratory lane exposes the translator and renderer as independent
+    tuple members. Its FEX choice is native Bionic ARM64EC Proton/Wine with the
+    pinned FEXCore WoW64 DLLs; it is not the unsupported ordinary Linux FEX
+    executable on Android. Its OpenGL choice is the client's `-opengl` mode
+    through a source-matched Bionic Gladio GLX-to-GLES bridge, while DXVK uses
+    the separately pinned ARM64EC DXVK/Turnip closure. All four Box64/FEXCore
+    and DXVK/Client-OpenGL combinations retain separate prefix/cache identities
+    and remain unqualified until measured on the named physical device.
 
 ## G0 overlay (2026-08-01, feature O05)
 

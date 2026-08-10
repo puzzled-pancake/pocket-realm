@@ -6,6 +6,7 @@
 typedef struct ARBUniform {
     char type;
     int location;
+    GLuint locationProgram;
     int index;
     float value[4];
 } ARBUniform;
@@ -24,6 +25,10 @@ typedef struct ARBProgram {
     GLuint threadId;
     char* shaderCode;
     char* asmSource;
+    /* ARB_position_invariant restores the fixed-function position transform. */
+    bool positionInvariant;
+    /* ARB_fragment_program fog OPTION selected for post-program color. */
+    GLenum fogMode;
     char samplerTypes[MAX_TEXCOORDS];
     ArrayList variables;
     ShaderMaterial* material;
@@ -40,6 +45,8 @@ extern void ARBProgram_setEnvParameter(GLenum target, GLuint index, GLfloat x, G
 extern void ARBProgram_setLocalParameter(ARBProgram* program, GLuint index, GLfloat x, GLfloat y, GLfloat z, GLfloat w);
 extern void ARBProgram_onDestroy(GLClientState* clientState);
 extern bool ARBProgram_isActive();
+extern bool ARBProgram_isVertexActive();
+extern bool ARBProgram_isFragmentActive();
 
 #define MARK_END_LINE(s) \
     int lineEnd = -1; \

@@ -88,11 +88,13 @@ def gradle_assemble(variant: str) -> int:
     task = "assemblePkgExperiment" if variant == "pkgExperiment" else "assembleDebug"
     env = dict(os.environ)
     rc = subprocess.run([gw, f":app:{task}", "-p", str(ANDROID),
+                         "-PpocketAbi=x86_64",
                          "-Pandroid.suppressUnsupportedCompileSdk=35"], env=env).returncode
     if rc != 0:
         return rc
     # The androidTest APK is variant-agnostic; build it once (debug component).
     return subprocess.run([gw, ":app:assembleDebugAndroidTest", "-p", str(ANDROID),
+                           "-PpocketAbi=x86_64",
                            "-Pandroid.suppressUnsupportedCompileSdk=35"], env=env).returncode
 
 

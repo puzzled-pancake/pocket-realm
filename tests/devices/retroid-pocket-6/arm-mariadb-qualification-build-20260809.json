@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "recordedDate": "2026-08-09",
+  "deviceModel": "Retroid Pocket 6",
+  "abi": "arm64-v8a",
+  "lane": "database",
+  "provider": "mariadb-12.3.2-termux-bionic-arm64",
+  "sourceLockfile": {
+    "path": "schemas/mariadb-runtime-lockfile-arm64-v8a.json",
+    "sha256": "8fdafe4dd9b9f3c7174cf3ecb70784dd406a194dcdde5108a0390b18eab98b05"
+  },
+  "apk": {
+    "path": "android/app/build/outputs/apk/databaseRuntime/app-databaseRuntime.apk",
+    "sha256": "225ea45ede4338b9fd3867adc1f0a82f62294a730514d49368835f31e2e09fc3",
+    "size": 192795254,
+    "signingCertificateSha256": "06394f1302005c5a5f23a0b7f47781829d3f6d72b275e1d7e393381b3a3368e9"
+  },
+  "testApk": {
+    "path": "android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+    "sha256": "acad6f96664ef2c2743dbb7e29a4c76960c3638822569aa5ee980148cda5d1ab",
+    "size": 1246493
+  },
+  "providerArtifacts": {
+    "mariadbd": {
+      "apkName": "libpocket_mariadbd.so",
+      "sha256": "ce5fb5ddd0083063888ce9e21e57d7b42309df8533c9b44baad53e72cadba5c9"
+    },
+    "mariadbClient": {
+      "apkName": "libpocket_mariadb_client.so",
+      "sha256": "5ea8f5a8dfaeacd456ed1c798f60e0dab2a245994e0a6f37379bd3d0759037e0"
+    },
+    "bootstrap": {
+      "path": "native/.build-arm64/mariadb-staging/assets/database/provider/bootstrap.sql",
+      "sha256": "beea9b5ed417de90a5dc4d678d7e42268a555df7082212bf51ea1791d3f21dd4"
+    }
+  },
+  "deviceExecution": "not_evaluated",
+  "deviceExecutionBlocker": "wireless_adb_timeout; RP6 was not online during final run and only the x86 emulator was visible",
+  "o14Acceptance": "not_evaluated",
+  "notes": "Database-only provider qualification APK. It is not a game/client APK and does not prove translated Wine, O15 parity, or O14 UX/peripheral acceptance."
+}

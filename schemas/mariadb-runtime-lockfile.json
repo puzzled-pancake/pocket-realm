@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "metadata_url": "https://sync.termux-pacman.dev/gpkg/x86_64/gpkg.json",
-  "metadata_sha256": "7f58943c9618bb65979547aeda3450ecdbb65a3f1c68c7edc9b220c7f27c8651",
+  "metadata_sha256": "22d47e564bbe2810aead33f5763787dd4a18f53e8727a80141e91b24729c9bb2",
   "mariadb_archive": {
     "path": "native/.build-x86_64/mariadb/mariadb-glibc-11.5.2-0-x86_64.pkg.tar.xz",
     "sha256": "a8b91dc430673327f8a49ddcbedcfd2c6624b6859614098bb2cf8c65e702e726"
@@ -122,6 +122,7 @@
   "runtime": {
     "schema": 1,
     "provider": "mariadb-11.5.2-termux-glibc",
+    "abi": "x86_64",
     "executables": {
       "mariadbd": {
         "apk_name": "libpocket_mariadbd.so",

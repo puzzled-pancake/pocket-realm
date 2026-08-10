@@ -1,6 +1,5 @@
 package com.pocketrealm.ui
 
-import android.view.KeyEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -16,109 +15,126 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.pocketrealm.client.ClientDisplayHost
+import com.pocketrealm.client.ControllerAction
+import com.pocketrealm.client.InputProfile
+import com.pocketrealm.client.OverlayControl
 import kotlin.math.roundToInt
 
-/**
- * The default touch-only control layer described by report §16.7. It is an
- * optional Compose overlay over the real X surface: controls synthesize the
- * same generation-gated keys/relative pointer events as physical devices,
- * while the overlay itself can be hidden for screenshots or peripherals.
- */
+/** User-configurable touch controls layered over the real client surface. */
 @Composable
 fun TouchOverlay(host: ClientDisplayHost, modifier: Modifier = Modifier) {
-    var visible by remember(host.generation) { mutableStateOf(true) }
+    val profile by host.profile.collectAsState()
+    var visible by remember(host.generation) { mutableStateOf(profile.overlayEnabled) }
     var captured by remember(host.generation) { mutableStateOf(host.isPointerCaptured) }
-    val opacity = host.activeProfile.overlayOpacity
+    LaunchedEffect(profile.overlayEnabled) { visible = profile.overlayEnabled }
 
+    val opacity = profile.overlayOpacity
+    val scale = profile.overlayScale
     Box(modifier.fillMaxSize()) {
         if (visible) {
             Box(
                 Modifier
                     .align(Alignment.Center)
                     .fillMaxHeight()
-                    .fillMaxWidth(0.42f)
-                    .pointerInput(host.generation) {
+                    .fillMaxWidth(profile.cameraRegionWidth)
+                    .pointerInput(host.generation, profile.invertCameraX, profile.invertCameraY) {
                         detectDragGestures { _, drag ->
-                            host.dispatchRelativePointer(
-                                drag.x.roundToInt(), drag.y.roundToInt(),
-                            )
+                            val x = if (profile.invertCameraX) -drag.x else drag.x
+                            val y = if (profile.invertCameraY) -drag.y else drag.y
+                            host.dispatchRelativePointer(x.roundToInt(), y.roundToInt())
                         }
                     }
-                    .background(Color(0x22000000), RoundedCornerShape(12.dp))
+                    .background(Color(0x18000000), RoundedCornerShape(18.dp))
                     .testTag("touch-camera-region"),
             )
+
             Column(
-                Modifier.align(Alignment.BottomStart).padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                Modifier.align(Alignment.BottomStart).padding(12.dp).scale(scale),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text("Move", color = Color.White, modifier = Modifier.testTag("touch-move-label"))
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    SpacerKey(host, KeyEvent.KEYCODE_A, "A", opacity)
-                    SpacerKey(host, KeyEvent.KEYCODE_W, "W", opacity)
-                    SpacerKey(host, KeyEvent.KEYCODE_D, "D", opacity)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ActionKey(host, profile, OverlayControl.MOVE_LEFT, "←", opacity)
+                    ActionKey(host, profile, OverlayControl.MOVE_UP, "↑", opacity)
+                    ActionKey(host, profile, OverlayControl.MOVE_RIGHT, "→", opacity)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    SpacerKey(host, KeyEvent.KEYCODE_S, "S", opacity)
-                    SpacerKey(host, KeyEvent.KEYCODE_SPACE, "Jump", opacity)
-                    SpacerKey(host, KeyEvent.KEYCODE_ESCAPE, "Menu", opacity)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ActionKey(host, profile, OverlayControl.MOVE_DOWN, "↓", opacity)
+                    ActionKey(host, profile, OverlayControl.JUMP, "Jump", opacity)
+                    ActionKey(host, profile, OverlayControl.MENU, "Menu", opacity)
                 }
             }
+
             Row(
-                Modifier.align(Alignment.BottomEnd).padding(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                Modifier.align(Alignment.BottomEnd).padding(12.dp).scale(scale),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 listOf(
-                    KeyEvent.KEYCODE_1 to "1", KeyEvent.KEYCODE_2 to "2",
-                    KeyEvent.KEYCODE_3 to "3", KeyEvent.KEYCODE_4 to "4",
-                    KeyEvent.KEYCODE_5 to "5", KeyEvent.KEYCODE_6 to "6",
-                    KeyEvent.KEYCODE_7 to "7", KeyEvent.KEYCODE_8 to "8",
-                ).forEach { (key, label) -> SpacerKey(host, key, label, opacity) }
+                    OverlayControl.ACTION_1,
+                    OverlayControl.ACTION_2,
+                    OverlayControl.ACTION_3,
+                    OverlayControl.ACTION_4,
+                    OverlayControl.ACTION_5,
+                    OverlayControl.ACTION_6,
+                    OverlayControl.ACTION_7,
+                    OverlayControl.ACTION_8,
+                ).forEachIndexed { index, control ->
+                    ActionKey(host, profile, control, (index + 1).toString(), opacity)
+                }
             }
         }
+
         Row(
-            Modifier.align(Alignment.TopEnd).padding(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            Modifier.align(Alignment.TopEnd).padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             OverlayButton(
-                label = if (visible) "Hide" else "Show",
+                label = if (visible) "Hide" else "Show controls",
                 tag = "touch-overlay-toggle",
                 opacity = opacity,
             ) { visible = !visible }
             OverlayButton(
-                label = if (captured) "Cursor" else "Mouse",
+                label = if (captured) "Cursor" else "Mouse look",
                 tag = "touch-pointer-capture",
                 opacity = opacity,
             ) {
                 captured = host.setPointerCapture(!captured)
             }
-            OverlayButton(
-                label = "Chat",
-                tag = "touch-chat",
-                opacity = opacity,
-            ) { host.showIme() }
+            OverlayButton("Keyboard", "touch-chat", opacity) { host.showIme() }
         }
     }
 }
 
 @Composable
-private fun SpacerKey(host: ClientDisplayHost, keyCode: Int, label: String, opacity: Float) {
+private fun ActionKey(
+    host: ClientDisplayHost,
+    profile: InputProfile,
+    control: OverlayControl,
+    fallbackLabel: String,
+    opacity: Float,
+) {
+    val action = InputProfile.actionFor(profile, control)
+    val label = action.shortLabel(fallbackLabel)
     Box(
         Modifier
-            .size(if (label.length > 1) 58.dp else 40.dp, 40.dp)
-            .background(Color.Black.copy(alpha = opacity), RoundedCornerShape(8.dp))
-            .virtualKey(host, keyCode)
-            .testTag("touch-key-$label"),
+            .size(if (label.length > 2) 68.dp else 48.dp, 48.dp)
+            .background(Color(0xFF101720).copy(alpha = opacity), RoundedCornerShape(14.dp))
+            .virtualAction(host, action, VIRTUAL_SOURCE_BASE + control.ordinal)
+            .testTag("touch-control-${control.name}"),
         contentAlignment = Alignment.Center,
     ) { Text(label, color = Color.White) }
 }
@@ -132,21 +148,44 @@ private fun OverlayButton(
 ) {
     Box(
         Modifier
-            .background(Color.Black.copy(alpha = opacity), RoundedCornerShape(8.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .background(Color(0xFF101720).copy(alpha = opacity), RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp, vertical = 10.dp)
             .testTag(tag)
             .pointerInput(tag) { detectTapGestures(onTap = { onClick() }) },
         contentAlignment = Alignment.Center,
     ) { Text(label, color = Color.White) }
 }
 
-private fun Modifier.virtualKey(host: ClientDisplayHost, keyCode: Int): Modifier =
-    pointerInput(host.generation, keyCode) {
-        detectTapGestures(
-            onPress = {
-                host.dispatchVirtualKey(keyCode, true)
+private fun Modifier.virtualAction(
+    host: ClientDisplayHost,
+    action: ControllerAction,
+    source: Int,
+): Modifier = pointerInput(host.generation, action, source) {
+    detectTapGestures(
+        onPress = {
+            host.dispatchVirtualAction(action, true, source)
+            try {
                 tryAwaitRelease()
-                host.dispatchVirtualKey(keyCode, false)
-            },
-        )
-    }
+            } finally {
+                host.dispatchVirtualAction(action, false, source)
+            }
+        },
+    )
+}
+
+private fun ControllerAction.shortLabel(fallback: String): String = when (this) {
+    ControllerAction.DISABLED -> "Off"
+    ControllerAction.POINTER_LEFT -> "LMB"
+    ControllerAction.POINTER_RIGHT -> "RMB"
+    ControllerAction.JUMP -> "Jump"
+    ControllerAction.ESCAPE -> "Menu"
+    ControllerAction.RADIAL_MENU -> "F7"
+    ControllerAction.AUTO_RUN -> "Auto"
+    ControllerAction.INTERACT -> "Use"
+    ControllerAction.MAP -> "Map"
+    ControllerAction.TARGET -> "Tab"
+    else -> keyCode?.let { displayName.removePrefix("Key ").removePrefix("Move ").removePrefix("Strafe ") }
+        ?: fallback
+}
+
+private const val VIRTUAL_SOURCE_BASE = 0x7400

@@ -33,10 +33,25 @@ public class DrawableManager extends XResourceManager implements XResourceManage
 
     public void removeDrawable(int id) {
         Drawable drawable = drawables.get(id);
+        if (drawable == null) return;
 
-        final Texture texture = drawable.getTexture();
+        final Texture texture;
+        final Callback<Drawable> onDestroyListener;
+        /* updateWindowContent() holds this same lock while the native GLX
+         * thread reads back into the drawable. Detach the owner and remove
+         * the manager entry atomically so a lookup that raced removal is
+         * rejected after it acquires the lock instead of dereferencing a
+         * detached Drawable. */
+        synchronized (drawable.renderLock) {
+            if (drawables.get(id) != drawable) return;
+            texture = drawable.getTexture();
+            if (texture != null && texture.getOwner() == drawable) texture.setOwner(null);
+            onDestroyListener = drawable.getOnDestroyListener();
+            drawable.setOnDrawListener(null);
+            drawables.remove(id);
+        }
+
         if (texture != null) {
-            if (texture.getOwner() == drawable) texture.setOwner(null);
             /* The O06 protocol spike deliberately runs the X server headless.
              * With no GL context, there is no renderer queue or allocated GLES
              * texture to release. The normal Winlator path still destroys the
@@ -45,11 +60,7 @@ public class DrawableManager extends XResourceManager implements XResourceManage
             if (renderer != null) renderer.xServerView.queueEvent(texture::destroy);
         }
 
-        Callback<Drawable> onDestroyListener = drawable.getOnDestroyListener();
         if (onDestroyListener != null) onDestroyListener.call(drawable);
-
-        drawable.setOnDrawListener(null);
-        drawables.remove(id);
     }
 
     @Override

@@ -3,8 +3,13 @@ package com.winlator.renderer;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Path;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
+import android.util.Log;
 
 import androidx.core.graphics.ColorUtils;
 
@@ -40,6 +45,7 @@ import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
 public class GLRenderer implements GLSurfaceView.Renderer, WindowManager.OnWindowModificationListener, Pointer.OnPointerMotionListener {
+    private static final String TAG = "PR/GLRenderer";
     public final XServerView xServerView;
     private final XServer xServer;
     protected final VertexAttribute quadVertices = new VertexAttribute("position", 2);
@@ -102,7 +108,9 @@ public class GLRenderer implements GLSurfaceView.Renderer, WindowManager.OnWindo
         GLES20.glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
         long generation = NEXT_SURFACE_GENERATION.incrementAndGet();
-        if (GPUHelper.setGlobalEGLContext(generation)) {
+        boolean registered = GPUHelper.setGlobalEGLContext(generation);
+        Log.i(TAG, "surface created generation=" + generation + " registered=" + registered);
+        if (registered) {
             synchronized (surfaceStateLock) {
                 activeSurfaceGeneration = generation;
                 surfaceStateLock.notifyAll();
@@ -111,18 +119,28 @@ public class GLRenderer implements GLSurfaceView.Renderer, WindowManager.OnWindo
     }
 
     /**
-     * GLSurfaceView has no renderer-side destruction callback. XServerView
-     * forwards SurfaceHolder destruction here before GLSurfaceView tears down
-     * its EGL context, so a later Wine GLX context cannot share against a
-     * stale native pointer.
+     * Permanently release the host's share-context registration. A normal
+     * SurfaceHolder destruction during Home/background must not clear it:
+     * XServerView preserves the EGL context, and Android may resume that same
+     * context without invoking onSurfaceCreated again.
      */
-    public void onSurfaceDestroyed() {
+    public void onHostDestroyed() {
+        clearSurfaceGeneration("host destroyed");
+    }
+
+    /** Called by XServerView's EGLContextFactory only for real context loss. */
+    public void onEglContextDestroyed() {
+        clearSurfaceGeneration("EGL context destroyed");
+    }
+
+    private void clearSurfaceGeneration(String reason) {
         long generation;
         synchronized (surfaceStateLock) {
             generation = activeSurfaceGeneration;
             activeSurfaceGeneration = 0;
             surfaceStateLock.notifyAll();
         }
+        Log.i(TAG, reason + " generation=" + generation);
         if (generation != 0) GPUHelper.clearGlobalEGLContext(generation);
     }
 
@@ -327,15 +345,37 @@ public class GLRenderer implements GLSurfaceView.Renderer, WindowManager.OnWindo
 
     private Drawable createRootCursorDrawable() {
         Context context = xServerView.getContext();
-        // TRIMMED for O06 S-3: upstream loads the cursor from R.drawable.cursor
-        // (a Winlator app resource). The spike has no such resource, so decode
-        // it by resource-name lookup; fall back to a 1x1 transparent cursor if
-        // the resource is absent (the spike does not exercise cursor rendering).
+        // Prefer the provider cursor resource. Pocket Realm intentionally has
+        // no Winlator UI resources, so create a high-contrast software arrow
+        // instead of the old 1x1 transparent fallback. This keeps controller
+        // and touch mouse navigation visible on the RP6 login/GlueXML screens.
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inScaled = false;
         int resId = context.getResources().getIdentifier("cursor", "drawable", context.getPackageName());
-        Bitmap bitmap = resId != 0 ? BitmapFactory.decodeResource(context.getResources(), resId, options)
-                                   : Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
+        Bitmap bitmap = resId != 0 ? BitmapFactory.decodeResource(context.getResources(), resId, options) : null;
+        if (bitmap == null) {
+            bitmap = Bitmap.createBitmap(32, 48, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(bitmap);
+            Path arrow = new Path();
+            arrow.moveTo(1, 1);
+            arrow.lineTo(1, 38);
+            arrow.lineTo(10, 29);
+            arrow.lineTo(17, 46);
+            arrow.lineTo(25, 42);
+            arrow.lineTo(18, 26);
+            arrow.lineTo(31, 26);
+            arrow.close();
+            Paint outline = new Paint(Paint.ANTI_ALIAS_FLAG);
+            outline.setStyle(Paint.Style.FILL_AND_STROKE);
+            outline.setStrokeWidth(5f);
+            outline.setStrokeJoin(Paint.Join.ROUND);
+            outline.setColor(Color.BLACK);
+            canvas.drawPath(arrow, outline);
+            Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
+            fill.setStyle(Paint.Style.FILL);
+            fill.setColor(Color.WHITE);
+            canvas.drawPath(arrow, fill);
+        }
         return Drawable.fromBitmap(bitmap);
     }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""O06 Phase-1 S-5(b): build termux/proot + libtalloc for Android x86_64 (Bionic).
+"""O06 Phase-1 S-5(b): build termux/proot + libtalloc for Android/Bionic.
 
 WHY: The S-1 on-device diagnostic (sigsys_diag.c) PROVED the direct glibc-loader
 invocation is killed by Android's untrusted_app seccomp filter on syscall 21
@@ -31,7 +31,7 @@ Pinned sources (see schemas/sources.json):
   talloc: samba talloc-2.4.2 (sha256 85ecf9e465e20f98f9950a52e9a411e14320bc555fa257d87697b7e7a9b1d8a6, LGPL-3.0)
 
 Usage:
-  python3 tools/build_proot.py --abi x86_64
+  python3 tools/build_proot.py --abi x86_64|arm64-v8a
 """
 from __future__ import annotations
 
@@ -345,9 +345,37 @@ def build_proot(triple: str, api: int, talloc_dir: Path, out_dir: Path) -> Path:
         awk_script = src_dir / "loader/loader-info.awk"
         loader_src = build_dir / "loader/loader"
         r = subprocess.run([readelf, "-s", loader_src], capture_output=True, text=True)
-        awk = subprocess.run(["awk", "-f", awk_script], input=r.stdout,
-                             capture_output=True, text=True)
-        loader_info_c.write_text(awk.stdout)
+        awk_executable = shutil.which("awk")
+        if awk_executable:
+            awk = subprocess.run([awk_executable, "-f", awk_script], input=r.stdout,
+                                  capture_output=True, text=True)
+            generated = awk.stdout if awk.returncode == 0 else ""
+        else:
+            # Windows developer hosts commonly have no awk. The pinned awk
+            # program only computes the offset between two ELF symbols, so
+            # reproduce that tiny transform in Python instead of requiring a
+            # second Unix shell/toolchain installation.
+            symbols: dict[str, int] = {}
+            for line in r.stdout.splitlines():
+                match = re.search(
+                    r"^\s*\d+:\s*([0-9a-fA-F]+)\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+(\S+)",
+                    line,
+                )
+                if match and match.group(2) in {"_start", "pokedata_workaround"}:
+                    symbols[match.group(2)] = int(match.group(1), 16)
+            if "_start" not in symbols or "pokedata_workaround" not in symbols:
+                raise RuntimeError(
+                    "loader symbol table lacks _start/pokedata_workaround; "
+                    "cannot generate loader-info.c without awk"
+                )
+            generated = (
+                "#include <unistd.h>\n"
+                "const ssize_t offset_to_pokedata_workaround="
+                f"{symbols['pokedata_workaround'] - symbols['_start']};\n"
+            )
+        if not generated.strip():
+            raise RuntimeError("loader-info.awk failed to produce loader-info.c")
+        loader_info_c.write_text(generated)
         info_o = build_dir / "loader/loader-info.o"
         run([cc, target] + cppflags + cflags + ["-MD", "-c", loader_info_c, "-o", info_o])
         obj_paths.append(info_o)

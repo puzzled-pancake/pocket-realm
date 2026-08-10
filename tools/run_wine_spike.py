@@ -88,10 +88,12 @@ def gradle_build():
     print("== building pkgExperiment APK ==")
     subprocess.run([gw, ":app:assemblePkgExperiment",
                     "-p", str(ANDROID),
+                    "-PpocketAbi=x86_64",
                     "-Pandroid.suppressUnsupportedCompileSdk=35"], check=True)
     print("== building androidTest APK ==")
     subprocess.run([gw, ":app:assembleDebugAndroidTest",
                     "-p", str(ANDROID),
+                    "-PpocketAbi=x86_64",
                     "-Pandroid.suppressUnsupportedCompileSdk=35"], check=True)
 
 

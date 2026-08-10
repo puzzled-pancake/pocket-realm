@@ -1,6 +1,7 @@
 package com.pocketrealm.database
 
 import android.content.Context
+import android.os.Build
 import android.os.Process
 import com.pocketrealm.storage.StorageRoots
 import org.json.JSONArray
@@ -25,6 +26,21 @@ internal class DatabaseEngine(private val context: Context) {
     private val mariadbd = File(nativeDir, "libpocket_mariadbd.so")
     private val mariadb = File(nativeDir, "libpocket_mariadb_client.so")
     private val providerRoot = File(roots.databaseRoot, "provider")
+    private val selectedAbi = Build.SUPPORTED_ABIS.firstOrNull {
+        it == "arm64-v8a" || it == "x86_64"
+    } ?: throw IllegalStateException(
+        "DB-ABI: unsupported device ABI list ${Build.SUPPORTED_ABIS.joinToString(",")}",
+    )
+    private val providerId = when (selectedAbi) {
+        "arm64-v8a" -> DatabaseRuntimeContract.ARM_PROVIDER_ID
+        "x86_64" -> DatabaseRuntimeContract.X86_PROVIDER_ID
+        else -> error("DB-ABI: unsupported selected ABI $selectedAbi")
+    }
+    private val providerVersion = when (selectedAbi) {
+        "arm64-v8a" -> DatabaseRuntimeContract.ARM_PROVIDER_VERSION
+        "x86_64" -> DatabaseRuntimeContract.X86_PROVIDER_VERSION
+        else -> error("DB-ABI: unsupported selected ABI $selectedAbi")
+    }
     private val datadir = roots.databaseDatadir
     private val runDir = roots.databaseRun
     private val socket = File(runDir, "mariadb.sock")
@@ -36,6 +52,8 @@ internal class DatabaseEngine(private val context: Context) {
     private val configFile = File(runDir, "my.cnf")
     private val snapshotStore = DatabaseSnapshotStore(roots.databaseSnapshots)
     private val restoreRecord = File(roots.databaseRoot, "restore-transaction.json")
+    private val initializedMarker = File(roots.databaseRoot, "initialized.json")
+    private val expectedBootstrapSha256 by lazy { sha256Asset(BOOTSTRAP_ASSET) }
     @Volatile private var state = State.STOPPED
     @Volatile private var daemonResult: DatabaseRunResult? = null
     @Volatile private var daemonThread: Thread? = null
@@ -49,7 +67,7 @@ internal class DatabaseEngine(private val context: Context) {
             .put("initialized", initialized())
             .put("socketExists", socket.exists())
             .put("tcpDisabled", true)
-            .put("cleanMarker", cleanMarker.exists())
+            .put("cleanMarker", cleanGeneration())
             .put("restorePending", restoreRecord.isFile)
             .put("datadir", datadir.absolutePath)
             .put("pid", Process.myPid())
@@ -82,7 +100,7 @@ internal class DatabaseEngine(private val context: Context) {
         // mysql_install_db writes this exact marker after a successful
         // bootstrap. Preserve that contract even though O08 feeds the pinned
         // bootstrap SQL directly instead of executing the Perl shell wrapper.
-        atomicWrite(File(datadir, "mariadb_upgrade_info"), "$PROVIDER_VERSION-MariaDB")
+        atomicWrite(File(datadir, "mariadb_upgrade_info"), "$providerVersion-MariaDB")
         val secrets = createSecrets()
         startDaemon(allowUnsealedBootstrap = true)
         val setup = fixedSql("initial-auth", """
@@ -112,8 +130,8 @@ internal class DatabaseEngine(private val context: Context) {
         val denied = runClient("pocket_core", secrets.core, forbidden)
         check(!denied.ok) { "DB-INIT: core user unexpectedly has account-administration privilege" }
         stop()
-        atomicWrite(File(roots.databaseRoot, "initialized.json"), JSONObject()
-            .put("schema", 1).put("provider", PROVIDER_ID)
+        atomicWrite(initializedMarker, JSONObject()
+            .put("schema", 1).put("provider", providerId)
             .put("bootstrapSha256", sha256(bootstrap)).put("initializedAt", System.currentTimeMillis())
             .toString())
         JSONObject().put("ok", true).put("initialized", true)
@@ -123,15 +141,33 @@ internal class DatabaseEngine(private val context: Context) {
     }
 
     fun start(): JSONObject = synchronized(lock) {
+        check(cleanGeneration()) {
+            "DB-RECOVERY: database generation is not sealed by a valid clean-stop marker"
+        }
         val started = startDaemon()
         val health = queryHealth()
         started.put("authenticated", health.getBoolean("authenticated"))
             .put("leastPrivilege", true)
     }
 
-    private fun startDaemon(allowUnsealedBootstrap: Boolean = false): JSONObject {
+    private fun startDaemon(
+        allowUnsealedBootstrap: Boolean = false,
+        allowDirtyRecovery: Boolean = false,
+    ): JSONObject {
+        check(!(allowUnsealedBootstrap && allowDirtyRecovery)) {
+            "database start cannot be both bootstrap and recovery"
+        }
         requireProvider()
         check(initialized() || allowUnsealedBootstrap) { "DB-INIT: initialize must pass before start" }
+        when {
+            allowUnsealedBootstrap -> Unit
+            allowDirtyRecovery -> check(!cleanGeneration()) {
+                "DB-RECOVERY: dirty recovery requested for a clean generation"
+            }
+            else -> check(cleanGeneration()) {
+                "DB-RECOVERY: database generation is not sealed by a valid clean-stop marker"
+            }
+        }
         check(state == State.STOPPED || state == State.FAILED) { "database already active: $state" }
         checkStorage(MIN_START_BYTES)
         // nativeLibraryDir changes whenever Android installs a replacement
@@ -197,7 +233,7 @@ internal class DatabaseEngine(private val context: Context) {
         check(daemonResult?.ok == true) { "mariadbd exit was not clean: ${daemonResult?.waitStatus}" }
         state = State.STOPPED
         atomicWrite(cleanMarker, JSONObject().put("schema", 1)
-            .put("provider", PROVIDER_ID).put("stoppedAt", System.currentTimeMillis()).toString())
+            .put("provider", providerId).put("stoppedAt", System.currentTimeMillis()).toString())
         JSONObject().put("ok", true).put("state", state.name).put("cleanMarker", true)
     }
 
@@ -215,10 +251,10 @@ internal class DatabaseEngine(private val context: Context) {
     }
 
     fun recover(): JSONObject = synchronized(lock) {
-        check(!cleanMarker.exists()) { "recovery requested for a clean generation" }
+        check(!cleanGeneration()) { "recovery requested for a clean generation" }
         check(state == State.FAILED || state == State.STOPPED) { "database process still active" }
         val before = errorLog.length()
-        start()
+        startDaemon(allowDirtyRecovery = true)
         val health = queryHealth()
         val recoveryOutput = errorLogTail(fromByte = before)
         val classified = recoveryOutput.contains("recover", ignoreCase = true) ||
@@ -237,7 +273,7 @@ internal class DatabaseEngine(private val context: Context) {
     fun applyPinnedMigrations(): JSONObject = synchronized(lock) {
         requireStopped()
         check(initialized()) { "DB-INIT: initialize must pass before migrations" }
-        check(cleanMarker.isFile) { "DB-SNAPSHOT: pre-migration generation is not clean" }
+        check(cleanGeneration()) { "DB-SNAPSHOT: pre-migration generation is not clean" }
         checkStorage(MIN_MIGRATION_BYTES)
         val manifest = JSONObject(context.assets.open(MIGRATION_MANIFEST).bufferedReader().use { it.readText() })
         check(manifest.getInt("schema") == 1) { "DB-REVISION: unsupported manifest schema" }
@@ -302,7 +338,7 @@ internal class DatabaseEngine(private val context: Context) {
 
     fun snapshotAndRestoreTest(): JSONObject = synchronized(lock) {
         requireStopped()
-        check(initialized() && cleanMarker.isFile) { "DB-SNAPSHOT: clean initialized datadir required" }
+        check(initialized() && cleanGeneration()) { "DB-SNAPSHOT: clean initialized datadir required" }
         val snapshot = snapshotStore.create(
             datadir, "restore-test-${System.currentTimeMillis()}", databaseStopped = true,
         )
@@ -310,10 +346,9 @@ internal class DatabaseEngine(private val context: Context) {
         check(datadir.renameTo(original)) { "DB-SNAPSHOT: could not quarantine original datadir" }
         return try {
             snapshotStore.restore(snapshot, datadir, databaseStopped = true)
-            start()
-            val health = queryHealth()
+            val started = start()
             stop()
-            check(health.getBoolean("ok"))
+            check(started.getBoolean("authenticated"))
             original.deleteRecursively()
             snapshotStore.retainNewest(2)
             JSONObject().put("ok", true).put("snapshotId", snapshot.id)
@@ -332,12 +367,12 @@ internal class DatabaseEngine(private val context: Context) {
 
     fun createNamedBackup(name: String): JSONObject = synchronized(lock) {
         requireStopped()
-        check(initialized() && cleanMarker.isFile) { "DB-SNAPSHOT: clean stopped datadir required" }
+        check(initialized() && cleanGeneration()) { "DB-SNAPSHOT: clean stopped datadir required" }
         check(BACKUP_NAME.matches(name)) { "DB-SNAPSHOT: invalid backup name" }
         check(!restoreRecord.exists()) { "DB-SNAPSHOT: restore verification is pending" }
         val id = "manual-$name-${System.currentTimeMillis()}"
         val compatibility = JSONObject()
-            .put("provider", PROVIDER_ID)
+            .put("provider", providerId)
             .put("runtimeBuildId", "o09-cmangos-c096bada-nobots-v1")
             .put("databaseFamily", "cmangos-classic")
         val snapshot = snapshotStore.create(datadir, id, databaseStopped = true,
@@ -362,12 +397,12 @@ internal class DatabaseEngine(private val context: Context) {
         check(snapshotId.startsWith("manual-") && snapshotId.length <= 128) {
             "DB-SNAPSHOT: only named backups may be restored"
         }
-        check(initialized() && cleanMarker.isFile) { "DB-SNAPSHOT: clean stopped datadir required" }
+        check(initialized() && cleanGeneration()) { "DB-SNAPSHOT: clean stopped datadir required" }
         check(!restoreRecord.exists()) { "DB-SNAPSHOT: another restore verification is pending" }
         val snapshot = snapshotStore.load(snapshotId)
         val manifest = JSONObject(snapshot.manifest.readText())
         val compatibility = manifest.optJSONObject("compatibility") ?: JSONObject()
-        check(compatibility.optString("provider") == PROVIDER_ID) {
+        check(compatibility.optString("provider") == providerId) {
             "DB-REVISION: backup provider is incompatible"
         }
         val required = datadir.walkTopDown().filter { it.isFile }.sumOf { it.length() } + MIN_START_BYTES
@@ -386,7 +421,8 @@ internal class DatabaseEngine(private val context: Context) {
             atomicWrite(restoreRecord, JSONObject(restoreRecord.readText())
                 .put("phase", "CANDIDATE_ACTIVE").toString())
             atomicWrite(cleanMarker, JSONObject().put("schema", 1)
-                .put("restoreCandidate", snapshot.id).put("stoppedAt", System.currentTimeMillis()).toString())
+                .put("provider", providerId).put("restoreCandidate", snapshot.id)
+                .put("stoppedAt", System.currentTimeMillis()).toString())
             JSONObject().put("ok", true).put("restoreToken", token)
                 .put("snapshotId", snapshot.id).put("snapshotDigest", snapshot.digest)
                 .put("candidateActive", false).put("requiresWorldReady", true)
@@ -399,7 +435,7 @@ internal class DatabaseEngine(private val context: Context) {
     fun commitRestore(restoreToken: String): JSONObject = synchronized(lock) {
         requireStopped()
         val record = requireRestore(restoreToken)
-        check(cleanMarker.isFile) { "DB-SNAPSHOT: restored candidate did not clean-stop" }
+        check(cleanGeneration()) { "DB-SNAPSHOT: restored candidate did not clean-stop" }
         val quarantine = File(roots.databaseRoot, record.getString("quarantine"))
         check(quarantine.isDirectory) { "DB-SNAPSHOT: pre-restore safety copy is missing" }
         quarantine.deleteRecursively()
@@ -475,13 +511,24 @@ internal class DatabaseEngine(private val context: Context) {
         check(args.size <= 48 && args.none { '\n' in it }) { "invalid fixed argument set" }
         check(environment.size <= 4 && environment.none { '\n' in it }) { "invalid fixed environment" }
         if (stdin != null) check(stdin.startsWith(roots.databaseRoot) && stdin.isFile) { "untrusted stdin path" }
-        val raw = DatabaseNative.runGlibcProgramNative(
+        val common = arrayOf(
             nativeDir.absolutePath, executable.absolutePath, argv0,
             roots.databaseRoot.absolutePath, roots.databaseRoot.absolutePath,
             File(providerRoot, "lib").absolutePath, args.joinToString("\n"),
-            environment.joinToString("\n"),
-            stdin?.absolutePath.orEmpty(), timeoutMs, trackDaemon,
+            environment.joinToString("\n"), stdin?.absolutePath.orEmpty(),
+            timeoutMs.toString(), trackDaemon.toString(),
         )
+        val raw = if (selectedAbi == "arm64-v8a") {
+            DatabaseNative.runBionicProgramNative(
+                common[0], common[1], common[2], common[3], common[4], common[5],
+                common[6], common[7], common[8], timeoutMs, trackDaemon,
+            )
+        } else {
+            DatabaseNative.runGlibcProgramNative(
+                common[0], common[1], common[2], common[3], common[4], common[5],
+                common[6], common[7], common[8], timeoutMs, trackDaemon,
+            )
+        }
         return DatabaseRunResult.parse(raw)
     }
 
@@ -526,6 +573,12 @@ internal class DatabaseEngine(private val context: Context) {
         // data/scripts only; all executable ELFs remain APK-managed in nativeLibraryDir.
         copyAssetTree("database/provider", providerRoot)
         val manifest = JSONObject(File(providerRoot, "runtime-manifest.json").readText())
+        check(manifest.getString("provider") == providerId) {
+            "DB-LINK: provider manifest does not match selected provider $providerId"
+        }
+        check(manifest.getString("abi") == selectedAbi) {
+            "DB-LINK: provider manifest ABI does not match $selectedAbi"
+        }
         val links = manifest.getJSONArray("links")
         val lib = File(providerRoot, "lib").apply { mkdirs() }
         for (index in 0 until links.length()) {
@@ -700,7 +753,7 @@ internal class DatabaseEngine(private val context: Context) {
         if (datadir.exists()) check(datadir.renameTo(failed)) { "DB-SNAPSHOT: cannot quarantine failed datadir" }
         snapshotStore.restore(snapshot, datadir, databaseStopped = true)
         atomicWrite(cleanMarker, JSONObject().put("schema", 1).put("restoredSnapshot", snapshot.id)
-            .put("stoppedAt", System.currentTimeMillis()).toString())
+            .put("provider", providerId).put("stoppedAt", System.currentTimeMillis()).toString())
     }
 
     private fun requireRestore(token: String): JSONObject {
@@ -721,14 +774,36 @@ internal class DatabaseEngine(private val context: Context) {
         candidate.deleteRecursively()
         atomicWrite(cleanMarker, JSONObject().put("schema", 1)
             .put("restoreRolledBack", record.getString("snapshotId"))
+            .put("provider", providerId)
             .put("stoppedAt", System.currentTimeMillis()).toString())
         restoreRecord.delete()
     }
 
     private fun providerReady(): Boolean = mariadbd.isFile && mariadb.isFile &&
-        runCatching { context.assets.open("database/provider/bootstrap.sql").close() }.isSuccess
+        runCatching { context.assets.open(BOOTSTRAP_ASSET).close() }.isSuccess
     private fun requireProvider() = check(providerReady()) { "DB-LINK: pinned MariaDB provider is not staged" }
-    private fun initialized(): Boolean = File(roots.databaseRoot, "initialized.json").isFile
+    private fun initialized(): Boolean = runCatching {
+        val mysqlDir = File(datadir, "mysql")
+        DatabaseGenerationSeal.initialized(
+            DatabaseGenerationSeal.InitializedInput(
+                markerText = initializedMarker.takeIf(File::isFile)?.readText(),
+                expectedProvider = providerId,
+                expectedBootstrapSha256 = expectedBootstrapSha256,
+                upgradeInfo = File(datadir, "mariadb_upgrade_info")
+                    .takeIf(File::isFile)?.readText(),
+                expectedUpgradeInfo = "$providerVersion-MariaDB",
+                datadirDirectory = datadir.isDirectory,
+                mysqlDirectory = mysqlDir.isDirectory,
+                mysqlEntries = mysqlDir.list()?.asList().orEmpty(),
+                secretsText = secretFile.takeIf(File::isFile)?.readText(),
+            ),
+        )
+    }.getOrDefault(false)
+
+    private fun cleanGeneration(): Boolean = DatabaseGenerationSeal.clean(
+        cleanMarker.takeIf(File::isFile)?.readText(),
+        providerId,
+    )
     private fun requireStopped() = check(state == State.STOPPED || state == State.FAILED) {
         "operation requires stopped database, state=$state"
     }
@@ -740,7 +815,9 @@ internal class DatabaseEngine(private val context: Context) {
 
     private fun readSecrets(): Secrets {
         check(secretFile.isFile) { "DB-INIT: credential record missing" }
-        val json = JSONObject(secretFile.readText())
+        val text = secretFile.readText()
+        check(DatabaseGenerationSeal.validSecrets(text)) { "DB-INIT: credential record is invalid" }
+        val json = JSONObject(text)
         return Secrets(json.getString("admin"), json.getString("core"))
     }
 
@@ -775,17 +852,28 @@ internal class DatabaseEngine(private val context: Context) {
 
     private fun sha256(file: File): String = MessageDigest.getInstance("SHA-256")
         .digest(file.readBytes()).joinToString("") { "%02x".format(it) }
+    private fun sha256Asset(path: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        context.assets.open(path).use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
     private fun sha256Text(value: String): String = MessageDigest.getInstance("SHA-256")
         .digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
 
     companion object {
         private const val TAG = "DatabaseEngine"
-        private const val PROVIDER_ID = DatabaseRuntimeContract.PROVIDER_ID
-        private const val PROVIDER_VERSION = DatabaseRuntimeContract.PROVIDER_VERSION
         private const val MIN_INITIALIZE_BYTES = 768L * 1024 * 1024
         private const val MIN_START_BYTES = 128L * 1024 * 1024
         private const val MIN_MIGRATION_BYTES = 1536L * 1024 * 1024
         private const val MAX_DIAGNOSTIC = 16 * 1024
+        private const val BOOTSTRAP_ASSET = "database/provider/bootstrap.sql"
         private const val MIGRATION_MANIFEST = "database/migrations/manifest.json"
         private val BACKUP_NAME = Regex("[A-Za-z0-9._-]{1,32}")
         private val MIGRATION_ID = Regex("[A-Za-z0-9._-]{1,191}")

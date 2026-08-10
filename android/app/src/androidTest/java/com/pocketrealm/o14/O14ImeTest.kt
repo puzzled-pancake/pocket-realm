@@ -5,6 +5,8 @@ import android.os.Build
 import android.os.SystemClock
 import android.system.Os
 import android.system.OsConstants
+import android.text.InputType
+import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.ViewGroup
@@ -129,7 +131,33 @@ class O14ImeTest {
             val editorInfo = EditorInfo()
             imeConnection = host!!.imeView.onCreateInputConnection(editorInfo)
             assertEquals(EditorInfo.IME_ACTION_DONE, editorInfo.actionId)
+            assertTrue(editorInfo.inputType and InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS != 0)
+            assertTrue(editorInfo.inputType and InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD != 0)
         }
+
+        // The hidden editor now owns Android focus. Verify a SOURCE_MOUSE event
+        // still crosses the production IME-view listener into the X bridge.
+        val mouseMove = MotionEvent.obtain(
+            SystemClock.uptimeMillis(), SystemClock.uptimeMillis(),
+            MotionEvent.ACTION_HOVER_MOVE, 320f, 240f, 0,
+        ).apply { source = InputDevice.SOURCE_MOUSE }
+        try {
+            instrumentation.runOnMainSync {
+                assertTrue(
+                    "mouse navigation must remain active while the IME owns focus",
+                    host!!.imeView.dispatchGenericMotionEvent(mouseMove),
+                )
+            }
+        } finally {
+            mouseMove.recycle()
+        }
+
+        // Full-editor shadow state must replace active composing text without
+        // redispatching it. Only the committed "ab" is allowed into Wine.
+        assertTrue(imeConnection.setComposingText("x", 1))
+        assertTrue(imeConnection.commitText("ab", 1))
+        assertEquals("ab", imeConnection.getTextBeforeCursor(16, 0).toString())
+        awaitImeIdle()
 
         // ---- 2. IME commit the fixed test phrase ----------------------------
         // This is the ONLY committed text that should produce WM_CHAR for the
@@ -149,6 +177,27 @@ class O14ImeTest {
         // Backspace maps to KEYCODE_DEL → WM_KEYDOWN(VK_BACK=8), NOT WM_CHAR.
         val delBefore = host!!.inputDiagnostics().rejectedStaleEventCount
         assertTrue("IME delete should be handled", imeConnection.deleteSurroundingText(2, 0))
+        awaitImeIdle()
+        // Exercise code-point deletion with a surrogate pair in Android's
+        // composing-only shadow; the pair must be removed atomically.
+        val beforeSupplementary = imeConnection.getTextBeforeCursor(128, 0).toString()
+        assertTrue(imeConnection.setComposingText("\uD83D\uDE00", 1))
+        assertTrue(imeConnection.finishComposingText())
+        assertTrue(
+            "IME codepoint delete should inject Backspace",
+            imeConnection.deleteSurroundingTextInCodePoints(1, 0),
+        )
+        val afterCodepointDelete = imeConnection.getTextBeforeCursor(128, 0).toString()
+        assertEquals(
+            "codepoint delete must remove the complete supplementary character",
+            beforeSupplementary,
+            afterCodepointDelete,
+        )
+        awaitImeIdle()
+        val deleteDown = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL)
+        val deleteUp = KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL)
+        assertTrue("IME key-event Backspace DOWN should be handled", imeConnection.sendKeyEvent(deleteDown))
+        assertTrue("IME key-event Backspace UP should be consumed", imeConnection.sendKeyEvent(deleteUp))
         awaitImeIdle()
 
         // ---- 5. Unsupported character rejection (atomicity) -----------------
@@ -244,6 +293,11 @@ class O14ImeTest {
             1,
             phraseOccurrences,
         )
+        assertEquals(
+            "composing replacement must inject committed 'ab' exactly once",
+            1,
+            countSubsequence(charCodepoints, listOf('a'.code, 'b'.code)),
+        )
 
         // ---- C. Enter reached the Win32 probe -------------------------------
         // Enter produces WM_CHAR with codepoint 13 (CR).
@@ -255,12 +309,12 @@ class O14ImeTest {
         // ---- D. Backspace reached the Win32 probe ---------------------------
         // Backspace (KEYCODE_DEL → VK_BACK=8) produces BOTH WM_KEYDOWN(8) and
         // WM_CHAR(8). We verify via the CHAR stream that codepoint 8 appears
-        // at least twice (two deletions).
+        // for all four requested deletions across the three InputConnection APIs.
         val backspaceCount = charCodepoints.count { it == 8 }
         assertTrue(
-            "Backspace (codepoint 8 in WM_CHAR) must appear at least twice; " +
+            "Backspace (codepoint 8 in WM_CHAR) must appear at least four times; " +
                 "got backspaceCount=$backspaceCount chars=$charCodepoints",
-            backspaceCount >= 2,
+            backspaceCount >= 4,
         )
 
         // ---- E. Unsupported character rejected — atomic, no partial injection -

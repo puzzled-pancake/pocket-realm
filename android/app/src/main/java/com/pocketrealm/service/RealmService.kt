@@ -80,7 +80,10 @@ class RealmService : Service() {
             ACTION_START -> launchOperation("start") {
                 if (maintenanceActive.get()) RuntimeOperation(false, supervisor.state.value,
                     "maintenance operation is active")
-                else supervisor.start(AndroidRuntimeBackend.INTEGRATED_PROFILE, includeClient = true)
+                else supervisor.start(
+                    intent.getStringExtra(EXTRA_PROFILE_ID) ?: AndroidRuntimeBackend.INTEGRATED_PROFILE,
+                    includeClient = true,
+                )
             }
             ACTION_SAVE_EXIT -> launchOperation("save-stop") { supervisor.stop(StopMode.GRACEFUL) }
             ACTION_STOP -> launchOperation("forced-stop") { supervisor.stop(StopMode.FORCED) }
@@ -303,6 +306,7 @@ class RealmService : Service() {
         const val ACTION_START = "com.pocketrealm.action.START"
         const val ACTION_SAVE_EXIT = "com.pocketrealm.action.SAVE_EXIT"
         const val ACTION_STOP = "com.pocketrealm.action.STOP"
+        private const val EXTRA_PROFILE_ID = "com.pocketrealm.extra.PROFILE_ID"
         private const val TAG = "RuntimeSupervisor"
         private const val OPERATION_WAKE_LOCK_TIMEOUT_MS = 5 * 60 * 1_000L
         private val MONITORED_PHASES = setOf(RuntimePhase.WORLD_READY, RuntimePhase.RUNNING, RuntimePhase.CLIENT_FAILED)
@@ -321,8 +325,14 @@ class RealmService : Service() {
             }
         }
 
-        fun start(context: Context) {
+        fun start(
+            context: Context,
+            profileId: String = AndroidRuntimeBackend.INTEGRATED_PROFILE,
+        ) {
+            require(profileId == AndroidRuntimeBackend.INTEGRATED_PROFILE ||
+                com.pocketrealm.bots.BotProfiles.find(profileId) != null) { "unsupported start profile" }
             val intent = Intent(context, RealmService::class.java).setAction(ACTION_START)
+                .putExtra(EXTRA_PROFILE_ID, profileId)
             context.startForegroundService(intent)
         }
 

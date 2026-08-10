@@ -10,6 +10,7 @@ import com.winlator.xserver.errors.XRequestError;
 import com.winlator.xserver.extensions.Extension;
 
 import java.io.IOException;
+import android.util.Log;
 
 public abstract class ExtensionRequests {
     public static void queryExtension(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
@@ -17,6 +18,8 @@ public abstract class ExtensionRequests {
         inputStream.skip(2);
         String name = inputStream.readString8(length);
         Extension extension = client.xServer.getExtensionByName(name);
+        Log.i("PR/XExtension", "query name="+name+" present="+(extension != null)+
+            (extension != null ? " opcode="+(extension.getMajorOpcode() & 0xff) : ""));
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
             outputStream.writeByte((byte)0);

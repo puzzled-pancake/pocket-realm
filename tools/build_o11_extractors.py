@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cross-build pinned CMaNGOS DBC/map/vmap/mmap tools for Android x86_64."""
+"""Cross-build pinned CMaNGOS DBC/map/vmap/mmap tools for Android."""
 from __future__ import annotations
 
 import hashlib
@@ -16,6 +16,7 @@ import build_o09_realm_runtime as o09
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "native" / "cmangos"
+TARGET_ABI = "x86_64"
 BUILD = ROOT / "native" / ".build-o11-x86_64" / "extractors"
 PATCHED_SOURCE = ROOT / "native" / ".build-o11-x86_64" / "cmangos-patched"
 STAGE = ROOT / "native" / ".build-o11-x86_64" / "extractor-staging" / "jniLibs" / "x86_64"
@@ -23,6 +24,20 @@ PROVENANCE = STAGE.parents[1] / "BUILD_PROVENANCE.json"
 LOCKFILE = ROOT / "schemas" / "o11-extractor-lockfile.json"
 MAX_PAGE = 0x4000
 PATCHES = [ROOT / "native" / "patches" / "o11-cmangos-safe-mpq-listfile.patch"]
+
+
+def select_abi(abi: str) -> None:
+    global TARGET_ABI, BUILD, PATCHED_SOURCE, STAGE, PROVENANCE, LOCKFILE
+    if abi not in {"x86_64", "arm64-v8a"}:
+        raise ValueError(f"unsupported extractor ABI: {abi}")
+    TARGET_ABI = abi
+    root = ROOT / "native" / f".build-o11-{abi}"
+    BUILD = root / "extractors"
+    PATCHED_SOURCE = root / "cmangos-patched"
+    STAGE = root / "extractor-staging" / "jniLibs" / abi
+    PROVENANCE = STAGE.parents[1] / "BUILD_PROVENANCE.json"
+    LOCKFILE = ROOT / ("schemas/o11-extractor-lockfile.json" if abi == "x86_64"
+                       else f"schemas/o11-extractor-lockfile-{abi}.json")
 
 
 def run(args: list[object], cwd: Path | None = None) -> None:
@@ -72,8 +87,8 @@ def configure(force: bool = False) -> tuple[Path, Path]:
         raise RuntimeError("CMaNGOS submodule is dirty; O11 patches must live in native/patches")
     source = prepare_source(actual, force)
     ndk, cmake, ninja, llvm = o09.tools()
-    deps = ROOT / "native" / ".deps" / "prefix-x86_64"
-    connector_root = ROOT / "native" / ".build-o09-x86_64"
+    deps = ROOT / "native" / ".deps" / ("prefix-x86_64" if TARGET_ABI == "x86_64" else "prefix-arm64")
+    connector_root = ROOT / "native" / f".build-o09-{TARGET_ABI}"
     connector_source = connector_root / "sources" / "mariadb-connector-c"
     connector_build = connector_root / "mariadb-connector"
     connector = connector_build / "libmariadb" / "libmariadbclient.a"
@@ -83,6 +98,8 @@ def configure(force: bool = False) -> tuple[Path, Path]:
         shutil.rmtree(BUILD, ignore_errors=True)
     BUILD.mkdir(parents=True, exist_ok=True)
     toolchain = ndk / "build" / "cmake" / "android.toolchain.cmake"
+    ndk_triple = "x86_64-linux-android" if TARGET_ABI == "x86_64" else "aarch64-linux-android"
+    zlib = ndk / "toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib" / ndk_triple / "26/libz.so"
     boost_cmake = deps / "lib" / "cmake"
     boost_components = (
         "headers", "atomic", "filesystem", "program_options", "regex",
@@ -94,7 +111,7 @@ def configure(force: bool = False) -> tuple[Path, Path]:
     ]
     run([
         cmake, "-S", source, "-B", BUILD, "-G", "Ninja", f"-DCMAKE_MAKE_PROGRAM={ninja}",
-        f"-DCMAKE_TOOLCHAIN_FILE={toolchain}", "-DANDROID_ABI=x86_64",
+        f"-DCMAKE_TOOLCHAIN_FILE={toolchain}", f"-DANDROID_ABI={TARGET_ABI}",
         "-DANDROID_PLATFORM=android-26", "-DCMAKE_BUILD_TYPE=Release",
         "-DCMAKE_POLICY_VERSION_MINIMUM=3.5", "-DBUILD_GAME_SERVER=OFF",
         "-DBUILD_LOGIN_SERVER=OFF", "-DBUILD_SCRIPTDEV=OFF", "-DBUILD_EXTRACTORS=ON",
@@ -106,7 +123,7 @@ def configure(force: bool = False) -> tuple[Path, Path]:
         f"-DOPENSSL_INCLUDE_DIR={deps / 'include'}", f"-DOPENSSL_SSL_LIBRARY={deps / 'lib' / 'libssl.a'}",
         f"-DOPENSSL_CRYPTO_LIBRARY={deps / 'lib' / 'libcrypto.a'}",
         f"-DMYSQL_INCLUDE_DIR={connector_source / 'include'}", f"-DMYSQL_LIBRARY={connector}",
-        f"-DMYSQL_EXTRA_LIBRARIES={ndk / 'toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/x86_64-linux-android/26/libz.so'}",
+        f"-DMYSQL_EXTRA_LIBRARIES={zlib}",
         f"-DCMAKE_CXX_FLAGS=-I{connector_build / 'include'}", "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
         "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-z,max-page-size=16384",
     ])
@@ -145,7 +162,7 @@ def stage(llvm: Path) -> dict:
         records.append({"path": target.relative_to(ROOT).as_posix(), "size": target.stat().st_size,
                         "sha256": sha256(target), "needed": needed, "load_alignments": aligns})
     record = {
-        "schema": 1, "built_at_utc": datetime.now(timezone.utc).isoformat(), "abi": "x86_64",
+        "schema": 1, "built_at_utc": datetime.now(timezone.utc).isoformat(), "abi": TARGET_ABI,
         "min_api": 26, "elf_max_page_size": "0x4000", "cmangos_commit": o09.CMANGOS_COMMIT,
         "purpose": "O11 finite on-device DBC/map/vmap/mmap preparation",
         "source_patches": [{"path": path.relative_to(ROOT).as_posix(), "sha256": sha256(path)} for path in PATCHES],
@@ -161,8 +178,11 @@ def stage(llvm: Path) -> dict:
 def main() -> int:
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--abi", choices=("x86_64", "arm64-v8a"), default="x86_64")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
+    select_abi(args.abi)
+    o09.select_abi(args.abi)
     llvm, _ = configure(args.force)
     print(json.dumps(stage(llvm), indent=2))
     return 0

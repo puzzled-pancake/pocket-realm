@@ -36,6 +36,28 @@ GLenum GLTexture_getType(GLuint id) {
     return texture ? texture->type : GL_NONE;
 }
 
+bool GLTexture_getDimensions(GLuint id, GLint level, short* width, short* height) {
+    if (!width || !height || level < 0) return false;
+
+    GLX_CONTEXT_LOCK();
+    GLTexture* texture = SparseArray_get(currentRenderer->clientState.textures, id);
+    if (!texture || texture->width <= 0 || texture->height <= 0) {
+        GLX_CONTEXT_UNLOCK();
+        return false;
+    }
+
+    int mipWidth = texture->width;
+    int mipHeight = texture->height;
+    for (int i = 0; i < level && (mipWidth > 1 || mipHeight > 1); i++) {
+        mipWidth = MAX(1, mipWidth / 2);
+        mipHeight = MAX(1, mipHeight / 2);
+    }
+    *width = (short)mipWidth;
+    *height = (short)mipHeight;
+    GLX_CONTEXT_UNLOCK();
+    return true;
+}
+
 void GLTexture_delete(GLuint id) {
     GLX_CONTEXT_LOCK();
     GLTexture* texture = SparseArray_get(currentRenderer->clientState.textures, id);

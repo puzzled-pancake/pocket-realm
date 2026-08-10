@@ -126,7 +126,10 @@ class InputContract(
     )
 
     /** Logical axes exposed by Android joystick/gamepad motion events. */
-    enum class GamepadAxis { LEFT_X, LEFT_Y, RIGHT_X, RIGHT_Y }
+    enum class GamepadAxis { LEFT_X, LEFT_Y, RIGHT_X, RIGHT_Y, HAT_X, HAT_Y }
+
+    /** Named mappings are selected by the Android-device bridge, never globally. */
+    enum class GamepadLayout { GENERIC, RETROID_POCKET_6 }
 
     /** Per-source pressed state. One entry per Android `deviceId`. */
     private data class SourceState(
@@ -153,7 +156,13 @@ class InputContract(
     // concurrent Android dispatch threads.
     private val lock = Any()
     private val sources = LinkedHashMap<Int, SourceState>()
-    private data class ImePulse(val keyCode: Int, val metaState: Int)
+    private data class ImePulse(
+        val keyCode: Int?,
+        val metaState: Int = 0,
+        val gapAfterMs: Long = IME_KEY_GAP_MS,
+        val pointerX: Int? = null,
+        val pointerY: Int? = null,
+    )
     private val imeQueue = java.util.ArrayDeque<ImePulse>()
     private var imePulseEpoch = 0L
     private var imeStepScheduled = false
@@ -261,7 +270,6 @@ class InputContract(
     fun pointerAbsolute(src: Int, x: Int, y: Int, generation: Long) {
         synchronized(lock) {
             if (!acceptLocked(generation)) return
-            if (imeActive) return
             sink.inject(SinkEvent.PointerMove(x, y))
         }
     }
@@ -270,7 +278,6 @@ class InputContract(
     fun pointerRelative(src: Int, dx: Int, dy: Int, generation: Long) {
         synchronized(lock) {
             if (!acceptLocked(generation)) return
-            if (imeActive) return
             sink.inject(SinkEvent.PointerMoveDelta(dx, dy))
         }
     }
@@ -285,7 +292,6 @@ class InputContract(
     fun pointerButton(src: Int, button: PointerButton, pressed: Boolean, generation: Long) {
         synchronized(lock) {
             if (!acceptLocked(generation)) return
-            if (imeActive) return
             val st = sources.getOrPut(src) { SourceState() }
             if (pressed) {
                 if (button !in st.buttons) {
@@ -315,7 +321,6 @@ class InputContract(
         if (vTicks == 0 && hTicks == 0) return
         synchronized(lock) {
             if (!acceptLocked(generation)) return
-            if (imeActive) return
             // Vertical: repeat per tick to preserve direction granularity.
             repeat(kotlin.math.abs(vTicks)) {
                 val b = if (vTicks > 0) SinkButton.SCROLL_DOWN else SinkButton.SCROLL_UP
@@ -357,11 +362,27 @@ class InputContract(
      * This keeps hot-plug release and generation replacement identical to a
      * keyboard source.
      */
-    fun gamepadButton(src: Int, keyCode: Int, pressed: Boolean, generation: Long): Boolean {
-        val logical = logicalGamepadKey(keyCode) ?: return false
+    fun gamepadButton(
+        src: Int,
+        keyCode: Int,
+        pressed: Boolean,
+        generation: Long,
+        layout: GamepadLayout = GamepadLayout.GENERIC,
+    ): Boolean {
         return synchronized(lock) {
-            if (!acceptLocked(generation) || imeActive) return@synchronized false
-            keyLocked(src, KeyEvent(if (pressed) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP, logical))
+            if (!acceptLocked(generation)) return@synchronized false
+            val binding = gamepadBinding(keyCode, layout, profile) ?: return@synchronized false
+            when (binding) {
+                is GamepadBinding.Key -> {
+                    if (imeActive) return@synchronized false
+                    keyLocked(
+                        src, KeyEvent(if (pressed) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP, binding.keyCode),
+                        logicalKeyCode = binding.keyCode,
+                        pressedOverride = pressed,
+                    )
+                }
+                is GamepadBinding.Pointer -> pointerButtonLocked(src, binding.button, pressed)
+            }
         }
     }
 
@@ -371,18 +392,56 @@ class InputContract(
      * deltas. Returning false means the event was stale or intentionally
      * neutral/no-op.
      */
-    fun gamepadAxis(src: Int, axis: GamepadAxis, value: Float, generation: Long): Boolean {
+    fun gamepadAxis(
+        src: Int,
+        axis: GamepadAxis,
+        value: Float,
+        generation: Long,
+        layout: GamepadLayout = GamepadLayout.GENERIC,
+    ): Boolean {
         synchronized(lock) {
             if (!acceptLocked(generation)) return false
-            if (imeActive) return false
+            if (imeActive && axis != GamepadAxis.RIGHT_X && axis != GamepadAxis.RIGHT_Y) {
+                return false
+            }
             val bounded = value.coerceIn(-1f, 1f)
             val st = sources.getOrPut(src) { SourceState() }
             val deadZone = profile.deadZone
             when (axis) {
-                GamepadAxis.LEFT_X -> updateAxisKeyLocked(st, axis, bounded, deadZone, KeyEvent.KEYCODE_A, KeyEvent.KEYCODE_D)
-                GamepadAxis.LEFT_Y -> updateAxisKeyLocked(st, axis, bounded, deadZone, KeyEvent.KEYCODE_W, KeyEvent.KEYCODE_S)
+                GamepadAxis.LEFT_X -> updateAxisKeyLocked(
+                    st, axis, bounded, deadZone,
+                    if (layout == GamepadLayout.RETROID_POCKET_6) {
+                        InputProfile.actionFor(profile, Rp6Control.LEFT_STICK_LEFT).keyCode
+                    } else KeyEvent.KEYCODE_A,
+                    if (layout == GamepadLayout.RETROID_POCKET_6) {
+                        InputProfile.actionFor(profile, Rp6Control.LEFT_STICK_RIGHT).keyCode
+                    } else KeyEvent.KEYCODE_D,
+                )
+                GamepadAxis.LEFT_Y -> updateAxisKeyLocked(
+                    st, axis, bounded, deadZone,
+                    if (layout == GamepadLayout.RETROID_POCKET_6) {
+                        InputProfile.actionFor(profile, Rp6Control.LEFT_STICK_UP).keyCode
+                    } else KeyEvent.KEYCODE_W,
+                    if (layout == GamepadLayout.RETROID_POCKET_6) {
+                        InputProfile.actionFor(profile, Rp6Control.LEFT_STICK_DOWN).keyCode
+                    } else KeyEvent.KEYCODE_S,
+                )
                 GamepadAxis.RIGHT_X -> injectRelativeAxisLocked(st, axis, bounded, profile.cameraSensitivity, horizontal = true)
                 GamepadAxis.RIGHT_Y -> injectRelativeAxisLocked(st, axis, bounded, profile.cameraSensitivity, horizontal = false)
+                GamepadAxis.HAT_X -> if (layout == GamepadLayout.RETROID_POCKET_6) {
+                    updateAxisKeyLocked(
+                        st, axis, bounded, deadZone,
+                        InputProfile.actionFor(profile, Rp6Control.DPAD_LEFT).keyCode,
+                        InputProfile.actionFor(profile, Rp6Control.DPAD_RIGHT).keyCode,
+                    )
+                }
+                GamepadAxis.HAT_Y -> if (layout == GamepadLayout.RETROID_POCKET_6) {
+                    updateAxisKeyLocked(
+                        st, axis, bounded, deadZone,
+                        InputProfile.actionFor(profile, Rp6Control.DPAD_UP).keyCode,
+                        InputProfile.actionFor(profile, Rp6Control.DPAD_DOWN).keyCode,
+                    )
+                }
             }
             return true
         }
@@ -396,16 +455,22 @@ class InputContract(
     // ---- IME (increment 2) ------------------------------------------------
 
     /**
-     * The IME is opening. Per report §16.8, this releases held movement/gameplay
-     * keys and pointer buttons, suspends camera-capture mode, and emits a bounded
-     * [ReleaseReport]. The input is left in a neutral state; previously held
-     * keys are NOT restored on [imeClosed].
+     * The IME is opening. This releases held movement/gameplay keys and pointer
+     * buttons and emits a bounded [ReleaseReport]. New gameplay-key input stays
+     * suppressed while the IME owns text, but cursor motion/click/wheel remains
+     * available so a handheld user can navigate the Win32 form without closing
+     * Android's keyboard. Previously held keys are NOT restored on [imeClosed].
      *
      * @param generation the active generation; stale = no-op
      * @return the release report for what was held, or a zero report if stale
      */
     fun imeOpened(generation: Long): ReleaseReport = synchronized(lock) {
         if (!acceptLocked(generation)) {
+            return ReleaseReport(ReleaseReason.IME_OPENED, emptyList(), 0, 0, rejectedStale.get())
+        }
+        // IMM may recreate the InputConnection while the keyboard is still
+        // visible. Re-opening must not cancel already queued text/backspace.
+        if (imeActive) {
             return ReleaseReport(ReleaseReason.IME_OPENED, emptyList(), 0, 0, rejectedStale.get())
         }
         imeActive = true
@@ -425,10 +490,13 @@ class InputContract(
         val state = sources.remove(IME_SOURCE)
         val keys = state?.keys?.toList()?.sorted().orEmpty()
         for (key in keys) injectAndroidKey(key, pressed = false)
+        val buttons = state?.buttons?.toList()?.sortedWith(BUTTON_RELEASE_ORDER).orEmpty()
+        for (button in buttons) sink.inject(SinkEvent.PointerButton(button.toSink(), pressed = false))
         releasedKeys.addAndGet(keys.size.toLong())
+        releasedButtons.addAndGet(buttons.size.toLong())
     }
 
-    /** True while the IME is open (movement keys released, camera suspended). */
+    /** True while the IME is open (gameplay keys released; cursor input remains available). */
     val isImeActive: Boolean get() = imeActive
 
     @Volatile private var imeActive: Boolean = false
@@ -516,6 +584,73 @@ class InputContract(
             !imeStepScheduled && imeInFlightKey == null && imeQueue.isEmpty()
         }
 
+    /**
+     * True only when this generation is accepting input and no physical,
+     * virtual, pointer, gamepad, or IME-owned state is held or queued. Used by
+     * the optional one-shot auto-login gate so it never overrides live input.
+     */
+    fun isNeutral(generation: Long): Boolean = synchronized(lock) {
+        acceptingInput && generation == activeGeneration && !imeActive &&
+            noHeldInputLocked() && !imeStepScheduled && imeInFlightKey == null && imeQueue.isEmpty()
+    }
+
+    /**
+     * Atomically claim a neutral generation and enqueue the complete
+     * username-Tab-password-Enter sequence. Mapping/capacity/lifecycle failure
+     * injects zero events, so credentials can never be partially accepted.
+     */
+    fun queueSinglePlayerAutoLogin(
+        username: String,
+        password: String,
+        generation: Long,
+        loginWindowX: Int = 0,
+        loginWindowY: Int = 0,
+        loginWindowWidth: Int = 1920,
+        loginWindowHeight: Int = 1080,
+    ): Boolean {
+        val mappedUsername = ImeCharMap.map(username)
+        val mappedPassword = ImeCharMap.map(password)
+        if (!mappedUsername.allAccepted || !mappedPassword.allAccepted ||
+            mappedUsername.accepted.isEmpty() || mappedPassword.accepted.isEmpty()) return false
+        return synchronized(lock) {
+            if (!acceptLocked(generation) || imeActive || !noHeldInputLocked() ||
+                imeStepScheduled || imeInFlightKey != null || imeQueue.isNotEmpty()) {
+                return@synchronized false
+            }
+            val pulseCount = mappedUsername.accepted.size + mappedPassword.accepted.size + 3
+            if (pulseCount > MAX_PENDING_IME_PULSES) return@synchronized false
+            imeActive = true
+            fun enqueueClick(xFraction: Float, yFraction: Float) {
+                imeQueue.addLast(ImePulse(
+                    keyCode = null,
+                    gapAfterMs = AUTO_LOGIN_FIELD_SETTLE_MS,
+                    pointerX = loginWindowX + (loginWindowWidth * xFraction).toInt(),
+                    pointerY = loginWindowY + (loginWindowHeight * yFraction).toInt(),
+                ))
+            }
+            fun enqueueMapped(result: ImeCharMap.ImeCommitResult) {
+                result.accepted.forEach { mapped ->
+                    val meta = if (mapped.shift) {
+                        KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON
+                    } else 0
+                    imeQueue.addLast(ImePulse(mapped.keyCode, meta))
+                }
+            }
+            enqueueClick(0.50f, 0.523f)
+            enqueueMapped(mappedUsername)
+            enqueueClick(0.50f, 0.622f)
+            enqueueMapped(mappedPassword)
+            enqueueClick(0.50f, 0.702f)
+            startImeQueueLocked(generation)
+            true
+        }
+    }
+
+    private fun noHeldInputLocked(): Boolean = sources.values.none { state ->
+        state.keys.isNotEmpty() || state.buttons.isNotEmpty() ||
+            state.axisKeys.values.any { it != null }
+    }
+
     private fun pendingImePulseCountLocked(): Int =
         imeQueue.size + if (imeInFlightKey == null) 0 else 1
 
@@ -532,13 +667,34 @@ class InputContract(
             imeStepScheduled = false
             return
         }
-        val now = android.os.SystemClock.uptimeMillis()
         val state = sources.getOrPut(IME_SOURCE) { SourceState() }
-        state.keys.add(pulse.keyCode)
-        imeInFlightKey = pulse.keyCode
+        val pointerX = pulse.pointerX
+        val pointerY = pulse.pointerY
+        if (pointerX != null && pointerY != null) {
+            sink.inject(SinkEvent.PointerMove(pointerX, pointerY))
+            state.buttons.add(PointerButton.LEFT)
+            imeInFlightKey = IME_POINTER_IN_FLIGHT
+            sink.inject(SinkEvent.PointerButton(SinkButton.LEFT, pressed = true))
+            imeScheduler.postDelayed(IME_POINTER_DWELL_MS) {
+                synchronized(lock) {
+                    if (epoch != imePulseEpoch || !acceptingInput ||
+                        generation != activeGeneration || !imeActive) return@synchronized
+                    val current = sources[IME_SOURCE]
+                    if (current?.buttons?.remove(PointerButton.LEFT) == true) {
+                        sink.inject(SinkEvent.PointerButton(SinkButton.LEFT, pressed = false))
+                    }
+                    finishImePulseLocked(pulse, epoch, generation, current)
+                }
+            }
+            return
+        }
+        val keyCode = requireNotNull(pulse.keyCode)
+        val now = android.os.SystemClock.uptimeMillis()
+        state.keys.add(keyCode)
+        imeInFlightKey = keyCode
         sink.inject(SinkEvent.Key(
-            KeyEvent(now, now, KeyEvent.ACTION_DOWN, pulse.keyCode, 0, pulse.metaState),
-            logicalKeyCode = pulse.keyCode,
+            KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0, pulse.metaState),
+            logicalKeyCode = keyCode,
             pressed = true,
         ))
         imeScheduler.postDelayed(IME_KEY_DWELL_MS) {
@@ -547,28 +703,37 @@ class InputContract(
                     return@synchronized
                 }
                 val current = sources[IME_SOURCE]
-                if (current?.keys?.remove(pulse.keyCode) == true) {
+                if (current?.keys?.remove(keyCode) == true) {
                     val releaseAt = android.os.SystemClock.uptimeMillis()
                     sink.inject(SinkEvent.Key(
-                        KeyEvent(releaseAt, releaseAt, KeyEvent.ACTION_UP, pulse.keyCode, 0, pulse.metaState),
-                        logicalKeyCode = pulse.keyCode,
+                        KeyEvent(releaseAt, releaseAt, KeyEvent.ACTION_UP, keyCode, 0, pulse.metaState),
+                        logicalKeyCode = keyCode,
                         pressed = false,
                     ))
                 }
-                if (current != null && current.keys.isEmpty() && current.buttons.isEmpty()) {
-                    sources.remove(IME_SOURCE)
-                }
-                imeInFlightKey = null
-                if (imeQueue.isEmpty()) {
-                    imeStepScheduled = false
-                } else {
-                    imeScheduler.postDelayed(IME_KEY_GAP_MS) {
-                        synchronized(lock) {
-                            if (epoch == imePulseEpoch && acceptingInput &&
-                                generation == activeGeneration && imeActive) {
-                                beginImePulseLocked(epoch, generation)
-                            }
-                        }
+                finishImePulseLocked(pulse, epoch, generation, current)
+            }
+        }
+    }
+
+    private fun finishImePulseLocked(
+        pulse: ImePulse,
+        epoch: Long,
+        generation: Long,
+        current: SourceState?,
+    ) {
+        if (current != null && current.keys.isEmpty() && current.buttons.isEmpty()) {
+            sources.remove(IME_SOURCE)
+        }
+        imeInFlightKey = null
+        if (imeQueue.isEmpty()) {
+            imeStepScheduled = false
+        } else {
+            imeScheduler.postDelayed(pulse.gapAfterMs) {
+                synchronized(lock) {
+                    if (epoch == imePulseEpoch && acceptingInput &&
+                        generation == activeGeneration && imeActive) {
+                        beginImePulseLocked(epoch, generation)
                     }
                 }
             }
@@ -643,16 +808,25 @@ class InputContract(
 
     // ---- internal ---------------------------------------------------------
 
-    private fun keyLocked(src: Int, event: KeyEvent): Boolean {
-        val pressed = event.action == KeyEvent.ACTION_DOWN
+    private fun keyLocked(
+        src: Int,
+        event: KeyEvent,
+        logicalKeyCode: Int = event.keyCode,
+        pressedOverride: Boolean? = null,
+    ): Boolean {
+        val pressed = pressedOverride ?: (event.action == KeyEvent.ACTION_DOWN)
         val state = sources.getOrPut(src) { SourceState() }
         if (pressed) {
-            state.keys.add(event.keyCode)
+            state.keys.add(logicalKeyCode)
         } else {
-            if (event.keyCode !in state.keys) return false
-            state.keys.remove(event.keyCode)
+            if (logicalKeyCode !in state.keys) return false
+            state.keys.remove(logicalKeyCode)
         }
-        sink.inject(SinkEvent.Key(event))
+        sink.inject(SinkEvent.Key(
+            event,
+            logicalKeyCode = logicalKeyCode,
+            pressed = pressed,
+        ))
         return true
     }
 
@@ -692,8 +866,8 @@ class InputContract(
         axis: GamepadAxis,
         value: Float,
         deadZone: Float,
-        negativeKey: Int,
-        positiveKey: Int,
+        negativeKey: Int?,
+        positiveKey: Int?,
     ) {
         val next = when {
             value < -deadZone -> negativeKey
@@ -725,7 +899,22 @@ class InputContract(
 
     private fun emitSyntheticKeyLocked(state: SourceState, keyCode: Int, action: Int) {
         if (action == KeyEvent.ACTION_DOWN) state.keys.add(keyCode) else state.keys.remove(keyCode)
-        sink.inject(SinkEvent.Key(KeyEvent(action, keyCode)))
+        sink.inject(SinkEvent.Key(
+            KeyEvent(action, keyCode),
+            logicalKeyCode = keyCode,
+            pressed = action == KeyEvent.ACTION_DOWN,
+        ))
+    }
+
+    private fun pointerButtonLocked(src: Int, button: PointerButton, pressed: Boolean): Boolean {
+        val state = sources.getOrPut(src) { SourceState() }
+        if (pressed) {
+            if (!state.buttons.add(button)) return false
+        } else if (!state.buttons.remove(button)) {
+            return false
+        }
+        sink.inject(SinkEvent.PointerButton(button.toSink(), pressed))
+        return true
     }
 
     private fun PointerButton.toSink(): SinkButton = when (this) {
@@ -751,8 +940,54 @@ class InputContract(
         internal const val IME_SOURCE: Int = -2
         internal const val IME_KEY_DWELL_MS: Long = 50L
         internal const val IME_KEY_GAP_MS: Long = 10L
+        internal const val AUTO_LOGIN_FIELD_SETTLE_MS: Long = 300L
+        internal const val IME_POINTER_DWELL_MS: Long = 80L
+        private const val IME_POINTER_IN_FLIGHT: Int = -3
         internal const val MAX_PENDING_IME_PULSES: Int = 256
         private const val GAMEPAD_CAMERA_SCALE = 8f
+
+        private sealed class GamepadBinding {
+            data class Key(val keyCode: Int) : GamepadBinding()
+            data class Pointer(val button: PointerButton) : GamepadBinding()
+        }
+
+        private fun gamepadBinding(
+            keyCode: Int,
+            layout: GamepadLayout,
+            profile: InputProfile,
+        ): GamepadBinding? {
+            if (layout == GamepadLayout.RETROID_POCKET_6) {
+                val control = when (keyCode) {
+                    KeyEvent.KEYCODE_BUTTON_A -> Rp6Control.FACE_BOTTOM
+                    KeyEvent.KEYCODE_BUTTON_X -> Rp6Control.FACE_LEFT
+                    KeyEvent.KEYCODE_BUTTON_Y -> Rp6Control.FACE_TOP
+                    KeyEvent.KEYCODE_BUTTON_B -> Rp6Control.FACE_RIGHT
+                    KeyEvent.KEYCODE_DPAD_DOWN -> Rp6Control.DPAD_DOWN
+                    KeyEvent.KEYCODE_DPAD_LEFT -> Rp6Control.DPAD_LEFT
+                    KeyEvent.KEYCODE_DPAD_UP -> Rp6Control.DPAD_UP
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> Rp6Control.DPAD_RIGHT
+                    KeyEvent.KEYCODE_BUTTON_R1 -> Rp6Control.R1
+                    KeyEvent.KEYCODE_BUTTON_L1 -> Rp6Control.L1
+                    KeyEvent.KEYCODE_BUTTON_L2 -> Rp6Control.L2
+                    KeyEvent.KEYCODE_BUTTON_R2 -> Rp6Control.R2
+                    KeyEvent.KEYCODE_BUTTON_START -> Rp6Control.START
+                    KeyEvent.KEYCODE_BUTTON_SELECT -> Rp6Control.SELECT
+                    KeyEvent.KEYCODE_BUTTON_THUMBL -> Rp6Control.L3
+                    KeyEvent.KEYCODE_BUTTON_THUMBR -> Rp6Control.R3
+                    KeyEvent.KEYCODE_BUTTON_C -> Rp6Control.REAR_LEFT
+                    KeyEvent.KEYCODE_BUTTON_Z -> Rp6Control.REAR_RIGHT
+                    else -> null
+                } ?: return null
+                val action = InputProfile.actionFor(profile, control)
+                action.keyCode?.let { return GamepadBinding.Key(it) }
+                return when (action.pointer) {
+                    ControlPointer.LEFT -> GamepadBinding.Pointer(PointerButton.LEFT)
+                    ControlPointer.RIGHT -> GamepadBinding.Pointer(PointerButton.RIGHT)
+                    null -> null
+                }
+            }
+            return logicalGamepadKey(keyCode)?.let(GamepadBinding::Key)
+        }
 
         internal fun logicalGamepadKey(keyCode: Int): Int? = when (keyCode) {
             KeyEvent.KEYCODE_BUTTON_A -> KeyEvent.KEYCODE_SPACE

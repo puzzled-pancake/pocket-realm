@@ -12,6 +12,8 @@ androidxTestRunner = "1.6.2"
 androidxTestCore = "1.6.1"
 coroutinesTest = "1.8.1"
 coroutinesAndroid = "1.8.1"
+okhttp = "5.3.0"
+commonsCompress = "1.28.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -36,6 +38,9 @@ androidx-test-core = { group = "androidx.test", name = "core", version.ref = "an
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
 # O05: coroutines for the packaging-experiment runner (Dispatchers/withContext).
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutinesAndroid" }
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+mockwebserver3 = { group = "com.squareup.okhttp3", name = "mockwebserver3", version.ref = "okhttp" }
+commons-compress = { group = "org.apache.commons", name = "commons-compress", version.ref = "commonsCompress" }
 # Host JVM unit tests (O04: RealmNative shim).
 junit = { group = "junit", name = "junit", version = "4.13.2" }
 

@@ -1,6 +1,5 @@
 package com.pocketrealm.ui
 
-import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -9,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -21,27 +19,22 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.pocketrealm.R
+import com.pocketrealm.bots.BotProfiles
 import com.pocketrealm.client.IntegratedClientDisplay
 import com.pocketrealm.realm.RealmState
 import com.pocketrealm.service.RealmService
@@ -57,12 +50,21 @@ import kotlinx.coroutines.launch
 @Composable
 fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
     val supervisorClient = remember(context) { RuntimeSupervisorClient(context) }
-    val settings = remember(context) { Settings(context) }
-    val settingsSnapshot by settings.flow.collectAsState(initial = Settings.Snapshot())
     val stateUpdates = remember(supervisorClient) { supervisorClient.observeRealmState() }
     val state by stateUpdates.collectAsState(initial = RealmState.Idle)
+    val settings = remember(context) { Settings(context) }
+    val settingsSnapshot by settings.flow.collectAsState(initial = Settings.Snapshot())
+    val botProfile = remember(settingsSnapshot) {
+        if (settingsSnapshot.botAdvancedEnabled) {
+            BotProfiles.advanced(
+                settingsSnapshot.botPopulationTarget,
+                settingsSnapshot.botAdvanced,
+            )
+        } else {
+            BotProfiles.forRequestedTarget(settingsSnapshot.botPopulationTarget)
+        }
+    }
     val displayHost by IntegratedClientDisplay.host.collectAsState()
     val scope = rememberCoroutineScope()
     var username by remember { mutableStateOf("") }
@@ -70,21 +72,9 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
     var gmAccount by remember { mutableStateOf(false) }
     var accountStatus by remember { mutableStateOf("Create a local account after the world is ready") }
 
-    DisposableEffect(lifecycleOwner, displayHost) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> displayHost?.onPause()
-                Lifecycle.Event.ON_RESUME -> displayHost?.onResume()
-                else -> Unit
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-            displayHost?.onResume()
-        }
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            displayHost?.onPause()
+    LaunchedEffect(displayHost?.generation) {
+        displayHost?.let { host ->
+            context.startActivity(ClientActivity.intent(context, host.generation))
         }
     }
 
@@ -100,11 +90,34 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
         Text("Pocket Realm", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         StatusCard(state)
 
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(botProfile.displayName, style = MaterialTheme.typography.titleMedium)
+                Text(botProfile.summary, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "${botProfile.minimumOnline}-${botProfile.maximumOnline} bots; " +
+                        "${botProfile.nearPlayerTeleportMaxAmount} favored per nearby cluster.",
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                Text(
+                    if (settingsSnapshot.botAdvancedEnabled) {
+                        "Custom low-CPU tuning · ${botProfile.iterationsPerTick} work iterations/tick · " +
+                            "shed above ${botProfile.admission.maxWorldP99Ms} ms p99"
+                    } else {
+                        "Measured preset · adjust advanced bot tuning in Settings"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+
         Spacer(Modifier.height(8.dp))
 
         when (state) {
-            is RealmState.Idle, is RealmState.Failed -> {
-                Button(onClick = { RealmService.start(context) }, modifier = Modifier.fillMaxWidth()) {
+            is RealmState.Idle, is RealmState.Failed, is RealmState.Recovering -> {
+                Button(onClick = {
+                    RealmService.start(context, botProfile.id)
+                }, modifier = Modifier.fillMaxWidth()) {
                     Text(context.getString(R.string.action_start))
                 }
             }
@@ -113,7 +126,7 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
                     Text(context.getString(R.string.action_save_exit))
                 }
             }
-            is RealmState.Starting, is RealmState.Saving, is RealmState.Stopping, is RealmState.Recovering -> {
+            is RealmState.Starting, is RealmState.Saving, is RealmState.Stopping -> {
                 OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
                     Text("Working…")
                 }
@@ -146,7 +159,7 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
                     }
                     Button(
                         onClick = {
-                            accountStatus = "Creating through the core control channelâ€¦"
+                            accountStatus = "Creating through the core control channel…"
                             scope.launch {
                                 val result = runCatching {
                                     supervisorClient.createAccount(username, password, if (gmAccount) 3 else 0)
@@ -171,24 +184,10 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
         }
 
         displayHost?.let { host ->
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("WoW 1.12.1 â€¢ local realm â€¢ audio off",
-                        style = MaterialTheme.typography.labelMedium)
-                    OutlinedButton(
-                        onClick = { host.showIme() },
-                        modifier = Modifier.fillMaxWidth().testTag("integrated-client-ime-open"),
-                    ) { Text("Open keyboard") }
-                    androidx.compose.foundation.layout.Box(
-                        Modifier.fillMaxWidth().height(480.dp).background(Color.Black)
-                        .testTag("integrated-client-surface")) {
-                        key(host) {
-                            AndroidView(factory = { host.container }, modifier = Modifier.fillMaxSize())
-                        }
-                        if (!settingsSnapshot.inputSafeMode) TouchOverlay(host)
-                    }
-                }
-            }
+            Button(
+                onClick = { context.startActivity(ClientActivity.intent(context, host.generation)) },
+                modifier = Modifier.fillMaxWidth().testTag("enter-fullscreen-client"),
+            ) { Text("Enter game") }
         }
     }
 }

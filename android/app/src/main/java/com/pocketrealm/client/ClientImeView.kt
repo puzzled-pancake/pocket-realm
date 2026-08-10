@@ -48,11 +48,18 @@ class ClientImeView(
     override fun onCheckIsTextEditor(): Boolean = true
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
-        outAttrs.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_NORMAL
+        // This is a bridge to a legacy Win32 edit control, not a mirrored
+        // Android EditText. Disable composing suggestions so keyboards commit
+        // deterministic characters instead of replacing an Android-only word.
+        outAttrs.inputType = InputType.TYPE_CLASS_TEXT or
+            InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or
+            InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI or
             EditorInfo.IME_FLAG_NO_FULLSCREEN or EditorInfo.IME_ACTION_DONE
         outAttrs.actionId = EditorInfo.IME_ACTION_DONE
         outAttrs.actionLabel = "Send"
+        outAttrs.initialSelStart = 0
+        outAttrs.initialSelEnd = 0
         beforeImeInput()
         onImeOpened()
         return ClientInputConnection(this, contractProvider, generationProvider, beforeImeInput)
@@ -84,7 +91,7 @@ class ClientImeView(
         private val contractProvider: () -> InputContract,
         private val generationProvider: () -> Long,
         private val beforeImeInput: () -> Unit,
-    ) : BaseInputConnection(view, false) {
+    ) : BaseInputConnection(view, true) {
 
         override fun commitText(text: CharSequence, newCursorPosition: Int): Boolean {
             beforeImeInput()
@@ -105,13 +112,38 @@ class ClientImeView(
                     ).show()
                 }
             }
-            return result.allAccepted
+            if (!result.allAccepted) return false
+            // Full-editor mode makes this a shadow-only mutation: unlike the
+            // fallback connection, BaseInputConnection will not redispatch the
+            // text as KeyEvents after InputContract already accepted it.
+            return super.commitText(text, newCursorPosition)
         }
 
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+            return deleteBeforeCursor(beforeLength, afterLength, codePoints = false)
+        }
+
+        override fun deleteSurroundingTextInCodePoints(
+            beforeLength: Int,
+            afterLength: Int,
+        ): Boolean {
+            return deleteBeforeCursor(beforeLength, afterLength, codePoints = true)
+        }
+
+        override fun sendKeyEvent(event: android.view.KeyEvent): Boolean {
+            val supported = event.keyCode == android.view.KeyEvent.KEYCODE_DEL ||
+                event.keyCode == android.view.KeyEvent.KEYCODE_ENTER
+            if (!supported) return super.sendKeyEvent(event)
             beforeImeInput()
-            val requested = beforeLength.coerceAtLeast(0)
-            return contractProvider().imeDelete(requested, generationProvider()) == requested
+            if (event.action == android.view.KeyEvent.ACTION_UP) return true
+            if (event.action != android.view.KeyEvent.ACTION_DOWN) return false
+            return if (event.keyCode == android.view.KeyEvent.KEYCODE_DEL) {
+                val accepted = contractProvider().imeDelete(1, generationProvider()) == 1
+                if (accepted) super.deleteSurroundingText(1, 0)
+                accepted
+            } else {
+                contractProvider().imeKeyTap(event.keyCode, generationProvider())
+            }
         }
 
         override fun performEditorAction(actionCode: Int): Boolean {
@@ -129,8 +161,29 @@ class ClientImeView(
             )
         }
 
-        override fun finishComposingText(): Boolean = true
+        override fun finishComposingText(): Boolean {
+            // Clear only the shadow composition. All text injection already
+            // entered InputContract through commitText.
+            editable?.let(BaseInputConnection::removeComposingSpans)
+            return true
+        }
         override fun reportFullscreenMode(enabled: Boolean): Boolean = false
+
+        private fun deleteBeforeCursor(
+            beforeLength: Int,
+            afterLength: Int,
+            codePoints: Boolean,
+        ): Boolean {
+            if (beforeLength < 0 || afterLength != 0) return false
+            beforeImeInput()
+            val deleted = contractProvider().imeDelete(beforeLength, generationProvider())
+            if (deleted != beforeLength) return false
+            return if (codePoints) {
+                super.deleteSurroundingTextInCodePoints(beforeLength, afterLength)
+            } else {
+                super.deleteSurroundingText(beforeLength, afterLength)
+            }
+        }
     }
 
     private companion object { const val TAG = "ClientImeView" }

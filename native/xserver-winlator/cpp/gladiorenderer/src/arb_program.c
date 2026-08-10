@@ -24,6 +24,8 @@ typedef struct ASMSource {
     ArrayMap variables;
     IntArray genericAttribs;
     GLenum type;
+    bool positionInvariant;
+    GLenum fogMode;
     char samplerTypes[MAX_TEXCOORDS];
     uint8_t maxTexCoords;
 } ASMSource;
@@ -35,11 +37,15 @@ static struct ReservedGLName reservedGLNames[] = {
     {"program.local", "gd_ProgramLocal1", false, GL_FRAGMENT_PROGRAM_ARB},
     {"vertex.position", "gd_Vertex", false, GL_VERTEX_PROGRAM_ARB},
     {"vertex.normal", "vec4(gd_Normal, 1.0)", false, GL_VERTEX_PROGRAM_ARB},
+    {"vertex.weight", "vec4(0.0)", false, GL_VERTEX_PROGRAM_ARB},
+    {"vertex.fogcoord", "vec4(0.0)", false, GL_VERTEX_PROGRAM_ARB},
     {"vertex.color", "gd_Color", false, GL_VERTEX_PROGRAM_ARB},
     {"vertex.texcoord", "gd_MultiTexCoord", true, GL_VERTEX_PROGRAM_ARB},
     {"fragment.texcoord", "gd_TexCoord", true, GL_FRAGMENT_PROGRAM_ARB},
     {"texture", "gd_Texture", true, GL_FRAGMENT_PROGRAM_ARB},
     {"result.position", "gl_Position", false, GL_VERTEX_PROGRAM_ARB},
+    {"result.fogcoord", "gd_ArbFogCoord", false, GL_VERTEX_PROGRAM_ARB},
+    {"result.color.front.primary", "gd_FrontColor", false, GL_VERTEX_PROGRAM_ARB},
     {"result.color", "gd_FrontColor", false, GL_VERTEX_PROGRAM_ARB},
     {"result.color", "gd_FragColor", false, GL_FRAGMENT_PROGRAM_ARB},
     {"result.texcoord", "gd_TexCoord", true, GL_VERTEX_PROGRAM_ARB},
@@ -58,12 +64,44 @@ static void getInstructionMap(ArrayMap* instructionMap) {
 static ARBUniform* parseARBUniform(char* string) {
     ARBUniform* uniform = calloc(1, sizeof(ARBUniform));
     uniform->location = -1;
-    if (strstr(string, "vec4")) {
-        uniform->type = ARB_UNIFORM_TYPE_CONST;
-        sscanf(string, "vec4(%f, %f, %f, %f)", &uniform->value[0], &uniform->value[1], &uniform->value[2], &uniform->value[3]);
+    /* Constants are emitted by parseDataTypeQualifier as vec4(...).  Do not
+     * rely on one locale-sensitive sscanf format here: Android's C runtime
+     * has accepted the source spelling but returned zero fields for some
+     * valid whitespace/comma forms, leaving ARB vertex constants at calloc's
+     * all-zero value.  Parse the four scalars explicitly and only fall back
+     * to the program.local/env path when this is not a constant. */
+    char* open = strstr(string, "vec4");
+    bool parsedConst = false;
+    if (open) {
+        open = strchr(open, '(');
+        if (open) {
+            char* cursor = open + 1;
+            /* parseDataTypeQualifier wraps an already vector-shaped array
+             * operand once more (vec4(vec4(...))).  Consume that inner
+             * wrapper before reading the scalar list. */
+            if (strncmp(cursor, "vec4", 4) == 0) {
+                char* inner = strchr(cursor, '(');
+                if (inner) cursor = inner + 1;
+            }
+            char* end = NULL;
+            float parsed[4];
+            int count = 0;
+            while (count < 4) {
+                while (isspace((unsigned char)*cursor) || *cursor == ',') cursor++;
+                parsed[count] = strtof(cursor, &end);
+                if (end == cursor) break;
+                cursor = end;
+                count++;
+            }
+            if (count == 4) {
+                uniform->type = ARB_UNIFORM_TYPE_CONST;
+                memcpy(uniform->value, parsed, sizeof(parsed));
+                parsedConst = true;
+            }
+        }
     }
-    else {
-        int index;
+    if (!parsedConst) {
+        int index = -1;
         if (sscanf(string, "gd_ProgramLocal0[%d]", &index) ||
             sscanf(string, "gd_ProgramLocal1[%d]", &index)) {
             uniform->type = ARB_UNIFORM_TYPE_PROGRAM_LOCAL;
@@ -192,6 +230,9 @@ static void parseInstOperand(char* operand, ASMSource* asmSource, ArrayBuffer* r
             ArrayBuffer_putString(result, operand);
         }
         else {
+            char* fullOperand = strdup(operand);
+            char* fullName = fullOperand;
+            while (*fullName == '+' || *fullName == '-') fullName++;
             MARK_VARIABLE_NAME(operand);
             ARBVariable* variable = ArrayMap_get(&asmSource->variables, operand);
             UNMARK_VARIABLE_NAME(operand);
@@ -222,7 +263,7 @@ static void parseInstOperand(char* operand, ASMSource* asmSource, ArrayBuffer* r
                                     ArrayBuffer_putString(result, "%s%s[%d]", sign, reservedGLNames[i].replace, j);
                                 }
                             }
-                            else ArrayBuffer_putString(result, "%s%s%s", sign, reservedGLNames[i].replace, name + strlen(reservedGLNames[i].name));
+                            else ArrayBuffer_putString(result, "%s%s%s", sign, reservedGLNames[i].replace, fullName + strlen(reservedGLNames[i].name));
                         }
                         else if (reservedGLNames[i].suffixUnit) {
                             int index = MAX(extractVariableArrayIndex(operand), 0);
@@ -242,16 +283,46 @@ static void parseInstOperand(char* operand, ASMSource* asmSource, ArrayBuffer* r
                                 if (dot) ArrayBuffer_putString(result, "%s", dot);
                             }
                         }
-                        else ArrayBuffer_putString(result, "%s%s%s", sign, reservedGLNames[i].replace, name + strlen(reservedGLNames[i].name));
+                        else ArrayBuffer_putString(result, "%s%s%s", sign, reservedGLNames[i].replace, fullName + strlen(reservedGLNames[i].name));
                         break;
                     }
                 }
             }
+            free(fullOperand);
         }
     }
 }
 
 static void parseDataTypeQualifier(int type, char* line, ASMSource* asmSource, ArrayBuffer* result) {
+    /* TEMP and ADDRESS declarations may contain a comma-separated list.  The
+     * old parser only registered the first name, which turned valid ARB
+     * instructions such as SLT R1, R3, -R3 into GLSL with missing operands. */
+    if ((type == TYPE_QUALIFIER_TEMP || type == TYPE_QUALIFIER_ADDRESS) &&
+        !strchr(line, '=')) {
+        char* declarations = strdup(line);
+        char* cursor = declarations;
+        while (cursor && *cursor) {
+            char* comma = strchr(cursor, ',');
+            if (comma) *comma = '\0';
+            char* name = trim(cursor);
+            char* semicolon = strchr(name, ';');
+            if (semicolon) *semicolon = '\0';
+            name = trim(name);
+            if (*name) {
+                ARBVariable* variable = calloc(1, sizeof(ARBVariable));
+                variable->name = strdup(name);
+                variable->type = type;
+                ArrayMap_put(&asmSource->variables, variable->name, variable);
+                if (result) ArrayBuffer_putString(result, "%s %s;\n",
+                        type == TYPE_QUALIFIER_ADDRESS ? "ivec4" : "vec4", name);
+            }
+            if (!comma) break;
+            cursor = comma + 1;
+        }
+        free(declarations);
+        return;
+    }
+
     char* wordEnd = NULL;
     char* wordStart = strwrd(line, NULL, &wordEnd);
 
@@ -465,6 +536,34 @@ static void iterateASMCodeLines(ArrayMap* instructionMap, ASMSource* asmSource, 
             else if (strcmp(word, "ALIAS") == 0) {
                 println("gladio: unimplemented asm type qualifier ALIAS");
             }
+            else if (strcmp(word, "OPTION") == 0) {
+                /* OPTION is a declaration, not an executable instruction.
+                 * WoW's 3-D passes use ARB_position_invariant: the program
+                 * writes all transformed attributes except position, which
+                 * must come from the conventional model-view/projection
+                 * transform. */
+                char* option = trim(chr + 1);
+                if (strcmp(option, "ARB_position_invariant") == 0) {
+                    if (asmSource->type == GL_VERTEX_PROGRAM_ARB) {
+                        asmSource->positionInvariant = true;
+                    }
+                }
+                else if (asmSource->type == GL_FRAGMENT_PROGRAM_ARB &&
+                         strcmp(option, "ARB_fog_linear") == 0) {
+                    asmSource->fogMode = GL_LINEAR;
+                }
+                else if (asmSource->type == GL_FRAGMENT_PROGRAM_ARB &&
+                         strcmp(option, "ARB_fog_exp") == 0) {
+                    asmSource->fogMode = GL_EXP;
+                }
+                else if (asmSource->type == GL_FRAGMENT_PROGRAM_ARB &&
+                         strcmp(option, "ARB_fog_exp2") == 0) {
+                    asmSource->fogMode = GL_EXP2;
+                }
+                else if (*option) {
+                    println("gladio: unimplemented asm option %s", option);
+                }
+            }
             else {
                 void* value = ArrayMap_get(instructionMap, word);
                 uint64_t inst = (uint64_t)value;
@@ -581,13 +680,13 @@ static void iterateASMCodeLines(ArrayMap* instructionMap, ASMSource* asmSource, 
                         ArrayBuffer_putString(shaderCode, "%s = vec4(cos(%s.x), sin(%s.x), 0.0, 0.0);\n", dst, src[0], src[0]);
                         break;
                     case INST_SGE:
-                        ArrayBuffer_putString(shaderCode, "%s = vec4(greaterThanEqual(%s, %s))%s;\n", dst, src[0], src[0], dstMask);
+                        ArrayBuffer_putString(shaderCode, "%s = vec4(greaterThanEqual(%s, %s))%s;\n", dst, src[0], src[1], dstMask);
                         break;
                     case INST_SIN:
                         APPEND_SCALAR_OP("sin");
                         break;
                     case INST_SLT:
-                        ArrayBuffer_putString(shaderCode, "%s = vec4(lessThan(%s, %s))%s;\n", dst, src[0], src[0], dstMask);
+                        ArrayBuffer_putString(shaderCode, "%s = vec4(lessThan(%s, %s))%s;\n", dst, src[0], src[1], dstMask);
                         break;
                     case INST_SUB:
                         APPEND_ARITH_OP('-');
@@ -651,7 +750,31 @@ static void convertASMSource(GLenum type, ASMSource* asmSource, ArrayBuffer* sha
 
     iterateASMCodeLines(&instructionMap, asmSource, shaderCode);
 
+    if (type == GL_VERTEX_PROGRAM_ARB && asmSource->positionInvariant) {
+        /* Position-invariant ARB programs intentionally have no
+         * result.position write. Emit the fixed-function transform in the
+         * wrapper after the translated program body. */
+        ArrayBuffer_putString(shaderCode,
+            "gl_Position = gd_ProjectionMatrix * gd_ModelViewMatrix * gd_Vertex;\n");
+    }
+
+    if (type == GL_VERTEX_PROGRAM_ARB) {
+        /* ARB vertex programs supply result.fogcoord when a paired fragment
+         * program requests post-program fog. The macro compiles this bridge
+         * out for non-fog materials. */
+        ArrayBuffer_putString(shaderCode,
+            "#if GD_FOG\n"
+            "gd_FogFragCoord = gd_ArbFogCoord.x;\n"
+            "#endif\n");
+    }
+
     if (type == GL_FRAGMENT_PROGRAM_ARB) {
+        if (asmSource->fogMode != 0) {
+            ArrayBuffer_putString(shaderCode,
+                "#if GD_FOG\n"
+                "gd_FragColor.rgb = applyFog(gd_Fog, gd_FragColor.rgb, gd_FogFragCoord);\n"
+                "#endif\n");
+        }
         ArrayBuffer_putString(shaderCode, "applyAlphaTest(gd_FragColor.a);\n");
     }
     ArrayBuffer_putString(shaderCode, "}\n");
@@ -739,6 +862,8 @@ void ARBProgram_setSource(ARBProgram* program, GLenum format, char* string, GLui
     program->asmSource = asmSource.string;
 
     memcpy(program->samplerTypes, asmSource.samplerTypes, sizeof(program->samplerTypes));
+    program->positionInvariant = asmSource.positionInvariant;
+    program->fogMode = asmSource.fogMode;
 
     uint8_t numTextures = 0;
     for (int i = 0; i < MAX_TEXCOORDS; i++) if (asmSource.samplerTypes[i] > 0) numTextures++;
@@ -804,6 +929,15 @@ static void setUniformValueAt(ARBProgram* program, char type, int index, GLfloat
 
 void ARBProgram_setEnvParameter(GLenum target, GLuint index, GLfloat x, GLfloat y, GLfloat z, GLfloat w) {
     GLX_CONTEXT_LOCK();
+    int targetIndex = indexOfGLTarget(target);
+    if (targetIndex >= 0 && targetIndex < MAX_ARB_PROGRAM_TARGETS &&
+            index < MAX_ARB_PROGRAM_ENV_PARAMS) {
+        GLfloat* value = currentRenderer->clientState.arbProgramEnv[targetIndex][index];
+        value[0] = x;
+        value[1] = y;
+        value[2] = z;
+        value[3] = w;
+    }
     int threadId = currentThreadId();
     SparseArray* programs = currentRenderer->clientState.arbPrograms;
     for (int i = 0; i < programs->size; i++) {
@@ -829,7 +963,16 @@ void ARBProgram_onDestroy(GLClientState* clientState) {
     }
 }
 
+bool ARBProgram_isVertexActive() {
+    return currentRenderer && currentRenderer->state.enabledARBPrograms[0] &&
+           currentRenderer->clientState.arbProgram[0];
+}
+
+bool ARBProgram_isFragmentActive() {
+    return currentRenderer && currentRenderer->state.enabledARBPrograms[1] &&
+           currentRenderer->clientState.arbProgram[1];
+}
+
 bool ARBProgram_isActive() {
-    return currentRenderer->state.enabledARBPrograms[0] && currentRenderer->clientState.arbProgram[0] &&
-           currentRenderer->state.enabledARBPrograms[1] && currentRenderer->clientState.arbProgram[1];
+    return ARBProgram_isVertexActive() || ARBProgram_isFragmentActive();
 }

@@ -42,9 +42,13 @@ static inline uint8_t BCDecoder_getAlpha(uint64_t data, int i) {
 }
 
 static inline void BCDecoder_extract565(uint8_t* c, uint32_t c565) {
-    c[0] = ((c565 & 0x001F) << 3) | ((c565 & 0x001C) >> 2);
+    /* The compressed upload bridge submits decoded blocks as GLES RGBA.
+     * RGB565 stores red in the high 5 bits and blue in the low 5 bits;
+     * keeping those channels in their natural RGBA positions is important on
+     * drivers that do not accept desktop BGRA texture uploads. */
+    c[0] = ((c565 & 0xF800) >> 8) | ((c565 & 0xE000) >> 13);
     c[1] = ((c565 & 0x07E0) >> 3) | ((c565 & 0x0600) >> 9);
-    c[2] = ((c565 & 0xF800) >> 8) | ((c565 & 0xE000) >> 13);
+    c[2] = ((c565 & 0x001F) << 3) | ((c565 & 0x001C) >> 2);
 }
 
 static inline void BCDecoder_decodeAlpha(uint64_t data, uint8_t* dst, int x, int y, int width, int endY, int stride) {

@@ -28,6 +28,8 @@ typedef struct GLContext {
         GLuint renderbuffer;
         GLuint texture;
     } displayBufAttachments[2];
+    short displayAttachmentSize[2];
+    uint32_t displayAttachmentGeneration;
 
     GLuint savedDSATarget;
     GLuint savedDSAId;

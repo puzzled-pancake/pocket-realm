@@ -6,8 +6,10 @@ import com.winlator.core.CursorLocker;
 import com.winlator.renderer.GLRenderer;
 import com.winlator.winhandler.WinHandler;
 import com.winlator.xserver.extensions.BigReqExtension;
+import com.winlator.xserver.extensions.DRI3Extension;
 import com.winlator.xserver.extensions.Extension;
 import com.winlator.xserver.extensions.GLXExtension;
+import com.winlator.xserver.extensions.PresentExtension;
 import com.winlator.xserver.extensions.SyncExtension;
 import com.winlator.xserver.extensions.XComposite;
 
@@ -183,10 +185,11 @@ public class XServer {
         // O06 qualified a GDI/X11-only set. O07 adds the source-matched
         // libgladiorenderer.so, so GLX is now honest to advertise for WineD3D.
         // Still omitted:
-        //   - MITSHMExtension : needs the SysV SHM path (stubbed; no native
-        //     backing for the SHM segments in this spike).
-        //   - DRI3Extension   : needs dma-buf/native fd-passing not built.
-        //   - PresentExtension: needs the Present native path not built.
+        //   - MITSHMExtension : the separate SysV service component is not
+        //     hosted by Pocket Realm. DRI3 uses the restored static fd mapper.
+        // ARM Turnip/DXVK uses Winlator's source-matched DRI3/Present path.
+        // libwinlator provides SCM_RIGHTS and native buffer mapping; keep the
+        // original Winlator wire opcodes so the XCB Vulkan WSI sees them.
         // Advertising an extension with a no-op/absent implementation would
         // make Wine attempt GLX/SHM and fail at runtime; we do not advertise
         // what we do not implement.
@@ -202,6 +205,8 @@ public class XServer {
         final byte first = Extension.START_MAJOR_OPCODE;
         return new Extension[]{
             new BigReqExtension(this, first),
+            new DRI3Extension(this, (byte)(first - 2)),
+            new PresentExtension(this, (byte)(first - 3)),
             new SyncExtension(this, (byte)(first - 4)),
             new XComposite(this, (byte)(first - 5)),
             new GLXExtension(this, (byte)(first - 6))

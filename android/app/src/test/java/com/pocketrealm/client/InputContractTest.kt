@@ -6,6 +6,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * Host-JVM unit tests for [InputContract] v1 state-machine logic.
@@ -94,6 +96,22 @@ class InputContractTest {
         // UP with no prior DOWN: no injection, no synth.
         c.pointerButton(0, InputContract.PointerButton.RIGHT, pressed = false, generation = 1)
         assertTrue(sink.events.isEmpty())
+    }
+
+    @Test fun `neutral ignores empty source bookkeeping but rejects held state`() {
+        val (c, _) = newContract()
+        assertTrue(c.isNeutral(1))
+
+        // Both operations retain harmless source bookkeeping internally.
+        c.pointerButton(9, InputContract.PointerButton.RIGHT, pressed = false, generation = 1)
+        c.gamepadAxis(10, InputContract.GamepadAxis.LEFT_X, 0f, generation = 1)
+        assertTrue(c.isNeutral(1))
+
+        c.pointerButton(9, InputContract.PointerButton.RIGHT, pressed = true, generation = 1)
+        assertFalse(c.isNeutral(1))
+        c.pointerButton(9, InputContract.PointerButton.RIGHT, pressed = false, generation = 1)
+        assertTrue(c.isNeutral(1))
+        assertFalse(c.isNeutral(2))
     }
 
     @Test fun `wheel emits atomic press-release and is never retained`() {
@@ -203,7 +221,21 @@ class InputContractTest {
     }
 
     @Test fun `input profile codec preserves persisted tuning and migrates version one`() {
-        val tuned = InputProfile(InputProfile.CURRENT_VERSION, 0.2f, "16:9", 1.75f, 0.6f)
+        val tuned = InputProfile(
+            version = InputProfile.CURRENT_VERSION,
+            deadZone = 0.2f,
+            aspectIdentity = "16:9",
+            cameraSensitivity = 1.75f,
+            overlayOpacity = 0.6f,
+            overlayEnabled = false,
+            overlayScale = 1.25f,
+            cameraRegionWidth = 0.5f,
+            invertCameraY = true,
+            rp6Bindings = InputProfile.defaultRp6Bindings() +
+                (Rp6Control.R1 to ControllerAction.JUMP),
+            overlayBindings = InputProfile.defaultOverlayBindings() +
+                (OverlayControl.ACTION_1 to ControllerAction.INTERACT),
+        )
         val roundTrip = InputProfile.fromJson(InputProfile.toJson(tuned))
         assertEquals(tuned, roundTrip)
         val migrated = InputProfile.fromJson(org.json.JSONObject()
@@ -213,6 +245,21 @@ class InputContractTest {
         assertEquals(InputProfile.CURRENT_VERSION, migrated.version)
         assertEquals(1.0f, migrated.cameraSensitivity)
         assertEquals(0.85f, migrated.overlayOpacity)
+        assertEquals(ControllerAction.KEY_9,
+            InputProfile.actionFor(migrated, Rp6Control.R1))
+
+        val invalidBinding = InputProfile.fromJson(org.json.JSONObject()
+            .put("version", InputProfile.CURRENT_VERSION)
+            .put("aspectIdentity", "16:9")
+            .put("rp6Bindings", org.json.JSONObject()
+                .put(Rp6Control.R1.name, "NOT_AN_ACTION")
+                .put(Rp6Control.L1.name, ControllerAction.JUMP.name)))
+        assertEquals(ControllerAction.KEY_9,
+            InputProfile.actionFor(invalidBinding, Rp6Control.R1))
+        assertEquals(ControllerAction.JUMP,
+            InputProfile.actionFor(invalidBinding, Rp6Control.L1))
+        assertEquals(ControllerAction.KEY_1,
+            InputProfile.actionFor(invalidBinding, OverlayControl.ACTION_1))
     }
 
     @Test fun `aspect identity reduces coprime ratios`() {
@@ -244,6 +291,22 @@ class InputContractTest {
         }
 
         fun keyEventCount(): Int = events.count { it is SinkEvent.Key }
+    }
+
+    private class BlockingReleaseSink : InputSink {
+        val events = java.util.Collections.synchronizedList(mutableListOf<SinkEvent>())
+        val releaseEntered = CountDownLatch(1)
+        val allowRelease = CountDownLatch(1)
+        @Volatile var blockNextRelease = false
+
+        override fun inject(event: SinkEvent) {
+            events += event
+            if (blockNextRelease && event is SinkEvent.Key && !event.pressed) {
+                blockNextRelease = false
+                releaseEntered.countDown()
+                check(allowRelease.await(2, TimeUnit.SECONDS)) { "release test timed out" }
+            }
+        }
     }
 
     private class ManualImeScheduler : ImePulseScheduler {
@@ -312,6 +375,161 @@ class InputContractTest {
             InputContract.logicalGamepadKey(android.view.KeyEvent.KEYCODE_BUTTON_A))
     }
 
+    @Test fun `RP6 gamepad maps physical controls and releases every held output`() {
+        val (c, sink) = newContract()
+        val rp6 = InputContract.GamepadLayout.RETROID_POCKET_6
+        val expected = listOf(
+            KeyEvent.KEYCODE_BUTTON_A to KeyEvent.KEYCODE_1,
+            KeyEvent.KEYCODE_BUTTON_X to KeyEvent.KEYCODE_2,
+            KeyEvent.KEYCODE_BUTTON_Y to KeyEvent.KEYCODE_3,
+            KeyEvent.KEYCODE_BUTTON_B to KeyEvent.KEYCODE_4,
+            KeyEvent.KEYCODE_DPAD_DOWN to KeyEvent.KEYCODE_5,
+            KeyEvent.KEYCODE_DPAD_LEFT to KeyEvent.KEYCODE_6,
+            KeyEvent.KEYCODE_DPAD_UP to KeyEvent.KEYCODE_7,
+            KeyEvent.KEYCODE_DPAD_RIGHT to KeyEvent.KEYCODE_8,
+            KeyEvent.KEYCODE_BUTTON_R1 to KeyEvent.KEYCODE_9,
+            KeyEvent.KEYCODE_BUTTON_L1 to KeyEvent.KEYCODE_0,
+            KeyEvent.KEYCODE_BUTTON_L2 to KeyEvent.KEYCODE_SHIFT_LEFT,
+            KeyEvent.KEYCODE_BUTTON_R2 to KeyEvent.KEYCODE_CTRL_LEFT,
+            KeyEvent.KEYCODE_BUTTON_START to KeyEvent.KEYCODE_F7,
+            KeyEvent.KEYCODE_BUTTON_SELECT to KeyEvent.KEYCODE_M,
+            KeyEvent.KEYCODE_BUTTON_THUMBL to KeyEvent.KEYCODE_NUM_LOCK,
+            KeyEvent.KEYCODE_BUTTON_C to KeyEvent.KEYCODE_I,
+        )
+        expected.forEach { (physical, _) -> assertTrue(c.gamepadButton(22, physical, true, 1, rp6)) }
+        assertTrue(c.gamepadButton(22, KeyEvent.KEYCODE_BUTTON_THUMBR, true, 1, rp6))
+        assertTrue(c.gamepadButton(22, KeyEvent.KEYCODE_BUTTON_Z, true, 1, rp6))
+
+        val keys = sink.events.filterIsInstance<SinkEvent.Key>()
+        assertEquals(expected.map { it.second }, keys.map { it.logicalKeyCode })
+        assertEquals(
+            listOf(
+                SinkEvent.PointerButton(SinkButton.LEFT, true),
+                SinkEvent.PointerButton(SinkButton.RIGHT, true),
+            ),
+            sink.events.filterIsInstance<SinkEvent.PointerButton>(),
+        )
+        val report = c.releaseSource(22)
+        assertEquals(expected.size, report.keyCount)
+        assertEquals(2, report.buttonCount)
+    }
+
+    @Test fun `RP6 left stick strafes and hat produces utility numbers`() {
+        val (c, sink) = newContract()
+        val rp6 = InputContract.GamepadLayout.RETROID_POCKET_6
+        c.gamepadAxis(3, InputContract.GamepadAxis.LEFT_X, -1f, 1, rp6)
+        c.gamepadAxis(3, InputContract.GamepadAxis.LEFT_X, 1f, 1, rp6)
+        c.gamepadAxis(3, InputContract.GamepadAxis.HAT_Y, -1f, 1, rp6)
+        c.gamepadAxis(3, InputContract.GamepadAxis.HAT_Y, 0f, 1, rp6)
+        assertEquals(
+            listOf(KeyEvent.KEYCODE_Q, KeyEvent.KEYCODE_Q, KeyEvent.KEYCODE_E,
+                KeyEvent.KEYCODE_7, KeyEvent.KEYCODE_7),
+            sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode },
+        )
+        assertEquals(1, c.releaseSource(3).keyCount) // E remains held.
+    }
+
+    @Test fun `RP6 remap is balanced and profile switch releases held output`() {
+        val (c, sink) = newContract()
+        val remapped = InputProfile.DEFAULT.copy(
+            rp6Bindings = InputProfile.defaultRp6Bindings() + mapOf(
+                Rp6Control.R1 to ControllerAction.JUMP,
+                Rp6Control.R3 to ControllerAction.POINTER_RIGHT,
+                Rp6Control.LEFT_STICK_LEFT to ControllerAction.MOVE_A,
+            ),
+        )
+        c.switchProfile(remapped, "16:9", 1)
+        val rp6 = InputContract.GamepadLayout.RETROID_POCKET_6
+        assertTrue(c.gamepadButton(31, KeyEvent.KEYCODE_BUTTON_R1, true, 1, rp6))
+        assertTrue(c.gamepadButton(31, KeyEvent.KEYCODE_BUTTON_R1, false, 1, rp6))
+        assertTrue(c.gamepadButton(31, KeyEvent.KEYCODE_BUTTON_THUMBR, true, 1, rp6))
+        assertTrue(c.gamepadAxis(31, InputContract.GamepadAxis.LEFT_X, -1f, 1, rp6))
+
+        assertEquals(
+            listOf(KeyEvent.KEYCODE_SPACE, KeyEvent.KEYCODE_SPACE, KeyEvent.KEYCODE_A),
+            sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode },
+        )
+        assertEquals(
+            listOf(SinkEvent.PointerButton(SinkButton.RIGHT, true)),
+            sink.events.filterIsInstance<SinkEvent.PointerButton>(),
+        )
+
+        val report = c.switchProfile(InputProfile.DEFAULT, "16:9", 1)
+        assertEquals(1, report.keyCount)
+        assertEquals(1, report.buttonCount)
+        assertTrue(c.isNeutral(1))
+    }
+
+    @Test fun `RP6 identity gate and Android system passthrough are strict`() {
+        assertTrue(ClientInputBridge.isRetroidPocketController(
+            "Retroid Pocket Controller", null, 0x2022, 0x3001,
+        ))
+        assertFalse(ClientInputBridge.isRetroidPocketController(
+            "Generic Controller", "dc75afea56e3c3a269b97967aa26b8c93c0bd3fb", 0x2022, 0x3001,
+        ))
+        assertTrue(ClientInputBridge.isAndroidSystemKey(KeyEvent.KEYCODE_HOME))
+        assertTrue(ClientInputBridge.isAndroidSystemKey(KeyEvent.KEYCODE_BACK))
+        assertTrue(ClientInputBridge.isAndroidSystemKey(KeyEvent.KEYCODE_VOLUME_UP))
+        assertTrue(ClientInputBridge.isAndroidSystemKey(KeyEvent.KEYCODE_VOLUME_MUTE))
+        assertTrue(ClientInputBridge.isAndroidSystemKey(KeyEvent.KEYCODE_MUTE))
+        assertTrue(ClientInputBridge.isAndroidSystemKey(KeyEvent.KEYCODE_POWER))
+        assertTrue(ClientInputBridge.isAndroidSystemKey(KeyEvent.KEYCODE_SLEEP))
+        assertTrue(ClientInputBridge.isAndroidSystemKey(KeyEvent.KEYCODE_WAKEUP))
+        assertFalse(ClientInputBridge.isAndroidSystemKey(KeyEvent.KEYCODE_BUTTON_START))
+    }
+
+    @Test fun `profile switch and gamepad dispatch share one neutral boundary`() {
+        val sink = BlockingReleaseSink()
+        val contract = InputContract(sink)
+        contract.attach(sessionId = null, generation = 1)
+        val oldProfile = InputProfile.DEFAULT.copy(
+            rp6Bindings = InputProfile.defaultRp6Bindings() +
+                (Rp6Control.R1 to ControllerAction.JUMP),
+        )
+        val newProfile = InputProfile.DEFAULT.copy(
+            rp6Bindings = InputProfile.defaultRp6Bindings() +
+                (Rp6Control.R1 to ControllerAction.RADIAL_MENU),
+        )
+        contract.switchProfile(oldProfile, "16:9", 1)
+        assertTrue(contract.gamepadButton(
+            41, KeyEvent.KEYCODE_BUTTON_R1, true, 1,
+            InputContract.GamepadLayout.RETROID_POCKET_6,
+        ))
+
+        sink.blockNextRelease = true
+        val switching = Thread { contract.switchProfile(newProfile, "16:9", 1) }
+        switching.start()
+        assertTrue(
+            "profile switch did not reach its release boundary",
+            sink.releaseEntered.await(2, TimeUnit.SECONDS),
+        )
+
+        val dispatching = Thread {
+            contract.gamepadButton(
+                42, KeyEvent.KEYCODE_BUTTON_R1, true, 1,
+                InputContract.GamepadLayout.RETROID_POCKET_6,
+            )
+        }
+        dispatching.start()
+        sink.allowRelease.countDown()
+        switching.join(2_000)
+        dispatching.join(2_000)
+        assertFalse(switching.isAlive)
+        assertFalse(dispatching.isAlive)
+
+        val keys = sink.events.filterIsInstance<SinkEvent.Key>()
+        val releaseBoundary = keys.indexOfFirst {
+            it.logicalKeyCode == KeyEvent.KEYCODE_SPACE && !it.pressed
+        }
+        assertTrue(releaseBoundary >= 0)
+        assertEquals(
+            listOf(KeyEvent.KEYCODE_F7),
+            keys.drop(releaseBoundary + 1).filter { it.pressed }.map { it.logicalKeyCode },
+        )
+        contract.releaseAll(InputContract.ReleaseReason.EXPLICIT_RELEASE_INPUT)
+        assertTrue(contract.isNeutral(1))
+    }
+
     @Test fun `IME closing leaves neutral state and does not restore keys`() {
         val (c, _) = newContract()
         c.pointerButton(0, InputContract.PointerButton.LEFT, pressed = true, generation = 1)
@@ -324,17 +542,54 @@ class InputContractTest {
         assertEquals(0, report.keyCount)
     }
 
-    @Test fun `IME active suppresses gameplay pointer injection until closed`() {
+    @Test fun `IME keeps cursor navigation active while gameplay controls stay suppressed`() {
         val (c, sink) = newContract()
         c.imeOpened(1)
         c.pointerAbsolute(0, 10, 20, 1)
         c.pointerRelative(0, 3, -2, 1)
         c.pointerButton(0, InputContract.PointerButton.LEFT, pressed = true, generation = 1)
+        c.pointerButton(0, InputContract.PointerButton.LEFT, pressed = false, generation = 1)
         c.wheel(0, 1, 1, 1)
-        assertTrue("IME should suppress gameplay pointer events", sink.events.isEmpty())
-        c.imeClosed(1)
-        c.pointerAbsolute(0, 10, 20, 1)
-        assertEquals(1, sink.events.size)
+        assertTrue(c.gamepadAxis(
+            9, InputContract.GamepadAxis.RIGHT_X, 0.5f, 1,
+            InputContract.GamepadLayout.RETROID_POCKET_6,
+        ))
+        assertTrue(c.gamepadButton(
+            9, KeyEvent.KEYCODE_BUTTON_THUMBR, true, 1,
+            InputContract.GamepadLayout.RETROID_POCKET_6,
+        ))
+        assertTrue(c.gamepadButton(
+            9, KeyEvent.KEYCODE_BUTTON_THUMBR, false, 1,
+            InputContract.GamepadLayout.RETROID_POCKET_6,
+        ))
+        val beforeGameplay = sink.events.size
+        assertFalse(c.gamepadAxis(
+            9, InputContract.GamepadAxis.LEFT_X, 1f, 1,
+            InputContract.GamepadLayout.RETROID_POCKET_6,
+        ))
+        assertFalse(c.gamepadButton(
+            9, KeyEvent.KEYCODE_BUTTON_A, true, 1,
+            InputContract.GamepadLayout.RETROID_POCKET_6,
+        ))
+        assertEquals("IME must suppress gameplay keys but not the cursor", beforeGameplay, sink.events.size)
+        assertTrue(sink.events.any { it is SinkEvent.PointerMove })
+        assertTrue(sink.events.any { it is SinkEvent.PointerMoveDelta })
+        assertTrue(sink.events.any { it is SinkEvent.PointerButton })
+    }
+
+    @Test fun `recreated input connection does not cancel queued IME input`() {
+        val sink = RecordingSink()
+        val scheduler = ManualImeScheduler()
+        val c = InputContract(sink, scheduler)
+        c.attach(sessionId = null, generation = 1)
+        c.imeOpened(1)
+        assertTrue(c.imeCommit("a", 1).allAccepted)
+        c.imeOpened(1)
+        scheduler.drain()
+        assertEquals(
+            listOf(KeyEvent.KEYCODE_A to true, KeyEvent.KEYCODE_A to false),
+            sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode to it.pressed },
+        )
     }
 
     @Test fun `IME commit injects accepted characters in order`() {
@@ -625,5 +880,38 @@ class InputContractTest {
         val text = "a".repeat(ImeCharMap.MAX_COMMIT_LENGTH)
         val result = c.imeCommit(text, 1)
         assertEquals(ImeCharMap.MAX_COMMIT_LENGTH, result.accepted.size)
+    }
+
+    @Test fun `single player login sequence is accepted atomically and ordered`() {
+        val sink = RecordingSink()
+        val scheduler = ManualImeScheduler()
+        val c = InputContract(sink, scheduler)
+        c.attach(sessionId = null, generation = 1)
+
+        assertTrue(c.queueSinglePlayerAutoLogin("ab", "cd", 1))
+        scheduler.drain()
+        // Four credential characters are balanced key pairs; field selection
+        // and submit use three ordinary balanced pointer clicks.
+        assertEquals(8, sink.events.filterIsInstance<SinkEvent.Key>().size)
+        assertEquals(6, sink.events.filterIsInstance<SinkEvent.PointerButton>().size)
+        assertTrue(c.isImeInputIdle)
+        c.imeClosed(1)
+        assertTrue(c.isNeutral(1))
+    }
+
+    @Test fun `single player login rejection queues zero credential events`() {
+        val sink = RecordingSink()
+        val scheduler = ManualImeScheduler()
+        val c = InputContract(sink, scheduler)
+        c.attach(sessionId = null, generation = 1)
+
+        assertFalse(c.queueSinglePlayerAutoLogin("ab", "c中", 1))
+        assertTrue(sink.events.isEmpty())
+        assertTrue(c.isNeutral(1))
+
+        c.pointerButton(4, InputContract.PointerButton.LEFT, pressed = true, generation = 1)
+        val before = sink.events.size
+        assertFalse(c.queueSinglePlayerAutoLogin("ab", "cd", 1))
+        assertEquals(before, sink.events.size)
     }
 }

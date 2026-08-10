@@ -322,6 +322,7 @@ public class GLXExtension extends Extension {
         Window window = xServer.windowManager.getWindow(windowId);
         if (window != null) {
             Drawable drawable = window.getContent();
+            if (drawable == null) return;
             synchronized (drawable.renderLock) {
                 /*
                  * The texture is allocated and consumed by GLRenderer's EGL
@@ -342,10 +343,19 @@ public class GLXExtension extends Extension {
         if (drawable == null) return 2;
 
         synchronized (drawable.renderLock) {
-            if (drawable.width != width || drawable.height != height) return 0;
+            /* The drawable can be removed after the initial manager lookup.
+             * DrawableManager removes it under renderLock, so rechecking here
+             * closes that lookup/remove race before touching the Texture owner. */
+            if (xServer.drawableManager.getDrawable(drawableId) != drawable) return 2;
+            Texture texture = drawable.getTexture();
+            if (texture == null || texture.getOwner() == null) return 2;
+            /* Wine can present an intermediate FBO whose dimensions differ
+             * from the X drawable (notably a shorter loading-screen target).
+             * Read that attachment at its real size; GLRenderer scales the
+             * resulting texture over the unchanged drawable geometry. */
+            if (width <= 0 || height <= 0) return 1;
 
             drawable.setData(null);
-            Texture texture = drawable.getTexture();
             texture.setFlipY(flipY);
             boolean hasContent = texture.copyFromReadBuffer(width, height, validateContent);
             Runnable onDrawListener = drawable.getOnDrawListener();

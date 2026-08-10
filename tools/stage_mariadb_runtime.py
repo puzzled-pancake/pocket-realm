@@ -349,6 +349,7 @@ def main() -> int:
         runtime_manifest = {
             "schema": 1,
             "provider": "mariadb-11.5.2-termux-glibc",
+            "abi": "x86_64",
             "executables": {
                 "mariadbd": {"apk_name": server_name, "sha256": server_hash},
                 "mariadb": {"apk_name": client_name, "sha256": client_hash},

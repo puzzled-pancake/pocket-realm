@@ -12,10 +12,11 @@ those report BLOCKED_ON_CLIENT_DATA. The script exits non-zero if the test
 fails or any prerequisite is missing.
 
 Usage:
-    python3 tools/run_realm_test.py --abi x86_64 [--serial <device>]
+    python3 tools/run_realm_test.py --abi x86_64|arm64-v8a [--serial <device>]
 
 Inputs:
-    native/.build-<abi>/pocket-runtime-build/{libpocketrealm.so,pocket_lifecycle_test}
+    native/.build-x86_64/ or native/.build-arm64/pocket-runtime-build/
+        {libpocketrealm.so,pocket_lifecycle_test}
     native/cmangos/sql/base/*.sql + native/classic-db/Full_DB/*.sql.gz (via seed_realm_db.py)
 """
 from __future__ import annotations
@@ -29,7 +30,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE = ROOT / "native"
-ABIS = {"arm64-v8a": ("aarch64",), "x86_64": ("x86_64",)}
+ABIS = {
+    # The native builder deliberately names the ARM root `.build-arm64`,
+    # while the NDK/ELF toolchain triple remains `aarch64-linux-android`.
+    # Keep those identities separate so a live ARM probe never looks under a
+    # non-existent `.build-aarch64` directory.
+    "arm64-v8a": {"build": "arm64", "deps": "arm64", "triple": "aarch64"},
+    "x86_64": {"build": "x86_64", "deps": "x86_64", "triple": "x86_64"},
+}
 
 
 def run(cmd, **kw):
@@ -55,8 +63,11 @@ def main() -> int:
                     help="keep the staged run-root on device for inspection")
     args = ap.parse_args()
 
-    triple = ABIS[args.abi][0]
-    build_dir = NATIVE / f".build-{triple}"
+    lane = ABIS[args.abi]
+    build_suffix = lane["build"]
+    deps_suffix = lane["deps"]
+    triple = lane["triple"]
+    build_dir = NATIVE / f".build-{build_suffix}"
     rt_build = build_dir / "pocket-runtime-build"
     lib = rt_build / "libpocketrealm.so"
     test_bin = rt_build / "pocket_lifecycle_test"
@@ -67,7 +78,7 @@ def main() -> int:
         return 1
 
     # 1. Stage a run-root locally: configs + seeded DBs + empty data dir.
-    stage = NATIVE / f".o4-stage-{triple}"
+    stage = NATIVE / f".o4-stage-{build_suffix}"
     if stage.exists():
         shutil.rmtree(stage)
     (stage / "db").mkdir(parents=True)
@@ -138,7 +149,7 @@ ListenerThreads = 1
     run(adb + ["shell", f"mkdir -p {dev_root}/content/dbc {dev_root}/content/maps {dev_root}/db"])
 
     # Strip the .so for push (481MB unstripped -> ~manageable).
-    llvm_strip = (NATIVE / ".deps").glob(f"prefix-{triple}/bin/llvm-strip")
+    llvm_strip = (NATIVE / ".deps").glob(f"prefix-{deps_suffix}/bin/llvm-strip")
     # Use the NDK strip instead.
     ndk_strip = str(Path(os.environ["ANDROID_SDK_ROOT"]) / "ndk-link" / "toolchains" /
                     "llvm" / "prebuilt" / "windows-x86_64" / "bin" / "llvm-strip.exe")

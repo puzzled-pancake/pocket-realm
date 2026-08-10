@@ -246,7 +246,7 @@ public class InputDeviceManager implements Pointer.OnPointerMotionListener, Keyb
         Window child = null;
         if (focusedWindow.isAncestorOf(pointWindow)) {
             eventWindow = pointWindow.getAncestorWithEventId(Event.KEY_PRESS, focusedWindow);
-            child = eventWindow.isAncestorOf(pointWindow) ? pointWindow : null;
+            child = eventWindow != null && eventWindow.isAncestorOf(pointWindow) ? pointWindow : null;
         }
         if (eventWindow == null) {
             if (!focusedWindow.hasEventListenerFor(Event.KEY_PRESS)) return;
@@ -285,7 +285,7 @@ public class InputDeviceManager implements Pointer.OnPointerMotionListener, Keyb
         Window child = null;
         if (focusedWindow.isAncestorOf(pointWindow)) {
             eventWindow = pointWindow.getAncestorWithEventId(Event.KEY_RELEASE, focusedWindow);
-            child = eventWindow.isAncestorOf(pointWindow) ? pointWindow : null;
+            child = eventWindow != null && eventWindow.isAncestorOf(pointWindow) ? pointWindow : null;
         }
         if (eventWindow == null) {
             if (!focusedWindow.hasEventListenerFor(Event.KEY_RELEASE)) return;

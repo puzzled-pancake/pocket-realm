@@ -4,6 +4,9 @@ internal object WorldNative {
     init { System.loadLibrary("pocket_world_runtime") }
     external fun startNative(configPath: String): Int
     external fun setBotTargetNative(target: Int): Int
+    external fun beginAdmissionBotTargetGenerationNative(generation: Long): Int
+    external fun setAdmissionBotTargetNative(target: Int, generation: Long): Int
+    external fun retireAdmissionBotTargetGenerationNative(generation: Long): Int
     external fun botStatusNative(): LongArray
     external fun performanceStatusNative(): LongArray
     external fun createAccountNative(username: String, password: String, timeoutMs: Long): Int

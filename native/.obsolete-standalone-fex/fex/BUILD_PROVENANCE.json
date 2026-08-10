@@ -1,0 +1,173 @@
+{
+  "schema": 1,
+  "provider": "fex",
+  "status": "laboratory-unqualified",
+  "fex_tag": "FEX-2608",
+  "fex_version": "2608~1-3~n",
+  "source_url": "https://github.com/FEX-Emu/FEX",
+  "package_url": "https://ppa.launchpadcontent.net/fex-emu/fex/ubuntu/pool/main/f/fex-emu-armv8.2/fex-emu-armv8.2_2608~1-3~n_arm64.deb",
+  "package_sha256": "0718368e9091eb1bc5d013c1563954a8601efafb377d932254789bc9e29fffa0",
+  "package_binary_sha256": "9764ff68e1d7b574c2c84115b38d636282c1c8e8f33589ae9259c9d252ef4c37",
+  "package_license": "MIT",
+  "host_loader_source": "pinned Winlator rootfs",
+  "host_loader_sha256": "2dc5ee1e79cae8a7b0dabc721c4fe25a15c15098fbd03702c8e1fa9142903797",
+  "guest_rootfs_source_manifest": "native/.build-x86_64/wine-staging/staging-manifest.json",
+  "guest_rootfs_source_manifest_sha256": "34679d35aa3883b0043f31587836ae3ece166b60b89c8e5202094f4b1b2e629d",
+  "notes": [
+    "FEX runs through the APK-managed ARM64 glibc loader and PRoot adapter.",
+    "No FEX GL/Vulkan thunks are enabled; the x86 Gladio client remains the renderer boundary.",
+    "Box64 remains the default and independently packaged fallback."
+  ],
+  "artifacts": [
+    {
+      "path": "native/.build-arm64/wine-staging/jniLibs/libfex.so",
+      "size": 4401000,
+      "sha256": "9764ff68e1d7b574c2c84115b38d636282c1c8e8f33589ae9259c9d252ef4c37",
+      "elf_machine": 183
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/jniLibs/libfex_ld.so",
+      "size": 238104,
+      "sha256": "2dc5ee1e79cae8a7b0dabc721c4fe25a15c15098fbd03702c8e1fa9142903797",
+      "elf_machine": 183
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/ld-linux-x86-64.so.2",
+      "size": 296944,
+      "sha256": "21785cdd8e7a33e1a8d6ddab71d2262122c7e5b246b953be1bbd799fd5f47ba1",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/libGL.so.1",
+      "size": 544456,
+      "sha256": "7b60dafa5e071e11187c0936840201920e141160f0897609ce530cb6f69b60b6",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/libX11.so.6",
+      "size": 1511656,
+      "sha256": "e4aac117607bdeedff5d831f5178c6495725302293b75a8175c3724dad0971ba",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/libXau.so.6",
+      "size": 53968,
+      "sha256": "42c612df977ba687b03d38cd3f9f194781fa823d73545bbecb3821914b6664e3",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/libXdmcp.so.6",
+      "size": 54632,
+      "sha256": "4ef20560c389d757f0295e3e39a3a76f0150b3f9f51d0de89284eae7a7ea60df",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/libXext.so.6",
+      "size": 98464,
+      "sha256": "ff818b13dd85177d0be53976bad6fdf934ceb312c3f824e0b9af54eefe88af16",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/libbrotlicommon.so.1",
+      "size": 167992,
+      "sha256": "a27be2e1e399bad4dcf0143e4f2a7e37bd828b66b00acd124ff34efcb2862d1b",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/libbrotlidec.so.1",
+      "size": 88456,
+      "sha256": "11b66bbd132d7b535280f54cea231c6019bc9f1171daff73627bcfb5f60729a1",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/libbz2.so.1.0",
+      "size": 107400,
+      "sha256": "0a5649b2f52992a4c88603bf95651ec4ae5cc748f22cf84c79da677f01963ae6",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/libc.so.6",
+      "size": 2264216,
+      "sha256": "65e44a5ed93e1016d20973c1ff8b132f644aa549fe1235bb8f0db68d62ae2348",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/libdl.so.2",
+      "size": 52520,
+      "sha256": "8c4d8e258e43e222de5ba3d579b9b76caf612349b7c3e6fa126187702fd2a21b",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/libexpat.so.1",
+      "size": 235160,
+      "sha256": "5fede87ec92d7f48b8b25785511cef5c3bf7ed25c69358eb01ee85fceb8cb3f9",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/libfontconfig.so.1",
+      "size": 345944,
+      "sha256": "e0941fc8062742aa73e8fba8389f55522d0e60d391d9ec4d963ec6eb471566d3",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/libfreetype.so.6",
+      "size": 837456,
+      "sha256": "4e00bffb11bf44a6ef688e4ca4cf3913678f2ce8de1f6d2ea92fe9b303216748",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/libgcc_s.so.1",
+      "size": 914440,
+      "sha256": "eb769c5d9551dead1711e6754335729b246d3ec2b7c37bcc7f8a0f80db6ad9d6",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/libm.so.6",
+      "size": 1120608,
+      "sha256": "1aa3837f97ceefda4b270d14c956730f694e6659e5c4494a013674912230d3e9",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/libpng16.so.16",
+      "size": 288816,
+      "sha256": "691990d25bc0a01ea359c6cc6fb4e7a82ec668bebe6a4590d751f989d1ca103f",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/libpthread.so.0",
+      "size": 53376,
+      "sha256": "eb263b05cd07f42c10270480471a05b4a395dd3a669563e7bdc2ff68a0a811ee",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/libresolv.so.2",
+      "size": 94280,
+      "sha256": "6d7fff8e8d2f45133069e76164c2c52df00f61150df142387caf248ac3ff696c",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/librt.so.1",
+      "size": 53088,
+      "sha256": "dd3b3daa6d933fc6542569cc10e300842b5f655ad42328bb0b73ad1d07a5bb46",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/libxcb.so.1",
+      "size": 231696,
+      "sha256": "8eef6ba69c7575cd12b42353f1f2edd9764f4e8c38d2c3e387b2ab861783dac4",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/usr/lib/libz.so.1",
+      "size": 125544,
+      "sha256": "ec6213ef21cfa210518ae0721aabd52a4237613a0d34d5508adc06f9e0dd0054",
+      "elf_machine": 62
+    },
+    {
+      "path": "native/.build-arm64/wine-staging/assets/arm-translated/fex/rootfs/lib64/ld-linux-x86-64.so.2",
+      "size": 296944,
+      "sha256": "21785cdd8e7a33e1a8d6ddab71d2262122c7e5b246b953be1bbd799fd5f47ba1",
+      "elf_machine": 62
+    }
+  ]
+}

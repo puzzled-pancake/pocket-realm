@@ -2,14 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Offline flavor: foreground service + notifications, plus INTERNET.
-         INTERNET is required by schemas/flavor.json android_permissions.required
-         and the report: app-local TCP sockets and the versioned app-private
-         control channel need loopback. network_policy (flavor.json) is explicit:
-         INTERNET permits app-local TCP only; offline realm listeners bind to
-         127.0.0.1 and the permission authorizes no external gameplay authority
-         (connected transport is post-O22, separate flavor/build type). -->
+    <!-- INTERNET is used for loopback realm traffic and explicit, user-started
+         downloads from public GitHub repositories. Gameplay remains local. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
@@ -22,6 +18,7 @@
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
         android:theme="@style/Theme.PocketRealm"
         android:enableOnBackInvokedCallback="true"
@@ -30,7 +27,7 @@
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|keyboardHidden|uiMode"
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation|uiMode"
             android:launchMode="singleTask"
             android:theme="@style/Theme.PocketRealm">
             <intent-filter>
@@ -38,6 +35,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+          <activity
+              android:name=".ui.ClientActivity"
+              android:exported="false"
+              android:launchMode="singleTask"
+              android:taskAffinity="com.pocketrealm.client"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|density|uiMode"
+            android:windowLayoutInDisplayCutoutMode="shortEdges"
+            android:theme="@style/Theme.PocketRealm" />
 
         <service
             android:name=".service.RealmService"

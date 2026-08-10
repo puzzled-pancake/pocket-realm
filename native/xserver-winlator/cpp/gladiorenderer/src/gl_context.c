@@ -21,7 +21,23 @@ static void loadJMethods(JMethods* jmethods) {
 
 static void getWindowSize(JMethods* jmethods, int windowId, short* outWidth, short* outHeight) {
     jshortArray windowSize = (*jmethods->env)->CallObjectMethod(jmethods->env, jmethods->obj, jmethods->getWindowSize, windowId);
+    if ((*jmethods->env)->ExceptionCheck(jmethods->env) || windowSize == NULL) {
+        if ((*jmethods->env)->ExceptionCheck(jmethods->env)) {
+            (*jmethods->env)->ExceptionClear(jmethods->env);
+        }
+        *outWidth = 0;
+        *outHeight = 0;
+        return;
+    }
     jshort* windowSizePtr = (*jmethods->env)->GetShortArrayElements(jmethods->env, windowSize, 0);
+    if ((*jmethods->env)->ExceptionCheck(jmethods->env) || windowSizePtr == NULL) {
+        if ((*jmethods->env)->ExceptionCheck(jmethods->env)) {
+            (*jmethods->env)->ExceptionClear(jmethods->env);
+        }
+        *outWidth = 0;
+        *outHeight = 0;
+        return;
+    }
     *outWidth = windowSizePtr[0];
     *outHeight = windowSizePtr[1];
     (*jmethods->env)->ReleaseShortArrayElements(jmethods->env, windowSize, windowSizePtr, JNI_ABORT);
@@ -46,10 +62,17 @@ static void destroyDisplayBuffers() {
     }
 }
 
-static void createDisplayBufAttachments(GLContext* context) {
-    short width = currentRenderer->displaySize[0];
-    short height = currentRenderer->displaySize[1];
+static bool hasDisplayBufAttachments(const GLContext* context) {
+    for (int i = 0; i < ARRAY_SIZE(context->displayBufAttachments); i++) {
+        if (context->displayBufAttachments[i].texture == 0 ||
+            context->displayBufAttachments[i].renderbuffer == 0) {
+            return false;
+        }
+    }
+    return true;
+}
 
+static void createDisplayBufAttachments(GLContext* context, short width, short height) {
     for (int i = 0; i < ARRAY_SIZE(context->displayBufAttachments); i++) {
         if (context->displayBufAttachments[i].texture == 0) {
             glGenTextures(1, &context->displayBufAttachments[i].texture);
@@ -69,6 +92,17 @@ static void createDisplayBufAttachments(GLContext* context) {
             glBindRenderbuffer(GL_RENDERBUFFER, 0);
         }
     }
+
+    context->displayAttachmentSize[0] = width;
+    context->displayAttachmentSize[1] = height;
+    context->displayAttachmentGeneration++;
+    if (context->displayAttachmentGeneration == 0) {
+        context->displayAttachmentGeneration++;
+    }
+    println("gladio: display attachments generation=%u size=%dx%d textures=%u,%u",
+            context->displayAttachmentGeneration, width, height,
+            context->displayBufAttachments[0].texture,
+            context->displayBufAttachments[1].texture);
 }
 
 static void destroyDisplayBufAttachments(GLContext* context) {
@@ -83,28 +117,51 @@ static void destroyDisplayBufAttachments(GLContext* context) {
             context->displayBufAttachments[i].renderbuffer = 0;
         }
     }
+    context->displayAttachmentSize[0] = 0;
+    context->displayAttachmentSize[1] = 0;
 }
+
+enum PresentationSource {
+    PRESENTATION_UNKNOWN = 0,
+    PRESENTATION_DRAW = 1,
+    PRESENTATION_READ = 2,
+    PRESENTATION_FRONT = 3,
+    PRESENTATION_BACK = 4,
+};
 
 static void setCurrentRenderWindow(GLContext* context, int windowId) {
     if (windowId == 0) return;
     JMethods* jmethods = &context->jmethods;
     (*jmethods->env)->CallVoidMethod(jmethods->env, jmethods->obj, jmethods->clearWindowContent, windowId);
-
-    bool hasDisplayBuffers = currentRenderer->displayBuffers[0] > 0 && currentRenderer->displayBuffers[1] > 0;
-    if (hasDisplayBuffers) return;
+    if ((*jmethods->env)->ExceptionCheck(jmethods->env)) {
+        (*jmethods->env)->ExceptionClear(jmethods->env);
+        return;
+    }
 
     short width;
     short height;
     getWindowSize(&context->jmethods, windowId, &width, &height);
     if (width == 0 || height == 0) return;
 
-    bool resized = currentRenderer->displaySize[0] != width || currentRenderer->displaySize[1] != height;
+    bool hasDisplayBuffers = currentRenderer->displayBuffers[0] > 0 &&
+                             currentRenderer->displayBuffers[1] > 0;
+    bool hasAttachments = hasDisplayBufAttachments(context);
+    bool attachmentSizeMatches = hasAttachments &&
+        context->displayAttachmentSize[0] == width &&
+        context->displayAttachmentSize[1] == height;
     currentRenderer->displaySize[0] = width;
     currentRenderer->displaySize[1] = height;
 
-    if (resized) destroyDisplayBufAttachments(context);
-    createDisplayBufAttachments(context);
+    if (hasDisplayBuffers && attachmentSizeMatches) return;
+
+    if (hasDisplayBuffers) destroyDisplayBuffers();
+    if (!attachmentSizeMatches) {
+        destroyDisplayBufAttachments(context);
+        createDisplayBufAttachments(context, width, height);
+    }
     createDisplayBuffers(context);
+    context->presentationSource = PRESENTATION_UNKNOWN;
+    context->presentationFrames = 0;
 
     ARRAYS_FILL(currentRenderer->clientState.framebuffer, MAX_FRAMEBUFFER_TARGETS, 0);
     GLRenderer_setDrawBuffer(currentRenderer, GL_BACK);
@@ -117,14 +174,6 @@ static void setCurrentRenderWindow(GLContext* context, int windowId) {
     currentRenderer->swapBuffers = true;
 }
 
-enum PresentationSource {
-    PRESENTATION_UNKNOWN = 0,
-    PRESENTATION_DRAW = 1,
-    PRESENTATION_READ = 2,
-    PRESENTATION_FRONT = 3,
-    PRESENTATION_BACK = 4,
-};
-
 enum WindowUpdateResult {
     WINDOW_UPDATE_RESIZE = 0,
     WINDOW_UPDATE_BLACK = 1,
@@ -134,7 +183,12 @@ enum WindowUpdateResult {
 static GLuint getPresentationFramebuffer(int source, GLuint drawFramebuffer,
                                          GLuint readFramebuffer) {
     switch (source) {
-        case PRESENTATION_READ: return readFramebuffer;
+        case PRESENTATION_READ:
+            /* GL_READ_FRAMEBUFFER=0 is the emulated default back buffer in
+             * this bridge, not an invalid candidate. Returning its concrete
+             * display-buffer id lets the startup probe compare it with the
+             * explicit draw/read FBOs instead of silently skipping it. */
+            return readFramebuffer > 0 ? readFramebuffer : currentRenderer->displayBuffers[1];
         case PRESENTATION_FRONT: return currentRenderer->displayBuffers[0];
         case PRESENTATION_BACK: return currentRenderer->displayBuffers[1];
         case PRESENTATION_DRAW:
@@ -143,31 +197,140 @@ static GLuint getPresentationFramebuffer(int source, GLuint drawFramebuffer,
 }
 
 static bool presentationNeedsFlip(int source) {
-    return source != PRESENTATION_READ;
+    /* Java copies raw glReadPixels rows.  GLES readback is bottom-origin for
+     * every candidate, including the emulated default READ buffer. */
+    return true;
+}
+
+static int presentationProbeCount = 0;
+static GLuint lastExplicitPresentationFramebuffer = 0;
+static short lastExplicitPresentationWidth = 0;
+static short lastExplicitPresentationHeight = 0;
+
+static bool getPresentationSize(GLContext* context, GLuint framebuffer,
+                                short* width, short* height,
+                                GLint* objectType, GLint* objectName,
+                                GLint* textureLevel) {
+    if (!width || !height) return false;
+
+    bool displayFramebuffer = false;
+    for (int i = 0; i < ARRAY_SIZE(currentRenderer->displayBuffers); i++) {
+        displayFramebuffer = displayFramebuffer ||
+            framebuffer == currentRenderer->displayBuffers[i];
+    }
+
+    GLint readBuffer = GL_NONE;
+    glGetIntegerv(GL_READ_BUFFER, &readBuffer);
+    if (readBuffer < GL_COLOR_ATTACHMENT0 ||
+        readBuffer >= GL_COLOR_ATTACHMENT0 + MAX_FB_COLOR_ATTACHMENTS) {
+        return false;
+    }
+
+    GLint localObjectType = GL_NONE;
+    GLint localObjectName = 0;
+    GLint localTextureLevel = 0;
+    glGetFramebufferAttachmentParameteriv(
+        GL_READ_FRAMEBUFFER, readBuffer,
+        GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &localObjectType);
+    glGetFramebufferAttachmentParameteriv(
+        GL_READ_FRAMEBUFFER, readBuffer,
+        GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &localObjectName);
+    if (localObjectType == GL_TEXTURE) {
+        glGetFramebufferAttachmentParameteriv(
+            GL_READ_FRAMEBUFFER, readBuffer,
+            GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LEVEL, &localTextureLevel);
+    }
+
+    if (objectType) *objectType = localObjectType;
+    if (objectName) *objectName = localObjectName;
+    if (textureLevel) *textureLevel = localTextureLevel;
+
+    if (displayFramebuffer) {
+        bool expectedAttachment = false;
+        for (int i = 0; i < ARRAY_SIZE(context->displayBufAttachments); i++) {
+            expectedAttachment = expectedAttachment ||
+                (GLuint)localObjectName == context->displayBufAttachments[i].texture;
+        }
+        if (localObjectType != GL_TEXTURE || localTextureLevel != 0 ||
+            !expectedAttachment || context->displayAttachmentSize[0] <= 0 ||
+            context->displayAttachmentSize[1] <= 0) {
+            return false;
+        }
+        *width = context->displayAttachmentSize[0];
+        *height = context->displayAttachmentSize[1];
+        return true;
+    }
+
+    return localObjectType == GL_TEXTURE && localObjectName > 0 &&
+        GLTexture_getDimensions((GLuint)localObjectName, localTextureLevel, width, height);
 }
 
 static int copyPresentation(GLContext* context, int drawableId, int source,
                             GLuint drawFramebuffer, GLuint readFramebuffer,
                             bool validateContent) {
-    GLFramebuffer_bindReadback(
-        getPresentationFramebuffer(source, drawFramebuffer, readFramebuffer));
+    GLuint framebuffer = getPresentationFramebuffer(source, drawFramebuffer, readFramebuffer);
+    GLFramebuffer_bindReadback(framebuffer);
+
+    /* A candidate with an incomplete or missing color attachment must not be
+     * sent through glReadPixels: GLES specifies the result as undefined, and
+     * the Java texture would otherwise cache a plausible-looking partial
+     * frame. Keep this probe bounded so normal swaps do not become noisy. */
+    GLenum status = glCheckFramebufferStatus(GL_READ_FRAMEBUFFER);
+    short sourceWidth = 0;
+    short sourceHeight = 0;
+    GLint objectType = GL_NONE;
+    GLint objectName = 0;
+    GLint textureLevel = 0;
+    bool knownSize = status == GL_FRAMEBUFFER_COMPLETE &&
+        getPresentationSize(context, framebuffer, &sourceWidth, &sourceHeight,
+                            &objectType, &objectName, &textureLevel);
+    bool displayFramebuffer = false;
+    for (int i = 0; i < ARRAY_SIZE(currentRenderer->displayBuffers); i++) {
+        displayFramebuffer = displayFramebuffer ||
+            framebuffer == currentRenderer->displayBuffers[i];
+    }
+    if (knownSize && !displayFramebuffer &&
+        (framebuffer != lastExplicitPresentationFramebuffer ||
+         sourceWidth != lastExplicitPresentationWidth ||
+         sourceHeight != lastExplicitPresentationHeight)) {
+        println("gladio: explicit presentation framebuffer=%u source=%dx%d display=%dx%d type=%x object=%d level=%d",
+                framebuffer, sourceWidth, sourceHeight,
+                currentRenderer->displaySize[0], currentRenderer->displaySize[1],
+                objectType, objectName, textureLevel);
+        lastExplicitPresentationFramebuffer = framebuffer;
+        lastExplicitPresentationWidth = sourceWidth;
+        lastExplicitPresentationHeight = sourceHeight;
+    }
+    if (presentationProbeCount < 32) {
+        GLint readBuffer = 0;
+        glGetIntegerv(GL_READ_BUFFER, &readBuffer);
+        println("gladio: presentation probe source=%d framebuffer=%u status=%x read=%x type=%x object=%d level=%d source=%dx%d display=%dx%d",
+                source, framebuffer, status, readBuffer, objectType, objectName,
+                textureLevel, sourceWidth, sourceHeight,
+                currentRenderer->displaySize[0], currentRenderer->displaySize[1]);
+        presentationProbeCount++;
+    }
+    if (!knownSize || sourceWidth <= 0 || sourceHeight <= 0) {
+        return WINDOW_UPDATE_BLACK;
+    }
+
     JMethods* jmethods = &context->jmethods;
-    return (*jmethods->env)->CallIntMethod(
+    int result = (*jmethods->env)->CallIntMethod(
         jmethods->env, jmethods->obj, jmethods->updateWindowContent,
-        drawableId, currentRenderer->displaySize[0], currentRenderer->displaySize[1],
+        drawableId, sourceWidth, sourceHeight,
         presentationNeedsFlip(source) ? JNI_TRUE : JNI_FALSE,
         validateContent ? JNI_TRUE : JNI_FALSE);
+    if ((*jmethods->env)->ExceptionCheck(jmethods->env)) {
+        (*jmethods->env)->ExceptionClear(jmethods->env);
+        return WINDOW_UPDATE_BLACK;
+    }
+    return result;
 }
 
 static void swapDisplayBuffers(GLContext* context, int drawableId) {
     GLuint drawFramebuffer = currentRenderer->clientState.framebuffer[indexOfGLTarget(GL_DRAW_FRAMEBUFFER)];
     GLuint readFramebuffer = currentRenderer->clientState.framebuffer[indexOfGLTarget(GL_READ_FRAMEBUFFER)];
-    bool explicitRead = readFramebuffer > 0 &&
-                        readFramebuffer != drawFramebuffer &&
-                        readFramebuffer != currentRenderer->displayBuffers[0] &&
-                        readFramebuffer != currentRenderer->displayBuffers[1];
     int result = WINDOW_UPDATE_BLACK;
-
     /* WineD3D can compose into either its current explicit read FBO or one of
      * the emulated default buffers, depending on GLX-context creation order.
      * IDs and bind history alone cannot distinguish the populated source. On
@@ -188,8 +351,11 @@ static void swapDisplayBuffers(GLContext* context, int drawableId) {
     if (context->presentationSource == PRESENTATION_UNKNOWN &&
         result != WINDOW_UPDATE_RESIZE) {
         int candidates[] = {
-            explicitRead ? PRESENTATION_READ : PRESENTATION_DRAW,
-            explicitRead ? PRESENTATION_DRAW : PRESENTATION_READ,
+            /* WineD3D's real client frame is the readback source on the
+             * qualified x86 runs; probe it first on ARM as well, then retain
+             * the draw/front/back fallbacks for contexts that compose there. */
+            PRESENTATION_READ,
+            PRESENTATION_DRAW,
             PRESENTATION_FRONT,
             PRESENTATION_BACK,
         };
@@ -488,7 +654,10 @@ void destroyGLXContext(GLXContext* context) {
 static void internalReadVertexArrayElement(GLContext* context, int arrayIdx, int elementIdx, ArrayBuffer* dstBuffer, float* constValue) {
 #define PARSE_VALUESF(glType, divVal) \
     const glType* values = srcValues; \
-    for (int i = 0; i < vertexAttrib->size; i++) dstValues[i] = arrayIdx == COLOR_ARRAY_INDEX ? (float)values[i] / divVal : (float)values[i]
+    for (int i = 0; i < vertexAttrib->size; i++) { \
+        float value = (float)values[i]; \
+        dstValues[i] = vertexAttrib->normalized ? MAX(-1.0f, value / (divVal)) : value; \
+    }
 
     GLClientState* clientState = &currentRenderer->clientState;
     if (!clientState->vao->attribs[arrayIdx].state) {
@@ -637,8 +806,8 @@ bool readUnboundVertexArrays(GLContext* context, GLenum drawMode, int drawCount,
             *outIndices = (void*)(uint64_t)ArrayBuffer_getInt(&context->inputBuffer);
         }
         else *outIndices = ArrayBuffer_getBytes(&context->inputBuffer, drawCount * sizeofGLType(indexType));
-    }
 
+    }
     if (ArrayBuffer_available(&context->inputBuffer) == 0) return false;
     if (ArrayBuffer_available(&context->inputBuffer) < 2 * (int)sizeof(int)) {
         println("gladio: draw payload truncated header available=%d",
@@ -678,28 +847,41 @@ bool readUnboundVertexArrays(GLContext* context, GLenum drawMode, int drawCount,
         }
 
         void* pointer = ArrayBuffer_getBytes(&context->inputBuffer, byteCount);
-        GLVertexAttrib* vertexAttrib = &clientState->vao->attribs[i];
+        int storageIndex = i;
+        bool legacyGeneric = kind == POCKET_DRAW_ATTR_GENERIC &&
+                clientState->program &&
+                GLClientState_isLegacyEnabledWithProgram(clientState, i);
+        if (kind == POCKET_DRAW_ATTR_GENERIC && !legacyGeneric) {
+            if (i >= MAX_GENERIC_VERTEX_ATTRIBS) return true;
+            storageIndex = GENERIC_VERTEX_ARRAY_INDEX + i;
+        }
+        GLVertexAttrib* vertexAttrib = &clientState->vao->attribs[storageIndex];
         if (kind == POCKET_DRAW_ATTR_GENERIC) {
             int size = MIN(4, vertexAttrib->size);
-            uintptr_t pointerOffset = 0;
+            uintptr_t pointerOffset = vertexAttrib->boundArrayBuffer > 0
+                    ? (uintptr_t)vertexAttrib->pointer : 0;
             if (vertexAttrib->size == GL_BGRA) {
                 uint64_t offset = (uint64_t)vertexAttrib->pointer;
                 if (offset > (uint64_t)byteCount || vertexAttrib->stride < 3) return true;
                 swapPixelsRedBlue(pointer + offset, vertexAttrib->stride, byteCount - offset);
+                /* The client deliberately marks BGRA attributes as unbound
+                 * after staging the VBO bytes, but pointer still carries the
+                 * byte offset within that transient payload. */
                 pointerOffset = (uintptr_t)vertexAttrib->pointer;
             }
 
-            int location = i;
-            if (GLClientState_isLegacyEnabledWithProgram(clientState, i) ||
-                ARBProgram_isActive()) {
-                if (clientState->program) {
-                    location = clientState->program->location.attributes[i];
-                }
-                else location = clientState->arbProgram[0]->material->location.attributes[i];
+            int location = -1;
+            if (clientState->program) {
+                location = clientState->program->location.attributes[i];
+            }
+            else if (ARBProgram_isVertexActive()) {
+                ShaderMaterial* material = GLRenderer_getARBMaterial(currentRenderer);
+                if (!material) return true;
+                location = material->location.attributes[storageIndex];
             }
 
             if (location < 0) continue;
-            GLuint* transientBuffer = &clientState->vao->transientBuffers[i];
+            GLuint* transientBuffer = &clientState->vao->transientBuffers[storageIndex];
             if (*transientBuffer == 0) glGenBuffers(1, transientBuffer);
             GLBuffer* oldArrayBuffer = clientState->vao->buffer[indexOfGLTarget(GL_ARRAY_BUFFER)];
             glBindBuffer(GL_ARRAY_BUFFER, *transientBuffer);

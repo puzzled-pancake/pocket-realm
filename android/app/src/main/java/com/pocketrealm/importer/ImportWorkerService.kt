@@ -66,7 +66,14 @@ class ImportWorkerService : Service() {
                     minimumReserve = 16L shl 20,
                 ),
                 prepareData = false,
-            ) else ManagedClientImporter(applicationContext)
+            ) else ManagedClientImporter(
+                applicationContext,
+                // The database-only ARM lane verifies and publishes the
+                // managed client but defers memory-heavy O11 extraction to a
+                // later full runtime APK. Full lanes retain the production
+                // preparation contract.
+                prepareData = BuildConfig.ENABLE_CLIENT_DATA_PREPARATION,
+            )
             try {
                 importer.run(
                     Uri.parse(rawUri),
@@ -163,6 +170,7 @@ class ImportWorkerService : Service() {
                 .put("bytesCopied", value.bytesCopied).put("bytesTotal", value.bytesTotal)
                 .put("lastRelativePath", value.lastRelativePath).put("warningCount", value.warningCount)
                 .put("lastError", value.lastError).put("activeGeneration", value.activeGeneration)
+                .put("dataPreparationEnabled", BuildConfig.ENABLE_CLIENT_DATA_PREPARATION)
                 .put("updatedAtMs", value.updatedAtMs)
         }
     }

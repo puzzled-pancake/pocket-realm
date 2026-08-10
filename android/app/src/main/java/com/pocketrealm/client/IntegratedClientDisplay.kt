@@ -2,8 +2,11 @@ package com.pocketrealm.client
 
 import android.app.Service
 import android.content.Intent
+import android.os.Build
 import android.os.IBinder
 import com.pocketrealm.log.AppLog
+import com.pocketrealm.supervisor.SinglePlayerCredentialStore
+import com.pocketrealm.supervisor.ComponentOwnership
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -21,6 +24,10 @@ object IntegratedClientDisplay {
     private val mutableHost = MutableStateFlow<ClientDisplayHost?>(null)
     val host: StateFlow<ClientDisplayHost?> = mutableHost.asStateFlow()
     internal fun publish(value: ClientDisplayHost?) { mutableHost.value = value }
+
+    /** Resolve only the currently published host; stale activity intents fail closed. */
+    fun currentHost(generation: Long): ClientDisplayHost? =
+        mutableHost.value?.takeIf { it.generation == generation }
 }
 
 /**
@@ -29,27 +36,61 @@ object IntegratedClientDisplay {
  * fixed token-scoped lifecycle while Compose attaches the in-process view.
  */
 class ClientDisplayService : Service() {
+    private val stateLock = Any()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var ownerToken: String? = null
+    private lateinit var ownership: ComponentOwnership
     private var runtime: X86DirectWineRuntime? = null
     private var host: ClientDisplayHost? = null
     private var sessionId: UUID? = null
     private var pendingWindow = false
 
+    override fun onCreate() {
+        super.onCreate()
+        ownership = ComponentOwnership("client-display") {
+            synchronized(stateLock) { releaseInternal() }
+            stopSelf()
+        }
+    }
+
     private val binder = object : IClientDisplayControl.Stub() {
-        override fun prepare(runtimeRoot: String, instanceToken: String): String = guarded {
-            require(TOKEN.matches(instanceToken)) { "invalid client generation token" }
+        override fun claim(sessionId: String, instanceToken: String, ownerLease: IBinder): String =
+            guarded { ownership.claim(sessionId, instanceToken, ownerLease) }
+
+        override fun prepare(
+            runtimeRoot: String,
+            instanceToken: String,
+            singlePlayerAutoLogin: Boolean,
+            clientId: String,
+        ): String = guarded {
+            ownership.requireOwner(instanceToken)
+            require(clientId == ClientRuntimeContract.WOW_5875_ID) { "unauthorized display client" }
             val root = File(runtimeRoot).canonicalFile
-            val allowed = File(noBackupFilesDir, "wine").canonicalFile
-            require(root.toPath().startsWith(allowed.toPath())) { "runtime root is outside app-owned Wine storage" }
-            releaseInternal()
-            ownerToken = instanceToken
-            runtime = X86DirectWineRuntime(applicationContext)
-            val display = ClientDisplayHost(applicationContext, root.absolutePath) {
-                val id = sessionId
-                if (id == null) pendingWindow = true
-                else scope.launch { reportVisible(id) }
+            val allowedRoots = listOf("wine", "arm-translated")
+                .map { File(noBackupFilesDir, it).canonicalFile.toPath() }
+            require(allowedRoots.any { root.toPath().startsWith(it) }) {
+                "runtime root is outside app-owned Wine storage"
             }
+            releaseInternal()
+            runtime = X86DirectWineRuntime(applicationContext)
+            val displayProfile =
+                ClientDisplayProfile.forDevice(Build.SUPPORTED_ABIS.asList(), Build.MODEL)
+            val autoLoginCredentials = if (singlePlayerAutoLogin) {
+                val credentials = requireNotNull(
+                    SinglePlayerCredentialStore(applicationContext).loadProvisioned(),
+                ) { "single-player account is not provisioned" }
+                SinglePlayerAutoLoginCredentials(credentials.username, credentials.password)
+            } else null
+            val display = ClientDisplayHost(
+                context = applicationContext,
+                runtimeRoot = root.absolutePath,
+                onWindowVisible = {
+                    val id = sessionId
+                    if (id == null) pendingWindow = true
+                    else scope.launch { reportVisible(id) }
+                },
+                displayProfile = displayProfile,
+                autoLoginCredentials = autoLoginCredentials,
+            )
             host = display
             IntegratedClientDisplay.publish(display)
             val rendererReady = try {
@@ -64,6 +105,10 @@ class ClientDisplayService : Service() {
             }
             AppLog.i(TAG, "renderer EGL share context ready before Wine launch")
             JSONObject().put("ok", true).put("display", ":0")
+                .put("displayProfile", display.displayProfile.id)
+                .put("virtualWidth", display.displayProfile.virtualWidth)
+                .put("virtualHeight", display.displayProfile.virtualHeight)
+                .put("frameCap", display.displayProfile.initialFrameCap)
                 .put("transportReady", true).put("rendererReady", true)
         }
 
@@ -77,11 +122,14 @@ class ClientDisplayService : Service() {
         }
 
         override fun status(): String = guarded {
-            JSONObject().put("ok", true).put("prepared", host != null)
+            ownership.decorate(JSONObject().put("ok", true).put("prepared", host != null)
                 .put("windowVisible", host?.windowVisible == true)
                 .put("rendererReady", host?.rendererReady == true)
                 .put("rendererSurfaceGeneration", host?.rendererSurfaceGeneration ?: 0L)
-                .put("hasOwner", ownerToken != null)
+                .put("displayProfile", host?.displayProfile?.id ?: "")
+                .put("virtualWidth", host?.displayProfile?.virtualWidth ?: 0)
+                .put("virtualHeight", host?.displayProfile?.virtualHeight ?: 0)
+                .put("frameCap", host?.displayProfile?.initialFrameCap ?: 0))
         }
 
         override fun requestClose(instanceToken: String): String = guarded {
@@ -94,6 +142,7 @@ class ClientDisplayService : Service() {
         override fun release(instanceToken: String): String = guarded {
             requireOwner(instanceToken)
             releaseInternal()
+            ownership.clear(instanceToken)
             JSONObject().put("ok", true).put("released", true)
         }
     }
@@ -101,7 +150,7 @@ class ClientDisplayService : Service() {
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onDestroy() {
-        releaseInternal()
+        synchronized(stateLock) { releaseInternal() }
         scope.cancel()
         super.onDestroy()
     }
@@ -113,7 +162,7 @@ class ClientDisplayService : Service() {
     }
 
     private fun requireOwner(value: String) {
-        check(ownerToken != null && ownerToken == value) { "client display ownership mismatch" }
+        ownership.requireOwner(value)
     }
 
     private fun releaseInternal() {
@@ -124,20 +173,20 @@ class ClientDisplayService : Service() {
         runtime = null
         sessionId = null
         pendingWindow = false
-        ownerToken = null
     }
 
-    private inline fun guarded(block: () -> JSONObject): String = try {
-        block().toString()
-    } catch (error: Throwable) {
-        AppLog.e(TAG, "display control request failed", error)
-        JSONObject().put("ok", false).put("errorClass", error.javaClass.simpleName)
-            .put("error", (error.message ?: "display request failed").take(512)).toString()
+    private inline fun guarded(block: () -> JSONObject): String = synchronized(stateLock) {
+        try {
+            block().toString()
+        } catch (error: Throwable) {
+            AppLog.e(TAG, "display control request failed", error)
+            JSONObject().put("ok", false).put("errorClass", error.javaClass.simpleName)
+                .put("error", (error.message ?: "display request failed").take(512)).toString()
+        }
     }
 
     companion object {
         private const val TAG = "ClientDisplay"
         private const val RENDERER_READY_TIMEOUT_MS = 15_000L
-        private val TOKEN = Regex("[0-9a-f]{64}")
     }
 }

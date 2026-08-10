@@ -42,6 +42,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.pocketrealm.client.ClientDisplayHost
 import com.pocketrealm.client.ClientManifest
 import com.pocketrealm.client.ClientRuntimeContract
+import com.pocketrealm.client.ClientRuntimeProvider
+import com.pocketrealm.client.ClientRuntimeSelector
 import com.pocketrealm.client.ClientState
 import com.pocketrealm.client.DeviceCaps
 import com.pocketrealm.client.LaunchRequest
@@ -71,6 +73,8 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
     var busy by remember { mutableStateOf(false) }
     var observer by remember { mutableStateOf<Job?>(null) }
     var importStatus by remember { mutableStateOf("No managed client imported") }
+    var importComplete by remember { mutableStateOf(false) }
+    var dataPreparationEnabled by remember { mutableStateOf(true) }
     var persistedTree by remember {
         mutableStateOf(context.contentResolver.persistedUriPermissions
             .firstOrNull { it.isReadPermission }?.uri)
@@ -89,9 +93,12 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
     LaunchedEffect(Unit) {
         while (true) {
             runCatching { ImportWorkerService.readStatus(context) }.onSuccess { value ->
+                val phase = value.optString("phase")
+                importComplete = phase == "COMPLETE"
+                dataPreparationEnabled = value.optBoolean("dataPreparationEnabled", true)
                 val error = value.optString("lastError").takeIf { it.isNotBlank() && it != "null" }
                 val checkpoint = value.optString("lastRelativePath")
-                    .takeIf { it.isNotBlank() && it != "null" }
+                    .takeIf { phase != "COMPLETE" && it.isNotBlank() && it != "null" }
                 importStatus = "${value.getString("phase")} • ${value.getInt("filesProcessed")}/" +
                     "${value.getInt("filesTotal")} files" +
                     (checkpoint?.let { " • $it" } ?: "") + (error?.let { " • $it" } ?: "")
@@ -105,6 +112,11 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
         busy = true; detail = "Probing Wine runtime…"
         scope.launch {
             try {
+                val runtimeSelection = ClientRuntimeSelector.select(context)
+                check(runtimeSelection.supported) { runtimeSelection.reason }
+                check(runtimeSelection.provider == ClientRuntimeProvider.X86_DIRECT_WINE) {
+                    "The redistributable self-test is currently qualified only for x86DirectWine"
+                }
                 val pageSize = Os.sysconf(OsConstants._SC_PAGESIZE).toInt()
                 val caps = runtime.probe(
                     DeviceCaps(Build.SUPPORTED_ABIS.firstOrNull().orEmpty(), Build.VERSION.SDK_INT, pageSize),
@@ -171,6 +183,12 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
                 Text("Managed WoW 1.12.1 client", style = MaterialTheme.typography.titleMedium)
                 Text(importStatus, style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.testTag("client-import-status"))
+                if (importComplete && !dataPreparationEnabled) {
+                    Text(
+                        "Client files verified. Server data preparation is deferred on this ARM database lane.",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
                 OutlinedButton(
                     onClick = { folderPicker.launch(null) },
                     modifier = Modifier.testTag("client-import-select"),
@@ -182,7 +200,7 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
                             importStatus = "Resuming verified import"
                         }
                     },
-                    enabled = persistedTree != null,
+                    enabled = persistedTree != null && !importComplete,
                     modifier = Modifier.testTag("client-import-resume"),
                 ) { Text("Resume import") }
                 Text("The selected folder remains read-only. Pocket Realm creates a verified app-private copy.",

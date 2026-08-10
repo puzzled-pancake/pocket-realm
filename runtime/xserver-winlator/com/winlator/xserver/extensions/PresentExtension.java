@@ -24,6 +24,7 @@ import com.winlator.xserver.events.PresentCompleteNotify;
 import com.winlator.xserver.events.PresentIdleNotify;
 
 import java.io.IOException;
+import android.util.Log;
 
 public class PresentExtension extends Extension {
     public static final byte MAJOR_VERSION = 1;
@@ -90,6 +91,7 @@ public class PresentExtension extends Extension {
     }
 
     private void queryVersion(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
+        Log.i("PR/Present", "queryVersion");
         inputStream.skip(8);
 
         try (XStreamLock lock = outputStream.lock()) {

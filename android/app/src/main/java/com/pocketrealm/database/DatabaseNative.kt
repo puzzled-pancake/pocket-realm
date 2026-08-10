@@ -8,10 +8,25 @@ internal object DatabaseNative {
 
     fun load() {
         System.loadLibrary("wine_spike")
-        AppLog.i(TAG, "native glibc supervisor loaded")
+        AppLog.i(TAG, "native database process supervisor loaded")
     }
 
     external fun runGlibcProgramNative(
+        nativeDir: String,
+        executable: String,
+        argv0: String,
+        workingDir: String,
+        runtimeRoot: String,
+        libraryPath: String,
+        argsBlob: String,
+        envBlob: String,
+        stdinPath: String,
+        timeoutMs: Int,
+        trackAsDaemon: Boolean,
+    ): String
+
+    /** Direct APK-managed Bionic runner used by the arm64 live-device lane. */
+    external fun runBionicProgramNative(
         nativeDir: String,
         executable: String,
         argv0: String,

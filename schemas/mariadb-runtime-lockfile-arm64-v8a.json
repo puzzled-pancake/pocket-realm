@@ -1,0 +1,211 @@
+{
+  "schema": 1,
+  "provider": "mariadb-12.3.2-termux-bionic-arm64",
+  "abi": "arm64-v8a",
+  "package_index": {
+    "url": "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages.gz",
+    "sha256": "3ab450fe66bff3161759183e6f061f31c81a0a3459242a810cf21ac133d5b5c2"
+  },
+  "packages": {
+    "mariadb": {
+      "filename": "mariadb_2-12.3.2_aarch64.deb",
+      "sha256": "ffda12fad7d55748e4f8d7e40fe37fd2de67a79e9cb00a5fd7adf3a4948a3fdc",
+      "version": "2:12.3.2",
+      "used_by_elf_closure": true
+    },
+    "ca-certificates": {
+      "filename": "ca-certificates_1-2026.07.16_all.deb",
+      "sha256": "93dc49a8009012c29510081b8f07f30c57af9b10b1dae4f541231d8ee785b37a",
+      "version": "1:2026.07.16",
+      "used_by_elf_closure": false
+    },
+    "libandroid-glob": {
+      "filename": "libandroid-glob_0.6-3_aarch64.deb",
+      "sha256": "2276ae8adedf0db76c2f4ffc94cc4cceb2f4f5d78e021b54e2e046d1233e7826",
+      "version": "0.6-3",
+      "used_by_elf_closure": false
+    },
+    "libandroid-support": {
+      "filename": "libandroid-support_29-1_aarch64.deb",
+      "sha256": "f2f145d6135ad4843ac9670153be3e3944dc1e6f1736d46d2306c28f2b86f517",
+      "version": "29-1",
+      "used_by_elf_closure": true
+    },
+    "libbz2": {
+      "filename": "libbz2_1.0.8-8_aarch64.deb",
+      "sha256": "4335d7f060650b0aabef545d1334c2f9f280223d5962e13c24a00ec934b794ba",
+      "version": "1.0.8-8",
+      "used_by_elf_closure": false
+    },
+    "libc++": {
+      "filename": "libc++_29_aarch64.deb",
+      "sha256": "bb9f12113c137aa0e8513bb51cc49fe77a5ce3ca39ab9e92c57d228ecdf00222",
+      "version": "29",
+      "used_by_elf_closure": true
+    },
+    "libcrypt": {
+      "filename": "libcrypt_0.2-6_aarch64.deb",
+      "sha256": "6c283eed576b98cc3568f99638156f8588f77d979579d03bef8683d6eb8601e1",
+      "version": "0.2-6",
+      "used_by_elf_closure": true
+    },
+    "libedit": {
+      "filename": "libedit_20260512-3.1-0_aarch64.deb",
+      "sha256": "728da8f45e9c0027f0c5844346dd8cea153a43394bceee36a257972acf0ed440",
+      "version": "20260512-3.1-0",
+      "used_by_elf_closure": true
+    },
+    "libiconv": {
+      "filename": "libiconv_1.18-1_aarch64.deb",
+      "sha256": "b19e6f348034bb48d2a5590b5cb242769f682c476717374d134d004cc663dc84",
+      "version": "1.18-1",
+      "used_by_elf_closure": false
+    },
+    "libicu": {
+      "filename": "libicu_78.3_aarch64.deb",
+      "sha256": "f536403f65a08fe0df6e7304184e902d54def77d5c3bd5edfd9109d57601d276",
+      "version": "78.3",
+      "used_by_elf_closure": false
+    },
+    "liblz4": {
+      "filename": "liblz4_1.10.0-1_aarch64.deb",
+      "sha256": "09b9449418d5c2dc4f5c1c140ba8138d56be3e9ae5fd3be3318825ec9f8a0499",
+      "version": "1.10.0-1",
+      "used_by_elf_closure": false
+    },
+    "liblzma": {
+      "filename": "liblzma_5.8.3_aarch64.deb",
+      "sha256": "594925a313879f590fbd24050305551a78eadd9a9319f6e612389b1a521113c6",
+      "version": "5.8.3",
+      "used_by_elf_closure": false
+    },
+    "libxml2": {
+      "filename": "libxml2_2.15.3-2_aarch64.deb",
+      "sha256": "59fbced0c60a7df9ff84faf20d248f563da5ae45a6783ed683faf33e9010fb24",
+      "version": "2.15.3-2",
+      "used_by_elf_closure": false
+    },
+    "ncurses": {
+      "filename": "ncurses_6.6.20260307+really6.5.20250830_aarch64.deb",
+      "sha256": "f44bbfdc3d42ec0217bffa978309390e59cea5a48a9a83226d4a496c42ad0b99",
+      "version": "6.6.20260307+really6.5.20250830",
+      "used_by_elf_closure": true
+    },
+    "openssl": {
+      "filename": "openssl_1-3.6.3_aarch64.deb",
+      "sha256": "86760e9ce736f463236f2c15b1eb3a3fdcfc5778d0fd7077a917448dcc90f3aa",
+      "version": "1:3.6.3",
+      "used_by_elf_closure": true
+    },
+    "pcre2": {
+      "filename": "pcre2_10.47_aarch64.deb",
+      "sha256": "51f915d22de639bfca6ec029ae613987bbe3bc73626eede13319fd2e95f50b63",
+      "version": "10.47",
+      "used_by_elf_closure": true
+    },
+    "zlib": {
+      "filename": "zlib_1.3.2_aarch64.deb",
+      "sha256": "75e7d0af17fcc3b40004309fdc00a1ddb9ae08346dce5e269902c34ac3966ac9",
+      "version": "1.3.2",
+      "used_by_elf_closure": true
+    },
+    "zstd": {
+      "filename": "zstd_1.5.7-1_aarch64.deb",
+      "sha256": "e1b4a5113648da8de189620ba1fce74c48b2d0833d9043391b9a1c91fb606fd3",
+      "version": "1.5.7-1",
+      "used_by_elf_closure": false
+    }
+  },
+  "runtime": {
+    "schema": 1,
+    "provider": "mariadb-12.3.2-termux-bionic-arm64",
+    "abi": "arm64-v8a",
+    "executables": {
+      "mariadbd": {
+        "apk_name": "libpocket_mariadbd.so",
+        "sha256": "ce5fb5ddd0083063888ce9e21e57d7b42309df8533c9b44baad53e72cadba5c9",
+        "size": 26661512
+      },
+      "mariadb": {
+        "apk_name": "libpocket_mariadb_client.so",
+        "sha256": "5ea8f5a8dfaeacd456ed1c798f60e0dab2a245994e0a6f37379bd3d0759037e0",
+        "size": 5254752
+      }
+    },
+    "links": [
+      {
+        "apk_name": "libdb_libandroid_support_so_739cf82951.so",
+        "sha256": "739cf829511d71dafd6c67fdbb70f3f0c6048642ea2e1967790ee961fde14430",
+        "size": 20736,
+        "logical": "libandroid-support.so",
+        "package": "libandroid-support"
+      },
+      {
+        "apk_name": "libdb_libc_shared_so_e09c2f45cf.so",
+        "sha256": "e09c2f45cf4cf8ae574f94b6c2650d99ead0d332d5396f6613f062a2d2d73540",
+        "size": 1374336,
+        "logical": "libc++_shared.so",
+        "package": "libc++"
+      },
+      {
+        "apk_name": "libdb_libcrypt_so_bf078ced08.so",
+        "sha256": "bf078ced08880508974c8ab9d68d12d320842e422fb6ec496f5b892e5d701262",
+        "size": 17104,
+        "logical": "libcrypt.so",
+        "package": "libcrypt"
+      },
+      {
+        "apk_name": "libdb_libcrypto_so_3_4122f5c950.so",
+        "sha256": "4122f5c95088f11a43c14e49e257cc1ce700960e855840cf9b9f39a8acbcd7e8",
+        "size": 5205472,
+        "logical": "libcrypto.so.3",
+        "package": "openssl"
+      },
+      {
+        "apk_name": "libdb_libedit_so_3776bfd469.so",
+        "sha256": "3776bfd46996ad42a736ec478583e7d65506b0aae0d32b1829baefe85ff63f35",
+        "size": 197096,
+        "logical": "libedit.so",
+        "package": "libedit"
+      },
+      {
+        "apk_name": "libdb_libncursesw_so_6_795f855f5a.so",
+        "sha256": "795f855f5a988d9e89116847b2c9aa03720cedbc02026259ca735be25398c4c5",
+        "size": 384496,
+        "logical": "libncursesw.so.6",
+        "package": "ncurses"
+      },
+      {
+        "apk_name": "libdb_libpcre2_8_so_a6bbeb410e.so",
+        "sha256": "a6bbeb410e269e50aee795b4fd1b11cbddb8b54959d1cfcd927b55b04dc19f5c",
+        "size": 489384,
+        "logical": "libpcre2-8.so",
+        "package": "pcre2"
+      },
+      {
+        "apk_name": "libdb_libssl_so_3_9bf626fadf.so",
+        "sha256": "9bf626fadf689237cf641bf1108057f0cc87c587c17fbdeaa16bd4a12807d7ce",
+        "size": 875304,
+        "logical": "libssl.so.3",
+        "package": "openssl"
+      },
+      {
+        "apk_name": "libdb_libz_so_1_c47748ed4b.so",
+        "sha256": "c47748ed4b6ca6a2ecd664bab04795f3493956ab1f5cddc4ba0efa737ef3b711",
+        "size": 72880,
+        "logical": "libz.so.1",
+        "package": "zlib"
+      }
+    ],
+    "plugins": [],
+    "bootstrap_inputs": [
+      "mariadb_system_tables.sql",
+      "mariadb_performance_tables.sql",
+      "mariadb_system_tables_data.sql",
+      "fill_help_tables.sql",
+      "maria_add_gis_sp_bootstrap.sql",
+      "mariadb_sys_schema.sql"
+    ],
+    "bootstrap_sha256": "beea9b5ed417de90a5dc4d678d7e42268a555df7082212bf51ea1791d3f21dd4"
+  }
+}

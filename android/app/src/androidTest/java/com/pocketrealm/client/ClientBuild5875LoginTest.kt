@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.system.Os
 import android.system.OsConstants
+import android.view.KeyEvent
 import android.view.ViewGroup
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -16,6 +17,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -35,6 +37,7 @@ class ClientBuild5875LoginTest {
     private val context = instrumentation.targetContext
     private lateinit var activity: MainActivity
     private lateinit var runtime: X86DirectWineRuntime
+    private lateinit var translator: ArmTranslationBackend
     private var host: ClientDisplayHost? = null
     private var session: UUID? = null
 
@@ -42,12 +45,19 @@ class ClientBuild5875LoginTest {
         activity = instrumentation.startActivitySync(
             Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         ) as MainActivity
-        runtime = X86DirectWineRuntime(context)
+        translator = requestedTranslator()
+        runtime = X86DirectWineRuntime(
+            context,
+            if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
+                ClientRuntimeProvider.ARM_TRANSLATED_WINE
+            } else ClientRuntimeProvider.X86_DIRECT_WINE,
+            translator,
+        )
     }
 
     @After fun tearDown() {
         session?.let { runBlocking { runCatching { runtime.forceStop(it) } } }
-        instrumentation.runOnMainSync { host?.close(); activity.finish() }
+        closeDisplay()
         runtime.close()
     }
 
@@ -61,20 +71,45 @@ class ClientBuild5875LoginTest {
             client,
         )
         assertTrue(caps.reason, caps.supported)
-        val prefix = withTimeout(240_000) { runtime.preparePrefix(PrefixRequest(client)) }
+        val renderer = requestedRenderer()
+        val rendererPackageId = if (renderer == "dxvk") {
+            RendererPackageCatalog.default(translator).id
+        } else null
+        val prefix = withTimeout(240_000) {
+            runtime.preparePrefix(PrefixRequest(
+                client,
+                renderer = renderer,
+                rendererPackageId = rendererPackageId,
+            ))
+        }
         assertTrue(prefix.ok)
 
-        val first = launchAndAwait(prefix, "first")
+        val first = launchAndAwait(prefix, "first", renderer, rendererPackageId)
         runtime.forceStop(first.first)
         session = null
         delay(1_000)
-        instrumentation.runOnMainSync { host?.close(); host = null }
+        closeDisplay()
 
-        val second = launchAndAwait(prefix, "relaunch")
-        val config = File(context.noBackupFilesDir, "client/active/WTF/Config.wtf").readText()
-        val realm = File(context.noBackupFilesDir, "client/active/realmlist.wtf").readText().trim()
+        val second = launchAndAwait(prefix, "relaunch", renderer, rendererPackageId)
+        val managedRoot = ManagedClientStore(context).load(ClientRuntimeContract.WOW_5875_ID).root
+        val config = File(managedRoot, "WTF/Config.wtf").readText()
+        val realm = File(managedRoot, "realmlist.wtf").readText().trim()
+        val expectedProfile = ClientDisplayProfile.forDevice(
+            Build.SUPPORTED_ABIS.asList(),
+            Build.MODEL,
+        )
         assertEquals("set realmlist 127.0.0.1", realm)
-        assertTrue(config.contains("SET gxResolution \"1280x720\""))
+        assertTrue(config.contains("SET gxApi \"${if (renderer == "opengl") "opengl" else "d3d"}\""))
+        if (renderer == "opengl") {
+            assertTrue(config.contains("SET M2UseShaders \"0\""))
+        } else {
+            assertFalse(config.contains("SET M2UseShaders"))
+        }
+        assertTrue(config.contains("SET gxResolution \"${expectedProfile.resolution}\""))
+        assertTrue(config.contains("SET gxWindow \"1\""))
+        assertTrue(config.contains(
+            "SET gxMaximize \"${if (expectedProfile.gameMaximized) 1 else 0}\"",
+        ))
         assertTrue(config.contains("SET maxFPS \"30\""))
         assertTrue(config.contains("SET Sound_EnableAllSound \"0\""))
 
@@ -84,8 +119,12 @@ class ClientBuild5875LoginTest {
             .put("abi", Build.SUPPORTED_ABIS.first())
             .put("api", Build.VERSION.SDK_INT)
             .put("pageSize", Os.sysconf(OsConstants._SC_PAGESIZE))
-            .put("renderer", "wined3d")
-            .put("safeModeResolutionCeiling", "1280x720")
+            .put("renderer", renderer)
+            .put("translator", translator.id)
+            .put("displayProfile", expectedProfile.id)
+            .put("safeModeResolutionCeiling", expectedProfile.resolution)
+            .put("gameWindowed", true)
+            .put("gameMaximized", expectedProfile.gameMaximized)
             .put("effectiveResolution", wowResolution(second.second))
             .put("fpsCap", 30)
             .put("audio", "off")
@@ -108,18 +147,74 @@ class ClientBuild5875LoginTest {
         session = null
     }
 
-    private suspend fun launchAndAwait(prefix: PrefixResult, label: String): Triple<UUID, List<String>, Int> {
+    /**
+     * The original-client test is intentionally renderer-selectable so the
+     * OpenGL/Gladio path can be qualified without starting the realm or bots.
+     * The normal ARM default remains DXVK; an explicit instrumentation value
+     * is required to exercise the experimental client-only OpenGL lane.
+     */
+    private fun requestedRenderer(): String {
+        val arm = Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a"
+        val default = if (arm) "dxvk" else "wined3d"
+        val requested = InstrumentationRegistry.getArguments().getString("pocketRenderer") ?: default
+        assertTrue("unsupported client renderer: $requested", requested in setOf("dxvk", "opengl", "wined3d"))
+        if (!arm && requested != "wined3d") {
+            throw AssertionError("$requested is only selectable on the ARM translated client lane")
+        }
+        return requested
+    }
+
+    private fun requestedTranslator(): ArmTranslationBackend {
+        val arm = Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a"
+        val requested = InstrumentationRegistry.getArguments().getString("pocketTranslator") ?: "box64"
+        val translator = ArmTranslationBackend.parse(requested)
+        if (!arm && translator != ArmTranslationBackend.BOX64) {
+            throw AssertionError("${translator.id} is only selectable on the ARM translated client lane")
+        }
+        return translator
+    }
+
+    private suspend fun launchAndAwait(
+        prefix: PrefixResult,
+        label: String,
+        renderer: String,
+        rendererPackageId: String?,
+    ): Triple<UUID, List<String>, Int> {
         val mapped = AtomicBoolean(false)
+        if (activity.isFinishing || (Build.VERSION.SDK_INT >= 17 && activity.isDestroyed)) {
+            activity = instrumentation.startActivitySync(
+                Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            ) as MainActivity
+        }
         instrumentation.runOnMainSync {
+            // Each relaunch gets a fresh host Activity.  Reusing a finishing
+            // MainActivity leaves GLSurfaceView detached and destroys the
+            // EGL share root before the second client can create GLX state.
             host = ClientDisplayHost(context, prefix.runtimeRoot) { mapped.set(true) }
             activity.addContentView(
                 host!!.container,
-                ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 720),
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                ),
             )
             host!!.onResume()
         }
-        waitUntil(10_000) { File(prefix.runtimeRoot, "tmp/.X11-unix/X0").exists() }
-        val launched = runtime.launch(LaunchRequest(prefix.prefixId))
+        waitUntil(15_000) {
+            host!!.view.isAttachedToWindow && host!!.view.width > 0 && host!!.view.height > 0 &&
+                host!!.view.holder.surface.isValid
+        }
+        // Box64 and FEX use different imagefs tmp roots; wait on the same
+        // transport directory selected by ClientDisplayHost rather than
+        // hard-coding the legacy Box64 path.
+        waitUntil(10_000) { File(host!!.transportRoot, ".X11-unix/X0").exists() }
+        assertTrue("renderer EGL share context was not ready", host!!.awaitRendererReady(15_000))
+        assertTrue("renderer surface generation was not published", host!!.rendererSurfaceGeneration > 0)
+        val launched = runtime.launch(LaunchRequest(
+            prefix.prefixId,
+            renderer = renderer,
+            rendererPackageId = rendererPackageId,
+        ))
         session = launched.sessionId
         waitForMappedWindowOrFailure(launched.sessionId, mapped, 180_000)
         runtime.reportWindowVisible(launched.sessionId)
@@ -131,8 +226,30 @@ class ClientBuild5875LoginTest {
         }
         assertTrue(windows.joinToString(), wowResolution(windows) != null)
         val screenshot = captureDisplay()
-        val nonBlackPixels = screenshot.getPixelsCopy().count { (it and 0x00ffffff) != 0 }
-        assertTrue("$label renderer remained black ($nonBlackPixels non-black pixels)", nonBlackPixels > screenshot.width * screenshot.height / 100)
+        val pixels = screenshot.getPixelsCopy()
+        val nonBlackPixels = pixels.count { (it and 0x00ffffff) != 0 }
+        assertTrue("$label renderer remained black ($nonBlackPixels non-black pixels)", nonBlackPixels > pixels.size / 100)
+        if (renderer == "opengl") {
+            val step = maxOf(1, pixels.size / 8192)
+            val colors = HashSet<Int>()
+            var sampled = 0
+            var chromatic = 0
+            var index = 0
+            while (index < pixels.size) {
+                val rgb = pixels[index] and 0x00ffffff
+                colors += rgb
+                val red = (rgb shr 16) and 0xff
+                val green = (rgb shr 8) and 0xff
+                val blue = rgb and 0xff
+                if (maxOf(red, green, blue) - minOf(red, green, blue) >= 8) chromatic++
+                sampled++
+                index += step
+            }
+            assertTrue(
+                "$label OpenGL framebuffer is grayscale/corrupt: sampled=$sampled chromatic=$chromatic colors=${colors.size}",
+                chromatic > sampled / 100 && colors.size > 256,
+            )
+        }
         FileOutputStream(
             File(requireNotNull(context.getExternalFilesDir(null)), "o07-login-$label.png"),
         ).use { screenshot.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -165,10 +282,36 @@ class ClientBuild5875LoginTest {
         getPixels(it, 0, width, 0, 0, width, height)
     }
 
-    /** O07 permits 1280x720 or lower. Build 5875 selects its supported
-     * 800x600 mode on this fixed AVD even though the managed ceiling remains
-     * 1280x720, so qualify the real direct-client window rather than its title. */
+    /**
+     * x86 retains its qualified 1280x720-or-lower topology. The measured RP6
+     * ARM lane requires its exact single anonymous native-panel login surface.
+     */
     private fun wowResolution(windows: List<String>): String? {
+        // Branch on ABI before considering the legacy x86 matcher. Otherwise a
+        // named 800x600 ARM helper can falsely satisfy the x86 acceptance path
+        // while the required RP6 native-panel surface is absent.
+        if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
+            val profile = ClientDisplayProfile.forDevice(Build.SUPPORTED_ABIS.asList(), Build.MODEL)
+            val record = Regex("^.*\\|.*\\|(\\d+)x(\\d+)\\|pid=(-?\\d+)$")
+            val dimensions = windows.mapNotNull { window ->
+                val match = record.matchEntire(window) ?: return@mapNotNull null
+                val pid = match.groupValues[3].toInt()
+                // The Android-backed X root/desktop surface is reported as a
+                // mapped 1920x1080 window with pid=0. It is not a client
+                // topology member; evaluate only Wine-owned windows here.
+                if (pid == 0) null
+                else match.groupValues[1].toInt() to match.groupValues[2].toInt()
+            }
+            val targets = dimensions.filter {
+                it.first == profile.virtualWidth && it.second == profile.virtualHeight
+            }
+            if (targets.size == 1 && dimensions.all { it == targets.single() ||
+                    (it.first <= 16 && it.second <= 16) }) {
+                return "${profile.virtualWidth}x${profile.virtualHeight}"
+            }
+            return null
+        }
+
         val pattern = Regex("\\|wow\\.exe\\|(\\d+)x(\\d+)\\|", RegexOption.IGNORE_CASE)
         for (window in windows) {
             val match = pattern.find(window) ?: continue
@@ -190,11 +333,31 @@ class ClientBuild5875LoginTest {
         mapped: AtomicBoolean,
         timeoutMs: Long,
     ) {
+        var hardwarePromptAnswered = false
+        var nextWindowTrace = 0L
         withTimeout(timeoutMs) {
             while (true) {
                 if (mapped.get() && host!!.xServer.windowManager.mappedClientWindows.any {
                         it.width >= 640 && it.height >= 480
                     }) return@withTimeout
+                val hardwarePrompt = hardwareChangePrompt()
+                if (!hardwarePromptAnswered && hardwarePrompt != null) {
+                    pulseEnter()
+                    hardwarePromptAnswered = true
+                    android.util.Log.i(
+                        "O07Acceptance",
+                        "O07_HARDWARE_CHANGE_PROMPT answered=true action=default-enter window=$hardwarePrompt",
+                    )
+                }
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now >= nextWindowTrace) {
+                    val windows = host!!.xServer.windowManager.mappedClientWindows.joinToString {
+                        "${it.name.take(32)}|${it.className.take(32)}|${it.width}x${it.height}|" +
+                            "pid=${it.processId}|renderable=${it.isRenderable}"
+                    }
+                    android.util.Log.i("O07Windows", "mapped=[$windows]")
+                    nextWindowTrace = now + 5_000
+                }
                 val diagnostics = runtime.collectDiagnostics(sessionId)
                 if (diagnostics.state in setOf(
                         ClientState.EXITED,
@@ -209,6 +372,37 @@ class ClientBuild5875LoginTest {
                 }
                 delay(200)
             }
+        }
+    }
+
+    /** Build 5875 asks once when Wine's reported adapter fingerprint changes.
+     * Acknowledge only that exact modal topology through the production input
+     * bridge; the unchanged 800x600/non-black gates still decide acceptance. */
+    private fun hardwareChangePrompt(): String? {
+        val windows = host!!.xServer.windowManager.mappedClientWindows
+        if (windows.any { it.width >= 640 && it.height >= 480 }) return null
+        return windows.firstOrNull { it.width.toInt() == 265 && it.height.toInt() == 63 }?.let {
+            "${it.name.take(64)}|${it.className.take(64)}|${it.width}x${it.height}|pid=${it.processId}"
+        }
+    }
+
+    private fun pulseEnter() {
+        instrumentation.runOnMainSync {
+            val now = android.os.SystemClock.uptimeMillis()
+            host!!.dispatchKey(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0))
+        }
+        Thread.sleep(80)
+        instrumentation.runOnMainSync {
+            val now = android.os.SystemClock.uptimeMillis()
+            host!!.dispatchKey(KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER, 0))
+        }
+    }
+
+    private fun closeDisplay() {
+        instrumentation.runOnMainSync {
+            host?.close()
+            host = null
+            activity.finish()
         }
     }
 }

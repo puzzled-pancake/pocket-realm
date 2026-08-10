@@ -7,6 +7,98 @@
 
 #define MSG_DEBUG_UNIMPLEMENTED_FUNC "%s not implemented yet"
 
+typedef struct DecodedUploadPixelStore {
+    GLint alignment;
+    GLint rowLength;
+    GLint imageHeight;
+    GLint skipPixels;
+    GLint skipRows;
+    GLint skipImages;
+    GLint unpackBuffer;
+} DecodedUploadPixelStore;
+
+/* ARB vertex programs address generic inputs as vertex.attrib[n].  The
+ * renderer keeps those in the internal slots after the legacy position/color/
+ * normal/texcoord slots, while the guest's glVertexAttrib* entry points use
+ * the raw n index.  Legacy client arrays use INT32_MAX+internalIndex and are
+ * deliberately left on the existing path. */
+static int resolveVertexAttribLocation(GLClientState* clientState, GLuint rawIndex) {
+    if (clientState->program) {
+        if (rawIndex >= VERTEX_ATTRIB_COUNT) return -1;
+        return clientState->program->location.attributes[rawIndex];
+    }
+
+    if (GLRenderer_useARBProgram(currentRenderer, false)) {
+        ShaderMaterial* material = GLRenderer_getARBMaterial(currentRenderer);
+        if (!material) return -1;
+        if (ARBProgram_isVertexActive()) {
+            if (rawIndex >= MAX_GENERIC_VERTEX_ATTRIBS) return -1;
+            return material->location.attributes[GENERIC_VERTEX_ARRAY_INDEX + rawIndex];
+        }
+        if (rawIndex >= VERTEX_ATTRIB_COUNT) return -1;
+        return material->location.attributes[rawIndex];
+    }
+
+    return (int)rawIndex;
+}
+
+static int resolveVertexAttribStorageIndex(GLClientState* clientState, GLuint rawIndex) {
+    (void)clientState;
+    if (rawIndex >= MAX_GENERIC_VERTEX_ATTRIBS) return -1;
+    return GENERIC_VERTEX_ARRAY_INDEX + rawIndex;
+}
+
+static void beginDecodedUpload(DecodedUploadPixelStore* saved) {
+    glGetIntegerv(GL_UNPACK_ALIGNMENT, &saved->alignment);
+    glGetIntegerv(GL_UNPACK_ROW_LENGTH, &saved->rowLength);
+    glGetIntegerv(GL_UNPACK_IMAGE_HEIGHT, &saved->imageHeight);
+    glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &saved->skipPixels);
+    glGetIntegerv(GL_UNPACK_SKIP_ROWS, &saved->skipRows);
+    glGetIntegerv(GL_UNPACK_SKIP_IMAGES, &saved->skipImages);
+    glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &saved->unpackBuffer);
+    /* BC decode output is tightly packed RGBA. Do not let guest pixel-store
+     * state make GLES index past the temporary PBO or skip its first texel. */
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_UNPACK_IMAGE_HEIGHT, 0);
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+    glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+    glPixelStorei(GL_UNPACK_SKIP_IMAGES, 0);
+    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+}
+
+static void endDecodedUpload(const DecodedUploadPixelStore* saved) {
+    glPixelStorei(GL_UNPACK_ALIGNMENT, saved->alignment);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, saved->rowLength);
+    glPixelStorei(GL_UNPACK_IMAGE_HEIGHT, saved->imageHeight);
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, saved->skipPixels);
+    glPixelStorei(GL_UNPACK_SKIP_ROWS, saved->skipRows);
+    glPixelStorei(GL_UNPACK_SKIP_IMAGES, saved->skipImages);
+    glBindBuffer(GL_PIXEL_UNPACK_BUFFER, saved->unpackBuffer);
+}
+
+static bool uploadDecodedTexImage2D(
+        GLenum target, GLint level, GLint internalformat,
+        GLsizei width, GLsizei height, GLint border, const void* pixels) {
+    DecodedUploadPixelStore saved;
+    beginDecodedUpload(&saved);
+    glTexImage2D(target, level, internalformat, width, height, border,
+                 GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    endDecodedUpload(&saved);
+    return true;
+}
+
+static bool uploadDecodedTexSubImage2D(
+        GLenum target, GLint level, GLint xoffset, GLint yoffset,
+        GLsizei width, GLsizei height, const void* pixels) {
+    DecodedUploadPixelStore saved;
+    beginDecodedUpload(&saved);
+    glTexSubImage2D(target, level, xoffset, yoffset, width, height,
+                    GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    endDecodedUpload(&saved);
+    return true;
+}
+
 void gd_handle_glAccum(GLContext* context) {
     GLenum op = ArrayBuffer_getInt(&context->inputBuffer);
     GLfloat value = ArrayBuffer_getFloat(&context->inputBuffer);
@@ -18,6 +110,10 @@ void gd_handle_glActiveTexture(GLContext* context) {
     GLenum texture = ArrayBuffer_getInt(&context->inputBuffer);
 
     GLTexture_setActiveUnit(texture);
+    if (currentRenderer->matrixIndex >= TEXTURE_MATRIX_INDEX) {
+        currentRenderer->matrixIndex = TEXTURE_MATRIX_INDEX +
+                currentRenderer->clientState.activeTexture;
+    }
 }
 
 void gd_handle_glAlphaFunc(GLContext* context) {
@@ -444,6 +540,10 @@ void gd_handle_glColorMaterial(GLContext* context) {
 
     currentRenderer->state.colorMaterial.face = face;
     currentRenderer->state.colorMaterial.mode = mode;
+    if (currentRenderer->state.colorMaterial.enabled) {
+        GLRenderer_setMaterialParams(currentRenderer, face, mode,
+                currentRenderer->state.color);
+    }
 }
 
 void gd_handle_glColorPointer(GLContext* context) {
@@ -467,24 +567,44 @@ void gd_handle_glCompressedTexImage2D(GLContext* context) {
     GLint imageSize = ArrayBuffer_getInt(&context->inputBuffer);
 
     void* decompressedData = NULL;
+    bool validDimensions = width > 0 && height > 0 && width <= 16384 && height <= 16384;
+    bool supportedFormat = isSupportedCompressedTextureFormat(internalformat);
+    int expectedImageSize = validDimensions && supportedFormat
+        ? getCompressedImageSize(internalformat, width, height, 0) : 0;
+    bool validPayload = imageSize > 0 && validDimensions && supportedFormat &&
+        expectedImageSize > 0 && imageSize >= expectedImageSize;
     if (imageSize > 0) {
         GLBuffer* pixelUnpackBuffer = GLBuffer_getBound(GL_PIXEL_UNPACK_BUFFER);
         if (pixelUnpackBuffer) {
             uint64_t pointer = ArrayBuffer_getInt(&context->inputBuffer);
-            decompressedData = decompressTexImage2D(internalformat, width, height, pixelUnpackBuffer->mappedData + pointer, context->threadPool);
+            if (validPayload && pixelUnpackBuffer->mappedData &&
+                    pointer <= (uint64_t)pixelUnpackBuffer->size &&
+                    (uint64_t)expectedImageSize <= (uint64_t)pixelUnpackBuffer->size - pointer) {
+                decompressedData = decompressTexImage2D(
+                    internalformat, width, height,
+                    pixelUnpackBuffer->mappedData + pointer, context->threadPool);
+            }
             gl_send(context->clientRing, REQUEST_CODE_GL_COMPRESSED_TEX_IMAGE2D, NULL, 0);
         }
         else {
             void* imageData = NULL;
             RING_READ_BEGIN(context->serverRing, imageData, imageSize);
-            decompressedData = decompressTexImage2D(internalformat, width, height, imageData, context->threadPool);
+            if (validPayload) {
+                decompressedData = decompressTexImage2D(
+                    internalformat, width, height, imageData, context->threadPool);
+            }
             RING_READ_END(context->serverRing);
         }
     }
 
     target = parseTexTarget(target);
-    glTexImage2D(target, level, GL_BGRA, width, height, border, GL_BGRA, GL_UNSIGNED_BYTE, decompressedData);
-    MEMFREE(decompressedData);
+    if (decompressedData) {
+        // BCDecoder writes RGBA bytes. GL_BGRA is a desktop upload format;
+        // use the ES3-safe sized internal format and matching byte order.
+        uploadDecodedTexImage2D(target, level, GL_RGBA8, width, height, border,
+                                decompressedData);
+    }
+    freeDecompressedTexImage2D(decompressedData, width, height);
 
     GLTexture* texture = GLTexture_getBound(target);
     if (texture && level == 0) {
@@ -506,23 +626,41 @@ void gd_handle_glCompressedTexSubImage2D(GLContext* context) {
     GLint imageSize = ArrayBuffer_getInt(&context->inputBuffer);
 
     void* decompressedData = NULL;
+    bool validDimensions = width > 0 && height > 0 && width <= 16384 && height <= 16384;
+    bool supportedFormat = isSupportedCompressedTextureFormat(format);
+    int expectedImageSize = validDimensions && supportedFormat
+        ? getCompressedImageSize(format, width, height, 0) : 0;
+    bool validPayload = imageSize > 0 && validDimensions && supportedFormat &&
+        expectedImageSize > 0 && imageSize >= expectedImageSize;
     if (imageSize > 0) {
         GLBuffer* pixelUnpackBuffer = GLBuffer_getBound(GL_PIXEL_UNPACK_BUFFER);
         if (pixelUnpackBuffer) {
             uint64_t pointer = ArrayBuffer_getInt(&context->inputBuffer);
-            decompressedData = decompressTexImage2D(format, width, height, pixelUnpackBuffer->mappedData + pointer, context->threadPool);
+            if (validPayload && pixelUnpackBuffer->mappedData &&
+                    pointer <= (uint64_t)pixelUnpackBuffer->size &&
+                    (uint64_t)expectedImageSize <= (uint64_t)pixelUnpackBuffer->size - pointer) {
+                decompressedData = decompressTexImage2D(
+                    format, width, height,
+                    pixelUnpackBuffer->mappedData + pointer, context->threadPool);
+            }
             gl_send(context->clientRing, REQUEST_CODE_GL_COMPRESSED_TEX_SUB_IMAGE2D, NULL, 0);
         }
         else {
             void* imageData = NULL;
             RING_READ_BEGIN(context->serverRing, imageData, imageSize);
-            decompressedData = decompressTexImage2D(format, width, height, imageData, context->threadPool);
+            if (validPayload) {
+                decompressedData = decompressTexImage2D(
+                    format, width, height, imageData, context->threadPool);
+            }
             RING_READ_END(context->serverRing);
         }
     }
 
-    glTexSubImage2D(parseTexTarget(target), level, xoffset, yoffset, width, height, GL_BGRA, GL_UNSIGNED_BYTE, decompressedData);
-    MEMFREE(decompressedData);
+    if (decompressedData) {
+        uploadDecodedTexSubImage2D(parseTexTarget(target), level, xoffset, yoffset,
+                                   width, height, decompressedData);
+    }
+    freeDecompressedTexImage2D(decompressedData, width, height);
 }
 
 void gd_handle_glCopyBufferSubData(GLContext* context) {
@@ -740,17 +878,18 @@ void gd_handle_glDisableClientState(GLContext* context) {
     GLenum array = ArrayBuffer_getInt(&context->inputBuffer);
 
     GLClientState* clientState = &currentRenderer->clientState;
-    if (array == GL_TEXTURE_COORD_ARRAY) {
-        GLVertexArrayObject_setAttribState(clientState, TEXCOORD_ARRAY_INDEX + clientState->activeTexCoord, VERTEX_ATTRIB_DISABLED, false);
-    }
-    else GLVertexArrayObject_setAttribState(clientState, array, VERTEX_ATTRIB_DISABLED, false);
+    int storageIndex = GLClientState_getArrayIndex(array);
+    if (array == GL_TEXTURE_COORD_ARRAY) storageIndex += clientState->activeTexCoord;
+    if (storageIndex < 0 || storageIndex >= GENERIC_VERTEX_ARRAY_INDEX) return;
+    GLVertexArrayObject_setAttribState(clientState, storageIndex,
+            VERTEX_ATTRIB_DISABLED, false);
 
     if (clientState->program || GLRenderer_useARBProgram(currentRenderer, false)) {
-        int index = GLClientState_getArrayIndex(array);
+        int index = storageIndex;
         if (clientState->program) {
             index = clientState->program->location.attributes[index];
         }
-        else index = clientState->arbProgram[0]->material->location.attributes[index];
+        else index = GLRenderer_getARBMaterial(currentRenderer)->location.attributes[index];
         GLRenderer_disableVertexAttribute(currentRenderer, index);
     }
 }
@@ -759,8 +898,11 @@ void gd_handle_glDisableVertexAttribArray(GLContext* context) {
     GLuint index = ArrayBuffer_getInt(&context->inputBuffer);
 
     GLClientState* clientState = &currentRenderer->clientState;
-    if (GLRenderer_useARBProgram(currentRenderer, false)) index = clientState->arbProgram[0]->material->location.attributes[index];
-    glDisableVertexAttribArray(index);
+    int storageIndex = resolveVertexAttribStorageIndex(clientState, index);
+    if (storageIndex < 0) return;
+    clientState->vao->attribs[storageIndex].arrayEnabled = false;
+    int location = resolveVertexAttribLocation(clientState, index);
+    GLRenderer_disableVertexAttribute(currentRenderer, location);
 }
 
 void gd_handle_glDisablei(GLContext* context) {
@@ -930,19 +1072,22 @@ void gd_handle_glEnableClientState(GLContext* context) {
     GLenum array = ArrayBuffer_getInt(&context->inputBuffer);
 
     GLClientState* clientState = &currentRenderer->clientState;
+    int storageIndex = GLClientState_getArrayIndex(array);
+    if (array == GL_TEXTURE_COORD_ARRAY) storageIndex += clientState->activeTexCoord;
+    if (storageIndex < 0 || storageIndex >= GENERIC_VERTEX_ARRAY_INDEX) return;
+    /* Legacy array enable state is independent of the currently selected
+     * shader. Persist it even when a direct VBO can be bound immediately, so
+     * fragment-only ARB draws can replay the conventional vertex stage. */
+    GLVertexArrayObject_setAttribState(clientState, storageIndex,
+            VERTEX_ATTRIB_LEGACY_ENABLED, false);
+
     if (GLBuffer_getBound(GL_ARRAY_BUFFER) && (clientState->program || GLRenderer_useARBProgram(currentRenderer, false))) {
-        int index = GLClientState_getArrayIndex(array);
+        int index = storageIndex;
         if (clientState->program) {
             index = clientState->program->location.attributes[index];
         }
-        else index = clientState->arbProgram[0]->material->location.attributes[index];
+        else index = GLRenderer_getARBMaterial(currentRenderer)->location.attributes[index];
         GLRenderer_enableVertexAttribute(currentRenderer, index);
-    }
-    else {
-        if (array == GL_TEXTURE_COORD_ARRAY) {
-            GLVertexArrayObject_setAttribState(clientState, TEXCOORD_ARRAY_INDEX + clientState->activeTexCoord, VERTEX_ATTRIB_LEGACY_ENABLED, false);
-        }
-        else GLVertexArrayObject_setAttribState(clientState, array, VERTEX_ATTRIB_LEGACY_ENABLED, false);
     }
 }
 
@@ -950,8 +1095,11 @@ void gd_handle_glEnableVertexAttribArray(GLContext* context) {
     GLuint index = ArrayBuffer_getInt(&context->inputBuffer);
 
     GLClientState* clientState = &currentRenderer->clientState;
-    if (GLRenderer_useARBProgram(currentRenderer, false)) index = clientState->arbProgram[0]->material->location.attributes[index];
-    glEnableVertexAttribArray(index);
+    int storageIndex = resolveVertexAttribStorageIndex(clientState, index);
+    if (storageIndex < 0) return;
+    clientState->vao->attribs[storageIndex].arrayEnabled = true;
+    int location = resolveVertexAttribLocation(clientState, index);
+    GLRenderer_enableVertexAttribute(currentRenderer, location);
 }
 
 void gd_handle_glEnablei(GLContext* context) {
@@ -1864,7 +2012,7 @@ void gd_handle_glLightModelf(GLContext* context) {
     GLenum pname = ArrayBuffer_getInt(&context->inputBuffer);
     GLfloat param = ArrayBuffer_getFloat(&context->inputBuffer);
 
-    println(MSG_DEBUG_UNIMPLEMENTED_FUNC, "glLightModelf");
+    GLRenderer_setLightModelParam(currentRenderer, pname, &param);
 }
 
 void gd_handle_glLightModelfv(GLContext* context) {
@@ -1875,7 +2023,8 @@ void gd_handle_glLightModeli(GLContext* context) {
     GLenum pname = ArrayBuffer_getInt(&context->inputBuffer);
     GLint param = ArrayBuffer_getInt(&context->inputBuffer);
 
-    println(MSG_DEBUG_UNIMPLEMENTED_FUNC, "glLightModeli");
+    GLfloat value = (GLfloat)param;
+    GLRenderer_setLightModelParam(currentRenderer, pname, &value);
 }
 
 void gd_handle_glLightModeliv(GLContext* context) {
@@ -2014,7 +2163,7 @@ void gd_handle_glMaterialf(GLContext* context) {
     GLenum pname = ArrayBuffer_getInt(&context->inputBuffer);
     GLfloat param = ArrayBuffer_getFloat(&context->inputBuffer);
 
-    GLRenderer_setMaterialParams(currentRenderer, face, pname, &param);
+    GLRenderer_setGuestMaterialParams(currentRenderer, face, pname, &param);
 }
 
 void gd_handle_glMaterialfv(GLContext* context) {
@@ -2023,12 +2172,14 @@ void gd_handle_glMaterialfv(GLContext* context) {
     int paramCount = getGLCallParamsCount(pname, NULL);
     GLfloat* params = ArrayBuffer_getBytes(&context->inputBuffer, paramCount * sizeof(float));
 
-    GLRenderer_setMaterialParams(currentRenderer, face, pname, params);
+    GLRenderer_setGuestMaterialParams(currentRenderer, face, pname, params);
 }
 
 void gd_handle_glMatrixMode(GLContext* context) {
     GLenum mode = ArrayBuffer_getInt(&context->inputBuffer);
-    currentRenderer->matrixIndex = mode - GL_MODELVIEW;
+    currentRenderer->matrixIndex = mode == GL_TEXTURE
+            ? TEXTURE_MATRIX_INDEX + currentRenderer->clientState.activeTexture
+            : mode - GL_MODELVIEW;
 }
 
 void gd_handle_glMinSampleShading(GLContext* context) {
@@ -2577,7 +2728,8 @@ void gd_handle_glTexGend(GLContext* context) {
     GLenum pname = ArrayBuffer_getInt(&context->inputBuffer);
     GLdouble param = ArrayBuffer_getDouble(&context->inputBuffer);
 
-    println(MSG_DEBUG_UNIMPLEMENTED_FUNC, "glTexGend");
+    GLfloat value = (GLfloat)param;
+    GLRenderer_setTexGenParams(currentRenderer, coord, pname, &value);
 }
 
 void gd_handle_glTexGendv(GLContext* context) {
@@ -2589,7 +2741,7 @@ void gd_handle_glTexGenf(GLContext* context) {
     GLenum pname = ArrayBuffer_getInt(&context->inputBuffer);
     GLfloat param = ArrayBuffer_getFloat(&context->inputBuffer);
 
-    println(MSG_DEBUG_UNIMPLEMENTED_FUNC, "glTexGenf");
+    GLRenderer_setTexGenParams(currentRenderer, coord, pname, &param);
 }
 
 void gd_handle_glTexGenfv(GLContext* context) {
@@ -2601,7 +2753,8 @@ void gd_handle_glTexGeni(GLContext* context) {
     GLenum pname = ArrayBuffer_getInt(&context->inputBuffer);
     GLint param = ArrayBuffer_getInt(&context->inputBuffer);
 
-    println(MSG_DEBUG_UNIMPLEMENTED_FUNC, "glTexGeni");
+    GLfloat value = (GLfloat)param;
+    GLRenderer_setTexGenParams(currentRenderer, coord, pname, &value);
 }
 
 void gd_handle_glTexGeniv(GLContext* context) {
@@ -3106,7 +3259,8 @@ void gd_handle_glVertexAttrib1f(GLContext* context) {
     GLuint index = ArrayBuffer_getInt(&context->inputBuffer);
     GLfloat x = ArrayBuffer_getFloat(&context->inputBuffer);
 
-    glVertexAttrib1f(index, x);
+    int location = resolveVertexAttribLocation(&currentRenderer->clientState, index);
+    if (location >= 0) glVertexAttrib1f(location, x);
 }
 
 void gd_handle_glVertexAttrib2f(GLContext* context) {
@@ -3114,7 +3268,8 @@ void gd_handle_glVertexAttrib2f(GLContext* context) {
     GLfloat x = ArrayBuffer_getFloat(&context->inputBuffer);
     GLfloat y = ArrayBuffer_getFloat(&context->inputBuffer);
 
-    glVertexAttrib2f(index, x, y);
+    int location = resolveVertexAttribLocation(&currentRenderer->clientState, index);
+    if (location >= 0) glVertexAttrib2f(location, x, y);
 }
 
 void gd_handle_glVertexAttrib3f(GLContext* context) {
@@ -3123,7 +3278,8 @@ void gd_handle_glVertexAttrib3f(GLContext* context) {
     GLfloat y = ArrayBuffer_getFloat(&context->inputBuffer);
     GLfloat z = ArrayBuffer_getFloat(&context->inputBuffer);
 
-    glVertexAttrib3f(index, x, y, z);
+    int location = resolveVertexAttribLocation(&currentRenderer->clientState, index);
+    if (location >= 0) glVertexAttrib3f(location, x, y, z);
 }
 
 void gd_handle_glVertexAttrib4Nbv(GLContext* context) {
@@ -3167,14 +3323,16 @@ void gd_handle_glVertexAttrib4f(GLContext* context) {
     GLfloat z = ArrayBuffer_getFloat(&context->inputBuffer);
     GLfloat w = ArrayBuffer_getFloat(&context->inputBuffer);
 
-    glVertexAttrib4f(index, x, y, z, w);
+    int location = resolveVertexAttribLocation(&currentRenderer->clientState, index);
+    if (location >= 0) glVertexAttrib4f(location, x, y, z, w);
 }
 
 void gd_handle_glVertexAttribDivisor(GLContext* context) {
     GLuint index = ArrayBuffer_getInt(&context->inputBuffer);
     GLuint divisor = ArrayBuffer_getInt(&context->inputBuffer);
 
-    glVertexAttribDivisor(index, divisor);
+    int location = resolveVertexAttribLocation(&currentRenderer->clientState, index);
+    if (location >= 0) glVertexAttribDivisor(location, divisor);
 }
 
 void gd_handle_glVertexAttribI1i(GLContext* context) {
@@ -3298,7 +3456,7 @@ void gd_handle_glVertexAttribIPointer(GLContext* context) {
 }
 
 void gd_handle_glVertexAttribPointer(GLContext* context) {
-    GLuint index = ArrayBuffer_getInt(&context->inputBuffer);
+    int index = ArrayBuffer_getInt(&context->inputBuffer);
     GLint size = ArrayBuffer_getInt(&context->inputBuffer);
     GLenum type = ArrayBuffer_getInt(&context->inputBuffer);
     GLboolean normalized = ArrayBuffer_get(&context->inputBuffer);
@@ -3306,8 +3464,10 @@ void gd_handle_glVertexAttribPointer(GLContext* context) {
     uint64_t pointer = ArrayBuffer_getInt(&context->inputBuffer);
 
     GLClientState* clientState = &currentRenderer->clientState;
-    if (index < VERTEX_ATTRIB_COUNT) {
-        GLVertexAttrib* vertexAttrib = &clientState->vao->attribs[index];
+    if (index < MAX_GENERIC_VERTEX_ATTRIBS) {
+        int storageIndex = resolveVertexAttribStorageIndex(clientState, index);
+        if (storageIndex < 0) return;
+        GLVertexAttrib* vertexAttrib = &clientState->vao->attribs[storageIndex];
         if (!GLBuffer_getBound(GL_ARRAY_BUFFER) || size == GL_BGRA) {
             vertexAttrib->type = type;
             vertexAttrib->size = size;
@@ -3315,12 +3475,22 @@ void gd_handle_glVertexAttribPointer(GLContext* context) {
             vertexAttrib->stride = stride;
             vertexAttrib->pointer = size == GL_BGRA ? (void*)pointer : NULL;
             vertexAttrib->boundArrayBuffer = 0;
-            GLVertexArrayObject_setAttribState(clientState, index, VERTEX_ATTRIB_ENABLED, false);
+            GLVertexArrayObject_setAttribState(clientState, storageIndex, VERTEX_ATTRIB_ENABLED, false);
             return;
         }
-        else GLVertexArrayObject_setAttribState(clientState, index, VERTEX_ATTRIB_DISABLED, true);
+        else {
+            GLBuffer* arrayBuffer = GLBuffer_getBound(GL_ARRAY_BUFFER);
+            GLVertexArrayObject_setAttribState(
+                    clientState, storageIndex, VERTEX_ATTRIB_DISABLED, true);
+            vertexAttrib->type = type;
+            vertexAttrib->size = size;
+            vertexAttrib->normalized = normalized;
+            vertexAttrib->stride = stride;
+            vertexAttrib->pointer = (void*)pointer;
+            vertexAttrib->boundArrayBuffer = arrayBuffer->id;
+        }
 
-        if (GLRenderer_useARBProgram(currentRenderer, false)) index = clientState->arbProgram[0]->material->location.attributes[index];
+        index = resolveVertexAttribLocation(clientState, index);
     }
     else if (index >= INT32_MAX) {
         int arrayIdx = index - INT32_MAX;
@@ -3328,7 +3498,7 @@ void gd_handle_glVertexAttribPointer(GLContext* context) {
             index = clientState->program->location.attributes[arrayIdx];
         }
         else if (GLRenderer_useARBProgram(currentRenderer, false)) {
-            index = clientState->arbProgram[0]->material->location.attributes[arrayIdx];
+            index = GLRenderer_getARBMaterial(currentRenderer)->location.attributes[arrayIdx];
         }
         GLRenderer_enableVertexAttribute(currentRenderer, index);
 
@@ -3342,7 +3512,7 @@ void gd_handle_glVertexAttribPointer(GLContext* context) {
         vertexAttrib->boundArrayBuffer = GLBuffer_getBound(GL_ARRAY_BUFFER)->id;
     }
 
-    glVertexAttribPointer(index, size, type, normalized, stride, (const void*)pointer);
+    if (index >= 0) glVertexAttribPointer(index, size, type, normalized, stride, (const void*)pointer);
 }
 
 void gd_handle_glVertexPointer(GLContext* context) {

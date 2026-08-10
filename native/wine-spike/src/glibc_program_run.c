@@ -283,3 +283,148 @@ int wine_spike_run_glibc_program(const char *native_dir,
          out->timed_out, stdout_len, stderr_len);
     return WINE_SPIKE_OK;
 }
+
+int wine_spike_run_bionic_program(const char *native_dir,
+                                  const char *executable,
+                                  const char *argv0_override,
+                                  const char *working_dir,
+                                  const char *runtime_root,
+                                  const char *library_path,
+                                  const char *args_blob,
+                                  const char *env_blob,
+                                  const char *stdin_path,
+                                  int timeout_ms,
+                                  int track_as_daemon,
+                                  struct wine_spike_proot_run_result *out) {
+    if (!native_dir || !executable || !working_dir || !runtime_root ||
+        !library_path || !out || timeout_ms < 0) return WINE_SPIKE_ERR_ARGS;
+    memset(out, 0, sizeof(*out));
+    out->exit_status = -1;
+    if (access(executable, X_OK) != 0 || access(working_dir, F_OK) != 0) {
+        LOGE("required Bionic artifact unavailable: %s (%s)", executable, strerror(errno));
+        return WINE_SPIKE_ERR_LAUNCH;
+    }
+
+    char args_copy[BLOB_MAX] = {0}, env_copy[BLOB_MAX] = {0};
+    char *arg_tokens[TOKEN_MAX] = {0}, *env_tokens[TOKEN_MAX] = {0};
+    int arg_count = tokenize_lines(args_blob, args_copy, sizeof(args_copy), arg_tokens, TOKEN_MAX);
+    int env_count = tokenize_lines(env_blob, env_copy, sizeof(env_copy), env_tokens, TOKEN_MAX);
+    if (arg_count < 0 || env_count < 0) return WINE_SPIKE_ERR_ARGS;
+
+    const char *logical = argv0_override && *argv0_override ? argv0_override : executable;
+    const char *argv[128];
+    int ai = 0;
+    argv[ai++] = logical;
+    for (int i = 0; i < arg_count; ++i) argv[ai++] = arg_tokens[i];
+    argv[ai] = NULL;
+
+    char e_ldpath[WINE_SPIKE_PATH_MAX * 3];
+    char e_home[WINE_SPIKE_PATH_MAX + 16], e_tmp[WINE_SPIKE_PATH_MAX + 16];
+    char e_path[WINE_SPIKE_PATH_MAX * 2];
+    snprintf(e_ldpath, sizeof(e_ldpath), "LD_LIBRARY_PATH=%s:%s", library_path, native_dir);
+    snprintf(e_home, sizeof(e_home), "HOME=%s", runtime_root);
+    snprintf(e_tmp, sizeof(e_tmp), "TMPDIR=%s/run", runtime_root);
+    snprintf(e_path, sizeof(e_path), "PATH=%s", native_dir);
+    const char *envp[64];
+    int ei = 0;
+    envp[ei++] = e_ldpath; envp[ei++] = e_home; envp[ei++] = e_tmp;
+    envp[ei++] = e_path; envp[ei++] = "LANG=C.UTF-8"; envp[ei++] = "LC_ALL=C.UTF-8";
+    for (int i = 0; i < env_count && ei < 63; ++i) envp[ei++] = env_tokens[i];
+    envp[ei] = NULL;
+
+    int out_pipe[2] = {-1, -1}, err_pipe[2] = {-1, -1};
+    if (pipe2(out_pipe, O_CLOEXEC) != 0 || pipe2(err_pipe, O_CLOEXEC) != 0) {
+        if (out_pipe[0] >= 0) { close(out_pipe[0]); close(out_pipe[1]); }
+        if (err_pipe[0] >= 0) { close(err_pipe[0]); close(err_pipe[1]); }
+        return WINE_SPIKE_ERR_LAUNCH;
+    }
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(out_pipe[0]); close(out_pipe[1]); close(err_pipe[0]); close(err_pipe[1]);
+        return WINE_SPIKE_ERR_LAUNCH;
+    }
+    if (pid == 0) {
+        setpgid(0, 0);
+        dup2(out_pipe[1], STDOUT_FILENO);
+        dup2(err_pipe[1], STDERR_FILENO);
+        close(out_pipe[0]); close(out_pipe[1]);
+        close(err_pipe[0]); close(err_pipe[1]);
+        if (chdir(working_dir) != 0) {
+            fprintf(stderr, "bionic_program: chdir failed: %s\n", strerror(errno));
+            _exit(126);
+        }
+        if (stdin_path && *stdin_path) {
+            int input = open(stdin_path, O_RDONLY | O_CLOEXEC);
+            if (input < 0 || dup2(input, STDIN_FILENO) < 0) {
+                fprintf(stderr, "bionic_program: stdin open failed: %s\n", strerror(errno));
+                _exit(126);
+            }
+            if (input != STDIN_FILENO) close(input);
+        } else {
+            int input = open("/dev/null", O_RDONLY | O_CLOEXEC);
+            if (input >= 0) { dup2(input, STDIN_FILENO); if (input != STDIN_FILENO) close(input); }
+        }
+        execve(executable, (char *const *)argv, (char *const *)envp);
+        fprintf(stderr, "bionic_program: execve failed: %s\n", strerror(errno));
+        _exit(127);
+    }
+    setpgid(pid, pid);
+    if (track_as_daemon) g_active_glibc_root = (sig_atomic_t)pid;
+    close(out_pipe[1]); close(err_pipe[1]);
+    set_nonblocking(out_pipe[0]); set_nonblocking(err_pipe[0]);
+
+    size_t stdout_len = 0, stderr_len = 0;
+    int status = 0, exited = 0;
+    long long exited_at_ms = -1;
+    struct timespec started;
+    clock_gettime(CLOCK_MONOTONIC, &started);
+    while (!exited || out_pipe[0] >= 0 || err_pipe[0] >= 0) {
+        struct pollfd fds[2];
+        int nfds = 0;
+        if (out_pipe[0] >= 0) { fds[nfds].fd = out_pipe[0]; fds[nfds].events = POLLIN; ++nfds; }
+        if (err_pipe[0] >= 0) { fds[nfds].fd = err_pipe[0]; fds[nfds].events = POLLIN; ++nfds; }
+        if (nfds) poll(fds, nfds, 50);
+        for (int i = 0; i < nfds; ++i) {
+            if (!(fds[i].revents & (POLLIN | POLLHUP | POLLERR))) continue;
+            char buffer[4096];
+            ssize_t n = read(fds[i].fd, buffer, sizeof(buffer));
+            if (n > 0) {
+                if (fds[i].fd == out_pipe[0])
+                    append_tail(out->stdout_buf, &stdout_len, sizeof(out->stdout_buf), buffer, (size_t)n);
+                else
+                    append_tail(out->stderr_buf, &stderr_len, sizeof(out->stderr_buf), buffer, (size_t)n);
+            } else {
+                int fd = fds[i].fd;
+                close(fd);
+                if (fd == out_pipe[0]) out_pipe[0] = -1; else err_pipe[0] = -1;
+            }
+        }
+        if (!exited) {
+            pid_t waited = waitpid(pid, &status, WNOHANG);
+            if (waited == pid || (waited < 0 && errno == ECHILD)) {
+                exited = 1;
+                exited_at_ms = elapsed_ms(&started);
+            }
+        }
+        if (!exited && timeout_ms > 0 && elapsed_ms(&started) >= timeout_ms) {
+            out->timed_out = 1;
+            wine_spike_kill_tree_recursive((int64_t)pid);
+            waitpid(pid, &status, 0);
+            exited = 1;
+            exited_at_ms = elapsed_ms(&started);
+        }
+        if (exited && exited_at_ms >= 0 && elapsed_ms(&started) - exited_at_ms >= 5000) {
+            if (out_pipe[0] >= 0) close(out_pipe[0]);
+            if (err_pipe[0] >= 0) close(err_pipe[0]);
+            out_pipe[0] = err_pipe[0] = -1;
+        }
+    }
+    if (out_pipe[0] >= 0) close(out_pipe[0]);
+    if (err_pipe[0] >= 0) close(err_pipe[0]);
+    if (track_as_daemon && g_active_glibc_root == (sig_atomic_t)pid) g_active_glibc_root = 0;
+    out->exit_status = status;
+    out->proot_rc = WINE_SPIKE_OK;
+    LOGI("bionic done pid=%d status=%d timeout=%d stdout=%zu stderr=%zu", pid, status,
+         out->timed_out, stdout_len, stderr_len);
+    return WINE_SPIKE_OK;
+}

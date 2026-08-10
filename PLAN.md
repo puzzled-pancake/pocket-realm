@@ -168,13 +168,20 @@ Enable playerbots only after G3. Begin at 25 bots; keep auction-house automation
 
 Implement touch, gamepad, keyboard/mouse, IME, focus, pointer capture, hot-plug, calibration, and stuck-key release through one logical input contract and Wine bridge. A minimal project-owned addon may provide action layers and bot UI, but it is not the input driver.
 
+The Retroid Pocket 6 live-device completion sequence is specified in
+[`docs/O14_RP6_LIVE_DEVICE_COMPLETION_PLAN.md`](docs/O14_RP6_LIVE_DEVICE_COMPLETION_PLAN.md).
+It permits the bounded ARM-native and translated-client enablement needed to
+run final O14 acceptance without pre-claiming G5. Active gameplay uses a
+dedicated immersive 1920x1080 landscape surface, with 1280x720 Balanced and a
+separately measured 1920x1080 Quality profile.
+
 **Exit:** the 25-bot two-hour soak passes and UX-T01 through UX-T08 are completable without physical peripherals; supported controllers reconnect without stuck inputs.
 
 ### Gate G5: ARM64 parity and device profiles - O15-O17
 
-Rebuild the same MariaDB/CMaNGOS/control contracts for `arm64-v8a`; world data, migrations, accounts, backups, and supervisor semantics remain ABI-independent. Prove the translated client with a non-proprietary self-test, then implement ARM-B (Box64 + 64-bit Wine WoW64 running 32-bit `WoW.exe`) first; add ARM-A/Box86 only if a qualified device path justifies it.
+Rebuild the same MariaDB/CMaNGOS/control contracts for `arm64-v8a`; world data, migrations, accounts, backups, and supervisor semantics remain ABI-independent. The MariaDB provider may use the pinned official Termux aarch64 package converted into the Bionic APK closure; this is the current RP6 bring-up route and is qualified separately with `-PpocketLane=database` before integrated server acceptance. Prove the translated client with a non-proprietary self-test, then implement ARM-B (Box64 + 64-bit Wine WoW64 running 32-bit `WoW.exe`) first; add ARM-A/Box86 only if a qualified device path justifies it.
 
-Qualify renderer/driver/input/audio/display tuples by self-test and measured device profile. Start at safe mode, then test DXVK/Turnip on Adreno and a qualified system-Vulkan or WineD3D path on Mali. Keep prefixes and translator/shader caches isolated, bounded, and invalidated by compatibility IDs. Alternative runtimes such as FEX remain out of the release critical path until a separate laboratory feature and evidence exist.
+Qualify renderer/driver/input/audio/display tuples by self-test and measured device profile. Start at safe mode, then test DXVK/Turnip on Adreno and a qualified system-Vulkan or client-OpenGL path on Mali. Keep prefixes and translator/shader caches isolated, bounded, and invalidated by compatibility IDs. The laboratory matrix now packages independently selectable Box64/FEXCore translators and DXVK/Client-OpenGL renderers. FEXCore uses native Bionic ARM64EC Proton/Wine plus its WoW64 DLL backend; Client OpenGL uses the source-matched Bionic Gladio GLX-to-GLES bridge. This built matrix remains outside the release critical path until named-device lifecycle and sustained-performance evidence exist.
 
 **Exit:** the same managed client and MariaDB backup move between x86 development and ARM64 without destructive data migration; zero/25-bot sessions, lifecycle/recovery, and the required Adreno/Mali/64-bit-only matrix pass.
 

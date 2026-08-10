@@ -44,6 +44,7 @@ class DataPreparationStore(
                 listOf("-s", "-d", File(clientRoot, "Data").absolutePath, "-o", stageRoot.absolutePath))
             requireCount(File(stageRoot, "Buildings"), null, 1)
         }
+        repairInterruptedVmapExtraction(importId, clientRoot, stageRoot)
         finiteStage(importId, DataStage.VMAP_ASSEMBLE, stageRoot) {
             File(stageRoot, "vmaps").mkdirs()
             runTool(importId, DataStage.VMAP_ASSEMBLE, stageRoot, "libpocket_vmap_assembler.so",
@@ -52,6 +53,51 @@ class DataPreparationStore(
         }
         prepareMmaps(importId, stageRoot)
         publish(importId, stageRoot)
+    }
+
+    /**
+     * The upstream extractor resumes by checking only whether an output path
+     * exists. If the process is interrupted after fopen("wb") but before the
+     * first write, a zero-byte model survives and every later resume skips it.
+     * Remove only those impossible generated artifacts and let the extractor's
+     * own incremental path recreate them; all valid Buildings remain untouched.
+     */
+    private suspend fun repairInterruptedVmapExtraction(
+        importId: String,
+        clientRoot: File,
+        stageRoot: File,
+    ) {
+        val buildings = File(stageRoot, "Buildings")
+        val interrupted = zeroLengthFiles(buildings)
+        if (interrupted.isEmpty()) return
+        val repairRoot = File(stageRoot, ".vmap-repair-${android.os.Process.myPid()}")
+        check(!repairRoot.exists() || repairRoot.deleteRecursively()) {
+            "cannot reset vmap repair workspace"
+        }
+        check(repairRoot.mkdirs()) { "cannot create vmap repair workspace" }
+        try {
+            runTool(importId, DataStage.VMAP_EXTRACT, stageRoot, "libpocket_vmap_extractor.so",
+                listOf("-s", "-d", File(clientRoot, "Data").absolutePath,
+                    "-o", repairRoot.absolutePath), suffix = "repair")
+            val repairedBuildings = File(repairRoot, "Buildings")
+            interrupted.forEach { target ->
+                val relative = target.relativeTo(buildings)
+                val replacement = File(repairedBuildings, relative.path)
+                check(replacement.isFile && replacement.length() > 0L) {
+                    "vmap extraction did not regenerate: ${relative.invariantSeparatorsPath}"
+                }
+                atomicReplaceFromFile(target, replacement)
+            }
+        } finally {
+            check(!repairRoot.exists() || repairRoot.deleteRecursively()) {
+                "cannot remove vmap repair workspace"
+            }
+        }
+        val remaining = zeroLengthFiles(buildings)
+        check(remaining.isEmpty()) {
+            "vmap extraction repair left zero-byte outputs: ${remaining.take(5).joinToString { it.name }}"
+        }
+        requireCount(buildings, null, 1)
     }
 
     private suspend fun finiteStage(
@@ -267,6 +313,20 @@ class DataPreparationStore(
         Os.rename(temp.absolutePath, target.absolutePath)
         fsyncDirectory(checkNotNull(target.parentFile))
     }
+    private fun atomicReplaceFromFile(target: File, source: File) {
+        target.parentFile?.mkdirs()
+        val temp = File(target.parentFile, ".${target.name}.${android.os.Process.myPid()}.repair")
+        source.inputStream().use { input ->
+            FileOutputStream(temp).use { output ->
+                input.copyTo(output)
+                output.fd.sync()
+            }
+        }
+        check(temp.length() == source.length() && temp.length() > 0L)
+        Os.chmod(temp.absolutePath, OsConstants.S_IRUSR or OsConstants.S_IWUSR)
+        Os.rename(temp.absolutePath, target.absolutePath)
+        fsyncDirectory(checkNotNull(target.parentFile))
+    }
     private fun fsyncDirectory(directory: File) {
         val fd = Os.open(directory.absolutePath, OsConstants.O_RDONLY, 0)
         try { Os.fsync(fd) } finally { Os.close(fd) }
@@ -276,8 +336,16 @@ class DataPreparationStore(
     companion object {
         private const val MIN_DBC = 100
         private const val MIN_MAP_TILES = 100
-        private const val MMAP_THREADS = 2
+        // RP6/modern handheld lane: leave two cores for Android/UI while the
+        // finite on-device navigation build uses the remaining big/little pool.
+        private const val MMAP_THREADS = 6
         private const val CMANGOS_COMMIT = "c096bada9e4ed23ad4ca706c67160a26d7121337"
         private val UUID = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
     }
 }
+
+internal fun zeroLengthFiles(directory: File): List<File> =
+    if (!directory.isDirectory) emptyList() else directory.walkTopDown()
+        .filter { it.isFile && it.length() == 0L }
+        .sortedBy { it.relativeTo(directory).invariantSeparatorsPath }
+        .toList()

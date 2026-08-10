@@ -23,6 +23,10 @@ typedef struct GLClientState {
     GLTexture* texture[MAX_TEXTURE_TARGETS];
     GLuint framebuffer[MAX_FRAMEBUFFER_TARGETS];
     ARBProgram* arbProgram[MAX_ARB_PROGRAM_TARGETS];
+    /* ARB program environment parameters are context state, not program
+     * object state.  Programs created after an env write must observe the
+     * same values as programs that already existed at the time. */
+    GLfloat arbProgramEnv[MAX_ARB_PROGRAM_TARGETS][MAX_ARB_PROGRAM_ENV_PARAMS][4];
     GLuint renderbuffer;
 
     SparseArray* textures;
@@ -108,7 +112,7 @@ static inline void GLClientState_destroy(GLClientState* clientState) {
 }
 
 static inline bool GLClientState_isLegacyEnabledWithProgram(GLClientState* clientState, int arrayIdx) {
-    bool hasBoundProgram = clientState->program || clientState->arbProgram[0];
+    bool hasBoundProgram = clientState->program || clientState->arbProgram[0] || clientState->arbProgram[1];
     return clientState->vao->attribs[arrayIdx].state == VERTEX_ATTRIB_LEGACY_ENABLED && hasBoundProgram;
 }
 

@@ -144,7 +144,8 @@ class ImportJournal(context: Context) : AutoCloseable {
     fun complete(importId: String, generation: String) {
         helper.writableDatabase.update("imports", ContentValues().apply {
             put("phase", ImportPhase.COMPLETE.name); put("active_generation", generation)
-            putNull("last_error"); put("updated_at_ms", System.currentTimeMillis())
+            putNull("last_relative_path"); putNull("last_error")
+            put("updated_at_ms", System.currentTimeMillis())
         }, "import_id=?", arrayOf(importId))
     }
 

@@ -132,7 +132,7 @@ fun DiagnosticsScreen(contentPadding: PaddingValues = PaddingValues()) {
                             supportStatus = runCatching {
                                 withContext(Dispatchers.IO) { SupportBundleExporter(context).export() }
                             }.fold(
-                                { "Created ${it.entries} entries â€¢ manifest ${it.manifestSha256.take(12)}â€¦" },
+                                { "Created ${it.entries} entries • manifest ${it.manifestSha256.take(12)}…" },
                                 { "Export failed: ${it.javaClass.simpleName}" },
                             )
                         }

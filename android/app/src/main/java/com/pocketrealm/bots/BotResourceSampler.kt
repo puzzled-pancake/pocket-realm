@@ -3,6 +3,7 @@ package com.pocketrealm.bots
 import android.app.ActivityManager
 import android.content.Context
 import android.os.Debug
+import android.os.Build
 import android.os.PowerManager
 import android.os.StatFs
 import android.os.SystemClock
@@ -15,7 +16,11 @@ data class BotRuntimeMetrics(
     val worldP95Ms: Int,
     val worldP99Ms: Int,
     val worldMaxMs: Int,
+    /** Rolling 2,048-tick diagnostic window; never use as an event counter. */
     val hardStallCount: Int,
+    /** Monotonic process-lifetime count used to detect newly observed stalls. */
+    val hardStallTotal: Long,
+    val lastHardStallElapsedMs: Long,
     val worldPssMiB: Long,
     val freeMemoryMiB: Long,
     val freeStorageMiB: Long,
@@ -28,7 +33,7 @@ class BotResourceSampler(context: Context, private val storageRoot: File) {
     private val power = context.getSystemService(PowerManager::class.java)
 
     fun read(performance: LongArray): BotRuntimeMetrics {
-        require(performance.size == 7)
+        require(performance.size == 9)
         val memory = ActivityManager.MemoryInfo().also(activity::getMemoryInfo)
         val storage = StatFs(storageRoot.absolutePath)
         return BotRuntimeMetrics(
@@ -39,10 +44,16 @@ class BotResourceSampler(context: Context, private val storageRoot: File) {
             worldP99Ms = performance[4].toInt(),
             worldMaxMs = performance[5].toInt(),
             hardStallCount = performance[6].toInt(),
+            hardStallTotal = performance[7],
+            lastHardStallElapsedMs = performance[8],
             worldPssMiB = Debug.getPss() / 1024L,
             freeMemoryMiB = memory.availMem / MIB,
             freeStorageMiB = storage.availableBytes / MIB,
-            thermal = thermalLevel(power.currentThermalStatus),
+            thermal = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                thermalLevel(power.currentThermalStatus)
+            } else {
+                ThermalLevel.NONE
+            },
         )
     }
 

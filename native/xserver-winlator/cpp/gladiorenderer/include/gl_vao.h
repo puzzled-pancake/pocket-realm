@@ -18,6 +18,11 @@
 
 typedef struct GLVertexAttrib {
 #ifdef GL_SERVER
+    /* Generic array enable state is independent of the program currently
+     * bound when glEnableVertexAttribArray is called.  Keep it alongside the
+     * pointer metadata so a later GLSL/ARB material can replay the array onto
+     * its own GLES attribute location. */
+    bool arrayEnabled;
     bool normalized;
     int type;
     GLuint boundArrayBuffer;
@@ -44,7 +49,13 @@ typedef struct GLVertexArrayObject {
     if (arrayBuffer) { \
         if (clientState->program || clientState->arbProgram[0]) { \
             GLVertexArrayObject_setAttribState(clientState, index, VERTEX_ATTRIB_DISABLED, true); \
-            GLboolean normalized = type != GL_FLOAT && type != GL_HALF_FLOAT ? GL_TRUE : GL_FALSE; \
+            /* Compatibility arrays define normalization by semantic, not by
+             * whether a shader happens to be bound.  Integer color and normal
+             * arrays are normalized; positions and texture coordinates are
+             * not. */ \
+            GLboolean normalized = \
+                    (index == COLOR_ARRAY_INDEX || index == NORMAL_ARRAY_INDEX) && \
+                    type != GL_FLOAT && type != GL_HALF_FLOAT; \
             glVertexAttribPointer(INT32_MAX + index, size, type, normalized, stride, pointer); \
             goto unlock; \
         } \
@@ -67,12 +78,16 @@ typedef struct GLVertexArrayObject {
         GLenum type = ArrayBuffer_getInt(&context->inputBuffer); \
         GLsizei stride = ArrayBuffer_getInt(&context->inputBuffer); \
         GLClientState* clientState = &currentRenderer->clientState; \
-        bool hasBoundProgram = clientState->program || clientState->arbProgram[0]; \
         GLVertexArrayObject_setAttribState(clientState, arrayIdx, VERTEX_ATTRIB_LEGACY_ENABLED, false); \
         clientState->vao->attribs[arrayIdx].size = size; \
         clientState->vao->attribs[arrayIdx].type = type; \
-        clientState->vao->attribs[arrayIdx].normalized = type != GL_FLOAT && type != GL_HALF_FLOAT && hasBoundProgram; \
-        clientState->vao->attribs[arrayIdx].stride = stride > 0 || hasBoundProgram ? stride : (size * sizeofGLType(type)); \
+        clientState->vao->attribs[arrayIdx].normalized = \
+                (arrayIdx == COLOR_ARRAY_INDEX || arrayIdx == NORMAL_ARRAY_INDEX) && \
+                type != GL_FLOAT && type != GL_HALF_FLOAT; \
+        /* The client expands a guest zero stride to tightly packed bytes in
+         * the LEGACY payload. Bound fragment-only ARB state must not turn
+         * that server-side effective stride back into zero. */ \
+        clientState->vao->attribs[arrayIdx].stride = stride > 0 ? stride : (size * sizeofGLType(type)); \
     } \
     while (0)
 

@@ -1,4 +1,5 @@
 #include "server_common.h"
+#include "bot_target_fence.h"
 
 #include "Common.h"
 #include "Config/Config.h"
@@ -55,6 +56,8 @@ public:
         m_ticks.store(0, std::memory_order_release);
         m_last_tick.store(0, std::memory_order_release);
         m_max_tick.store(0, std::memory_order_release);
+        m_hard_stall_total.store(0, std::memory_order_release);
+        m_last_hard_stall_elapsed_ms.store(0, std::memory_order_release);
         {
             std::lock_guard<std::mutex> tick_guard(m_tick_window_mutex);
             m_tick_window_count = 0;
@@ -65,7 +68,10 @@ public:
         m_bots_online.store(0, std::memory_order_release);
         m_bot_accounts.store(0, std::memory_order_release);
         m_effective_bot_target.store(0, std::memory_order_release);
-        m_pending_bot_target.store(-1, std::memory_order_release);
+        m_bot_target_fence.reset();
+        for (auto& value : m_low_cpu_telemetry)
+            value.store(0, std::memory_order_release);
+        m_last_low_cpu_sampled_at = 0;
         m_state.transition(POCKET_SERVER_STARTING);
         m_worker = std::thread([this, config] { run(config); });
         return POCKET_SERVER_OK;
@@ -83,10 +89,27 @@ public:
         return result;
     }
 
-    int set_bot_target(int target, uint64_t timeout_ms)
+    int begin_bot_target_generation(int64_t generation)
+    {
+        if (generation <= 0) return POCKET_SERVER_INVALID_ARGUMENT;
+        const auto state = m_state.state();
+        if (state != POCKET_SERVER_STARTING && state != POCKET_SERVER_READY)
+            return POCKET_SERVER_WRONG_STATE;
+        return m_bot_target_fence.begin(generation) ?
+            POCKET_SERVER_OK : POCKET_SERVER_WRONG_STATE;
+    }
+
+    int retire_bot_target_generation(int64_t generation)
+    {
+        if (generation <= 0) return POCKET_SERVER_INVALID_ARGUMENT;
+        return m_bot_target_fence.retire(generation) ?
+            POCKET_SERVER_OK : POCKET_SERVER_WRONG_STATE;
+    }
+
+    int set_bot_target(int target, int64_t generation, uint64_t timeout_ms)
     {
 #ifndef ENABLE_PLAYERBOTS
-        (void)target; (void)timeout_ms;
+        (void)target; (void)generation; (void)timeout_ms;
         return POCKET_SERVER_WRONG_STATE;
 #else
         if (m_state.state() != POCKET_SERVER_READY || !m_bot_enabled.load(std::memory_order_acquire))
@@ -94,15 +117,20 @@ public:
         if (target < m_bot_min.load(std::memory_order_acquire) ||
             target > m_bot_max.load(std::memory_order_acquire))
             return POCKET_SERVER_INVALID_ARGUMENT;
-        m_pending_bot_target.store(target, std::memory_order_release);
-        const uint64_t deadline = pocket_server::monotonic_ms() + timeout_ms;
-        while (pocket_server::monotonic_ms() < deadline)
+        const auto queued = m_bot_target_fence.queue(
+            target, generation, m_effective_bot_target.load(std::memory_order_acquire));
+        switch (queued.state)
         {
-            if (m_effective_bot_target.load(std::memory_order_acquire) == target)
+            case pocket_server::BotTargetFence::QueueState::REJECTED:
+                return POCKET_SERVER_WRONG_STATE;
+            case pocket_server::BotTargetFence::QueueState::ALREADY_EFFECTIVE:
                 return POCKET_SERVER_OK;
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            case pocket_server::BotTargetFence::QueueState::QUEUED:
+                break;
         }
-        return POCKET_SERVER_TIMEOUT;
+        return m_bot_target_fence.wait_applied(
+            queued.sequence, generation, std::chrono::milliseconds(timeout_ms)) ?
+            POCKET_SERVER_OK : POCKET_SERVER_TIMEOUT;
 #endif
     }
 
@@ -119,6 +147,8 @@ public:
         values[4] = m_bots_online.load(std::memory_order_acquire);
         values[5] = m_effective_bot_target.load(std::memory_order_acquire);
         values[6] = m_bot_accounts.load(std::memory_order_acquire);
+        for (size_t i = 0; i < m_low_cpu_telemetry.size(); ++i)
+            values[7 + i] = m_low_cpu_telemetry[i].load(std::memory_order_acquire);
     }
 
     void performance_status(jlong* values)
@@ -142,6 +172,8 @@ public:
         values[5] = samples.back();
         values[6] = static_cast<jlong>(std::count_if(samples.begin(), samples.end(),
             [](uint32_t duration) { return duration > 1000; }));
+        values[7] = static_cast<jlong>(m_hard_stall_total.load(std::memory_order_acquire));
+        values[8] = static_cast<jlong>(m_last_hard_stall_elapsed_ms.load(std::memory_order_acquire));
     }
 
     int create_account(const std::string& username, const std::string& password, uint64_t timeout_ms)
@@ -320,6 +352,7 @@ public:
 
     int stop(uint64_t timeout_ms)
     {
+        m_bot_target_fence.reset();
         {
             std::lock_guard<std::mutex> guard(m_lifecycle);
             const auto state = m_state.state();
@@ -376,6 +409,12 @@ public:
         uint32_t previous = m_max_tick.load(std::memory_order_relaxed);
         while (duration > previous &&
                !m_max_tick.compare_exchange_weak(previous, duration, std::memory_order_release)) {}
+        if (duration > 1000)
+        {
+            m_hard_stall_total.fetch_add(1, std::memory_order_relaxed);
+            m_last_hard_stall_elapsed_ms.store(
+                pocket_server::monotonic_ms(), std::memory_order_release);
+        }
         {
             std::lock_guard<std::mutex> guard(m_tick_window_mutex);
             m_tick_window[m_tick_window_cursor] = duration;
@@ -385,14 +424,32 @@ public:
 #ifdef ENABLE_PLAYERBOTS
         if (m_bot_enabled.load(std::memory_order_acquire))
         {
-            const int pending = m_pending_bot_target.exchange(-1, std::memory_order_acq_rel);
-            if (pending >= 0)
-            {
+            m_bot_target_fence.consume([&](int pending) {
                 sRandomPlayerbotMgr.SetValue(uint32(0), "bot_count", static_cast<uint32>(pending));
                 m_effective_bot_target.store(pending, std::memory_order_release);
+            });
+            const LowCpuBotTelemetry telemetry = sRandomPlayerbotMgr.GetLowCpuTelemetry();
+            if (telemetry.sampledAt != m_last_low_cpu_sampled_at)
+            {
+                m_last_low_cpu_sampled_at = telemetry.sampledAt;
+                m_bots_online.store(telemetry.onlineBots, std::memory_order_release);
+                const uint32_t values[] = {
+                    telemetry.sampledAt,
+                    telemetry.activeBots,
+                    telemetry.realPlayers,
+                    telemetry.sameActiveZone,
+                    telemetry.within150,
+                    telemetry.within500,
+                    telemetry.within1500,
+                    telemetry.levelDelta2,
+                    telemetry.levelDelta4,
+                    telemetry.loginsLast60s,
+                    telemetry.teleportsLast60s,
+                    telemetry.rerandomizesLast60s,
+                };
+                for (size_t i = 0; i < m_low_cpu_telemetry.size(); ++i)
+                    m_low_cpu_telemetry[i].store(values[i], std::memory_order_release);
             }
-            m_bots_online.store(sRandomPlayerbotMgr.GetPlayerbotsAmount(),
-                std::memory_order_release);
         }
 #endif
         m_state.beat();
@@ -538,6 +595,7 @@ private:
 
     void cleanup()
     {
+        m_bot_target_fence.reset();
         if (m_started)
         {
             World::StopNow(SHUTDOWN_EXIT_CODE);
@@ -564,6 +622,8 @@ private:
     std::atomic<uint64_t> m_ticks{0};
     std::atomic<uint32_t> m_last_tick{0};
     std::atomic<uint32_t> m_max_tick{0};
+    std::atomic<uint64_t> m_hard_stall_total{0};
+    std::atomic<uint64_t> m_last_hard_stall_elapsed_ms{0};
     std::atomic<bool> m_bot_enabled{false};
     std::atomic<uint32_t> m_bots_available{0};
     std::atomic<uint32_t> m_bots_online{0};
@@ -571,7 +631,9 @@ private:
     std::atomic<int> m_bot_min{0};
     std::atomic<int> m_bot_max{0};
     std::atomic<int> m_effective_bot_target{0};
-    std::atomic<int> m_pending_bot_target{-1};
+    pocket_server::BotTargetFence m_bot_target_fence;
+    std::array<std::atomic<uint32_t>, 12> m_low_cpu_telemetry{};
+    uint32_t m_last_low_cpu_sampled_at{0};
     std::array<uint32_t, 2048> m_tick_window{};
     size_t m_tick_window_count{0};
     size_t m_tick_window_cursor{0};
@@ -603,25 +665,41 @@ Java_com_pocketrealm_server_WorldNative_startNative(JNIEnv* env, jclass, jstring
 
 extern "C" JNIEXPORT jint JNICALL
 Java_com_pocketrealm_server_WorldNative_setBotTargetNative(JNIEnv*, jclass, jint target)
-{ return g_runtime.set_bot_target(static_cast<int>(target), 5'000); }
+{ return g_runtime.set_bot_target(static_cast<int>(target), 0, 5'000); }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_pocketrealm_server_WorldNative_beginAdmissionBotTargetGenerationNative(
+    JNIEnv*, jclass, jlong generation)
+{ return g_runtime.begin_bot_target_generation(static_cast<int64_t>(generation)); }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_pocketrealm_server_WorldNative_setAdmissionBotTargetNative(
+    JNIEnv*, jclass, jint target, jlong generation)
+{ return g_runtime.set_bot_target(
+    static_cast<int>(target), static_cast<int64_t>(generation), 5'000); }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_pocketrealm_server_WorldNative_retireAdmissionBotTargetGenerationNative(
+    JNIEnv*, jclass, jlong generation)
+{ return g_runtime.retire_bot_target_generation(static_cast<int64_t>(generation)); }
 
 extern "C" JNIEXPORT jlongArray JNICALL
 Java_com_pocketrealm_server_WorldNative_botStatusNative(JNIEnv* env, jclass)
 {
-    jlong values[7]{};
+    jlong values[19]{};
     g_runtime.bot_status(values);
-    jlongArray result = env->NewLongArray(7);
-    env->SetLongArrayRegion(result, 0, 7, values);
+    jlongArray result = env->NewLongArray(19);
+    env->SetLongArrayRegion(result, 0, 19, values);
     return result;
 }
 
 extern "C" JNIEXPORT jlongArray JNICALL
 Java_com_pocketrealm_server_WorldNative_performanceStatusNative(JNIEnv* env, jclass)
 {
-    jlong values[7]{};
+    jlong values[9]{};
     g_runtime.performance_status(values);
-    jlongArray result = env->NewLongArray(7);
-    env->SetLongArrayRegion(result, 0, 7, values);
+    jlongArray result = env->NewLongArray(9);
+    env->SetLongArrayRegion(result, 0, 9, values);
     return result;
 }
 

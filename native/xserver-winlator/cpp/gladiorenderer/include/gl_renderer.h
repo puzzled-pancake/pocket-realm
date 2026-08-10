@@ -16,6 +16,7 @@
 #define MODEL_VIEW_MATRIX_INDEX 0
 #define PROJECTION_MATRIX_INDEX 1
 #define TEXTURE_MATRIX_INDEX 2
+#define MATRIX_STACK_COUNT (TEXTURE_MATRIX_INDEX + MAX_TEXCOORDS)
 
 typedef struct GLLight {
     bool enabled;
@@ -30,7 +31,9 @@ typedef struct GLLight {
 
 typedef struct GLMaterial {
     float ambient[3];
-    float diffuse[3];
+    /* Desktop OpenGL material diffuse state includes alpha.  The alpha is
+     * the lit primary colour alpha and must survive ColorMaterial tracking. */
+    float diffuse[4];
     float specular[4];
     float emission[3];
 } GLMaterial;
@@ -66,10 +69,26 @@ typedef struct TexEnv {
     GLfloat color[4];
     GLint combineRGBA[2];
     GLfloat rgbaScale[2];
+    /* RGB/alpha source0 and source1 are kept in the legacy packed slots;
+     * source2 is explicit because GL_COMBINE interpolation uses all three
+     * operands. */
     GLint sourceRGBA[4];
+    GLint source2RGBA[2];
     GLint operandRGBA[4];
+    GLint operand2RGBA[2];
     GLfloat lodBias;
 } TexEnv;
+
+typedef struct TexGenCoord {
+    bool enabled;
+    GLenum mode;
+    GLfloat objectPlane[4];
+    GLfloat eyePlane[4];
+} TexGenCoord;
+
+typedef struct TexGen {
+    TexGenCoord coords[4];
+} TexGen;
 
 typedef struct PixelReadCache {
     GLuint framebuffer;
@@ -80,7 +99,15 @@ typedef struct PixelReadCache {
 
 typedef struct GLState {
     bool lighting;
+    bool normalize;
     GLenum polygonMode;
+
+    struct {
+        float ambient[4];
+        bool localViewer;
+        bool twoSide;
+        GLenum colorControl;
+    } lightModel;
 
     struct {
         bool enabled;
@@ -118,6 +145,7 @@ typedef struct GLState {
     float normal[3];
     float texCoords[MAX_TEXCOORDS][4];
     TexEnv texEnv[MAX_TEXCOORDS];
+    TexGen texGen[MAX_TEXCOORDS];
     bool enabledTextures[MAX_TEXCOORDS][MAX_TEXTURE_TARGETS];
     bool enabledARBPrograms[2];
 
@@ -140,10 +168,11 @@ typedef struct GLRenderer {
 
     GLLight lights[MAX_LIGHTS];
     SparseArray materialMap;
+    ShaderMaterial* arbMaterial;
     ArrayDeque meshes;
     Mesh* activeMesh;
 
-    ArrayList matrixStack[3];
+    ArrayList matrixStack[MATRIX_STACK_COUNT];
     GLuint matrixIndex;
 
     GLRaster* raster;
@@ -160,6 +189,9 @@ typedef struct GLRenderer {
 
 extern void GLRenderer_initOnEGLContext(GLRenderer* renderer);
 extern bool GLRenderer_useARBProgram(GLRenderer* renderer, bool updateUniforms);
+extern ShaderMaterial* GLRenderer_getARBMaterial(GLRenderer* renderer);
+extern void GLRenderer_replayGenericVertexAttributes(GLRenderer* renderer);
+extern void GLRenderer_replayFixedVertexAttributes(GLRenderer* renderer);
 extern void GLRenderer_drawImmediate(GLRenderer* renderer);
 extern void GLRenderer_beginImmediate(GLRenderer* renderer, GLenum mode);
 extern void GLRenderer_endImmediate(GLRenderer* renderer);
@@ -171,8 +203,11 @@ extern void GLRenderer_addVertex(GLRenderer* renderer, GLfloat x, GLfloat y, GLf
 extern void GLRenderer_addArrayElement(GLRenderer* renderer, int index);
 extern void GLRenderer_setCapabilityState(GLRenderer* renderer, GLenum cap, bool state, int index);
 extern void GLRenderer_setMaterialParams(GLRenderer* renderer, GLenum face, GLenum pname, void* params);
+extern void GLRenderer_setGuestMaterialParams(GLRenderer* renderer, GLenum face, GLenum pname, void* params);
 extern void GLRenderer_setLightParams(GLRenderer* renderer, GLenum id, GLenum pname, void* params);
+extern void GLRenderer_setLightModelParam(GLRenderer* renderer, GLenum pname, const GLfloat* params);
 extern void GLRenderer_setTexEnvParams(GLRenderer* renderer, GLenum target, GLenum pname, float* params);
+extern void GLRenderer_setTexGenParams(GLRenderer* renderer, GLenum coord, GLenum pname, const GLfloat* params);
 extern void GLRenderer_setFogParams(GLRenderer* renderer, GLenum pname, GLfloat* params);
 extern void GLRenderer_setPointParams(GLRenderer* renderer, GLenum pname, void* params);
 extern void GLRenderer_destroy(GLRenderer* renderer);

@@ -10,7 +10,9 @@ import android.os.IBinder
 import com.pocketrealm.bots.BotProfiles
 import com.pocketrealm.client.ClientRuntimeContract
 import com.pocketrealm.client.ClientDisplayService
+import com.pocketrealm.client.ClientRuntimeSelector
 import com.pocketrealm.client.ClientRuntimeService
+import com.pocketrealm.client.ArmTranslationBackend
 import com.pocketrealm.client.IClientDisplayControl
 import com.pocketrealm.client.IClientRuntimeControl
 import com.pocketrealm.client.ManagedClientStore
@@ -22,18 +24,33 @@ import com.pocketrealm.server.PreparedDataStore
 import com.pocketrealm.server.RealmRuntimeService
 import com.pocketrealm.server.WorldRuntimeService
 import com.pocketrealm.storage.StorageRoots
+import com.pocketrealm.storage.Settings
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import org.json.JSONObject
 import java.io.File
+
+internal enum class AutomaticAccountCreateAction { INITIALIZE_CREATED, ROTATE_COLLISION, FAIL }
+
+/** Pure decision boundary: a collision is never eligible for privilege mutation. */
+internal fun automaticAccountCreateAction(result: JSONObject): AutomaticAccountCreateAction =
+    when (result.optString("code")) {
+        "ACCOUNT_CREATED" -> if (result.optLong("accountId") > 0) {
+            AutomaticAccountCreateAction.INITIALIZE_CREATED
+        } else AutomaticAccountCreateAction.FAIL
+        "ACCOUNT_EXISTS" -> AutomaticAccountCreateAction.ROTATE_COLLISION
+        else -> AutomaticAccountCreateAction.FAIL
+    }
 
 /** Binder adapter that preserves the O08/O09 process fault boundaries. */
 class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
     private val appContext = context.applicationContext
+    private val singlePlayerCredentials = SinglePlayerCredentialStore(appContext)
     private val ownerLease = Binder()
     private val database = ServiceHandle(appContext, DatabaseService::class.java) {
         IDatabaseControl.Stub.asInterface(it)
@@ -55,7 +72,15 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         if (profileId !in setOf(DEFAULT_PROFILE, INTEGRATED_PROFILE) && BotProfiles.find(profileId) == null) {
             return@withContext RuntimeActionResult(false, "unknown profile")
         }
-        if (!Build.SUPPORTED_ABIS.contains("x86_64")) return@withContext RuntimeActionResult(false, "x86_64 ABI unavailable")
+        val runtimeSettings = Settings(appContext).flow.first()
+        val translator = when (runtimeSettings.provider) {
+            Settings.RuntimeProvider.BOX64 -> ArmTranslationBackend.BOX64
+            Settings.RuntimeProvider.FEX -> ArmTranslationBackend.FEX
+        }
+        val runtimeSelection = ClientRuntimeSelector.select(appContext, translator)
+        if (!runtimeSelection.supported) {
+            return@withContext RuntimeActionResult(false, runtimeSelection.reason)
+        }
         val db = json(database.api().status())
         if (!db.optBoolean("initialized")) return@withContext RuntimeActionResult(false, "database is not initialized")
         if (profileId != DEFAULT_PROFILE) {
@@ -95,7 +120,6 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                 val before = json(database.api().status())
                 if (!before.getBoolean("cleanMarker")) json(database.api().recover())
                 json(database.api().start())
-                json(database.api().queryHealth())
                 observation(component, json(database.api().status()), "RUNNING")
             }
             RuntimeComponent.REALM -> {
@@ -239,28 +263,112 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
             return ComponentObservation(RuntimeComponent.CLIENT, ComponentLifecycle.FAILED, false, owner,
                 detail = "client is not authorized for the O10 baseline profile")
         }
+        val runtimeSettings = Settings(appContext).flow.first()
+        val translator = when (runtimeSettings.provider) {
+            Settings.RuntimeProvider.BOX64 -> ArmTranslationBackend.BOX64
+            Settings.RuntimeProvider.FEX -> ArmTranslationBackend.FEX
+        }
+        val runtimeSelection = ClientRuntimeSelector.select(appContext, translator)
+        check(runtimeSelection.supported) { runtimeSelection.reason }
+        val singlePlayerAutoLogin = BotProfiles.find(profileId) != null
+        if (singlePlayerAutoLogin) ensureSinglePlayerAccount(owner)
         json(client.api().claim(owner.sessionId, owner.instanceToken, ownerLease))
+        json(display.api().claim(owner.sessionId, owner.instanceToken, ownerLease))
         val probe = json(client.api().probe(JSONObject()
             .put("protocol", ClientRuntimeContract.PROTOCOL_VERSION)
-            .put("abi", "x86_64").put("api", Build.VERSION.SDK_INT)
+            .put("provider", runtimeSelection.provider.id)
+            .put("translator", translator.id)
+            .put("abi", Build.SUPPORTED_ABIS.firstOrNull().orEmpty()).put("api", Build.VERSION.SDK_INT)
             .put("pageSize", android.system.Os.sysconf(android.system.OsConstants._SC_PAGESIZE))
             .put("clientId", CLIENT_BUILD_ID).toString()))
         check(probe.getBoolean("supported")) { probe.optString("reason", "client runtime unavailable") }
-        val prepared = json(client.api().preparePrefix(JSONObject()
+        val renderer = when {
+            Build.SUPPORTED_ABIS.firstOrNull() != "arm64-v8a" -> "wined3d"
+            runtimeSettings.renderer == Settings.Renderer.DXVK -> "dxvk"
+            else -> "opengl"
+        }
+        val rendererPackageId = runtimeSettings.selectedDxvkPackageId()
+            .takeIf { renderer == "dxvk" && Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a" }
+        val prepareRequest = JSONObject()
             .put("protocol", ClientRuntimeContract.PROTOCOL_VERSION)
-            .put("clientId", CLIENT_BUILD_ID).put("renderer", "wined3d")
-            .put("audioMode", "off").toString()))
-        json(display.api().prepare(prepared.getString("runtimeRoot"), owner.instanceToken))
-        val launched = json(client.api().launch(JSONObject()
+            .put("clientId", CLIENT_BUILD_ID).put("renderer", renderer)
+            .put("audioMode", "off").put("translator", translator.id)
+            .put("inputSafeMode", runtimeSettings.inputSafeMode)
+        rendererPackageId?.let { prepareRequest.put("rendererPackageId", it) }
+        val prepared = json(client.api().preparePrefix(prepareRequest.toString()))
+        json(display.api().prepare(
+            prepared.getString("runtimeRoot"),
+            owner.instanceToken,
+            singlePlayerAutoLogin,
+            CLIENT_BUILD_ID,
+        ))
+        val launchRequest = JSONObject()
             .put("protocol", ClientRuntimeContract.PROTOCOL_VERSION)
             .put("prefixId", prepared.getString("prefixId"))
-            .put("display", ":0").put("audioMode", "off").toString()))
+            .put("display", ":0").put("audioMode", "off")
+            .put("translator", translator.id).put("renderer", renderer)
+        rendererPackageId?.let { launchRequest.put("rendererPackageId", it) }
+        val launched = json(client.api().launch(launchRequest.toString()))
         json(display.api().attachSession(owner.instanceToken, launched.getString("sessionId")))
         while (true) {
             val observed = clientObservation(json(client.api().statusCurrent()))
             if (observed.ready || observed.state == ComponentLifecycle.FAILED) return observed
             delay(100)
         }
+    }
+
+    /**
+     * Ensure that the randomly named app-owned account still resolves to the
+     * same database identity before its secret is made available to display.
+     * A first-run ACCOUNT_EXISTS or a changed account id is a collision and is
+     * rejected; no unknown password is ever guessed.
+     */
+    private suspend fun ensureSinglePlayerAccount(clientOwner: ComponentOwner) {
+        val status = observation(RuntimeComponent.WORLD, json(world.api().status()), "READY")
+        val worldOwner = status.owner
+        check(status.ready && worldOwner != null && worldOwner.sessionId == clientOwner.sessionId) {
+            "single-player account provisioning requires the owned ready world"
+        }
+        var credentials = singlePlayerCredentials.loadOrCreate()
+        if (credentials.provisioned) {
+            val current = json(world.api().accountStatus(credentials.username))
+            if (current.optBoolean("accountExists")) {
+                check(current.optLong("accountId") == credentials.accountId) {
+                    "single-player account identity mismatch"
+                }
+                check(current.optInt("gmLevel", -1) == 0) {
+                    "single-player account privilege mismatch"
+                }
+                return
+            }
+        }
+        repeat(MAX_SINGLE_PLAYER_ACCOUNT_ATTEMPTS) {
+            // Use the raw create surface here. The general provisionAccount()
+            // helper may adjust GM level for ACCOUNT_EXISTS, which is correct
+            // for an explicit user request but must never mutate an unrelated
+            // random-name collision during automatic provisioning.
+            val created = json(world.api().createAccount(credentials.username, credentials.password))
+            val code = created.optString("code")
+            when (automaticAccountCreateAction(created)) {
+            AutomaticAccountCreateAction.INITIALIZE_CREATED -> {
+                if (created.optInt("gmLevel", -1) != 0) {
+                    val normalized = json(world.api().setAccountGmLevel(credentials.username, 0))
+                    check(normalized.optInt("gmLevel", -1) == 0) {
+                        "single-player account privilege initialization failed"
+                    }
+                }
+                singlePlayerCredentials.markProvisioned(credentials, created.getLong("accountId"))
+                return
+            }
+            AutomaticAccountCreateAction.ROTATE_COLLISION -> {
+                credentials = singlePlayerCredentials.rotateUnprovisioned(credentials)
+            }
+            AutomaticAccountCreateAction.FAIL -> {
+                error("single-player account provisioning failed: ${code.take(64)}")
+            }
+            }
+        }
+        error("single-player account provisioning exhausted collision retries")
     }
 
     private suspend fun stopClient(owner: ComponentOwner): RuntimeActionResult {
@@ -350,7 +458,9 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         const val DEFAULT_PROFILE = "mobile-low-v1"
         const val INTEGRATED_PROFILE = "mobile-low-v2-normal"
         const val BOT_LOW_25_PROFILE = "mobile-low-b1-25-v1"
+        const val BOT_LIVELY_700_PROFILE = "mobile-lively-b700-v2"
         const val CLIENT_BUILD_ID = ClientRuntimeContract.WOW_5875_ID
+        private const val MAX_SINGLE_PLAYER_ACCOUNT_ATTEMPTS = 3
     }
 }
 

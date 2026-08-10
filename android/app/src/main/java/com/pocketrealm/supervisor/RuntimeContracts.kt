@@ -63,11 +63,12 @@ data class RuntimeTimeouts(
     val componentStopMs: Long = 60_000,
     val databaseStopMs: Long = 30_000,
     val recoveryMs: Long = 120_000,
+    val botWorldStartMs: Long = 600_000,
 ) {
-    fun start(component: RuntimeComponent) = when (component) {
+    fun start(component: RuntimeComponent, botProfile: Boolean = false) = when (component) {
         RuntimeComponent.DATABASE -> databaseStartMs
         RuntimeComponent.REALM -> realmStartMs
-        RuntimeComponent.WORLD -> worldStartMs
+        RuntimeComponent.WORLD -> if (botProfile) botWorldStartMs else worldStartMs
         RuntimeComponent.CLIENT -> clientStartMs
     }
 

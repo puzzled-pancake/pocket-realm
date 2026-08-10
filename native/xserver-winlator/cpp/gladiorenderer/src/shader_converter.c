@@ -1931,6 +1931,12 @@ void ShaderConverter_getProgramiv(GLuint target, GLenum pname, GLint* params) {
         case GL_MAX_PROGRAM_ALU_INSTRUCTIONS_ARB:
             *params = 1024;
             break;
+        case GL_PROGRAM_UNDER_NATIVE_LIMITS_ARB:
+            /* ARB programs are translated to linked GLES shaders before this
+             * query; a valid translated object is within this provider's
+             * effective native limits. */
+            *params = ARBProgram_get(target) ? GL_TRUE : GL_FALSE;
+            break;
         case GL_MAX_PROGRAM_TEX_INDIRECTIONS_ARB:
         case GL_MAX_PROGRAM_NATIVE_TEX_INDIRECTIONS_ARB:
             *params = 8;
@@ -1974,13 +1980,20 @@ void ShaderConverter_updateBoundProgram() {
 
             if (program->location.modelViewProjectionMatrix != -1) {
                 float matrix[16];
-                mat4_multiply(matrix, GLRenderer_getMatrixFromStack(currentRenderer, MODEL_VIEW_MATRIX_INDEX), GLRenderer_getMatrixFromStack(currentRenderer, PROJECTION_MATRIX_INDEX));
+                /* OpenGL's compatibility MVP is Projection * ModelView.  The
+                 * old order transformed projection space by model-view and
+                 * produced invalid world geometry in converted WineD3D GLSL
+                 * programs whenever both matrices were non-identity. */
+                mat4_multiply(matrix,
+                        GLRenderer_getMatrixFromStack(currentRenderer, PROJECTION_MATRIX_INDEX),
+                        GLRenderer_getMatrixFromStack(currentRenderer, MODEL_VIEW_MATRIX_INDEX));
                 glUniformMatrix4fv(program->location.modelViewProjectionMatrix, 1, GL_FALSE, matrix);
             }
 
             for (int i = 0; i < MAX_TEXCOORDS; i++) {
                 if (program->location.textureMatrix[i] != -1) {
-                    float* matrix = GLRenderer_getMatrixFromStack(currentRenderer, TEXTURE_MATRIX_INDEX);
+                    float* matrix = GLRenderer_getMatrixFromStack(currentRenderer,
+                            TEXTURE_MATRIX_INDEX + i);
                     glUniformMatrix4fv(program->location.textureMatrix[i], 1, GL_FALSE, matrix);
                 }
             }
@@ -1997,6 +2010,12 @@ void ShaderConverter_updateBoundProgram() {
         }
     }
     else GLRenderer_useARBProgram(currentRenderer, true);
+
+    /* Generic vertex-array state is indexed by the guest's raw attribute
+     * number, but linked GLES locations are material-specific.  Reapply bound
+     * VBO definitions after selecting the current GLSL/ARB vertex material. */
+    GLRenderer_replayGenericVertexAttributes(currentRenderer);
+    GLRenderer_replayFixedVertexAttributes(currentRenderer);
 }
 
 void ShaderConverter_onDestroy(GLClientState* clientState) {

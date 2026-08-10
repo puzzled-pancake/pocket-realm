@@ -57,6 +57,7 @@ def main() -> int:
     if not options.no_build:
         gradle = ANDROID / "gradlew.bat"
         result = run([str(gradle), ":app:assembleClientRuntime", ":app:assembleDebugAndroidTest",
+                      "-PpocketAbi=x86_64",
                       "-Pandroid.suppressUnsupportedCompileSdk=35", "-p", str(ANDROID)])
         if result.returncode:
             print(result.stdout + result.stderr, file=sys.stderr)

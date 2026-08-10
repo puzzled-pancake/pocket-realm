@@ -1,8 +1,331 @@
 import java.security.MessageDigest
+import java.io.RandomAccessFile
+import groovy.json.JsonSlurper
+import org.gradle.api.DefaultTask
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.TaskAction
+
+/**
+ * Configuration-cache-safe verifier for the selected native closure.
+ *
+ * Keeping the verification logic on a real task type is important here: a
+ * Kotlin DSL `doLast { ... }` closure retains the build-script instance and
+ * cannot be serialized into Gradle's configuration cache.  The task inputs
+ * are explicit, so an x86 and an ARM invocation can never reuse one another's
+ * closure or validation result.
+ */
+abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
+    @get:Input
+    abstract val selectedAbi: Property<String>
+
+    @get:Input
+    abstract val repoRootPath: Property<String>
+
+    @get:Input
+    abstract val nativeRootSuffix: Property<String>
+
+    @get:Input
+    abstract val prootRootSuffix: Property<String>
+
+    @get:Input
+    abstract val expectedMachine: Property<Int>
+
+    @get:Input
+    abstract val compat32Machine: Property<Int>
+
+    @get:Input
+    abstract val lane: Property<String>
+
+    @TaskAction
+    fun validateClosure() {
+        val abi = selectedAbi.get()
+        val repoRoot = File(repoRootPath.get())
+        val nativeBuildRoot = File(repoRoot, "native/.build-${nativeRootSuffix.get()}")
+
+        fun requireAbi(file: File, allowCompat32: Boolean = false) {
+            check(file.isFile) { "Missing native artifact for $abi: $file" }
+            val machine = file.inputStream().use { input ->
+                val header = ByteArray(20)
+                check(input.read(header) == header.size &&
+                    header[0] == 0x7f.toByte() && header[1] == 'E'.code.toByte() &&
+                    header[2] == 'L'.code.toByte() && header[3] == 'F'.code.toByte()) {
+                    "Expected ELF artifact for $abi: $file"
+                }
+                check(header[5] == 1.toByte()) {
+                    "Only little-endian ELF artifacts are supported: $file"
+                }
+                (header[18].toInt() and 0xff) or ((header[19].toInt() and 0xff) shl 8)
+            }
+            val allowed = machine == expectedMachine.get() ||
+                (allowCompat32 && machine == compat32Machine.get())
+            check(allowed) {
+                "Cross-ABI native artifact rejected for $abi: $file has ELF " +
+                    "e_machine=$machine, expected ${expectedMachine.get()}" +
+                    if (allowCompat32) " (or compatibility helper ${compat32Machine.get()})" else ""
+            }
+        }
+
+        fun requirePeMachine(file: File, expected: Int) {
+            check(file.isFile) { "Missing PE artifact: $file" }
+            val machine = RandomAccessFile(file, "r").use { input ->
+                check(input.readUnsignedByte() == 'M'.code && input.readUnsignedByte() == 'Z'.code) {
+                    "Expected PE artifact: $file"
+                }
+                input.seek(0x3c)
+                val peOffset = Integer.reverseBytes(input.readInt()).toLong() and 0xffffffffL
+                input.seek(peOffset)
+                check(input.readUnsignedByte() == 'P'.code && input.readUnsignedByte() == 'E'.code &&
+                    input.readUnsignedByte() == 0 && input.readUnsignedByte() == 0) {
+                    "Invalid PE signature: $file"
+                }
+                input.readUnsignedByte() or (input.readUnsignedByte() shl 8)
+            }
+            check(machine == expected) {
+                "Cross-architecture PE rejected: $file has machine=0x${machine.toString(16)}, " +
+                    "expected 0x${expected.toString(16)}"
+            }
+        }
+
+        fun sha256(file: File): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it) }
+        }
+
+        val selectedLane = lane.get()
+        check(selectedLane == "full" || selectedLane == "database") {
+            "Unsupported native packaging lane: $selectedLane"
+        }
+        val required = buildList {
+            add(File(nativeBuildRoot, "wine-spike-build/libwine_spike.so"))
+            if (selectedLane == "full") {
+                add(File(nativeBuildRoot, "pocket-runtime-build/libpocketrealm.so"))
+                add(File(nativeBuildRoot, "packaging-build/libpocketpkgtest.so"))
+                add(File(nativeBuildRoot, "packaging-build/libpocket_pkg_launcher.so"))
+                add(File(nativeBuildRoot, "wine-spike-build/libwine_trampoline.so"))
+                add(File(nativeBuildRoot, "xserver-winlator-build/libwinlator.so"))
+                add(File(nativeBuildRoot, "xserver-winlator-build/libgladiorenderer.so"))
+                if (abi == "arm64-v8a") {
+                    // Source-matched AArch64 Gladio client. It is packaged as
+                    // an asset and atomically replaces Winlator's incompatible
+                    // upstream rootfs copy during provider preparation.
+                    add(File(nativeBuildRoot, "wine-staging/assets/arm-translated/libGL.so.1"))
+                    add(File(nativeBuildRoot, "wine-staging/assets/arm-translated/turnip/libvulkan_freedreno.so"))
+                    add(File(nativeBuildRoot, "wine-staging/assets/arm-translated/fexcore/gladio/libGL.so.1"))
+                }
+            }
+            // The glibc access(2) shim belongs only to the x86_64 direct-Wine
+            // spike. ARM uses a separate translated-Wine provider boundary;
+            // never make an ARM APK appear complete by copying this x86/glibc
+            // artifact into its closure.
+            if (abi == "x86_64") {
+                add(File(nativeBuildRoot, "wine-spike-build/libwine_android_shim.so"))
+            }
+        }
+        val wineStaging = File(nativeBuildRoot, "wine-staging/jniLibs")
+        val prootStage = File(repoRoot, "native/.build-${prootRootSuffix.get()}/proot-stage")
+        val mariadbStage = File(nativeBuildRoot, "mariadb-staging/jniLibs/$abi")
+        val realmStage = File(
+            repoRoot,
+            "native/.build-o09-$abi/realm-staging/jniLibs/$abi",
+        )
+        val extractorStage = File(
+            repoRoot,
+            "native/.build-o11-$abi/extractor-staging/jniLibs/$abi",
+        )
+        val serverLibraries = listOf(
+            File(realmStage, "libpocket_realmd_runtime.so"),
+            File(realmStage, "libpocket_world_runtime.so"),
+        )
+        val extractors = listOf(
+            "libpocket_ad.so", "libpocket_vmap_extractor.so",
+            "libpocket_vmap_assembler.so", "libpocket_movemapgen.so",
+        ).map { File(extractorStage, it) }
+
+        // The database lane is deliberately client-runtime-free. O11 data
+        // preparation is deferred to the full runtime lane, where the realm
+        // provider and its memory budget are available.
+        val laneSpecific = if (selectedLane == "full") serverLibraries + extractors else emptyList()
+        val armGraphicsData = if (abi == "arm64-v8a" && selectedLane == "full") listOf(
+            File(nativeBuildRoot, "wine-staging/assets/arm-translated/turnip/freedreno_icd.aarch64.json"),
+            File(nativeBuildRoot, "wine-staging/assets/arm-translated/renderer-packages/catalog.json"),
+            File(nativeBuildRoot, "wine-staging/assets/arm-translated/renderer-packages/box64-dxvk-2.4.1/system32/d3d9.dll"),
+            File(nativeBuildRoot, "wine-staging/assets/arm-translated/renderer-packages/box64-dxvk-2.4.1/syswow64/d3d9.dll"),
+            File(nativeBuildRoot, "wine-staging/assets/arm-translated/renderer-packages/box64-dxvk-1.10.3/system32/d3d9.dll"),
+            File(nativeBuildRoot, "wine-staging/assets/arm-translated/renderer-packages/box64-dxvk-1.10.3/syswow64/d3d9.dll"),
+        ) else emptyList()
+        val fexData = if (abi == "arm64-v8a" && selectedLane == "full") listOf(
+            File(nativeBuildRoot, "wine-staging/assets/arm-translated/fexcore/BUILD_PROVENANCE.json"),
+            File(nativeBuildRoot, "wine-staging/assets/arm-translated/fexcore/fexcore-runtime.tar.zst"),
+            File(nativeBuildRoot, "wine-staging/jniLibs/libpocket_zstd_exec.so"),
+            File(nativeBuildRoot, "wine-staging/jniLibs/libpocket_zstd.so"),
+        ) else emptyList()
+        val missing = (required + laneSpecific + armGraphicsData + fexData).filterNot { it.isFile }
+        check(missing.isEmpty()) {
+            "Incomplete native closure for $abi. Build every selected-ABI provider; missing: " +
+                missing.joinToString()
+        }
+        required.forEach { requireAbi(it) }
+        if (abi == "arm64-v8a" && selectedLane == "full") {
+            val rendererCatalog = JsonSlurper().parse(armGraphicsData[1]) as Map<*, *>
+            check((rendererCatalog["schema"] as Number).toInt() == 1) {
+                "Unsupported renderer package catalog schema"
+            }
+            val rendererRecords = (rendererCatalog["packages"] as List<*>)
+                .map { it as Map<*, *> }
+            val rendererIds = rendererRecords.map { it["id"] as String }.toSet()
+            val expectedRendererIds = setOf(
+                "box64-dxvk-2.4.1",
+                "box64-dxvk-1.10.3",
+                "fex-dxvk-2.3.1-arm64ec",
+            )
+            check(rendererRecords.size == expectedRendererIds.size &&
+                rendererIds == expectedRendererIds) {
+                "Renderer package catalog is not the closed expected set: $rendererIds"
+            }
+            check(rendererRecords.all { it["backend"] == "dxvk" }) {
+                "Renderer package catalog contains a non-DXVK package"
+            }
+            val fexRecord = rendererRecords.single { it["id"] == "fex-dxvk-2.3.1-arm64ec" }
+            check(fexRecord["translator"] == "fex" && (fexRecord["files"] as List<*>).isEmpty()) {
+                "FEX renderer identity must remain inside its pinned runtime component"
+            }
+            val expectedFiles = mapOf(
+                "arm-translated/renderer-packages/box64-dxvk-2.4.1/system32/d3d9.dll" to
+                    Triple(3_743_758L,
+                        "216058f9320d0667d551f4cea840ee539396449ef8c8e89fe481e4f0ddb628ae", 0x8664),
+                "arm-translated/renderer-packages/box64-dxvk-2.4.1/syswow64/d3d9.dll" to
+                    Triple(4_124_686L,
+                        "cc556331fc3388989749620bceead4c2da95c3932ed38cf5cc24f3f0a878866e", 0x014c),
+                "arm-translated/renderer-packages/box64-dxvk-1.10.3/system32/d3d9.dll" to
+                    Triple(3_002_382L,
+                        "7129d7e67b9abb06608fe1c30bec4c7a7c7f0649198e39425cd7ef322569c383", 0x8664),
+                "arm-translated/renderer-packages/box64-dxvk-1.10.3/syswow64/d3d9.dll" to
+                    Triple(3_305_486L,
+                        "b6cfa2cd62af73b80d461085d126004b0e22dd3944c9246c58e3a68e747b56b6", 0x014c),
+            )
+            val catalogFiles = rendererRecords
+                .filter { it["translator"] == "box64" }
+                .flatMap { (it["files"] as List<*>).map { file -> file as Map<*, *> } }
+                .associateBy { it["asset"] as String }
+            check(catalogFiles.keys == expectedFiles.keys) {
+                "Renderer package file catalog changed: ${catalogFiles.keys}"
+            }
+            val assetRoot = File(nativeBuildRoot, "wine-staging/assets")
+            expectedFiles.forEach { (assetPath, expected) ->
+                val record = checkNotNull(catalogFiles[assetPath])
+                val file = File(assetRoot, assetPath)
+                check((record["size"] as Number).toLong() == expected.first &&
+                    file.length() == expected.first) {
+                    "Renderer package size mismatch: $assetPath"
+                }
+                check(record["sha256"] == expected.second && sha256(file) == expected.second) {
+                    "Renderer package digest mismatch: $assetPath"
+                }
+                check((record["pe_machine"] as Number).toInt() == expected.third) {
+                    "Renderer catalog PE machine mismatch: $assetPath"
+                }
+                requirePeMachine(file, expected.third)
+            }
+        }
+        if (selectedLane == "full") {
+            val wineFiles = wineStaging.listFiles { file -> file.isFile && file.name.endsWith(".so") }
+                ?.toList().orEmpty()
+            check(wineFiles.isNotEmpty()) {
+                if (abi == "arm64-v8a") {
+                    "ARM translated-Wine closure is not available: build and pin the " +
+                        "Box64 + x86_64 WoW64 Wine provider under $wineStaging before assembling RP6 APKs"
+                } else {
+                    "Wine staging contains no ELF closure: $wineStaging"
+                }
+            }
+            wineFiles.forEach { requireAbi(it) }
+            val prootFiles = prootStage.listFiles { file -> file.isFile && file.name.endsWith(".so") }
+                ?.toList().orEmpty()
+            check(prootFiles.isNotEmpty()) { "proot staging contains no ELF closure: $prootStage" }
+            prootFiles.forEach { file ->
+                requireAbi(file, allowCompat32 = file.name == "libproot_loader32.so")
+            }
+        }
+        val mariaFiles = mariadbStage.listFiles { file -> file.isFile && file.name.endsWith(".so") }
+            ?.toList().orEmpty()
+        check(mariaFiles.isNotEmpty()) { "MariaDB staging contains no ELF closure: $mariadbStage" }
+        mariaFiles.forEach { requireAbi(it) }
+        if (selectedLane == "full") {
+            serverLibraries.forEach { requireAbi(it) }
+            extractors.forEach { requireAbi(it) }
+        }
+    }
+}
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+}
+
+// Every APK build is a single-ABI build. Requiring the property avoids an
+// accidental universal APK and keeps x86_64/ARM64 native outputs disjoint.
+val supportedPocketAbis = setOf("x86_64", "arm64-v8a")
+val supportedPocketLanes = setOf("full", "database")
+val pocketAbi = providers.gradleProperty("pocketAbi").orNull?.trim()
+    ?.takeIf { it.isNotEmpty() }
+    ?: throw GradleException(
+        "Missing required -PpocketAbi=<abi>; supported values: " +
+            supportedPocketAbis.sorted().joinToString(),
+    )
+if (pocketAbi !in supportedPocketAbis) {
+    throw GradleException(
+        "Unsupported pocketAbi '$pocketAbi'; supported values: " +
+            supportedPocketAbis.sorted().joinToString(),
+    )
+}
+val pocketLane = providers.gradleProperty("pocketLane").orNull?.trim()?.takeIf { it.isNotEmpty() } ?: "full"
+if (pocketLane !in supportedPocketLanes) {
+    throw GradleException(
+        "Unsupported pocketLane '$pocketLane'; supported values: " +
+            supportedPocketLanes.sorted().joinToString(),
+    )
+}
+if (pocketLane == "database" && pocketAbi != "arm64-v8a") {
+    throw GradleException("The database-only lane is for the live arm64-v8a device; use pocketLane=full for x86_64")
+}
+
+// Existing native builders use the target triple in their root name
+// (.build-arm64), while APK-facing directories retain the Android ABI name.
+val pocketNativeRootSuffix = when (pocketAbi) {
+    "x86_64" -> "x86_64"
+    "arm64-v8a" -> "arm64"
+    else -> error("validated above")
+}
+// build_proot.py uses the architecture triple for its isolated root on ARM
+// (`aarch64`), while the other Android-native builders use `arm64`.
+val pocketProotRootSuffix = when (pocketAbi) {
+    "x86_64" -> "x86_64"
+    "arm64-v8a" -> "aarch64"
+    else -> error("validated above")
+}
+val pocketElfMachine = when (pocketAbi) {
+    "x86_64" -> 62 // EM_X86_64
+    "arm64-v8a" -> 183 // EM_AARCH64
+    else -> error("validated above")
+}
+val pocketCompat32ElfMachine = when (pocketAbi) {
+    "x86_64" -> 3 // EM_386
+    "arm64-v8a" -> 40 // EM_ARM
+    else -> error("validated above")
+}
+val pocketNdkLibraryTriple = when (pocketAbi) {
+    "x86_64" -> "x86_64-linux-android"
+    "arm64-v8a" -> "aarch64-linux-android"
+    else -> error("validated above")
 }
 
 android {
@@ -15,11 +338,13 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField(
+            "boolean", "ENABLE_CLIENT_DATA_PREPARATION", (pocketLane == "full").toString(),
+        )
 
-        // G0–G3 development ABI. arm64-v8a is added at G5 once the same
-        // contracts pass on x86_64.
+        // Qualification APKs are always explicit, single-ABI artifacts.
         ndk {
-            abiFilters += "x86_64"
+            abiFilters += pocketAbi
         }
     }
 
@@ -87,11 +412,16 @@ android {
         getByName("main") {
             // Deterministic staged native closure (see stageNativeLibs task).
             // Never references ../../../native — staged inside the module.
-            jniLibs.srcDir("build/staged-jniLibs")
+            val stagedJniDir = if (pocketLane == "full") {
+                "build/staged-jniLibs-$pocketAbi"
+            } else {
+                "build/staged-jniLibs-$pocketAbi-$pocketLane"
+            }
+            jniLibs.srcDir(stagedJniDir)
             // O06: Wine-owned PE modules as APK assets (the hash-verified
             // guest-code cache source). Generated by tools/stage_wine_runtime.py
-            // into native/.build-x86_64/wine-staging/assets/.
-            assets.srcDir("../..//native/.build-x86_64/wine-staging/assets")
+            // into native/.build-<selected-target>/wine-staging/assets/.
+            assets.srcDir("../../native/.build-$pocketNativeRootSuffix/wine-staging/assets")
             // O06 S-3: Winlator X-server (vendored at ca3d735; trimmed/stubbed).
             // See docs/patches/wine-provider-provenance.md for the trim list.
             java.srcDir("../../runtime/xserver-winlator")
@@ -99,10 +429,10 @@ android {
         getByName("databaseRuntime") {
             // Generated, deterministic provider support data + gzip migration
             // inputs. Executable code remains in nativeLibraryDir.
-            assets.srcDir("../../native/.build-x86_64/mariadb-staging/assets")
+            assets.srcDir("../../native/.build-$pocketNativeRootSuffix/mariadb-staging/assets")
         }
         getByName("realmRuntime") {
-            assets.srcDir("../../native/.build-x86_64/mariadb-staging/assets")
+            assets.srcDir("../../native/.build-$pocketNativeRootSuffix/mariadb-staging/assets")
             // The large-lane device preparation test imports a user-supplied
             // client through the bounded debug DocumentsProvider. Keep this
             // provider out of release/main while making it available to the
@@ -154,7 +484,45 @@ val ndkRootProvider = provider {
     error("NDK not found under ANDROID_SDK_ROOT/ndk[-link]. Run scripts/build_native.py first.")
 }
 
-// Stages the complete native dependency closure into build/staged-jniLibs/x86_64.
+val stageRendererPackages = if (pocketAbi == "arm64-v8a" && pocketLane == "full") {
+    tasks.register<Exec>("stageRendererPackages") {
+        group = "pocket realm"
+        description = "Stage the pinned, closed ARM DXVK package catalog."
+        val repoRoot = layout.projectDirectory.dir("../..").asFile
+        workingDir(repoRoot)
+        commandLine("python", "tools/stage_renderer_packages.py")
+        inputs.file(File(repoRoot, "tools/stage_renderer_packages.py"))
+        inputs.files(
+            File(repoRoot, "native/.providers-extracted/winlator-app-ca3d735/app/src/main/assets/dxwrapper/dxvk-2.4.1.tzst"),
+            File(repoRoot, "native/.providers-extracted/winlator-app-ca3d735/app/src/main/assets/dxwrapper/dxvk-1.10.3.tzst"),
+            File(repoRoot, "native/.providers-extracted/winlator-app-ca3d735/app/src/main/assets/graphics_driver/turnip-26.1.0.tzst"),
+        )
+        outputs.dir(File(repoRoot,
+            "native/.build-arm64/wine-staging/assets/arm-translated/renderer-packages"))
+    }
+} else null
+
+val validateSelectedNativeClosure = tasks.register<ValidateSelectedNativeClosureTask>(
+    "validateSelectedNativeClosure",
+) {
+    group = "pocket realm"
+    description = "Fail fast when the $pocketAbi native closure is missing or cross-ABI."
+    selectedAbi.set(pocketAbi)
+    repoRootPath.set(layout.projectDirectory.dir("../..").asFile.absolutePath)
+    nativeRootSuffix.set(pocketNativeRootSuffix)
+    prootRootSuffix.set(pocketProotRootSuffix)
+    expectedMachine.set(pocketElfMachine)
+    compat32Machine.set(pocketCompat32ElfMachine)
+    lane.set(pocketLane)
+    stageRendererPackages?.let { dependsOn(it) }
+}
+
+stageRendererPackages?.let {
+    tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }
+        .configureEach { dependsOn(validateSelectedNativeClosure) }
+}
+
+// Stages the complete native dependency closure into an ABI-isolated build root.
 // APK assembly depends on this task. Packages only app-supplied libs (the realm
 // facade, the packaging JNI shim, the PIE launcher, the O06 Wine spike helper,
 // and the Wine/glibc ELFs); platform libs (libc/libm/libdl/liblog) are supplied
@@ -162,78 +530,48 @@ val ndkRootProvider = provider {
 // Linux/glibc namespace — those are Wine's deps, not Android's).
 val stageNativeLibs by tasks.registering(Sync::class) {
     group = "pocket realm"
-    description = "Stage the native .so closure for APK packaging (x86_64)."
+    description = "Stage the native .so closure for APK packaging ($pocketAbi/$pocketLane)."
 
     val repoRoot = layout.projectDirectory.dir("../..").asFile
-    val rtBuild = File(repoRoot, "native/.build-x86_64/pocket-runtime-build")
-    val pkgBuild = File(repoRoot, "native/.build-x86_64/packaging-build")
-    val wineSpikeBuild = File(repoRoot, "native/.build-x86_64/wine-spike-build")
-    val xserverBuild = File(repoRoot, "native/.build-x86_64/xserver-winlator-build")
-    val wineStaging = File(repoRoot, "native/.build-x86_64/wine-staging/jniLibs")
-    val prootStage = File(repoRoot, "native/.build-x86_64/proot-stage")
-    val mariadbStage = File(repoRoot, "native/.build-x86_64/mariadb-staging/jniLibs/x86_64")
-    val realmStage = File(repoRoot, "native/.build-o09-x86_64/realm-staging/jniLibs/x86_64")
-    val extractorStage = File(repoRoot, "native/.build-o11-x86_64/extractor-staging/jniLibs/x86_64")
-    val stagedLib = layout.buildDirectory.dir("staged-jniLibs/x86_64")
-
-    // Require the native build to have run (O03/O04 + O05 packaging + O06 spike).
-    doFirst {
-        val required = listOf(
-            File(rtBuild, "libpocketrealm.so"),
-            File(pkgBuild, "libpocketpkgtest.so"),
-            File(pkgBuild, "libpocket_pkg_launcher.so"),
-            File(wineSpikeBuild, "libwine_spike.so"),
-            File(wineSpikeBuild, "libwine_trampoline.so"),
-            File(wineSpikeBuild, "libwine_android_shim.so"),
-            File(xserverBuild, "libwinlator.so"),
-        )
-        val missing = required.filter { !it.isFile }
-        check(missing.isEmpty()) {
-            "Missing staged native artifacts (run scripts/build_native.py --abi x86_64 all, " +
-                "tools/build_packaging.py, tools/build_wine_spike.py, " +
-                "tools/build_xserver_winlator.py): " +
-                missing.joinToString { it.name }
-        }
-        check(wineStaging.isDirectory) {
-            "Wine staging not found at $wineStaging. Run: python tools/stage_wine_runtime.py"
-        }
-        check(prootStage.isDirectory) {
-            "proot staging not found at $prootStage. Run: python tools/build_proot.py --abi x86_64"
-        }
-        val serverLibraries = listOf(
-            File(realmStage, "libpocket_realmd_runtime.so"),
-            File(realmStage, "libpocket_world_runtime.so"),
-        )
-        check(serverLibraries.all { it.isFile }) {
-            "O09 native realm staging is incomplete. Run: python tools/build_o09_realm_runtime.py"
-        }
-        val extractors = listOf("libpocket_ad.so", "libpocket_vmap_extractor.so",
-            "libpocket_vmap_assembler.so", "libpocket_movemapgen.so")
-            .map { File(extractorStage, it) }
-        check(extractors.all { it.isFile }) {
-            "O11 extractor staging is incomplete. Run: python tools/build_o11_extractors.py"
-        }
-    }
+    val nativeBuildRoot = File(repoRoot, "native/.build-$pocketNativeRootSuffix")
+    val rtBuild = File(nativeBuildRoot, "pocket-runtime-build")
+    val pkgBuild = File(nativeBuildRoot, "packaging-build")
+    val wineSpikeBuild = File(nativeBuildRoot, "wine-spike-build")
+    val xserverBuild = File(nativeBuildRoot, "xserver-winlator-build")
+    val wineStaging = File(nativeBuildRoot, "wine-staging/jniLibs")
+    val prootStage = File(repoRoot, "native/.build-$pocketProotRootSuffix/proot-stage")
+    val mariadbStage = File(nativeBuildRoot, "mariadb-staging/jniLibs/$pocketAbi")
+    val realmStage = File(repoRoot, "native/.build-o09-$pocketAbi/realm-staging/jniLibs/$pocketAbi")
+    val extractorStage = File(repoRoot, "native/.build-o11-$pocketAbi/extractor-staging/jniLibs/$pocketAbi")
+    val stagedDirName = if (pocketLane == "full") "staged-jniLibs-$pocketAbi" else "staged-jniLibs-$pocketAbi-$pocketLane"
+    val stagedLib = layout.buildDirectory.dir("$stagedDirName/$pocketAbi")
+    dependsOn(validateSelectedNativeClosure)
 
     into(stagedLib)
     // Real realm facade (O04) — large APK-native .so, loaded by SONAME in PKG-02/06.
+    if (pocketLane == "full") {
     from(File(rtBuild, "libpocketrealm.so"))
     // PKG JNI shim + dlopen/crash helper.
     from(File(pkgBuild, "libpocketpkgtest.so"))
     // PKG-01 PIE launcher (a .so-named executable; extracted under the
     // experiment variant).
     from(File(pkgBuild, "libpocket_pkg_launcher.so"))
+    }
     // O06: Wine spike JNI helper (symlink-tree builder + loader launcher +
     // /proc maps probe + PE cache + S-5 SIGSYS diagnostic + trampoline launcher).
     // Runs in the Android/Bionic namespace.
     from(File(wineSpikeBuild, "libwine_spike.so"))
+    if (pocketLane == "full") {
     // O06 S-5(a): APK-packaged Bionic trampoline PIE (re-execve's the glibc
     // loader). Named lib*.so so AGP extracts it with the +x bit; it is a PIE
     // executable, not a shared library.
     from(File(wineSpikeBuild, "libwine_trampoline.so"))
     // O06 direct-glibc path: glibc LD_PRELOAD path/syscall shim, built in the
-    // pinned Linux CGCT container by tools/build_wine_glibc_shim.py.
-    from(File(wineSpikeBuild, "libwine_android_shim.so"))
+    // pinned Linux CGCT container by tools/build_wine_glibc_shim.py.  It is
+    // x86_64-only; the ARM translated-Wine provider has a distinct closure.
+    if (pocketAbi == "x86_64") {
+        from(File(wineSpikeBuild, "libwine_android_shim.so"))
+    }
     // O06 S-5(b): proot fallback (termux/proot@a89b3732, Bionic PIE) + libtalloc.
     // Required because Android's untrusted_app seccomp filter kills the glibc
     // loader on its access(2) syscall (PROVEN via ptrace diagnostic). proot
@@ -256,13 +594,15 @@ val stageNativeLibs by tasks.registering(Sync::class) {
     // O07: source-matched Winlator GLX/OpenGL bridge. WineD3D needs this
     // extension to render the imported 1.12.1 client; GDI-only O06 did not.
     from(File(xserverBuild, "libgladiorenderer.so"))
+    }
     // libc++_shared.so — the realm facade links ANDROID_STL=c++_shared, so its
     // runtime closure needs the shared C++ runtime. Sourced from the NDK, never
     // from a platform path. Platform libs (libc/libm/libdl/liblog) are excluded.
     from(provider {
         val ndk = ndkRootProvider.get()
-        File(ndk, "toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/x86_64-linux-android/libc++_shared.so")
+        File(ndk, "toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/$pocketNdkLibraryTriple/libc++_shared.so")
     })
+    if (pocketLane == "full") {
     // O06: the Wine + glibc ELF closure (53 files: glibc loader + libs, gcc-libs,
     // X11/font libs, Wine binaries + 36 unix .so modules). These run in the
     // SEPARATE Linux/glibc namespace (execve'd via the APK-managed loader).
@@ -274,43 +614,77 @@ val stageNativeLibs by tasks.registering(Sync::class) {
     from(File(wineStaging, "libwine_unix_ntdll.so")) {
         rename { "ntdll.so" }
     }
+    }
     // O08: pinned MariaDB executables + their glibc DT_NEEDED closure. The
     // stage script assigns collision-safe lib*.so APK names and records every
     // source pathname/hash in BUILD_PROVENANCE.json.
     from(mariadbStage)
+    if (pocketLane == "full") {
     // O09: Android/Bionic, no-bot CMaNGOS components. Each library is loaded
     // only inside its dedicated :realm or :world process.
     from(realmStage)
-    // O11: finite, fixed-purpose Android/Bionic PIE extractors. These are
-    // invoked only by the isolated import worker after managed-copy publication.
-    from(extractorStage)
+    }
+    if (pocketLane == "full") {
+        // O11: finite, fixed-purpose Android/Bionic PIE extractors. These are
+        // invoked only by the isolated import worker after managed-copy
+        // publication in the full runtime lane.
+        from(extractorStage)
+    }
 }
 
 val validateDatabaseRuntime by tasks.registering {
     group = "pocket realm"
-    description = "Require the generated O08 MariaDB provider and migration assets."
+    description = "Require the generated O08 MariaDB provider and migration assets for $pocketAbi."
     val repoRoot = layout.projectDirectory.dir("../..").asFile
+    val selectedAbi = pocketAbi
+    val nativeRootSuffix = pocketNativeRootSuffix
+    val expectedMachine = pocketElfMachine
     doLast {
-        val stage = File(repoRoot, "native/.build-x86_64/mariadb-staging")
+        val stage = File(repoRoot, "native/.build-$nativeRootSuffix/mariadb-staging")
         val required = listOf(
-            File(stage, "jniLibs/x86_64/libpocket_mariadbd.so"),
-            File(stage, "jniLibs/x86_64/libpocket_mariadb_client.so"),
+            File(stage, "jniLibs/$selectedAbi/libpocket_mariadbd.so"),
+            File(stage, "jniLibs/$selectedAbi/libpocket_mariadb_client.so"),
             File(stage, "assets/database/provider/bootstrap.sql"),
+            File(stage, "assets/database/provider/runtime-manifest.json"),
             File(stage, "assets/database/migrations/manifest.json"),
             File(stage, "BUILD_PROVENANCE.json"),
         )
         val missing = required.filterNot { it.isFile }
         check(missing.isEmpty()) {
-            "O08 MariaDB staging incomplete. Run tools/stage_mariadb_runtime.py and " +
+            "O08 MariaDB staging incomplete for $selectedAbi. Run the ABI-aware MariaDB staging and " +
                 "tools/stage_database_migrations.py. Missing: ${missing.joinToString { it.name }}"
+        }
+        required.take(2).forEach { file ->
+            val header = file.inputStream().use { input -> ByteArray(20).also { input.read(it) } }
+            val machine = (header[18].toInt() and 0xff) or ((header[19].toInt() and 0xff) shl 8)
+            check(header.copyOfRange(0, 4).contentEquals(byteArrayOf(0x7f, 0x45, 0x4c, 0x46)) &&
+                machine == expectedMachine) {
+                "MariaDB artifact is not $selectedAbi ELF (e_machine=$machine): $file"
+            }
+        }
+        val runtimeManifest = JsonSlurper().parse(
+            File(stage, "assets/database/provider/runtime-manifest.json"),
+        ) as Map<*, *>
+        val expectedProvider = when (selectedAbi) {
+            "x86_64" -> "mariadb-11.5.2-termux-glibc"
+            "arm64-v8a" -> "mariadb-12.3.2-termux-bionic-arm64"
+            else -> error("Unsupported database ABI $selectedAbi")
+        }
+        check((runtimeManifest["schema"] as? Number)?.toInt() == 1 &&
+            runtimeManifest["provider"] == expectedProvider &&
+            runtimeManifest["abi"] == selectedAbi) {
+            "MariaDB runtime manifest identity mismatch for $selectedAbi: " +
+                File(stage, "assets/database/provider/runtime-manifest.json")
         }
     }
 }
 
 val validateRealmRuntime by tasks.registering {
     group = "pocket realm"
-    description = "Require realm ELF artifacts to match both the lockfile and generated provenance."
+    description = "Require $pocketAbi realm ELF artifacts to match lockfile and generated provenance."
     val repoRoot = layout.projectDirectory.dir("../..").asFile
+    val selectedAbi = pocketAbi
+    val expectedMachine = pocketElfMachine
     doLast {
         fun sha256Hex(file: File): String {
             val digest = MessageDigest.getInstance("SHA-256")
@@ -324,9 +698,20 @@ val validateRealmRuntime by tasks.registering {
             }
             return digest.digest().joinToString("") { "%02x".format(it) }
         }
-        val lockPath = "native/.build-o09-x86_64/realm-staging/jniLibs/x86_64/"
-        val lockText = File(repoRoot, "schemas/realm-runtime-lockfile.json").readText()
-        val provenance = File(repoRoot, "native/.build-o09-x86_64/realm-staging/BUILD_PROVENANCE.json")
+        val lockPath = "native/.build-o09-$selectedAbi/realm-staging/jniLibs/$selectedAbi/"
+        val lockfile = if (selectedAbi == "x86_64") {
+            File(repoRoot, "schemas/realm-runtime-lockfile.json")
+        } else {
+            File(repoRoot, "schemas/realm-runtime-lockfile-$selectedAbi.json")
+        }
+        check(lockfile.isFile) {
+            "Realm runtime lockfile for $selectedAbi is missing: $lockfile"
+        }
+        val lockText = lockfile.readText()
+        check(Regex("\"abi\"\\s*:\\s*\"${Regex.escape(selectedAbi)}\"").containsMatchIn(lockText)) {
+            "Realm runtime lockfile declares a different ABI: $lockfile"
+        }
+        val provenance = File(repoRoot, "native/.build-o09-$selectedAbi/realm-staging/BUILD_PROVENANCE.json")
         check(provenance.isFile) { "O09 BUILD_PROVENANCE.json is missing; rebuild realm runtime" }
         val provenanceText = provenance.readText()
         val files = listOf("libpocket_realmd_runtime.so", "libpocket_world_runtime.so")
@@ -347,6 +732,12 @@ val validateRealmRuntime by tasks.registering {
             }
             val artifact = File(repoRoot, relative)
             check(artifact.isFile) { "missing staged realm artifact: $artifact" }
+            val header = artifact.inputStream().use { input -> ByteArray(20).also { input.read(it) } }
+            val machine = (header[18].toInt() and 0xff) or ((header[19].toInt() and 0xff) shl 8)
+            check(header.copyOfRange(0, 4).contentEquals(byteArrayOf(0x7f, 0x45, 0x4c, 0x46)) &&
+                machine == expectedMachine) {
+                "Realm artifact is not $selectedAbi ELF (e_machine=$machine): $artifact"
+            }
             check(artifact.length() == lock.groupValues[1].toLong()) {
                 "realm artifact size disagrees with lockfile: $name"
             }
@@ -405,6 +796,8 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.okhttp)
+    implementation(libs.commons.compress)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
@@ -418,5 +811,6 @@ dependencies {
     // Host JVM unit tests (O04: RealmNative shim graceful-degradation test).
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.mockwebserver3)
     testImplementation("org.json:json:20240303")
 }

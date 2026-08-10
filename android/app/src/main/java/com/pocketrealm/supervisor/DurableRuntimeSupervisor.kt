@@ -1,5 +1,6 @@
 package com.pocketrealm.supervisor
 
+import com.pocketrealm.bots.BotProfiles
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -185,7 +186,9 @@ class DurableRuntimeSupervisor(
             recoverability = Recoverability.RETRY,
         ))
         val observation = runCatching {
-            withTimeout(timeouts.start(component)) { backend.start(component, owner, profileId) }
+            withTimeout(timeouts.start(component, BotProfiles.find(profileId) != null)) {
+                backend.start(component, owner, profileId)
+            }
         }.getOrElse {
             failStage(component, "${it.javaClass.simpleName}: ${it.message}")
             return false

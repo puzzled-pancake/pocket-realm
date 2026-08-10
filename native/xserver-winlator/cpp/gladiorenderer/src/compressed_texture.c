@@ -1,6 +1,9 @@
 #define STB_DXT_IMPLEMENTATION
 #include "stb_dxt.h"
 
+#include <sys/mman.h>
+#include <stdlib.h>
+
 #include "compressed_texture.h"
 #include "bc_decoder.h"
 
@@ -23,6 +26,11 @@ void compressTexImage2D(uint32_t format, int width, int height, void* imageData,
 }
 
 void* decompressTexImage2D(uint32_t format, int width, int height, void* imageData, ThreadPool* threadPool) {
+    if (!isSupportedCompressedTextureFormat(format) || !imageData || width <= 0 || height <= 0) return NULL;
+
+    size_t pixelCount = (size_t)width * (size_t)height;
+    if (pixelCount > SIZE_MAX / 4) return NULL;
+
     int bcN = 0;
     bool isNoAlphaU = format == GL_COMPRESSED_RGB_S3TC_DXT1_EXT;
 
@@ -39,7 +47,31 @@ void* decompressTexImage2D(uint32_t format, int width, int height, void* imageDa
             break;
     }
 
-    void* decompressedData = malloc(width * height * 4);
+    size_t byteCount = pixelCount * 4;
+#if defined(__aarch64__)
+    // Android's MTE-tagged malloc memory cannot be consumed by some vendor
+    // GLES drivers. Anonymous pages are untagged and safe for the client-data
+    // pointer passed through the GLES ABI.
+    void* decompressedData = mmap(NULL, byteCount, PROT_READ | PROT_WRITE,
+                                  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (decompressedData == MAP_FAILED) return NULL;
+#else
+    void* decompressedData = malloc(byteCount);
+    if (!decompressedData) return NULL;
+#endif
+
     BCDecoder_decode(imageData, decompressedData, width, height, bcN, isNoAlphaU, threadPool);
     return decompressedData;
+}
+
+void freeDecompressedTexImage2D(void* imageData, int width, int height) {
+    if (!imageData || width <= 0 || height <= 0) return;
+    size_t pixelCount = (size_t)width * (size_t)height;
+    if (pixelCount > SIZE_MAX / 4) return;
+    size_t byteCount = pixelCount * 4;
+#if defined(__aarch64__)
+    munmap(imageData, byteCount);
+#else
+    free(imageData);
+#endif
 }

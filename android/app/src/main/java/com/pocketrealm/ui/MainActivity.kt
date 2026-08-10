@@ -1,6 +1,7 @@
 package com.pocketrealm.ui
 
 import android.Manifest
+import android.content.pm.PackageManager
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -27,7 +28,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         // Foreground service + notification need POST_NOTIFICATIONS on 33+.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestNotifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         setContent {

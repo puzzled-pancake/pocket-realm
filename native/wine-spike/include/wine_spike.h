@@ -408,6 +408,22 @@ int wine_spike_run_glibc_program(const char *native_dir,
 /* Kill only the process tree registered by a track_as_daemon launch. */
 int wine_spike_cancel_active_glibc_program(void);
 
+/* ARM64/Bionic MariaDB runner.  This is deliberately separate from the
+ * glibc/PRoot path above: it execs the APK-managed Bionic ELF directly with a
+ * fixed private SONAME directory and the same bounded result contract. */
+int wine_spike_run_bionic_program(const char *native_dir,
+                                  const char *executable,
+                                  const char *argv0_override,
+                                  const char *working_dir,
+                                  const char *runtime_root,
+                                  const char *library_path,
+                                  const char *args_blob,
+                                  const char *env_blob,
+                                  const char *stdin_path,
+                                  int timeout_ms,
+                                  int track_as_daemon,
+                                  struct wine_spike_proot_run_result *out);
+
 /*
  * Recursively enumerate ALL descendants of <root_pid> (children, grandchildren,
  * ...) into out_pids (depth-first). Returns the count written, or -1 on error.

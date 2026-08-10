@@ -36,13 +36,22 @@
 #define FOG_MODE_EXP "2048"
 #define FOG_MODE_EXP2 "2049"
 
+#define TEXGEN_MODE_EYE_LINEAR "9216"
+#define TEXGEN_MODE_OBJECT_LINEAR "9217"
+#define TEXGEN_MODE_SPHERE_MAP "9218"
+#define TEXGEN_MODE_NORMAL_MAP "34065"
+#define TEXGEN_MODE_REFLECTION_MAP "34066"
+
 typedef struct MaterialOptions {
     bool lighting;
     bool alphaTest;
     bool fog;
     bool pointSprite;
     bool transformVertex;
+    bool texGen;
     uint8_t numTextures;
+    uint8_t vertexTextures;
+    uint8_t fragmentTextures;
     ARBProgram* vertexProgram;
     ARBProgram* fragmentProgram;
 } MaterialOptions;
@@ -54,16 +63,22 @@ typedef struct ShaderMaterial {
         int attributes[VERTEX_ATTRIB_COUNT];
         int projectionMatrix;
         int modelViewMatrix;
-        int textureMatrix;
+        int textureMatrix[MAX_TEXCOORDS];
+        int texGenEnabled[MAX_TEXCOORDS];
+        int texGenMode[MAX_TEXCOORDS];
+        int texGenObjectPlane[MAX_TEXCOORDS];
+        int texGenEyePlane[MAX_TEXCOORDS];
         int alphaTest;
         int useTexture;
         int texture[MAX_TEXCOORDS];
-        int texEnv[MAX_TEXCOORDS][7];
+        int texEnv[MAX_TEXCOORDS][9];
         int point[7];
         int fog[5];
 
         int lights[MAX_LIGHTS][7];
         int numLights;
+        int lightModel[4];
+        int colorMaterial[3];
 
         int materials[2][4];
     } location;
@@ -75,7 +90,7 @@ extern void ShaderMaterial_updatePointUniforms(ShaderMaterial* material, GLRende
 extern void ShaderMaterial_updateUniforms(ShaderMaterial* material, GLRenderer* renderer, MaterialOptions* options);
 
 static inline uint32_t generateMaterialHash(MaterialOptions* options) {
-    const char key[] = {0, 0, 0, 0, '-', 0, 0, 0, 0, '-', INT2CHR(options->lighting), '-', INT2CHR(options->alphaTest), '-', INT2CHR(options->fog), '-', INT2CHR(options->pointSprite), '-', INT2CHR(options->transformVertex), '-', INT2CHR(options->numTextures)};
+    const char key[] = {0, 0, 0, 0, '-', 0, 0, 0, 0, '-', INT2CHR(options->lighting), '-', INT2CHR(options->alphaTest), '-', INT2CHR(options->fog), '-', INT2CHR(options->pointSprite), '-', INT2CHR(options->transformVertex), '-', INT2CHR(options->texGen), '-', INT2CHR(options->numTextures), '-', INT2CHR(options->vertexTextures), '-', INT2CHR(options->fragmentTextures)};
     *(int*)(key+0) = options->vertexProgram ? options->vertexProgram->id : 0;
     *(int*)(key+5) = options->fragmentProgram ? options->fragmentProgram->id : 0;
     return fnv1aHash32(key, sizeof(key));

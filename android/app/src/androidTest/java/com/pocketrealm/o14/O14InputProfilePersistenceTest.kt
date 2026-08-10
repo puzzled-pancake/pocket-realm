@@ -21,7 +21,8 @@ class O14InputProfilePersistenceTest {
     fun profileSurvivesStoreReloadAndFlagsAspectChange() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val prefs = context.getSharedPreferences("pocket_input_profile", Context.MODE_PRIVATE)
-        val original = prefs.getString("profile_v2", null)
+        val keys = listOf("profile_v4", "profile_v3", "profile_v2")
+        val originals = keys.associateWith { prefs.getString(it, null) }
         try {
             val store = InputProfileStore(context)
             val tuned = InputProfile(InputProfile.CURRENT_VERSION, 0.2f, "16:9", 1.6f, 0.7f)
@@ -32,10 +33,12 @@ class O14InputProfilePersistenceTest {
 
             val changed = store.load("20:9")
             assertTrue(changed.resetForAspect)
-            assertEquals("16:9", changed.profile.aspectIdentity)
+            assertEquals("20:9", changed.profile.aspectIdentity)
         } finally {
             val edit = prefs.edit()
-            if (original == null) edit.remove("profile_v2") else edit.putString("profile_v2", original)
+            originals.forEach { (key, original) ->
+                if (original == null) edit.remove(key) else edit.putString(key, original)
+            }
             edit.commit()
         }
     }

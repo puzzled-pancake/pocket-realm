@@ -35,7 +35,7 @@ static void initMaterials(GLRenderer* renderer) {
     GLMaterial* materials = calloc(2, sizeof(GLMaterial));
 
     const float ambient[] = {0.2f, 0.2f, 0.2f};
-    const float diffuse[] = {0.8f, 0.8f, 0.8f};
+    const float diffuse[] = {0.8f, 0.8f, 0.8f, 1.0f};
 
     memcpy(materials[0].ambient, ambient, sizeof(ambient));
     memcpy(materials[0].diffuse, diffuse, sizeof(diffuse));
@@ -45,18 +45,18 @@ static void initMaterials(GLRenderer* renderer) {
     renderer->materials = materials;
 }
 
-static void initLight(GLLight* light) {
-    const float ambient[] = {0.2f, 0.2f, 0.2f};
-    const float diffuse[] = {1.0f, 1.0f, 1.0f};
+static void initLight(GLLight* light, int index) {
+    const float black[] = {0.0f, 0.0f, 0.0f};
+    const float white[] = {1.0f, 1.0f, 1.0f};
     const float position[] = {0.0f, 0.0f, 1.0f, 0.0f};
     const float attenuation[] = {1.0f, 0.0f, 0.0f};
     const float spotDirection[] = {0.0f, 0.0f, -1.0f};
 
-    memcpy(light->ambient, ambient, sizeof(ambient));
-    memcpy(light->diffuse, diffuse, sizeof(diffuse));
-    memcpy(light->specular, diffuse, sizeof(diffuse));
+    memcpy(light->ambient, black, sizeof(black));
+    memcpy(light->diffuse, index == 0 ? white : black, sizeof(white));
+    memcpy(light->specular, index == 0 ? white : black, sizeof(white));
     memcpy(light->position, position, sizeof(position));
-    memcpy(light->attenuation, attenuation, sizeof(position));
+    memcpy(light->attenuation, attenuation, sizeof(attenuation));
     memcpy(light->spotDirection, spotDirection, sizeof(spotDirection));
     light->spotCutoffExponent[0] = TO_RADIANS(180);
 }
@@ -68,9 +68,41 @@ void GLRenderer_initOnEGLContext(GLRenderer* renderer) {
 
     memcpy(renderer->state.color, color, sizeof(color));
     memcpy(renderer->state.normal, normal, sizeof(normal));
+    /* Fixed-function material defaults exist from context creation; a guest
+     * is not required to issue glMaterial* before its first lit draw. */
+    initMaterials(renderer);
 
     for (int i = 0; i < MAX_TEXCOORDS; i++) {
         memcpy(renderer->state.texCoords[i], texCoord, sizeof(texCoord));
+
+        TexGen* texGen = &renderer->state.texGen[i];
+        for (int coord = 0; coord < 4; coord++) {
+            texGen->coords[coord].mode = GL_EYE_LINEAR;
+        }
+        texGen->coords[0].objectPlane[0] = 1.0f;
+        texGen->coords[0].eyePlane[0] = 1.0f;
+        texGen->coords[1].objectPlane[1] = 1.0f;
+        texGen->coords[1].eyePlane[1] = 1.0f;
+
+        TexEnv* texEnv = &renderer->state.texEnv[i];
+        memset(texEnv, 0, sizeof(*texEnv));
+        texEnv->mode = GL_MODULATE;
+        texEnv->combineRGBA[0] = GL_MODULATE;
+        texEnv->combineRGBA[1] = GL_MODULATE;
+        texEnv->rgbaScale[0] = 1.0f;
+        texEnv->rgbaScale[1] = 1.0f;
+        texEnv->sourceRGBA[0] = GL_TEXTURE;
+        texEnv->sourceRGBA[1] = GL_PREVIOUS;
+        texEnv->sourceRGBA[2] = GL_TEXTURE;
+        texEnv->sourceRGBA[3] = GL_PREVIOUS;
+        texEnv->source2RGBA[0] = GL_CONSTANT;
+        texEnv->source2RGBA[1] = GL_CONSTANT;
+        texEnv->operandRGBA[0] = GL_SRC_COLOR;
+        texEnv->operandRGBA[1] = GL_SRC_COLOR;
+        texEnv->operandRGBA[2] = GL_SRC_ALPHA;
+        texEnv->operandRGBA[3] = GL_SRC_ALPHA;
+        texEnv->operand2RGBA[0] = GL_SRC_ALPHA;
+        texEnv->operand2RGBA[1] = GL_SRC_ALPHA;
 
         GLfloat param = GL_MODULATE;
         GLfloat scale = 1.0f;
@@ -82,6 +114,13 @@ void GLRenderer_initOnEGLContext(GLRenderer* renderer) {
     }
     renderer->clientState.activeTexture = 0;
     renderer->state.polygonMode = GL_FILL;
+
+    const float lightModelAmbient[] = {0.2f, 0.2f, 0.2f, 1.0f};
+    memcpy(renderer->state.lightModel.ambient, lightModelAmbient,
+           sizeof(lightModelAmbient));
+    renderer->state.lightModel.colorControl = GL_SINGLE_COLOR;
+    renderer->state.colorMaterial.face = GL_FRONT_AND_BACK;
+    renderer->state.colorMaterial.mode = GL_AMBIENT_AND_DIFFUSE;
 
     renderer->state.point.size = 1.0f;
     renderer->state.point.sizeMin = 0.0f;
@@ -101,7 +140,7 @@ void GLRenderer_initOnEGLContext(GLRenderer* renderer) {
     renderer->state.shadeModel = GL_SMOOTH;
     renderer->state.clampReadColor = false;
 
-    for (int i = 0; i < MAX_LIGHTS; i++) initLight(&renderer->lights[i]);
+    for (int i = 0; i < MAX_LIGHTS; i++) initLight(&renderer->lights[i], i);
 
     glGenBuffers(ARRAY_SIZE(renderer->bufferIds), renderer->bufferIds);
 
@@ -140,13 +179,25 @@ static void updateVertexBuffers(GLRenderer* renderer, int* attribLocations) {
         }
     }
 
-    if (attribLocations[NORMAL_ARRAY_INDEX] != -1 && geometry->normals.size > 0) {
-        bindVertexBuffer(renderer, renderer->bufferIds[3], attribLocations[NORMAL_ARRAY_INDEX], 3, geometry->normals.size, geometry->normals.buffer);
+    if (attribLocations[NORMAL_ARRAY_INDEX] != -1) {
+        if (geometry->normals.size > 0) {
+            bindVertexBuffer(renderer, renderer->bufferIds[3], attribLocations[NORMAL_ARRAY_INDEX], 3, geometry->normals.size, geometry->normals.buffer);
+        }
+        else {
+            GLRenderer_disableVertexAttribute(renderer, attribLocations[NORMAL_ARRAY_INDEX]);
+            glVertexAttrib3fv(attribLocations[NORMAL_ARRAY_INDEX], renderer->state.normal);
+        }
     }
 
     for (int i = 0, j = TEXCOORD_ARRAY_INDEX; i < MAX_TEXCOORDS; i++, j++) {
-        if (attribLocations[j] != -1 && geometry->texCoords[i].size > 0) {
-            bindVertexBuffer(renderer, renderer->bufferIds[j+1], attribLocations[j], 4, geometry->texCoords[i].size, geometry->texCoords[i].buffer);
+        if (attribLocations[j] != -1) {
+            if (geometry->texCoords[i].size > 0) {
+                bindVertexBuffer(renderer, renderer->bufferIds[j+1], attribLocations[j], 4, geometry->texCoords[i].size, geometry->texCoords[i].buffer);
+            }
+            else {
+                GLRenderer_disableVertexAttribute(renderer, attribLocations[j]);
+                glVertexAttrib4fv(attribLocations[j], renderer->state.texCoords[i]);
+            }
         }
         geometry->texCoords[i].size = 0;
     }
@@ -210,24 +261,158 @@ static ShaderMaterial* setCurrentMaterial(GLRenderer* renderer, MaterialOptions*
 }
 
 bool GLRenderer_useARBProgram(GLRenderer* renderer, bool updateUniforms) {
-    if (!ARBProgram_isActive()) return false;
-    ARBProgram* vertexProgram = renderer->clientState.arbProgram[indexOfGLTarget(GL_VERTEX_PROGRAM_ARB)];
-    ARBProgram* fragmentProgram = renderer->clientState.arbProgram[indexOfGLTarget(GL_FRAGMENT_PROGRAM_ARB)];
+    bool vertexActive = ARBProgram_isVertexActive();
+    bool fragmentActive = ARBProgram_isFragmentActive();
+    if (!vertexActive && !fragmentActive) return false;
+    ARBProgram* vertexProgram = vertexActive
+            ? renderer->clientState.arbProgram[indexOfGLTarget(GL_VERTEX_PROGRAM_ARB)] : NULL;
+    ARBProgram* fragmentProgram = fragmentActive
+            ? renderer->clientState.arbProgram[indexOfGLTarget(GL_FRAGMENT_PROGRAM_ARB)] : NULL;
 
-    uint8_t numTextures = MAX(vertexProgram->numTextures, fragmentProgram->numTextures);
-    if (!vertexProgram->material) {
-        MaterialOptions options = {false, true, false, false, false, numTextures, vertexProgram, fragmentProgram};
-        vertexProgram->material = setCurrentMaterial(renderer, &options);
-        fragmentProgram->material = vertexProgram->material;
-    }
-    else {
-        glUseProgram(vertexProgram->material->program);
-        if (updateUniforms) {
-            MaterialOptions options = {false, true, false, false, false, numTextures, vertexProgram, fragmentProgram};
-            ShaderMaterial_updateUniforms(vertexProgram->material, renderer, &options);
+    uint8_t vertexTextures = vertexProgram ? vertexProgram->numTextures : 0;
+    uint8_t fragmentTextures = fragmentProgram ? fragmentProgram->numTextures : 0;
+    uint8_t conventionalTextures = 0;
+    for (int i = 0; i < MAX_TEXCOORDS; i++) {
+        if (renderer->state.enabledTextures[i][indexOfGLTarget(GL_TEXTURE_2D)]) {
+            conventionalTextures = MAX(conventionalTextures, (uint8_t)(i + 1));
         }
     }
+    /* The generated opposite stage must follow the stage it replaces.  In a
+     * VP-only draw, the fixed fragment stage samples the conventional enabled
+     * texture units—not every texcoord merely referenced by the VP.  Including
+     * vp->numTextures here can add an unbound sampler and multiply the whole
+     * pass by black.  For an FP-only draw, retain enough conventional units for
+     * the fixed vertex stage while honoring the FP's explicit samplers. */
+    uint8_t vertexTextureCount = vertexProgram ? vertexTextures : conventionalTextures;
+    uint8_t fragmentTextureCount = fragmentProgram ? fragmentTextures : conventionalTextures;
+    uint8_t numTextures = MAX(vertexTextureCount, fragmentTextureCount);
+    /* A missing vertex program means the generated fixed-function vertex
+     * stage must perform the normal MVP transform.  An active ARB vertex
+     * program owns gl_Position unless it requested position-invariant mode. */
+    bool transformVertex = vertexProgram ? vertexProgram->positionInvariant : true;
+    bool lighting = !vertexProgram && renderer->state.lighting;
+    bool fog = fragmentProgram ? fragmentProgram->fogMode != 0
+                               : renderer->state.fog.enabled;
+    bool pointSprite = !fragmentProgram &&
+            (renderer->state.point.sprite || renderer->state.point.smooth);
+    bool texGen = false;
+    if (!vertexProgram) {
+        for (int unit = 0; unit < vertexTextureCount && !texGen; unit++) {
+            for (int coord = 0; coord < 4; coord++) {
+                if (renderer->state.texGen[unit].coords[coord].enabled) {
+                    texGen = true;
+                    break;
+                }
+            }
+        }
+    }
+    MaterialOptions options = {lighting, true, fog, pointSprite, transformVertex,
+                               texGen,
+                               numTextures, vertexTextureCount, fragmentTextureCount,
+                               vertexProgram, fragmentProgram};
+    uint32_t hash = generateMaterialHash(&options);
+    ShaderMaterial* material = SparseArray_get(&renderer->materialMap, hash);
+    bool created = false;
+    if (!material) {
+        material = ShaderMaterial_create(&options);
+        SparseArray_put(&renderer->materialMap, hash, material);
+        created = true;
+    }
+
+    glUseProgram(material->program);
+    if (created || updateUniforms) ShaderMaterial_updateUniforms(material, renderer, &options);
+
+    /* These aliases are used by the draw/payload paths for the currently
+     * bound pair. They are not the cache key; the full pair hash above is. */
+    renderer->arbMaterial = material;
+    if (vertexProgram) vertexProgram->material = material;
+    if (fragmentProgram) fragmentProgram->material = material;
+
     return true;
+}
+
+ShaderMaterial* GLRenderer_getARBMaterial(GLRenderer* renderer) {
+    return renderer ? renderer->arbMaterial : NULL;
+}
+
+void GLRenderer_replayGenericVertexAttributes(GLRenderer* renderer) {
+    if (!renderer) return;
+
+    GLClientState* clientState = &renderer->clientState;
+    int* locations = NULL;
+    bool arbVertex = false;
+    if (clientState->program) {
+        locations = clientState->program->location.attributes;
+    }
+    else if (ARBProgram_isVertexActive() && renderer->arbMaterial) {
+        locations = renderer->arbMaterial->location.attributes;
+        arbVertex = true;
+    }
+    else return;
+
+    GLBuffer* oldArrayBuffer = clientState->vao->buffer[indexOfGLTarget(GL_ARRAY_BUFFER)];
+    for (int rawIndex = 0; rawIndex < MAX_GENERIC_VERTEX_ATTRIBS; rawIndex++) {
+        int storageIndex = GENERIC_VERTEX_ARRAY_INDEX + rawIndex;
+        GLVertexAttrib* vertexAttrib = &clientState->vao->attribs[storageIndex];
+        int location = locations[arbVertex ? storageIndex : rawIndex];
+        if (location < 0) continue;
+
+        if (vertexAttrib->arrayEnabled && vertexAttrib->boundArrayBuffer > 0) {
+            glBindBuffer(GL_ARRAY_BUFFER, vertexAttrib->boundArrayBuffer);
+            GLRenderer_enableVertexAttribute(renderer, location);
+            glVertexAttribPointer(location, vertexAttrib->size, vertexAttrib->type,
+                                  vertexAttrib->normalized, vertexAttrib->stride,
+                                  vertexAttrib->pointer);
+        }
+        else if (!vertexAttrib->arrayEnabled) {
+            GLRenderer_disableVertexAttribute(renderer, location);
+        }
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, oldArrayBuffer ? oldArrayBuffer->id : 0);
+}
+
+void GLRenderer_replayFixedVertexAttributes(GLRenderer* renderer) {
+    if (!renderer || renderer->clientState.program || ARBProgram_isVertexActive() ||
+            !renderer->arbMaterial) return;
+
+    GLClientState* clientState = &renderer->clientState;
+    ShaderMaterial* material = renderer->arbMaterial;
+    GLBuffer* oldArrayBuffer = clientState->vao->buffer[indexOfGLTarget(GL_ARRAY_BUFFER)];
+
+    for (int storageIndex = POSITION_ARRAY_INDEX;
+            storageIndex < GENERIC_VERTEX_ARRAY_INDEX; storageIndex++) {
+        GLVertexAttrib* vertexAttrib = &clientState->vao->attribs[storageIndex];
+        int location = material->location.attributes[storageIndex];
+        if (location < 0) continue;
+
+        if (vertexAttrib->state == VERTEX_ATTRIB_LEGACY_ENABLED &&
+                vertexAttrib->boundArrayBuffer > 0) {
+            glBindBuffer(GL_ARRAY_BUFFER, vertexAttrib->boundArrayBuffer);
+            GLRenderer_enableVertexAttribute(renderer, location);
+            glVertexAttribPointer(location, vertexAttrib->size, vertexAttrib->type,
+                                  vertexAttrib->normalized, vertexAttrib->stride,
+                                  vertexAttrib->pointer);
+            continue;
+        }
+
+        GLRenderer_disableVertexAttribute(renderer, location);
+        if (storageIndex == POSITION_ARRAY_INDEX) {
+            glVertexAttrib4f(location, 0.0f, 0.0f, 0.0f, 1.0f);
+        }
+        else if (storageIndex == COLOR_ARRAY_INDEX) {
+            glVertexAttrib4fv(location, renderer->state.color);
+        }
+        else if (storageIndex == NORMAL_ARRAY_INDEX) {
+            glVertexAttrib3fv(location, renderer->state.normal);
+        }
+        else {
+            int unit = storageIndex - TEXCOORD_ARRAY_INDEX;
+            if (unit >= 0 && unit < MAX_TEXCOORDS) {
+                glVertexAttrib4fv(location, renderer->state.texCoords[unit]);
+            }
+        }
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, oldArrayBuffer ? oldArrayBuffer->id : 0);
 }
 
 void GLRenderer_drawImmediate(GLRenderer* renderer) {
@@ -242,7 +427,20 @@ void GLRenderer_drawImmediate(GLRenderer* renderer) {
         }
 
         bool pointSprite = renderer->state.point.sprite || renderer->state.point.smooth;
-        MaterialOptions options = {renderer->state.lighting, renderer->state.alphaTest.enabled, renderer->state.fog.enabled, pointSprite, true, numTextures, NULL, NULL};
+        bool texGen = false;
+        for (int unit = 0; unit < numTextures && !texGen; unit++) {
+            for (int coord = 0; coord < 4; coord++) {
+                if (renderer->state.texGen[unit].coords[coord].enabled) {
+                    texGen = true;
+                    break;
+                }
+            }
+        }
+        MaterialOptions options = {renderer->state.lighting,
+                                   renderer->state.alphaTest.enabled,
+                                   renderer->state.fog.enabled, pointSprite, true,
+                                   texGen, numTextures, numTextures, numTextures,
+                                   NULL, NULL};
         material = setCurrentMaterial(renderer, &options);
         updateVertexBuffers(renderer, material->location.attributes);
     }
@@ -251,7 +449,7 @@ void GLRenderer_drawImmediate(GLRenderer* renderer) {
         if (clientState->program) {
             updateVertexBuffers(renderer, clientState->program->location.attributes);
         }
-        else updateVertexBuffers(renderer, clientState->arbProgram[0]->material->location.attributes);
+        else updateVertexBuffers(renderer, renderer->arbMaterial->location.attributes);
     }
 
     while (!ArrayDeque_isEmpty(&renderer->meshes)) {
@@ -281,17 +479,7 @@ void GLRenderer_drawImmediate(GLRenderer* renderer) {
     renderer->geometry.vertices.position = 0;
     GLRenderer_disableUnusedVertexAttributes(renderer);
 
-    if (clientState->program) {
-        for (int i = 0; i < VERTEX_ATTRIB_COUNT; i++) {
-            if (clientState->vao->attribs[i].boundArrayBuffer > 0) {
-                GLVertexAttrib* vertexAttrib = &clientState->vao->attribs[i];
-                glBindBuffer(GL_ARRAY_BUFFER, clientState->vao->attribs[i].boundArrayBuffer);
-                int location = clientState->program->location.attributes[i];
-                GLRenderer_enableVertexAttribute(renderer, location);
-                glVertexAttribPointer(location, vertexAttrib->size, vertexAttrib->type, vertexAttrib->normalized, vertexAttrib->stride, vertexAttrib->pointer);
-            }
-        }
-    }
+    GLRenderer_replayGenericVertexAttributes(renderer);
 
     GLBuffer* arrayBuffer = clientState->vao->buffer[indexOfGLTarget(GL_ARRAY_BUFFER)];
     GLBuffer* elementArrayBuffer = clientState->vao->buffer[indexOfGLTarget(GL_ELEMENT_ARRAY_BUFFER)];
@@ -440,6 +628,12 @@ void GLRenderer_setCapabilityState(GLRenderer* renderer, GLenum cap, bool state,
             break;
         case GL_COLOR_MATERIAL:
             renderer->state.colorMaterial.enabled = state;
+            if (state) {
+                GLRenderer_setMaterialParams(renderer,
+                        renderer->state.colorMaterial.face,
+                        renderer->state.colorMaterial.mode,
+                        renderer->state.color);
+            }
             break;
         case GL_ALPHA_TEST:
             renderer->state.alphaTest.enabled = state;
@@ -467,7 +661,11 @@ void GLRenderer_setCapabilityState(GLRenderer* renderer, GLenum cap, bool state,
         case GL_POLYGON_STIPPLE:
         case GL_POLYGON_OFFSET_LINE:
         case GL_VERTEX_PROGRAM_POINT_SIZE:
+            /* Compatibility-only capabilities with no GLES equivalent. */
+            break;
         case GL_NORMALIZE:
+            renderer->state.normalize = state;
+            break;
         case GL_TEXTURE_CUBE_MAP_SEAMLESS:
         case GL_DEPTH_CLAMP:
             break;
@@ -476,6 +674,17 @@ void GLRenderer_setCapabilityState(GLRenderer* renderer, GLenum cap, bool state,
         case GL_VERTEX_PROGRAM_TWO_SIDE:
             renderer->state.enabledARBPrograms[indexOfGLTarget(cap)] = state;
             break;
+        case GL_TEXTURE_GEN_S:
+        case GL_TEXTURE_GEN_T:
+        case GL_TEXTURE_GEN_R:
+        case GL_TEXTURE_GEN_Q: {
+            int unit = renderer->clientState.activeTexture;
+            int coord = cap - GL_TEXTURE_GEN_S;
+            if (unit >= 0 && unit < MAX_TEXCOORDS && coord >= 0 && coord < 4) {
+                renderer->state.texGen[unit].coords[coord].enabled = state;
+            }
+            break;
+        }
         case GL_PRIMITIVE_RESTART:
             cap = GL_PRIMITIVE_RESTART_FIXED_INDEX;
         default:
@@ -483,8 +692,7 @@ void GLRenderer_setCapabilityState(GLRenderer* renderer, GLenum cap, bool state,
                 GLRenderer_setLightParams(renderer, cap, GL_LIGHTING, &state);
                 return;
             }
-            if ((cap >= GL_TEXTURE_GEN_S && cap <= GL_TEXTURE_GEN_Q) || (cap >= GL_CLIP_PLANE0 && cap <= GL_CLIP_PLANE5)) {
-                if (state) println("gladio:setCapabilityState: unimplemented cap %x", cap);
+            if (cap >= GL_CLIP_PLANE0 && cap <= GL_CLIP_PLANE5) {
                 return;
             }
 
@@ -505,40 +713,87 @@ void GLRenderer_setCapabilityState(GLRenderer* renderer, GLenum cap, bool state,
     }
 }
 
+static bool materialFaceMatches(GLenum face, int index) {
+    return face == GL_FRONT_AND_BACK ||
+            (face == GL_FRONT && index == 0) ||
+            (face == GL_BACK && index == 1);
+}
+
+static void setMaterialParams(GLMaterial* material, GLenum pname, void* params) {
+    switch (pname) {
+        case GL_AMBIENT:
+            memcpy(material->ambient, params, sizeof(material->ambient));
+            break;
+        case GL_DIFFUSE:
+            memcpy(material->diffuse, params, sizeof(material->diffuse));
+            break;
+        case GL_SPECULAR:
+            memcpy(material->specular, params, 3 * sizeof(float));
+            break;
+        case GL_EMISSION:
+            memcpy(material->emission, params, sizeof(material->emission));
+            break;
+        case GL_SHININESS:
+            material->specular[3] = *(float*)params;
+            break;
+        case GL_AMBIENT_AND_DIFFUSE:
+            memcpy(material->ambient, params, sizeof(material->ambient));
+            memcpy(material->diffuse, params, sizeof(material->diffuse));
+            break;
+    }
+}
+
 void GLRenderer_setMaterialParams(GLRenderer* renderer, GLenum face, GLenum pname, void* params) {
     initMaterials(renderer);
-
     for (int i = 0; i < 2; i++) {
-        if ((face == GL_FRONT && i == 0) || (face == GL_BACK && i == 1) || face == GL_FRONT_AND_BACK) {
-            GLMaterial* material = &renderer->materials[i];
-            switch (pname) {
-                case GL_AMBIENT:
+        if (materialFaceMatches(face, i))
+            setMaterialParams(&renderer->materials[i], pname, params);
+    }
+}
+
+void GLRenderer_setGuestMaterialParams(GLRenderer* renderer, GLenum face, GLenum pname, void* params) {
+    initMaterials(renderer);
+    for (int i = 0; i < 2; i++) {
+        if (!materialFaceMatches(face, i)) continue;
+        GLMaterial* material = &renderer->materials[i];
+        const bool trackedFace = renderer->state.colorMaterial.enabled &&
+                materialFaceMatches(renderer->state.colorMaterial.face, i);
+        const GLenum trackedMode = renderer->state.colorMaterial.mode;
+        if (!trackedFace) {
+            setMaterialParams(material, pname, params);
+            continue;
+        }
+        switch (pname) {
+            case GL_AMBIENT:
+                if (trackedMode != GL_AMBIENT && trackedMode != GL_AMBIENT_AND_DIFFUSE)
+                    setMaterialParams(material, pname, params);
+                break;
+            case GL_DIFFUSE:
+                if (trackedMode != GL_DIFFUSE && trackedMode != GL_AMBIENT_AND_DIFFUSE)
+                    setMaterialParams(material, pname, params);
+                break;
+            case GL_SPECULAR:
+            case GL_EMISSION:
+                if (trackedMode != pname) setMaterialParams(material, pname, params);
+                break;
+            case GL_AMBIENT_AND_DIFFUSE:
+                if (trackedMode != GL_AMBIENT && trackedMode != GL_AMBIENT_AND_DIFFUSE)
                     memcpy(material->ambient, params, sizeof(material->ambient));
-                    break;
-                case GL_DIFFUSE:
+                if (trackedMode != GL_DIFFUSE && trackedMode != GL_AMBIENT_AND_DIFFUSE)
                     memcpy(material->diffuse, params, sizeof(material->diffuse));
-                    break;
-                case GL_SPECULAR:
-                    memcpy(material->specular, params, 3 * sizeof(float));
-                    break;
-                case GL_EMISSION:
-                    memcpy(material->emission, params, sizeof(material->emission));
-                    break;
-                case GL_SHININESS:
-                    material->specular[3] = *(float*)params;
-                    break;
-                case GL_AMBIENT_AND_DIFFUSE:
-                    memcpy(material->ambient, params, sizeof(material->ambient));
-                    memcpy(material->diffuse, params, sizeof(material->diffuse));
-                    break;
-            }
+                break;
+            default:
+                /* Shininess and any future untracked material properties are
+                 * not controlled by GL_COLOR_MATERIAL. */
+                setMaterialParams(material, pname, params);
+                break;
         }
     }
 }
 
 void GLRenderer_setLightParams(GLRenderer* renderer, GLenum id, GLenum pname, void* params) {
     int index = id - GL_LIGHT0;
-    GLLight* light = index < MAX_LIGHTS ? &renderer->lights[index] : NULL;
+    GLLight* light = index >= 0 && index < MAX_LIGHTS ? &renderer->lights[index] : NULL;
     if (!light) return;
 
     switch (pname) {
@@ -638,6 +893,12 @@ void GLRenderer_setTexEnvParams(GLRenderer* renderer, GLenum target, GLenum pnam
         case GL_SOURCE1_ALPHA:
             texEnv->sourceRGBA[3] = (GLenum)params[0];
             break;
+        case GL_SOURCE2_RGB:
+            texEnv->source2RGBA[0] = (GLenum)params[0];
+            break;
+        case GL_SOURCE2_ALPHA:
+            texEnv->source2RGBA[1] = (GLenum)params[0];
+            break;
         case GL_OPERAND0_RGB:
             texEnv->operandRGBA[0] = (GLenum)params[0];
             break;
@@ -650,11 +911,72 @@ void GLRenderer_setTexEnvParams(GLRenderer* renderer, GLenum target, GLenum pnam
         case GL_OPERAND1_ALPHA:
             texEnv->operandRGBA[3] = (GLenum)params[0];
             break;
+        case GL_OPERAND2_RGB:
+            texEnv->operand2RGBA[0] = (GLenum)params[0];
+            break;
+        case GL_OPERAND2_ALPHA:
+            texEnv->operand2RGBA[1] = (GLenum)params[0];
+            break;
         case GL_TEXTURE_LOD_BIAS:
             texEnv->lodBias = params[0];
             break;
         default:
             println("gladio:setTexEnvParams: unimplemented pname %x", pname);
+            break;
+    }
+}
+
+void GLRenderer_setLightModelParam(GLRenderer* renderer, GLenum pname,
+                                   const GLfloat* params) {
+    if (!renderer || !params) return;
+    switch (pname) {
+        case GL_LIGHT_MODEL_AMBIENT:
+            memcpy(renderer->state.lightModel.ambient, params,
+                   sizeof(renderer->state.lightModel.ambient));
+            break;
+        case GL_LIGHT_MODEL_LOCAL_VIEWER:
+            renderer->state.lightModel.localViewer = params[0] != 0.0f;
+            break;
+        case GL_LIGHT_MODEL_TWO_SIDE:
+            renderer->state.lightModel.twoSide = params[0] != 0.0f;
+            break;
+        case GL_LIGHT_MODEL_COLOR_CONTROL:
+            renderer->state.lightModel.colorControl = (GLenum)params[0];
+            break;
+    }
+}
+
+void GLRenderer_setTexGenParams(GLRenderer* renderer, GLenum coord, GLenum pname,
+                                const GLfloat* params) {
+    int unit = renderer->clientState.activeTexture;
+    int coordIndex = coord - GL_S;
+    if (unit < 0 || unit >= MAX_TEXCOORDS || coordIndex < 0 || coordIndex >= 4 ||
+            !params) return;
+
+    TexGenCoord* texGen = &renderer->state.texGen[unit].coords[coordIndex];
+    switch (pname) {
+        case GL_TEXTURE_GEN_MODE:
+            texGen->mode = (GLenum)params[0];
+            break;
+        case GL_OBJECT_PLANE:
+            memcpy(texGen->objectPlane, params, sizeof(texGen->objectPlane));
+            break;
+        case GL_EYE_PLANE: {
+            /* Eye planes are captured through the inverse model-view that is
+             * current when glTexGen is called, matching compatibility GL. */
+            float inverse[16];
+            mat4_inverse(inverse,
+                    GLRenderer_getMatrixFromStack(renderer, MODEL_VIEW_MATRIX_INDEX));
+            for (int row = 0; row < 4; row++) {
+                texGen->eyePlane[row] =
+                        inverse[row * 4 + 0] * params[0] +
+                        inverse[row * 4 + 1] * params[1] +
+                        inverse[row * 4 + 2] * params[2] +
+                        inverse[row * 4 + 3] * params[3];
+            }
+            break;
+        }
+        default:
             break;
     }
 }
@@ -735,6 +1057,10 @@ void GLRenderer_destroy(GLRenderer* renderer) {
 
     ArrayDeque_free(&renderer->meshes, true);
 
+    for (int i = 0; i < MATRIX_STACK_COUNT; i++) {
+        ArrayList_free(&renderer->matrixStack[i], true);
+    }
+
     if (renderer->raster) {
         glDeleteTextures(1, &renderer->raster->textureId);
         free(renderer->raster);
@@ -754,7 +1080,8 @@ int GLRenderer_getParamsv(GLRenderer* renderer, GLenum pname, GLenum type, void*
             paramSize = MAT4_SIZE;
             break;
         case GL_TEXTURE_MATRIX:
-            if (params) memcpy(params, GLRenderer_getMatrixFromStack(renderer, TEXTURE_MATRIX_INDEX), MAT4_SIZE);
+            if (params) memcpy(params, GLRenderer_getMatrixFromStack(renderer,
+                    TEXTURE_MATRIX_INDEX + renderer->clientState.activeTexture), MAT4_SIZE);
             paramSize = MAT4_SIZE;
             break;
         case GL_MAX_PROJECTION_STACK_DEPTH:
@@ -837,9 +1164,12 @@ int GLRenderer_getParamsv(GLRenderer* renderer, GLenum pname, GLenum type, void*
         case GL_POINT_SPRITE:
         case GL_POINT_SMOOTH:
         case GL_VERTEX_PROGRAM_POINT_SIZE:
-        case GL_NORMALIZE:
         case GL_DOUBLEBUFFER:
             if (params) *(GLboolean*)params = 0;
+            paramSize = sizeof(GLboolean);
+            break;
+        case GL_NORMALIZE:
+            if (params) *(GLboolean*)params = renderer->state.normalize;
             paramSize = sizeof(GLboolean);
             break;
         case GL_ALPHA_TEST:
@@ -891,6 +1221,13 @@ int GLRenderer_getParamsv(GLRenderer* renderer, GLenum pname, GLenum type, void*
                 case GL_ALIASED_POINT_SIZE_RANGE:
                 case GL_ALIASED_LINE_WIDTH_RANGE:
                     paramSize = 2 * sizeof(GLfloat);
+                    break;
+                case GL_MAX_VIEWPORT_DIMS:
+                    /* OpenGL returns width and height. Advertising one GLint
+                     * truncated Adreno's height to zero (and overflowed the
+                     * temporary query buffer), causing WineD3D to restore a
+                     * permanent 0x0 viewport before its first frame. */
+                    paramSize = 2 * sizeof(GLint);
                     break;
                 case GL_SCISSOR_BOX:
                 case GL_VIEWPORT:
@@ -993,7 +1330,8 @@ void GLRenderer_drawPixels(GLRenderer* renderer, GLsizei width, GLsizei height, 
     ArrayBuffer_putFloat4(&raster->quad.vertices, x1, y1, 0.0f, 1.0f);
     ArrayBuffer_putFloat4(&raster->quad.texCoords, 1.0f, 1.0f, 0.0f, 1.0f);
 
-    MaterialOptions options = {renderer->state.lighting, false, false, false, false, 1, NULL, NULL};
+    MaterialOptions options = {renderer->state.lighting, false, false, false,
+                               false, false, 1, 1, 1, NULL, NULL};
     ShaderMaterial* material = setCurrentMaterial(renderer, &options);
     bindVertexBuffer(renderer, renderer->bufferIds[2], material->location.attributes[POSITION_ARRAY_INDEX], 4, raster->quad.vertices.size, raster->quad.vertices.buffer);
     bindVertexBuffer(renderer, renderer->bufferIds[4], material->location.attributes[TEXCOORD_ARRAY_INDEX], 4, raster->quad.texCoords.size, raster->quad.texCoords.buffer);

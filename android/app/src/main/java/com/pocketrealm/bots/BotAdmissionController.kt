@@ -10,6 +10,7 @@ data class BotResourceSample(
     val freeStorageMiB: Long,
     val thermal: ThermalLevel,
     val hardStallCount: Int = 0,
+    val hardStallTotal: Long = hardStallCount.toLong(),
 )
 
 data class BotAdmissionState(
@@ -26,6 +27,7 @@ class BotAdmissionController(private val profile: BotProfile) {
     private var lastChangeMs = Long.MIN_VALUE
     private var healthySinceMs: Long? = null
     private var performanceReadyAtMs: Long? = null
+    private var lastHardStallTotal = 0L
     private var reason = "selected-profile"
 
     fun observe(sample: BotResourceSample): BotAdmissionState {
@@ -33,8 +35,16 @@ class BotAdmissionController(private val profile: BotProfile) {
         val performanceReady = performanceReadyAtMs?.let {
             sample.elapsedMs - it >= profile.admission.performanceWarmupMs
         } ?: false
+        val newHardStalls = if (sample.hardStallTotal >= lastHardStallTotal) {
+            sample.hardStallTotal - lastHardStallTotal
+        } else {
+            // A native process restart resets the monotonic counter. Treat
+            // only the new process's observed total as fresh.
+            sample.hardStallTotal
+        }
+        lastHardStallTotal = sample.hardStallTotal
         val overload = safetyOverloadReason(sample) ?:
-            performanceOverloadReason(sample).takeIf { performanceReady }
+            performanceOverloadReason(sample, newHardStalls).takeIf { performanceReady }
         var changed = false
         if (overload != null) {
             healthySinceMs = null
@@ -89,8 +99,11 @@ class BotAdmissionController(private val profile: BotProfile) {
         else -> null
     }
 
-    private fun performanceOverloadReason(sample: BotResourceSample): String? = when {
-        sample.hardStallCount >= 2 -> "repeated-hard-stall"
+    private fun performanceOverloadReason(
+        sample: BotResourceSample,
+        newHardStalls: Long,
+    ): String? = when {
+        newHardStalls >= 2 -> "repeated-hard-stall"
         sample.worldP99Ms > profile.admission.maxWorldP99Ms -> "world-p99"
         else -> null
     }

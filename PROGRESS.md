@@ -78,6 +78,21 @@ Versioned C ABI + `libpocketrealm.so`; create/start/health/save/stop/destroy pro
 O06/O07/O08/O09/O10/O11 have no remaining blocker. Named physical-device inputs remain
 required at later release gates. The user-owned source client remains unchanged
 on `C:` and no proprietary client executables or data archives are added to Git.
+The RP6 ARM64 implementation lane now has isolated, source-built core,
+packaging, X-server, O09 realm, O11 extractor, and converted Bionic MariaDB
+provider artifacts with provenance and lockfiles. A database-only qualification
+APK is reproducibly assembled with `-PpocketAbi=arm64-v8a -PpocketLane=database`
+and its APK identity is recorded in
+`native/.build-arm64/mariadb-staging/databaseRuntime-apk-manifest.json`; this
+lane intentionally omits translated Wine. The full client Gradle closure still
+fails closed only at the separate translated Box64/Wine provider gate. The ARM
+MariaDB package has not yet been executed on the RP6, so initialization,
+recovery, and integrated server evidence remain open. The
+ARM `pocket_lifecycle_test` did execute on the live RP6 for two cycles over
+wireless ADB; the expected world-database schema gap was classified honestly in
+`tests/devices/retroid-pocket-6/arm-o04-control-probe-20260809.json`.
+The final wireless-ADB connection timed out and exposed only the x86 emulator;
+the MariaDB device run is therefore externally blocked, not treated as a pass.
 
 ## O06 Phase 1 — Wine feasibility spike (complete: Outcome B)
 
@@ -470,6 +485,33 @@ stale-callback cancellation, and clean Wine-probe exit. The exact host suite
 also passed 99 tests with zero failures. It does not claim named
 physical-device qualification or the real WoW gameplay sequence.
 
+### ARM laboratory translator/renderer matrix (built, device qualification pending)
+
+The ARM full-lane APK now packages two independently selectable translators
+and two independently selectable renderers: Box64 or FEXCore, paired with DXVK
+or Client OpenGL. Research rejected the ordinary Linux FEX executable because
+upstream does not support Android. The implemented FEX path instead follows the
+current Bionic ARM64EC architecture: pinned Proton 9 ARM64EC runs natively and
+loads pinned FEXCore 2608 through `HODLL=libwow64fex.dll`. The Client OpenGL
+path launches build 5875 with `-opengl` and uses a separately built Bionic
+ARM64 Gladio client to translate GLX/desktop OpenGL calls to Android GLES.
+
+The staged FEXCore runtime archive is 292,989,049 bytes with SHA-256
+`3fc7d01d79c05c60f59cdddf478b2f6de17d641da5e61bc0eb9e396d7039d975`.
+The Bionic Gladio client is 413,872 bytes with SHA-256
+`378e5bb98a818205da90c5642d8cb38da365c83604f2046293907caa8f0c9075`.
+The FEXCore DLLs, Winlator release APK, ARM64EC DXVK, Turnip, wrapper, imagefs,
+and Proton components are individually hash-verified in the generated build
+provenance. Prefix and cache IDs include both translator and renderer, so the
+four combinations do not mutate one another. Host compilation, source checks,
+and package-closure validation pass. No RP6 launch, visual, input, lifecycle,
+or performance acceptance is claimed yet, and no running device was modified
+while producing this build. The resulting single-ABI `realmRuntime` APK is
+596,274,421 bytes with SHA-256
+`02637e63832f054d826417bfdab7deefbde9c2f8738232f09bbdf99d21681192`;
+its signer, packaged ABI set, and native-library hashes are recorded in the
+generated `fexcore-opengl-apk-manifest.json` beside the APK.
+
 ## Next action
 
 O14 implementation increments 1 and 2 and their production-path Win32-probe
@@ -483,17 +525,20 @@ input, authenticated to the embedded realm, and advanced through realm and
 character-list loading; an 80-ms test-only pointer dwell likewise fixed the
 zero-duration synthetic-click blind spot. These are diagnostic advances, not
 UX-T01 PASS evidence: the fixed-time first-run choreography raced the realm
-wizard, and the current clean renderer regression remains unresolved. The
-strict O12 visual gate fails before input: the GLX client creates context 7,
-creates its bounded 1x1 unmapped pbuffer, and returns success from two
-`glXMakeContextCurrent` calls, but the guest emits no
-`SWAP_DISPLAY_BUFFERS` request and the captured display remains unchanged.
-This is a current O14 blocker, not a change to the historical O07 PASS.
+wizard. A later bounded five-cycle x86_64 renderer run reached mapped 800x600
+non-black client frames on all five generations after the test-only exact
+hardware-change modal acknowledgement, and the clean O07 relaunch passed as
+well. The remaining integrated-flow blocker is the first-run realm-language
+wizard: Cancel consumes a production touch, but the enabled-looking English
+CheckButton has not yet produced a verified state transition. This is a current
+O14 blocker, not a change to the historical O07 PASS.
 The remaining acceptance work is a clean complete real-client touch-only
 UX-T01–T08 sequence (including orientation/resume) and named physical
 gamepad/keyboard/mouse hot-plug and restart qualification. O14 remains
-`pending` until those report-defined artifacts exist. Do not start O15 or any
-later gate.
+`pending` until those report-defined artifacts exist. The RP6 plan now permits
+bounded O15/O16 ARM provider work because it is required to obtain that final
+O14 evidence; this is not permission to claim O15/O16/G5 complete, and no
+later release gate is promoted.
 
 ## Session note
 

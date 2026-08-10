@@ -13,16 +13,24 @@ import json
 import re
 import shutil
 import subprocess
+import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_OUT = ROOT / "schemas" / "database-migrations.json"
-ASSET_ROOT = (
-    ROOT / "native" / ".build-x86_64" / "mariadb-staging" /
-    "assets" / "database" / "migrations"
-)
+TARGET_ABI = "x86_64"
+
+
+def asset_root(abi: str) -> Path:
+    if abi not in {"x86_64", "arm64-v8a"}:
+        raise ValueError(f"unsupported migration ABI: {abi}")
+    root_suffix = "x86_64" if abi == "x86_64" else "arm64"
+    return (
+        ROOT / "native" / f".build-{root_suffix}" / "mariadb-staging" /
+        "assets" / "database" / "migrations"
+    )
 EXPECTED_REVISIONS = {
     "realm": "required_z2820_01_realmd_joindate_datetime",
     "characters": "required_z2819_01_characters_item_instance_text_id_fix",
@@ -132,10 +140,19 @@ def select_inputs() -> list[Input]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--abi", choices=("x86_64", "arm64-v8a"), default="x86_64",
+        help="ABI-isolated MariaDB staging root (does not build MariaDB)",
+    )
+    args = parser.parse_args()
+    global TARGET_ABI
+    TARGET_ABI = args.abi
+    output_root = asset_root(TARGET_ABI)
     inputs = select_inputs()
-    if ASSET_ROOT.exists():
-        shutil.rmtree(ASSET_ROOT)
-    ASSET_ROOT.mkdir(parents=True)
+    if output_root.exists():
+        shutil.rmtree(output_root)
+    output_root.mkdir(parents=True)
 
     entries = []
     for index, item in enumerate(inputs, 1):
@@ -147,7 +164,7 @@ def main() -> int:
         # rename the asset during merge. Use a neutral extension so the exact
         # deterministic gzip byte stream and its pinned hash survive the APK.
         asset_name = f"{index:04d}.sqlz"
-        with ASSET_ROOT.joinpath(asset_name).open("wb") as raw:
+        with output_root.joinpath(asset_name).open("wb") as raw:
             with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as zipped:
                 zipped.write(data)
         entries.append(
@@ -160,7 +177,7 @@ def main() -> int:
                 "compression": "gzip",
                 "sql_size": len(data),
                 "sql_sha256": sha256(data),
-                "asset_sha256": sha256(ASSET_ROOT.joinpath(asset_name).read_bytes()),
+                "asset_sha256": sha256(output_root.joinpath(asset_name).read_bytes()),
             }
         )
 
@@ -178,10 +195,10 @@ def main() -> int:
     }
     encoded = json.dumps(manifest, indent=2) + "\n"
     SCHEMA_OUT.write_text(encoded, encoding="utf-8")
-    (ASSET_ROOT / "manifest.json").write_text(encoded, encoding="utf-8")
+    (output_root / "manifest.json").write_text(encoded, encoding="utf-8")
     print(f"staged {len(entries)} ordered migrations")
     print(f"manifest: {SCHEMA_OUT}")
-    print(f"assets:   {ASSET_ROOT}")
+    print(f"assets:   {output_root}")
     return 0
 
 

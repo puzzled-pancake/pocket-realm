@@ -18,7 +18,11 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /** UI-process proxy for the versioned :client AIDL protocol. */
-class X86DirectWineRuntime(context: Context) : ClientRuntime, AutoCloseable {
+class X86DirectWineRuntime(
+    context: Context,
+    private val provider: ClientRuntimeProvider = ClientRuntimeProvider.X86_DIRECT_WINE,
+    private val translator: ArmTranslationBackend = ArmTranslationBackend.BOX64,
+) : ClientRuntime, AutoCloseable {
     private val appContext = context.applicationContext
     @Volatile private var remote: IClientRuntimeControl? = null
     @Volatile private var connection: ServiceConnection? = null
@@ -49,6 +53,8 @@ class X86DirectWineRuntime(context: Context) : ClientRuntime, AutoCloseable {
 
     override suspend fun probe(device: DeviceCaps, client: ClientManifest): ClientCaps = transact {
         val response = json(it.probe(JSONObject().put("protocol", ClientRuntimeContract.PROTOCOL_VERSION)
+            .put("provider", provider.id)
+            .put("translator", translator.id)
             .put("abi", device.abi).put("api", device.api).put("pageSize", device.pageSize)
             .put("clientId", client.id).toString()))
         ClientCaps(response.getBoolean("supported"), response.getString("runtimeBuildId"),
@@ -56,18 +62,41 @@ class X86DirectWineRuntime(context: Context) : ClientRuntime, AutoCloseable {
     }
 
     override suspend fun preparePrefix(request: PrefixRequest): PrefixResult = transact {
-        val response = json(it.preparePrefix(JSONObject().put("protocol", ClientRuntimeContract.PROTOCOL_VERSION)
+        val rendererPackageId = requestRendererPackageId(
+            request.renderer,
+            request.rendererPackageId,
+        )
+        val payload = JSONObject().put("protocol", ClientRuntimeContract.PROTOCOL_VERSION)
             .put("clientId", request.client.id).put("renderer", request.renderer)
-            .put("audioMode", request.audioMode).toString()))
+            .put("translator", translator.id)
+            .put("audioMode", request.audioMode)
+            .put("inputSafeMode", request.inputSafeMode)
+        rendererPackageId?.let { payload.put("rendererPackageId", it) }
+        val response = json(it.preparePrefix(payload.toString()))
         PrefixResult(true, response.getString("prefixId"), response.getString("runtimeRoot"),
             response.getString("prefixPath"), response.getString("detail"))
     }
 
     override suspend fun launch(request: LaunchRequest): ClientSession = transact {
-        val response = json(it.launch(JSONObject().put("protocol", ClientRuntimeContract.PROTOCOL_VERSION)
+        val rendererPackageId = requestRendererPackageId(
+            request.renderer,
+            request.rendererPackageId,
+        )
+        val payload = JSONObject().put("protocol", ClientRuntimeContract.PROTOCOL_VERSION)
             .put("prefixId", request.prefixId).put("display", request.display)
-            .put("audioMode", request.audioMode).toString()))
+            .put("translator", translator.id)
+            .put("audioMode", request.audioMode).put("renderer", request.renderer)
+        rendererPackageId?.let { payload.put("rendererPackageId", it) }
+        val response = json(it.launch(payload.toString()))
         ClientSession(UUID.fromString(response.getString("sessionId")), ClientState.valueOf(response.getString("state")))
+    }
+
+    private fun requestRendererPackageId(renderer: String, requestedId: String?): String? {
+        if (provider != ClientRuntimeProvider.ARM_TRANSLATED_WINE) {
+            require(requestedId == null) { "x86 direct Wine does not accept an ARM renderer package" }
+            return null
+        }
+        return RendererPackageCatalog.requireForRequest(translator, renderer, requestedId)?.id
     }
 
     override suspend fun requestClose(sessionId: UUID): CloseResult = transact {

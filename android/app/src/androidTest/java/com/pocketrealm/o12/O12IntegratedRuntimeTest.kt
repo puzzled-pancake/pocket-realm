@@ -27,6 +27,7 @@ import com.pocketrealm.ui.MainActivity
 import com.pocketrealm.supervisor.AndroidRuntimeBackend
 import com.pocketrealm.supervisor.IRuntimeSupervisorControl
 import com.pocketrealm.supervisor.RuntimePhase
+import com.winlator.xserver.Window
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -138,8 +139,24 @@ class O12IntegratedRuntimeTest {
             // fixed three-second delay raced those screens and spent the
             // wizard clicks on the login/character-list loading dialogs.
             Thread.sleep(20_000)
-            tapDisplay(423f, 544f)
-            Thread.sleep(1_000)
+            captureEvidenceFrame("O12_REALM_LANGUAGE_ADB_BEFORE.png")
+            val displayHost = requireNotNull(IntegratedClientDisplay.host.value)
+            val displayOrigin = IntArray(2)
+            instrumentation.runOnMainSync {
+                displayHost.view.getLocationOnScreen(displayOrigin)
+            }
+            android.util.Log.i(
+                "O12Acceptance",
+                "O12_ADB_TOUCH_READY origin=${displayOrigin[0]},${displayOrigin[1]} " +
+                    "size=${displayHost.view.width}x${displayHost.view.height} " +
+                    "glyphView=418,541 glyphDevice=${displayOrigin[0] + 418},${displayOrigin[1] + 541}",
+            )
+            Thread.sleep(60_000)
+            val languageFrame = captureEvidenceFrame("O12_REALM_LANGUAGE_ADB_AFTER.png")
+            assertTrue(
+                "real Android touchscreen tap did not visibly select realm language",
+                realmLanguageCheckPixels(languageFrame) >= 5,
+            )
             captureEvidenceFrame("O12_REALM_LANGUAGE_SELECTED.png")
             tapDisplay(482f, 664f)
             // Suggested Realm connects directly to the sole loopback realm.
@@ -465,19 +482,81 @@ class O12IntegratedRuntimeTest {
         val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs
         var lastFrame: Bitmap? = null
         var lastNonBlack = 0
+        var hardwarePromptAnswered = false
         do {
             lastFrame = captureDisplay()
             lastNonBlack = lastFrame.getPixelsCopy().count { (it and 0x00ffffff) != 0 }
-            if (lastNonBlack > lastFrame.width * lastFrame.height / 100) {
+            if (lastNonBlack > lastFrame.width * lastFrame.height / 100 &&
+                largeWowWindow() != null) {
                 return lastFrame to lastNonBlack
+            }
+            val hardwarePrompt = hardwareChangePrompt()
+            if (!hardwarePromptAnswered && hardwarePrompt != null) {
+                pulseClientKey(KeyEvent.KEYCODE_ENTER)
+                hardwarePromptAnswered = true
+                android.util.Log.i(
+                    "O12Acceptance",
+                    "O12_HARDWARE_CHANGE_PROMPT answered=true action=default-enter window=$hardwarePrompt",
+                )
             }
             Thread.sleep(1_000)
         } while (android.os.SystemClock.elapsedRealtime() < deadline)
         throw AssertionError("integrated renderer remained black ($lastNonBlack non-black pixels)")
     }
 
+    /** Build 5875's one-time adapter-change prompt is a real Win32 modal, not
+     * a rendered login frame. Match its exact fixed X11 topology and answer it
+     * through the production bridge before applying the unchanged visual gate. */
+    private fun hardwareChangePrompt(): String? {
+        val host = requireNotNull(IntegratedClientDisplay.host.value)
+        val windows = host.xServer.windowManager.mappedClientWindows
+        if (windows.any { it.width >= 640 && it.height >= 480 }) return null
+        return windows.firstOrNull { it.width.toInt() == 265 && it.height.toInt() == 63 }?.let {
+            "${it.name.take(64)}|${it.className.take(64)}|${it.width}x${it.height}|pid=${it.processId}"
+        }
+    }
+
+    private fun largeWowWindow(): Window? {
+        val windows = requireNotNull(IntegratedClientDisplay.host.value)
+            .xServer.windowManager.mappedClientWindows
+        return windows.firstOrNull {
+            it.width.toInt() >= 640 && it.height.toInt() >= 480 &&
+                (it.name.contains("wow", ignoreCase = true) ||
+                    it.className.contains("wow", ignoreCase = true))
+        }
+    }
+
+    private fun pulseClientKey(keyCode: Int) {
+        val host = requireNotNull(IntegratedClientDisplay.host.value)
+        instrumentation.runOnMainSync {
+            val now = android.os.SystemClock.uptimeMillis()
+            host.dispatchKey(KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0))
+        }
+        Thread.sleep(80)
+        instrumentation.runOnMainSync {
+            val now = android.os.SystemClock.uptimeMillis()
+            host.dispatchKey(KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0))
+        }
+    }
+
     private fun Bitmap.getPixelsCopy(): IntArray = IntArray(width * height).also {
         getPixels(it, 0, width, 0, 0, width, height)
+    }
+
+    private fun realmLanguageCheckPixels(frame: Bitmap): Int {
+        assertTrue("realm language evidence frame is unexpectedly small",
+            frame.width > 430 && frame.height > 551)
+        var count = 0
+        for (y in 532..551) {
+            for (x in 410..430) {
+                val pixel = frame.getPixel(x, y)
+                val red = (pixel shr 16) and 0xff
+                val green = (pixel shr 8) and 0xff
+                val blue = pixel and 0xff
+                if (red >= 140 && green >= 100 && blue <= 100) count++
+            }
+        }
+        return count
     }
 
     private fun tapDisplay(x: Float, y: Float) {

@@ -1,21 +1,94 @@
-/*
- * com.winlator.sysvshm.SysVSharedMemory — STUB for the O06 S-3 spike.
- *
- * Source: brunodev85/winlator-app ca3d735 (LGPL-2.1). Upstream is a JNI wrapper
- * around libwinlator.so's System V shared memory (used by DRI3 + MIT-SHM). The
- * spike does not build that native module, so these are no-op stubs that return
- * null/empty buffers. The S-3 path (window create+map+GLES render) does not
- * require SysV SHM. See docs/patches/wine-provider-provenance.md.
- */
 package com.winlator.sysvshm;
+
+import android.util.SparseArray;
+
+import com.winlator.xconnector.XConnectorEpoll;
 
 import java.nio.ByteBuffer;
 
+/** Source-matched JNI shared-memory bridge used by DRI3 dma-buf transport. */
 public class SysVSharedMemory {
-    /** No-op stub. Upstream attaches to an existing SysV SHM segment; the spike
-     *  returns null (no SHM segments are created during window create+map). */
-    public ByteBuffer attach(int shmid) { return null; }
-    public void detach(ByteBuffer data) { }
-    public static ByteBuffer mapSHMSegment(int fd, long size, long offset, boolean readOnly) { return null; }
-    public static void unmapSHMSegment(ByteBuffer data, long size) { }
+    private final SparseArray<SHMemory> shmemories = new SparseArray<>();
+    private int maxSHMemoryId = 0;
+
+    static {
+        System.loadLibrary("winlator");
+    }
+
+    private static class SHMemory {
+        private int fd;
+        private long size;
+        private ByteBuffer data;
+    }
+
+    public int getFd(int shmid) {
+        synchronized (shmemories) {
+            SHMemory shmemory = shmemories.get(shmid);
+            return shmemory != null ? shmemory.fd : -1;
+        }
+    }
+
+    public int get(long size) {
+        synchronized (shmemories) {
+            int index = shmemories.size();
+            int fd = ashmemCreateRegion(index, size);
+            if (fd < 0) return -1;
+            SHMemory shmemory = new SHMemory();
+            int id = ++maxSHMemoryId;
+            shmemory.fd = fd;
+            shmemory.size = size;
+            shmemories.put(id, shmemory);
+            return id;
+        }
+    }
+
+    public void delete(int shmid) {
+        synchronized (shmemories) {
+            SHMemory shmemory = shmemories.get(shmid);
+            if (shmemory != null) {
+                if (shmemory.fd != -1) {
+                    XConnectorEpoll.closeFd(shmemory.fd);
+                    shmemory.fd = -1;
+                }
+                shmemories.remove(shmid);
+            }
+        }
+    }
+
+    public void deleteAll() {
+        synchronized (shmemories) {
+            for (int i = shmemories.size() - 1; i >= 0; i--) delete(shmemories.keyAt(i));
+        }
+    }
+
+    public ByteBuffer attach(int shmid) {
+        synchronized (shmemories) {
+            SHMemory shmemory = shmemories.get(shmid);
+            if (shmemory == null) return null;
+            if (shmemory.data == null) {
+                shmemory.data = mapSHMSegment(shmemory.fd, shmemory.size, 0, true);
+            }
+            return shmemory.data;
+        }
+    }
+
+    public void detach(ByteBuffer data) {
+        synchronized (shmemories) {
+            for (int i = 0; i < shmemories.size(); i++) {
+                SHMemory shmemory = shmemories.valueAt(i);
+                if (shmemory.data == data) {
+                    if (shmemory.data != null) {
+                        unmapSHMSegment(shmemory.data, shmemory.size);
+                        shmemory.data = null;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    public static native int createMemoryFd(String name, int size);
+    private static native int ashmemCreateRegion(int index, long size);
+    public static native ByteBuffer mapSHMSegment(int fd, long size, int offset, boolean readonly);
+    public static native void unmapSHMSegment(ByteBuffer data, long size);
 }
