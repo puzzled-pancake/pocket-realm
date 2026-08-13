@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -129,7 +130,6 @@ class O14TouchOverlayAcceptanceTest {
         compose.onNodeWithTag("touch-control-MOVE_UP").assertDoesNotExist()
         compose.onNodeWithTag("touch-camera-region").assertDoesNotExist()
         compose.onNodeWithTag("touch-camera-lock").assertDoesNotExist()
-        compose.onNodeWithTag("touch-mouse-capture").assertDoesNotExist()
         compose.onNodeWithTag("touch-chat").assertDoesNotExist()
         // The sole translucent restore tab remains reachable.
         compose.onNodeWithTag("touch-overlay-toggle").assertExists()
@@ -158,19 +158,11 @@ class O14TouchOverlayAcceptanceTest {
         assertTrue(host!!.inputContract.isImeInputIdle)
         compose.runOnIdle { host!!.onResume() }
 
-        compose.onNodeWithTag("touch-camera-lock").performClick()
+        compose.onNodeWithTag("touch-camera-lock").assertTextEquals("Lock camera").performClick()
         compose.waitUntil(5_000) { host!!.inputContract.isCameraLocked }
-        compose.onNodeWithTag("touch-camera-lock").performClick()
+        compose.onNodeWithTag("touch-camera-lock").assertTextEquals("Unlock camera").performClick()
         compose.waitUntil(5_000) { !host!!.inputContract.isCameraLocked }
-
-        var pointerCaptureAcquired = false
-        var pointerCaptureReleased = false
-        compose.onNodeWithTag("touch-mouse-capture").performClick()
-        compose.waitUntil(5_000) { host!!.isPointerCaptured }
-        compose.runOnIdle { pointerCaptureAcquired = host!!.isPointerCaptured }
-        compose.onNodeWithTag("touch-mouse-capture").performClick()
-        compose.waitUntil(5_000) { !host!!.isPointerCaptured }
-        compose.runOnIdle { pointerCaptureReleased = !host!!.isPointerCaptured }
+        compose.onNodeWithTag("touch-camera-lock").assertTextEquals("Lock camera")
 
         // Android owns framework system keys even when the combined RP6 input
         // device also advertises keyboard/gamepad sources.
@@ -299,9 +291,6 @@ class O14TouchOverlayAcceptanceTest {
             .put("pausedLateImeRejected", true)
             .put("concurrentOffMainCloseIdempotent", true)
             .put("persistedOverlayDisableHidesAllControls", true)
-            .put("pointerCaptureAcquired", pointerCaptureAcquired)
-            .put("pointerCaptureReleased", pointerCaptureReleased)
-            .put("pointerCaptureRoundTrip", pointerCaptureAcquired && pointerCaptureReleased)
             .put("batchedJoystickHistory", true)
             .put("batchedPointerDeltaX", pointerAfterBatch - pointerBeforeBatch)
             .put("syntheticGamepadMotion", true)

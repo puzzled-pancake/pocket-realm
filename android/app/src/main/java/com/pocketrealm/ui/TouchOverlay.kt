@@ -38,6 +38,7 @@ import kotlin.math.roundToInt
 @Composable
 fun TouchOverlay(host: ClientDisplayHost, modifier: Modifier = Modifier) {
     val profile by host.profile.collectAsState()
+    val cameraLocked by host.cameraLocked.collectAsState()
     var visible by remember(host.generation) { mutableStateOf(profile.overlayEnabled) }
     LaunchedEffect(profile.overlayEnabled) { visible = profile.overlayEnabled }
 
@@ -124,6 +125,11 @@ fun TouchOverlay(host: ClientDisplayHost, modifier: Modifier = Modifier) {
                 Modifier.align(Alignment.TopEnd).padding(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                OverlayButton(
+                    label = if (cameraLocked) "Unlock camera" else "Lock camera",
+                    tag = "touch-camera-lock",
+                    opacity = opacity,
+                ) { host.toggleCameraLock() }
                 OverlayButton(
                     label = "Hide",
                     tag = "touch-overlay-toggle",
