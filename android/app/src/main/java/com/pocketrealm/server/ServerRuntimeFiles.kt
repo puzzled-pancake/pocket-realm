@@ -5,6 +5,7 @@ import android.system.Os
 import android.system.OsConstants
 import com.pocketrealm.bots.BotProfile
 import com.pocketrealm.storage.StorageRoots
+import com.pocketrealm.supervisor.RealmEndpoint
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -21,34 +22,68 @@ internal class ServerRuntimeFiles(context: Context) {
     private val normalData = PreparedDataStore(File(roots.content, "o11-server"))
     private val secretFile = File(roots.databaseRoot, "secrets.json")
 
-    fun realmdConfig(): File {
+    fun acquireNormalDataLease(): PreparedDataStore.GenerationLease = normalData.acquireRuntimeLease()
+
+    /** Rotate only between native process lifetimes; active writers are never renamed. */
+    fun prepareRealmLogsForStart(nativeState: Long) {
+        StartLogRotationPolicy.requireStopped("realm", nativeState)
+        rotateRestartLog(File(logs, "realmd.log"))
+    }
+
+    /** Rotate only between native process lifetimes; active writers are never renamed. */
+    fun prepareWorldLogsForStart(nativeState: Long) {
+        StartLogRotationPolicy.requireStopped("world", nativeState)
+        rotateRestartLog(File(logs, "world.log"))
+        rotateRestartLog(File(logs, "database-errors.log"), MAX_ERROR_LOG_BYTES)
+    }
+
+    fun realmdConfig(bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS): File {
+        val endpoint = RealmEndpoint.parseStored(bindAddress)
         val secret = coreSecret()
         return secureWrite(File(run, "realmd.conf"), """
             LoginDatabaseInfo = ".;${roots.databaseRun.resolve("mariadb.sock").absolutePath};pocket_core;$secret;classicrealmd"
             RealmServerPort = ${ServerRuntimeContract.REALM_PORT}
-            BindIP = "127.0.0.1"
+            BindIP = "${endpoint.address}"
             RealmsStateUpdateDelay = 20
             ListenerThreads = 1
-            LogLevel = 3
+            LogLevel = 1
             LogFile = "${logs.resolve("realmd.log").absolutePath}"
-            LogFileLevel = 3
+            LogFileLevel = 1
         """.trimIndent() + "\n")
     }
 
-    fun worldConfig(): File {
-        require(baselineData.isDirectory) { "verified O09 client-derived data generation is missing" }
-        require(File(baselineData, "BUILD_PROVENANCE.json").isFile) { "O09 data provenance is missing" }
-        return worldConfig(baselineData, normalPlay = false)
+    fun worldConfig(bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS): File {
+        require(baselineData.isDirectory) {
+            "Prepared server world data is missing. Open Game files and finish preparing it."
+        }
+        require(File(baselineData, "BUILD_PROVENANCE.json").isFile) {
+            "Prepared server world data did not pass its integrity check. Prepare it again from Game files."
+        }
+        return worldConfig(baselineData, normalPlay = false, bindAddress = bindAddress)
     }
 
     /** O12+ production entry point; refuses normal play unless every O11 artifact verifies. */
-    fun worldConfigNormal(): File = worldConfig(normalData.requireActive().root, normalPlay = true)
+    fun worldConfigNormal(bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS): File =
+        worldConfig(normalData.requireActive().root, normalPlay = true, bindAddress = bindAddress)
 
     /** O13 measured profile entry point. Auction-house automation remains disabled. */
-    fun worldConfigBot(profile: BotProfile): File =
-        worldConfig(normalData.requireActive().root, normalPlay = true, botProfile = profile)
+    fun worldConfigBot(
+        profile: BotProfile,
+        bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS,
+    ): File = worldConfig(
+        normalData.requireActive().root,
+        normalPlay = true,
+        botProfile = profile,
+        bindAddress = bindAddress,
+    )
 
-    private fun worldConfig(data: File, normalPlay: Boolean, botProfile: BotProfile? = null): File {
+    private fun worldConfig(
+        data: File,
+        normalPlay: Boolean,
+        botProfile: BotProfile? = null,
+        bindAddress: String,
+    ): File {
+        val endpoint = RealmEndpoint.parseStored(bindAddress)
         val secret = coreSecret()
         val socket = roots.databaseRun.resolve("mariadb.sock").absolutePath
         fun db(name: String) = ".;$socket;pocket_core;$secret;$name"
@@ -71,7 +106,7 @@ internal class ServerRuntimeFiles(context: Context) {
             LogsDatabaseInfo = "${db("classiclogs")}"
             RealmID = 1
             WorldServerPort = ${ServerRuntimeContract.WORLD_PORT}
-            BindIP = "127.0.0.1"
+            BindIP = "${endpoint.address}"
             Network.Threads = 1
             Console.Enable = 0
             Ra.Enable = 0
@@ -80,9 +115,9 @@ internal class ServerRuntimeFiles(context: Context) {
             vmap.enableHeight = ${if (normalPlay) 1 else 0}
             vmap.enableIndoorCheck = ${if (normalPlay) 1 else 0}
             mmap.enabled = ${if (normalPlay) 1 else 0}
-            LogLevel = ${if (botProfile == null) 3 else 1}
+            LogLevel = 1
             LogFile = "${logs.resolve("world.log").absolutePath}"
-            LogFileLevel = ${if (botProfile == null) 3 else 1}
+            LogFileLevel = 1
             DBErrorLogFile = "${logs.resolve("database-errors.log").absolutePath}"
             PlayerLimit = 10
             # The production realm is app-private and loopback-only. Wine's
@@ -91,7 +126,7 @@ internal class ServerRuntimeFiles(context: Context) {
             MaxOverspeedPings = 0
             MaxCoreStuckTime = 0
             PocketRealm.PlayerbotConfig = "${botConfig.absolutePath}"
-            PocketRealm.BotTarget = ${botProfile?.selectedTarget ?: 0}
+            PocketRealm.BotTarget = ${botProfile?.initialTarget ?: 0}
         """.trimIndent() + "\n")
     }
 
@@ -121,5 +156,27 @@ internal class ServerRuntimeFiles(context: Context) {
             "cannot replace ${target.name}"
         }
         return target
+    }
+
+    /** Keep one oversized previous-session diagnostic when the native writer is stopped. */
+    private fun rotateRestartLog(file: File, maximumBytes: Long = MAX_NORMAL_LOG_BYTES) {
+        if (!file.isFile || file.length() <= maximumBytes) return
+        val previous = File(file.parentFile, "${file.name}.1")
+        if (previous.exists()) check(previous.delete()) { "cannot retire ${previous.name}" }
+        check(file.renameTo(previous)) { "cannot rotate ${file.name}" }
+    }
+
+    companion object {
+        private const val MAX_NORMAL_LOG_BYTES = 4L * 1024L * 1024L
+        private const val MAX_ERROR_LOG_BYTES = 8L * 1024L * 1024L
+    }
+}
+
+internal object StartLogRotationPolicy {
+    fun requireStopped(component: String, nativeState: Long) {
+        check(nativeState == ServerRuntimeContract.STOPPED) {
+            "$component start requires a stopped native runtime; current state=" +
+                ServerRuntimeContract.stateName(nativeState)
+        }
     }
 }

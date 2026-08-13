@@ -150,12 +150,42 @@ class ImportJournal(context: Context) : AutoCloseable {
     }
 
     fun dataStage(importId: String, stage: DataStage): DataCheckpoint? = helper.readableDatabase.rawQuery(
-        "SELECT state,processed,total,bytes_written,checkpoint,attempt,last_error FROM data_stages " +
+        "SELECT state,processed,total,bytes_written,checkpoint,attempt,last_error,updated_at_ms FROM data_stages " +
             "WHERE import_id=? AND stage=?", arrayOf(importId, stage.name),
     ).use { cursor -> if (!cursor.moveToFirst()) null else DataCheckpoint(
         stage, DataStageState.valueOf(cursor.getString(0)), cursor.getInt(1), cursor.getInt(2),
-        cursor.getLong(3), cursor.getString(4), cursor.getInt(5), cursor.getString(6),
+        cursor.getLong(3), cursor.getString(4), cursor.getInt(5), cursor.getString(6), cursor.getLong(7),
     ) }
+
+    fun dataStages(importId: String): List<DataCheckpoint> = helper.readableDatabase.rawQuery(
+        "SELECT stage,state,processed,total,bytes_written,checkpoint,attempt,last_error,updated_at_ms " +
+            "FROM data_stages WHERE import_id=? ORDER BY rowid",
+        arrayOf(importId),
+    ).use { cursor -> buildList {
+        while (cursor.moveToNext()) add(DataCheckpoint(
+            stage = DataStage.valueOf(cursor.getString(0)),
+            state = DataStageState.valueOf(cursor.getString(1)),
+            processed = cursor.getInt(2),
+            total = cursor.getInt(3),
+            bytesWritten = cursor.getLong(4),
+            checkpoint = cursor.getString(5),
+            attempt = cursor.getInt(6),
+            lastError = cursor.getString(7),
+            updatedAtMs = cursor.getLong(8),
+        ))
+    } }
+
+    fun copyingFile(importId: String): CopyingFile? = helper.readableDatabase.rawQuery(
+        "SELECT relative_path,expected_size,temp_name FROM files " +
+            "WHERE import_id=? AND state='COPYING' ORDER BY relative_path LIMIT 1",
+        arrayOf(importId),
+    ).use { cursor ->
+        if (!cursor.moveToFirst()) null else CopyingFile(
+            relativePath = cursor.getString(0),
+            expectedBytes = cursor.getLong(1),
+            tempName = cursor.getString(2),
+        )
+    }
 
     fun startDataStage(importId: String, stage: DataStage, total: Int, checkpoint: String? = null) {
         helper.writableDatabase.insertWithOnConflict("data_stages", null, ContentValues().apply {
@@ -234,6 +264,11 @@ class ImportJournal(context: Context) : AutoCloseable {
     data class JournalEntry(
         val relativePath: String, val expectedSize: Long, val state: ImportFileState,
         val sha256: String?, val attempt: Int, val lastError: String?, val fsyncMarker: Boolean,
+    )
+    data class CopyingFile(
+        val relativePath: String,
+        val expectedBytes: Long,
+        val tempName: String?,
     )
 
     private class Helper(context: Context, path: String) : SQLiteOpenHelper(context, path, null, SCHEMA) {

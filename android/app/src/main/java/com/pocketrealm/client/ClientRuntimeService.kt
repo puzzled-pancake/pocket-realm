@@ -5,13 +5,19 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.os.Process
+import android.os.SystemClock
 import com.pocketrealm.log.AppLog
+import com.pocketrealm.supervisor.RealmEndpoint
 import com.pocketrealm.supervisor.ComponentOwnership
 import com.pocketrealm.wine.WineSpikeNative
 import org.json.JSONObject
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 /**
  * Non-exported :client process. It owns Wine and every native child; the UI
@@ -19,12 +25,12 @@ import java.util.concurrent.Executors
  */
 class ClientRuntimeService : Service() {
     private val lock = Any()
+    private val prepareLaunchLock = ReentrantLock()
     private val executor = Executors.newSingleThreadExecutor()
     private lateinit var store: WineRuntimeStore
     private lateinit var ownership: ComponentOwnership
     private var prepared: WineRuntimeStore.Prepared? = null
     private var session: SessionRecord? = null
-    @Volatile private var armProcess: java.lang.Process? = null
 
     private data class SessionRecord(
         val id: UUID,
@@ -38,6 +44,11 @@ class ClientRuntimeService : Service() {
         var cleanExit: Boolean = false,
         var stdout: String = "",
         var stderr: String = "",
+        var rendererProofDeadlineElapsedMs: Long = 0,
+        var runtimeFinished: Boolean = false,
+        var processTreeStarted: Boolean = false,
+        var processTreeDrained: Boolean = false,
+        val runtimeFinishedSignal: CountDownLatch = CountDownLatch(1),
     )
 
     override fun onCreate() {
@@ -45,9 +56,16 @@ class ClientRuntimeService : Service() {
         store = WineRuntimeStore(applicationContext)
         ownership = ComponentOwnership("client") {
             Thread({
-                runCatching { cancelActiveRuntime() }
-                stopSelf()
-                Process.killProcess(Process.myPid())
+                val current = synchronized(lock) { session }
+                val drained = current == null || runCatching {
+                    forceRuntimeAndAwait(current!!).drained
+                }.getOrDefault(false)
+                if (drained) {
+                    stopSelf()
+                    Process.killProcess(Process.myPid())
+                } else {
+                    AppLog.e(TAG, "owner loss could not prove client process-tree drain")
+                }
             }, "client-owner-loss").start()
         }
         AppLog.i(TAG, "ClientRuntimeService started pid=${android.os.Process.myPid()}")
@@ -104,36 +122,93 @@ class ClientRuntimeService : Service() {
         }
 
         override fun preparePrefix(requestJson: String): String = guarded(requestJson) {
+            prepareLaunchLock.withLock {
             val request = JSONObject(requestJson)
             requireProtocol(request)
             checkNoActiveSession()
+            val retired = synchronized(lock) { prepared.also { prepared = null } }
+            retired?.close()
             val translator = ArmTranslationBackend.parse(request.getString("translator"))
             val renderer = request.optString("renderer", "wined3d")
             val rendererPackageId = request.optionalString("rendererPackageId")
-            if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a" && renderer == "dxvk") {
-                requireNotNull(rendererPackageId) { "DXVK requires an explicit renderer package" }
-            }
-            val p = store.prepare(
-                request.getString("clientId"), renderer,
-                request.optString("audioMode", "off"),
-                translator,
-                request.optBoolean("inputSafeMode", false),
-                rendererPackageId,
+            val vulkanDriverId = request.optionalString("vulkanDriverId")
+            val displaySelection = ClientDisplayCapabilities.requireSelection(
+                applicationContext,
+                request.getString("displayProfileId"),
+                request.getInt("frameCap"),
             )
+            if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
+                require(renderer == "dxvk") { "Box64 + DXVK is the only supported ARM client route" }
+                requireNotNull(rendererPackageId) { "DXVK requires an explicit renderer package" }
+                val rendererPackage = requireNotNull(RendererPackageCatalog.requireForRequest(
+                    translator, renderer, rendererPackageId,
+                ))
+                val requestedDriver = VulkanDriverCatalog.requireForRequest(vulkanDriverId)
+                VulkanDriverCatalog.requireAvailableCompatiblePair(
+                    vulkanDriverId,
+                    rendererPackage,
+                    Build.MODEL,
+                    if (requestedDriver.kind == VulkanDriverKind.SYSTEM) {
+                        AndroidSystemVulkanProbe.probe()
+                    } else null,
+                )
+            } else {
+                require(vulkanDriverId == null) {
+                    "x86 direct Wine does not accept an ARM Vulkan driver"
+                }
+            }
+            val audioMode = request.getString("audioMode").also {
+                require(it == "off" || it == "on") { "unsupported audio mode" }
+            }
+            val tweaksJson = ClientTweaksConfig.fromControlJson(
+                request.getString("tweaks"),
+            ).toJson()
+            val realmEndpoint = RealmEndpoint.parseStored(request.getString("realmEndpoint"))
+            val base = store.prepare(
+                clientId = request.getString("clientId"),
+                renderer = renderer,
+                audioMode = audioMode,
+                armTranslator = translator,
+                inputSafeMode = request.optBoolean("inputSafeMode", false),
+                armRendererPackageId = rendererPackageId,
+                armVulkanDriverId = vulkanDriverId,
+                displayProfileId = displaySelection.profile.id,
+                frameCap = displaySelection.frameCap.fps,
+                tweaksJson = tweaksJson,
+                realmEndpoint = realmEndpoint,
+            )
+            val p = base.copy(prefixId = "${base.prefixId}:${UUID.randomUUID()}")
             synchronized(lock) { prepared = p }
             JSONObject().put("ok", true).put("prefixId", p.prefixId)
                 .put("runtimeRoot", p.root.absolutePath).put("prefixPath", p.prefix.absolutePath)
+                .put("vulkanDriverId", p.armVulkanDriverId ?: JSONObject.NULL)
+                .put("rendererPackageId", p.armRendererPackageId ?: JSONObject.NULL)
+                .put("displayProfileId", p.displayProfileId)
+                .put("virtualWidth", displaySelection.virtualWidth)
+                .put("virtualHeight", displaySelection.virtualHeight)
+                .put("frameCap", p.frameCap)
+                .put("effectiveTweaks", p.tweaksJson)
+                .put("tweaksFallback", p.tweaksFallback)
                 .put("detail", "prefix ready and manifest-compatible")
+            }
         }
 
         override fun launch(requestJson: String): String = guarded(requestJson) {
+            prepareLaunchLock.withLock {
             val request = JSONObject(requestJson)
             requireProtocol(request)
             val p = synchronized(lock) {
-                check(session == null || session!!.state in TERMINAL_STATES) { "a client session is already active" }
+                check(session == null || (session!!.runtimeFinished && session!!.processTreeDrained)) {
+                    "a client runtime or undrained process tree is already active"
+                }
                 checkNotNull(prepared) { "preparePrefix must succeed before launch" }
             }
             check(request.getString("prefixId") == p.prefixId) { "prefix identity mismatch" }
+            check(request.getString("audioMode") == p.audioMode) { "audio identity mismatch" }
+            val requestedTweaks = ClientTweaksConfig.fromControlJson(
+                request.getString("tweaks"),
+            ).toJson()
+            check(requestedTweaks == p.tweaksJson) { "client tweak identity mismatch" }
             check(ArmTranslationBackend.parse(request.getString("translator")) ==
                 (p.armTranslator ?: ArmTranslationBackend.BOX64)) {
                 "translator identity mismatch"
@@ -145,23 +220,81 @@ class ClientRuntimeService : Service() {
                 check(request.optionalString("rendererPackageId") == p.armRendererPackageId) {
                     "renderer package identity mismatch"
                 }
+                check(request.optionalString("vulkanDriverId") == p.armVulkanDriverId) {
+                    "Vulkan driver identity mismatch"
+                }
             } else {
                 check(request.optionalString("rendererPackageId") == null) {
                     "x86 direct Wine does not accept an ARM renderer package"
                 }
+                check(request.optionalString("vulkanDriverId") == null) {
+                    "x86 direct Wine does not accept an ARM Vulkan driver"
+                }
+            }
+            check(request.getString("displayProfileId") == p.displayProfileId) {
+                "display profile identity mismatch"
+            }
+            check(request.getInt("frameCap") == p.frameCap) {
+                "frame-cap identity mismatch"
             }
             check(request.optString("display", ":0") == ":0") { "only the app-private :0 display is authorized" }
-            check(request.optString("audioMode", "off") == "off") { "O06 requires audio-off" }
             val socket = File(p.tmp, ".X11-unix/X0")
             check(socket.exists()) { "display surface/transport must exist before launch" }
+            store.attestForLaunch(p)
 
             val id = UUID.randomUUID()
             val closeFile = File(p.root, "sessions/$id/close.request")
             closeFile.parentFile!!.mkdirs(); closeFile.delete()
             val record = SessionRecord(id, p, closeFile)
-            synchronized(lock) { session = record; persist(record) }
-            executor.execute { runSession(record) }
+            try {
+                synchronized(lock) {
+                    check(prepared === p) { "prepared launch ticket was replaced" }
+                    prepared = null
+                    session = record
+                    persist(record)
+                }
+                executor.execute {
+                    try {
+                        runSession(record)
+                    } catch (error: Throwable) {
+                        synchronized(lock) {
+                            record.stderr = "${error.javaClass.simpleName}: ${error.message}"
+                                .takeLast(ClientRuntimeContract.MAX_DIAGNOSTIC_CHARS)
+                            if (record.state !in TERMINAL_STATES) {
+                                runCatching { transition(record, ClientState.FAILED, "client runtime threw before completion") }
+                                    .onFailure {
+                                        record.state = ClientState.FAILED
+                                        record.detail = "client runtime threw before completion"
+                                        record.sequence++
+                                    }
+                            }
+                        }
+                    } finally {
+                        try {
+                            record.prepared.close()
+                        } finally {
+                            synchronized(lock) {
+                                record.runtimeFinished = true
+                                runCatching { persist(record) }
+                                    .onFailure { AppLog.e(TAG, "final client-session persistence failed", it) }
+                            }
+                            record.runtimeFinishedSignal.countDown()
+                        }
+                    }
+                }
+            } catch (error: Throwable) {
+                synchronized(lock) {
+                    if (session === record) session = null
+                    if (prepared === p) prepared = null
+                }
+                try {
+                    record.prepared.close()
+                } finally {
+                    throw error
+                }
+            }
             JSONObject().put("ok", true).put("sessionId", id.toString()).put("state", record.state.name)
+            }
         }
 
         override fun requestClose(sessionId: String): String = guarded(sessionId) {
@@ -179,20 +312,19 @@ class ClientRuntimeService : Service() {
 
         override fun forceStop(sessionId: String): String = guarded(sessionId) {
             val r = requireSession(sessionId)
-            synchronized(lock) {
-                check(r.state !in TERMINAL_STATES) { "session is already terminal" }
-            }
-            val cancelled = cancelActiveRuntime()
-            check(cancelled) { "active Wine process group was not found" }
-            synchronized(lock) {
-                r.forced = true
-                transition(r, ClientState.FORCE_STOPPED, "session process group killed")
-            }
-            JSONObject().put("ok", true).put("cancelled", cancelled).put("state", r.state.name)
+            val outcome = forceRuntimeAndAwait(r)
+            check(outcome.drained) { "client process tree did not drain before timeout" }
+            JSONObject().put("ok", true)
+                .put("cancelled", outcome.cancellationObserved)
+                .put("runtimeFinished", outcome.runtimeFinished)
+                .put("processTreeDrained", outcome.processTreeDrained)
+                .put("state", r.state.name)
         }
 
         override fun status(sessionId: String): String = guarded(sessionId) {
-            eventJson(requireSession(sessionId))
+            val r = requireSession(sessionId)
+            synchronized(lock) { maybePromoteRunningLocked(r) }
+            eventJson(r)
         }
 
         override fun collectDiagnostics(sessionId: String): String = guarded(sessionId) {
@@ -203,14 +335,17 @@ class ClientRuntimeService : Service() {
             val r = requireSession(sessionId)
             synchronized(lock) {
                 r.windowVisible = true
-                if (r.state == ClientState.STARTING) transition(r, ClientState.RUNNING, "mapped client window visible")
+                if (r.rendererProofDeadlineElapsedMs == 0L) {
+                    r.rendererProofDeadlineElapsedMs = SystemClock.elapsedRealtime() + 10_000L
+                }
+                maybePromoteRunningLocked(r)
             }
             eventJson(r)
         }
 
         override fun statusCurrent(): String = guarded("") {
             val value = synchronized(lock) {
-                session?.let(::eventJsonUnsafe) ?: JSONObject().put("ok", true)
+                session?.also(::maybePromoteRunningLocked)?.let(::eventJsonUnsafe) ?: JSONObject().put("ok", true)
                     .put("sequence", 0).put("state", ClientState.EXITED.name)
                     .put("detail", "no active client session")
             }
@@ -233,41 +368,51 @@ class ClientRuntimeService : Service() {
         override fun releaseOwned(instanceToken: String): String = guarded(instanceToken) {
             ownership.requireOwner(instanceToken)
             val r = synchronized(lock) { checkNotNull(session) { "no client session" } }
-            check(r.state in TERMINAL_STATES) { "client session is not terminal" }
+            check(r.state in TERMINAL_STATES && r.runtimeFinished) {
+                "client runtime has not finished"
+            }
+            check(r.processTreeDrained) { "client process tree has not drained" }
             ownership.clear(instanceToken)
             JSONObject().put("ok", true).put("released", true).put("state", r.state.name)
         }
 
         override fun forceStopOwned(instanceToken: String): String = guarded(instanceToken) {
             ownership.requireOwner(instanceToken)
-            val r = synchronized(lock) { checkNotNull(session) { "no client session" } }
-            if (r.state !in TERMINAL_STATES) {
-                val cancelled = cancelActiveRuntime()
-                synchronized(lock) {
-                    r.forced = true
-                    transition(r, ClientState.FORCE_STOPPED,
-                        if (cancelled) "owned process group killed" else "owned session already absent")
-                }
-            }
+            val r = synchronized(lock) { session }
+            val outcome = r?.let(::forceRuntimeAndAwait) ?: ForcedDrainOutcome.noSession()
+            check(outcome.drained) { "client process tree did not drain before timeout" }
+            synchronized(lock) { prepared.also { prepared = null } }?.close()
             ownership.clear(instanceToken)
             Thread({
                 Thread.sleep(150)
                 stopSelf()
                 Process.killProcess(Process.myPid())
             }, "client-force-retire").start()
-            JSONObject().put("ok", true).put("state", r.state.name)
+            JSONObject().put("ok", true)
+                .put("state", r?.state?.name ?: ClientState.EXITED.name)
+                .put("hadSession", r != null)
+                .put("runtimeFinished", outcome.runtimeFinished)
+                .put("processTreeDrained", outcome.processTreeDrained)
         }
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onDestroy() {
-        runCatching { cancelActiveRuntime() }
-        executor.shutdownNow()
+        synchronized(lock) { session }?.takeIf { !it.runtimeFinished }?.let { current ->
+            runCatching { forceRuntimeAndAwait(current) }
+                .onFailure { AppLog.e(TAG, "client teardown drain failed", it) }
+        }
+        synchronized(lock) { prepared.also { prepared = null } }?.close()
+        executor.shutdown()
         super.onDestroy()
     }
 
     private fun runSession(r: SessionRecord) {
+        if (synchronized(lock) { r.forced }) {
+            synchronized(lock) { r.processTreeDrained = true }
+            return
+        }
         if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
             runArmSession(r)
             return
@@ -285,7 +430,12 @@ class ClientRuntimeService : Service() {
                 add("POCKET_GLADIO_X11_SOCKET=${File(r.prepared.tmp, ".X11-unix/X0").absolutePath}")
             }
         }.joinToString(";")
+        if (synchronized(lock) { r.forced }) {
+            synchronized(lock) { r.processTreeDrained = true }
+            return
+        }
         val raw = try {
+            synchronized(lock) { r.processTreeStarted = true }
             WineSpikeNative.runWineDirectNative(
                 applicationInfo.nativeLibraryDir, r.prepared.executable.absolutePath,
                 r.prepared.prefix.absolutePath, r.prepared.workingDir.absolutePath,
@@ -300,9 +450,11 @@ class ClientRuntimeService : Service() {
         }
         val result = parseWineRunResult(raw)
         synchronized(lock) {
+            r.processTreeDrained = result.processTreeDrained
             r.stdout = result.stdout.takeLast(ClientRuntimeContract.MAX_DIAGNOSTIC_CHARS)
             r.stderr = result.stderr.takeLast(ClientRuntimeContract.MAX_DIAGNOSTIC_CHARS)
             r.cleanExit = result.rc == 0 && result.exitedCleanly && result.exitCode == 0 &&
+                result.processTreeDrained &&
                 !result.timedOut && (!r.prepared.selfTest || r.stdout.contains("POCKET_SELFTEST_OK"))
             if (!r.forced) {
                 transition(
@@ -315,13 +467,18 @@ class ClientRuntimeService : Service() {
     }
 
     private fun runArmSession(r: SessionRecord) {
-        when (r.prepared.armTranslator ?: ArmTranslationBackend.BOX64) {
-            ArmTranslationBackend.BOX64 -> runArmBox64Session(r)
-            ArmTranslationBackend.FEX -> runArmFexSession(r)
+        check((r.prepared.armTranslator ?: ArmTranslationBackend.BOX64) ==
+            ArmTranslationBackend.BOX64) {
+            "Box64 is the only supported ARM translator"
         }
+        runArmBox64Session(r)
     }
 
     private fun runArmBox64Session(r: SessionRecord) {
+        if (synchronized(lock) { r.forced }) {
+            synchronized(lock) { r.processTreeDrained = true }
+            return
+        }
         val rootfs = r.prepared.tree
         val nativeDir = File(applicationInfo.nativeLibraryDir)
         val box64 = File(nativeDir, "libbox64.so")
@@ -330,7 +487,32 @@ class ClientRuntimeService : Service() {
         val x86Lib = File(rootfs, "lib/x86_64-linux-gnu")
         val home = File(rootfs, "home/xuser")
         val renderer = checkNotNull(r.prepared.armRenderer) { "ARM renderer identity missing" }
+        check(renderer == "dxvk") { "Box64 + DXVK is the only supported ARM client route" }
+        val dxvkConfig = File(r.prepared.cache, ClientRuntimeContract.DXVK_CONFIG_FILE_NAME)
+        check(dxvkConfig.isFile && dxvkConfig.readText() ==
+            ClientRuntimeContract.dxvkFrameCapConfig(r.prepared.frameCap)) {
+            "app-owned DXVK frame cap is missing or stale"
+        }
         File(r.prepared.tmp, "shm").mkdirs()
+        val audioOn = r.prepared.audioMode == "on"
+        val driver = checkNotNull(VulkanDriverCatalog.find(r.prepared.armVulkanDriverId)) {
+            "ARM Vulkan driver identity missing"
+        }
+        val driverEnv = when (driver.kind) {
+            VulkanDriverKind.SYSTEM -> listOf(
+                "VK_ICD_FILENAMES=${File(rootfs, "usr/share/vulkan/icd.d/${driver.icdFileName}").absolutePath}",
+            )
+            VulkanDriverKind.TURNIP -> buildList {
+                add("VK_ICD_FILENAMES=${File(rootfs, "usr/share/vulkan/icd.d/${driver.icdFileName}").absolutePath}")
+                add("MESA_VK_WSI_PRESENT_MODE=mailbox")
+                add("MESA_VK_WSI_USE_HWBUF=1")
+                add(if (Build.MODEL.trim().equals("Retroid Pocket 6", ignoreCase = true)) {
+                    "TU_DEBUG=noconform,sysmem"
+                } else {
+                    "TU_DEBUG=noconform"
+                })
+            }
+        }
         val env = listOf(
             "HOME=${home.absolutePath}",
             "USER=xuser",
@@ -341,7 +523,9 @@ class ClientRuntimeService : Service() {
             "WINE_DO_NOT_CREATE_DXGI_DEVICE_MANAGER=1",
             "WINEESYNC=0",
             "WINEFSYNC=0",
-            "WINEDLLOVERRIDES=${if (renderer == "dxvk") "d3d9=n,b;dxgi=n,b" else "d3d9=b;dxgi=b"};winealsa.drv=d;winepulse.drv=d",
+            // Use the proven Wine loader order; readiness below independently
+            // attests the fresh DXVK/Turnip session log.
+            "WINEDLLOVERRIDES=${ClientRuntimeContract.armWineDllOverrides(audioOn)}",
             "BOX64_NOBANNER=1",
             "BOX64_DYNAREC=1",
             "BOX64_UNITYPLAYER=0",
@@ -361,56 +545,59 @@ class ClientRuntimeService : Service() {
             "BOX64_X11GLX=1",
             "BOX64_LD_LIBRARY_PATH=${x86Lib.absolutePath}",
             "BOX64_PATH=${File(rootfs, "opt/wine/bin").absolutePath}",
-            "VK_ICD_FILENAMES=${File(rootfs, "usr/share/vulkan/icd.d/freedreno_icd.aarch64.json").absolutePath}",
-            "MESA_VK_WSI_PRESENT_MODE=mailbox",
-            "MESA_VK_WSI_USE_HWBUF=1",
-            // Winlator forces sysmem on Adreno 7xx except 710/720/732. RP6 is 740.
-            "TU_DEBUG=noconform,sysmem",
             "DXVK_STATE_CACHE_PATH=${File(r.prepared.cache, "dxvk").absolutePath}",
+            "MESA_SHADER_CACHE_DIR=${File(r.prepared.cache, "mesa").absolutePath}",
+            "XDG_CACHE_HOME=${File(r.prepared.cache, "xdg").absolutePath}",
+            "DXVK_CONFIG_FILE=${dxvkConfig.absolutePath}",
             "DXVK_LOG_PATH=${File(r.prepared.root, "sessions/${r.id}").absolutePath}",
             "DXVK_LOG_LEVEL=info",
             "vblank_mode=0",
             "FONTCONFIG_FILE=${File(rootfs, "etc/fonts/fonts.conf").absolutePath}",
             "FONTCONFIG_PATH=${File(rootfs, "etc/fonts").absolutePath}",
+        ) + driverEnv + (if (audioOn) listOf(
+            // O23 audio: route libasound to the on-device ALSA server (bound by
+            // ClientDisplayHost at <transportRoot>/.sound/AS0) via the android_aserver
+            // plugin. The plugin is installed into the ca3d735 rootfs at
+            // usr/lib/alsa-lib/ (libasound's standard plugin dir); the rootfs already
+            // carries the stock alsa.conf + android_aserver default routing. SHM is
+            // mandatory for the matched ca3d735 protocol.
+            "ANDROID_ALSA_SERVER=${File(r.prepared.tmp, ".sound/AS0").absolutePath}",
+            "ANDROID_ASERVER_USE_SHM=true",
+            "ALSA_CONFIG_PATH=${File(rootfs, "usr/share/alsa/alsa.conf").absolutePath}",
+            "ALSA_PLUGIN_DIR=${File(rootfs, "usr/lib/alsa-lib").absolutePath}",
+        ) else emptyList())
+        File(r.prepared.root, "sessions/${r.id}").mkdirs()
+        if (synchronized(lock) { r.forced }) {
+            synchronized(lock) { r.processTreeDrained = true }
+            return
+        }
+        val launchEnvironment = env + listOf(
+            "TMPDIR=${r.prepared.tmp.absolutePath}",
+            "PATH=" + listOf(
+                File(rootfs, "opt/wine/bin"),
+                File(rootfs, "usr/local/bin"),
+                File(rootfs, "usr/bin"),
+                File(rootfs, "bin"),
+            ).joinToString(":") { it.absolutePath },
         )
-        val stdoutFile = File(r.prepared.root, "sessions/${r.id}/stdout.log")
-        val stderrFile = File(r.prepared.root, "sessions/${r.id}/stderr.log")
-        stdoutFile.parentFile!!.mkdirs()
-        val command = listOf(box64.absolutePath, wine.absolutePath) +
-            ClientRuntimeContract.armClientArguments(r.prepared.executable.absolutePath, renderer)
-        val process = try {
-            ProcessBuilder(command)
-                .directory(r.prepared.workingDir)
-                .redirectOutput(stdoutFile)
-                .redirectError(stderrFile)
-                .apply {
-                    environment().clear()
-                    for (entry in env) {
-                        environment()[entry.substringBefore('=')] = entry.substringAfter('=')
-                    }
-                    if (renderer == "opengl") {
-                        environment().remove("VK_ICD_FILENAMES")
-                        environment().remove("MESA_VK_WSI_PRESENT_MODE")
-                        environment().remove("MESA_VK_WSI_USE_HWBUF")
-                        environment().remove("TU_DEBUG")
-                        environment().remove("DXVK_STATE_CACHE_PATH")
-                        environment().remove("DXVK_LOG_PATH")
-                        environment().remove("DXVK_LOG_LEVEL")
-                        environment()["POCKET_GLADIO_X11_SOCKET"] =
-                            File(rootfs, "tmp/.X11-unix/X0").absolutePath
-                    }
-                    environment()["LD_LIBRARY_PATH"] = "${armLib.absolutePath}:${nativeDir.absolutePath}"
-                    environment()["TMPDIR"] = r.prepared.tmp.absolutePath
-                    environment()["PATH"] = listOf(
-                        File(rootfs, "opt/wine/bin"),
-                        File(rootfs, "usr/local/bin"),
-                        File(rootfs, "usr/bin"),
-                        File(rootfs, "bin"),
-                    ).joinToString(":") { it.absolutePath }
-                    environment()["LANG"] = "C.UTF-8"
-                    environment()["LC_ALL"] = "C.UTF-8"
-                }
-                .start()
+        val raw = try {
+            synchronized(lock) { r.processTreeStarted = true }
+            WineSpikeNative.runTrackedBionicProgramNative(
+                nativeDir.absolutePath,
+                box64.absolutePath,
+                box64.absolutePath,
+                r.prepared.workingDir.absolutePath,
+                r.prepared.root.absolutePath,
+                armLib.absolutePath,
+                (listOf(wine.absolutePath) + ClientRuntimeContract.armClientArguments(
+                    r.prepared.executable.absolutePath,
+                    renderer,
+                )).joinToString("\n"),
+                launchEnvironment.joinToString("\n"),
+                "",
+                0,
+                true,
+            )
         } catch (t: Throwable) {
             synchronized(lock) {
                 r.stderr = "${t.javaClass.simpleName}: ${t.message}"
@@ -418,184 +605,135 @@ class ClientRuntimeService : Service() {
             }
             return
         }
-        armProcess = process
-        val exitCode = try {
-            process.waitFor()
-        } catch (interrupted: InterruptedException) {
-            Thread.currentThread().interrupt()
-            process.destroyForcibly()
-            -1
-        } finally {
-            if (armProcess === process) armProcess = null
-        }
+        val result = parseWineRunResult(raw)
         synchronized(lock) {
-            r.stdout = readTail(stdoutFile)
-            r.stderr = readTail(stderrFile)
-            r.cleanExit = exitCode == 0
+            r.processTreeDrained = result.processTreeDrained
+            r.stdout = result.stdout.takeLast(ClientRuntimeContract.MAX_DIAGNOSTIC_CHARS)
+            r.stderr = result.stderr.takeLast(ClientRuntimeContract.MAX_DIAGNOSTIC_CHARS)
+            r.cleanExit = result.rc == 0 && result.exitedCleanly && result.exitCode == 0 &&
+                result.processTreeDrained && !result.timedOut
             if (!r.forced) {
                 transition(
                     r,
                     if (r.cleanExit) ClientState.EXITED else ClientState.FAILED,
-                    "box64 exit=$exitCode",
+                    "box64 rc=${result.rc} exit=${result.exitCode} timeout=${result.timedOut}",
                 )
             } else persist(r)
         }
     }
 
-    /** Native Android ARM64EC Wine with its FEXCore WoW64 DLL backend.
-     *
-     * This intentionally does not invoke the ordinary Linux FEX executable.
-     * ARM64EC Wine is Bionic-native; HODLL selects the pinned FEXCore DLL for
-     * x86/x86-64 code. Renderer selection stays orthogonal: DXVK uses the
-     * ARM64EC DLL set and Turnip, while client OpenGL uses the Bionic Gladio
-     * libGL bridge and passes WoW's native -opengl switch.
-     */
-    private fun runArmFexSession(r: SessionRecord) {
-        val rootfs = r.prepared.tree
-        val nativeDir = File(applicationInfo.nativeLibraryDir)
-        val wineRoot = File(rootfs, "opt/proton-9.0-arm64ec")
-        val wine = File(wineRoot, "bin/wine")
-        val armLib = File(rootfs, "usr/lib")
-        val sysvShm = File(armLib, "libandroid-sysvshm.so")
-        val renderer = checkNotNull(r.prepared.armRenderer) { "ARM renderer identity missing" }
-        check(wine.isFile && wine.canExecute()) { "native ARM64EC Wine is unavailable" }
-        check(File(r.prepared.prefix,
-            "drive_c/windows/system32/libwow64fex.dll").isFile) {
-            "FEXCore WoW64 DLL is unavailable in the selected prefix"
-        }
-
-        val env = mutableMapOf(
-            "HOME" to File(rootfs, "home/xuser").absolutePath,
-            "USER" to "xuser",
-            "DISPLAY" to ":0",
-            "ANDROID_SYSVSHM_SERVER" to File(r.prepared.tmp, ".sysvshm/SM0").absolutePath,
-            "WINEPREFIX" to r.prepared.prefix.absolutePath,
-            "WINEDEBUG" to "-all",
-            "HODLL" to "libwow64fex.dll",
-            "WINE_DO_NOT_CREATE_DXGI_DEVICE_MANAGER" to "1",
-            "WINEESYNC" to "0",
-            "WINEFSYNC" to "0",
-            "WINE_NO_DUPLICATE_EXPLORER" to "1",
-            "WINE_DISABLE_FULLSCREEN_HACK" to "1",
-            "WINE_X11FORCEGLX" to "1",
-            "WINE_GST_NO_GL" to "1",
-            "WINEDLLOVERRIDES" to if (renderer == "dxvk") {
-                "d3d9=n,b;dxgi=n,b;winealsa.drv=d;winepulse.drv=d"
-            } else {
-                // Match the pinned ARM64EC Winlator policy on Adreno: prefer
-                // the packaged PE OpenGL frontend, which then calls the
-                // aarch64-unix opengl32 module and the Gladio host libGL.
-                "opengl32=n,b;d3d9=b;dxgi=b;winealsa.drv=d;winepulse.drv=d"
-            },
-            "POCKET_GLADIO_X11_SOCKET" to File(r.prepared.tmp, ".X11-unix/X0").absolutePath,
-            "FEX_TSOENABLED" to "1",
-            "FEX_VECTORTSOENABLED" to "0",
-            "FEX_MEMCPYSETTSOENABLED" to "0",
-            "FEX_HALFBARRIERTSOENABLED" to "1",
-            "FEX_X87REDUCEDPRECISION" to "1",
-            "FEX_MULTIBLOCK" to "1",
-            "LD_LIBRARY_PATH" to listOf(armLib, File("/system/lib64"), nativeDir)
-                .joinToString(":") { it.absolutePath },
-            "LD_PRELOAD" to sysvShm.takeIf { it.isFile }?.absolutePath.orEmpty(),
-            "PREFIX" to File(rootfs, "usr").absolutePath,
-            "PATH" to listOf(File(wineRoot, "bin"), File(rootfs, "usr/bin"))
-                .joinToString(":") { it.absolutePath },
-            "XDG_DATA_DIRS" to File(rootfs, "usr/share").absolutePath,
-            "XDG_CONFIG_DIRS" to File(rootfs, "usr/etc/xdg").absolutePath,
-            "GST_PLUGIN_PATH" to File(rootfs, "usr/lib/gstreamer-1.0").absolutePath,
-            "VK_LAYER_PATH" to listOf(
-                File(rootfs, "usr/share/vulkan/implicit_layer.d"),
-                File(rootfs, "usr/share/vulkan/explicit_layer.d"),
-            ).joinToString(":") { it.absolutePath },
-            "FONTCONFIG_PATH" to File(rootfs, "usr/etc/fonts").absolutePath,
-            "XLOCALEDIR" to File(rootfs, "usr/share/X11/locale").absolutePath,
-            "XKEYSYMDB" to File(rootfs, "usr/share/X11/XKeysymDB").absolutePath,
-            "TMPDIR" to r.prepared.tmp.absolutePath,
-            "OPENSSL_CONF" to File(rootfs, "usr/etc/tls/openssl.cnf").absolutePath,
-            "SSL_CERT_FILE" to File(rootfs, "usr/etc/tls/cert.pem").absolutePath,
-            "SSL_CERT_DIR" to File(rootfs, "usr/etc/tls/certs").absolutePath,
-            "LANG" to "C.UTF-8",
-            "LC_ALL" to "C.UTF-8",
-        )
-        if (renderer == "dxvk") {
-            env.putAll(mapOf(
-                "VK_ICD_FILENAMES" to File(rootfs,
-                    "usr/share/vulkan/icd.d/wrapper_icd.aarch64.json").absolutePath,
-                "ADRENOTOOLS_DRIVER_PATH" to "${armLib.absolutePath}/",
-                "ADRENOTOOLS_HOOKS_PATH" to armLib.absolutePath,
-                "ADRENOTOOLS_DRIVER_NAME" to "vulkan.ad07xx.so",
-                "WRAPPER_LAYER_PATH" to armLib.absolutePath,
-                "WRAPPER_CACHE_PATH" to File(r.prepared.cache, "wrapper").absolutePath,
-                "WRAPPER_VK_VERSION" to "1.4.315",
-                "TU_DEBUG" to "noconform,sysmem",
-                "DXVK_STATE_CACHE_PATH" to File(r.prepared.cache, "dxvk").absolutePath,
-                "DXVK_LOG_PATH" to File(r.prepared.root, "sessions/${r.id}").absolutePath,
-                "DXVK_LOG_LEVEL" to "info",
-                "MESA_VK_WSI_PRESENT_MODE" to "mailbox",
-            ))
-        }
-        val stdoutFile = File(r.prepared.root, "sessions/${r.id}/stdout.log")
-        val stderrFile = File(r.prepared.root, "sessions/${r.id}/stderr.log")
-        stdoutFile.parentFile!!.mkdirs()
-        val command = listOf(wine.absolutePath) + ClientRuntimeContract.armFexClientArguments(
-            r.prepared.executable.absolutePath,
-            renderer,
-            ClientDisplayProfile.QUALITY.resolution,
-        )
-        val process = try {
-            ProcessBuilder(command)
-                .directory(r.prepared.workingDir)
-                .redirectOutput(stdoutFile)
-                .redirectError(stderrFile)
-                .apply {
-                    environment().clear()
-                    environment().putAll(env)
-                }
-                .start()
-        } catch (failure: Throwable) {
-            synchronized(lock) {
-                r.stderr = "${failure.javaClass.simpleName}: ${failure.message}"
-                if (!r.forced) transition(r, ClientState.FAILED, "ARM64EC/FEXCore launcher threw")
-            }
-            return
-        }
-        armProcess = process
-        val exitCode = try {
-            process.waitFor()
-        } catch (interrupted: InterruptedException) {
-            Thread.currentThread().interrupt()
-            process.destroyForcibly()
-            -1
-        } finally {
-            if (armProcess === process) armProcess = null
-        }
-        synchronized(lock) {
-            r.stdout = readTail(stdoutFile)
-            r.stderr = readTail(stderrFile)
-            r.cleanExit = exitCode == 0
-            if (!r.forced) {
-                transition(
-                    r,
-                    if (r.cleanExit) ClientState.EXITED else ClientState.FAILED,
-                    "fexcore/$renderer exit=$exitCode",
-                )
-            } else persist(r)
-        }
-    }
-
-    private fun cancelActiveRuntime(): Boolean =
+    private fun cancelActiveRuntime(r: SessionRecord): Boolean =
         if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
-            armProcess?.let { process ->
-                process.destroy()
-                if (process.isAlive) process.destroyForcibly()
-                true
-            } ?: false
+            WineSpikeNative.cancelActiveTrackedBionicProgramNative()
         } else {
             WineSpikeNative.cancelActiveDirectNative()
         }
 
+    private data class ForcedDrainOutcome(
+        val runtimeFinished: Boolean,
+        val processTreeDrained: Boolean,
+        val cancellationObserved: Boolean,
+    ) {
+        val drained: Boolean get() = runtimeFinished && processTreeDrained
+
+        companion object {
+            fun noSession() = ForcedDrainOutcome(
+                runtimeFinished = true,
+                processTreeDrained = true,
+                cancellationObserved = false,
+            )
+        }
+    }
+
+    /**
+     * Mark cancellation before looking for a process, then keep retrying until
+     * the executor publishes and terminates any launch racing this Binder call.
+     * The display owner consumes both returned proofs before releasing X/Vulkan,
+     * SysV SHM, or ALSA resources.
+     */
+    private fun forceRuntimeAndAwait(r: SessionRecord): ForcedDrainOutcome {
+        synchronized(lock) { r.forced = true }
+        var cancellationObserved = false
+        val deadline = System.nanoTime() + FORCE_DRAIN_TIMEOUT_MS * 1_000_000L
+        while (true) {
+            cancellationObserved = cancelActiveRuntime(r) || cancellationObserved
+            val remaining = deadline - System.nanoTime()
+            if (remaining <= 0L) break
+            val completed = try {
+                r.runtimeFinishedSignal.await(
+                    minOf(FORCE_DRAIN_POLL_MS * 1_000_000L, remaining),
+                    TimeUnit.NANOSECONDS,
+                )
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                false
+            }
+            if (completed || Thread.currentThread().isInterrupted) break
+        }
+
+        val runtimeFinished = synchronized(lock) { r.runtimeFinished }
+        val processTreeDrained = if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
+            synchronized(lock) {
+                if (runtimeFinished && WineSpikeNative.isTrackedBionicProcessGroupDrainedNative()) {
+                    r.processTreeDrained = true
+                }
+                r.processTreeDrained
+            }
+        } else {
+            synchronized(lock) { r.processTreeDrained }
+        }
+        if (runtimeFinished && processTreeDrained) synchronized(lock) {
+            if (r.state != ClientState.FORCE_STOPPED) {
+                transition(
+                    r,
+                    ClientState.FORCE_STOPPED,
+                    if (cancellationObserved) "client process tree killed and drained"
+                    else "client runtime finished before forced teardown",
+                )
+            }
+        }
+        return ForcedDrainOutcome(runtimeFinished, processTreeDrained, cancellationObserved)
+    }
+
     private fun readTail(file: File): String = if (!file.isFile) "" else
         file.readText().takeLast(ClientRuntimeContract.MAX_DIAGNOSTIC_CHARS)
+
+    /** Promote an ARM window only after proving that the selected pinned DXVK
+     * package, rather than WineD3D, created this exact session's D3D9 device. */
+    private fun maybePromoteRunningLocked(r: SessionRecord) {
+        if (r.state != ClientState.STARTING || !r.windowVisible) return
+        if (Build.SUPPORTED_ABIS.firstOrNull() != "arm64-v8a") {
+            transition(r, ClientState.RUNNING, "mapped client window visible")
+            return
+        }
+        val rendererPackage = RendererPackageCatalog.find(r.prepared.armRendererPackageId)
+        val driver = VulkanDriverCatalog.find(r.prepared.armVulkanDriverId)
+        val proof = readPrefix(File(r.prepared.root, "sessions/${r.id}/WoW_d3d9.log"))
+        if (rendererPackage != null && driver != null &&
+            ClientRuntimeContract.isArmDxvkLogAttested(
+                proof, rendererPackage.dxvkVersion, driver,
+            )) {
+            transition(
+                r,
+                ClientState.RUNNING,
+                "mapped client window with ${driver.id} and DXVK ${rendererPackage.dxvkVersion}",
+            )
+        } else if (r.rendererProofDeadlineElapsedMs > 0L &&
+            SystemClock.elapsedRealtime() >= r.rendererProofDeadlineElapsedMs) {
+            transition(r, ClientState.FAILED, "mapped ARM window lacks pinned DXVK proof")
+        }
+    }
+
+    private fun readPrefix(file: File, maximumBytes: Int = 8 * 1024): String {
+        if (!file.isFile) return ""
+        return runCatching {
+            file.inputStream().use { input ->
+                val bytes = ByteArray(maximumBytes)
+                val count = input.read(bytes).coerceAtLeast(0)
+                String(bytes, 0, count, Charsets.UTF_8)
+            }
+        }.getOrDefault("")
+    }
 
     private fun transition(r: SessionRecord, state: ClientState, detail: String) {
         r.state = state; r.detail = detail; r.sequence++
@@ -604,7 +742,9 @@ class ClientRuntimeService : Service() {
     }
 
     private fun checkNoActiveSession() = synchronized(lock) {
-        check(session == null || session!!.state in TERMINAL_STATES) { "cannot prepare while a session is active" }
+        check(session == null || (session!!.runtimeFinished && session!!.processTreeDrained)) {
+            "cannot prepare while a client runtime or undrained process tree is active"
+        }
     }
 
     private fun requireProtocol(request: JSONObject) {
@@ -630,11 +770,19 @@ class ClientRuntimeService : Service() {
     private fun eventJsonUnsafe(r: SessionRecord) = JSONObject().put("ok", true)
         .put("sequence", r.sequence).put("state", r.state.name).put("detail", r.detail)
         .put("cleanExit", r.cleanExit).put("forced", r.forced)
-        .put("windowVisible", r.windowVisible)
+        .put("windowVisible", r.windowVisible).put("runtimeFinished", r.runtimeFinished)
+        .put("rendererPackageId", r.prepared.armRendererPackageId ?: JSONObject.NULL)
+        .put("vulkanDriverId", r.prepared.armVulkanDriverId ?: JSONObject.NULL)
+        .put("displayProfileId", r.prepared.displayProfileId)
+        .put("frameCap", r.prepared.frameCap)
 
     private fun diagnosticsJson(r: SessionRecord) = synchronized(lock) {
         JSONObject().put("ok", true).put("sessionId", r.id.toString()).put("state", r.state.name)
             .put("cleanExit", r.cleanExit).put("forced", r.forced).put("windowVisible", r.windowVisible)
+            .put("rendererPackageId", r.prepared.armRendererPackageId ?: JSONObject.NULL)
+            .put("vulkanDriverId", r.prepared.armVulkanDriverId ?: JSONObject.NULL)
+            .put("displayProfileId", r.prepared.displayProfileId)
+            .put("frameCap", r.prepared.frameCap)
             .put("focusSeen", r.stdout.contains("POCKET_SELFTEST_FOCUS gained"))
             .put("audioOff", r.stdout.contains("POCKET_SELFTEST_AUDIO skipped"))
             .put("keyboardSeen", r.stdout.contains("POCKET_SELFTEST_KEY "))
@@ -663,6 +811,10 @@ class ClientRuntimeService : Service() {
         .put("protocol", ClientRuntimeContract.PROTOCOL_VERSION).put("sessionId", r.id.toString())
         .put("state", r.state.name).put("sequence", r.sequence).put("detail", r.detail)
         .put("cleanExit", r.cleanExit).put("forced", r.forced).put("windowVisible", r.windowVisible)
+        .put("rendererPackageId", r.prepared.armRendererPackageId ?: JSONObject.NULL)
+        .put("vulkanDriverId", r.prepared.armVulkanDriverId ?: JSONObject.NULL)
+        .put("displayProfileId", r.prepared.displayProfileId)
+        .put("frameCap", r.prepared.frameCap)
         .put("focusSeen", r.stdout.contains("POCKET_SELFTEST_FOCUS gained"))
         .put("audioOff", r.stdout.contains("POCKET_SELFTEST_AUDIO skipped"))
         .put("keyboardSeen", r.stdout.contains("POCKET_SELFTEST_KEY "))
@@ -706,6 +858,8 @@ class ClientRuntimeService : Service() {
 
     companion object {
         private const val TAG = "ClientRuntime"
+        private const val FORCE_DRAIN_TIMEOUT_MS = 15_000L
+        private const val FORCE_DRAIN_POLL_MS = 50L
         private val TERMINAL_STATES = setOf(ClientState.EXITED, ClientState.FORCE_STOPPED, ClientState.FAILED)
     }
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.system.Os
 import android.system.OsConstants
+import com.pocketrealm.client.ClientGenerationLease
 import com.pocketrealm.client.ClientRuntimeContract
 import com.pocketrealm.client.SafClientScanner
 import kotlinx.coroutines.Dispatchers
@@ -31,6 +32,10 @@ class ManagedClientImporter(
         afterRenameBeforeActivate: () -> Unit = {},
     ): ImportResult = withContext(Dispatchers.IO) {
         val started = android.os.SystemClock.elapsedRealtime()
+        val importLease = ClientGenerationLease.acquireImportOperation(
+            File(context.noBackupFilesDir, "client"),
+        )
+        try {
         val scanner = SafClientScanner(context.contentResolver).scan(treeUri)
         if (!scanner.supported || scanner.clientId != ClientRuntimeContract.WOW_5875_ID) {
             throw ImportRejected(scanner.failures.joinToString("; ").ifBlank { "unsupported client selection" })
@@ -132,9 +137,26 @@ class ManagedClientImporter(
                 journal.latest().phase != ImportPhase.FAILED) journal.fail(importId, error.message ?: error.javaClass.simpleName)
             throw error
         }
+        } finally {
+            importLease.close()
+        }
     }
 
     fun status(): ImportStatus = journal.latest().copy(activeGeneration = generations.activeGeneration())
+
+    fun dataCheckpoints(importId: String?): List<DataCheckpoint> =
+        importId?.let(journal::dataStages).orEmpty()
+
+    fun activeFile(importId: String?): ActiveImportFile? {
+        val id = importId ?: return null
+        val file = journal.copyingFile(id) ?: return null
+        return ActiveImportFile(
+            relativePath = file.relativePath,
+            expectedBytes = file.expectedBytes,
+            copiedBytes = generations.partialLength(id, file.relativePath, file.tempName)
+                .coerceAtMost(file.expectedBytes),
+        )
+    }
 
     private fun excludeFromSafeRuntime(relative: String): Boolean {
         if ('/' in relative) return false

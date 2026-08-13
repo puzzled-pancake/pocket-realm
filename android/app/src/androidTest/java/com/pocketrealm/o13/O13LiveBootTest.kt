@@ -52,18 +52,10 @@ class O13LiveBootTest {
         }
         val holdSeconds = arguments.getString("pocketHoldSeconds")?.toIntOrNull() ?: 0
         require(holdSeconds in 0..7_200) { "pocketHoldSeconds must be in 0..7200" }
-        // This live stress entry point is intentionally explicit about the
-        // graphics lane.  It prevents a stale user preference from silently
-        // turning an OpenGL-vs-DXVK run into a mixed comparison.  The setting
-        // is persisted by the normal app Settings store and is picked up by
-        // AndroidRuntimeBackend before the client prefix is prepared.
+        // Normalize any legacy persisted runtime selection before the live
+        // stress run. ARM production is fixed to Box64 + DXVK.
         runBlocking {
-            Settings(context).update { current ->
-                current.copy(
-                    renderer = Settings.Renderer.OPENGL,
-                    provider = Settings.RuntimeProvider.BOX64,
-                )
-            }
+            Settings(context).update { current -> current }
         }
         context.startActivity(Intent(context, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))

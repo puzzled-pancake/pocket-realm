@@ -320,6 +320,7 @@ struct wine_spike_proot_run_result {
     int exit_status;        /* raw waitpid exit of the top proot process (or -1) */
     int proot_rc;           /* WINE_SPIKE_OK or WINE_SPIKE_ERR_* */
     int timed_out;          /* 1 if the run hit the timeout */
+    int process_tree_drained; /* 1 only after the tracked process group is absent */
     char stdout_buf[16384]; /* captured child stdout tail */
     char stderr_buf[262144]; /* bounded stderr tail; holds focused Wine diagnostics */
     int descendant_count;   /* number of entries in descendants[] */
@@ -407,6 +408,9 @@ int wine_spike_run_glibc_program(const char *native_dir,
 
 /* Kill only the process tree registered by a track_as_daemon launch. */
 int wine_spike_cancel_active_glibc_program(void);
+
+/* Non-reaping proof that the tracked process group is absent. */
+int wine_spike_active_glibc_process_group_drained(void);
 
 /* ARM64/Bionic MariaDB runner.  This is deliberately separate from the
  * glibc/PRoot path above: it execs the APK-managed Bionic ELF directly with a

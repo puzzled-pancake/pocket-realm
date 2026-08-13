@@ -13,6 +13,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,7 +30,16 @@
 #define TOKEN_MAX 48
 #define BLOB_MAX 8192
 
-static volatile sig_atomic_t g_active_glibc_root = 0;
+static int has_env_key(char *const *tokens, int count, const char *key) {
+    size_t key_len = strlen(key);
+    for (int i = 0; i < count; ++i) {
+        if (strncmp(tokens[i], key, key_len) == 0 && tokens[i][key_len] == '=') return 1;
+    }
+    return 0;
+}
+
+/* Cross-thread service cancellation reads this PID while the JNI runner owns it. */
+static _Atomic int g_active_glibc_root = 0;
 
 static int mkdir_p(const char *path) {
     char copy[WINE_SPIKE_PATH_MAX];
@@ -89,11 +99,75 @@ static long long elapsed_ms(const struct timespec *start) {
            (now.tv_nsec - start->tv_nsec) / 1000000LL;
 }
 
+/*
+ * Once a long-lived child closes both capture pipes there is nothing left for
+ * poll(2) to wait on. Repeating waitpid(..., WNOHANG) in that state spins a
+ * full CPU core for the lifetime of the daemon. Preserve bounded timeout
+ * checks, but use the child itself as the wait source for an unbounded run.
+ */
+static pid_t wait_child_without_capture(pid_t pid, int *status,
+                                        int timeout_ms,
+                                        const struct timespec *started) {
+    if (timeout_ms == 0) {
+        pid_t waited;
+        do {
+            waited = waitpid(pid, status, 0);
+        } while (waited < 0 && errno == EINTR);
+        return waited;
+    }
+
+    long long remaining = (long long)timeout_ms - elapsed_ms(started);
+    if (remaining > 0) {
+        int slice_ms = remaining < 50 ? (int)remaining : 50;
+        while (poll(NULL, 0, slice_ms) < 0 && errno == EINTR) {
+            remaining = (long long)timeout_ms - elapsed_ms(started);
+            if (remaining <= 0) break;
+            slice_ms = remaining < 50 ? (int)remaining : 50;
+        }
+    }
+    return waitpid(pid, status, WNOHANG);
+}
+
 int wine_spike_cancel_active_glibc_program(void) {
-    pid_t root = (pid_t)g_active_glibc_root;
+    pid_t root = (pid_t)atomic_load_explicit(
+        &g_active_glibc_root, memory_order_acquire);
     if (root <= 0) return 0;
-    wine_spike_kill_tree_recursive((int64_t)root);
+    /* The runner thread remains the sole waitpid owner. Cancellation only
+     * signals the dedicated process group, preventing cross-thread reaping. */
+    int delivered = kill(-root, SIGTERM) == 0;
+    if (!delivered && errno != ESRCH) return 0;
+    usleep(150000);
+    if (kill(-root, SIGKILL) == 0) delivered = 1;
+    else if (errno == ESRCH) delivered = 1;
+    return delivered;
+}
+
+int wine_spike_active_glibc_process_group_drained(void) {
+    int root = atomic_load_explicit(&g_active_glibc_root, memory_order_acquire);
+    if (root <= 0) return 1;
+    if (kill(-(pid_t)root, 0) == 0 || errno != ESRCH) return 0;
+    (void)atomic_compare_exchange_strong_explicit(
+        &g_active_glibc_root, &root, 0,
+        memory_order_acq_rel, memory_order_acquire);
     return 1;
+}
+
+static int await_process_group_drained(pid_t pgid, int timeout_ms) {
+    struct timespec started;
+    clock_gettime(CLOCK_MONOTONIC, &started);
+    while (elapsed_ms(&started) < timeout_ms) {
+        if (kill(-pgid, 0) != 0 && errno == ESRCH) return 1;
+        poll(NULL, 0, 20);
+    }
+    return kill(-pgid, 0) != 0 && errno == ESRCH;
+}
+
+static int terminate_and_await_process_group(pid_t pgid) {
+    if (kill(-pgid, 0) != 0 && errno == ESRCH) return 1;
+    (void)kill(-pgid, SIGTERM);
+    usleep(150000);
+    (void)kill(-pgid, SIGKILL);
+    return await_process_group_drained(pgid, 5000);
 }
 
 int wine_spike_run_glibc_program(const char *native_dir,
@@ -223,7 +297,8 @@ int wine_spike_run_glibc_program(const char *native_dir,
         _exit(127);
     }
     setpgid(pid, pid);
-    if (track_as_daemon) g_active_glibc_root = (sig_atomic_t)pid;
+    if (track_as_daemon) atomic_store_explicit(
+        &g_active_glibc_root, (int)pid, memory_order_release);
     close(out_pipe[1]); close(err_pipe[1]);
     set_nonblocking(out_pipe[0]); set_nonblocking(err_pipe[0]);
 
@@ -254,7 +329,9 @@ int wine_spike_run_glibc_program(const char *native_dir,
             }
         }
         if (!exited) {
-            pid_t waited = waitpid(pid, &status, WNOHANG);
+            pid_t waited = nfds == 0
+                ? wait_child_without_capture(pid, &status, timeout_ms, &started)
+                : waitpid(pid, &status, WNOHANG);
             if (waited == pid || (waited < 0 && errno == ECHILD)) {
                 exited = 1;
                 exited_at_ms = elapsed_ms(&started);
@@ -276,7 +353,17 @@ int wine_spike_run_glibc_program(const char *native_dir,
     }
     if (out_pipe[0] >= 0) close(out_pipe[0]);
     if (err_pipe[0] >= 0) close(err_pipe[0]);
-    if (track_as_daemon && g_active_glibc_root == (sig_atomic_t)pid) g_active_glibc_root = 0;
+    if (track_as_daemon) {
+        out->process_tree_drained = terminate_and_await_process_group(pid);
+        if (out->process_tree_drained) {
+            int expected = (int)pid;
+            (void)atomic_compare_exchange_strong_explicit(
+                &g_active_glibc_root, &expected, 0,
+                memory_order_acq_rel, memory_order_acquire);
+        }
+    } else {
+        out->process_tree_drained = 1;
+    }
     out->exit_status = status;
     out->proot_rc = WINE_SPIKE_OK;
     LOGI("done pid=%d status=%d timeout=%d stdout=%zu stderr=%zu", pid, status,
@@ -327,8 +414,12 @@ int wine_spike_run_bionic_program(const char *native_dir,
     snprintf(e_path, sizeof(e_path), "PATH=%s", native_dir);
     const char *envp[64];
     int ei = 0;
-    envp[ei++] = e_ldpath; envp[ei++] = e_home; envp[ei++] = e_tmp;
-    envp[ei++] = e_path; envp[ei++] = "LANG=C.UTF-8"; envp[ei++] = "LC_ALL=C.UTF-8";
+    envp[ei++] = e_ldpath;
+    if (!has_env_key(env_tokens, env_count, "HOME")) envp[ei++] = e_home;
+    if (!has_env_key(env_tokens, env_count, "TMPDIR")) envp[ei++] = e_tmp;
+    if (!has_env_key(env_tokens, env_count, "PATH")) envp[ei++] = e_path;
+    if (!has_env_key(env_tokens, env_count, "LANG")) envp[ei++] = "LANG=C.UTF-8";
+    if (!has_env_key(env_tokens, env_count, "LC_ALL")) envp[ei++] = "LC_ALL=C.UTF-8";
     for (int i = 0; i < env_count && ei < 63; ++i) envp[ei++] = env_tokens[i];
     envp[ei] = NULL;
 
@@ -369,7 +460,8 @@ int wine_spike_run_bionic_program(const char *native_dir,
         _exit(127);
     }
     setpgid(pid, pid);
-    if (track_as_daemon) g_active_glibc_root = (sig_atomic_t)pid;
+    if (track_as_daemon) atomic_store_explicit(
+        &g_active_glibc_root, (int)pid, memory_order_release);
     close(out_pipe[1]); close(err_pipe[1]);
     set_nonblocking(out_pipe[0]); set_nonblocking(err_pipe[0]);
 
@@ -400,7 +492,9 @@ int wine_spike_run_bionic_program(const char *native_dir,
             }
         }
         if (!exited) {
-            pid_t waited = waitpid(pid, &status, WNOHANG);
+            pid_t waited = nfds == 0
+                ? wait_child_without_capture(pid, &status, timeout_ms, &started)
+                : waitpid(pid, &status, WNOHANG);
             if (waited == pid || (waited < 0 && errno == ECHILD)) {
                 exited = 1;
                 exited_at_ms = elapsed_ms(&started);
@@ -421,7 +515,17 @@ int wine_spike_run_bionic_program(const char *native_dir,
     }
     if (out_pipe[0] >= 0) close(out_pipe[0]);
     if (err_pipe[0] >= 0) close(err_pipe[0]);
-    if (track_as_daemon && g_active_glibc_root == (sig_atomic_t)pid) g_active_glibc_root = 0;
+    if (track_as_daemon) {
+        out->process_tree_drained = terminate_and_await_process_group(pid);
+        if (out->process_tree_drained) {
+            int expected = (int)pid;
+            (void)atomic_compare_exchange_strong_explicit(
+                &g_active_glibc_root, &expected, 0,
+                memory_order_acq_rel, memory_order_acquire);
+        }
+    } else {
+        out->process_tree_drained = 1;
+    }
     out->exit_status = status;
     out->proot_rc = WINE_SPIKE_OK;
     LOGI("bionic done pid=%d status=%d timeout=%d stdout=%zu stderr=%zu", pid, status,

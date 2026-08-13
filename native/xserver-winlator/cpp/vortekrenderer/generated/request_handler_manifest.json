@@ -1,0 +1,29 @@
+{
+  "active_raw_handle_output_serializations": 0,
+  "active_raw_root_handle_conversions": 0,
+  "authority_gate_default_closed": true,
+  "legacy_raw_handle_output_sites": {},
+  "legacy_raw_root_handle_sites": {},
+  "metrics": {
+    "checked_response_sends": 102,
+    "decoder_calls": 305,
+    "handle_outputs_published": 30,
+    "handlers": 254,
+    "preflight_commands": 112,
+    "request_heap_allocations_replaced": 10,
+    "request_vlas_replaced": 67,
+    "root_handle_conversions_replaced": 343
+  },
+  "output_normalized_sha256": "4ae0cd26125e9135a7622b276adc1d2d32e72930ba7534edf6b26405feb14fed",
+  "residuals": {
+    "ignored_decoder_returns": 0,
+    "raw_char_decoder_calls": 0,
+    "request_vlas": 0,
+    "unchecked_request_calloc": 0,
+    "unchecked_request_vt_alloc": 0,
+    "unchecked_response_sends": 0
+  },
+  "source_normalized_sha256": "96050e259454c406ab26cb11a77aa0a4b0d4c019559617aecb5445adc502e019",
+  "upstream_commit": "ca3d735a60d653a787daf16d14fafef28d9c2c23",
+  "wire_format_changed": false
+}

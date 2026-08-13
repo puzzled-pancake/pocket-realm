@@ -17,6 +17,7 @@ import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -58,7 +59,8 @@ class ClientRuntimeLifecycleTest {
         assertTrue(File(prefixDir, "system.reg").isFile)
         val durabilityMarker = File(prefixDir, "pocket-relaunch-marker.txt").apply { writeText("preserve") }
         val secondPrepare = withTimeout(180_000) { runtime.preparePrefix(PrefixRequest(client)) }
-        assertEquals(prefix.prefixId, secondPrepare.prefixId)
+        assertNotEquals(prefix.prefixId, secondPrepare.prefixId)
+        assertTrue(runCatching { runtime.launch(LaunchRequest(prefix.prefixId)) }.isFailure)
         assertEquals("preserve", durabilityMarker.readText())
         assertTrue(File(prefix.runtimeRoot, "prefix-manifest.json").isFile)
 
@@ -73,7 +75,7 @@ class ClientRuntimeLifecycleTest {
         }
         waitUntil(10_000) { File(prefix.runtimeRoot, "tmp/.X11-unix/X0").exists() }
 
-        val session = runtime.launch(LaunchRequest(prefix.prefixId))
+        val session = runtime.launch(LaunchRequest(secondPrepare.prefixId))
         waitUntil(60_000) { mapped.get() && host!!.xServer.windowManager.mappedClientWindows.isNotEmpty() }
         runtime.reportWindowVisible(session.sessionId)
         // MapNotify precedes the client's final event-mask/focus setup. The
@@ -127,13 +129,22 @@ class ClientRuntimeLifecycleTest {
         )
 
         mapped.set(false)
-        val forcedSession = runtime.launch(LaunchRequest(prefix.prefixId))
+        val forcedPrefix = withTimeout(180_000) { runtime.preparePrefix(PrefixRequest(client)) }
+        val forcedSession = runtime.launch(LaunchRequest(forcedPrefix.prefixId))
         waitUntil(60_000) { host!!.xServer.windowManager.mappedClientWindows.isNotEmpty() }
         runtime.reportWindowVisible(forcedSession.sessionId)
         runtime.forceStop(forcedSession.sessionId)
         val forced = runtime.collectDiagnostics(forcedSession.sessionId)
         assertEquals(ClientState.FORCE_STOPPED, forced.state)
         assertTrue(forced.forced)
+        // forceStop now returns only after the native process group has been
+        // killed/reaped and the executor has published runtimeFinished. A new
+        // prefix generation must therefore be accepted immediately, proving
+        // there is no orphan generation blocking reconnect/relaunch.
+        val afterForcedDrain = withTimeout(180_000) {
+            runtime.preparePrefix(PrefixRequest(client))
+        }
+        assertTrue(afterForcedDrain.ok)
         android.util.Log.i("O06Acceptance", "CLIENT_RUNTIME_FORCE_STOP state=${forced.state} forced=${forced.forced}")
         Unit
     }

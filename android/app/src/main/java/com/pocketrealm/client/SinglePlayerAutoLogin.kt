@@ -1,5 +1,7 @@
 package com.pocketrealm.client
 
+import com.pocketrealm.storage.Settings
+
 /** A bounded scheduler used by the display main loop and deterministic tests. */
 internal interface AutoLoginScheduler {
     fun nowMs(): Long
@@ -31,7 +33,7 @@ class SinglePlayerAutoLoginCredentials internal constructor(
  * Exact mapped topology accepted for the qualified build-5875 login window.
  * The x86 lane publishes a blank-title `wow.exe` top-level plus a same-sized
  * anonymous backing window. The current ARM Winlator transport omits WM_CLASS
- * and _NET_WM_PID, so it is accepted only as one anonymous 800x600 top-level;
+ * and _NET_WM_PID, so it is accepted only as one anonymous exact-size top-level;
  * the caller separately gates this matcher to the production build id.
  */
 internal object Build5875LoginTopology {
@@ -48,7 +50,8 @@ internal object Build5875LoginTopology {
             AutoLoginWindowLane.X86_DIRECT -> {
                 val clients = large.filter {
                     it.name.isEmpty() && it.className.equals("wow.exe", ignoreCase = true) &&
-                        it.processId > 0 && it.width in 640..1280 && it.height in 480..720
+                        it.processId > 0 && it.width == expectedWidth &&
+                        it.height == expectedHeight
                 }
                 clients.size == 1 && large.size == 2 && large.any {
                     it !== clients.single() && it.name.isEmpty() && it.className.isEmpty() &&
@@ -59,35 +62,20 @@ internal object Build5875LoginTopology {
             AutoLoginWindowLane.ARM_TRANSLATED -> {
                 val mapped = windows.filter { it.renderable }
                 val topLevel = mapped.filter { it.topLevel }
-                // Winlator may expose the same render surface twice: the
-                // actual non-desktop top-level and a same-sized composited
-                // child.  The child is not a second login target. Prefer the
-                // unique game top-level, while retaining the legacy FEX shape
-                // where the game is the sole exact-size child of explorer.
+                // Box64 exposes one exact-size, non-desktop top-level game
+                // surface. Same-sized child surfaces are compositor details,
+                // never a second credential target.
                 val topTargets = topLevel.filter {
                     !it.desktop && it.width == expectedWidth && it.height == expectedHeight
                 }
-                val nestedTargets = mapped.filter {
-                    !it.topLevel && !it.desktop &&
-                        it.width == expectedWidth && it.height == expectedHeight
-                }
-                val target = when {
-                    topTargets.size == 1 -> topTargets.single()
-                    topTargets.isEmpty() && nestedTargets.size == 1 -> nestedTargets.single()
-                    else -> return false
-                }
-                val desktops = topLevel.filter {
-                    it.desktop && it.width == expectedWidth && it.height == expectedHeight
-                }
+                if (topTargets.size != 1) return false
+                val target = topTargets.single()
                 // ARM Winlator metadata (WM_NAME/WM_CLASS/_NET_WM_PID) is not
                 // stable across Wine/DXVK revisions. Bind to a separate game
-                // drawable, never explorer's virtual desktop. The legacy ARM
-                // shape has the game at the root; the FEX shape has one exact
-                // virtual desktop and an exact-size game child. Any other
-                // non-tiny renderable window is a modal/decoy and cancels.
-                val validContainer = if (target.topLevel) desktops.isEmpty() else desktops.size == 1
-                validContainer && mapped.all {
-                    it === target || it in desktops || !it.topLevel ||
+                // drawable. Any other non-tiny top-level window is a
+                // modal/decoy and cancels credential injection.
+                mapped.all {
+                    it === target || !it.topLevel ||
                         (it.width <= 16 && it.height <= 16)
                 }
             }
@@ -121,6 +109,7 @@ internal class SinglePlayerAutoLoginController(
     private val scheduler: AutoLoginScheduler,
     private val onDiagnostic: (String) -> Unit = {},
     private val onTerminal: () -> Unit = {},
+    private val timings: Settings.AutoLoginTimings = Settings.AutoLoginTimings(),
 ) {
     internal enum class State { NEW, WATCHING, INJECTING, COMPLETE, CANCELLED }
 
@@ -140,7 +129,7 @@ internal class SinglePlayerAutoLoginController(
         state = State.WATCHING
         // Start the bounded secret lifetime with the host, not with Wine's
         // first window. A failed runtime must not retain credentials forever.
-        deadlineMs = scheduler.nowMs() + SESSION_TIMEOUT_MS
+        deadlineMs = scheduler.nowMs() + timings.sessionTimeoutMs
         if (!topologyMatches(initialTopology)) resetTopologyReadiness()
         diagnostic("watching")
         schedulePoll(0)
@@ -203,7 +192,7 @@ internal class SinglePlayerAutoLoginController(
                 !inputNeutral -> "waiting:input-neutral"
                 else -> "waiting:qualified-topology"
             })
-            schedulePoll(POLL_MS)
+            schedulePoll(timings.pollIntervalMs)
             return
         }
         val readySinceMs = topologyReadySinceMs ?: scheduler.nowMs().also {
@@ -211,9 +200,9 @@ internal class SinglePlayerAutoLoginController(
         }
         stableMatches++
         diagnostic("settling:qualified-topology")
-        if (stableMatches < REQUIRED_STABLE_POLLS ||
-            scheduler.nowMs() - readySinceMs < LOGIN_UI_SETTLE_MS) {
-            schedulePoll(POLL_MS)
+        if (stableMatches < timings.requiredStablePolls ||
+            scheduler.nowMs() - readySinceMs < timings.loginUiSettleMs) {
+            schedulePoll(timings.pollIntervalMs)
             return
         }
         // Re-read every mutable gate immediately before the one-shot claim.
@@ -221,7 +210,7 @@ internal class SinglePlayerAutoLoginController(
         if (!bridge.isActive(generation) || !bridge.isRendererReady() ||
             !bridge.isInputNeutral(generation) || !topologyMatches()) {
             resetTopologyReadiness()
-            schedulePoll(POLL_MS)
+            schedulePoll(timings.pollIntervalMs)
             return
         }
         // Claim the generation's sole attempt before any key is queued.
@@ -239,13 +228,13 @@ internal class SinglePlayerAutoLoginController(
             onTerminal()
             return
         }
-        deadlineMs = scheduler.nowMs() + INPUT_DRAIN_TIMEOUT_MS
+        deadlineMs = scheduler.nowMs() + timings.inputDrainTimeoutMs
         scheduleDrainCheck()
     }
 
     private fun scheduleDrainCheck() {
         val scheduledEpoch = epoch
-        scheduler.postDelayed(DRAIN_POLL_MS) {
+        scheduler.postDelayed(timings.drainPollMs) {
             drainPoll(scheduledEpoch)
         }
     }

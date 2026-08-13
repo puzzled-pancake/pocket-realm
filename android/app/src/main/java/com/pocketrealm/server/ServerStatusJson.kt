@@ -4,20 +4,20 @@ import android.os.Process
 import org.json.JSONObject
 
 internal object ServerStatusJson {
-    fun realm(values: LongArray, detail: String): JSONObject {
+    fun realm(values: LongArray, detail: String, listenAddress: String = "127.0.0.1"): JSONObject {
         require(values.size == 5 && values[0] == ServerRuntimeContract.ABI_VERSION)
         return base("realm", values, detail)
             .put("heartbeatCount", values[4])
-            .put("listenAddress", "127.0.0.1")
+            .put("listenAddress", listenAddress)
             .put("listenPort", ServerRuntimeContract.REALM_PORT)
     }
 
-    fun world(values: LongArray, detail: String): JSONObject {
+    fun world(values: LongArray, detail: String, listenAddress: String = "127.0.0.1"): JSONObject {
         require(values.size == 8 && values[0] == ServerRuntimeContract.ABI_VERSION)
         return base("world", values, detail)
             .put("tickCount", values[4]).put("lastTickMs", values[5])
             .put("maxTickMs", values[6]).put("activeSessions", values[7])
-            .put("listenAddress", "127.0.0.1").put("listenPort", ServerRuntimeContract.WORLD_PORT)
+            .put("listenAddress", listenAddress).put("listenPort", ServerRuntimeContract.WORLD_PORT)
     }
 
     fun operation(component: String, operation: String, result: Int): JSONObject = JSONObject()

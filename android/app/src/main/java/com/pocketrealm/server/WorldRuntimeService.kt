@@ -14,6 +14,7 @@ import com.pocketrealm.bots.BotResourceSampler
 import com.pocketrealm.bots.BotRuntimeMetrics
 import com.pocketrealm.log.AppLog
 import com.pocketrealm.supervisor.ComponentOwnership
+import com.pocketrealm.supervisor.RealmEndpoint
 import org.json.JSONObject
 
 /** Dedicated mangosd fault domain; bots require an explicit measured profile. */
@@ -32,6 +33,8 @@ class WorldRuntimeService : Service() {
     @Volatile private var admissionError = ""
     /** Desired native target awaiting acknowledgement; retained across a timeout. */
     @Volatile private var pendingAdmissionTarget: Int? = null
+    @Volatile private var activeBindAddress = RealmEndpoint.LOOPBACK_ADDRESS
+    private var normalDataLease: PreparedDataStore.GenerationLease? = null
     override fun onCreate() {
         super.onCreate()
         files = ServerRuntimeFiles(applicationContext)
@@ -54,27 +57,44 @@ class WorldRuntimeService : Service() {
             guarded { ownership.claim(sessionId, instanceToken, ownerLease) }
         override fun status() = guarded { transitionGate.run {
             ownership.decorate(
-                ServerStatusJson.world(WorldNative.statusNative(), WorldNative.detailNative())
+                ServerStatusJson.world(
+                    WorldNative.statusNative(), WorldNative.detailNative(), activeBindAddress)
                     .put("onlinePlayers", WorldNative.onlinePlayersNative())
                     .also(::addBotStatus))
         } }
-        override fun start() = guarded { transitionGate.run {
+        override fun start() = startAt(RealmEndpoint.LOOPBACK_ADDRESS)
+        override fun startAt(bindAddress: String) = guarded { transitionGate.run {
+            val endpoint = RealmEndpoint.parseStored(bindAddress)
             check(stopAdmissionMonitor()) { "previous bot admission monitor did not stop" }
-            files.writeLifecycle("world", false, "start")
-            val rc = WorldNative.startNative(files.worldConfig().absolutePath)
+            files.prepareWorldLogsForStart(currentNativeState())
+            files.writeLifecycle("world", false, "start", endpoint.address)
+            activeBindAddress = endpoint.address
+            val rc = WorldNative.startNative(files.worldConfig(endpoint.address).absolutePath)
+            if (rc != 0) activeBindAddress = RealmEndpoint.LOOPBACK_ADDRESS
             ServerStatusJson.operation("world", "start", rc)
         } }
-        override fun startNormal() = guarded { transitionGate.run {
+        override fun startNormal() = startNormalAt(RealmEndpoint.LOOPBACK_ADDRESS)
+        override fun startNormalAt(bindAddress: String) = guarded { transitionGate.run {
+            val endpoint = RealmEndpoint.parseStored(bindAddress)
             check(stopAdmissionMonitor()) { "previous bot admission monitor did not stop" }
-            files.writeLifecycle("world", false, "start-normal")
-            val rc = WorldNative.startNative(files.worldConfigNormal().absolutePath)
+            files.prepareWorldLogsForStart(currentNativeState())
+            files.writeLifecycle("world", false, "start-normal", endpoint.address)
+            activeBindAddress = endpoint.address
+            val rc = startWithNormalData { files.worldConfigNormal(endpoint.address) }
+            if (rc != 0) activeBindAddress = RealmEndpoint.LOOPBACK_ADDRESS
             ServerStatusJson.operation("world", "start-normal", rc)
         } }
-        override fun startBotProfile(profileId: String) = guarded { transitionGate.run {
+        override fun startBotProfile(profileId: String) =
+            startBotProfileAt(profileId, RealmEndpoint.LOOPBACK_ADDRESS)
+        override fun startBotProfileAt(profileId: String, bindAddress: String) = guarded { transitionGate.run {
+            val endpoint = RealmEndpoint.parseStored(bindAddress)
             check(stopAdmissionMonitor()) { "previous bot admission monitor did not stop" }
+            files.prepareWorldLogsForStart(currentNativeState())
             val profile = BotProfiles.require(profileId)
-            files.writeLifecycle("world", false, "start-bot-profile", profile.id)
-            val rc = WorldNative.startNative(files.worldConfigBot(profile).absolutePath)
+            files.writeLifecycle("world", false, "start-bot-profile", "${profile.id}@${endpoint.address}")
+            activeBindAddress = endpoint.address
+            val rc = startWithNormalData { files.worldConfigBot(profile, endpoint.address) }
+            if (rc != 0) activeBindAddress = RealmEndpoint.LOOPBACK_ADDRESS
             if (rc == 0) startAdmissionMonitor(profile)
             ServerStatusJson.operation("world", "start-bot-profile", rc).put("profileId", profile.id)
         } }
@@ -95,6 +115,15 @@ class WorldRuntimeService : Service() {
             val rc = WorldNative.createAccountNative(username, password, ServerRuntimeContract.CONTROL_TIMEOUT_MS)
             accountResult("create-account", username, rc)
         }
+        override fun verifyAccountPassword(username: String, password: String) = guarded { transitionGate.run {
+            ServerRuntimeContract.requireAccountToken("username", username)
+            ServerRuntimeContract.requireAccountToken("password", password)
+            val verified = WorldNative.verifyAccountPasswordNative(username, password)
+            ownership.decorate(
+                accountResult("verify-account-password", username, 0)
+                    .put("passwordVerified", verified),
+            )
+        } }
         override fun setAccountGmLevel(username: String, level: Int) = guarded {
             ServerRuntimeContract.requireAccountToken("username", username)
             require(level in 0..3) { "GM level must be in 0..3" }
@@ -125,7 +154,11 @@ class WorldRuntimeService : Service() {
             stopAdmissionMonitor()
             val rc = WorldNative.stopNative(ServerRuntimeContract.CONTROL_TIMEOUT_MS)
             files.writeLifecycle("world", rc == 0, "stop", ServerRuntimeContract.errorName(rc.toLong()))
-            if (rc == 0) retireCleanProcess()
+            if (rc == 0) {
+                activeBindAddress = RealmEndpoint.LOOPBACK_ADDRESS
+                releaseNormalDataLease()
+                retireCleanProcess()
+            }
             ServerStatusJson.operation("world", "stop", rc)
         } }
         override fun stopOwned(instanceToken: String) = guarded { transitionGate.run {
@@ -134,6 +167,8 @@ class WorldRuntimeService : Service() {
             val rc = WorldNative.stopNative(ServerRuntimeContract.CONTROL_TIMEOUT_MS)
             files.writeLifecycle("world", rc == 0, "stop", ServerRuntimeContract.errorName(rc.toLong()))
             if (rc == 0) {
+                activeBindAddress = RealmEndpoint.LOOPBACK_ADDRESS
+                releaseNormalDataLease()
                 ownership.clear(instanceToken)
                 retireCleanProcess()
             }
@@ -158,10 +193,20 @@ class WorldRuntimeService : Service() {
         }
     }
     override fun onBind(intent: Intent?): IBinder = binder
+
+    private fun currentNativeState(): Long {
+        val status = WorldNative.statusNative()
+        check(status.size == 8 && status[0] == ServerRuntimeContract.ABI_VERSION) {
+            "world native status contract mismatch"
+        }
+        return status[1]
+    }
+
     override fun onDestroy() {
         transitionGate.run {
             stopAdmissionMonitor()
-            runCatching { WorldNative.stopNative(5_000) }
+            val stopped = runCatching { WorldNative.stopNative(5_000) }.getOrNull() == 0
+            if (stopped) releaseNormalDataLease()
         }
         super.onDestroy()
     }
@@ -177,6 +222,24 @@ class WorldRuntimeService : Service() {
             stopSelf()
             Process.killProcess(Process.myPid())
         }, "world-clean-retire").start()
+    }
+
+    private fun startWithNormalData(config: () -> java.io.File): Int {
+        check(normalDataLease == null) { "normal-play data is already leased by this world" }
+        val lease = files.acquireNormalDataLease()
+        return try {
+            val rc = WorldNative.startNative(config().absolutePath)
+            if (rc == 0) normalDataLease = lease else lease.close()
+            rc
+        } catch (error: Throwable) {
+            lease.close()
+            throw error
+        }
+    }
+
+    private fun releaseNormalDataLease() {
+        normalDataLease?.close()
+        normalDataLease = null
     }
     private inline fun guarded(block: () -> JSONObject): String = try { block().toString() } catch (error: Throwable) {
         AppLog.e(TAG, "world control request failed", error); failure(error)

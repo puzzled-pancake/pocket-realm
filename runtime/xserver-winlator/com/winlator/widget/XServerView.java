@@ -17,6 +17,11 @@ import javax.microedition.khronos.egl.EGLDisplay;
 @SuppressLint("ViewConstructor")
 public class XServerView extends GLSurfaceView {
     private GLRenderer renderer;
+    private PointerCaptureObserver pointerCaptureObserver;
+
+    public interface PointerCaptureObserver {
+        void onPointerCaptureChanged(boolean captured);
+    }
 
     public XServerView(Context context, XServer xServer) {
         super(context);
@@ -50,8 +55,20 @@ public class XServerView extends GLSurfaceView {
         return renderer;
     }
 
+    public void setPointerCaptureObserver(PointerCaptureObserver observer) {
+        pointerCaptureObserver = observer;
+    }
+
+    @Override
+    public void onPointerCaptureChange(boolean hasCapture) {
+        super.onPointerCaptureChange(hasCapture);
+        PointerCaptureObserver observer = pointerCaptureObserver;
+        if (observer != null) observer.onPointerCaptureChanged(hasCapture);
+    }
+
     /** Clear the shared-context registry only when the host is permanently closed. */
     public void releaseRenderer() {
+        pointerCaptureObserver = null;
         renderer.onHostDestroyed();
     }
 }

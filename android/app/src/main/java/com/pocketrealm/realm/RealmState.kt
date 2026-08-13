@@ -1,5 +1,7 @@
 package com.pocketrealm.realm
 
+import com.pocketrealm.supervisor.RealmEndpoint
+import com.pocketrealm.supervisor.RuntimeMode
 /**
  * The supervisor state machine for the offline realm.
  *
@@ -27,7 +29,14 @@ sealed interface RealmState {
      * The realm is running and all health conditions hold. Only this state
      * (and [Saving]) allows "playing" semantics in the UI.
      */
-    data class Running(val sinceEpochMs: Long) : RealmState
+    data class Running(
+        val sinceEpochMs: Long,
+        val mode: RuntimeMode = RuntimeMode.LOCAL,
+        val endpointAddress: String = RealmEndpoint.LOOPBACK_ADDRESS,
+        /** The game is independently startable while a local/LAN-host realm remains online. */
+        val clientState: ClientLaunchState = ClientLaunchState.READY,
+        val clientFailure: String? = null,
+    ) : RealmState
 
     /**
      * A save-and-exit was requested. We are draining durable writes, saving
@@ -55,6 +64,8 @@ sealed interface RealmState {
      */
     data class Failed(val message: String) : RealmState
 }
+
+enum class ClientLaunchState { NOT_STARTED, READY, FAILED }
 
 enum class SaveReason { USER_SAVE_EXIT, FORCED_CHECKPOINT, LOW_STORAGE, UPDATE_REQUIRED }
 

@@ -62,6 +62,11 @@ class X86DirectWineRuntime(
     }
 
     override suspend fun preparePrefix(request: PrefixRequest): PrefixResult = transact {
+        if (provider != ClientRuntimeProvider.ARM_TRANSLATED_WINE) {
+            require(request.vulkanDriverId == null) {
+                "x86 direct Wine does not accept an ARM Vulkan driver"
+            }
+        }
         val rendererPackageId = requestRendererPackageId(
             request.renderer,
             request.rendererPackageId,
@@ -71,13 +76,23 @@ class X86DirectWineRuntime(
             .put("translator", translator.id)
             .put("audioMode", request.audioMode)
             .put("inputSafeMode", request.inputSafeMode)
+            .put("realmEndpoint", request.realmEndpoint.address)
+            .put("tweaks", request.tweaksJson)
         rendererPackageId?.let { payload.put("rendererPackageId", it) }
+        request.vulkanDriverId?.let { payload.put("vulkanDriverId", it) }
+        payload.put("displayProfileId", request.displayProfileId)
+            .put("frameCap", request.frameCap)
         val response = json(it.preparePrefix(payload.toString()))
         PrefixResult(true, response.getString("prefixId"), response.getString("runtimeRoot"),
             response.getString("prefixPath"), response.getString("detail"))
     }
 
     override suspend fun launch(request: LaunchRequest): ClientSession = transact {
+        if (provider != ClientRuntimeProvider.ARM_TRANSLATED_WINE) {
+            require(request.vulkanDriverId == null) {
+                "x86 direct Wine does not accept an ARM Vulkan driver"
+            }
+        }
         val rendererPackageId = requestRendererPackageId(
             request.renderer,
             request.rendererPackageId,
@@ -86,7 +101,11 @@ class X86DirectWineRuntime(
             .put("prefixId", request.prefixId).put("display", request.display)
             .put("translator", translator.id)
             .put("audioMode", request.audioMode).put("renderer", request.renderer)
+            .put("tweaks", request.tweaksJson)
         rendererPackageId?.let { payload.put("rendererPackageId", it) }
+        request.vulkanDriverId?.let { payload.put("vulkanDriverId", it) }
+        payload.put("displayProfileId", request.displayProfileId)
+            .put("frameCap", request.frameCap)
         val response = json(it.launch(payload.toString()))
         ClientSession(UUID.fromString(response.getString("sessionId")), ClientState.valueOf(response.getString("state")))
     }

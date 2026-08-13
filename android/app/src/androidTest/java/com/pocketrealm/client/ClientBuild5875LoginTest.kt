@@ -11,13 +11,14 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.pocketrealm.ui.MainActivity
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -38,6 +39,10 @@ class ClientBuild5875LoginTest {
     private lateinit var activity: MainActivity
     private lateinit var runtime: X86DirectWineRuntime
     private lateinit var translator: ArmTranslationBackend
+    private lateinit var displaySelection: ClientDisplaySelection
+    private var rendererPackageId: String? = null
+    private var vulkanDriverId: String? = null
+    private var audioMode: String = "off"
     private var host: ClientDisplayHost? = null
     private var session: UUID? = null
 
@@ -46,6 +51,10 @@ class ClientBuild5875LoginTest {
             Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         ) as MainActivity
         translator = requestedTranslator()
+        displaySelection = requestedDisplaySelection()
+        rendererPackageId = requestedDxvkPackage()
+        vulkanDriverId = requestedVulkanDriver()
+        audioMode = requestedAudioMode()
         runtime = X86DirectWineRuntime(
             context,
             if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
@@ -72,16 +81,16 @@ class ClientBuild5875LoginTest {
         )
         assertTrue(caps.reason, caps.supported)
         val renderer = requestedRenderer()
-        val rendererPackageId = if (renderer == "dxvk") {
-            RendererPackageCatalog.default(translator).id
-        } else null
-        val prefix = withTimeout(240_000) {
-            runtime.preparePrefix(PrefixRequest(
-                client,
-                renderer = renderer,
-                rendererPackageId = rendererPackageId,
-            ))
-        }
+        val prefixRequest = PrefixRequest(
+            client,
+            renderer = renderer,
+            audioMode = audioMode,
+            rendererPackageId = rendererPackageId,
+            vulkanDriverId = vulkanDriverId,
+            displayProfileId = displaySelection.profile.id,
+            frameCap = displaySelection.frameCap.fps,
+        )
+        val prefix = withTimeout(240_000) { runtime.preparePrefix(prefixRequest) }
         assertTrue(prefix.ok)
 
         val first = launchAndAwait(prefix, "first", renderer, rendererPackageId)
@@ -90,28 +99,26 @@ class ClientBuild5875LoginTest {
         delay(1_000)
         closeDisplay()
 
-        val second = launchAndAwait(prefix, "relaunch", renderer, rendererPackageId)
+        val relaunchPrefix = withTimeout(240_000) { runtime.preparePrefix(prefixRequest) }
+        assertTrue(relaunchPrefix.ok)
+        assertNotEquals("relaunch must use a newly prepared one-shot ticket", prefix.prefixId,
+            relaunchPrefix.prefixId)
+        val second = launchAndAwait(relaunchPrefix, "relaunch", renderer, rendererPackageId)
         val managedRoot = ManagedClientStore(context).load(ClientRuntimeContract.WOW_5875_ID).root
         val config = File(managedRoot, "WTF/Config.wtf").readText()
         val realm = File(managedRoot, "realmlist.wtf").readText().trim()
-        val expectedProfile = ClientDisplayProfile.forDevice(
-            Build.SUPPORTED_ABIS.asList(),
-            Build.MODEL,
-        )
+        val expectedProfile = displaySelection.profile
         assertEquals("set realmlist 127.0.0.1", realm)
-        assertTrue(config.contains("SET gxApi \"${if (renderer == "opengl") "opengl" else "d3d"}\""))
-        if (renderer == "opengl") {
-            assertTrue(config.contains("SET M2UseShaders \"0\""))
-        } else {
-            assertFalse(config.contains("SET M2UseShaders"))
-        }
+        assertTrue(config.contains("SET gxApi \"d3d\""))
         assertTrue(config.contains("SET gxResolution \"${expectedProfile.resolution}\""))
         assertTrue(config.contains("SET gxWindow \"1\""))
         assertTrue(config.contains(
             "SET gxMaximize \"${if (expectedProfile.gameMaximized) 1 else 0}\"",
         ))
-        assertTrue(config.contains("SET maxFPS \"30\""))
-        assertTrue(config.contains("SET Sound_EnableAllSound \"0\""))
+        assertTrue(config.contains("SET maxFPS \"${displaySelection.frameCap.fps}\""))
+        assertTrue(config.contains(
+            "SET Sound_EnableAllSound \"${if (audioMode == "on") 1 else 0}\"",
+        ))
 
         val evidence = JSONObject()
             .put("schema", 1)
@@ -121,13 +128,18 @@ class ClientBuild5875LoginTest {
             .put("pageSize", Os.sysconf(OsConstants._SC_PAGESIZE))
             .put("renderer", renderer)
             .put("translator", translator.id)
+            .put("dxvkPackageId", rendererPackageId ?: JSONObject.NULL)
+            .put("dxvkVersion", rendererPackageId?.let {
+                RendererPackageCatalog.find(it)?.dxvkVersion
+            } ?: JSONObject.NULL)
+            .put("vulkanDriverId", vulkanDriverId ?: JSONObject.NULL)
             .put("displayProfile", expectedProfile.id)
             .put("safeModeResolutionCeiling", expectedProfile.resolution)
             .put("gameWindowed", true)
             .put("gameMaximized", expectedProfile.gameMaximized)
             .put("effectiveResolution", wowResolution(second.second))
-            .put("fpsCap", 30)
-            .put("audio", "off")
+            .put("fpsCap", displaySelection.frameCap.fps)
+            .put("audio", audioMode)
             .put("realmEndpoint", "127.0.0.1")
             .put("firstWindows", JSONArray(first.second))
             .put("relaunchWindows", JSONArray(second.second))
@@ -147,20 +159,12 @@ class ClientBuild5875LoginTest {
         session = null
     }
 
-    /**
-     * The original-client test is intentionally renderer-selectable so the
-     * OpenGL/Gladio path can be qualified without starting the realm or bots.
-     * The normal ARM default remains DXVK; an explicit instrumentation value
-     * is required to exercise the experimental client-only OpenGL lane.
-     */
+    /** The original-client test uses the same fixed renderer as production. */
     private fun requestedRenderer(): String {
         val arm = Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a"
         val default = if (arm) "dxvk" else "wined3d"
         val requested = InstrumentationRegistry.getArguments().getString("pocketRenderer") ?: default
-        assertTrue("unsupported client renderer: $requested", requested in setOf("dxvk", "opengl", "wined3d"))
-        if (!arm && requested != "wined3d") {
-            throw AssertionError("$requested is only selectable on the ARM translated client lane")
-        }
+        assertTrue("renderer override is not supported: $requested", requested == default)
         return requested
     }
 
@@ -172,6 +176,57 @@ class ClientBuild5875LoginTest {
             throw AssertionError("${translator.id} is only selectable on the ARM translated client lane")
         }
         return translator
+    }
+
+    /** Instrumentation may select either installed DXVK package, never an arbitrary identity. */
+    private fun requestedDxvkPackage(): String? {
+        val requested = InstrumentationRegistry.getArguments().getString("pocketDxvkPackage")
+        if (Build.SUPPORTED_ABIS.firstOrNull() != "arm64-v8a") {
+            require(requested == null) { "pocketDxvkPackage is only valid on the ARM DXVK lane" }
+            return null
+        }
+        val selected = requested ?: RendererPackageCatalog.default(translator).id
+        return requireNotNull(RendererPackageCatalog.requireForRequest(
+            translator,
+            "dxvk",
+            selected,
+        )).id
+    }
+
+    private fun requestedDisplaySelection(): ClientDisplaySelection {
+        val args = InstrumentationRegistry.getArguments()
+        val default = ClientDisplaySelection.defaultForDevice(
+            Build.SUPPORTED_ABIS.asList(), Build.MODEL,
+        )
+        val profile = args.getString("pocketDisplayProfile")
+            ?.let(ClientDisplayProfile::requireId) ?: default.profile
+        val cap = args.getString("pocketFrameCap")?.toIntOrNull()
+            ?.let(ClientFrameCap::requireFps) ?: default.frameCap
+        return ClientDisplayCapabilities.requireSelection(
+            context, profile.id, cap.fps,
+        )
+    }
+
+    private fun requestedVulkanDriver(): String? {
+        if (Build.SUPPORTED_ABIS.firstOrNull() != "arm64-v8a") return null
+        val requested = InstrumentationRegistry.getArguments().getString("pocketVulkanDriver")
+            ?: VulkanDriverCatalog.normalize(null, Build.MODEL)
+        val driver = VulkanDriverCatalog.requireForRequest(requested)
+        val renderer = requireNotNull(RendererPackageCatalog.find(rendererPackageId))
+        return VulkanDriverCatalog.requireAvailableCompatiblePair(
+            requested,
+            renderer,
+            Build.MODEL,
+            if (driver.kind == VulkanDriverKind.SYSTEM) {
+                AndroidSystemVulkanProbe.probe()
+            } else null,
+        ).first.id
+    }
+
+    private fun requestedAudioMode(): String {
+        val requested = InstrumentationRegistry.getArguments().getString("pocketAudio") ?: "off"
+        require(requested == "off" || requested == "on") { "unsupported audio test mode" }
+        return if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") requested else "off"
     }
 
     private suspend fun launchAndAwait(
@@ -190,7 +245,16 @@ class ClientBuild5875LoginTest {
             // Each relaunch gets a fresh host Activity.  Reusing a finishing
             // MainActivity leaves GLSurfaceView detached and destroys the
             // EGL share root before the second client can create GLX state.
-            host = ClientDisplayHost(context, prefix.runtimeRoot) { mapped.set(true) }
+            host = ClientDisplayHost(
+                context = context,
+                runtimeRoot = prefix.runtimeRoot,
+                displayProfile = displaySelection.profile,
+                frameCap = displaySelection.frameCap.fps,
+                vulkanDriverId = vulkanDriverId,
+                rendererPackageId = rendererPackageId,
+                audioEnabled = audioMode == "on",
+                onWindowVisible = { mapped.set(true) },
+            )
             activity.addContentView(
                 host!!.container,
                 ViewGroup.LayoutParams(
@@ -204,23 +268,76 @@ class ClientBuild5875LoginTest {
             host!!.view.isAttachedToWindow && host!!.view.width > 0 && host!!.view.height > 0 &&
                 host!!.view.holder.surface.isValid
         }
-        // Box64 and FEX use different imagefs tmp roots; wait on the same
-        // transport directory selected by ClientDisplayHost rather than
-        // hard-coding the legacy Box64 path.
+        // Wait on the same Box64 transport directory selected by the display host.
         waitUntil(10_000) { File(host!!.transportRoot, ".X11-unix/X0").exists() }
         assertTrue("renderer EGL share context was not ready", host!!.awaitRendererReady(15_000))
         assertTrue("renderer surface generation was not published", host!!.rendererSurfaceGeneration > 0)
+        val launchStartedWallMs = System.currentTimeMillis()
         val launched = runtime.launch(LaunchRequest(
             prefix.prefixId,
+            audioMode = audioMode,
             renderer = renderer,
             rendererPackageId = rendererPackageId,
+            vulkanDriverId = vulkanDriverId,
+            displayProfileId = displaySelection.profile.id,
+            frameCap = displaySelection.frameCap.fps,
         ))
         session = launched.sessionId
         waitForMappedWindowOrFailure(launched.sessionId, mapped, 180_000)
         runtime.reportWindowVisible(launched.sessionId)
+        val ready = withTimeout(20_000) {
+            runtime.observe(launched.sessionId).first {
+                it.state == ClientState.RUNNING || it.state in setOf(
+                    ClientState.EXITED,
+                    ClientState.FORCE_STOPPED,
+                    ClientState.FAILED,
+                )
+            }
+        }
+        assertEquals(
+            "$label service did not attest the client as RUNNING: ${ready.detail}",
+            ClientState.RUNNING,
+            ready.state,
+        )
+        val runningDiagnostics = runtime.collectDiagnostics(launched.sessionId)
+        assertEquals(
+            "$label service diagnostics were not RUNNING: ${runningDiagnostics.detail}",
+            ClientState.RUNNING,
+            runningDiagnostics.state,
+        )
+        if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
+            val rendererPackage = requireNotNull(RendererPackageCatalog.find(rendererPackageId))
+            val driver = requireNotNull(VulkanDriverCatalog.find(vulkanDriverId))
+            assertEquals("the live lane changed the requested Vulkan identity",
+                vulkanDriverId, driver.id)
+            if (driver.kind == VulkanDriverKind.SYSTEM) {
+                assertTrue("the hardened Vortek bridge was not ready", host!!.vulkanBridgeReady)
+            }
+            val log = File(prefix.runtimeRoot, "sessions/${launched.sessionId}/WoW_d3d9.log")
+            assertTrue("$label DXVK attestation log is absent", log.isFile)
+            assertTrue(
+                "$label DXVK attestation log predates this one-shot launch",
+                log.lastModified() >= launchStartedWallMs,
+            )
+            val proof = log.readText(Charsets.UTF_8)
+            assertTrue(
+                "$label log does not attest exact DXVK ${rendererPackage.dxvkVersion} and ${driver.id}",
+                ClientRuntimeContract.isArmDxvkLogAttested(
+                    proof,
+                    rendererPackage.dxvkVersion,
+                    driver,
+                ),
+            )
+        }
         // Login rendering must remain mapped rather than flashing a startup
         // window and dying. Realm connectivity is intentionally absent here.
         delay(15_000)
+        val stableDiagnostics = runtime.collectDiagnostics(launched.sessionId)
+        assertEquals(
+            "$label service left RUNNING before capture: ${stableDiagnostics.detail}",
+            ClientState.RUNNING,
+            stableDiagnostics.state,
+        )
         val windows = host!!.xServer.windowManager.mappedClientWindows.map {
             "${it.name}|${it.className}|${it.width}x${it.height}|pid=${it.processId}"
         }
@@ -229,27 +346,6 @@ class ClientBuild5875LoginTest {
         val pixels = screenshot.getPixelsCopy()
         val nonBlackPixels = pixels.count { (it and 0x00ffffff) != 0 }
         assertTrue("$label renderer remained black ($nonBlackPixels non-black pixels)", nonBlackPixels > pixels.size / 100)
-        if (renderer == "opengl") {
-            val step = maxOf(1, pixels.size / 8192)
-            val colors = HashSet<Int>()
-            var sampled = 0
-            var chromatic = 0
-            var index = 0
-            while (index < pixels.size) {
-                val rgb = pixels[index] and 0x00ffffff
-                colors += rgb
-                val red = (rgb shr 16) and 0xff
-                val green = (rgb shr 8) and 0xff
-                val blue = rgb and 0xff
-                if (maxOf(red, green, blue) - minOf(red, green, blue) >= 8) chromatic++
-                sampled++
-                index += step
-            }
-            assertTrue(
-                "$label OpenGL framebuffer is grayscale/corrupt: sampled=$sampled chromatic=$chromatic colors=${colors.size}",
-                chromatic > sampled / 100 && colors.size > 256,
-            )
-        }
         FileOutputStream(
             File(requireNotNull(context.getExternalFilesDir(null)), "o07-login-$label.png"),
         ).use { screenshot.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -291,7 +387,7 @@ class ClientBuild5875LoginTest {
         // named 800x600 ARM helper can falsely satisfy the x86 acceptance path
         // while the required RP6 native-panel surface is absent.
         if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
-            val profile = ClientDisplayProfile.forDevice(Build.SUPPORTED_ABIS.asList(), Build.MODEL)
+            val profile = displaySelection.profile
             val record = Regex("^.*\\|.*\\|(\\d+)x(\\d+)\\|pid=(-?\\d+)$")
             val dimensions = windows.mapNotNull { window ->
                 val match = record.matchEntire(window) ?: return@mapNotNull null
@@ -317,7 +413,8 @@ class ClientBuild5875LoginTest {
             val match = pattern.find(window) ?: continue
             val width = match.groupValues[1].toInt()
             val height = match.groupValues[2].toInt()
-            if (width in 640..1280 && height in 480..720) return "${width}x$height"
+            if (width == displaySelection.virtualWidth &&
+                height == displaySelection.virtualHeight) return "${width}x$height"
         }
         return null
     }

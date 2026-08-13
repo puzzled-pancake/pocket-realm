@@ -149,6 +149,31 @@ object WineSpikeNative {
     external fun cancelActiveDirectNative(): Boolean
 
     /**
+     * Run an APK-managed Bionic executable in a dedicated, tracked process
+     * group. The synchronous return means the root was reaped and its bounded
+     * stdout/stderr drain completed.
+     */
+    external fun runTrackedBionicProgramNative(
+        nativeDir: String,
+        executable: String,
+        argv0: String,
+        workingDir: String,
+        runtimeRoot: String,
+        libraryPath: String,
+        argsBlob: String,
+        envBlob: String,
+        stdinPath: String,
+        timeoutMs: Int,
+        trackAsDaemon: Boolean,
+    ): String
+
+    /** Recursively terminate the active tracked Bionic process group. */
+    external fun cancelActiveTrackedBionicProgramNative(): Boolean
+
+    /** Non-reaping proof that the tracked Bionic process group is absent. */
+    external fun isTrackedBionicProcessGroupDrainedNative(): Boolean
+
+    /**
      * S-2 tree-aware PE cache materialize: like [materializePeCacheNative] but
      * additionally symlinks each manifest entry's logical_path into the wine
      * tree, so Wine can find the cached PE modules at their expected paths.

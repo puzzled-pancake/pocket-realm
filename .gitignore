@@ -58,6 +58,7 @@ venv/
 target/
 **/Cargo.lock
 # (Cargo.lock is committed for connected binaries later; ignore until then)
+!native/vanilla-tweaks/Cargo.lock
 
 # ===== IDE / OS =====
 .idea/

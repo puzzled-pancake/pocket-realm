@@ -115,7 +115,7 @@ class O14TouchOverlayAcceptanceTest {
         }
         runBlocking { delay(200) }
 
-        compose.onNodeWithTag("touch-key-W").assertExists().performTouchInput {
+        compose.onNodeWithTag("touch-control-MOVE_UP").assertExists().performTouchInput {
             down(center)
             advanceEventTime(180)
             up()
@@ -126,9 +126,24 @@ class O14TouchOverlayAcceptanceTest {
         runBlocking { delay(500) }
 
         compose.onNodeWithTag("touch-overlay-toggle").performClick()
-        compose.onNodeWithTag("touch-key-W").assertDoesNotExist()
+        compose.onNodeWithTag("touch-control-MOVE_UP").assertDoesNotExist()
+        compose.onNodeWithTag("touch-camera-region").assertDoesNotExist()
+        compose.onNodeWithTag("touch-camera-lock").assertDoesNotExist()
+        compose.onNodeWithTag("touch-mouse-capture").assertDoesNotExist()
+        compose.onNodeWithTag("touch-chat").assertDoesNotExist()
+        // The sole translucent restore tab remains reachable.
+        compose.onNodeWithTag("touch-overlay-toggle").assertExists()
         compose.onNodeWithTag("touch-overlay-toggle").performClick()
-        compose.onNodeWithTag("touch-key-W").assertExists()
+        compose.onNodeWithTag("touch-control-MOVE_UP").assertExists()
+
+        val enabledProfile = host!!.activeProfile
+        compose.runOnIdle { host!!.switchInputProfile(enabledProfile.copy(overlayEnabled = false)) }
+        compose.onNodeWithTag("touch-overlay-toggle").assertDoesNotExist()
+        compose.onNodeWithTag("touch-camera-lock").assertDoesNotExist()
+        compose.onNodeWithTag("touch-chat").assertDoesNotExist()
+        compose.onNodeWithTag("touch-control-MOVE_UP").assertDoesNotExist()
+        compose.runOnIdle { host!!.switchInputProfile(enabledProfile.copy(overlayEnabled = true)) }
+        compose.onNodeWithTag("touch-control-MOVE_UP").assertExists()
 
         compose.onNodeWithTag("touch-chat").performClick()
         compose.waitUntil(5_000) { host!!.inputContract.isImeActive }
@@ -143,10 +158,63 @@ class O14TouchOverlayAcceptanceTest {
         assertTrue(host!!.inputContract.isImeInputIdle)
         compose.runOnIdle { host!!.onResume() }
 
-        compose.onNodeWithTag("touch-pointer-capture").performClick()
+        compose.onNodeWithTag("touch-camera-lock").performClick()
+        compose.waitUntil(5_000) { host!!.inputContract.isCameraLocked }
+        compose.onNodeWithTag("touch-camera-lock").performClick()
+        compose.waitUntil(5_000) { !host!!.inputContract.isCameraLocked }
+
+        var pointerCaptureAcquired = false
+        var pointerCaptureReleased = false
+        compose.onNodeWithTag("touch-mouse-capture").performClick()
         compose.waitUntil(5_000) { host!!.isPointerCaptured }
-        compose.onNodeWithTag("touch-pointer-capture").performClick()
+        compose.runOnIdle { pointerCaptureAcquired = host!!.isPointerCaptured }
+        compose.onNodeWithTag("touch-mouse-capture").performClick()
         compose.waitUntil(5_000) { !host!!.isPointerCaptured }
+        compose.runOnIdle { pointerCaptureReleased = !host!!.isPointerCaptured }
+
+        // Android owns framework system keys even when the combined RP6 input
+        // device also advertises keyboard/gamepad sources.
+        compose.runOnIdle {
+            assertFalse(host!!.dispatchKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY)))
+            assertFalse(host!!.dispatchKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_CAMERA)))
+        }
+
+        // Android batches high-frequency joystick samples. Exercise the real
+        // MotionEvent history path with right -> left -> neutral. Processing
+        // only the current point would miss both keys; processing current
+        // before history would leave a direction held instead of neutral.
+        val batched = batchedJoystickEvent(deviceId = GAMEPAD_DEVICE)
+        assertEquals(2, batched.historySize)
+        var pointerBeforeBatch = 0
+        var pointerAfterBatch = 0
+        compose.runOnIdle {
+            val server = host!!.xServer
+            server.injectPointerMove(server.screenInfo.width / 2, server.screenInfo.height / 2)
+            pointerBeforeBatch = server.pointer.x.toInt()
+            assertTrue(host!!.view.dispatchGenericMotionEvent(batched))
+            assertEquals(
+                "absolute historical stick samples must update state, not multiply velocity",
+                pointerBeforeBatch,
+                server.pointer.x.toInt(),
+            )
+            assertTrue("batched joystick must finish neutral", host!!.inputContract.isNeutral(host!!.generation))
+        }
+        batched.recycle()
+
+        val heldCamera = joystickEvent(deviceId = GAMEPAD_DEVICE, leftX = 0f, rightX = 0.75f)
+        compose.runOnIdle { assertTrue(host!!.view.dispatchGenericMotionEvent(heldCamera)) }
+        heldCamera.recycle()
+        runBlocking { delay(100) }
+        compose.runOnIdle {
+            pointerAfterBatch = host!!.xServer.pointer.x.toInt()
+            assertTrue(
+                "frame-clocked held right stick must move smoothly without repeated reports",
+                pointerAfterBatch > pointerBeforeBatch,
+            )
+        }
+        val heldCameraNeutral = joystickEvent(deviceId = GAMEPAD_DEVICE, leftX = 0f, rightX = 0f)
+        compose.runOnIdle { assertTrue(host!!.view.dispatchGenericMotionEvent(heldCameraNeutral)) }
+        heldCameraNeutral.recycle()
 
         repeat(3) {
             val joystick = joystickEvent(deviceId = GAMEPAD_DEVICE, leftX = 0.9f, rightX = 0.75f)
@@ -174,7 +242,13 @@ class O14TouchOverlayAcceptanceTest {
             now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_X, 0, 0,
             GAMEPAD_DEVICE, 0, 0, InputDevice.SOURCE_GAMEPAD,
         )
-        compose.runOnIdle { assertTrue(compose.activity.dispatchKeyEvent(buttonDown)) }
+        compose.runOnIdle {
+            // Physical controller routing is owned by ClientActivity, not by
+            // whichever Android child happened to retain focus after an
+            // overlay/IME/pointer-capture interaction.
+            host!!.view.clearFocus()
+            assertTrue(compose.activity.dispatchKeyEvent(buttonDown))
+        }
         runBlocking { delay(300) }
         compose.runOnIdle { host!!.releaseInput(GAMEPAD_DEVICE) }
         val unplug = host!!.inputDiagnostics().lastRelease
@@ -224,7 +298,12 @@ class O14TouchOverlayAcceptanceTest {
             .put("pauseClosedImeAndResumedInput", true)
             .put("pausedLateImeRejected", true)
             .put("concurrentOffMainCloseIdempotent", true)
-            .put("pointerCaptureRoundTrip", true)
+            .put("persistedOverlayDisableHidesAllControls", true)
+            .put("pointerCaptureAcquired", pointerCaptureAcquired)
+            .put("pointerCaptureReleased", pointerCaptureReleased)
+            .put("pointerCaptureRoundTrip", pointerCaptureAcquired && pointerCaptureReleased)
+            .put("batchedJoystickHistory", true)
+            .put("batchedPointerDeltaX", pointerAfterBatch - pointerBeforeBatch)
             .put("syntheticGamepadMotion", true)
             .put("syntheticGamepadButton", true)
             .put("syntheticPhysicalMouseWheel", true)
@@ -258,6 +337,30 @@ class O14TouchOverlayAcceptanceTest {
             0, 0, 1f, 1f, deviceId, 0, InputDevice.SOURCE_JOYSTICK, 0,
         )
     }
+
+    private fun batchedJoystickEvent(deviceId: Int): MotionEvent {
+        val event = joystickEvent(deviceId, leftX = 0.9f, rightX = 0.25f)
+        var at = event.eventTime
+        event.addBatch(
+            ++at,
+            arrayOf(joystickCoordinates(leftX = -0.9f, rightX = 0.75f)),
+            0,
+        )
+        event.addBatch(
+            ++at,
+            arrayOf(joystickCoordinates(leftX = 0f, rightX = 0f)),
+            0,
+        )
+        return event
+    }
+
+    private fun joystickCoordinates(leftX: Float, rightX: Float): MotionEvent.PointerCoords =
+        MotionEvent.PointerCoords().apply {
+            x = 0f
+            y = 0f
+            setAxisValue(MotionEvent.AXIS_X, leftX)
+            setAxisValue(MotionEvent.AXIS_RX, rightX)
+        }
 
     private fun mouseEvent(
         action: Int,

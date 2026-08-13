@@ -9,6 +9,10 @@ object RuntimeSnapshotJson {
         .put("sessionId", value.sessionId)
         .put("phase", value.phase.name)
         .put("requestedProfile", value.requestedProfile)
+        .put("runtimeMode", value.runtimeMode.name)
+        .put("realmEndpoint", value.realmEndpoint.address)
+        .put("realmPort", RealmEndpoint.REALM_PORT)
+        .put("worldPort", RealmEndpoint.WORLD_PORT)
         .put("clean", value.clean)
         .put("components", JSONObject().also { components ->
             RuntimeComponent.entries.forEach { component ->

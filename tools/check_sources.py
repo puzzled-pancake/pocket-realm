@@ -16,8 +16,6 @@ Checks every entry by kind:
                           build script that consumes it).
   - verified-package-converted: an immutable package/index hash, build script,
                                 and generated lockfile are recorded.
-  - verified-package-extracted-runtime: an immutable package and extracted
-                                runtime hash plus staging script are recorded.
 
 No network access in CI. prebuilt-archive artifacts are expected to be cached
 locally (populated by tools/fetch_provider.py); a missing cache entry is
@@ -175,42 +173,6 @@ def check_verified_package(entry: dict) -> tuple[bool, str]:
     return True, f"{entry['version']} {entry['package_sha256'][:16]}"
 
 
-def check_verified_extracted_runtime(entry: dict) -> tuple[bool, str]:
-    """Validate a pinned executable extracted without rewriting from a package."""
-    if entry.get("architecture") == "arm64ec-fexcore":
-        required = (
-            "package", "package_url", "package_sha256",
-            "fexcore_component_url", "fexcore_component_sha256",
-            "build_script", "version", "tag",
-        )
-        missing = [field for field in required if not entry.get(field)]
-        if missing:
-            return False, f"missing fields: {', '.join(missing)}"
-        for field in ("package_sha256", "fexcore_component_sha256"):
-            value = entry[field]
-            if len(value) != 64 or any(ch not in "0123456789abcdefABCDEF" for ch in value):
-                return False, f"{field} is not a complete SHA-256"
-        script = ROOT / entry["build_script"]
-        if not script.is_file():
-            return False, f"build_script not found: {entry['build_script']}"
-        return True, f"{entry['version']} {entry['fexcore_component_sha256'][:16]}"
-    required = (
-        "package", "package_url", "package_sha256", "fex_binary_sha256",
-        "build_script", "version", "tag",
-    )
-    missing = [field for field in required if not entry.get(field)]
-    if missing:
-        return False, f"missing fields: {', '.join(missing)}"
-    for field in ("package_sha256", "fex_binary_sha256"):
-        value = entry[field]
-        if len(value) != 64 or any(ch not in "0123456789abcdefABCDEF" for ch in value):
-            return False, f"{field} is not a complete SHA-256"
-    script = ROOT / entry["build_script"]
-    if not script.is_file():
-        return False, f"build_script not found: {entry['build_script']}"
-    return True, f"{entry['version']} {entry['fex_binary_sha256'][:16]}"
-
-
 KIND_CHECKERS = {
     "git-submodule": None,  # handled by the original submodule path
     "prebuilt-archive": check_prebuilt_archive,
@@ -219,7 +181,6 @@ KIND_CHECKERS = {
     "vendored-source": check_vendored_source,
     "host-toolchain": check_host_toolchain,
     "verified-package-converted": check_verified_package,
-    "verified-package-extracted-runtime": check_verified_extracted_runtime,
 }
 
 

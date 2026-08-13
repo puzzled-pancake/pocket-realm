@@ -1,5 +1,9 @@
 package com.pocketrealm.client
 
+import android.content.Context
+import android.hardware.display.DisplayManager
+import android.view.Display
+
 /**
  * Explicit virtual-desktop profiles for the dedicated gameplay surface.
  *
@@ -11,16 +15,14 @@ enum class ClientDisplayProfile(
     val id: String,
     val virtualWidth: Int,
     val virtualHeight: Int,
-    val initialFrameCap: Int,
     val gameMaximized: Boolean,
 ) {
-    BALANCED("balanced", 1280, 720, 30, gameMaximized = false),
-    QUALITY("quality", 1920, 1080, 30, gameMaximized = true),
+    BALANCED("balanced", 1280, 720, gameMaximized = false),
+    QUALITY("quality", 1920, 1080, gameMaximized = true),
     ;
 
     init {
         require(virtualWidth * 9 == virtualHeight * 16) { "client display profile must be 16:9" }
-        require(initialFrameCap in setOf(30, 45, 60)) { "unsupported client frame cap" }
     }
 
     val resolution: String
@@ -41,6 +43,30 @@ enum class ClientDisplayProfile(
         fun requireId(value: String): ClientDisplayProfile =
             entries.firstOrNull { it.id == value }
                 ?: throw IllegalArgumentException("unknown client display profile: $value")
+
+        fun availableForPhysical(
+            landscapeWidth: Int,
+            landscapeHeight: Int,
+        ): List<ClientDisplayProfile> {
+            require(landscapeWidth > 0 && landscapeHeight > 0) {
+                "physical display bounds must be non-empty"
+            }
+            val width = maxOf(landscapeWidth, landscapeHeight)
+            val height = minOf(landscapeWidth, landscapeHeight)
+            return entries.filter { it.virtualWidth <= width && it.virtualHeight <= height }
+        }
+
+        fun requireForPhysical(
+            id: String,
+            landscapeWidth: Int,
+            landscapeHeight: Int,
+        ): ClientDisplayProfile {
+            val selected = requireId(id)
+            require(selected in availableForPhysical(landscapeWidth, landscapeHeight)) {
+                "client display profile $id exceeds the physical display"
+            }
+            return selected
+        }
 
         /**
          * Qualification APKs are single-ABI. Keep x86_64 on its retained
@@ -70,5 +96,89 @@ enum class ClientDisplayProfile(
             if ("arm64-v8a" !in abis) return forSupportedAbis(abis)
             return if (model.trim().equals(RETROID_POCKET_6, ignoreCase = true)) QUALITY else BALANCED
         }
+    }
+}
+
+enum class ClientFrameCap(val fps: Int) {
+    FPS_30(30),
+    FPS_40(40),
+    FPS_45(45),
+    FPS_60(60),
+    ;
+
+    companion object {
+        fun requireFps(value: Int): ClientFrameCap =
+            entries.firstOrNull { it.fps == value }
+                ?: throw IllegalArgumentException("unsupported client frame cap: $value")
+    }
+}
+
+data class ClientDisplaySelection(
+    val profile: ClientDisplayProfile,
+    val frameCap: ClientFrameCap,
+) {
+    val resolution: String get() = profile.resolution
+    val virtualWidth: Int get() = profile.virtualWidth
+    val virtualHeight: Int get() = profile.virtualHeight
+
+    companion object {
+        fun defaultForDevice(supportedAbis: Iterable<String>, model: String) =
+            ClientDisplaySelection(
+                ClientDisplayProfile.forDevice(supportedAbis, model),
+                ClientFrameCap.FPS_30,
+            )
+    }
+}
+
+object ClientDisplayCapabilities {
+    data class NormalizedProfile(
+        val profile: ClientDisplayProfile,
+        val changed: Boolean,
+    )
+
+    /** Stable physical panel bounds, independent of transient system-bar insets. */
+    fun physicalLandscapeBounds(context: Context): Pair<Int, Int> {
+        val display = (context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager)
+            .getDisplay(Display.DEFAULT_DISPLAY)
+            ?: error("Android default display is unavailable")
+        val best = display.supportedModes.maxByOrNull { mode ->
+            mode.physicalWidth.toLong() * mode.physicalHeight.toLong()
+        } ?: display.mode
+        return maxOf(best.physicalWidth, best.physicalHeight) to
+            minOf(best.physicalWidth, best.physicalHeight)
+    }
+
+    fun requireSelection(
+        context: Context,
+        profileId: String,
+        frameCap: Int,
+    ): ClientDisplaySelection {
+        val (width, height) = physicalLandscapeBounds(context)
+        return ClientDisplaySelection(
+            ClientDisplayProfile.requireForPhysical(profileId, width, height),
+            ClientFrameCap.requireFps(frameCap),
+        )
+    }
+
+    /**
+     * Downgrade a restored preference deterministically when it no longer fits
+     * the physical panel (for example after moving app data to another device).
+     * New user writes still use [requireSelection] and fail closed instead of
+     * silently changing what was selected.
+     */
+    fun normalizeProfileForPhysical(
+        requested: ClientDisplayProfile,
+        fallback: ClientDisplayProfile,
+        landscapeWidth: Int,
+        landscapeHeight: Int,
+    ): NormalizedProfile {
+        val available = ClientDisplayProfile.availableForPhysical(
+            landscapeWidth, landscapeHeight,
+        )
+        if (requested in available) return NormalizedProfile(requested, changed = false)
+        val replacement = fallback.takeIf { it in available }
+            ?: available.maxByOrNull { it.virtualWidth.toLong() * it.virtualHeight }
+            ?: fallback
+        return NormalizedProfile(replacement, changed = replacement != requested)
     }
 }

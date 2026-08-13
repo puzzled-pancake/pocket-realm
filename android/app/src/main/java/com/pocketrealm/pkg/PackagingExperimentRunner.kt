@@ -41,15 +41,13 @@ class PackagingExperimentRunner(private val context: Context) {
     /**
      * PKG-01: execute the launcher and capture its structured stdout/stderr.
      *
-     * Variant-aware:
-     *  - Experiment variant (useLegacyPackaging=true, extractNativeLibs): the
-     *    launcher is extracted into nativeLibraryDir with +x. It MUST exec and
+     * All product and qualification variants use the proven extracted
+     * packaging model: the launcher is extracted into nativeLibraryDir with
+     * +x. It MUST exec and
      *    dlopen libpocketrealm.so. We set LD_LIBRARY_PATH=nativeLibraryDir so the
      *    standalone exec's dynamic linker can find the app libraries (a bare exec
      *    does not inherit the app's linker namespace). This is the documented
      *    requirement and the basis for the Lane-A decision.
-     *  - Production variant (useLegacyPackaging=false): the launcher has no
-     *    executable fs path; recording that honestly is the accepted outcome.
      */
     suspend fun runPkg01(launcherRelName: String = "libpocket_pkg_launcher.so"): ExperimentResult =
         withContext(Dispatchers.IO) {
@@ -66,23 +64,15 @@ class PackagingExperimentRunner(private val context: Context) {
             evidence["extractNativeLibs"] = extractNative.toString()
 
             if (launcher == null || !launcher.isFile) {
-                // Production variant: documented, acceptable. Experiment variant: a real failure.
-                val code = "NO_EXECUTABLE_FS_PATH"
-                val ok = !extractNative
-                val detail = if (extractNative) {
-                    listOf("Experiment variant expected the launcher in nativeLibraryDir but it is absent.",
-                        "This is a real failure: extractNativeLibs should have placed it there.")
-                } else {
-                    listOf("No executable filesystem path for the launcher in this packaging variant.",
-                        "Documented production-variant (useLegacyPackaging=false) behavior: the .so is",
-                        "stored uncompressed in the APK and is not extracted to disk.",
-                        "PKG-01 direct exec is required only on the experiment variant (pkgExperiment).")
-                }
-                return@withContext if (ok) {
-                    ExperimentResult.ok("PKG-01", runId, evidence, SystemClock.elapsedRealtime() - t0, code)
-                } else {
-                    ExperimentResult.fail("PKG-01", runId, code, detail, evidence, SystemClock.elapsedRealtime() - t0)
-                }
+                return@withContext ExperimentResult.fail(
+                    "PKG-01", runId, "NO_EXECUTABLE_FS_PATH",
+                    listOf(
+                        "Every runtime variant requires extracted native executables.",
+                        "The launcher is absent from nativeLibraryDir (extractNativeLibs=$extractNative).",
+                    ),
+                    evidence,
+                    SystemClock.elapsedRealtime() - t0,
+                )
             }
 
             // Make sure it is executable; extraction should set +x but be explicit.
@@ -155,8 +145,8 @@ class PackagingExperimentRunner(private val context: Context) {
         }
 
     private fun variantLabel(): String = BuildConfig.BUILD_TYPE
-        // "debug"/"release" (production packaging, useLegacyPackaging=false) or
-        // "pkgExperiment" (launcher extraction, useLegacyPackaging=true). NOTE:
+        // BUILD_TYPE still distinguishes the historical qualification variant.
+        // NOTE:
         // BuildConfig.DEBUG is true for BOTH debug and pkgExperiment (the latter
         // is initWith(debug)), so it cannot distinguish them — BUILD_TYPE can.
 

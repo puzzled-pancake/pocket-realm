@@ -80,6 +80,13 @@ The canonical offline decisions are ADR-001 through ADR-012 in
     the separately pinned ARM64EC DXVK/Turnip closure. All four Box64/FEXCore
     and DXVK/Client-OpenGL combinations retain separate prefix/cache identities
     and remain unqualified until measured on the named physical device.
+48. The ARM client route is fixed to Box64 plus an explicitly identified,
+    pinned DXVK/Turnip package. FEXCore and client OpenGL are retired from the
+    APK, control protocol, settings, prefix/cache identities, and build closure;
+    an unavailable DXVK package fails closed and cannot fall back to WineD3D.
+    Persisted FEX/OpenGL choices resolve deterministically to Box64 plus the
+    current pinned DXVK default. This supersedes decisions #27 and #47 for ARM
+    production; the x86 WineD3D/Gladio lane remains historical validation only.
 
 ## G0 overlay (2026-08-01, feature O05)
 
@@ -205,3 +212,57 @@ canonical report:
 
 The detailed rationale and real-client qualification are recorded in
 `docs/adr/ADR-018-o11-managed-client-import.md`.
+
+## O23 overlay (2026-08-11, features O23a toggleable vanilla-tweaks + O23b user-chosen account auto-login)
+
+Two orthogonal features shipped together on the O14 continuation branch.
+
+**O23a — toggleable vanilla-tweaks + (plumbed, default-off) audio:**
+- **The pristine managed `WoW.exe` is never mutated.** Quality-of-life patches
+  from the vendored MIT `brndd/vanilla-tweaks` v1.6.0 produce a root-level
+  `WoW.exe.patched` sibling; the managed-import hash pin and manifest remain
+  authoritative for the pristine binary.
+- **Patching is locale-gated by byte-signature pre-verification.** The enUS-5875
+  offset/byte table in `ClientTweaksConfig.expectedOriginalBytes()` is populated
+  empirically from a real binary; while empty the patch step declines and falls
+  back to pristine (logs `VAL-LOCALE-TWEAK-SKIP`). A mismatch logs
+  `VAL-LOCALE-TWEAK-MISMATCH`. The patched artifact is cached by a `.signature`
+  sidecar over `toFlags() + version + sha256(pristine)`.
+- **Audio — re-implemented per plan A.7 (M3.1+M3.2); default OFF.** A first M3
+  attempt was stripped (it diverged from report §16.5 and produced no sound). The
+  re-implementation fixes the three root causes: stock `alsa.conf` + an
+  `android_aserver` `.asoundrc` overlay with explicit `ALSA_CONFIG_PATH` (no
+  hand-written config replacement); a matched ca3d735 `alsaserver` +
+  upstream-protocol plugin (rebuilt via `tools/build_alsa_plugin.py`); and
+  mandatory SHM (memfd via the vendored `SysVSharedMemory` + SCM_RIGHTS). The
+  server runs in the display process (`ClientDisplayHost`) reusing
+  `libwinlator.so`'s `XConnectorEpoll`. `audioMode` defaults to `OFF`; it flips
+  to ON only after on-device qualification (M3.4). Buffer presets come via
+  `ALSAClient.Options.latencyMillis` (not arbitrary user env). `AudioCaps`,
+  audio-focus, and AAudio (3.3) remain deferred superseding decisions.
+- **`tweaks: ClientTweaksConfig` is persisted as a single JSON-string DataStore
+  key.** No JSON-string precedent existed in `Settings` before O23; introduced
+  here for this composite value.
+
+**O23b — user-chosen realm account + tunable auto-login:**
+- **A user account wins over the random bot identity.** `UserAccountStore`
+  mirrors `SinglePlayerCredentialStore` (schema-versioned JSON, atomic
+  temp+`fd.sync`+`rename`+dir-fsync write, 0600 file / 0700 dir, redacted
+  `toString`). It stores only on `ACCOUNT_CREATED` + `accountId > 0`; an
+  `ACCOUNT_EXISTS` result never re-arms auto-login.
+- **The supervisor checks existence only.** The password never enters logs, the
+  journal, status JSON, evidence, or crosses the Binder boundary. The display
+  process resolves credentials null-safely (user account → single-player → skip,
+  never throw). The pure gate is `AutoLoginPolicy.resolveAutoLogin`.
+- **Full timing set behind an Advanced toggle.** `AutoLoginTimings` defaults
+  equal the historical companion constants so existing host-JVM tests stay valid;
+  the four `InputContract` instance fields (`imeKeyDwellMs`, `imeKeyGapMs`,
+  `fieldSettleMs`, `pointerDwellMs`) and the six `SinglePlayerAutoLogin`
+  intervals are each overridable, with the companion constants retained as pins.
+- **A third process reads the Settings DataStore.** `IntegratedClientDisplay`
+  (display process) reads `Settings.flow` for timings; UI writes and `:supervisor`
+  already reads. Usage is read-mostly at Binder-stub entry; recorded here as the
+  known multi-process DataStore assumption.
+
+The coordinated plan and verification notes live in
+`fixed/PLAN-vanilla-tweaks-autologin.md`.

@@ -3,6 +3,7 @@ package com.pocketrealm.importer
 import android.content.Context
 import android.system.Os
 import android.system.OsConstants
+import com.pocketrealm.client.ClientGenerationLease
 import com.pocketrealm.client.ClientRuntimeContract
 import org.json.JSONArray
 import org.json.JSONObject
@@ -31,12 +32,17 @@ class ClientGenerationStore(context: Context) {
     }
 
     /** Recover the narrow crash window after generation rename but before journal/pointer commit. */
-    fun recoverPublished(importId: String): PublishedGeneration? {
+    fun recoverPublished(importId: String): PublishedGeneration? =
+        ClientGenerationLease.acquirePublication(root).use {
+            recoverPublishedLocked(importId)
+        }
+
+    private fun recoverPublishedLocked(importId: String): PublishedGeneration? {
         val final = generation(importId)
         val manifest = File(final, "client-manifest.json")
         if (!final.isDirectory || !manifest.isFile) return null
         val digest = validateManifest(final, manifest, importId)
-        activate(importId, digest)
+        activateLocked(importId, digest)
         return PublishedGeneration(importId, final, digest)
     }
 
@@ -47,6 +53,17 @@ class ClientGenerationStore(context: Context) {
             "normalized import path escaped staging"
         }
         return target
+    }
+
+    fun partialLength(importId: String, relativePath: String, tempName: String?): Long {
+        if (tempName.isNullOrBlank() || '/' in tempName || '\\' in tempName) return 0L
+        val staging = staging(importId)
+        if (!staging.isDirectory) return 0L
+        val target = resolve(staging, relativePath)
+        val partial = File(target.parentFile, tempName).canonicalFile
+        val rootPath = staging.canonicalFile.toPath()
+        if (!partial.toPath().startsWith(rootPath) || !partial.isFile) return 0L
+        return partial.length().coerceAtLeast(0L)
     }
 
     fun publish(
@@ -90,17 +107,20 @@ class ClientGenerationStore(context: Context) {
         val manifestFile = File(staging, "client-manifest.json")
         atomicWrite(manifestFile, manifest.toString(2).toByteArray(Charsets.UTF_8))
         val digest = sha256(manifestFile)
-        check(!final.exists()) { "managed-client generation collision" }
-        Os.rename(staging.absolutePath, final.absolutePath)
-        fsyncDirectory(generations)
-        afterRenameBeforeActivate()
-        activate(importId, digest)
-        return PublishedGeneration(importId, final, digest)
+        return ClientGenerationLease.acquirePublication(root).use {
+            recoverPublishedLocked(importId)?.let { return@use it }
+            check(!final.exists()) { "managed-client generation collision" }
+            Os.rename(staging.absolutePath, final.absolutePath)
+            fsyncDirectory(generations)
+            afterRenameBeforeActivate()
+            activateLocked(importId, digest)
+            PublishedGeneration(importId, final, digest)
+        }
     }
 
     fun activeGeneration(): String? = readPointer(activePointer)?.optString("generation")?.takeIf(UUID::matches)
 
-    private fun activate(generation: String, manifestSha256: String) {
+    private fun activateLocked(generation: String, manifestSha256: String) {
         val current = readPointer(activePointer)
         val priorGeneration = current?.getString("generation")
         if (priorGeneration == generation && current?.optString("manifestSha256") == manifestSha256) return

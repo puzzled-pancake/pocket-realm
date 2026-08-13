@@ -1,75 +1,68 @@
 package com.pocketrealm.client
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 class RendererPackageCatalogTest {
-    @Test fun defaultsAndCompatibilityAreProviderSpecific() {
+    @Test fun catalogContainsOnlyPinnedBox64DxvkPackages() {
         assertEquals(RendererPackageCatalog.BOX64_DEFAULT,
             RendererPackageCatalog.default(ArmTranslationBackend.BOX64).id)
-        assertEquals(RendererPackageCatalog.FEX_DEFAULT,
-            RendererPackageCatalog.default(ArmTranslationBackend.FEX).id)
         assertEquals(2, RendererPackageCatalog.compatible(ArmTranslationBackend.BOX64).size)
-        assertEquals(1, RendererPackageCatalog.compatible(ArmTranslationBackend.FEX).size)
+        assertEquals(
+            vulkanVersion(1, 3),
+            RendererPackageCatalog.find(RendererPackageCatalog.BOX64_DEFAULT)!!
+                .minimumSystemVulkanApi,
+        )
+        assertEquals(
+            vulkanVersion(1, 1),
+            RendererPackageCatalog.find(RendererPackageCatalog.BOX64_LEGACY)!!
+                .minimumSystemVulkanApi,
+        )
     }
 
-    @Test fun invalidAndCrossProviderSelectionsFallBackToCompatibleDefault() {
+    @Test fun persistedInvalidSelectionMigratesToPinnedDefault() {
         assertEquals(RendererPackageCatalog.BOX64_DEFAULT,
             RendererPackageCatalog.normalize(ArmTranslationBackend.BOX64, "missing"))
         assertEquals(RendererPackageCatalog.BOX64_DEFAULT,
-            RendererPackageCatalog.normalize(ArmTranslationBackend.BOX64,
-                RendererPackageCatalog.FEX_DEFAULT))
-        assertEquals(RendererPackageCatalog.FEX_DEFAULT,
-            RendererPackageCatalog.normalize(ArmTranslationBackend.FEX,
-                RendererPackageCatalog.BOX64_LEGACY))
+            RendererPackageCatalog.normalize(
+                ArmTranslationBackend.BOX64,
+                "fex-dxvk-2.3.1-arm64ec",
+            ))
     }
 
-    @Test fun openGlNeverCarriesADxvkPackage() {
-        assertNull(RendererPackageCatalog.resolve(
-            ArmTranslationBackend.BOX64, "opengl", RendererPackageCatalog.BOX64_DEFAULT))
-    }
-
-    @Test fun controlProtocolSelectionFailsClosed() {
+    @Test fun controlProtocolRequiresExactPinnedPackageIdentity() {
         assertEquals(
             RendererPackageCatalog.BOX64_LEGACY,
             RendererPackageCatalog.requireForRequest(
                 ArmTranslationBackend.BOX64,
                 "dxvk",
                 RendererPackageCatalog.BOX64_LEGACY,
-            )!!.id,
+            ).id,
         )
-        assertTrueFailure {
+        assertFailure {
             RendererPackageCatalog.requireForRequest(
                 ArmTranslationBackend.BOX64,
-                "dxvk",
-                RendererPackageCatalog.FEX_DEFAULT,
-            )
-        }
-        assertTrueFailure {
-            RendererPackageCatalog.requireForRequest(
-                ArmTranslationBackend.FEX,
                 "dxvk",
                 "missing",
             )
         }
-        assertTrueFailure {
+        assertFailure {
             RendererPackageCatalog.requireForRequest(
                 ArmTranslationBackend.BOX64,
                 "dxvk",
                 null,
             )
         }
-        assertTrueFailure {
+        assertFailure {
             RendererPackageCatalog.requireForRequest(
                 ArmTranslationBackend.BOX64,
                 "opengl",
-                RendererPackageCatalog.BOX64_DEFAULT,
+                null,
             )
         }
     }
 
-    @Test fun everySelectableRendererHasAnIsolatedRuntimeGeneration() {
+    @Test fun eachDxvkPackageHasAnIsolatedRuntimeGeneration() {
         assertEquals(
             RendererPackageCatalog.BOX64_DEFAULT,
             RendererPackageCatalog.runtimeGeneration(
@@ -86,17 +79,9 @@ class RendererPackageCatalogTest {
                 RendererPackageCatalog.BOX64_LEGACY,
             ),
         )
-        assertEquals(
-            "opengl",
-            RendererPackageCatalog.runtimeGeneration(
-                ArmTranslationBackend.BOX64,
-                "opengl",
-                null,
-            ),
-        )
     }
 
-    private fun assertTrueFailure(block: () -> Unit) {
+    private fun assertFailure(block: () -> Unit) {
         check(runCatching(block).isFailure) { "expected request to fail closed" }
     }
 }

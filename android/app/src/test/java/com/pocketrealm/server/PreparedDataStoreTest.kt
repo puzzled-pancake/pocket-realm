@@ -3,7 +3,9 @@ package com.pocketrealm.server
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
@@ -34,7 +36,27 @@ class PreparedDataStoreTest {
 
             assertEquals(id, PreparedDataStore(root).requireActive().generation)
             File(generation, "dbc/A.dbc").appendText("tampered")
+            // Supervisor preflight reads only the authenticated envelope; the
+            // world-side authoritative pass still catches the file mutation.
+            assertEquals(id, PreparedDataStore(root).requireActiveEnvelope().generation)
             assertThrows(IllegalStateException::class.java) { PreparedDataStore(root).requireActive() }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test fun runtimeLeasePreventsPublicationUntilWorldReleasesData() {
+        val root = Files.createTempDirectory("o11-lease").toFile()
+        try {
+            val runtime = PreparedDataStore(root).acquireRuntimeLease()
+            try {
+                assertThrows(IllegalStateException::class.java) {
+                    PreparedDataStore.acquirePublicationLease(root)
+                }
+            } finally {
+                runtime.close()
+            }
+            PreparedDataStore.acquirePublicationLease(root).use { }
         } finally {
             root.deleteRecursively()
         }
@@ -43,7 +65,12 @@ class PreparedDataStoreTest {
     @Test fun absentOrIncompleteGenerationCannotEnterNormalPlay() {
         val root = Files.createTempDirectory("o11-empty").toFile()
         try {
-            assertThrows(IllegalStateException::class.java) { PreparedDataStore(root).requireActive() }
+            val failure = assertThrows(IllegalStateException::class.java) {
+                PreparedDataStore(root).requireActive()
+            }
+            assertTrue(failure.message.orEmpty().contains("Server world data is not ready"))
+            assertTrue(failure.message.orEmpty().contains("Game files"))
+            assertFalse(failure.message.orEmpty().contains("O11"))
         } finally {
             root.deleteRecursively()
         }

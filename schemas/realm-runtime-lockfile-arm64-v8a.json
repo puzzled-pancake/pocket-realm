@@ -35,6 +35,24 @@
       "reason": "Persist each character normally, then yield after a profile-bounded batch so interrupted generation resumes from existing account/character rows."
     },
     {
+      "id": "bounded-first-player-activation",
+      "paths": [
+        "playerbot/PlayerbotAIConfig.h",
+        "playerbot/PlayerbotAIConfig.cpp",
+        "playerbot/RandomPlayerbotMgr.cpp"
+      ],
+      "reason": "Limit the synchronous deficit scan to a profile-bounded activation batch so the first real-player login cannot mark hundreds of bots active in one transaction."
+    },
+    {
+      "id": "fresh-coalesced-character-db-probe",
+      "paths": [
+        "playerbot/RandomPlayerbotMgr.h",
+        "playerbot/RandomPlayerbotMgr.cpp",
+        "playerbot/PlayerbotLoginMgr.cpp"
+      ],
+      "reason": "Keep at most one deadline-bounded character-database probe in flight, reject late generations, and permit new bot logins only from a fresh successful result."
+    },
+    {
       "id": "low-cpu-locality-telemetry",
       "paths": [
         "playerbot/RandomPlayerbotMgr.h",
@@ -67,8 +85,8 @@
     },
     {
       "path": "native/.build-o09-arm64-v8a/realm-staging/jniLibs/arm64-v8a/libpocket_world_runtime.so",
-      "size": 32775552,
-      "sha256": "b422547adeff2efe6914c3a941d338f45544e7571cec9546a35e44c0345675b8",
+      "size": 32777872,
+      "sha256": "02feb6723945b8634f5258891b6a7c1ec7f8ab9484d044a3b09a5c6704c70606",
       "needed": [
         "libc.so",
         "libdl.so",

@@ -5,6 +5,8 @@ import android.content.Intent
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -64,6 +66,11 @@ class ClientActivity : ComponentActivity() {
         installImmersiveReapplyHooks()
         hideSystemUi()
         onBackPressedDispatcher.addCallback(this) {
+            val activeHost = IntegratedClientDisplay.currentHost(expectedGeneration)
+            if (activeHost?.isPointerCaptured == true) {
+                activeHost.setPointerCapture(false)
+                return@addCallback
+            }
             // Do not finish/destroy the GLSurfaceView while Wine owns GLX
             // contexts sharing its EGL root. Move the existing home activity
             // to the front and retain this exact client/activity instance for
@@ -146,6 +153,39 @@ class ClientActivity : ComponentActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) hideSystemUi()
+    }
+
+    /**
+     * Route gameplay keys at the Activity boundary so a Compose overlay tap,
+     * pointer-capture transition, or hidden IME focus target cannot strand the
+     * RP6 buttons outside the XServerView. System keys still return false from
+     * the host and retain Android ownership.
+     */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        val host = IntegratedClientDisplay.currentHost(expectedGeneration)
+        if (host != null && host.dispatchKey(event)) return true
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        val host = IntegratedClientDisplay.currentHost(expectedGeneration)
+        if (host != null && host.dispatchKey(event)) return true
+        return super.onKeyUp(keyCode, event)
+    }
+
+    override fun onKeyMultiple(keyCode: Int, repeatCount: Int, event: KeyEvent): Boolean {
+        val host = IntegratedClientDisplay.currentHost(expectedGeneration)
+        if (host != null && host.dispatchKey(event)) return true
+        return super.onKeyMultiple(keyCode, repeatCount, event)
+    }
+
+    /** Joystick motion follows the same focus-independent gameplay route. */
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        if (event.isFromSource(android.view.InputDevice.SOURCE_JOYSTICK)) {
+            val host = IntegratedClientDisplay.currentHost(expectedGeneration)
+            if (host != null && host.dispatchGamepad(event)) return true
+        }
+        return super.dispatchGenericMotionEvent(event)
     }
 
     @Suppress("DEPRECATION")

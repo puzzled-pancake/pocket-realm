@@ -23,8 +23,8 @@ import org.junit.runners.MethodSorters
  *   variant       pkgExperiment|debug
  *   smokeSeconds  (reserved for S-3 timeout)
  *
- * The spike requires the pkgExperiment variant (useLegacyPackaging=true) so the
- * glibc/Wine ELFs are extracted to nativeLibraryDir with +x.
+ * All runtime variants use the PKG-01-qualified extracted packaging model;
+ * pkgExperiment remains the historical regression lane.
  */
 @RunWith(AndroidJUnit4::class)
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)

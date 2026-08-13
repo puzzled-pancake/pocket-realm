@@ -1,5 +1,6 @@
 package com.pocketrealm.client
 
+import com.pocketrealm.supervisor.RealmEndpoint
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
@@ -28,6 +29,11 @@ data class PrefixRequest(
     val audioMode: String = "off",
     val inputSafeMode: Boolean = false,
     val rendererPackageId: String? = null,
+    val vulkanDriverId: String? = null,
+    val displayProfileId: String = ClientDisplayProfile.BALANCED.id,
+    val frameCap: Int = ClientFrameCap.FPS_30.fps,
+    val tweaksJson: String = ClientTweaksConfig().toJson(),
+    val realmEndpoint: RealmEndpoint = RealmEndpoint.LOCAL,
 )
 data class PrefixResult(
     val ok: Boolean,
@@ -42,6 +48,10 @@ data class LaunchRequest(
     val audioMode: String = "off",
     val renderer: String = "wined3d",
     val rendererPackageId: String? = null,
+    val vulkanDriverId: String? = null,
+    val displayProfileId: String = ClientDisplayProfile.BALANCED.id,
+    val frameCap: Int = ClientFrameCap.FPS_30.fps,
+    val tweaksJson: String = ClientTweaksConfig().toJson(),
 )
 data class ClientSession(val sessionId: UUID, val state: ClientState)
 data class CloseResult(val requested: Boolean, val state: ClientState, val detail: String)
@@ -72,66 +82,75 @@ object ClientRuntimeContract {
     const val PROTOCOL_VERSION = 1
     const val RUNTIME_BUILD_ID = "kron4ek-wine-11.14-amd64-wow64-vanilla"
     const val ARM_TRANSLATED_RUNTIME_BUILD_ID = "winlator-ca3d735-box64-0.4.0-wine-10.10"
-    const val ARM_FEX_RUNTIME_BUILD_ID = "winlator-bionic-v3.1.h-fexcore-2608-proton-9-arm64ec"
 
-    fun armRuntimeBuildId(translator: ArmTranslationBackend): String = when (translator) {
-        ArmTranslationBackend.BOX64 -> ARM_TRANSLATED_RUNTIME_BUILD_ID
-        ArmTranslationBackend.FEX -> ARM_FEX_RUNTIME_BUILD_ID
+    fun armRuntimeBuildId(translator: ArmTranslationBackend): String {
+        require(translator == ArmTranslationBackend.BOX64) {
+            "Box64 is the only supported ARM translator"
+        }
+        return ARM_TRANSLATED_RUNTIME_BUILD_ID
     }
     const val RENDERER_BUILD_ID = "gladio-eaa2a8d-o12-gles30-v2"
-    const val ARM_RENDERER_BUILD_ID = "turnip-26.1.0-dxvk-2.4.1-d3d9"
-    const val ARM_OPENGL_RENDERER_BUILD_ID = "gladio-eaa2a8d-arm64-glibc-android-gles"
-    const val ARM_FEX_DXVK_RENDERER_BUILD_ID = "turnip-26.2.0-dxvk-2.3.1-arm64ec"
-    const val ARM_FEX_OPENGL_RENDERER_BUILD_ID =
-        "gladio-eaa2a8d-arm64-bionic-378e5bb9-android-gles"
+    const val DXVK_CONFIG_FILE_NAME = "dxvk.conf"
+    val ARM_REQUIRED_WINE_GUEST_DLLS = setOf("kernel32.dll", "opengl32.dll")
 
     fun armRendererBuildId(
         translator: ArmTranslationBackend,
         renderer: String,
         rendererPackageId: String? = null,
-    ): String = when {
-        renderer == "dxvk" -> RendererPackageCatalog.requireForRequest(
+        vulkanDriverId: String? = null,
+    ): String {
+        require(translator == ArmTranslationBackend.BOX64) {
+            "Box64 is the only supported ARM translator"
+        }
+        require(renderer == "dxvk") { "unsupported ARM renderer: $renderer" }
+        val dxvk = requireNotNull(RendererPackageCatalog.requireForRequest(
             translator, renderer, rendererPackageId,
-        )!!.buildId
-        translator == ArmTranslationBackend.BOX64 && renderer == "opengl" -> {
-            require(rendererPackageId == null) { "OpenGL does not accept a DXVK package" }
-            ARM_OPENGL_RENDERER_BUILD_ID
-        }
-        translator == ArmTranslationBackend.FEX && renderer == "opengl" -> {
-            require(rendererPackageId == null) { "OpenGL does not accept a DXVK package" }
-            ARM_FEX_OPENGL_RENDERER_BUILD_ID
-        }
-        else -> error("unsupported ARM renderer: $renderer")
+        ))
+        val driver = VulkanDriverCatalog.requireForRequest(vulkanDriverId)
+        return "${driver.buildId}-${dxvk.buildId}"
     }
 
-    /** Arguments passed after Wine. Client OpenGL is a WoW mode, not DXVK. */
-    fun armClientArguments(executable: String, renderer: String): List<String> = when (renderer) {
-        "dxvk" -> listOf(executable)
-        "opengl" -> listOf(executable, "-opengl")
-        else -> error("unsupported ARM renderer: $renderer")
+    /** Arguments passed after Wine for the fixed Box64 + DXVK route. */
+    fun armClientArguments(executable: String, renderer: String): List<String> {
+        require(renderer == "dxvk") { "unsupported ARM renderer: $renderer" }
+        return listOf(executable)
     }
 
-    /** Launch an ARM64EC client inside Wine's owned virtual desktop.
+    /** Wine DLL policy for the fixed ARM D3D9 route.
      *
-     * The ARM64EC/new-WoW64 X11 driver is initialized by explorer. Launching a
-     * 32-bit game directly can leave its first CreateWindow call on Wine's
-     * no-driver fallback even though the Android X server is already live.
-     * This mirrors the pinned Winlator launcher and keeps the desktop process
-     * as the lifetime owner of the game and its graphics driver.
+     * This is the loader order used by the qualified Box64/DXVK sessions.
+     * Runtime readiness separately requires a fresh, version-matched DXVK log,
+     * so a builtin fallback can never be reported as a successful ARM client.
      */
-    fun armFexClientArguments(
-        executable: String,
-        renderer: String,
-        resolution: String,
-    ): List<String> {
-        require(executable.startsWith('/')) { "FEX client path must be absolute" }
-        require(Regex("^[1-9][0-9]{2,4}x[1-9][0-9]{2,4}$").matches(resolution)) {
-            "invalid FEX virtual desktop resolution"
-        }
-        val winePath = "Z:" + executable.replace('/', '\\')
-        return listOf("explorer", "/desktop=shell,$resolution", winePath) +
-            armClientArguments(executable, renderer).drop(1)
+    fun armWineDllOverrides(audioOn: Boolean): String = buildList {
+        add("d3d9=n,b")
+        add("dxgi=n,b")
+        if (!audioOn) add("winealsa.drv=d")
+        add("winepulse.drv=d")
+    }.joinToString(";")
+
+    fun isArmDxvkLogAttested(
+        text: String,
+        dxvkVersion: String,
+        driver: VulkanDriverPackage,
+    ): Boolean =
+        text.contains("Game: WoW.exe") &&
+            text.contains("DXVK: v$dxvkVersion") &&
+            when (driver.kind) {
+                VulkanDriverKind.SYSTEM -> text.contains("Vortek (")
+                VulkanDriverKind.TURNIP -> text.contains("Turnip Adreno")
+            }
+
+    /** Exact app-owned limiter used in addition to the legacy WoW cvar. */
+    fun dxvkFrameCapConfig(frameCap: Int): String {
+        ClientFrameCap.requireFps(frameCap)
+        return """
+            # Pocket Realm generated; applied before DXVK creates the D3D9 device.
+            d3d9.maxFrameRate = $frameCap
+            dxgi.maxFrameRate = $frameCap
+        """.trimIndent() + "\n"
     }
+
     const val SELF_TEST_ID = "pocket-selftest-v1"
     const val WOW_5875_ID = "wow-1.12.1-5875"
     const val PREFIX_SCHEMA = 1

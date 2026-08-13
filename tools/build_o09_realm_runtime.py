@@ -76,6 +76,24 @@ PLAYERBOTS_OVERLAYS = [
         "reason": "Persist each character normally, then yield after a profile-bounded batch so interrupted generation resumes from existing account/character rows.",
     },
     {
+        "id": "bounded-first-player-activation",
+        "paths": [
+            "playerbot/PlayerbotAIConfig.h",
+            "playerbot/PlayerbotAIConfig.cpp",
+            "playerbot/RandomPlayerbotMgr.cpp",
+        ],
+        "reason": "Limit the synchronous deficit scan to a profile-bounded activation batch so the first real-player login cannot mark hundreds of bots active in one transaction.",
+    },
+    {
+        "id": "fresh-coalesced-character-db-probe",
+        "paths": [
+            "playerbot/RandomPlayerbotMgr.h",
+            "playerbot/RandomPlayerbotMgr.cpp",
+            "playerbot/PlayerbotLoginMgr.cpp",
+        ],
+        "reason": "Keep at most one deadline-bounded character-database probe in flight, reject late generations, and permit new bot logins only from a fresh successful result.",
+    },
+    {
         "id": "low-cpu-locality-telemetry",
         "paths": [
             "playerbot/RandomPlayerbotMgr.h",
@@ -144,7 +162,7 @@ PB_CONFIG_HEADER_UPSTREAM = """    bool randomBotAutoCreate;
     uint32 minRandomBots, maxRandomBots;
 """
 PB_CONFIG_HEADER_ANDROID = """    bool randomBotAutoCreate;
-    uint32 pocketGenerationBatchSize, pocketGenerationYieldMs;
+    uint32 pocketGenerationBatchSize, pocketGenerationYieldMs, pocketActivationBatchSize;
     uint32 minRandomBots, maxRandomBots;
 """
 PB_CONFIG_CPP_UPSTREAM = """    randomBotAutoCreate = config.GetBoolDefault("AiPlayerbot.RandomBotAutoCreate", true);
@@ -153,6 +171,9 @@ PB_CONFIG_CPP_UPSTREAM = """    randomBotAutoCreate = config.GetBoolDefault("AiP
 PB_CONFIG_CPP_ANDROID = """    randomBotAutoCreate = config.GetBoolDefault("AiPlayerbot.RandomBotAutoCreate", true);
     pocketGenerationBatchSize = config.GetIntDefault("PocketRealm.GenerationBatchSize", 5);
     pocketGenerationYieldMs = config.GetIntDefault("PocketRealm.GenerationYieldMs", 250);
+    pocketActivationBatchSize = config.GetIntDefault("PocketRealm.ActivationBatchSize", 5);
+    if (!pocketActivationBatchSize)
+        pocketActivationBatchSize = 1;
     minRandomBots = config.GetIntDefault("AiPlayerbot.MinRandomBots", 50);
 """
 PB_CONFIG_SOURCE_DECL_UPSTREAM = """    bool Initialize();
@@ -212,6 +233,144 @@ PB_FACTORY_RANDOM_ANDROID = """                    uint8 rclss = factory.GetRand
                         bar1.step();
                         checkpointYield();
                     }
+"""
+PB_MGR_ACTIVATION_BUDGET_UPSTREAM = """    if(sPlayerbotAIConfig.asyncBotLogin)
+        return 0;"""
+PB_MGR_ACTIVATION_BUDGET_ANDROID = """    if(sPlayerbotAIConfig.asyncBotLogin)
+        return 0;
+
+    // Mark only a bounded number of characters active per manager update.  The
+    // upstream deficit scan can otherwise write hundreds of add/logout events
+    // synchronously when the first real player enters a large mobile realm.
+    uint32 pocketActivationRemaining = sPlayerbotAIConfig.pocketActivationBatchSize;"""
+PB_MGR_ACTIVATION_COUNT_UPSTREAM = """                    currentAllowedBotCount--;
+                    neededAddBots--;
+
+                    if (!currentAllowedBotCount)
+"""
+PB_MGR_ACTIVATION_COUNT_ANDROID = """                    currentAllowedBotCount--;
+                    neededAddBots--;
+                    if (pocketActivationRemaining)
+                        pocketActivationRemaining--;
+                    if (!pocketActivationRemaining)
+                        currentAllowedBotCount = 0;
+
+                    if (!currentAllowedBotCount)
+"""
+PB_MGR_DB_API_UPSTREAM = """        static void DatabasePing(QueryResult* result, uint32 pingStart, std::string db);
+        void SetDatabaseDelay(std::string db, uint32 delay) {databaseDelay[db] = delay;}
+        uint32 GetDatabaseDelay(std::string db) {if(databaseDelay.find(db) == databaseDelay.end()) return 0; return databaseDelay[db];}
+"""
+PB_MGR_DB_API_ANDROID = """        static void DatabasePing(QueryResult* result, uint32 pingStart, std::string db);
+        void SetDatabaseDelay(std::string db, uint32 delay) {databaseDelay[db] = delay;}
+        uint32 GetDatabaseDelay(std::string db) {if(databaseDelay.find(db) == databaseDelay.end()) return 0; return databaseDelay[db];}
+        bool PocketDatabaseReadyForLogin(uint32 now) const;
+        bool PocketScheduleDatabaseProbe(uint32 now);
+        bool PocketBeginDatabaseProbe(uint32 now, uint32& token);
+        void PocketCompleteDatabaseProbe(std::string const& db, uint32 token, uint32 delay, uint32 now, bool successful);
+"""
+PB_MGR_DB_FIELDS_UPSTREAM = """        std::map<std::string, uint32> databaseDelay;
+"""
+PB_MGR_DB_FIELDS_ANDROID = """        std::map<std::string, uint32> databaseDelay;
+        bool pocketDatabaseProbeInFlight = false;
+        bool pocketDatabaseProbeHasResult = false;
+        bool pocketDatabaseProbeHasStarted = false;
+        uint32 pocketDatabaseProbeSentAt = 0;
+        uint32 pocketDatabaseProbeCompletedAt = 0;
+        uint32 pocketDatabaseProbeActiveToken = 0;
+"""
+PB_MGR_DB_LOGIN_GATE_UPSTREAM = """    if (sRandomPlayerbotMgr.GetDatabaseDelay("CharacterDatabase") < 10 * IN_MILLISECONDS && !sPlayerbotAIConfig.asyncBotLogin && onlineBotCount < maxAllowedBotCount && maxLogins > 0)
+"""
+PB_MGR_DB_LOGIN_GATE_ANDROID = """    const uint32 pocketDatabaseNow = sWorld.GetCurrentMSTime();
+    if (sRandomPlayerbotMgr.PocketDatabaseReadyForLogin(pocketDatabaseNow) && !sPlayerbotAIConfig.asyncBotLogin && onlineBotCount < maxAllowedBotCount && maxLogins > 0)
+"""
+PB_MGR_DB_SCHEDULE_UPSTREAM = """    //Ping character database.
+    CharacterDatabase.AsyncPQuery(&RandomPlayerbotMgr::DatabasePing, sWorld.GetCurrentMSTime(), std::string("CharacterDatabase"), "SELECT 1");
+"""
+PB_MGR_DB_SCHEDULE_ANDROID = """    // Keep only one probe outstanding and sample at a bounded cadence. A stale or
+    // failed probe withholds new logins but never logs out an existing bot.
+    sRandomPlayerbotMgr.PocketScheduleDatabaseProbe(sWorld.GetCurrentMSTime());
+"""
+PB_LOGIN_DB_SCHEDULE_UPSTREAM = """    CharacterDatabase.AsyncPQuery(&RandomPlayerbotMgr::DatabasePing, sWorld.GetCurrentMSTime(), std::string("CharacterDatabase"), "select 1");
+"""
+PB_LOGIN_DB_SCHEDULE_ANDROID = """    sRandomPlayerbotMgr.PocketScheduleDatabaseProbe(sWorld.GetCurrentMSTime());
+"""
+PB_MGR_DB_CALLBACK_UPSTREAM = """void RandomPlayerbotMgr::DatabasePing(QueryResult* result, uint32 pingStart, std::string db)
+{
+    sRandomPlayerbotMgr.SetDatabaseDelay(db, sWorld.GetCurrentMSTime() - pingStart);
+    delete result;
+}
+"""
+PB_MGR_DB_CALLBACK_ANDROID = """bool RandomPlayerbotMgr::PocketDatabaseReadyForLogin(uint32 now) const
+{
+    if (!pocketDatabaseProbeHasResult)
+        return false;
+    const auto delay = databaseDelay.find("CharacterDatabase");
+    return delay != databaseDelay.end() &&
+        delay->second < 10 * IN_MILLISECONDS &&
+        now - pocketDatabaseProbeCompletedAt <= 15 * IN_MILLISECONDS;
+}
+
+bool RandomPlayerbotMgr::PocketBeginDatabaseProbe(uint32 now, uint32& token)
+{
+    if (pocketDatabaseProbeInFlight)
+    {
+        if (now - pocketDatabaseProbeSentAt < 15 * IN_MILLISECONDS)
+            return false;
+        // A result-queue or DB-worker callback may be lost across shutdown or
+        // reconnect. Expire only that generation and fail the login gate shut.
+        pocketDatabaseProbeInFlight = false;
+        pocketDatabaseProbeActiveToken = 0;
+        databaseDelay["CharacterDatabase"] = UINT32_MAX;
+        pocketDatabaseProbeHasResult = true;
+        pocketDatabaseProbeCompletedAt = now;
+    }
+    if (pocketDatabaseProbeHasStarted &&
+        now - pocketDatabaseProbeSentAt < 10 * IN_MILLISECONDS)
+        return false;
+
+    // The 32-bit monotonic start time is the callback token. Unsigned
+    // subtraction keeps deadline/cadence checks correct across timer wrap.
+    pocketDatabaseProbeHasStarted = true;
+    pocketDatabaseProbeActiveToken = now;
+    pocketDatabaseProbeInFlight = true;
+    pocketDatabaseProbeSentAt = now;
+    token = now;
+    return true;
+}
+
+bool RandomPlayerbotMgr::PocketScheduleDatabaseProbe(uint32 now)
+{
+    uint32 token = 0;
+    if (!PocketBeginDatabaseProbe(now, token))
+        return false;
+    const bool queued = CharacterDatabase.AsyncPQuery(&RandomPlayerbotMgr::DatabasePing,
+        token, std::string("CharacterDatabase"), "SELECT 1");
+    if (!queued)
+        PocketCompleteDatabaseProbe("CharacterDatabase", token, UINT32_MAX,
+            sWorld.GetCurrentMSTime(), false);
+    return queued;
+}
+
+void RandomPlayerbotMgr::PocketCompleteDatabaseProbe(std::string const& db, uint32 token, uint32 delay, uint32 now, bool successful)
+{
+    if (!pocketDatabaseProbeInFlight ||
+        token != pocketDatabaseProbeActiveToken)
+        return;
+    databaseDelay[db] = successful ? delay : UINT32_MAX;
+    pocketDatabaseProbeHasResult = true;
+    pocketDatabaseProbeCompletedAt = now;
+    pocketDatabaseProbeInFlight = false;
+    pocketDatabaseProbeActiveToken = 0;
+}
+
+void RandomPlayerbotMgr::DatabasePing(QueryResult* result, uint32 pingStart, std::string db)
+{
+    const uint32 now = sWorld.GetCurrentMSTime();
+    sRandomPlayerbotMgr.PocketCompleteDatabaseProbe(db, pingStart,
+        now - pingStart, now, result != nullptr);
+    delete result;
+}
 """
 PB_MGR_INCLUDE_UPSTREAM = """#include "WorldPosition.h"
 #include <map>
@@ -448,18 +607,26 @@ def tools() -> tuple[Path, Path, Path, Path]:
 
 def replace_anchor(path: Path, old: str, new: str) -> None:
     data = path.read_bytes()
-    newline = b"\r\n" if b"\r\n" in data else b"\n"
-    line_endings = lambda value: value.replace("\n", newline.decode("ascii")).encode("utf-8")
-    old_bytes = line_endings(old)
-    new_bytes = line_endings(new)
+    variants = (
+        (old.encode("utf-8"), new.encode("utf-8")),
+        (
+            old.replace("\n", "\r\n").encode("utf-8"),
+            new.replace("\n", "\r\n").encode("utf-8"),
+        ),
+    )
     # Check the upstream anchor first.  `char fp[...]` is a substring of
     # `const char fp[...]`; testing the replacement first would falsely report
     # the old declaration as already patched on Clang/ARM.
-    if old_bytes in data:
-        path.write_bytes(data.replace(old_bytes, new_bytes, 1))
-        return
-    if new_bytes in data:
-        return
+    # Some pinned mirrors contain a single LF-only line in an otherwise CRLF
+    # file, so the anchor itself -- rather than the file-wide majority -- must
+    # choose the replacement line ending.
+    for old_bytes, new_bytes in variants:
+        if old_bytes in data:
+            path.write_bytes(data.replace(old_bytes, new_bytes, 1))
+            return
+    for _old_bytes, new_bytes in variants:
+        if new_bytes in data:
+            return
     raise RuntimeError(f"source overlay anchor drift: {path}: {old}")
 
 
@@ -491,8 +658,10 @@ def prepare_cmangos_source() -> None:
     playerbots_actual = output(["git", "rev-parse", "HEAD"], playerbots)
     if playerbots_actual != PLAYERBOTS_COMMIT:
         raise RuntimeError(f"Playerbots pin mismatch: {playerbots_actual}")
-    if subprocess.run(["git", "status", "--porcelain"], cwd=cmangos,
-                      capture_output=True, text=True, check=True).stdout.strip():
+    tracked_dirty = subprocess.run(["git", "diff", "--quiet"], cwd=cmangos).returncode != 0 or \
+        subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=cmangos).returncode != 0
+    untracked = output(["git", "ls-files", "--others", "--exclude-standard"], cmangos)
+    if tracked_dirty or untracked:
         raise RuntimeError("CMaNGOS submodule has unrecorded changes; build overlays belong in this driver")
     if subprocess.run(["git", "diff", "--quiet"], cwd=playerbots).returncode != 0:
         raise RuntimeError("Playerbots submodule has unrecorded changes; build overlays belong in this driver")
@@ -528,6 +697,15 @@ def prepare_cmangos_source() -> None:
     replace_anchor(bot_root / "RandomPlayerbotFactory.cpp", PB_FACTORY_BATCH_UPSTREAM, PB_FACTORY_BATCH_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotFactory.cpp", PB_FACTORY_FIXED_UPSTREAM, PB_FACTORY_FIXED_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotFactory.cpp", PB_FACTORY_RANDOM_UPSTREAM, PB_FACTORY_RANDOM_ANDROID)
+    replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_ACTIVATION_BUDGET_UPSTREAM, PB_MGR_ACTIVATION_BUDGET_ANDROID)
+    replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_ACTIVATION_COUNT_UPSTREAM, PB_MGR_ACTIVATION_COUNT_ANDROID)
+    replace_anchor(bot_root / "RandomPlayerbotMgr.h", PB_MGR_DB_API_UPSTREAM, PB_MGR_DB_API_ANDROID)
+    replace_anchor(bot_root / "RandomPlayerbotMgr.h", PB_MGR_DB_FIELDS_UPSTREAM, PB_MGR_DB_FIELDS_ANDROID)
+    replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_DB_LOGIN_GATE_UPSTREAM, PB_MGR_DB_LOGIN_GATE_ANDROID)
+    replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_DB_SCHEDULE_UPSTREAM, PB_MGR_DB_SCHEDULE_ANDROID)
+    replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_DB_CALLBACK_UPSTREAM, PB_MGR_DB_CALLBACK_ANDROID)
+    replace_anchor(bot_root / "PlayerbotLoginMgr.cpp", PB_LOGIN_DB_SCHEDULE_UPSTREAM, PB_LOGIN_DB_SCHEDULE_ANDROID)
+    replace_anchor(bot_root / "PlayerbotLoginMgr.cpp", PB_LOGIN_DB_SCHEDULE_UPSTREAM, PB_LOGIN_DB_SCHEDULE_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotMgr.h", PB_MGR_INCLUDE_UPSTREAM, PB_MGR_INCLUDE_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotMgr.h", PB_MGR_TELEMETRY_TYPE_UPSTREAM, PB_MGR_TELEMETRY_TYPE_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotMgr.h", PB_MGR_GETTER_UPSTREAM, PB_MGR_GETTER_ANDROID)
@@ -690,8 +868,10 @@ def main() -> int:
     # Refuse to consume arbitrary working-tree edits.  Only after this clean
     # check succeeds is cleanup armed; a rejected dirty tree is never touched.
     cmangos = NATIVE / "cmangos"
-    if subprocess.run(["git", "status", "--porcelain"], cwd=cmangos,
-                      capture_output=True, text=True, check=True).stdout.strip():
+    tracked_dirty = subprocess.run(["git", "diff", "--quiet"], cwd=cmangos).returncode != 0 or \
+        subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=cmangos).returncode != 0
+    untracked = output(["git", "ls-files", "--others", "--exclude-standard"], cmangos)
+    if tracked_dirty or untracked:
         raise RuntimeError("CMaNGOS submodule has unrecorded changes; clean it before building")
     cleanup_armed = True
     try:

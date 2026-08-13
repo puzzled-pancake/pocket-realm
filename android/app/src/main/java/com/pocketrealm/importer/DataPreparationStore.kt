@@ -13,6 +13,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
+import com.pocketrealm.server.PreparedDataStore
 import kotlin.coroutines.coroutineContext
 
 /** Checkpointed CMaNGOS data generation and immutable normal-mode publication. */
@@ -158,7 +159,7 @@ class DataPreparationStore(
     ) {
         val executable = File(nativeDir, library)
         check(executable.isFile && executable.canExecute()) {
-            "O11 extractor unavailable in nativeLibraryDir; use the integrated runtime variant"
+            "This app build does not include the server-data preparation tools. Install the complete Pocket Realm build."
         }
         val logs = File(workDir, "logs").apply { mkdirs() }
         val attempt = journal.dataStage(importId, stage)?.attempt ?: 1
@@ -238,19 +239,23 @@ class DataPreparationStore(
     }
 
     private fun activate(importId: String, digest: String) {
-        val current = if (active.isFile) runCatching { JSONObject(active.readText()) }.getOrNull() else null
-        val priorGeneration = current?.optString("generation")?.takeIf { it.matches(UUID) }
-        if (priorGeneration == importId && current?.optString("manifestSha256") == digest &&
-            current?.optString("mode") == "NORMAL") return
-        if (priorGeneration != null && priorGeneration != importId) atomicWrite(previous, active.readBytes())
-        atomicWrite(active, JSONObject().put("schema", 1).put("generation", importId)
-            .put("manifestSha256", digest).put("mode", "NORMAL")
-            .put("activatedAtMs", System.currentTimeMillis()).toString().toByteArray())
-        val keep = setOfNotNull(importId, priorGeneration)
-        generations.listFiles().orEmpty().filter {
-            it.isDirectory && !it.name.startsWith(".staging-") && it.name !in keep
-        }.forEach { check(it.deleteRecursively()) { "cannot retire old data generation" } }
-        fsyncDirectory(generations)
+        PreparedDataStore.acquirePublicationLease(root).use {
+            val current = if (active.isFile) {
+                runCatching { JSONObject(active.readText()) }.getOrNull()
+            } else null
+            val priorGeneration = current?.optString("generation")?.takeIf { it.matches(UUID) }
+            if (priorGeneration == importId && current?.optString("manifestSha256") == digest &&
+                current?.optString("mode") == "NORMAL") return
+            if (priorGeneration != null && priorGeneration != importId) atomicWrite(previous, active.readBytes())
+            atomicWrite(active, JSONObject().put("schema", 1).put("generation", importId)
+                .put("manifestSha256", digest).put("mode", "NORMAL")
+                .put("activatedAtMs", System.currentTimeMillis()).toString().toByteArray())
+            val keep = setOfNotNull(importId, priorGeneration)
+            generations.listFiles().orEmpty().filter {
+                it.isDirectory && !it.name.startsWith(".staging-") && it.name !in keep
+            }.forEach { check(it.deleteRecursively()) { "cannot retire old data generation" } }
+            fsyncDirectory(generations)
+        }
     }
 
     private fun removeIntermediates(stageRoot: File) {
@@ -278,7 +283,9 @@ class DataPreparationStore(
 
     private fun requireTools() = listOf("libpocket_ad.so", "libpocket_vmap_extractor.so",
         "libpocket_vmap_assembler.so", "libpocket_movemapgen.so").forEach {
-        check(File(nativeDir, it).isFile) { "missing O11 extractor: $it" }
+        check(File(nativeDir, it).isFile) {
+            "A required server-data preparation tool is missing ($it). Reinstall the complete Pocket Realm build."
+        }
     }
 
     private fun generation(name: String): File {

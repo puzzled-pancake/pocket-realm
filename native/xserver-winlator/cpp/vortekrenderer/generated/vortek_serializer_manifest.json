@@ -1,0 +1,24 @@
+{
+  "fuzz_decoder_targets": 630,
+  "fuzz_dispatch_sha256": "3f23e8b931d80489cdac01a4b4dd59355fcfe2d05b8b00c01ed97273a8a180be",
+  "fuzz_request_decoder_targets": 254,
+  "handle_policy_sha256": "c1f41516175e250d6dffbdab85944b24b1d4f653fa304db041dd88f792da7d46",
+  "handle_policy_sites": 111,
+  "output_normalized_sha256": "6bb5dc31f4a709b243591b8394ff0c9e8a361151ea76902ef2b2dbaa3473de5d",
+  "schema": 1,
+  "source": "brunodev85/winlator-app@ca3d735a60d653a787daf16d14fafef28d9c2c23",
+  "source_metrics": {
+    "allocations": 362,
+    "data_sizes": 353,
+    "decoders": 630,
+    "item_sizes": 325,
+    "nested_calls": 1012,
+    "pnext_loops": 49,
+    "presence_reads": 379,
+    "raw_copies": 99,
+    "scalar_reads": 2606
+  },
+  "source_normalized_sha256": "2761a1cad4c6812004e57c210b57507800b64b28ba33824b936d9daa37461253",
+  "source_path": "app/src/main/cpp/vortekrenderer/include/vortek_serializer.h",
+  "wire_format_changed": false
+}

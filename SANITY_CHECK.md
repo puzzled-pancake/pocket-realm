@@ -47,7 +47,7 @@ The canonical report, `PLAN.md`, `DECISIONS.md`, and `FEATURES.json` are not imp
 - The server, MariaDB, and bots are native per Android ABI; direct x86 is the development gate and only the Windows client needs CPU translation on ARM.
 - The Android app assumes process death can occur at any instruction; Save & Exit is not the sole correctness boundary.
 - Mutable realm data stays on internal storage by default and uses dirty-state recovery, verified backups, and rollback generations.
-- Direct x86 Wine is proven first. Box64/64-bit Wine WoW64 is the first ARM candidate; FEX is outside the release critical path until a separate laboratory feature qualifies it.
+- Direct x86 Wine is retained as validation. ARM production has one route: Box64/64-bit Wine WoW64 plus an exact pinned DXVK package, with no FEX or OpenGL fallback.
 - Automatic mode never selects an unqualified runtime tuple or exposes an unimplemented laboratory backend as supported.
 - Controller input uses Android game-controller APIs plus a bundled Wine input bridge; it does not assume root, `/dev/uinput`, or Accessibility services.
 - Bot optimization protects visible, resident, grouped, combat, and instance bots before reducing distant or invisible work.

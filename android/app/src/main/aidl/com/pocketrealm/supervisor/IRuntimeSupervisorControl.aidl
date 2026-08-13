@@ -4,6 +4,7 @@ package com.pocketrealm.supervisor;
 interface IRuntimeSupervisorControl {
     String status();
     String start(String profileId, boolean includeClient);
+    String startSpec(String launchSpecJson);
     String stop(boolean forced);
     String relaunchClient();
     String recover();

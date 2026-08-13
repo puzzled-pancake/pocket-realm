@@ -2,7 +2,6 @@
 #include <malloc.h>
 #include <android/log.h>
 #include <stdlib.h>
-#include <string.h>
 #include <dlfcn.h>
 
 #define VK_NO_PROTOTYPES 1
@@ -10,121 +9,104 @@
 #include <EGL/egl.h>
 
 #include "winlator.h"
-#include "file_utils.h"
 #include "egl_context_registry.h"
 
 EGLContext globalEGLContext = EGL_NO_CONTEXT;
 uint64_t globalEGLContextGeneration = 0;
 pthread_mutex_t globalEGLContextMutex = PTHREAD_MUTEX_INITIALIZER;
 
-JNIEXPORT jobjectArray JNICALL
-Java_com_winlator_core_GPUHelper_vkGetDeviceExtensions(JNIEnv *env, jclass obj) {
-    VkInstanceCreateInfo createInfo = {0};
-    createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    VkExtensionProperties* properties = NULL;
-    jobjectArray stringArray = NULL;
-    VkResult result;
-    VkInstance instance = VK_NULL_HANDLE;
+#define MAX_VULKAN_PHYSICAL_DEVICES 64U
+#define MAX_VULKAN_DEVICE_EXTENSIONS 1024U
 
+/** One checked snapshot from one physical device exposed by Android's public loader. */
+JNIEXPORT jobject JNICALL
+Java_com_winlator_core_GPUHelper_nativeProbeSystemVulkan(JNIEnv *env, jclass obj) {
+    (void)obj;
+    jobject probe = NULL;
+    jobjectArray extensionArray = NULL;
+    jclass stringClass = NULL;
+    jclass probeClass = NULL;
+    VkExtensionProperties* extensions = NULL;
+    VkInstance instance = VK_NULL_HANDLE;
+    PFN_vkDestroyInstance vkDestroyInstance = NULL;
     void* libvulkan = dlopen(LIBVULKAN_PATH, RTLD_NOW | RTLD_LOCAL);
     if (!libvulkan) goto done;
 
     PFN_vkCreateInstance vkCreateInstance = dlsym(libvulkan, "vkCreateInstance");
-    PFN_vkDestroyInstance vkDestroyInstance = dlsym(libvulkan, "vkDestroyInstance");
-    PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices = dlsym(libvulkan, "vkEnumeratePhysicalDevices");
-    PFN_vkEnumerateDeviceExtensionProperties vkEnumerateDeviceExtensionProperties = dlsym(libvulkan, "vkEnumerateDeviceExtensionProperties");
-
-    result = vkCreateInstance(&createInfo, NULL, &instance);
-    if (result != VK_SUCCESS) goto done;
-
-    uint32_t deviceCount = 1;
-    VkPhysicalDevice physicalDevice;
-    result = vkEnumeratePhysicalDevices(instance, &deviceCount, &physicalDevice);
-    if (result != VK_SUCCESS && result != VK_INCOMPLETE) goto done;
-
-    uint32_t propertyCount = 0;
-    result = vkEnumerateDeviceExtensionProperties(physicalDevice, NULL, &propertyCount, NULL);
-    if (result != VK_SUCCESS || propertyCount == 0) goto done;
-
-    properties = calloc(propertyCount, sizeof(VkExtensionProperties));
-    result = vkEnumerateDeviceExtensionProperties(physicalDevice, NULL, &propertyCount, properties);
-    if (result != VK_SUCCESS) goto done;
-
-    stringArray = (*env)->NewObjectArray(env, propertyCount, (*env)->FindClass(env, "java/lang/String"), 0);
-    for (int i = 0; i < propertyCount; i++) {
-        jstring string = (*env)->NewStringUTF(env, properties[i].extensionName);
-        (*env)->SetObjectArrayElement(env, stringArray, i, string);
-    }
-
-done:
-    if (instance) vkDestroyInstance(instance, NULL);
-    if (properties) free(properties);
-    if (!stringArray) stringArray = (*env)->NewObjectArray(env, 0, (*env)->FindClass(env, "java/lang/String"), 0);
-    if (libvulkan) dlclose(libvulkan);
-    return stringArray;
-}
-
-JNIEXPORT jint JNICALL
-Java_com_winlator_core_GPUHelper_vkGetApiVersion() {
-    int version = 0;
-    char* content = fileGetContents(APP_CACHE_DIR "/.vk-api-version", NULL, NULL);
-    if (content) {
-        version = strtol(content, NULL, 10);
-        MEMFREE(content);
-        if (version > 0) return version;
-    }
-
-    VkResult result;
-    VkInstance instance = VK_NULL_HANDLE;
-
-    void* libvulkan = dlopen(LIBVULKAN_PATH, RTLD_NOW | RTLD_LOCAL);
-    if (!libvulkan) goto done;
-
-    PFN_vkCreateInstance vkCreateInstance = dlsym(libvulkan, "vkCreateInstance");
-    PFN_vkDestroyInstance vkDestroyInstance = dlsym(libvulkan, "vkDestroyInstance");
-    PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices = dlsym(libvulkan, "vkEnumeratePhysicalDevices");
-    PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties = dlsym(libvulkan, "vkGetPhysicalDeviceProperties");
-    PFN_vkGetPhysicalDeviceFeatures vkGetPhysicalDeviceFeatures = dlsym(libvulkan, "vkGetPhysicalDeviceFeatures");
+    vkDestroyInstance = dlsym(libvulkan, "vkDestroyInstance");
+    PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices =
+            dlsym(libvulkan, "vkEnumeratePhysicalDevices");
+    PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties =
+            dlsym(libvulkan, "vkGetPhysicalDeviceProperties");
+    PFN_vkGetPhysicalDeviceFeatures vkGetPhysicalDeviceFeatures =
+            dlsym(libvulkan, "vkGetPhysicalDeviceFeatures");
+    PFN_vkEnumerateDeviceExtensionProperties vkEnumerateDeviceExtensionProperties =
+            dlsym(libvulkan, "vkEnumerateDeviceExtensionProperties");
+    if (!vkCreateInstance || !vkDestroyInstance || !vkEnumeratePhysicalDevices ||
+            !vkGetPhysicalDeviceProperties || !vkGetPhysicalDeviceFeatures ||
+            !vkEnumerateDeviceExtensionProperties) goto done;
 
     VkInstanceCreateInfo createInfo = {0};
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    if (vkCreateInstance(&createInfo, NULL, &instance) != VK_SUCCESS) goto done;
 
-    result = vkCreateInstance(&createInfo, NULL, &instance);
-    if (result != VK_SUCCESS) goto done;
-
-    uint32_t deviceCount = 1;
-    VkPhysicalDevice physicalDevice;
-    result = vkEnumeratePhysicalDevices(instance, &deviceCount, &physicalDevice);
-    if (result != VK_SUCCESS && result != VK_INCOMPLETE) goto done;
+    uint32_t deviceCount = 0;
+    if (vkEnumeratePhysicalDevices(instance, &deviceCount, NULL) != VK_SUCCESS ||
+            deviceCount == 0 || deviceCount > MAX_VULKAN_PHYSICAL_DEVICES) goto done;
+    deviceCount = 1;
+    VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+    VkResult result = vkEnumeratePhysicalDevices(instance, &deviceCount, &physicalDevice);
+    if ((result != VK_SUCCESS && result != VK_INCOMPLETE) || deviceCount != 1 ||
+            physicalDevice == VK_NULL_HANDLE) goto done;
 
     VkPhysicalDeviceProperties properties = {0};
+    VkPhysicalDeviceFeatures features = {0};
     vkGetPhysicalDeviceProperties(physicalDevice, &properties);
+    vkGetPhysicalDeviceFeatures(physicalDevice, &features);
+    if (properties.apiVersion == 0) goto done;
 
-    version = properties.apiVersion;
-    if (version >= VK_MAKE_VERSION(1, 3, 0)) {
-        VkPhysicalDeviceFeatures features = {0};
-        vkGetPhysicalDeviceFeatures(physicalDevice, &features);
-        VkPhysicalDeviceFeatures requiredFeatures = {VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_FALSE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_FALSE, VK_TRUE, VK_TRUE, VK_FALSE, VK_FALSE, VK_TRUE, VK_TRUE, VK_TRUE, VK_FALSE, VK_TRUE, VK_TRUE, VK_TRUE, VK_TRUE, VK_FALSE, VK_TRUE, VK_TRUE};
+    uint32_t extensionCount = 0;
+    result = vkEnumerateDeviceExtensionProperties(physicalDevice, NULL, &extensionCount, NULL);
+    if (result != VK_SUCCESS || extensionCount == 0 ||
+            extensionCount > MAX_VULKAN_DEVICE_EXTENSIONS) goto done;
+    extensions = calloc(extensionCount, sizeof(VkExtensionProperties));
+    if (!extensions) goto done;
+    uint32_t extensionCapacity = extensionCount;
+    result = vkEnumerateDeviceExtensionProperties(
+            physicalDevice, NULL, &extensionCount, extensions);
+    if ((result != VK_SUCCESS && result != VK_INCOMPLETE) || extensionCount == 0 ||
+            extensionCount > extensionCapacity) goto done;
 
-        for (int offset = 0; offset < sizeof(VkPhysicalDeviceFeatures); offset += sizeof(VkBool32)) {
-            VkBool32 srcValue = *(VkBool32*)(((char*)&features) + offset);
-            VkBool32 dstValue = *(VkBool32*)(((char*)&requiredFeatures) + offset);
-
-            if (srcValue != dstValue) {
-                version = VK_MAKE_VERSION(1, 2, 0);
-                break;
-            }
-        }
+    stringClass = (*env)->FindClass(env, "java/lang/String");
+    if (!stringClass || (*env)->ExceptionCheck(env)) goto done;
+    extensionArray = (*env)->NewObjectArray(env, (jsize)extensionCount, stringClass, NULL);
+    if (!extensionArray || (*env)->ExceptionCheck(env)) goto done;
+    for (uint32_t i = 0; i < extensionCount; i++) {
+        jstring extension = (*env)->NewStringUTF(env, extensions[i].extensionName);
+        if (!extension || (*env)->ExceptionCheck(env)) goto done;
+        (*env)->SetObjectArrayElement(env, extensionArray, (jsize)i, extension);
+        (*env)->DeleteLocalRef(env, extension);
+        if ((*env)->ExceptionCheck(env)) goto done;
     }
 
-    char value[32] = {0};
-    sprintf(value, "%d", version);
-    filePutContents(APP_CACHE_DIR "/.vk-api-version", value, strlen(value));
+    probeClass = (*env)->FindClass(env, "com/winlator/core/GPUHelper$SystemVulkanProbe");
+    if (!probeClass || (*env)->ExceptionCheck(env)) goto done;
+    jmethodID constructor = (*env)->GetMethodID(env, probeClass, "<init>", "(IZ[Ljava/lang/String;)V");
+    if (!constructor || (*env)->ExceptionCheck(env)) goto done;
+    probe = (*env)->NewObject(
+            env, probeClass, constructor, (jint)properties.apiVersion,
+            features.textureCompressionBC == VK_TRUE ? JNI_TRUE : JNI_FALSE,
+            extensionArray);
+    if ((*env)->ExceptionCheck(env)) probe = NULL;
 
 done:
-    if (instance) vkDestroyInstance(instance, NULL);
+    if (probeClass) (*env)->DeleteLocalRef(env, probeClass);
+    if (extensionArray) (*env)->DeleteLocalRef(env, extensionArray);
+    if (stringClass) (*env)->DeleteLocalRef(env, stringClass);
+    if (instance && vkDestroyInstance) vkDestroyInstance(instance, NULL);
+    free(extensions);
     if (libvulkan) dlclose(libvulkan);
-    return version;
+    return probe;
 }
 
 JNIEXPORT jboolean JNICALL

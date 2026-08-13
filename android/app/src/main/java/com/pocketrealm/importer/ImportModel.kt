@@ -20,6 +20,13 @@ data class DataCheckpoint(
     val checkpoint: String?,
     val attempt: Int,
     val lastError: String?,
+    val updatedAtMs: Long,
+)
+
+data class ActiveImportFile(
+    val relativePath: String,
+    val expectedBytes: Long,
+    val copiedBytes: Long,
 )
 
 data class ImportLimits(

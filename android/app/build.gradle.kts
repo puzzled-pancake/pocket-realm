@@ -1,10 +1,157 @@
 import java.security.MessageDigest
 import java.io.RandomAccessFile
+import javax.xml.XMLConstants
+import javax.xml.parsers.DocumentBuilderFactory
+import com.android.build.api.artifact.SingleArtifact
 import groovy.json.JsonSlurper
 import org.gradle.api.DefaultTask
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
+
+abstract class ValidateExtractedNativePackagingTask : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val mergedManifest: RegularFileProperty
+
+    @TaskAction
+    fun validatePackaging() {
+        val factory = DocumentBuilderFactory.newInstance().apply {
+            isNamespaceAware = true
+            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+            setFeature("http://xml.org/sax/features/external-general-entities", false)
+            setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+            setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "")
+            setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "")
+        }
+        val document = factory.newDocumentBuilder().parse(mergedManifest.get().asFile)
+        val application = document.getElementsByTagName("application").item(0)
+            ?: error("Merged manifest has no application element")
+        val extractNativeLibs = application.attributes
+            .getNamedItemNS("http://schemas.android.com/apk/res/android", "extractNativeLibs")
+            ?.nodeValue
+        check(extractNativeLibs == "true") {
+            "Packaged native executables require android:extractNativeLibs=true; " +
+                "merged manifest resolved to ${extractNativeLibs ?: "<absent>"}"
+        }
+    }
+}
+
+/**
+ * Execution-time boundary in front of AGP's connected instrumentation tasks.
+ *
+ * The guard deliberately classifies the selected target from ANDROID_SERIAL
+ * without querying adb.  An absent or ambiguous target therefore fails closed
+ * before AGP can discover, install to, or uninstall from any attached device.
+ */
+abstract class ValidateConnectedAndroidTestTargetTask : DefaultTask() {
+    @get:Input
+    abstract val targetSerial: Property<String>
+
+    @get:Input
+    abstract val hardwareQualification: Property<Boolean>
+
+    @get:Input
+    abstract val hardwareAllowlistPath: Property<String>
+
+    @get:Input
+    abstract val hardwareAcknowledgement: Property<String>
+
+    @get:Input
+    abstract val selectedAbi: Property<String>
+
+    @get:Input
+    abstract val safeTestClass: Property<String>
+
+    @get:Input
+    abstract val requestedInstrumentationArguments: MapProperty<String, String>
+
+    @get:Input
+    abstract val taskSerialOptionPresent: Property<Boolean>
+
+    @TaskAction
+    fun validateTarget() {
+        val serial = targetSerial.get().trim()
+        if (taskSerialOptionPresent.get()) {
+            throw GradleException(
+                "BLOCKED: connected-test --serial options can override ANDROID_SERIAL inside " +
+                    "AGP. Remove every --serial option and select exactly one target only " +
+                    "through ANDROID_SERIAL.",
+            )
+        }
+        if (!hardwareQualification.get()) {
+            if (!Regex("^emulator-[0-9]+$").matches(serial)) {
+                throw GradleException(
+                    "BLOCKED: connected Android tests may target only one explicitly selected " +
+                        "emulator. Set ANDROID_SERIAL=emulator-<port>. Physical, wireless, " +
+                        "missing, and unrecognised serials are refused before deployment; " +
+                        "received ${serial.ifEmpty { "<unset>" }}.",
+                )
+            }
+            logger.lifecycle("Connected-test safety: approved emulator target $serial")
+            return
+        }
+
+        if (serial.isEmpty() || Regex("^emulator-[0-9]+$").matches(serial)) {
+            throw GradleException(
+                "BLOCKED: the RP6 hardware qualification path requires one explicit " +
+                    "non-emulator ANDROID_SERIAL; received ${serial.ifEmpty { "<unset>" }}.",
+            )
+        }
+        if (selectedAbi.get() != "arm64-v8a") {
+            throw GradleException(
+                "BLOCKED: RP6 hardware qualification requires -PpocketAbi=arm64-v8a.",
+            )
+        }
+
+        val allowlist = File(hardwareAllowlistPath.get())
+        if (!allowlist.isFile) {
+            throw GradleException(
+                "BLOCKED: no local hardware serial allowlist exists at $allowlist. " +
+                    "Create it deliberately with one exact device serial per line.",
+            )
+        }
+        val allowedSerials = allowlist.readLines()
+            .map(String::trim)
+            .filter { it.isNotEmpty() && !it.startsWith("#") }
+            .toSet()
+        if (serial !in allowedSerials) {
+            throw GradleException(
+                "BLOCKED: ANDROID_SERIAL '$serial' is not an exact entry in $allowlist.",
+            )
+        }
+
+        val expectedAcknowledgement =
+            "I_ACKNOWLEDGE_CONNECTED_ANDROID_TEST_MAY_WIPE_COM_POCKETREALM_DATA_ON:$serial"
+        if (hardwareAcknowledgement.get() != expectedAcknowledgement) {
+            throw GradleException(
+                "BLOCKED: hardware instrumentation can replace/uninstall com.pocketrealm and " +
+                    "wipe its private data. Re-run only after preserving required data, with " +
+                    "-PpocketHardwareQualificationAcknowledgement=\"$expectedAcknowledgement\".",
+            )
+        }
+
+        val argumentPrefix = "android.testInstrumentationRunnerArguments."
+        val unsafeArguments = requestedInstrumentationArguments.get().filter { (key, value) ->
+            key.removePrefix(argumentPrefix) != "class" || value.trim() != safeTestClass.get()
+        }
+        if (unsafeArguments.isNotEmpty()) {
+            throw GradleException(
+                "BLOCKED: the hardware path is locked to ${safeTestClass.get()} and refuses " +
+                    "external instrumentation arguments: ${unsafeArguments.keys.sorted()}.",
+            )
+        }
+        logger.lifecycle(
+            "!!! PHYSICAL DEVICE QUALIFICATION APPROVED FOR $serial !!! " +
+                "Only ${safeTestClass.get()} is selected; com.pocketrealm data may be wiped.",
+        )
+    }
+}
 
 /**
  * Configuration-cache-safe verifier for the selected native closure.
@@ -43,9 +190,9 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
         val repoRoot = File(repoRootPath.get())
         val nativeBuildRoot = File(repoRoot, "native/.build-${nativeRootSuffix.get()}")
 
-        fun requireAbi(file: File, allowCompat32: Boolean = false) {
+        fun elfMachine(file: File): Int {
             check(file.isFile) { "Missing native artifact for $abi: $file" }
-            val machine = file.inputStream().use { input ->
+            return file.inputStream().use { input ->
                 val header = ByteArray(20)
                 check(input.read(header) == header.size &&
                     header[0] == 0x7f.toByte() && header[1] == 'E'.code.toByte() &&
@@ -57,6 +204,10 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
                 }
                 (header[18].toInt() and 0xff) or ((header[19].toInt() and 0xff) shl 8)
             }
+        }
+
+        fun requireAbi(file: File, allowCompat32: Boolean = false) {
+            val machine = elfMachine(file)
             val allowed = machine == expectedMachine.get() ||
                 (allowCompat32 && machine == compat32Machine.get())
             check(allowed) {
@@ -107,19 +258,21 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
         val required = buildList {
             add(File(nativeBuildRoot, "wine-spike-build/libwine_spike.so"))
             if (selectedLane == "full") {
+                // O23 on-device vanilla-tweaks patcher (produces WoW.exe.patched).
+                add(File(repoRoot,
+                    "native/.build-vanilla-tweaks-$abi/staging/jniLibs/$abi/libpocket_vanilla_tweaks.so"))
                 add(File(nativeBuildRoot, "pocket-runtime-build/libpocketrealm.so"))
                 add(File(nativeBuildRoot, "packaging-build/libpocketpkgtest.so"))
                 add(File(nativeBuildRoot, "packaging-build/libpocket_pkg_launcher.so"))
                 add(File(nativeBuildRoot, "wine-spike-build/libwine_trampoline.so"))
                 add(File(nativeBuildRoot, "xserver-winlator-build/libwinlator.so"))
-                add(File(nativeBuildRoot, "xserver-winlator-build/libgladiorenderer.so"))
+                // The GLX bridge is retained only for the historical x86
+                // WineD3D validation lane. ARM production is DXVK-only.
+                if (abi == "x86_64") {
+                    add(File(nativeBuildRoot, "xserver-winlator-build/libgladiorenderer.so"))
+                }
                 if (abi == "arm64-v8a") {
-                    // Source-matched AArch64 Gladio client. It is packaged as
-                    // an asset and atomically replaces Winlator's incompatible
-                    // upstream rootfs copy during provider preparation.
-                    add(File(nativeBuildRoot, "wine-staging/assets/arm-translated/libGL.so.1"))
-                    add(File(nativeBuildRoot, "wine-staging/assets/arm-translated/turnip/libvulkan_freedreno.so"))
-                    add(File(nativeBuildRoot, "wine-staging/assets/arm-translated/fexcore/gladio/libGL.so.1"))
+                    add(File(nativeBuildRoot, "xserver-winlator-build/libvortekrenderer.so"))
                 }
             }
             // The glibc access(2) shim belongs only to the x86_64 direct-Wine
@@ -155,27 +308,170 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
         // provider and its memory budget are available.
         val laneSpecific = if (selectedLane == "full") serverLibraries + extractors else emptyList()
         val armGraphicsData = if (abi == "arm64-v8a" && selectedLane == "full") listOf(
-            File(nativeBuildRoot, "wine-staging/assets/arm-translated/turnip/freedreno_icd.aarch64.json"),
+            File(nativeBuildRoot, "wine-staging/assets/arm-translated/vulkan-drivers/catalog.json"),
+            File(nativeBuildRoot, "wine-staging/assets/arm-translated/vulkan-drivers/system-vulkan-vortek-2.1/libvulkan_vortek.so"),
+            File(nativeBuildRoot, "wine-staging/assets/arm-translated/vulkan-drivers/system-vulkan-vortek-2.1/vortek_icd.aarch64.json"),
+            File(nativeBuildRoot, "wine-staging/assets/arm-translated/vulkan-drivers/turnip-26.1.0/libvulkan_freedreno.so"),
+            File(nativeBuildRoot, "wine-staging/assets/arm-translated/vulkan-drivers/turnip-26.1.0/freedreno_icd.aarch64.json"),
             File(nativeBuildRoot, "wine-staging/assets/arm-translated/renderer-packages/catalog.json"),
             File(nativeBuildRoot, "wine-staging/assets/arm-translated/renderer-packages/box64-dxvk-2.4.1/system32/d3d9.dll"),
             File(nativeBuildRoot, "wine-staging/assets/arm-translated/renderer-packages/box64-dxvk-2.4.1/syswow64/d3d9.dll"),
             File(nativeBuildRoot, "wine-staging/assets/arm-translated/renderer-packages/box64-dxvk-1.10.3/system32/d3d9.dll"),
             File(nativeBuildRoot, "wine-staging/assets/arm-translated/renderer-packages/box64-dxvk-1.10.3/syswow64/d3d9.dll"),
         ) else emptyList()
-        val fexData = if (abi == "arm64-v8a" && selectedLane == "full") listOf(
-            File(nativeBuildRoot, "wine-staging/assets/arm-translated/fexcore/BUILD_PROVENANCE.json"),
-            File(nativeBuildRoot, "wine-staging/assets/arm-translated/fexcore/fexcore-runtime.tar.zst"),
-            File(nativeBuildRoot, "wine-staging/jniLibs/libpocket_zstd_exec.so"),
-            File(nativeBuildRoot, "wine-staging/jniLibs/libpocket_zstd.so"),
+        val armRuntimeData = if (abi == "arm64-v8a" && selectedLane == "full") listOf(
+            File(nativeBuildRoot, "wine-staging/assets/arm-translated-wine/rootfs.tzst"),
+            File(nativeBuildRoot, "wine-staging/assets/arm-translated-wine/rootfs_patches.tzst"),
+            File(nativeBuildRoot, "wine-staging/assets/arm-translated-wine/container_pattern.tzst"),
         ) else emptyList()
-        val missing = (required + laneSpecific + armGraphicsData + fexData).filterNot { it.isFile }
+        val missing = (required + laneSpecific + armGraphicsData + armRuntimeData).filterNot { it.isFile }
         check(missing.isEmpty()) {
             "Incomplete native closure for $abi. Build every selected-ABI provider; missing: " +
                 missing.joinToString()
         }
         required.forEach { requireAbi(it) }
+        if (selectedLane == "full") {
+            val patcher = File(repoRoot,
+                "native/.build-vanilla-tweaks-$abi/staging/jniLibs/$abi/libpocket_vanilla_tweaks.so")
+            val lock = File(repoRoot, if (abi == "x86_64") {
+                "schemas/vanilla-tweaks-lockfile.json"
+            } else {
+                "schemas/vanilla-tweaks-lockfile-$abi.json"
+            })
+            check(lock.isFile) { "Missing vanilla-tweaks lockfile for $abi" }
+            val record = JsonSlurper().parse(lock) as Map<*, *>
+            check((record["schema"] as Number).toInt() == 1 && record["abi"] == abi) {
+                "vanilla-tweaks lockfile identity mismatch for $abi"
+            }
+            val artifacts = record["artifacts"] as List<*>
+            check(artifacts.size == 1) { "vanilla-tweaks lockfile must contain exactly one artifact" }
+            val artifact = artifacts.single() as Map<*, *>
+            check((artifact["size"] as Number).toLong() == patcher.length() &&
+                artifact["sha256"] == sha256(patcher)) {
+                "vanilla-tweaks artifact differs from its pinned size/SHA-256"
+            }
+        }
         if (abi == "arm64-v8a" && selectedLane == "full") {
-            val rendererCatalog = JsonSlurper().parse(armGraphicsData[1]) as Map<*, *>
+            val rootfsArchive = armRuntimeData[0]
+            check(rootfsArchive.length() == 65_251_198L &&
+                sha256(rootfsArchive) ==
+                    "8b5110f248e84f2aee4df37dab8bac4c4bf2bdc7b400c0643a0778ca8e7e40c2") {
+                "Box64 rootfs archive differs from the audio/config-qualified provider"
+            }
+            val rootfsPatches = armRuntimeData[1]
+            check(rootfsPatches.length() == 4_173_700L &&
+                sha256(rootfsPatches) ==
+                    "44b73e37587ea827a12a34753632feb6e2a9c127089e342774167dd91aba8210") {
+                "Box64 rootfs patch archive differs from its pinned provider"
+            }
+            val containerPattern = armRuntimeData[2]
+            check(containerPattern.length() == 7_399_363L &&
+                sha256(containerPattern) ==
+                    "8ae3a4fee33e86da26826395650bb07c6f49ce94629ea4b9442bc633b6b8ca33") {
+                "Box64 Wine prefix template differs from its pinned provider"
+            }
+            val driverCatalogFile = File(nativeBuildRoot,
+                "wine-staging/assets/arm-translated/vulkan-drivers/catalog.json")
+            val driverCatalog = JsonSlurper().parse(driverCatalogFile) as Map<*, *>
+            check((driverCatalog["schema"] as Number).toInt() == 2 &&
+                driverCatalog["default"] == "system-vulkan-vortek-2.1" &&
+                driverCatalog["selection_policy"] == "exact-request-fail-closed") {
+                "Unsupported Vulkan driver catalog schema/default"
+            }
+            val driverRecords = (driverCatalog["drivers"] as List<*>)
+                .map { it as Map<*, *> }
+            val expectedDriverIds = setOf("system-vulkan-vortek-2.1", "turnip-26.1.0")
+            check(driverRecords.size == expectedDriverIds.size &&
+                driverRecords.map { it["id"] as String }.toSet() == expectedDriverIds) {
+                "Vulkan driver catalog is not the closed expected set"
+            }
+            val driverRecordsById = driverRecords.associateBy { it["id"] as String }
+            val systemRelease = driverRecordsById.getValue("system-vulkan-vortek-2.1")["release"]
+                as Map<*, *>
+            val systemFloors = systemRelease["minimum_vulkan_by_renderer"] as Map<*, *>
+            val systemExtensions = (systemRelease["required_device_extensions"] as List<*>)
+                .map { it as String }.toSet()
+            val requiredSystemExtensions = setOf(
+                "VK_KHR_swapchain",
+                "VK_ANDROID_external_memory_android_hardware_buffer",
+                "VK_KHR_external_memory",
+                "VK_KHR_external_memory_fd",
+                "VK_KHR_external_semaphore",
+                "VK_KHR_external_semaphore_fd",
+                "VK_KHR_external_fence",
+                "VK_KHR_external_fence_fd",
+            )
+            check(systemRelease["enabled"] == true && systemRelease["default"] == true &&
+                systemRelease["request_handle_authority_complete"] == true &&
+                systemFloors == mapOf(
+                    "box64-dxvk-2.4.1" to "1.3",
+                    "box64-dxvk-1.10.3" to "1.1",
+                ) && systemExtensions == requiredSystemExtensions &&
+                systemRelease["requires_native_texture_compression_bc"] == true) {
+                "System/Vortek must declare the exact hardened capability gate"
+            }
+            val turnipRelease = driverRecordsById.getValue("turnip-26.1.0")["release"]
+                as Map<*, *>
+            check(turnipRelease["enabled"] == true && turnipRelease["default"] == false &&
+                turnipRelease["qualified_device_models"] == listOf("Retroid Pocket 6")) {
+                "exact RP6 Turnip must remain an explicit qualified option"
+            }
+            val expectedDriverFiles = mapOf(
+                "arm-translated/vulkan-drivers/system-vulkan-vortek-2.1/libvulkan_vortek.so" to
+                    Pair(422_624L,
+                        "894665b2df007b3dafcf987a56ddd0e67475ab6d7ef91224c395fffda3301c25"),
+                "arm-translated/vulkan-drivers/system-vulkan-vortek-2.1/vortek_icd.aarch64.json" to
+                    Pair(192L,
+                        "9e80133ca51ef57dac0cdc29ff8614d1fdffc5335fcf4e8ce38066da43f3c262"),
+                "arm-translated/vulkan-drivers/turnip-26.1.0/libvulkan_freedreno.so" to
+                    Pair(16_101_536L,
+                        "f4d09b00d5d7e463f1af76a9974bdd4f2d8298951de9ae2bfc7678a3631e7ab0"),
+                "arm-translated/vulkan-drivers/turnip-26.1.0/freedreno_icd.aarch64.json" to
+                    Pair(195L,
+                        "8ab797c2c31441271acee4b2423106683eb9e500de6e168ceb035f02c30aeb92"),
+            )
+            val driverFiles = driverRecords
+                .flatMap { (it["files"] as List<*>).map { file -> file as Map<*, *> } }
+                .associateBy { it["asset"] as String }
+            check(driverFiles.keys == expectedDriverFiles.keys) {
+                "Vulkan driver file catalog changed: ${driverFiles.keys}"
+            }
+            val assetRoot = File(nativeBuildRoot, "wine-staging/assets")
+            expectedDriverFiles.forEach { (assetPath, expected) ->
+                val record = checkNotNull(driverFiles[assetPath])
+                val file = File(assetRoot, assetPath)
+                check((record["size"] as Number).toLong() == expected.first &&
+                    file.length() == expected.first && record["sha256"] == expected.second &&
+                    sha256(file) == expected.second) {
+                    "Vulkan driver asset identity mismatch: $assetPath"
+                }
+                if (file.name.endsWith(".so")) {
+                    check((record["elf_machine"] as Number).toInt() == 0xB7) {
+                        "Vulkan driver catalog ELF machine mismatch: $assetPath"
+                    }
+                    requireAbi(file)
+                }
+            }
+            val vortekIcd = JsonSlurper().parse(
+                File(assetRoot,
+                    "arm-translated/vulkan-drivers/system-vulkan-vortek-2.1/vortek_icd.aarch64.json"),
+            ) as Map<*, *>
+            val vortekIcdBlock = vortekIcd["ICD"] as Map<*, *>
+            check(vortekIcd["file_format_version"] == "1.0.1" &&
+                vortekIcdBlock["api_version"] == "1.3.128" &&
+                vortekIcdBlock["library_arch"] == "64" &&
+                vortekIcdBlock["library_path"] ==
+                    "/data/data/com.pocketrealm/files/rfs/lib/libvulkan_vortek.so" &&
+                systemFloors.values.all { floor ->
+                    val parts = (floor as String).split('.').map(String::toInt)
+                    parts[0] < 1 || (parts[0] == 1 && parts[1] <= 3)
+                }) {
+                "Vortek ICD maximum must equal bridge 1.3.128 and cover every renderer floor"
+            }
+
+            val rendererCatalogFile = File(nativeBuildRoot,
+                "wine-staging/assets/arm-translated/renderer-packages/catalog.json")
+            val rendererCatalog = JsonSlurper().parse(rendererCatalogFile) as Map<*, *>
             check((rendererCatalog["schema"] as Number).toInt() == 1) {
                 "Unsupported renderer package catalog schema"
             }
@@ -185,7 +481,6 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
             val expectedRendererIds = setOf(
                 "box64-dxvk-2.4.1",
                 "box64-dxvk-1.10.3",
-                "fex-dxvk-2.3.1-arm64ec",
             )
             check(rendererRecords.size == expectedRendererIds.size &&
                 rendererIds == expectedRendererIds) {
@@ -194,9 +489,8 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
             check(rendererRecords.all { it["backend"] == "dxvk" }) {
                 "Renderer package catalog contains a non-DXVK package"
             }
-            val fexRecord = rendererRecords.single { it["id"] == "fex-dxvk-2.3.1-arm64ec" }
-            check(fexRecord["translator"] == "fex" && (fexRecord["files"] as List<*>).isEmpty()) {
-                "FEX renderer identity must remain inside its pinned runtime component"
+            check(rendererRecords.all { it["translator"] == "box64" }) {
+                "Renderer package catalog contains a removed translator"
             }
             val expectedFiles = mapOf(
                 "arm-translated/renderer-packages/box64-dxvk-2.4.1/system32/d3d9.dll" to
@@ -213,13 +507,11 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
                         "b6cfa2cd62af73b80d461085d126004b0e22dd3944c9246c58e3a68e747b56b6", 0x014c),
             )
             val catalogFiles = rendererRecords
-                .filter { it["translator"] == "box64" }
                 .flatMap { (it["files"] as List<*>).map { file -> file as Map<*, *> } }
                 .associateBy { it["asset"] as String }
             check(catalogFiles.keys == expectedFiles.keys) {
                 "Renderer package file catalog changed: ${catalogFiles.keys}"
             }
-            val assetRoot = File(nativeBuildRoot, "wine-staging/assets")
             expectedFiles.forEach { (assetPath, expected) ->
                 val record = checkNotNull(catalogFiles[assetPath])
                 val file = File(assetRoot, assetPath)
@@ -270,6 +562,20 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
+
+// There is intentionally no generic "allow physical devices" switch. The
+// only physical path is this exact, loudly named root task, and it selects one
+// non-destructive qualification class instead of the general instrumentation
+// suite. Abbreviations and indirect dependencies do not activate the path.
+val rp6HardwareQualificationTaskName = "rp6HardwareQualificationAndroidTest"
+val rp6HardwareQualificationTestClass =
+    "com.pocketrealm.client.ClientActivityManifestTest"
+val rp6HardwareQualificationRequested = gradle.startParameter.taskNames.any { requested ->
+    requested.substringAfterLast(':') == rp6HardwareQualificationTaskName
+}
+val connectedTestSerialOptionPresent = gradle.startParameter.taskRequests
+    .flatMap { request -> request.args }
+    .any { argument -> argument == "--serial" || argument.startsWith("--serial=") }
 
 // Every APK build is a single-ABI build. Requiring the property avoids an
 // accidental universal APK and keeps x86_64/ARM64 native outputs disjoint.
@@ -341,6 +647,10 @@ android {
         buildConfigField(
             "boolean", "ENABLE_CLIENT_DATA_PREPARATION", (pocketLane == "full").toString(),
         )
+        if (rp6HardwareQualificationRequested) {
+            testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+            testInstrumentationRunnerArguments["class"] = rp6HardwareQualificationTestClass
+        }
 
         // Qualification APKs are always explicit, single-ABI artifacts.
         ndk {
@@ -349,12 +659,10 @@ android {
     }
 
     // PKG-01 (report §8.4) requires executing an APK-packaged PIE launcher from
-    // nativeLibraryDir. That only happens reliably when AGP *extracts* native
-    // libs to disk with the executable bit, i.e. useLegacyPackaging=true. The
-    // "pkgExperiment" build type is that experiment variant; the standard
-    // "debug"/"release" types keep useLegacyPackaging=false (production: .so
-    // stored uncompressed/page-aligned in the APK, may have no fs exec path).
-    // PKG-02/PKG-06 run against the production packaging variant.
+    // nativeLibraryDir. PKG-01 proved that AGP must extract native libraries to
+    // disk with executable permissions. The historical pkgExperiment build
+    // type remains for regression qualification; every product build type now
+    // uses the same proven extraction policy below.
     buildTypes {
         getByName("debug") {
             // production packaging model
@@ -368,15 +676,12 @@ android {
         }
         create("pkgExperiment") {
             initWith(getByName("debug"))
-            // Experiment variant: force extraction so the launcher has an
-            // executable filesystem path in nativeLibraryDir.
+            // Historical packaging qualification variant.
             isJniDebuggable = true
         }
         create("clientRuntime") {
             initWith(getByName("debug"))
-            // O06's qualified x86DirectWine product lane. Unlike the O05
-            // control variants, Wine must execute APK-managed ELFs from
-            // nativeLibraryDir; extraction is selected below per-variant.
+            // O06's qualified x86DirectWine product lane.
             isJniDebuggable = true
         }
         create("databaseRuntime") {
@@ -393,13 +698,13 @@ android {
         }
     }
 
-    // Per-variant jniLibs packaging model. O05 documents the observed behavior
-    // of each lane; the production variants (debug/release) intentionally do
-    // NOT require an executable fs path. The pkgExperiment variant overrides
-    // this to true via androidComponents below.
+    // APK-managed PIE executables must be real, executable files beneath
+    // nativeLibraryDir. A global policy is the smallest sound rule because the
+    // selected full/database lane is configured before variants are created and
+    // all of its build types package the same executable native closure.
     packaging {
         jniLibs {
-            useLegacyPackaging = false
+            useLegacyPackaging = true
             // Runtime providers are pinned and verified as complete ELF
             // artifacts. AGP's strip transform changes their bytes after the
             // lockfile gate (and can alter loader behavior), so preserve every
@@ -422,6 +727,12 @@ android {
             // guest-code cache source). Generated by tools/stage_wine_runtime.py
             // into native/.build-<selected-target>/wine-staging/assets/.
             assets.srcDir("../../native/.build-$pocketNativeRootSuffix/wine-staging/assets")
+            if (pocketLane == "full") {
+                // The normal debug/release product starts the database too;
+                // its bootstrap, provider manifest, and migrations therefore
+                // belong to the full source set, not only qualification types.
+                assets.srcDir("../../native/.build-$pocketNativeRootSuffix/mariadb-staging/assets")
+            }
             // O06 S-3: Winlator X-server (vendored at ca3d735; trimmed/stubbed).
             // See docs/patches/wine-provider-provenance.md for the trim list.
             java.srcDir("../../runtime/xserver-winlator")
@@ -466,6 +777,71 @@ android {
     }
 }
 
+val validateEmulatorConnectedTestTarget =
+    tasks.register<ValidateConnectedAndroidTestTargetTask>(
+        "validateEmulatorConnectedTestTarget",
+    ) {
+        group = "verification"
+        description = "Fail closed unless ANDROID_SERIAL names one emulator target."
+        targetSerial.set(providers.environmentVariable("ANDROID_SERIAL").orElse(""))
+        hardwareQualification.set(false)
+        hardwareAllowlistPath.set("")
+        hardwareAcknowledgement.set("")
+        selectedAbi.set(pocketAbi)
+        safeTestClass.set(rp6HardwareQualificationTestClass)
+        requestedInstrumentationArguments.set(emptyMap())
+        taskSerialOptionPresent.set(connectedTestSerialOptionPresent)
+    }
+
+val validateRp6HardwareQualificationTarget =
+    tasks.register<ValidateConnectedAndroidTestTargetTask>(
+        "validateRp6HardwareQualificationTarget",
+    ) {
+        group = "verification"
+        description = "Require an allowlisted serial and destructive-device acknowledgement."
+        targetSerial.set(providers.environmentVariable("ANDROID_SERIAL").orElse(""))
+        hardwareQualification.set(true)
+        hardwareAllowlistPath.set(
+            File(
+                gradle.gradleUserHomeDir,
+                "pocket-realm-hardware-qualification-serials.txt",
+            ).absolutePath,
+        )
+        hardwareAcknowledgement.set(
+            providers.gradleProperty("pocketHardwareQualificationAcknowledgement").orElse(""),
+        )
+        selectedAbi.set(pocketAbi)
+        safeTestClass.set(rp6HardwareQualificationTestClass)
+        requestedInstrumentationArguments.set(
+            providers.gradlePropertiesPrefixedBy("android.testInstrumentationRunnerArguments."),
+        )
+        taskSerialOptionPresent.set(connectedTestSerialOptionPresent)
+    }
+
+// AGP performs device discovery, installation and cleanup inside its connected
+// task action. This dependency therefore runs first, and a rejected target is
+// never handed to AGP. The physical gate is reachable only when the exact RP6
+// wrapper task was a root request; flags cannot unlock an ordinary connected
+// task.
+tasks.matching {
+    it.name.startsWith("connected") && it.name.endsWith("AndroidTest")
+}.configureEach {
+    dependsOn(
+        if (rp6HardwareQualificationRequested) {
+            validateRp6HardwareQualificationTarget
+        } else {
+            validateEmulatorConnectedTestTarget
+        },
+    )
+}
+
+tasks.register(rp6HardwareQualificationTaskName) {
+    group = "verification"
+    description =
+        "DANGER: run only the narrow RP6 manifest/input qualification on an allowlisted device."
+    dependsOn("connectedDebugAndroidTest")
+}
+
 // Resolve the NDK via the same ndk-link junction build_native.py creates, then
 // fall back to a discovered ndk/<version> dir. Used only to locate
 // libc++_shared.so for the staged closure.
@@ -496,9 +872,49 @@ val stageRendererPackages = if (pocketAbi == "arm64-v8a" && pocketLane == "full"
             File(repoRoot, "native/.providers-extracted/winlator-app-ca3d735/app/src/main/assets/dxwrapper/dxvk-2.4.1.tzst"),
             File(repoRoot, "native/.providers-extracted/winlator-app-ca3d735/app/src/main/assets/dxwrapper/dxvk-1.10.3.tzst"),
             File(repoRoot, "native/.providers-extracted/winlator-app-ca3d735/app/src/main/assets/graphics_driver/turnip-26.1.0.tzst"),
+            File(repoRoot, "native/.providers-extracted/winlator-app-ca3d735/app/src/main/assets/graphics_driver/vortek-2.1.tzst"),
         )
         outputs.dir(File(repoRoot,
             "native/.build-arm64/wine-staging/assets/arm-translated/renderer-packages"))
+        outputs.dir(File(repoRoot,
+            "native/.build-arm64/wine-staging/assets/arm-translated/vulkan-drivers"))
+    }
+} else null
+
+val removeRetiredArmClientAssets = if (pocketAbi == "arm64-v8a" && pocketLane == "full") {
+    tasks.register("removeRetiredArmClientAssets") {
+        group = "pocket realm"
+        description = "Remove retired ARM FEX/OpenGL provider assets before APK merge."
+        val repoRoot = layout.projectDirectory.dir("../..").asFile
+        doLast {
+            val nativeRoot = File(repoRoot, "native").canonicalFile
+            val stagingRoot = File(repoRoot, "native/.build-arm64/wine-staging").canonicalFile
+            val retired = listOf(
+                File(stagingRoot, "assets/arm-translated/fexcore"),
+                File(stagingRoot, "assets/arm-translated/libGL.so.1"),
+                File(stagingRoot, "assets/arm-translated/turnip"),
+                File(stagingRoot, "assets/arm-translated/dxvk"),
+                File(stagingRoot, "jniLibs/libpocket_zstd.so"),
+                File(stagingRoot, "jniLibs/libpocket_zstd_exec.so"),
+                File(nativeRoot, ".providers-extracted/fexcore-arm64ec"),
+                File(nativeRoot, ".fex-inspect"),
+                File(nativeRoot, ".obsolete-standalone-fex"),
+                File(nativeRoot, ".build-arm64/gladio-client"),
+                File(nativeRoot, ".build-arm64-bionic/gladio-client"),
+            )
+            retired.forEach { target ->
+                check(target.canonicalFile.toPath().startsWith(nativeRoot.toPath())) {
+                    "Refusing to remove an asset outside the native workspace: $target"
+                }
+                if (target.exists()) check(target.deleteRecursively()) {
+                    "Retired ARM provider asset could not be removed: $target"
+                }
+            }
+            check(!File(stagingRoot, "assets/arm-translated/turnip").exists() &&
+                !File(stagingRoot, "assets/arm-translated/dxvk").exists()) {
+                "retired ARM graphics assets remain outside the closed catalogs"
+            }
+        }
     }
 } else null
 
@@ -515,11 +931,17 @@ val validateSelectedNativeClosure = tasks.register<ValidateSelectedNativeClosure
     compat32Machine.set(pocketCompat32ElfMachine)
     lane.set(pocketLane)
     stageRendererPackages?.let { dependsOn(it) }
+    removeRetiredArmClientAssets?.let { dependsOn(it) }
 }
 
 stageRendererPackages?.let {
     tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }
         .configureEach { dependsOn(validateSelectedNativeClosure) }
+    // Lint models read the generated main asset source directly, before merge
+    // tasks. Give every lint/model/vital task the same producer + closure gate
+    // so clean release/configuration-cache builds never observe missing assets.
+    tasks.matching { task -> task.name.contains("lint", ignoreCase = true) }
+        .configureEach { dependsOn(it, validateSelectedNativeClosure) }
 }
 
 // Stages the complete native dependency closure into an ABI-isolated build root.
@@ -543,6 +965,7 @@ val stageNativeLibs by tasks.registering(Sync::class) {
     val mariadbStage = File(nativeBuildRoot, "mariadb-staging/jniLibs/$pocketAbi")
     val realmStage = File(repoRoot, "native/.build-o09-$pocketAbi/realm-staging/jniLibs/$pocketAbi")
     val extractorStage = File(repoRoot, "native/.build-o11-$pocketAbi/extractor-staging/jniLibs/$pocketAbi")
+    val vanillaTweaksStage = File(repoRoot, "native/.build-vanilla-tweaks-$pocketAbi/staging/jniLibs/$pocketAbi")
     val stagedDirName = if (pocketLane == "full") "staged-jniLibs-$pocketAbi" else "staged-jniLibs-$pocketAbi-$pocketLane"
     val stagedLib = layout.buildDirectory.dir("$stagedDirName/$pocketAbi")
     dependsOn(validateSelectedNativeClosure)
@@ -591,9 +1014,12 @@ val stageNativeLibs by tasks.registering(Sync::class) {
     // (com.winlator.xconnector.* + com.winlator.xserver.Drawable), so it is a
     // drop-in for System.loadLibrary("winlator").
     from(File(xserverBuild, "libwinlator.so"))
-    // O07: source-matched Winlator GLX/OpenGL bridge. WineD3D needs this
-    // extension to render the imported 1.12.1 client; GDI-only O06 did not.
-    from(File(xserverBuild, "libgladiorenderer.so"))
+    // O07 GLX is retained solely for the x86 WineD3D validation lane.
+    if (pocketAbi == "x86_64") {
+        from(File(xserverBuild, "libgladiorenderer.so"))
+    } else if (pocketAbi == "arm64-v8a") {
+        from(File(xserverBuild, "libvortekrenderer.so"))
+    }
     }
     // libc++_shared.so — the realm facade links ANDROID_STL=c++_shared, so its
     // runtime closure needs the shared C++ runtime. Sourced from the NDK, never
@@ -607,7 +1033,11 @@ val stageNativeLibs by tasks.registering(Sync::class) {
     // X11/font libs, Wine binaries + 36 unix .so modules). These run in the
     // SEPARATE Linux/glibc namespace (execve'd via the APK-managed loader).
     // Generated by tools/stage_wine_runtime.py.
-    from(wineStaging)
+    from(wineStaging) {
+        if (pocketAbi == "arm64-v8a") {
+            exclude("libpocket_zstd.so", "libpocket_zstd_exec.so")
+        }
+    }
     // Direct-glibc fallback: Wine's installed second-stage loader resolves
     // ntdll.so beside /proc/self/exe before WINEDLLPATH is initialized. Keep a
     // source-named APK-managed alias alongside the collision-safe staged name.
@@ -629,6 +1059,10 @@ val stageNativeLibs by tasks.registering(Sync::class) {
         // invoked only by the isolated import worker after managed-copy
         // publication in the full runtime lane.
         from(extractorStage)
+    }
+    if (pocketLane == "full") {
+        // O23: on-device vanilla-tweaks patcher belongs only to the client/full lane.
+        from(vanillaTweaksStage)
     }
 }
 
@@ -748,19 +1182,31 @@ val validateRealmRuntime by tasks.registering {
     }
 }
 
-// Make every APK-producing variant depend on staging the native closure, and
-// force the pkgExperiment variant to extract .so to disk with +x so the PKG-01
-// launcher has an executable filesystem path in nativeLibraryDir.
+// Make every APK-producing variant depend on staging the native closure and
+// validate the actual merged manifest consumed by packaging. The staging task
+// retains its ABI/size/SHA-256 closure gates; extraction changes APK layout,
+// not the pinned provider bytes.
 androidComponents {
     onVariants { variant ->
         val cap = variant.name.replaceFirstChar { c -> c.uppercase() }
+        val validateExtractedPackaging = tasks.register<ValidateExtractedNativePackagingTask>(
+            "validate${cap}ExtractedNativePackaging",
+        ) {
+            group = "verification"
+            description = "Require extracted executable JNI packaging for ${variant.name}."
+            mergedManifest.set(variant.artifacts.get(SingleArtifact.MERGED_MANIFEST))
+        }
         tasks.matching { it.name == "merge${cap}JniLibFolders" }
             .configureEach { dependsOn(stageNativeLibs) }
+        tasks.matching { it.name == "package${cap}" || it.name == "assemble${cap}" }
+            .configureEach { dependsOn(validateExtractedPackaging) }
         tasks.matching { it.name.startsWith("assemble") && it.name.endsWith(cap) }
             .configureEach { dependsOn(stageNativeLibs) }
-        if (variant.name == "pkgExperiment" || variant.name == "clientRuntime" ||
-            variant.name == "databaseRuntime" || variant.name == "realmRuntime") {
-            variant.packaging.jniLibs.useLegacyPackaging.set(true)
+        if (pocketLane == "full") {
+            tasks.matching { it.name == "merge${cap}JniLibFolders" ||
+                it.name == "merge${cap}Assets" || it.name == "package${cap}" ||
+                it.name == "assemble${cap}" }
+                .configureEach { dependsOn(validateDatabaseRuntime) }
         }
         if (variant.name == "databaseRuntime") {
             tasks.matching { it.name == "merge${cap}JniLibFolders" ||
@@ -798,6 +1244,9 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
     implementation(libs.commons.compress)
+    // Android must consume the AAR classifier: the plain JVM JAR contains
+    // desktop resources and omits the APK jni/arm64-v8a library.
+    implementation("com.github.luben:zstd-jni:${libs.versions.zstdJni.get()}@aar")
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 

@@ -4,14 +4,323 @@ import android.content.Context
 import android.os.Build
 import android.os.SystemClock
 import com.pocketrealm.addons.AddonRuntimeProjector
+import com.pocketrealm.log.AppLog
+import com.pocketrealm.supervisor.RealmEndpoint
 import com.pocketrealm.wine.WineSpikeNative
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.channels.FileChannel
+import java.nio.channels.FileLock
+import java.nio.channels.OverlappingFileLockException
+import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.LinkOption
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+
+internal data class EffectiveClientTweaks(
+    val config: ClientTweaksConfig,
+    val fallback: Boolean,
+)
+
+/** Resolve byte-addressed tweaks only after hashing the leased pristine executable. */
+internal fun resolveEffectiveClientTweaks(
+    requested: ClientTweaksConfig,
+    pristineSha256: String,
+): EffectiveClientTweaks {
+    val effective = requested.effectiveForExecutable(pristineSha256)
+    return EffectiveClientTweaks(effective, fallback = effective != requested)
+}
+
+/** Exact immutable identity of one physical ARM Wine prefix/cache generation. */
+internal data class ArmGraphicsGenerationIdentity(
+    val runtimeBuildId: String,
+    val rendererBuildId: String,
+    val prefixSchema: Int,
+    val translatorId: String,
+    val rendererId: String,
+    val managedClientId: String,
+    val managedClientGeneration: String,
+    val managedClientManifestSha256: String,
+    val managedClientExecutableSha256: String,
+    val rendererPackageId: String,
+    val rendererPackageBuildId: String,
+    val rendererPackageDxvkVersion: String,
+    val rendererPackageSystem32Sha256: String,
+    val rendererPackageSyswow64Sha256: String,
+    val vulkanDriverId: String,
+    val vulkanDriverBuildId: String,
+    val vulkanDriverLibrarySha256: String,
+    val vulkanDriverIcdSha256: String,
+) {
+    init {
+        require(prefixSchema > 0)
+        require(values().all { it.isNotBlank() })
+        require(listOf(
+            managedClientManifestSha256,
+            managedClientExecutableSha256,
+            rendererPackageSystem32Sha256,
+            rendererPackageSyswow64Sha256,
+            vulkanDriverLibrarySha256,
+            vulkanDriverIcdSha256,
+        ).all { SHA256.matches(it) })
+    }
+
+    /** Short physical name; the full collision-resistant tuple is attested in the manifest. */
+    val generationName: String by lazy {
+        val canonical = values().joinToString(separator = "") { "${it.length}:$it" }
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(canonical.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        "g-${digest.take(32)}"
+    }
+
+    fun toJson(): JSONObject = JSONObject()
+        .put("runtime_build_id", runtimeBuildId)
+        .put("renderer_build_id", rendererBuildId)
+        .put("prefix_schema", prefixSchema)
+        .put("translator", translatorId)
+        .put("renderer", rendererId)
+        .put("managed_client_id", managedClientId)
+        .put("managed_client_generation", managedClientGeneration)
+        .put("managed_client_manifest_sha256", managedClientManifestSha256)
+        .put("managed_client_executable_sha256", managedClientExecutableSha256)
+        .put("renderer_package_id", rendererPackageId)
+        .put("renderer_package_build_id", rendererPackageBuildId)
+        .put("renderer_package_dxvk_version", rendererPackageDxvkVersion)
+        .put("renderer_package_system32_sha256", rendererPackageSystem32Sha256)
+        .put("renderer_package_syswow64_sha256", rendererPackageSyswow64Sha256)
+        .put("vulkan_driver_id", vulkanDriverId)
+        .put("vulkan_driver_build_id", vulkanDriverBuildId)
+        .put("vulkan_driver_library_sha256", vulkanDriverLibrarySha256)
+        .put("vulkan_driver_icd_sha256", vulkanDriverIcdSha256)
+
+    fun matchesManifest(manifest: JSONObject): Boolean = runCatching {
+        val actual = manifest.getJSONObject("compatibility")
+        val stringFields = listOf(
+            "runtime_build_id" to runtimeBuildId,
+            "renderer_build_id" to rendererBuildId,
+            "translator" to translatorId,
+            "renderer" to rendererId,
+            "managed_client_id" to managedClientId,
+            "managed_client_generation" to managedClientGeneration,
+            "managed_client_manifest_sha256" to managedClientManifestSha256,
+            "managed_client_executable_sha256" to managedClientExecutableSha256,
+            "renderer_package_id" to rendererPackageId,
+            "renderer_package_build_id" to rendererPackageBuildId,
+            "renderer_package_dxvk_version" to rendererPackageDxvkVersion,
+            "renderer_package_system32_sha256" to rendererPackageSystem32Sha256,
+            "renderer_package_syswow64_sha256" to rendererPackageSyswow64Sha256,
+            "vulkan_driver_id" to vulkanDriverId,
+            "vulkan_driver_build_id" to vulkanDriverBuildId,
+            "vulkan_driver_library_sha256" to vulkanDriverLibrarySha256,
+            "vulkan_driver_icd_sha256" to vulkanDriverIcdSha256,
+        )
+        val schema = actual.opt("prefix_schema")
+        actual.length() == stringFields.size + 1 &&
+            schema is Int && schema == prefixSchema &&
+            stringFields.all { (key, expected) ->
+                val value = actual.opt(key)
+                value is String && value == expected
+            }
+    }.getOrDefault(false)
+
+    private fun values(): List<String> = listOf(
+        runtimeBuildId,
+        rendererBuildId,
+        prefixSchema.toString(),
+        translatorId,
+        rendererId,
+        managedClientId,
+        managedClientGeneration,
+        managedClientManifestSha256,
+        managedClientExecutableSha256,
+        rendererPackageId,
+        rendererPackageBuildId,
+        rendererPackageDxvkVersion,
+        rendererPackageSystem32Sha256,
+        rendererPackageSyswow64Sha256,
+        vulkanDriverId,
+        vulkanDriverBuildId,
+        vulkanDriverLibrarySha256,
+        vulkanDriverIcdSha256,
+    )
+
+    companion object {
+        private val SHA256 = Regex("[0-9a-f]{64}")
+    }
+}
+
+/** Cross-process lease that prevents pruning a prepared or running ARM generation. */
+internal class ArmGraphicsGenerationLease private constructor(
+    private val file: RandomAccessFile,
+    private val channel: FileChannel,
+    private val lock: FileLock,
+    val generationRoot: File,
+) : AutoCloseable {
+    private val closed = AtomicBoolean(false)
+    val isHeld: Boolean get() = !closed.get() && lock.isValid
+
+    override fun close() {
+        if (!closed.compareAndSet(false, true)) return
+        runCatching { lock.release() }
+        runCatching { channel.close() }
+        runCatching { file.close() }
+    }
+
+    companion object {
+        const val FILE_NAME = ".generation.lease"
+        private const val PARENT_LOCK_FILE_NAME = ".generation-index.lock"
+        private const val ACQUIRE_RETRY_MS = 25L
+        private val GENERATION_NAME = Regex("g-[0-9a-f]{32}")
+        private val parentMonitors = ConcurrentHashMap<String, Any>()
+
+        /**
+         * Acquire only the lease file currently reachable through generationRoot.
+         * A miss closes its descriptor before dropping the stable parent lock;
+         * it never waits on an inode that pruning could rename out from under it.
+         */
+        fun acquire(generationRoot: File): ArmGraphicsGenerationLease {
+            while (true) {
+                val acquired = withParentLock(generationRoot) { current ->
+                    ensureCurrentGenerationRoot(current)
+                    tryOpenCurrentLease(current)
+                }
+                if (acquired != null) return acquired
+                Thread.sleep(ACQUIRE_RETRY_MS)
+            }
+        }
+
+        fun tryAcquire(generationRoot: File): ArmGraphicsGenerationLease? =
+            withParentLock(generationRoot) { current ->
+                if (!isPlainCurrentGenerationRoot(current)) null else tryOpenCurrentLease(current)
+            }
+
+        /** Atomically prove inactivity and retire the exact currently named directory. */
+        fun retireIfInactive(generationRoot: File, retiredTarget: File): Boolean =
+            withParentLock(generationRoot) { current ->
+                if (!isPlainCurrentGenerationRoot(current)) return@withParentLock false
+                val target = retiredTarget.absoluteFile
+                val requestedTargetParent = checkNotNull(target.parentFile)
+                val targetParent = requestedTargetParent.canonicalFile
+                check(Files.isDirectory(requestedTargetParent.toPath(), LinkOption.NOFOLLOW_LINKS) &&
+                    !Files.isSymbolicLink(requestedTargetParent.toPath())) {
+                    "retired ARM graphics root is absent or unsafe"
+                }
+                check(requestedTargetParent.canonicalFile == targetParent &&
+                    !Files.exists(target.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+                    "retired ARM graphics target is unsafe or already exists"
+                }
+                val lease = tryOpenCurrentLease(current) ?: return@withParentLock false
+                // Keep the stable parent lock while releasing the per-generation
+                // descriptor and renaming. A waiter cannot open either the old
+                // inode or a newly recreated current path during this interval.
+                lease.close()
+                check(isPlainCurrentGenerationRoot(current)) {
+                    "ARM graphics generation changed before retirement"
+                }
+                Files.move(current.toPath(), target.toPath())
+                true
+            }
+
+        private fun tryOpenCurrentLease(current: File): ArmGraphicsGenerationLease? {
+            check(isPlainCurrentGenerationRoot(current)) {
+                "ARM graphics generation root is absent or unsafe"
+            }
+            val leaseFile = File(current, FILE_NAME)
+            if (!leaseFile.exists()) check(leaseFile.createNewFile()) {
+                "ARM graphics generation lease file could not be created"
+            }
+            val expectedLease = File(current.canonicalFile, FILE_NAME)
+            check(leaseFile.isFile && !Files.isSymbolicLink(leaseFile.toPath()) &&
+                leaseFile.canonicalFile == expectedLease.canonicalFile) {
+                "ARM graphics generation lease file is unsafe"
+            }
+            val file = RandomAccessFile(leaseFile, "rw")
+            try {
+                val channel = file.channel
+                val lock = try {
+                    channel.tryLock()
+                } catch (_: OverlappingFileLockException) {
+                    null
+                }
+                if (lock == null) {
+                    channel.close()
+                    file.close()
+                    return null
+                }
+                check(isPlainCurrentGenerationRoot(current) &&
+                    leaseFile.canonicalFile == File(current.canonicalFile, FILE_NAME).canonicalFile) {
+                    "ARM graphics generation path changed during lease acquisition"
+                }
+                return ArmGraphicsGenerationLease(
+                    file,
+                    channel,
+                    lock,
+                    current.canonicalFile,
+                )
+            } catch (error: Throwable) {
+                file.close()
+                throw error
+            }
+        }
+
+        private fun ensureCurrentGenerationRoot(current: File) {
+            val path = current.toPath()
+            if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) Files.createDirectory(path)
+            check(isPlainCurrentGenerationRoot(current)) {
+                "ARM graphics generation root is absent or unsafe"
+            }
+        }
+
+        private fun isPlainCurrentGenerationRoot(current: File): Boolean =
+            Files.isDirectory(current.toPath(), LinkOption.NOFOLLOW_LINKS) &&
+                !Files.isSymbolicLink(current.toPath()) &&
+                current.canonicalFile.parentFile == current.parentFile?.canonicalFile
+
+        private fun <T> withParentLock(
+            generationRoot: File,
+            block: (current: File) -> T,
+        ): T {
+            val requested = generationRoot.absoluteFile
+            require(GENERATION_NAME.matches(requested.name)) {
+                "invalid ARM graphics generation name"
+            }
+            val requestedParent = checkNotNull(requested.parentFile)
+            val parent = requestedParent.canonicalFile
+            check(Files.isDirectory(requestedParent.toPath(), LinkOption.NOFOLLOW_LINKS) &&
+                !Files.isSymbolicLink(requestedParent.toPath()) &&
+                requestedParent.canonicalFile == parent) {
+                "ARM graphics generations root is absent or unsafe"
+            }
+            val current = File(parent, requested.name)
+            val monitor = parentMonitors.computeIfAbsent(parent.absolutePath) { Any() }
+            return synchronized(monitor) {
+                val coordinationFile = File(parent, PARENT_LOCK_FILE_NAME)
+                if (!coordinationFile.exists()) coordinationFile.createNewFile()
+                check(coordinationFile.isFile &&
+                    !Files.isSymbolicLink(coordinationFile.toPath()) &&
+                    coordinationFile.canonicalFile == File(parent, PARENT_LOCK_FILE_NAME).canonicalFile) {
+                    "ARM graphics generation coordination lock is unsafe"
+                }
+                RandomAccessFile(coordinationFile, "rw").use { coordination ->
+                    coordination.channel.use { coordinationChannel ->
+                        coordinationChannel.lock().use { block(current) }
+                    }
+                }
+            }
+        }
+    }
+}
 
 /** Immutable-code / mutable-data staging used by the production runtime. */
 internal class WineRuntimeStore(private val context: Context) {
@@ -29,7 +338,29 @@ internal class WineRuntimeStore(private val context: Context) {
         val armTranslator: ArmTranslationBackend? = null,
         val armRenderer: String? = null,
         val armRendererPackageId: String? = null,
-    )
+        val armVulkanDriverId: String? = null,
+        val audioMode: String = "off",
+        val tweaksJson: String = ClientTweaksConfig().toJson(),
+        val tweaksSignature: String = "",
+        val tweaksFallback: Boolean = false,
+        val realmEndpoint: RealmEndpoint = RealmEndpoint.LOCAL,
+        val displayProfileId: String = ClientDisplayProfile.BALANCED.id,
+        val frameCap: Int = ClientFrameCap.FPS_30.fps,
+        val managedClient: ManagedClientStore.ManagedClient? = null,
+        val clientLease: ClientGenerationLease? = null,
+        val armGenerationIdentity: ArmGraphicsGenerationIdentity? = null,
+        val armGenerationLease: ArmGraphicsGenerationLease? = null,
+        val selectedExecutableSize: Long = 0L,
+        val selectedExecutableSha256: String = "",
+    ) : AutoCloseable {
+        override fun close() {
+            try {
+                armGenerationLease?.close()
+            } finally {
+                clientLease?.close()
+            }
+        }
+    }
 
     init { WineSpikeNative.load() }
 
@@ -38,12 +369,16 @@ internal class WineRuntimeStore(private val context: Context) {
         armTranslator: ArmTranslationBackend = ArmTranslationBackend.BOX64,
         armRenderer: String = "dxvk",
         armRendererPackageId: String? = null,
+        armVulkanDriverId: String? = null,
     ): Prepared {
         if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
-            return armPaths(clientId, armTranslator, armRenderer, armRendererPackageId)
+            return armPaths(
+                clientId, armTranslator, armRenderer, armRendererPackageId, armVulkanDriverId,
+            )
         }
         val selfTest = clientId == ClientRuntimeContract.SELF_TEST_ID
-        val managed = if (selfTest) null else ManagedClientStore(context).load(clientId)
+        val leased = if (selfTest) null else ManagedClientStore(context).acquireRuntime(clientId)
+        val managed = leased?.client
         val root = File(
             context.noBackupFilesDir,
             // AF_UNIX sun_path is only 108 bytes on Linux. Keep the physical
@@ -51,7 +386,7 @@ internal class WineRuntimeStore(private val context: Context) {
             // remains in prefix-manifest.json and prefixId.
             "wine/w11w64-v1/${if (selfTest) "selftest" else "wow5875"}/p${ClientRuntimeContract.PREFIX_SCHEMA}",
         )
-        return Prepared(
+        return try { Prepared(
             clientId = clientId,
             prefixId = listOfNotNull(
                 ClientRuntimeContract.RUNTIME_BUILD_ID,
@@ -67,7 +402,14 @@ internal class WineRuntimeStore(private val context: Context) {
             executable = managed?.executable ?: File(root, "wine-tree/pocket_selftest.exe"),
             workingDir = managed?.root ?: root,
             selfTest = selfTest,
-        )
+            managedClient = managed,
+            clientLease = leased?.lease,
+            selectedExecutableSize = managed?.executableSize ?: 0L,
+            selectedExecutableSha256 = managed?.executableSha256.orEmpty(),
+        ) } catch (error: Throwable) {
+            leased?.close()
+            throw error
+        }
     }
 
     fun prepare(
@@ -77,6 +419,11 @@ internal class WineRuntimeStore(private val context: Context) {
         armTranslator: ArmTranslationBackend = ArmTranslationBackend.BOX64,
         inputSafeMode: Boolean = false,
         armRendererPackageId: String? = null,
+        armVulkanDriverId: String? = null,
+        displayProfileId: String = ClientDisplayProfile.BALANCED.id,
+        frameCap: Int = ClientFrameCap.FPS_30.fps,
+        tweaksJson: String = "",
+        realmEndpoint: RealmEndpoint = RealmEndpoint.LOCAL,
     ): Prepared {
         if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
             return prepareArm(
@@ -86,13 +433,31 @@ internal class WineRuntimeStore(private val context: Context) {
                 armTranslator,
                 inputSafeMode,
                 armRendererPackageId,
+                armVulkanDriverId,
+                displayProfileId,
+                frameCap,
+                tweaksJson,
+                realmEndpoint,
             )
         }
-        val displayProfile =
-            ClientDisplayProfile.forDevice(Build.SUPPORTED_ABIS.asList(), Build.MODEL)
-        require(renderer == "wined3d") { "O06 qualifies WineD3D only" }
-        require(audioMode == "off") { "O06 requires the audio-off diagnostic profile" }
-        val p = paths(clientId)
+        val displayProfile = ClientDisplayProfile.requireId(displayProfileId)
+        val selectedFrameCap = ClientFrameCap.requireFps(frameCap)
+        require(renderer == "wined3d") { "The bundled compatibility check supports WineD3D only" }
+        require(audioMode in setOf("off", "on")) { "only off/on audioMode is supported" }
+        require(audioMode == "off") { "x86 direct Wine audio is not supported" }
+        val tweaks = if (clientId == ClientRuntimeContract.SELF_TEST_ID && tweaksJson.isBlank()) {
+            ClientTweaksConfig()
+        } else {
+            ClientTweaksConfig.fromControlJson(tweaksJson)
+        }
+        val p = paths(clientId).copy(
+            audioMode = audioMode,
+            tweaksJson = tweaks.toJson(),
+            realmEndpoint = realmEndpoint,
+            displayProfileId = displayProfile.id,
+            frameCap = selectedFrameCap.fps,
+        )
+        return try {
         p.root.mkdirs(); p.prefix.mkdirs(); p.tmp.mkdirs()
         ensureSharedCaches(p)
         File(p.tmp, ".X11-unix").mkdirs()
@@ -112,7 +477,7 @@ internal class WineRuntimeStore(private val context: Context) {
                 (p.selfTest || old.optString("renderer_build_id") == ClientRuntimeContract.RENDERER_BUILD_ID) &&
                 old.getInt("prefix_schema") == ClientRuntimeContract.PREFIX_SCHEMA &&
                 old.getString("windows_arch") == "win32-on-wow64" &&
-                old.getString("renderer") == renderer && old.getString("audio_mode") == audioMode
+                old.getString("renderer") == renderer
         }.getOrDefault(false)
 
         if (!compatible && p.prefix.listFiles()?.isNotEmpty() == true) {
@@ -125,14 +490,15 @@ internal class WineRuntimeStore(private val context: Context) {
         if (!prefixReady(p.prefix, 1_000)) initializePrefix(p)
         check(prefixReady(p.prefix, 1_000)) { "Wine prefix did not become ready" }
         check(p.executable.isFile) { "Authorized client executable is absent" }
-        if (!p.selfTest) enforceManagedSafeMode(p, renderer, displayProfile, inputSafeMode)
+        if (!p.selfTest) enforceManagedSafeMode(
+            p, renderer, displayProfile, inputSafeMode, audioMode, realmEndpoint,
+        )
 
         val manifest = JSONObject()
             .put("runtime_build_id", ClientRuntimeContract.RUNTIME_BUILD_ID)
             .put("prefix_schema", ClientRuntimeContract.PREFIX_SCHEMA)
             .put("windows_arch", "win32-on-wow64")
             .put("renderer", renderer)
-            .put("audio_mode", audioMode)
             .put("client_id", clientId)
             .put("code_location", "apk-nativeLibraryDir")
             .put("code_immutable", true)
@@ -142,7 +508,7 @@ internal class WineRuntimeStore(private val context: Context) {
             .put("cache_quota_bytes", ClientRuntimeContract.CACHE_QUOTA_BYTES)
             .put("log_quota_bytes", ClientRuntimeContract.LOG_QUOTA_BYTES)
         if (!p.selfTest) {
-            val managed = ManagedClientStore(context).load(clientId)
+            val managed = checkNotNull(p.managedClient) { "managed client identity is absent" }
             val identity = managed.manifest.getJSONObject("identity")
             manifest
                 .put("renderer_build_id", ClientRuntimeContract.RENDERER_BUILD_ID)
@@ -160,9 +526,8 @@ internal class WineRuntimeStore(private val context: Context) {
                 .put("safe_profile", JSONObject()
                     .put("resolution_ceiling", displayProfile.resolution)
                     .put("qualified_effective_resolution", "800x600")
-                    .put("fps_cap", displayProfile.initialFrameCap)
-                    .put("audio", "off")
-                    .put("realm_endpoint", "127.0.0.1")
+                    .put("fps_cap", selectedFrameCap.fps)
+                    .put("realm_endpoint", realmEndpoint.address)
                     .put("addons", if (inputSafeMode) "safe-mode-off" else "project-managed-at-launch"))
                 .put("known_deviations", JSONArray()
                     .put("GLES shader target is 300 es")
@@ -171,7 +536,11 @@ internal class WineRuntimeStore(private val context: Context) {
         }
         writeAtomic(manifestFile, manifest.toString(2))
         enforceQuotas(p)
-        return p
+        applyTweaks(p, tweaks)
+        } catch (error: Throwable) {
+            p.close()
+            throw error
+        }
     }
 
     private fun armPaths(
@@ -179,65 +548,103 @@ internal class WineRuntimeStore(private val context: Context) {
         translator: ArmTranslationBackend,
         renderer: String,
         rendererPackageId: String?,
+        vulkanDriverId: String?,
     ): Prepared {
         check(clientId == ClientRuntimeContract.WOW_5875_ID) {
             "ARM translated runtime currently authorizes only the imported build-5875 client"
         }
-        val managed = ManagedClientStore(context).load(clientId)
-        require(renderer == "dxvk" || renderer == "opengl") {
-            "unsupported ARM renderer: $renderer"
+        val leased = ManagedClientStore(context).acquireRuntime(clientId)
+        val managed = leased.client
+        var generationLease: ArmGraphicsGenerationLease? = null
+        return try {
+        require(translator == ArmTranslationBackend.BOX64) {
+            "Box64 is the only supported ARM translator"
         }
-        val rendererPackage = RendererPackageCatalog.requireForRequest(
+        require(renderer == "dxvk") { "Box64 + DXVK is the only supported ARM client route" }
+        val rendererPackage = requireNotNull(RendererPackageCatalog.requireForRequest(
             translator,
             renderer,
             rendererPackageId,
-        )
-        val rendererGeneration = RendererPackageCatalog.runtimeGeneration(
-            translator,
-            renderer,
-            rendererPackage?.id,
+        ))
+        val vulkanDriver = VulkanDriverCatalog.requireForRequest(vulkanDriverId)
+        val generationIdentity = ArmGraphicsGenerationIdentity(
+            runtimeBuildId = ClientRuntimeContract.armRuntimeBuildId(translator),
+            rendererBuildId = ClientRuntimeContract.armRendererBuildId(
+                translator,
+                renderer,
+                rendererPackage.id,
+                vulkanDriver.id,
+            ),
+            prefixSchema = ClientRuntimeContract.PREFIX_SCHEMA,
+            translatorId = translator.id,
+            rendererId = renderer,
+            managedClientId = managed.id,
+            managedClientGeneration = managed.generation,
+            managedClientManifestSha256 = managed.manifestSha256,
+            managedClientExecutableSha256 = managed.executableSha256,
+            rendererPackageId = rendererPackage.id,
+            rendererPackageBuildId = rendererPackage.buildId,
+            rendererPackageDxvkVersion = rendererPackage.dxvkVersion,
+            rendererPackageSystem32Sha256 = requireNotNull(rendererPackage.system32Sha256),
+            rendererPackageSyswow64Sha256 = requireNotNull(rendererPackage.syswow64Sha256),
+            vulkanDriverId = vulkanDriver.id,
+            vulkanDriverBuildId = vulkanDriver.buildId,
+            vulkanDriverLibrarySha256 = vulkanDriver.librarySha256,
+            vulkanDriverIcdSha256 = vulkanDriver.icdSha256,
         )
         val root = File(
             context.noBackupFilesDir,
-            if (translator == ArmTranslationBackend.FEX) {
-                "arm-translated/fexcore-2608"
-            } else {
-                "arm-translated/winlator-ca3d735"
-            },
+            "arm-translated/winlator-ca3d735",
         )
         val rootfs = File(root, "rootfs")
-        val prefix = File(root, "prefixes/$rendererGeneration/wine-prefix")
-        return Prepared(
+        val generations = File(root, "generations")
+        requirePlainDirectory(File(context.noBackupFilesDir, "arm-translated"))
+        requirePlainDirectory(root)
+        requirePlainDirectory(generations)
+        val generationRoot = File(generations, generationIdentity.generationName)
+        val generationParent = checkNotNull(generationRoot.absoluteFile.parentFile)
+        check(generationParent.canonicalFile == generations.canonicalFile) {
+            "ARM graphics generation escaped its app-owned root"
+        }
+        generationLease = ArmGraphicsGenerationLease.acquire(generationRoot)
+        val prefix = File(generationRoot, ARM_PREFIX_DIRECTORY)
+        Prepared(
             clientId = clientId,
             prefixId = listOf(
-                ClientRuntimeContract.armRuntimeBuildId(translator),
-                ClientRuntimeContract.armRendererBuildId(
-                    translator,
-                    renderer,
-                    rendererPackage?.id,
-                ),
-                clientId,
-                ClientRuntimeContract.PREFIX_SCHEMA.toString(),
+                generationIdentity.runtimeBuildId,
+                generationIdentity.rendererBuildId,
+                "schema=${generationIdentity.prefixSchema}",
+                "client=${generationIdentity.managedClientId}",
+                "clientGeneration=${generationIdentity.managedClientGeneration}",
+                "clientManifest=${generationIdentity.managedClientManifestSha256}",
+                "dxvk=${generationIdentity.rendererPackageId}",
+                "vulkan=${generationIdentity.vulkanDriverId}",
             ).joinToString(":"),
             root = root,
             tree = rootfs,
             prefix = prefix,
-            cache = File(root, "cache/$rendererGeneration"),
-            // The pinned Winlator glibc/X11 clients resolve :0 beneath the
-            // rootfs /tmp path. Hosting the app-private X socket elsewhere
-            // leaves WineD3D with no adapter even though the Java X server is
-            // running.
-            // The pinned ARM64EC imagefs libxcb resolves local X11 sockets as
-            // $TMPDIR/.X11-unix/X<n>, and Winlator's matching environment uses
-            // <imagefs>/usr/tmp. The older Box64 rootfs uses <rootfs>/tmp.
-            tmp = File(rootfs, if (translator == ArmTranslationBackend.FEX) "usr/tmp" else "tmp"),
+            cache = File(generationRoot, ARM_CACHE_DIRECTORY),
+            // The pinned Box64 rootfs resolves :0 beneath rootfs/tmp.
+            tmp = File(rootfs, "tmp"),
             executable = managed.executable,
             workingDir = managed.root,
             selfTest = false,
             armTranslator = translator,
             armRenderer = renderer,
-            armRendererPackageId = rendererPackage?.id,
+            armRendererPackageId = rendererPackage.id,
+            armVulkanDriverId = vulkanDriver.id,
+            managedClient = managed,
+            clientLease = leased.lease,
+            armGenerationIdentity = generationIdentity,
+            armGenerationLease = generationLease,
+            selectedExecutableSize = managed.executableSize,
+            selectedExecutableSha256 = managed.executableSha256,
         )
+        } catch (error: Throwable) {
+            generationLease?.close()
+            leased.close()
+            throw error
+        }
     }
 
     private fun prepareArm(
@@ -247,54 +654,57 @@ internal class WineRuntimeStore(private val context: Context) {
         translator: ArmTranslationBackend,
         inputSafeMode: Boolean,
         rendererPackageId: String?,
+        vulkanDriverId: String?,
+        displayProfileId: String,
+        frameCap: Int,
+        tweaksJson: String = "",
+        realmEndpoint: RealmEndpoint,
     ): Prepared {
-        val displayProfile =
-            ClientDisplayProfile.forDevice(Build.SUPPORTED_ABIS.asList(), Build.MODEL)
-        check(displayProfile == ClientDisplayProfile.QUALITY) {
-            "ARM translated runtime requires the Quality display profile"
+        val displayProfile = ClientDisplayProfile.requireId(displayProfileId)
+        val selectedFrameCap = ClientFrameCap.requireFps(frameCap)
+        require(translator == ArmTranslationBackend.BOX64) {
+            "Box64 is the only supported ARM translator"
         }
-        require(renderer == "dxvk" || renderer == "opengl") {
-            "unsupported ARM renderer: $renderer"
-        }
-        require(audioMode == "off") { "ARM bring-up requires audio off" }
-        val rendererPackage = RendererPackageCatalog.requireForRequest(
+        require(renderer == "dxvk") { "Box64 + DXVK is the only supported ARM client route" }
+        retireRemovedArmRuntimeState()
+        require(audioMode in setOf("off", "on")) { "only off/on audioMode is supported" }
+        val rendererPackage = requireNotNull(RendererPackageCatalog.requireForRequest(
             translator,
             renderer,
             rendererPackageId,
+        ))
+        val vulkanDriver = VulkanDriverCatalog.requireForRequest(vulkanDriverId)
+        val tweaks = ClientTweaksConfig.fromControlJson(tweaksJson)
+        val p = armPaths(
+            clientId, translator, renderer, rendererPackage.id, vulkanDriver.id,
+        ).copy(
+            audioMode = audioMode,
+            tweaksJson = tweaks.toJson(),
+            realmEndpoint = realmEndpoint,
+            displayProfileId = displayProfile.id,
+            frameCap = selectedFrameCap.fps,
         )
-        val p = armPaths(clientId, translator, renderer, rendererPackage?.id)
+        return try {
+        ArmRootfsProvisioner(context).ensure(p.root)
         val nativeBox64 = File(context.applicationInfo.nativeLibraryDir, "libbox64.so")
-        val wine = File(
-            p.tree,
-            if (translator == ArmTranslationBackend.FEX) {
-                "opt/proton-9.0-arm64ec/bin/wine"
-            } else {
-                "opt/wine/bin/wine"
-            },
-        )
-        when (translator) {
-            ArmTranslationBackend.BOX64 -> {
-                check(nativeBox64.isFile) { "APK-managed Box64 is missing" }
-                check(File(p.tree, ".pocket-rootfs-ready").isFile && wine.isFile) {
-                    "pinned Winlator rootfs is not provisioned"
-                }
-                installPinnedArmGladio(File(p.tree, "usr/lib/libGL.so.1.7.0"))
-                installArmRuntimeAliases(p.tree)
-                patchWinlatorPackagePaths(p.tree)
-                ensureBox64RendererPrefix(p)
-                linkArmBuiltins(p)
-                if (renderer == "dxvk") installPinnedArmGraphics(p, requireNotNull(rendererPackage))
-            }
-            ArmTranslationBackend.FEX -> {
-                ensureFexCoreRuntime(p)
-                installFexCoreAliases(p.tree)
-                patchFexCorePackagePaths(p.tree)
-                ensureFexCorePrefix(p)
-                linkFexCoreBuiltins(p)
-                if (renderer == "dxvk") installFexCoreDxvk(p, requireNotNull(rendererPackage))
-            }
+        val wine = File(p.tree, "opt/wine/bin/wine")
+        check(nativeBox64.isFile) { "APK-managed Box64 is missing" }
+        check(File(p.tree, ".pocket-rootfs-ready").isFile && wine.isFile) {
+            "pinned Winlator rootfs is not provisioned"
         }
-        p.tmp.mkdirs(); p.cache.mkdirs()
+        installArmRuntimeAliases(p.tree)
+        patchWinlatorPackagePaths(p.tree)
+        disableArmOpenGlClient(p.tree)
+        validateArmGenerationBeforeReuse(p)
+        ensureBox64RendererPrefix(p)
+        linkArmBuiltins(p)
+        installPinnedArmGraphics(p, rendererPackage, vulkanDriver)
+        p.tmp.mkdirs()
+        ensureArmCacheDirectories(p)
+        writeAtomic(
+            File(p.cache, ClientRuntimeContract.DXVK_CONFIG_FILE_NAME),
+            ClientRuntimeContract.dxvkFrameCapConfig(selectedFrameCap.fps),
+        )
         val runAlias = File(p.root, "run")
         if (runAlias.isDirectory && !Files.isSymbolicLink(runAlias.toPath()) &&
             runAlias.listFiles().isNullOrEmpty()) {
@@ -305,151 +715,244 @@ internal class WineRuntimeStore(private val context: Context) {
         }
         check(prefixReady(p.prefix, 1_000)) { "pinned ARM Wine prefix is incomplete" }
         check(p.executable.isFile) { "authorized build-5875 client executable is absent" }
+        if (audioMode == "on") validateArmAudioRuntime(p)
 
         val dosDevices = File(p.prefix, "dosdevices").apply { mkdirs() }
         val z = File(dosDevices, "z:").toPath()
         if (Files.exists(z, LinkOption.NOFOLLOW_LINKS)) Files.delete(z)
         Files.createSymbolicLink(z, File("/").toPath())
-        enforceManagedSafeMode(p, renderer, displayProfile, inputSafeMode)
+        enforceManagedSafeMode(
+            p, renderer, displayProfile, inputSafeMode, audioMode, realmEndpoint,
+        )
 
+        val generationIdentity = checkNotNull(p.armGenerationIdentity) {
+            "ARM graphics generation identity is absent"
+        }
         val manifest = JSONObject()
+            .put("manifest_schema", ARM_PREFIX_MANIFEST_SCHEMA)
+            .put("generation", generationIdentity.generationName)
+            .put("compatibility", generationIdentity.toJson())
             .put("runtime_build_id", ClientRuntimeContract.armRuntimeBuildId(translator))
             .put("renderer_build_id", ClientRuntimeContract.armRendererBuildId(
                 translator,
                 renderer,
-                rendererPackage?.id,
+                rendererPackage.id,
+                vulkanDriver.id,
             ))
             .put("provider", ClientRuntimeProvider.ARM_TRANSLATED_WINE.id)
             .put("translator", translator.id)
             .put("translator_code_location", "apk-nativeLibraryDir")
             .put("translator_immutable", true)
-            .put("rootfs_generation", if (translator == ArmTranslationBackend.FEX) {
-                "winlator-bionic-v3.1.h-fexcore-2608"
-            } else "winlator-ca3d735")
-            .put("wine_version", if (translator == ArmTranslationBackend.FEX) {
-                "Proton 9 ARM64EC"
-            } else "10.10")
-            .put("package_path_adaptation", if (translator == ArmTranslationBackend.FEX) {
-                "Winlator imagefs aliases -> com.pocketrealm/files/fex0 + fex000000"
-            } else "com.winlator/rootfs -> com.pocketrealm/rfs")
+            .put("rootfs_generation", "winlator-ca3d735")
+            .put("wine_version", "10.10")
+            .put("package_path_adaptation", "com.winlator/rootfs -> com.pocketrealm/rfs")
             .put("prefix_schema", ClientRuntimeContract.PREFIX_SCHEMA)
             .put("windows_arch", "win32-on-wow64")
             .put("renderer", renderer)
             .put("display_profile", displayProfile.id)
             .put("resolution", displayProfile.resolution)
-            .put("fps_cap", displayProfile.initialFrameCap)
-            .put("graphics_driver", rendererPackage?.let { "turnip-${it.turnipVersion}" }
-                ?: "android-gles-via-gladio")
-            .put("dx_wrapper", rendererPackage?.let { "dxvk-${it.dxvkVersion}" }
-                ?: "disabled-client-opengl")
-            .put("audio_mode", audioMode)
+            .put("fps_cap", selectedFrameCap.fps)
+            .put("graphics_driver", vulkanDriver.buildId)
+            .put("dx_wrapper", "dxvk-${rendererPackage.dxvkVersion}")
             .put("client_id", clientId)
+            .put("managed_client_generation", generationIdentity.managedClientGeneration)
+            .put("managed_client_manifest_sha256", generationIdentity.managedClientManifestSha256)
             .put("working_directory", "app-private-managed-client")
-        rendererPackage?.let {
-            manifest.put("renderer_package_id", it.id)
-                .put("renderer_package_qualification", it.qualification)
-        }
+        manifest.put("renderer_package_id", rendererPackage.id)
+            .put("renderer_package_qualification", rendererPackage.qualification)
+            .put("vulkan_driver_id", vulkanDriver.id)
+            .put("vulkan_driver_qualification", vulkanDriver.qualification)
+            .put("cache_layout", JSONObject()
+                .put("dxvk_state", "$ARM_CACHE_DIRECTORY/dxvk")
+                .put("mesa_shader", "$ARM_CACHE_DIRECTORY/mesa")
+                .put("xdg", "$ARM_CACHE_DIRECTORY/xdg"))
         writeAtomic(File(p.prefix.parentFile, "prefix-manifest.json"), manifest.toString(2))
-        return p
-    }
-
-    private fun ensureFexCoreRuntime(p: Prepared) {
-        val marker = File(p.tree, ".pocket-fexcore-runtime")
-        val wine = File(p.tree, "opt/proton-9.0-arm64ec/bin/wine")
-        val gladio = File(p.tree, "usr/lib/libGL.so.1.5.0")
-        if (marker.isFile && marker.readText().trim() == ClientRuntimeContract.ARM_FEX_RUNTIME_BUILD_ID &&
-            wine.isFile && gladio.isFile && sha256(gladio) == FEXCORE_GLADIO_SHA256) {
-            return
-        }
-
-        check(!p.root.exists() || p.root.canonicalFile.toPath().startsWith(
-            File(context.noBackupFilesDir, "arm-translated/fexcore-2608").canonicalFile.toPath()
-        )) { "refusing to replace an unexpected FEXCore runtime root" }
-        if (p.root.exists()) check(p.root.deleteRecursively()) {
-            "stale FEXCore runtime could not be replaced"
-        }
-        p.root.mkdirs()
-        val compressed = File(p.root, "fexcore-runtime.tar.zst")
-        copyAsset("arm-translated/fexcore/fexcore-runtime.tar.zst", compressed)
-        check(sha256(compressed) == FEXCORE_RUNTIME_SHA256) {
-            "APK-managed FEXCore runtime archive digest mismatch"
-        }
-        val unpacked = File(p.root, "fexcore-runtime.tar")
-        val nativeDir = File(context.applicationInfo.nativeLibraryDir)
-        val zstd = File(nativeDir, "libpocket_zstd_exec.so")
-        check(zstd.isFile) { "APK-managed Bionic zstd executable is missing" }
-        runCheckedProcess(
-            listOf(zstd.absolutePath, "-d", "-f", "-q", "-o", unpacked.absolutePath,
-                compressed.absolutePath),
-            p.root,
-            timeoutSeconds = 600,
-            environment = mapOf("LD_LIBRARY_PATH" to nativeDir.absolutePath),
-        )
-        runCheckedProcess(
-            listOf("/system/bin/tar", "-xf", unpacked.absolutePath, "-C", p.root.absolutePath),
-            p.root,
-            timeoutSeconds = 600,
-        )
-        compressed.delete()
-        unpacked.delete()
-        check(marker.isFile && marker.readText().trim() == ClientRuntimeContract.ARM_FEX_RUNTIME_BUILD_ID) {
-            "FEXCore runtime generation marker is missing"
-        }
-        check(wine.isFile && wine.canExecute()) { "native ARM64EC Wine is missing" }
-        check(File(p.tree,
-            "home/xuser/.wine/drive_c/windows/system32/libwow64fex.dll").isFile) {
-            "FEXCore WoW64 DLL is missing"
-        }
-        check(gladio.isFile && sha256(gladio) == FEXCORE_GLADIO_SHA256) {
-            "Bionic ARM64 Gladio client is missing or mismatched"
+        pruneInactiveArmGenerations(p)
+        applyTweaks(p, tweaks)
+        } catch (error: Throwable) {
+            p.close()
+            throw error
         }
     }
 
-    private fun ensureFexCorePrefix(p: Prepared) {
-        if (prefixReady(p.prefix, 1_000)) return
-        val base = File(p.tree, "home/xuser/.wine")
-        check(prefixReady(base, 1_000)) { "ARM64EC base prefix is incomplete" }
-        p.prefix.parentFile!!.mkdirs()
-        if (p.prefix.exists()) check(p.prefix.deleteRecursively()) {
-            "incomplete ARM64EC renderer prefix could not be replaced"
+    /** A ready prefix/cache may be reused only after its complete tuple manifest matches. */
+    private fun validateArmGenerationBeforeReuse(p: Prepared) {
+        val identity = checkNotNull(p.armGenerationIdentity) {
+            "ARM graphics generation identity is absent"
         }
-        runCheckedProcess(
-            listOf("/system/bin/cp", "-a", base.absolutePath, p.prefix.absolutePath),
-            p.root,
-            timeoutSeconds = 300,
-        )
-        check(prefixReady(p.prefix, 1_000)) { "ARM64EC renderer prefix copy is incomplete" }
-    }
+        val lease = checkNotNull(p.armGenerationLease) {
+            "ARM graphics generation lease is absent"
+        }
+        check(lease.isHeld) { "ARM graphics generation lease was released before preparation" }
+        val generationRoot = checkNotNull(p.prefix.parentFile)
+        check(generationRoot.name == identity.generationName &&
+            p.cache.parentFile?.canonicalFile == generationRoot.canonicalFile) {
+            "ARM prefix/cache physical generation identity mismatch"
+        }
+        val payload = generationRoot.listFiles().orEmpty().any {
+            it.name != ArmGraphicsGenerationLease.FILE_NAME
+        }
+        if (!payload) return
+        val manifestFile = File(generationRoot, ARM_PREFIX_MANIFEST_FILE)
+        val prefixReusable = Files.isDirectory(p.prefix.toPath(), LinkOption.NOFOLLOW_LINKS) &&
+            !Files.isSymbolicLink(p.prefix.toPath()) && prefixReady(p.prefix, 1_000)
+        val cacheSafe = plainDirectoryIfPresent(p.cache) && ARM_CACHE_SUBDIRECTORIES.all {
+            plainDirectoryIfPresent(File(p.cache, it))
+        }
+        val compatible = manifestFile.isFile && !Files.isSymbolicLink(manifestFile.toPath()) &&
+            prefixReusable && cacheSafe &&
+            runCatching {
+                val manifest = JSONObject(manifestFile.readText(Charsets.UTF_8))
+                manifest.getInt("manifest_schema") == ARM_PREFIX_MANIFEST_SCHEMA &&
+                    manifest.getString("generation") == identity.generationName &&
+                    identity.matchesManifest(manifest)
+            }.getOrDefault(false)
+        if (compatible) return
 
-    /** Reproduce Winlator's ARM64EC container-finalization step.
-     *
-     * The shipped container pattern contains registry state and only a small
-     * seed set of Windows files. Winlator then materializes every ARM64EC and
-     * i386 Wine builtin into system32/syswow64. Without this step Wine itself
-     * starts, but its first 32-bit process fails with STATUS_DLL_NOT_FOUND
-     * (c0000135 / process exit 53). Symlinks keep the per-renderer prefixes
-     * small while retaining the exact pinned Proton payload as the source.
-     */
-    private fun linkFexCoreBuiltins(p: Prepared) {
-        val pairs = listOf(
-            File(p.tree, "opt/proton-9.0-arm64ec/lib/wine/aarch64-windows") to
-                File(p.prefix, "drive_c/windows/system32"),
-            File(p.tree, "opt/proton-9.0-arm64ec/lib/wine/i386-windows") to
-                File(p.prefix, "drive_c/windows/syswow64"),
+        // The exclusive generation lease proves this payload is inactive. Keep
+        // one recoverable retired copy, then rebuild the exact tuple in place.
+        val retiredRoot = File(p.root, ARM_RETIRED_GENERATIONS_DIRECTORY)
+        requirePlainDirectory(retiredRoot)
+        val retired = File(
+            retiredRoot,
+            "${identity.generationName}-incompatible-${System.currentTimeMillis()}-${System.nanoTime()}",
         )
-        for ((source, destination) in pairs) {
-            check(source.isDirectory) { "ARM64EC Wine builtin source is missing: $source" }
-            destination.mkdirs()
-            for (file in source.listFiles().orEmpty().filter { it.isFile }) {
-                val target = File(destination, file.name).toPath()
-                if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
-                    Files.createSymbolicLink(target, file.toPath())
+        check(retired.mkdir()) { "incompatible ARM generation could not be preserved" }
+        generationRoot.listFiles().orEmpty()
+            .filterNot { it.name == ArmGraphicsGenerationLease.FILE_NAME }
+            .forEach { child ->
+                check(child.renameTo(File(retired, child.name))) {
+                    "incompatible ARM generation payload could not be preserved: ${child.name}"
                 }
             }
+        pruneRetiredArmGenerations(retiredRoot)
+    }
+
+    private fun plainDirectoryIfPresent(directory: File): Boolean {
+        val path = directory.toPath()
+        return !Files.exists(path, LinkOption.NOFOLLOW_LINKS) ||
+            (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS) && !Files.isSymbolicLink(path))
+    }
+
+    /** DXVK, Mesa and XDG own real tuple-local directories, never shared symlinks. */
+    private fun ensureArmCacheDirectories(p: Prepared) {
+        val generationRoot = checkNotNull(p.prefix.parentFile).canonicalFile
+        check(p.cache.parentFile?.canonicalFile == generationRoot) {
+            "ARM cache escaped its prefix generation"
         }
-        for (required in listOf("ntdll.dll", "kernel32.dll", "cmd.exe")) {
-            check(File(p.prefix, "drive_c/windows/syswow64/$required").isFile) {
-                "32-bit ARM64EC Wine builtin was not linked: $required"
+        requirePlainDirectory(p.cache)
+        for (name in ARM_CACHE_SUBDIRECTORIES) {
+            val directory = File(p.cache, name)
+            requirePlainDirectory(directory)
+            check(directory.canonicalFile.parentFile == p.cache.canonicalFile) {
+                "ARM cache directory escaped its tuple: $name"
+            }
+        }
+    }
+
+    private fun attestArmCacheDirectories(p: Prepared) {
+        val generationRoot = checkNotNull(p.prefix.parentFile).canonicalFile
+        val directories = listOf(p.cache) + ARM_CACHE_SUBDIRECTORIES.map { File(p.cache, it) }
+        directories.forEach { directory ->
+            val path = directory.toPath()
+            check(Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS) &&
+                !Files.isSymbolicLink(path)) {
+                "prepared ARM cache directory is absent or unsafe: ${directory.name}"
+            }
+        }
+        check(p.cache.canonicalFile.parentFile == generationRoot &&
+            ARM_CACHE_SUBDIRECTORIES.all {
+                File(p.cache, it).canonicalFile.parentFile == p.cache.canonicalFile
+            }) {
+            "prepared ARM cache layout escaped its tuple generation"
+        }
+    }
+
+    /** Retain a small working set; prune only unlocked, noncurrent generations. */
+    private fun pruneInactiveArmGenerations(p: Prepared) {
+        val identity = checkNotNull(p.armGenerationIdentity)
+        val generations = checkNotNull(p.prefix.parentFile?.parentFile)
+        check(generations.name == ARM_GENERATIONS_DIRECTORY &&
+            !Files.isSymbolicLink(generations.toPath())) {
+            "ARM graphics generations root is unsafe"
+        }
+        val inactive = generations.listFiles().orEmpty()
+            .filter {
+                it.isDirectory && !Files.isSymbolicLink(it.toPath()) &&
+                    ARM_GENERATION_NAME.matches(it.name) && it.name != identity.generationName
+            }
+            .sortedByDescending { generationLastModified(it) }
+        val retiredRoot = File(p.root, ARM_RETIRED_GENERATIONS_DIRECTORY)
+        for (candidate in inactive.drop(MAX_RETAINED_INACTIVE_ARM_GENERATIONS)) {
+            check(candidate.canonicalFile.parentFile == generations.canonicalFile) {
+                "refusing to prune an ARM generation outside its owner root"
+            }
+            requirePlainDirectory(retiredRoot)
+            val target = File(
+                retiredRoot,
+                "${candidate.name}-pruned-${System.currentTimeMillis()}-${System.nanoTime()}",
+            )
+            if (ArmGraphicsGenerationLease.retireIfInactive(candidate, target)) {
+                pruneRetiredArmGenerations(retiredRoot)
+            }
+        }
+    }
+
+    private fun generationLastModified(root: File): Long =
+        File(root, ARM_PREFIX_MANIFEST_FILE).takeIf { it.isFile }?.lastModified()
+            ?: root.lastModified()
+
+    private fun pruneRetiredArmGenerations(retiredRoot: File) {
+        val root = retiredRoot.canonicalFile
+        retiredRoot.listFiles().orEmpty()
+            .filter { it.isDirectory && !Files.isSymbolicLink(it.toPath()) }
+            .sortedByDescending(File::lastModified)
+            .drop(MAX_RETAINED_RETIRED_ARM_GENERATIONS)
+            .forEach { retired ->
+                check(retired.canonicalFile.parentFile == root) {
+                    "refusing to prune retired ARM content outside its owner root"
+                }
+                deleteTreeNoFollow(retired.toPath())
+            }
+    }
+
+    private fun deleteTreeNoFollow(root: Path) {
+        Files.walkFileTree(root, object : SimpleFileVisitor<Path>() {
+            override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                Files.delete(file)
+                return FileVisitResult.CONTINUE
+            }
+
+            override fun postVisitDirectory(dir: Path, error: java.io.IOException?): FileVisitResult {
+                if (error != null) throw error
+                Files.delete(dir)
+                return FileVisitResult.CONTINUE
+            }
+        })
+    }
+
+    private fun requirePlainDirectory(directory: File) {
+        val path = directory.toPath()
+        if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) Files.createDirectories(path)
+        check(Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS) && !Files.isSymbolicLink(path)) {
+            "app-owned runtime directory is absent or unsafe: ${directory.name}"
+        }
+    }
+
+    /** One-way storage migration for runtime generations that can no longer launch. */
+    private fun retireRemovedArmRuntimeState() {
+        val armRoot = File(context.noBackupFilesDir, "arm-translated").canonicalFile
+        ArmRuntimeRetirement.retireFexGeneration(armRoot)
+        val retired = listOf(
+            File(armRoot, "winlator-ca3d735/prefixes/opengl"),
+            File(armRoot, "winlator-ca3d735/cache/opengl"),
+        )
+        for (target in retired) {
+            check(target.canonicalFile.toPath().startsWith(armRoot.toPath())) {
+                "refusing to retire runtime state outside the ARM root: $target"
+            }
+            if (target.exists()) check(target.deleteRecursively()) {
+                "removed ARM runtime state could not be retired: $target"
             }
         }
     }
@@ -468,91 +971,6 @@ internal class WineRuntimeStore(private val context: Context) {
             timeoutSeconds = 300,
         )
         check(prefixReady(p.prefix, 1_000)) { "Box64 renderer prefix copy is incomplete" }
-    }
-
-    private fun installFexCoreDxvk(p: Prepared, rendererPackage: RendererPackage) {
-        check(rendererPackage.id == RendererPackageCatalog.FEX_DEFAULT &&
-            rendererPackage.translator == ArmTranslationBackend.FEX) {
-            "unsupported FEXCore renderer package: ${rendererPackage.id}"
-        }
-        val component = File(p.tree, "opt/pocket-components/dxvk")
-        val names = listOf("d3d9.dll", "d3d10core.dll", "d3d11.dll", "dxgi.dll")
-        for (directory in listOf("system32", "syswow64")) {
-            val sourceRoot = File(component, directory)
-            val targetRoot = File(p.prefix, "drive_c/windows/$directory").apply { mkdirs() }
-            for (name in names) {
-                val source = File(sourceRoot, name)
-                val target = File(targetRoot, name)
-                check(source.isFile) { "ARM64EC DXVK component is missing: $directory/$name" }
-                source.inputStream().use { input ->
-                    val temporary = File(targetRoot, ".$name.pocket.tmp")
-                    temporary.outputStream().use { input.copyTo(it) }
-                    check(sha256(temporary) == sha256(source)) {
-                        "ARM64EC DXVK copy digest mismatch: $directory/$name"
-                    }
-                    android.system.Os.rename(temporary.absolutePath, target.absolutePath)
-                }
-            }
-        }
-    }
-
-    private fun installFexCoreAliases(rootfs: File) {
-        for (name in listOf("fex0", "fex000000")) {
-            val alias = File(context.filesDir, name).toPath()
-            if (Files.exists(alias, LinkOption.NOFOLLOW_LINKS)) {
-                if (Files.isSymbolicLink(alias) && Files.readSymbolicLink(alias) == rootfs.toPath()) continue
-                Files.delete(alias)
-            }
-            Files.createSymbolicLink(alias, rootfs.toPath())
-        }
-    }
-
-    private fun patchFexCorePackagePaths(rootfs: File) {
-        val marker = File(rootfs, ".pocket-package-paths-v1")
-        if (marker.isFile) return
-        val replacements = listOf(
-            "/data/data/com.winlator/files/imagefs".toByteArray() to
-                "/data/data/com.pocketrealm/files/fex0".toByteArray(),
-            "/data/data/com.winlator.cmod/files/imagefs".toByteArray() to
-                "/data/data/com.pocketrealm/files/fex000000".toByteArray(),
-        )
-        replacements.forEach { (old, replacement) -> check(old.size == replacement.size) }
-        var changedFiles = 0
-        Files.walk(rootfs.toPath()).use { paths ->
-            paths.filter { Files.isRegularFile(it, LinkOption.NOFOLLOW_LINKS) }
-                .forEach { path ->
-                    val file = path.toFile()
-                    if (file.length() > 128L * 1024L * 1024L) return@forEach
-                    val bytes = file.readBytes()
-                    var changed = false
-                    for ((old, replacement) in replacements) {
-                        var offset = 0
-                        while (offset <= bytes.size - old.size) {
-                            var match = true
-                            for (index in old.indices) {
-                                if (bytes[offset + index] != old[index]) { match = false; break }
-                            }
-                            if (match) {
-                                replacement.copyInto(bytes, offset)
-                                offset += replacement.size
-                                changed = true
-                            } else offset++
-                        }
-                    }
-                    if (changed) {
-                        val executable = file.canExecute()
-                        val temporary = File(file.parentFile, ".${file.name}.pocket-path.tmp")
-                        temporary.writeBytes(bytes)
-                        temporary.setReadable(true, false)
-                        temporary.setWritable(true, true)
-                        if (executable) temporary.setExecutable(true, false)
-                        android.system.Os.rename(temporary.absolutePath, file.absolutePath)
-                        changedFiles++
-                    }
-                }
-        }
-        check(changedFiles > 0) { "no Winlator Bionic package paths were patched" }
-        writeAtomic(marker, "$changedFiles\n")
     }
 
     private fun runCheckedProcess(
@@ -582,7 +1000,11 @@ internal class WineRuntimeStore(private val context: Context) {
      * atomically and verified after publication, including when it replaces a
      * Wine builtin symlink in an already-created prefix.
      */
-    private fun installPinnedArmGraphics(p: Prepared, rendererPackage: RendererPackage) {
+    private fun installPinnedArmGraphics(
+        p: Prepared,
+        rendererPackage: RendererPackage,
+        vulkanDriver: VulkanDriverPackage,
+    ) {
         check(rendererPackage.translator == ArmTranslationBackend.BOX64) {
             "Box64 graphics installer received ${rendererPackage.translator.id} package"
         }
@@ -594,17 +1016,29 @@ internal class WineRuntimeStore(private val context: Context) {
             "renderer package lacks the syswow64 D3D9 asset"
         }
         val syswow64Sha256 = requireNotNull(rendererPackage.syswow64Sha256)
+        val knownDriverFiles = listOf(
+            File(p.tree, "usr/lib/libvulkan_vortek.so"),
+            File(p.tree, "usr/lib/libvulkan_freedreno.so"),
+            File(p.tree, "usr/share/vulkan/icd.d/vortek_icd.aarch64.json"),
+            File(p.tree, "usr/share/vulkan/icd.d/freedreno_icd.aarch64.json"),
+        )
+        val selectedDriverFiles = setOf(vulkanDriver.libraryName, vulkanDriver.icdFileName)
+        knownDriverFiles.filterNot { it.name in selectedDriverFiles }.forEach { stale ->
+            if (Files.exists(stale.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+                check(stale.delete()) { "stale Vulkan driver asset could not be retired: ${stale.name}" }
+            }
+        }
         val files = listOf(
             PinnedAsset(
-                "arm-translated/turnip/libvulkan_freedreno.so",
-                File(p.tree, "usr/lib/libvulkan_freedreno.so"),
-                "f4d09b00d5d7e463f1af76a9974bdd4f2d8298951de9ae2bfc7678a3631e7ab0",
+                vulkanDriver.libraryAsset,
+                File(p.tree, "usr/lib/${vulkanDriver.libraryName}"),
+                vulkanDriver.librarySha256,
                 executable = true,
             ),
             PinnedAsset(
-                "arm-translated/turnip/freedreno_icd.aarch64.json",
-                File(p.tree, "usr/share/vulkan/icd.d/freedreno_icd.aarch64.json"),
-                "8ab797c2c31441271acee4b2423106683eb9e500de6e168ceb035f02c30aeb92",
+                vulkanDriver.icdAsset,
+                File(p.tree, "usr/share/vulkan/icd.d/${vulkanDriver.icdFileName}"),
+                vulkanDriver.icdSha256,
             ),
             PinnedAsset(
                 system32Asset,
@@ -631,7 +1065,7 @@ internal class WineRuntimeStore(private val context: Context) {
         if (asset.target.isFile && sha256(asset.target) == asset.expectedSha256) return
         asset.target.parentFile!!.mkdirs()
         val temporary = File(asset.target.parentFile, ".${asset.target.name}.pocket.tmp")
-        if (temporary.exists()) check(temporary.delete()) { "stale graphics staging file could not be removed" }
+        if (temporary.exists()) check(temporary.delete()) { "stale runtime-asset staging file could not be removed" }
         context.assets.open(asset.assetPath).use { input ->
             temporary.outputStream().use { output ->
                 input.copyTo(output)
@@ -641,42 +1075,62 @@ internal class WineRuntimeStore(private val context: Context) {
         temporary.setReadable(true, false)
         if (asset.executable) temporary.setExecutable(true, false)
         check(sha256(temporary) == asset.expectedSha256) {
-            "APK-managed graphics asset digest mismatch: ${asset.assetPath}"
+            "APK-managed runtime asset digest mismatch: ${asset.assetPath}"
         }
         android.system.Os.rename(temporary.absolutePath, asset.target.absolutePath)
         check(sha256(asset.target) == asset.expectedSha256) {
-            "installed graphics asset digest mismatch: ${asset.target.name}"
+            "installed runtime asset digest mismatch: ${asset.target.name}"
         }
     }
 
-    /** Install the source-matched AArch64 Gladio client from the signed APK.
-     *
-     * The client and Android renderer share Pocket Realm's versioned transient
-     * draw protocol, so they must be built and pinned together. Keep the client
-     * behind an exact digest and publish it atomically so an APK reinstall
-     * cannot silently leave a mismatched protocol version behind.
-     */
-    private fun installPinnedArmGladio(target: File) {
-        val expected = "1d9663bb23ffe6083cf94925e6ffde4523888d52051c9bf934c87aad4bae4680"
-        if (target.isFile && sha256(target) == expected) return
-
-        target.parentFile!!.mkdirs()
-        val temporary = File(target.parentFile, ".${target.name}.pocket.tmp")
-        context.assets.open("arm-translated/libGL.so.1").use { input ->
-            temporary.outputStream().use { output ->
-                input.copyTo(output)
-                output.fd.sync()
+    /** Fail closed on the provider-matched mixed-ABI audio closure. */
+    private fun validateArmAudioRuntime(p: Prepared) {
+        data class Required(val relative: String, val digest: String, val elfMachine: Int)
+        val required = listOf(
+            Required("usr/lib/libasound.so.2.0.0", BOX64_LIBASOUND_SHA256, ELF_MACHINE_AARCH64),
+            Required("usr/lib/alsa-lib/libasound_module_pcm_android_aserver.so",
+                BOX64_ANDROID_ASERVER_SHA256, ELF_MACHINE_AARCH64),
+            Required("opt/wine/lib/wine/x86_64-unix/winealsa.so", BOX64_WINEALSA_SHA256,
+                ELF_MACHINE_X86_64),
+        )
+        required.forEach { item ->
+            val file = File(p.tree, item.relative)
+            check(file.isFile && !Files.isSymbolicLink(file.toPath()) &&
+                sha256(file) == item.digest && elfMachine(file) == item.elfMachine) {
+                "provider-matched audio component is missing or changed: ${item.relative}"
             }
         }
-        temporary.setReadable(true, false)
-        temporary.setExecutable(true, false)
-        check(sha256(temporary) == expected) {
-            "APK-managed ARM Gladio client digest mismatch"
+        val config = File(p.tree, "usr/share/alsa/alsa.conf")
+        check(config.isFile) { "provider ALSA configuration is missing" }
+        val text = config.readText(Charsets.UTF_8)
+        check(!text.contains("/data/data/com.winlator/files/rootfs")) {
+            "Box64 ALSA configuration still targets the Winlator package"
         }
-        android.system.Os.rename(temporary.absolutePath, target.absolutePath)
-        check(sha256(target) == expected) {
-            "installed ARM Gladio client digest mismatch"
+        check(text.contains("/data/data/com.pocketrealm/files/rfs")) {
+            "Box64 ALSA configuration was not adapted to Pocket Realm"
         }
+        check(File(p.tree, "etc/alsa/conf.d/android_aserver.conf").isFile) {
+            "Box64 android_aserver routing configuration is missing"
+        }
+    }
+
+    private fun elfMachine(file: File): Int {
+        val header = ByteArray(20)
+        file.inputStream().use { input ->
+            var offset = 0
+            while (offset < header.size) {
+                val read = input.read(header, offset, header.size - offset)
+                check(read > 0) { "truncated ELF header: ${file.name}" }
+                offset += read
+            }
+        }
+        check(header[0] == 0x7f.toByte() && header[1] == 'E'.code.toByte() &&
+            header[2] == 'L'.code.toByte() && header[3] == 'F'.code.toByte() &&
+            header[4] == 2.toByte() && header[5] == 1.toByte()) {
+            "unsupported ELF header: ${file.name}"
+        }
+        return ByteBuffer.wrap(header, 18, 2).order(ByteOrder.LITTLE_ENDIAN)
+            .short.toInt() and 0xffff
     }
 
     private fun sha256(file: File): String {
@@ -692,11 +1146,302 @@ internal class WineRuntimeStore(private val context: Context) {
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
+    private fun sha256(text: String): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it) }
+    }
+
+    /**
+     * O23 vanilla-tweaks patch step (A.5). Produces a root-level
+     * `WoW.exe.patched` sibling of the pristine managed exe only when its full
+     * SHA-256 identifies the byte layout supported by the patch model. A valid
+     * imported 1.12.1 build-5875 executable does not need to match that one
+     * reference hash when no binary tweak is requested. Native output must
+     * match the independent byte-for-byte patch model before publication.
+     * Idempotent via the authenticated manifest sidecar; self-tests are never patched.
+     */
+    private fun applyTweaks(p: Prepared, tweaks: ClientTweaksConfig): Prepared {
+        if (p.selfTest) return p
+        val pristine = p.executable
+        check(pristine.name.equals("WoW.exe", ignoreCase = true)) {
+            "managed build-5875 executable has an unexpected name"
+        }
+        val pristineSha = sha256(pristine)
+        val pristineBytes = pristine.readBytes()
+        checkPeX86(pristineBytes)
+        val resolution = resolveEffectiveClientTweaks(tweaks, pristineSha)
+        val effective = resolution.config
+        val canonical = effective.toJson()
+        val signature = sha256(
+            canonical + "\u0001" + VANILLA_TWEAKS_VERSION + "\u0001" + pristineSha,
+        )
+        if (!effective.hasAnyPatch()) {
+            return p.copy(
+                tweaksJson = canonical,
+                tweaksSignature = signature,
+                tweaksFallback = resolution.fallback,
+                selectedExecutableSize = pristine.length(),
+                selectedExecutableSha256 = pristineSha,
+            )
+        }
+        check(effective.acceptsExecutableForLaunch(pristineSha)) {
+            "effective optional client tweaks do not match the leased WoW.exe"
+        }
+        val expectedBytes = ClientTweaksConfig.expectedPatchedBytes(pristineBytes, effective)
+        val parent = checkNotNull(pristine.parentFile) { "managed client parent is absent" }
+        val patched = File(parent, "WoW.exe.patched")
+        val manifestFile = File(parent, "WoW.exe.patched.manifest.json")
+        val cacheValid = patched.isFile && manifestFile.isFile && runCatching {
+            val manifest = JSONObject(manifestFile.readText(Charsets.UTF_8))
+            val patchedBytes = patched.readBytes()
+            manifest.getInt("schema") == 1 &&
+                manifest.getString("signature") == signature &&
+                manifest.getString("pristineSha256") == pristineSha &&
+                manifest.getString("patchedSha256") == sha256(patched) &&
+                patchedBytes.contentEquals(expectedBytes).also {
+                    if (it) checkPeX86(patchedBytes)
+                }
+        }.getOrDefault(false)
+        if (cacheValid) {
+            return p.copy(
+                executable = patched,
+                tweaksJson = canonical,
+                tweaksSignature = signature,
+                tweaksFallback = resolution.fallback,
+                selectedExecutableSize = patched.length(),
+                selectedExecutableSha256 = sha256(patched),
+            )
+        }
+        patched.delete()
+        manifestFile.delete()
+        val temporary = File(parent, ".WoW.exe.patched.${android.os.Process.myPid()}.tmp")
+        temporary.delete()
+        try {
+            runPatcher(pristine, temporary, parent, effective.toFlags())
+            RandomAccessFile(temporary, "rw").use { it.fd.sync() }
+            val actualBytes = temporary.readBytes()
+            check(actualBytes.size == pristineBytes.size) { "patched executable size changed" }
+            checkPeX86(actualBytes)
+            check(actualBytes.contentEquals(expectedBytes)) {
+                "native tweak output differs from the authorized patch model"
+            }
+            val patchedSha = sha256(temporary)
+            android.system.Os.rename(temporary.absolutePath, patched.absolutePath)
+            writeAtomic(
+                manifestFile,
+                JSONObject()
+                    .put("schema", 1)
+                    .put("signature", signature)
+                    .put("pristineSha256", pristineSha)
+                    .put("patchedSha256", patchedSha)
+                    .put("config", JSONObject(canonical))
+                    .toString(),
+            )
+        } finally {
+            temporary.delete()
+        }
+        return p.copy(
+            executable = patched,
+            tweaksJson = canonical,
+            tweaksSignature = signature,
+            tweaksFallback = resolution.fallback,
+            selectedExecutableSize = patched.length(),
+            selectedExecutableSha256 = sha256(patched),
+        )
+    }
+
+    /** Re-attest the exact prepared generation and executable immediately before spawn. */
+    fun attestForLaunch(p: Prepared) {
+        val executable = p.executable.canonicalFile
+        check(executable.isFile && !Files.isSymbolicLink(p.executable.toPath())) {
+            "prepared client executable is absent or unsafe"
+        }
+        if (p.selfTest) {
+            checkPeX86(executable.readBytes())
+            return
+        }
+
+        val managed = checkNotNull(p.managedClient) { "prepared managed-client identity is absent" }
+        val lease = checkNotNull(p.clientLease) { "prepared managed-client lease is absent" }
+        ManagedClientStore(context).attestUnderLease(managed, lease)
+        check(executable.toPath().startsWith(managed.root.canonicalFile.toPath()) &&
+            executable.parentFile == managed.root.canonicalFile) {
+            "prepared executable escaped its leased client generation"
+        }
+        check(executable.length() == p.selectedExecutableSize &&
+            sha256(executable) == p.selectedExecutableSha256) {
+            "prepared executable changed after validation"
+        }
+        checkPeX86(executable.readBytes())
+
+        val config = ClientTweaksConfig.fromControlJson(p.tweaksJson)
+        if (config.hasAnyPatch()) {
+            check(executable.name == "WoW.exe.patched") { "patched executable identity mismatch" }
+            check(managed.executableSha256 == ClientTweaksConfig.AUTHORIZED_CLIENT_SHA256) {
+                "patched executable pristine identity mismatch"
+            }
+            val sidecar = File(managed.root, "WoW.exe.patched.manifest.json")
+            check(sidecar.isFile && !Files.isSymbolicLink(sidecar.toPath())) {
+                "patched executable manifest is absent or unsafe"
+            }
+            val manifest = JSONObject(sidecar.readText(Charsets.UTF_8))
+            val manifestConfig = ClientTweaksConfig.fromControlJson(
+                manifest.getJSONObject("config").toString(),
+            )
+            check(manifest.getInt("schema") == 1 &&
+                manifest.getString("signature") == p.tweaksSignature &&
+                manifest.getString("pristineSha256") == managed.executableSha256 &&
+                manifest.getString("patchedSha256") == p.selectedExecutableSha256 &&
+                manifestConfig == config) {
+                "patched executable manifest changed after preparation"
+            }
+        } else {
+            check(executable == managed.executable.canonicalFile) {
+                "vanilla launch must use the pristine managed executable"
+            }
+        }
+
+        val endpointFile = File(managed.root, "realmlist.wtf")
+        check(endpointFile.isFile && !Files.isSymbolicLink(endpointFile.toPath()) &&
+            endpointFile.readText().trim() == "set realmlist ${p.realmEndpoint.address}") {
+            "prepared realm endpoint changed after preparation"
+        }
+
+        val displayProfile = ClientDisplayProfile.requireId(p.displayProfileId)
+        ClientFrameCap.requireFps(p.frameCap)
+        val configFile = File(managed.root, "WTF/Config.wtf")
+        check(configFile.isFile && !Files.isSymbolicLink(configFile.toPath()) &&
+            configFile.readText(Charsets.UTF_8) == managedConfigText(
+                p, displayProfile, p.audioMode, p.realmEndpoint,
+            )) {
+            "prepared WoW display/audio configuration changed after preparation"
+        }
+
+        if (p.armRenderer != null) {
+            val rendererPackage = requireNotNull(RendererPackageCatalog.find(p.armRendererPackageId)) {
+                "prepared renderer package is unavailable"
+            }
+            val driver = requireNotNull(VulkanDriverCatalog.find(p.armVulkanDriverId)) {
+                "prepared Vulkan driver package is unavailable"
+            }
+            val identity = checkNotNull(p.armGenerationIdentity) {
+                "prepared ARM graphics generation identity is absent"
+            }
+            val generationLease = checkNotNull(p.armGenerationLease) {
+                "prepared ARM graphics generation lease is absent"
+            }
+            check(generationLease.isHeld) { "prepared ARM graphics generation is no longer leased" }
+            val generationRoot = checkNotNull(p.prefix.parentFile)
+            check(generationRoot.name == identity.generationName &&
+                p.prefix.name == ARM_PREFIX_DIRECTORY &&
+                p.cache.name == ARM_CACHE_DIRECTORY &&
+                p.cache.parentFile?.canonicalFile == generationRoot.canonicalFile) {
+                "prepared ARM prefix/cache generation identity changed after preparation"
+            }
+            attestArmCacheDirectories(p)
+            val pinned = listOf(
+                Triple(
+                    File(p.tree, "usr/lib/${driver.libraryName}"),
+                    driver.librarySha256,
+                    "Vulkan driver library",
+                ),
+                Triple(
+                    File(p.tree, "usr/share/vulkan/icd.d/${driver.icdFileName}"),
+                    driver.icdSha256,
+                    "Vulkan driver manifest",
+                ),
+                Triple(
+                    File(p.prefix, "drive_c/windows/system32/d3d9.dll"),
+                    requireNotNull(rendererPackage.system32Sha256),
+                    "DXVK system32 D3D9",
+                ),
+                Triple(
+                    File(p.prefix, "drive_c/windows/syswow64/d3d9.dll"),
+                    requireNotNull(rendererPackage.syswow64Sha256),
+                    "DXVK syswow64 D3D9",
+                ),
+            )
+            pinned.forEach { (file, digest, label) ->
+                check(file.isFile && !Files.isSymbolicLink(file.toPath()) && sha256(file) == digest) {
+                    "$label changed after preparation"
+                }
+            }
+            val dxvkConfig = File(p.cache, ClientRuntimeContract.DXVK_CONFIG_FILE_NAME)
+            check(dxvkConfig.isFile && !Files.isSymbolicLink(dxvkConfig.toPath()) &&
+                dxvkConfig.readText(Charsets.UTF_8) ==
+                    ClientRuntimeContract.dxvkFrameCapConfig(p.frameCap)) {
+                "prepared DXVK frame limiter changed after preparation"
+            }
+            val manifestFile = File(p.prefix.parentFile, ARM_PREFIX_MANIFEST_FILE)
+            check(manifestFile.isFile && !Files.isSymbolicLink(manifestFile.toPath())) {
+                "prepared ARM prefix manifest is absent or unsafe"
+            }
+            val manifest = JSONObject(manifestFile.readText(Charsets.UTF_8))
+            val cacheLayout = manifest.getJSONObject("cache_layout")
+            check(manifest.getInt("manifest_schema") == ARM_PREFIX_MANIFEST_SCHEMA &&
+                manifest.getString("generation") == identity.generationName &&
+                identity.matchesManifest(manifest) &&
+                manifest.getString("renderer_package_id") == rendererPackage.id &&
+                manifest.getString("vulkan_driver_id") == driver.id &&
+                manifest.getString("display_profile") == p.displayProfileId &&
+                manifest.getString("resolution") == displayProfile.resolution &&
+                manifest.getInt("fps_cap") == p.frameCap &&
+                cacheLayout.length() == 3 &&
+                cacheLayout.getString("dxvk_state") == "$ARM_CACHE_DIRECTORY/dxvk" &&
+                cacheLayout.getString("mesa_shader") == "$ARM_CACHE_DIRECTORY/mesa" &&
+                cacheLayout.getString("xdg") == "$ARM_CACHE_DIRECTORY/xdg") {
+                "prepared graphics/cache/display manifest changed after preparation"
+            }
+        }
+    }
+
+    private fun runPatcher(pristine: File, patched: File, workingDir: File, flags: List<String>) {
+        val binary = File(context.applicationInfo.nativeLibraryDir, PATCHER_LIB)
+        check(binary.isFile && binary.canExecute()) { "vanilla-tweaks patcher is absent from nativeLibraryDir" }
+        val cmd = buildList {
+            add(binary.absolutePath)
+            add(pristine.absolutePath)
+            add("-o"); add(patched.absolutePath)
+            addAll(flags)
+        }
+        runCheckedProcess(cmd, workingDir, PATCHER_TIMEOUT_SECONDS)
+    }
+
+    private fun checkPeX86(bytes: ByteArray) {
+        require(ClientTweaksConfig.peMagicOk(bytes)) { "client executable MZ header is invalid" }
+        val peOffset = ByteBuffer.wrap(bytes, 0x3c, 4).order(ByteOrder.LITTLE_ENDIAN).int
+        require(peOffset >= 0 && peOffset + 6 <= bytes.size) { "client PE header is out of range" }
+        require(bytes.copyOfRange(peOffset, peOffset + 4).contentEquals(
+            byteArrayOf('P'.code.toByte(), 'E'.code.toByte(), 0, 0),
+        )) { "client PE signature is invalid" }
+        val machine = ByteBuffer.wrap(bytes, peOffset + 4, 2)
+            .order(ByteOrder.LITTLE_ENDIAN).short.toInt() and 0xffff
+        require(machine == 0x014c) { "client executable is not PE32 x86" }
+    }
+
     companion object {
-        private const val FEXCORE_RUNTIME_SHA256 =
-            "3fc7d01d79c05c60f59cdddf478b2f6de17d641da5e61bc0eb9e396d7039d975"
-        private const val FEXCORE_GLADIO_SHA256 =
-            "378e5bb98a818205da90c5642d8cb38da365c83604f2046293907caa8f0c9075"
+        private const val TAG = "WineRuntimeStore"
+        private const val ARM_PREFIX_MANIFEST_SCHEMA = 2
+        private const val ARM_GENERATIONS_DIRECTORY = "generations"
+        private const val ARM_RETIRED_GENERATIONS_DIRECTORY = "retired-generations"
+        private const val ARM_PREFIX_DIRECTORY = "wine-prefix"
+        private const val ARM_CACHE_DIRECTORY = "cache"
+        private const val ARM_PREFIX_MANIFEST_FILE = "prefix-manifest.json"
+        private const val MAX_RETAINED_INACTIVE_ARM_GENERATIONS = 3
+        private const val MAX_RETAINED_RETIRED_ARM_GENERATIONS = 1
+        private val ARM_CACHE_SUBDIRECTORIES = listOf("dxvk", "mesa", "xdg")
+        private val ARM_GENERATION_NAME = Regex("g-[0-9a-f]{32}")
+        private const val VANILLA_TWEAKS_VERSION = "1.6.0"
+        private const val PATCHER_LIB = "libpocket_vanilla_tweaks.so"
+        private const val PATCHER_TIMEOUT_SECONDS = 120L
+        private const val BOX64_LIBASOUND_SHA256 =
+            "593ff5247c19882402b67f6472711791646ffaec5a4764b061f1eacb999ca3b3"
+        private const val BOX64_ANDROID_ASERVER_SHA256 =
+            "209927b86066863fbe4f3607273577d4af1534036d3b5b59f87b882b15f3346c"
+        private const val BOX64_WINEALSA_SHA256 =
+            "11b0c5cc03dfbbad0370b08264dd480b9927a1ef87e3d642c38046d098579b61"
+        private const val ELF_MACHINE_X86_64 = 0x003e
+        private const val ELF_MACHINE_AARCH64 = 0x00b7
     }
 
     private fun linkArmBuiltins(p: Prepared) {
@@ -716,8 +1461,10 @@ internal class WineRuntimeStore(private val context: Context) {
                 }
             }
         }
-        check(File(p.prefix, "drive_c/windows/syswow64/kernel32.dll").isFile) {
-            "32-bit Wine kernel32 builtin was not linked"
+        for (name in ClientRuntimeContract.ARM_REQUIRED_WINE_GUEST_DLLS) {
+            check(File(p.prefix, "drive_c/windows/syswow64/$name").isFile) {
+                "32-bit Wine system dependency was not linked: $name"
+            }
         }
     }
 
@@ -736,6 +1483,20 @@ internal class WineRuntimeStore(private val context: Context) {
         }
     }
 
+    /** Remove the retired host libGL client from old and newly provisioned rootfs generations. */
+    private fun disableArmOpenGlClient(rootfs: File) {
+        val lib = File(rootfs, "usr/lib")
+        for (name in listOf("libGL.so", "libGL.so.1", "libGL.so.1.7.0")) {
+            val target = File(lib, name)
+            if (Files.exists(target.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+                check(target.delete()) { "retired ARM OpenGL client could not be removed: $name" }
+            }
+        }
+        check(listOf("libGL.so", "libGL.so.1", "libGL.so.1.7.0").none {
+            Files.exists(File(lib, it).toPath(), LinkOption.NOFOLLOW_LINKS)
+        }) { "retired ARM OpenGL client is still present" }
+    }
+
     /** The pinned Winlator payload embeds its original package root in a
      * bounded set of config/ELF strings. The replacement is exactly the same
      * byte length, so no ELF offsets or cache records move. */
@@ -746,8 +1507,8 @@ internal class WineRuntimeStore(private val context: Context) {
         val relativeFiles = listOf(
             "etc/fonts/fonts.conf", "etc/fonts/conf.d/README", "etc/ld.so.cache",
             "etc/pulse/client.conf", "bin/localedef", "bin/locale", "var/db/Makefile",
+            "usr/share/alsa/alsa.conf",
             "usr/lib/libX11.so.6.4.0", "usr/lib/libxcb.so.1.1.0",
-            "usr/lib/libGL.so.1.7.0",
             "opt/wine/bin/wineserver", "opt/wine/lib/wine/x86_64-unix/nsiproxy.so",
             "opt/wine/lib/wine/x86_64-unix/ntdll.so",
         )
@@ -780,7 +1541,7 @@ internal class WineRuntimeStore(private val context: Context) {
             }
             if (relative == "usr/lib/libX11.so.6.4.0" ||
                 relative == "usr/lib/libxcb.so.1.1.0" ||
-                relative == "usr/lib/libGL.so.1.7.0" ||
+                relative == "usr/share/alsa/alsa.conf" ||
                 relative == "opt/wine/bin/wineserver" ||
                 relative == "opt/wine/lib/wine/x86_64-unix/ntdll.so") {
                 val remaining = containsBytes(file.readBytes(), old)
@@ -788,7 +1549,7 @@ internal class WineRuntimeStore(private val context: Context) {
                 requiredPatched++
             }
         }
-        check(requiredPatched == 5) { "required Wine/X11 package-path adaptations are absent" }
+        check(requiredPatched == 5) { "required Wine/X11/ALSA package-path adaptations are absent" }
     }
 
     private fun containsBytes(value: ByteArray, needle: ByteArray): Boolean {
@@ -836,34 +1597,47 @@ internal class WineRuntimeStore(private val context: Context) {
         renderer: String,
         displayProfile: ClientDisplayProfile,
         inputSafeMode: Boolean,
+        audioMode: String,
+        realmEndpoint: RealmEndpoint,
     ) {
         check(p.clientId == ClientRuntimeContract.WOW_5875_ID) { "safe profile target mismatch" }
-        val realmlist = "set realmlist 127.0.0.1\r\n"
+        require(renderer == "dxvk" || renderer == "wined3d") {
+            "unsupported managed renderer: $renderer"
+        }
+        val config = managedConfigText(p, displayProfile, audioMode, realmEndpoint)
+        ClientRealmEndpointProjection.project(File(p.workingDir, "realmlist.wtf"), realmEndpoint)
+        File(p.workingDir, "WTF").mkdirs()
+        writeAtomic(File(p.workingDir, "WTF/Config.wtf"), config)
+        val activeAddons = AddonRuntimeProjector(context).project(p.workingDir, inputSafeMode)
+        val record = JSONObject()
+            .put("schema", 1).put("client_id", p.clientId)
+            .put("renderer", renderer).put("resolution", displayProfile.resolution)
+            .put("fps_cap", p.frameCap).put("audio", audioMode)
+            .put("game_windowed", true).put("game_maximized", displayProfile.gameMaximized)
+            .put("realm_endpoint", realmEndpoint.address)
+            .put("realm_name", if (realmEndpoint.isLoopback) "MaNGOS" else JSONObject.NULL)
+            .put("addon_safe_mode", inputSafeMode)
+            .put("addon_folders", JSONArray(activeAddons))
+            .put("passwords_stored", false).put("source_modified", false)
+        writeAtomic(File(p.workingDir, "managed-safe-profile.json"), record.toString(2))
+    }
+
+    private fun managedConfigText(
+        p: Prepared,
+        displayProfile: ClientDisplayProfile,
+        audioMode: String,
+        realmEndpoint: RealmEndpoint,
+    ): String {
         val gameMaximize = if (displayProfile.gameMaximized) "1" else "0"
-        // WoW 1.12 persists its graphics backend in Config.wtf. The command-line
-        // switch is kept as a compatibility hint, but it is not authoritative for
-        // every build-5875 client. Keep the persisted mode aligned with the
-        // independently selected ARM renderer so OpenGL cannot fall back to D3D.
-        val gameGraphicsApi = when (renderer) {
-            "opengl" -> "opengl"
-            "dxvk", "wined3d" -> "d3d"
-            else -> error("unsupported managed renderer: $renderer")
-        }
-        // Vanilla WoW's M2 shader path is a known OpenGL/Wine failure mode:
-        // the UI and background render while character/object model passes are
-        // absent. Keep this as an OpenGL-only managed fallback so the DXVK/D3D
-        // lane remains unchanged and the experiment is reversible by changing
-        // the selected renderer.
-        val m2ShaderFallback = if (renderer == "opengl") {
-            "SET M2UseShaders \"0\"\n"
-        } else {
-            ""
-        }
-        val config = """SET readTOS "1"
+        val soundOn = audioMode == "on"
+        val soundFlag = if (soundOn) "1" else "0"
+        val soundChannelsLine = if (soundOn) "SET SoundSoftwareChannels \"64\"\n" else ""
+        val realmNameLine = if (realmEndpoint.isLoopback) "SET realmName \"MaNGOS\"\n" else ""
+        return """SET readTOS "1"
 SET readEULA "1"
 SET readScanning "1"
 SET movie "0"
-SET gxApi "$gameGraphicsApi"
+SET gxApi "d3d"
 SET gxResolution "${displayProfile.resolution}"
 SET gxWindowedResolution "${displayProfile.resolution}"
 SET gxWindow "1"
@@ -871,31 +1645,17 @@ SET gxMaximize "$gameMaximize"
 SET gxVSync "0"
 SET gxMultisample "1"
 SET gxMultisampleQuality "0.000000"
-SET maxFPS "${displayProfile.initialFrameCap}"
-SET Sound_EnableAllSound "0"
-SET Sound_EnableMusic "0"
-SET Sound_EnableSFX "0"
-SET Sound_EnableAmbience "0"
+SET maxFPS "${p.frameCap}"
+SET Sound_EnableAllSound "$soundFlag"
+SET Sound_EnableMusic "$soundFlag"
+SET Sound_EnableSFX "$soundFlag"
+SET Sound_EnableAmbience "$soundFlag"
+$soundChannelsLine
 SET ffxGlow "0"
-$m2ShaderFallback
 SET ffxDeath "0"
 SET farclip "177"
-SET realmName "MaNGOS"
+$realmNameLine
 """.replace("\n", "\r\n")
-        writeAtomic(File(p.workingDir, "realmlist.wtf"), realmlist)
-        File(p.workingDir, "WTF").mkdirs()
-        writeAtomic(File(p.workingDir, "WTF/Config.wtf"), config)
-        val activeAddons = AddonRuntimeProjector(context).project(p.workingDir, inputSafeMode)
-        val record = JSONObject()
-            .put("schema", 1).put("client_id", p.clientId)
-            .put("renderer", renderer).put("resolution", displayProfile.resolution)
-            .put("fps_cap", displayProfile.initialFrameCap).put("audio", "off")
-            .put("game_windowed", true).put("game_maximized", displayProfile.gameMaximized)
-            .put("realm_endpoint", "127.0.0.1").put("realm_name", "MaNGOS")
-            .put("addon_safe_mode", inputSafeMode)
-            .put("addon_folders", JSONArray(activeAddons))
-            .put("passwords_stored", false).put("source_modified", false)
-        writeAtomic(File(p.workingDir, "managed-safe-profile.json"), record.toString(2))
     }
 
     private fun materializePeCaches(p: Prepared) {

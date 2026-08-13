@@ -9,9 +9,17 @@ interface SupervisorJournal {
     fun write(snapshot: RuntimeSnapshot)
 }
 interface RuntimeBackend : AutoCloseable {
-    suspend fun preflight(profileId: String): RuntimeActionResult
+    suspend fun preflight(spec: RuntimeLaunchSpec): RuntimeActionResult
     suspend fun observe(component: RuntimeComponent): ComponentObservation
-    suspend fun start(component: RuntimeComponent, owner: ComponentOwner, profileId: String): ComponentObservation
+    suspend fun start(
+        component: RuntimeComponent,
+        owner: ComponentOwner,
+        spec: RuntimeLaunchSpec,
+    ): ComponentObservation
+    suspend fun projectRealmEndpoint(
+        databaseOwner: ComponentOwner,
+        endpoint: RealmEndpoint,
+    ): RuntimeActionResult
     suspend fun stop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult
     suspend fun forceStop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult
     suspend fun saveWorld(owner: ComponentOwner): RuntimeActionResult
@@ -56,13 +64,16 @@ class SecureRuntimeTokenSource : RuntimeTokenSource {
 }
 
 data class RuntimeTimeouts(
-    val databaseStartMs: Long = 120_000,
+    // Fresh ARM bootstrap and the pinned full-world migrations are part of the
+    // production database start stage. The foreground service owns an
+    // unbounded wake lease; this remains a bounded supervisor deadline.
+    val databaseStartMs: Long = 1_800_000,
     val realmStartMs: Long = 30_000,
     val worldStartMs: Long = 120_000,
     val clientStartMs: Long = 90_000,
     val componentStopMs: Long = 60_000,
     val databaseStopMs: Long = 30_000,
-    val recoveryMs: Long = 120_000,
+    val recoveryMs: Long = 1_800_000,
     val botWorldStartMs: Long = 600_000,
 ) {
     fun start(component: RuntimeComponent, botProfile: Boolean = false) = when (component) {

@@ -83,6 +83,8 @@ def main() -> int:
         return rc
 
     outputs = [build / "libwinlator.so", build / "libgladiorenderer.so"]
+    if args.abi == "arm64-v8a":
+        outputs.append(build / "libvortekrenderer.so")
     print(f"\n== artifact ==")
     for so in outputs:
         print(f"  {so} {'OK' if so.is_file() else 'MISSING'} ({so.stat().st_size if so.is_file() else 0} bytes)")

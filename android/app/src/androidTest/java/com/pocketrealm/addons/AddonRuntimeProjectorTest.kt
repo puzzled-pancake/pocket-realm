@@ -2,6 +2,10 @@ package com.pocketrealm.addons
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.pocketrealm.client.ControlScheme
+import com.pocketrealm.client.ControllerAction
+import com.pocketrealm.client.InputProfile
+import com.pocketrealm.client.OverlayControl
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
@@ -64,6 +68,78 @@ class AddonRuntimeProjectorTest {
         }
         assertEquals("keep", marker.readText())
         assertFalse(File(clientRoot, "Interface/AddOns/.pocketrealm-managed.json").exists())
+    }
+
+    @Test
+    fun pocketRealmPadProfileProjectsManagedBindingsAndSafeModeRestoresThem() {
+        val packageRoot = createPackage("PocketRealmPad")
+        writeRegistry("PocketRealmPad", packageRoot)
+        val profile = InputProfile.profileForScheme(
+            ControlScheme.POCKET_REALM_PAD_CAMERA,
+            InputProfile.DEFAULT_ASPECT_IDENTITY,
+        )
+        val projector = AddonRuntimeProjector(context, addonRoot, profile)
+
+        assertEquals(
+            listOf("PocketRealmPad", "PocketRealmPadLauncher"),
+            projector.project(clientRoot, safeMode = false),
+        )
+        val launcher = File(
+            clientRoot,
+            "Interface/AddOns/PocketRealmPadLauncher/PocketRealmPadLauncher.lua",
+        )
+        assertTrue(launcher.isFile)
+        assertTrue(launcher.readText().contains("local wanted = true"))
+        assertTrue(launcher.readText().contains("[\"F8\"]=\"PRP_MOD_BANK\""))
+        assertTrue(launcher.readText().contains("[\"TAB\"]=\"PRP_TARGET_NEXT_ENEMY\""))
+
+        assertEquals(
+            listOf("PocketRealmPadLauncher"),
+            projector.project(clientRoot, safeMode = true),
+        )
+        assertFalse(File(clientRoot, "Interface/AddOns/PocketRealmPad").exists())
+        assertTrue(launcher.readText().contains("local wanted = false"))
+        assertTrue(File(
+            clientRoot,
+            "Interface/AddOns/PocketRealmPadLauncher/PocketRealmPadLauncher.toc",
+        ).readText().contains("OptionalDeps: PocketRealmPad"))
+    }
+
+    @Test
+    fun removingPocketRealmPadRetainsDisabledRestorationHelper() {
+        val packageRoot = createPackage("PocketRealmPad")
+        writeRegistry("PocketRealmPad", packageRoot)
+        val profile = InputProfile.profileForScheme(
+            ControlScheme.POCKET_REALM_PAD,
+            InputProfile.DEFAULT_ASPECT_IDENTITY,
+        )
+        val projector = AddonRuntimeProjector(context, addonRoot, profile)
+        projector.project(clientRoot, safeMode = false)
+
+        File(addonRoot, "registry.json").writeText(
+            JSONObject().put("schema", 1).put("installed", JSONArray()).toString(),
+        )
+        assertEquals(listOf("PocketRealmPadLauncher"), projector.project(clientRoot, safeMode = false))
+        assertFalse(File(clientRoot, "Interface/AddOns/PocketRealmPad").exists())
+        assertTrue(File(
+            clientRoot,
+            "Interface/AddOns/PocketRealmPadLauncher/PocketRealmPadLauncher.lua",
+        ).readText().contains("local wanted = false"))
+    }
+
+    @Test
+    fun `custom overlay PocketRealmPad action enables launcher integration`() {
+        val packageRoot = createPackage("PocketRealmPad")
+        writeRegistry("PocketRealmPad", packageRoot)
+        val profile = InputProfile.DEFAULT.copy(
+            overlayBindings = InputProfile.defaultOverlayBindings() +
+                (OverlayControl.ACTION_1 to ControllerAction.PRP_BANK),
+        )
+        AddonRuntimeProjector(context, addonRoot, profile).project(clientRoot, safeMode = false)
+        assertTrue(File(
+            clientRoot,
+            "Interface/AddOns/PocketRealmPadLauncher/PocketRealmPadLauncher.lua",
+        ).readText().contains("local wanted = true"))
     }
 
     private fun createPackage(folder: String): File {

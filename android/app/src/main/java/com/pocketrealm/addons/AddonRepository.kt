@@ -48,6 +48,7 @@ class AddonRepository private constructor(context: Context) {
         .build()
     private val validator = AddonArchiveValidator()
     private val extractor = AddonArchiveExtractor()
+    private val catalog = AddonCatalog.load(appContext)
     private val registryPublisher = AddonRegistryPublisher(
         registry = registry,
         previousRegistry = previousRegistry,
@@ -70,6 +71,43 @@ class AddonRepository private constructor(context: Context) {
             cancelledNotice = "Installation cancelled. Installed add-ons were not changed.",
         ) { token ->
             installLocked(GitHubRepoRef.parse(repositoryUrl), token)
+        }
+    }
+
+    fun installBundledPocketRealmPad() {
+        launchOperation(
+            errorTitle = "Could not install PocketRealmPad",
+            cancelledNotice = "Installation cancelled. Installed add-ons were not changed.",
+        ) { token ->
+            installBundledLocked(token)
+        }
+    }
+
+    fun checkForUpdates() {
+        launchOperation(errorTitle = "Could not check add-on updates") { token ->
+            val current = loadRegistryStrict(registry)
+            val updates = linkedMapOf<String, String>()
+            current.filter { it.repository.startsWith("https://github.com/", ignoreCase = true) }
+                .forEach { installed ->
+                    token.checkpoint()
+                    mutableState.value = mutableState.value.copy(
+                        operation = AddonOperation(AddonStage.RESOLVING, installed.displayName),
+                        notice = null,
+                        errorTitle = null,
+                        error = null,
+                    )
+                    val latest = resolveGitHub(GitHubRepoRef.parse(installed.repository), token)
+                    if (!latest.commit.equals(installed.commitSha, ignoreCase = true)) {
+                        updates[installed.id] = latest.commit
+                    }
+                }
+            mutableState.value = AddonCatalogState(
+                installed = current,
+                availableUpdates = updates,
+                updatesCheckedAtEpochMs = System.currentTimeMillis(),
+                notice = if (updates.isEmpty()) "Installed GitHub add-ons are up to date."
+                    else "${updates.size} add-on update${if (updates.size == 1) "" else "s"} available.",
+            )
         }
     }
 
@@ -194,19 +232,9 @@ class AddonRepository private constructor(context: Context) {
             errorTitle = null,
             error = null,
         )
-        val repository = getJson("https://api.github.com/repos/${ref.owner}/${ref.repo}", token)
-        require(!repository.optBoolean("archived")) { "This GitHub repository is archived" }
-        val canonical = GitHubRepoRef.parse(repository.getString("html_url"))
-        val defaultBranch = repository.getString("default_branch")
-        val releaseRef = getOptionalJson(
-            "https://api.github.com/repos/${canonical.owner}/${canonical.repo}/releases/latest",
-            token,
-        )?.optString("tag_name")?.takeIf { it.isNotBlank() } ?: defaultBranch
-        val commit = getJson(
-            "https://api.github.com/repos/${canonical.owner}/${canonical.repo}/commits/$releaseRef",
-            token,
-        ).getString("sha")
-        require(Regex("^[0-9a-fA-F]{40}$").matches(commit)) { "GitHub returned an invalid commit identity" }
+        val resolved = resolveGitHub(ref, token)
+        val canonical = resolved.ref
+        val commit = resolved.commit
 
         val archive = File(scratch, "${canonical.id}-${System.nanoTime()}.zip")
         var staging: File? = null
@@ -271,6 +299,105 @@ class AddonRepository private constructor(context: Context) {
             staging?.takeIf { it.exists() }?.deleteRecursively()
             archive.delete()
         }
+    }
+
+    private fun installBundledLocked(token: AddonOperationToken) {
+        token.checkpoint()
+        val bundled = catalog.addon(catalog.addons.first { it.installSource == AddonInstallSource.BUNDLED }.matrixId)
+            ?: error("Bundled add-on catalog entry is missing")
+        mutableState.value = mutableState.value.copy(
+            operation = AddonOperation(AddonStage.VALIDATING, bundled.name),
+            notice = null,
+            errorTitle = null,
+            error = null,
+        )
+        val archive = File(scratch, "pocketrealmpad-${System.nanoTime()}.zip")
+        var staging: File? = null
+        try {
+            appContext.assets.open(catalog.bundledAssetPath).use { input ->
+                FileOutputStream(archive).use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    var copied = 0L
+                    while (true) {
+                        token.checkpoint()
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        copied += count
+                        require(copied <= MAX_DOWNLOAD_BYTES) { "Bundled add-on is unexpectedly large" }
+                        output.write(buffer, 0, count)
+                    }
+                    output.fd.sync()
+                }
+            }
+            val digest = sha256(archive, token)
+            require(digest == catalog.bundledSha256) { "Bundled PocketRealmPad checksum mismatch" }
+            val validated = validator.validate(archive, bundled.name, token::checkpoint)
+            val packageRelative = "packages/${AddonCatalog.BUNDLED_ADDON_ID}/$digest"
+            val finalPackage = File(root, packageRelative)
+            if (!finalPackage.isDirectory) {
+                staging = File(packages, ".staging-${AddonCatalog.BUNDLED_ADDON_ID}-${System.nanoTime()}")
+                check(staging.mkdirs()) { "Bundled add-on staging directory could not be created" }
+                extractor.extract(archive, validated, staging, token::checkpoint)
+            }
+            token.checkpoint()
+            mutableState.value = mutableState.value.copy(
+                operation = AddonOperation(AddonStage.INSTALLING, bundled.name),
+            )
+            val installed = InstalledAddon(
+                id = AddonCatalog.BUNDLED_ADDON_ID,
+                repository = "bundled://PocketRealmPad/${catalog.bundledVersion}",
+                displayName = bundled.name,
+                commitSha = digest,
+                archiveSha256 = digest,
+                installedAtEpochMs = System.currentTimeMillis(),
+                packagePath = packageRelative,
+                folders = validated.addonFolders,
+            )
+            val current = loadRegistryStrict(registry).filterNot { it.id == installed.id } + installed
+            token.beginCommit()
+            mutableState.value = mutableState.value.copy(
+                operation = AddonOperation(AddonStage.INSTALLING, bundled.name, cancellable = false),
+            )
+            var publishedNewPackage = false
+            try {
+                staging?.let { prepared ->
+                    finalPackage.parentFile!!.mkdirs()
+                    check(prepared.renameTo(finalPackage)) { "Bundled add-on could not be published" }
+                    publishedNewPackage = true
+                    staging = null
+                }
+                publishRegistry(current.sortedBy { it.displayName.lowercase(Locale.ROOT) })
+            } catch (failure: Throwable) {
+                if (publishedNewPackage) finalPackage.deleteRecursively()
+                throw failure
+            }
+            runCatching { prunePackages(loadRegistry(registry), loadRegistry(previousRegistry)) }
+            mutableState.value = AddonCatalogState(
+                installed = loadRegistryStrict(registry),
+                notice = "PocketRealmPad ${catalog.bundledVersion} is ready for the next game launch.",
+            )
+        } finally {
+            staging?.takeIf { it.exists() }?.deleteRecursively()
+            archive.delete()
+        }
+    }
+
+    private data class ResolvedGitHub(val ref: GitHubRepoRef, val commit: String)
+
+    private fun resolveGitHub(ref: GitHubRepoRef, token: AddonOperationToken): ResolvedGitHub {
+        val repository = getJson("https://api.github.com/repos/${ref.owner}/${ref.repo}", token)
+        val canonical = GitHubRepoRef.parse(repository.getString("html_url"))
+        val defaultBranch = repository.getString("default_branch")
+        val releaseRef = getOptionalJson(
+            "https://api.github.com/repos/${canonical.owner}/${canonical.repo}/releases/latest",
+            token,
+        )?.optString("tag_name")?.takeIf { it.isNotBlank() } ?: defaultBranch
+        val commit = getJson(
+            "https://api.github.com/repos/${canonical.owner}/${canonical.repo}/commits/$releaseRef",
+            token,
+        ).getString("sha").lowercase(Locale.ROOT)
+        require(Regex("^[0-9a-f]{40}$").matches(commit)) { "GitHub returned an invalid commit identity" }
+        return ResolvedGitHub(canonical, commit)
     }
 
     private fun getJson(url: String, token: AddonOperationToken): JSONObject = execute(url, token) { response ->

@@ -5,8 +5,8 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import com.pocketrealm.log.AppLog
-import com.pocketrealm.supervisor.SinglePlayerCredentialStore
 import com.pocketrealm.supervisor.ComponentOwnership
+import com.pocketrealm.storage.Settings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -59,8 +59,15 @@ class ClientDisplayService : Service() {
         override fun prepare(
             runtimeRoot: String,
             instanceToken: String,
-            singlePlayerAutoLogin: Boolean,
+            autoLoginUsername: String,
+            autoLoginPassword: String,
+            autoLoginTimingJson: String,
+            audioMode: String,
             clientId: String,
+            vulkanDriverId: String,
+            rendererPackageId: String,
+            displayProfileId: String,
+            frameCap: Int,
         ): String = guarded {
             ownership.requireOwner(instanceToken)
             require(clientId == ClientRuntimeContract.WOW_5875_ID) { "unauthorized display client" }
@@ -72,14 +79,49 @@ class ClientDisplayService : Service() {
             }
             releaseInternal()
             runtime = X86DirectWineRuntime(applicationContext)
-            val displayProfile =
-                ClientDisplayProfile.forDevice(Build.SUPPORTED_ABIS.asList(), Build.MODEL)
-            val autoLoginCredentials = if (singlePlayerAutoLogin) {
-                val credentials = requireNotNull(
-                    SinglePlayerCredentialStore(applicationContext).loadProvisioned(),
-                ) { "single-player account is not provisioned" }
-                SinglePlayerAutoLoginCredentials(credentials.username, credentials.password)
-            } else null
+            val displaySelection = ClientDisplayCapabilities.requireSelection(
+                applicationContext, displayProfileId, frameCap,
+            )
+            val arm = Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a"
+            val driverId = vulkanDriverId.takeIf(String::isNotEmpty)
+            val rendererId = rendererPackageId.takeIf(String::isNotEmpty)
+            val driver = if (arm) VulkanDriverCatalog.requireForRequest(driverId) else {
+                require(driverId == null) { "x86 display does not accept an ARM Vulkan driver" }
+                null
+            }
+            val rendererPackage = if (arm) RendererPackageCatalog.requireForRequest(
+                ArmTranslationBackend.BOX64, "dxvk", rendererId,
+            ) else {
+                require(rendererId == null) { "x86 display does not accept an ARM renderer package" }
+                null
+            }
+            if (driver != null && rendererPackage != null) {
+                VulkanDriverCatalog.requireAvailableCompatiblePair(
+                    driver.id,
+                    rendererPackage,
+                    Build.MODEL,
+                    if (driver.kind == VulkanDriverKind.SYSTEM) {
+                        AndroidSystemVulkanProbe.probe()
+                    } else null,
+                )
+            }
+            require(autoLoginUsername.isEmpty() == autoLoginPassword.isEmpty()) {
+                "auto-login identity is incomplete"
+            }
+            val autoLoginCredentials = autoLoginUsername.takeIf { it.isNotEmpty() }?.let {
+                require(it.length in 1..16 && it.all { c -> c.isLetterOrDigit() && c.code < 128 }) {
+                    "auto-login username is invalid"
+                }
+                require(autoLoginPassword.length in 1..16 &&
+                    autoLoginPassword.all { c -> c.isLetterOrDigit() && c.code < 128 }) {
+                    "auto-login password is invalid"
+                }
+                SinglePlayerAutoLoginCredentials(it, autoLoginPassword)
+            }
+            val timings = Settings.AutoLoginTimings.fromControlJson(autoLoginTimingJson)
+            require(audioMode == "off" || audioMode == "on") {
+                "display audio mode is invalid"
+            }
             val display = ClientDisplayHost(
                 context = applicationContext,
                 runtimeRoot = root.absolutePath,
@@ -88,8 +130,13 @@ class ClientDisplayService : Service() {
                     if (id == null) pendingWindow = true
                     else scope.launch { reportVisible(id) }
                 },
-                displayProfile = displayProfile,
+                displayProfile = displaySelection.profile,
+                frameCap = displaySelection.frameCap.fps,
+                vulkanDriverId = driverId,
+                rendererPackageId = rendererId,
                 autoLoginCredentials = autoLoginCredentials,
+                timings = timings,
+                audioEnabled = audioMode == "on",
             )
             host = display
             IntegratedClientDisplay.publish(display)
@@ -108,7 +155,11 @@ class ClientDisplayService : Service() {
                 .put("displayProfile", display.displayProfile.id)
                 .put("virtualWidth", display.displayProfile.virtualWidth)
                 .put("virtualHeight", display.displayProfile.virtualHeight)
-                .put("frameCap", display.displayProfile.initialFrameCap)
+                .put("frameCap", display.frameCap)
+                .put("vulkanDriverId", driverId ?: JSONObject.NULL)
+                .put("rendererPackageId", rendererId ?: JSONObject.NULL)
+                .put("vulkanBridgeReady", display.vulkanBridgeReady)
+                .put("audioMode", audioMode)
                 .put("transportReady", true).put("rendererReady", true)
         }
 
@@ -129,7 +180,11 @@ class ClientDisplayService : Service() {
                 .put("displayProfile", host?.displayProfile?.id ?: "")
                 .put("virtualWidth", host?.displayProfile?.virtualWidth ?: 0)
                 .put("virtualHeight", host?.displayProfile?.virtualHeight ?: 0)
-                .put("frameCap", host?.displayProfile?.initialFrameCap ?: 0))
+                .put("frameCap", host?.frameCap ?: 0)
+                .put("vulkanDriverId", host?.vulkanDriverId ?: "")
+                .put("rendererPackageId", host?.rendererPackageId ?: "")
+                .put("vulkanBridgeReady", host?.vulkanBridgeReady == true)
+                .put("presentationFrameRateHint", host?.presentationFrameRateHint ?: 0f))
         }
 
         override fun requestClose(instanceToken: String): String = guarded {

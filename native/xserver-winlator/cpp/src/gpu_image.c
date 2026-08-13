@@ -122,3 +122,12 @@ Java_com_winlator_renderer_GPUImage_destroyImageKHR(JNIEnv *env, jclass obj, jlo
         eglDestroyImageKHR(eglDisplay, imageKHR);
     }
 }
+
+JNIEXPORT void JNICALL
+Java_com_winlator_renderer_GPUImage_acquireHardwareBuffer(JNIEnv *env, jclass obj,
+                                                          jlong hardwareBufferPtr) {
+    (void)env;
+    (void)obj;
+    AHardwareBuffer* hardwareBuffer = (AHardwareBuffer*)hardwareBufferPtr;
+    if (hardwareBuffer) AHardwareBuffer_acquire(hardwareBuffer);
+}

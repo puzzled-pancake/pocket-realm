@@ -6,6 +6,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BotPolicyTest {
+    @Test fun legacyAdv3IdentitiesRemainDecodableAfterCatalogExpansion() {
+        val old400 = "adv3-b4-g-6y-2-8-8-2-5-a-a-1-5-37-e58c5248"
+        val old600 = "adv3-go-i-6y-2-8-8-1-4-a-a-1-3-1f-6a68f29a"
+
+        assertEquals(400, BotProfiles.find(old400)?.selectedTarget)
+        assertEquals(600, BotProfiles.find(old600)?.selectedTarget)
+        assertEquals(old400, BotProfiles.find(old400)?.id)
+        assertEquals(old600, BotProfiles.find(old600)?.id)
+    }
+
     @Test fun livelyProfileIsExplicitBoundedNearbyBiasedAndKeepsUnsafeServicesDisabled() {
         val profile = BotProfiles.LIVELY_700
         val config = profile.playerbotConfig()
@@ -72,11 +82,120 @@ class BotPolicyTest {
         }
     }
 
-    @Test fun settingsTargetsMapOnlyToMeasuredProfiles() {
-        assertEquals(BotProfiles.LOW_CPU_160, BotProfiles.forRequestedTarget(160))
-        assertEquals(BotProfiles.FRESH_REALM_240, BotProfiles.forRequestedTarget(240))
-        assertEquals(BotProfiles.LIVELY_700, BotProfiles.forRequestedTarget(700))
-        assertEquals(listOf(160, 240, 700), BotProfiles.userSelectable().map { it.selectedTarget })
+    @Test fun settingsExposeGradualEverydayProfilesAndPreserveLegacyIdentities() {
+        assertEquals(BotProfiles.QUIET_25, BotProfiles.forRequestedTarget(25))
+        assertEquals(BotProfiles.TYPICAL_50, BotProfiles.forRequestedTarget(50))
+        assertEquals(BotProfiles.BALANCED_100, BotProfiles.forRequestedTarget(100))
+        assertEquals(BotProfiles.POPULATED_250, BotProfiles.forRequestedTarget(250))
+        assertEquals(BotProfiles.CROWDED_400, BotProfiles.forRequestedTarget(400))
+        assertEquals(BotProfiles.BUSY_600, BotProfiles.forRequestedTarget(600))
+        assertEquals(BotProfiles.LAUNCH_DAY_700, BotProfiles.forRequestedTarget(700))
+        assertEquals(
+            listOf(25, 50, 100, 250, 400, 600, 700),
+            BotProfiles.userSelectable().map { it.selectedTarget },
+        )
+
+        assertEquals(BotProfiles.LOW_CPU_160, BotProfiles.find(BotProfiles.LOW_CPU_160.id))
+        assertEquals(BotProfiles.FRESH_REALM_240, BotProfiles.find(BotProfiles.FRESH_REALM_240.id))
+        assertEquals(BotProfiles.LIVELY_700, BotProfiles.find(BotProfiles.LIVELY_700.id))
+        assertFalse(BotProfiles.LOW_CPU_160.userSelectable)
+        assertFalse(BotProfiles.FRESH_REALM_240.userSelectable)
+        assertFalse(BotProfiles.LIVELY_700.userSelectable)
+    }
+
+    @Test fun intermediateHighPopulationProfilesRampConservativelyAndReduceLocalCrowding() {
+        val crowded = BotProfiles.CROWDED_400
+        val busy = BotProfiles.BUSY_600
+        val launch = BotProfiles.LAUNCH_DAY_700
+
+        assertEquals(400, crowded.selectedTarget)
+        assertEquals(600, busy.selectedTarget)
+        assertEquals(25, crowded.initialTarget)
+        assertEquals(25, busy.initialTarget)
+        assertEquals(4, crowded.activationBatchSize)
+        assertEquals(4, busy.activationBatchSize)
+        assertEquals(2, crowded.loginBatchSize)
+        assertEquals(2, busy.loginBatchSize)
+        assertTrue(crowded.nearPlayerTeleportMaxAmount < busy.nearPlayerTeleportMaxAmount)
+        assertTrue(busy.nearPlayerTeleportMaxAmount < launch.nearPlayerTeleportMaxAmount)
+        assertTrue(crowded.startupRampIntervalMs >= launch.startupRampIntervalMs)
+        assertTrue(busy.startupRampIntervalMs >= launch.startupRampIntervalMs)
+        assertTrue(crowded.accountCount * 9 >= crowded.maximumOnline)
+        assertTrue(busy.accountCount * 9 >= busy.maximumOnline)
+    }
+
+    @Test fun launchDayProfileStartsSmallAndPublishesEveryBehaviorChoiceExplicitly() {
+        val profile = BotProfiles.LAUNCH_DAY_700
+        val config = profile.playerbotConfig()
+
+        assertEquals(25, profile.initialTarget)
+        assertEquals(25, profile.startupIncreaseStep)
+        assertEquals(30_000, profile.startupRampIntervalMs)
+        assertEquals(5, profile.activationBatchSize)
+        assertTrue(profile.displayName.contains("experimental", ignoreCase = true))
+        assertTrue(config.contains("AiPlayerbot.LimitCombatActivity = 1"))
+        assertTrue(config.contains("AiPlayerbot.botActiveAlone = 3"))
+        assertTrue(config.contains("AiPlayerbot.AutoDoQuests = 1"))
+        assertTrue(config.contains("AiPlayerbot.RandomBotSayWithoutMaster = 0"))
+        assertTrue(config.contains("AiPlayerbot.RandomBotInvitePlayer = 0"))
+        assertTrue(config.contains("AiPlayerbot.RandomBotGroupNearby = 1"))
+        assertTrue(config.contains("AiPlayerbot.UseWanderAsDefaultFollowStrategy = 1"))
+        assertTrue(config.contains("AiPlayerbot.EnableOffSpecStrategies = 0"))
+    }
+
+    @Test fun gradualStartupWaitsForOnlineCatchupAndHealthyInterval() {
+        val profile = BotProfiles.TYPICAL_50
+        val controller = BotAdmissionController(profile)
+        fun sample(at: Long, online: Int, p99: Int = 100) = BotResourceSample(
+            elapsedMs = at,
+            onlineBots = online,
+            worldP99Ms = p99,
+            freeMemoryMiB = 4_096,
+            freeStorageMiB = 8_192,
+            thermal = ThermalLevel.NONE,
+        )
+
+        val waiting = controller.observe(sample(0, 0))
+        assertEquals(25, waiting.effectiveTarget)
+        assertEquals("startup-catching-up", waiting.reason)
+        assertFalse(waiting.changed)
+
+        assertFalse(controller.observe(sample(1_000, 25)).changed)
+        val ramped = controller.observe(sample(31_000, 25))
+        assertTrue(ramped.changed)
+        assertEquals(50, ramped.effectiveTarget)
+        assertEquals("startup-complete", ramped.reason)
+    }
+
+    @Test fun startupP99AndModerateThermalPauseTheFastRamp() {
+        val profile = BotProfiles.BALANCED_100
+        val controller = BotAdmissionController(profile)
+        fun sample(at: Long, p99: Int = 100, thermal: ThermalLevel = ThermalLevel.NONE) =
+            BotResourceSample(at, 25, p99, 4_096, 8_192, thermal)
+
+        controller.observe(sample(0))
+        assertEquals("startup-paused:world-p99", controller.observe(sample(30_000, 500)).reason)
+        assertEquals(
+            "startup-paused:thermal-moderate",
+            controller.observe(sample(60_000, thermal = ThermalLevel.MODERATE)).reason,
+        )
+        assertFalse(controller.observe(sample(90_000)).changed)
+        val ramped = controller.observe(sample(120_000))
+        assertTrue(ramped.changed)
+        assertEquals(50, ramped.effectiveTarget)
+    }
+
+    @Test fun behaviorPresetsAreIndependentFromPopulationAndRoundTrip() {
+        val original = BotAdvancedSettings.fromProfile(BotProfiles.POPULATED_250)
+        BotBehaviorPreset.entries.forEach { preset ->
+            val settings = original.withBehaviorPreset(preset)
+            val profile = BotProfiles.advanced(250, settings)
+            val decoded = BotProfiles.find(profile.id)
+
+            assertTrue(settings.matchesBehaviorPreset(preset))
+            assertEquals(profile, decoded)
+            assertEquals(250, decoded?.selectedTarget)
+        }
     }
 
     @Test fun advancedProfileRoundTripsAcrossProcessesAndEmitsOnlyBoundedOverrides() {
@@ -91,6 +210,14 @@ class BotPolicyTest {
             iterationsPerTick = 7,
             admissionWorldP99Ms = 200,
             syncLevelWithPlayers = true,
+            limitCombatActivity = false,
+            activeBotPercent = 8,
+            autoDoQuests = true,
+            allowBotChat = true,
+            allowPlayerInvites = true,
+            groupNearby = true,
+            wanderWhenIdle = true,
+            enableOffSpecStrategies = true,
         )
         val profile = BotProfiles.advanced(500, settings)
         val decoded = BotProfiles.find(profile.id)
@@ -106,6 +233,10 @@ class BotPolicyTest {
         assertEquals(350, profile.nearPlayerTeleportRadius)
         assertEquals(7, profile.iterationsPerTick)
         assertEquals(200, profile.admission.maxWorldP99Ms)
+        assertFalse(profile.limitCombatActivity)
+        assertEquals(8, profile.activeBotPercent)
+        assertTrue(profile.allowBotChat)
+        assertTrue(profile.allowPlayerInvites)
         val config = profile.playerbotConfig()
         assertTrue(config.contains("AiPlayerbot.IterationsPerTick = 7"))
         assertTrue(config.contains("AiPlayerbot.RandomBotsMaxLoginsPerInterval = 6"))

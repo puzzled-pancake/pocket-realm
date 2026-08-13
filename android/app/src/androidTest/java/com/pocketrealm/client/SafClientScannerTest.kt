@@ -17,7 +17,7 @@ class SafClientScannerTest {
         val access = fixture(5875)
         val result = scanner.scan(access)
         assertTrue(result.failures.joinToString(), result.supported)
-        assertTrue(result.warnings.any { it.contains("not on the local evidence allowlist") })
+        assertTrue(result.warnings.any { it.contains("accepted for vanilla launch") })
         assertFalse(result.sourceMutated)
         assertFalse(result.sourceRuntimeDependency)
         assertTrue(access.readCount > 0)

@@ -34,6 +34,10 @@ class DatabaseService : Service() {
         override fun initialize(): String = guarded { engine.initialize() }
         override fun start(): String = guarded { engine.start() }
         override fun queryHealth(): String = guarded { engine.queryHealth() }
+        override fun projectRealmEndpoint(instanceToken: String, address: String, worldPort: Int): String = guarded {
+            ownership.requireOwner(instanceToken)
+            engine.projectRealmEndpoint(address, worldPort)
+        }
         override fun applyPinnedMigrations(): String = guarded { engine.applyPinnedMigrations() }
         override fun stop(): String = guarded { engine.stop() }
         override fun stopOwned(instanceToken: String): String = guarded {

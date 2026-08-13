@@ -33,6 +33,8 @@ data class RuntimeSnapshot(
     val sessionId: String? = null,
     val phase: RuntimePhase = RuntimePhase.STOPPED,
     val requestedProfile: String? = null,
+    val runtimeMode: RuntimeMode = RuntimeMode.LOCAL,
+    val realmEndpoint: RealmEndpoint = RealmEndpoint.LOCAL,
     val clean: Boolean = true,
     val components: Map<RuntimeComponent, ComponentSnapshot> = stoppedComponents(),
     val lastDurableAction: String = "stopped",
@@ -42,7 +44,7 @@ data class RuntimeSnapshot(
     val recoverability: Recoverability = Recoverability.NONE,
 ) {
     companion object {
-        const val JOURNAL_SCHEMA = 2
+        const val JOURNAL_SCHEMA = 3
         fun stoppedComponents(): Map<RuntimeComponent, ComponentSnapshot> =
             RuntimeComponent.entries.associateWith { ComponentSnapshot() }
     }

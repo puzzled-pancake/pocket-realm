@@ -97,6 +97,11 @@ class XServerInputSink(private val xServer: XServer) : InputSink {
 class InputContract(
     private val sink: InputSink,
     private val imeScheduler: ImePulseScheduler = ImePulseScheduler { _, action -> action() },
+    private val imeKeyDwellMs: Long = Companion.IME_KEY_DWELL_MS,
+    private val imeKeyGapMs: Long = Companion.IME_KEY_GAP_MS,
+    private val fieldSettleMs: Long = Companion.AUTO_LOGIN_FIELD_SETTLE_MS,
+    private val pointerDwellMs: Long = Companion.IME_POINTER_DWELL_MS,
+    private val onCameraLockChanged: (Boolean) -> Unit = {},
 ) {
     /** Logical pointer buttons the contract understands. */
     enum class PointerButton { LEFT, MIDDLE, RIGHT }
@@ -126,16 +131,39 @@ class InputContract(
     )
 
     /** Logical axes exposed by Android joystick/gamepad motion events. */
-    enum class GamepadAxis { LEFT_X, LEFT_Y, RIGHT_X, RIGHT_Y, HAT_X, HAT_Y }
+    enum class GamepadAxis {
+        LEFT_X, LEFT_Y, RIGHT_X, RIGHT_Y, HAT_X, HAT_Y, LEFT_TRIGGER, RIGHT_TRIGGER,
+    }
 
     /** Named mappings are selected by the Android-device bridge, never globally. */
-    enum class GamepadLayout { GENERIC, RETROID_POCKET_6 }
+    enum class GamepadLayout { GENERIC, PROFILED, RETROID_POCKET_6, DISABLED }
 
-    /** Per-source pressed state. One entry per Android `deviceId`. */
+    /** Exact physical/synthetic control that owns one logical held input. */
+    private sealed interface ControlOwner {
+        data class AndroidKey(val keyCode: Int) : ControlOwner
+        data class GamepadButton(val keyCode: Int) : ControlOwner
+        data class Axis(val axis: GamepadAxis) : ControlOwner
+        data class DirectPointer(val button: PointerButton) : ControlOwner
+        data object ImePulse : ControlOwner
+        data object CameraLock : ControlOwner
+        data object AutomaticCamera : ControlOwner
+    }
+
+    /** Per-source pressed state. One entry per Android `deviceId` or synthetic source. */
     private data class SourceState(
-        val keys: MutableSet<Int> = sortedMutableSet(),
-        val buttons: MutableSet<PointerButton> = sortedMutableButtonSet(),
+        val keyOwners: MutableMap<ControlOwner, Int> = LinkedHashMap(),
+        val buttonOwners: MutableMap<ControlOwner, PointerButton> = LinkedHashMap(),
         val axisKeys: MutableMap<GamepadAxis, Int?> = java.util.EnumMap(GamepadAxis::class.java),
+        val axisPressed: MutableSet<GamepadAxis> = java.util.EnumSet.noneOf(GamepadAxis::class.java),
+        // Joystick motion is sampled more finely than an integer X pointer can
+        // represent. Retain each sub-pixel remainder instead of truncating it
+        // on every Android sample; otherwise the inner stick travel becomes a
+        // series of dead bands followed by visible one-pixel jumps.
+        var relativeRemainderX: Float = 0f,
+        var relativeRemainderY: Float = 0f,
+        var rightStickX: Float = 0f,
+        var rightStickY: Float = 0f,
+        val cameraToggleOwners: MutableSet<ControlOwner> = LinkedHashSet(),
         var lastSeq: Long = 0L,
     )
 
@@ -156,6 +184,13 @@ class InputContract(
     // concurrent Android dispatch threads.
     private val lock = Any()
     private val sources = LinkedHashMap<Int, SourceState>()
+    /** Number of exact owners currently holding each logical X key/button. */
+    private val logicalKeyOwnerCounts = sortedMapOf<Int, Int>()
+    private val logicalButtonOwnerCounts = java.util.EnumMap<PointerButton, Int>(PointerButton::class.java)
+    private var cameraLocked = false
+    private var cameraLockOwnerSource: Int? = null
+    private var automaticGamepadCameraActive = false
+    private var gamepadPointerFrameTimeNanos = 0L
     private data class ImePulse(
         val keyCode: Int?,
         val metaState: Int = 0,
@@ -292,21 +327,29 @@ class InputContract(
     fun pointerButton(src: Int, button: PointerButton, pressed: Boolean, generation: Long) {
         synchronized(lock) {
             if (!acceptLocked(generation)) return
-            val st = sources.getOrPut(src) { SourceState() }
-            if (pressed) {
-                if (button !in st.buttons) {
-                    st.buttons.add(button)
-                    sink.inject(SinkEvent.PointerButton(button.toSink(), pressed = true))
-                }
-            } else {
-                if (button in st.buttons) {
-                    st.buttons.remove(button)
-                    sink.inject(SinkEvent.PointerButton(button.toSink(), pressed = false))
-                }
-                // Unmatched UP: idempotent cleanup. Do NOT synthesize a DOWN.
-            }
+            pointerButtonLocked(src, ControlOwner.DirectPointer(button), button, pressed)
         }
     }
+
+    /**
+     * Hold or release WoW's right mouse button as a persistent camera mode.
+     * This is deliberately separate from Android pointer capture: it applies to
+     * the RP6 right stick and touch camera region, and one tap replaces a
+     * continuously held shoulder/rear button.
+     */
+    fun setCameraLock(enabled: Boolean, generation: Long, source: Int = CAMERA_LOCK_SOURCE): Boolean =
+        synchronized(lock) {
+            if (!acceptLocked(generation)) return@synchronized cameraLocked
+            setCameraLockLocked(enabled, source)
+        }
+
+    fun toggleCameraLock(generation: Long, source: Int = CAMERA_LOCK_SOURCE): Boolean =
+        synchronized(lock) {
+            if (!acceptLocked(generation)) return@synchronized cameraLocked
+            setCameraLockLocked(!cameraLocked, source)
+        }
+
+    val isCameraLocked: Boolean get() = synchronized(lock) { cameraLocked }
 
     /**
      * Wheel pulse: atomic press+release. Never retained as pressed state, never
@@ -345,9 +388,9 @@ class InputContract(
      * the keycode per source so [releaseAll] can synthesize an UP later. Enforces
      * DOWN-before-UP per source; an unmatched UP is dropped (idempotent cleanup)
      * without synthesizing a phantom DOWN. A duplicate DOWN for an already-held
-     * key still forwards the event (Android may repeat) but does not duplicate
-     * the tracked entry. Returns the sink's boolean result (the production sink
-     * returns `keyboard.onKeyEvent`'s result).
+     * key is idempotent. Ownership is edge-triggered because the X keyboard
+     * retains only one pressed bit per logical key. Returns whether the event
+     * was accepted.
      */
     fun key(src: Int, event: KeyEvent, generation: Long): Boolean {
         synchronized(lock) {
@@ -372,17 +415,7 @@ class InputContract(
         return synchronized(lock) {
             if (!acceptLocked(generation)) return@synchronized false
             val binding = gamepadBinding(keyCode, layout, profile) ?: return@synchronized false
-            when (binding) {
-                is GamepadBinding.Key -> {
-                    if (imeActive) return@synchronized false
-                    keyLocked(
-                        src, KeyEvent(if (pressed) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP, binding.keyCode),
-                        logicalKeyCode = binding.keyCode,
-                        pressedOverride = pressed,
-                    )
-                }
-                is GamepadBinding.Pointer -> pointerButtonLocked(src, binding.button, pressed)
-            }
+            gamepadActionLocked(src, ControlOwner.GamepadButton(keyCode), binding, pressed)
         }
     }
 
@@ -401,50 +434,101 @@ class InputContract(
     ): Boolean {
         synchronized(lock) {
             if (!acceptLocked(generation)) return false
+            if (layout == GamepadLayout.DISABLED) return false
             if (imeActive && axis != GamepadAxis.RIGHT_X && axis != GamepadAxis.RIGHT_Y) {
                 return false
             }
             val bounded = value.coerceIn(-1f, 1f)
             val st = sources.getOrPut(src) { SourceState() }
             val deadZone = profile.deadZone
+            val profiled = layout == GamepadLayout.RETROID_POCKET_6 || layout == GamepadLayout.PROFILED
             when (axis) {
                 GamepadAxis.LEFT_X -> updateAxisKeyLocked(
                     st, axis, bounded, deadZone,
-                    if (layout == GamepadLayout.RETROID_POCKET_6) {
+                    if (profiled) {
                         InputProfile.actionFor(profile, Rp6Control.LEFT_STICK_LEFT).keyCode
                     } else KeyEvent.KEYCODE_A,
-                    if (layout == GamepadLayout.RETROID_POCKET_6) {
+                    if (profiled) {
                         InputProfile.actionFor(profile, Rp6Control.LEFT_STICK_RIGHT).keyCode
                     } else KeyEvent.KEYCODE_D,
                 )
                 GamepadAxis.LEFT_Y -> updateAxisKeyLocked(
                     st, axis, bounded, deadZone,
-                    if (layout == GamepadLayout.RETROID_POCKET_6) {
+                    if (profiled) {
                         InputProfile.actionFor(profile, Rp6Control.LEFT_STICK_UP).keyCode
                     } else KeyEvent.KEYCODE_W,
-                    if (layout == GamepadLayout.RETROID_POCKET_6) {
+                    if (profiled) {
                         InputProfile.actionFor(profile, Rp6Control.LEFT_STICK_DOWN).keyCode
                     } else KeyEvent.KEYCODE_S,
                 )
-                GamepadAxis.RIGHT_X -> injectRelativeAxisLocked(st, axis, bounded, profile.cameraSensitivity, horizontal = true)
-                GamepadAxis.RIGHT_Y -> injectRelativeAxisLocked(st, axis, bounded, profile.cameraSensitivity, horizontal = false)
-                GamepadAxis.HAT_X -> if (layout == GamepadLayout.RETROID_POCKET_6) {
+                GamepadAxis.RIGHT_X -> updateRelativeAxisStateLocked(st, axis, bounded, horizontal = true)
+                GamepadAxis.RIGHT_Y -> updateRelativeAxisStateLocked(st, axis, bounded, horizontal = false)
+                GamepadAxis.HAT_X -> if (profiled) {
                     updateAxisKeyLocked(
                         st, axis, bounded, deadZone,
                         InputProfile.actionFor(profile, Rp6Control.DPAD_LEFT).keyCode,
                         InputProfile.actionFor(profile, Rp6Control.DPAD_RIGHT).keyCode,
                     )
                 }
-                GamepadAxis.HAT_Y -> if (layout == GamepadLayout.RETROID_POCKET_6) {
+                GamepadAxis.HAT_Y -> if (profiled) {
                     updateAxisKeyLocked(
                         st, axis, bounded, deadZone,
                         InputProfile.actionFor(profile, Rp6Control.DPAD_UP).keyCode,
                         InputProfile.actionFor(profile, Rp6Control.DPAD_DOWN).keyCode,
                     )
                 }
+                GamepadAxis.LEFT_TRIGGER -> if (profiled) {
+                    updateAxisActionLocked(
+                        src, st, axis, bounded,
+                        profile.leftTriggerOnThreshold, profile.leftTriggerOffThreshold,
+                        actionBinding(InputProfile.actionFor(profile, Rp6Control.L2)),
+                    )
+                }
+                GamepadAxis.RIGHT_TRIGGER -> if (profiled) {
+                    updateAxisActionLocked(
+                        src, st, axis, bounded,
+                        profile.rightTriggerOnThreshold, profile.rightTriggerOffThreshold,
+                        actionBinding(InputProfile.actionFor(profile, Rp6Control.R2)),
+                    )
+                }
             }
             return true
         }
+    }
+
+    /**
+     * Integrate the latest absolute right-stick state once per display frame.
+     * Android may batch duplicate joystick positions at a device-dependent
+     * report rate; treating each report as displacement makes the camera both
+     * too fast and visibly uneven. A frame clock keeps velocity independent of
+     * report rate and continues smoothly while a held ABS axis is unchanged.
+     */
+    fun pumpGamepadPointer(frameTimeNanos: Long, generation: Long): Boolean = synchronized(lock) {
+        if (!acceptLocked(generation)) return@synchronized false
+        require(frameTimeNanos >= 0L) { "frame time must be non-negative" }
+        syncAutomaticGamepadCameraLocked()
+        val previous = gamepadPointerFrameTimeNanos
+        gamepadPointerFrameTimeNanos = frameTimeNanos
+        if (previous == 0L || frameTimeNanos <= previous) return@synchronized false
+        val elapsedSeconds = ((frameTimeNanos - previous).coerceAtMost(MAX_GAMEPAD_FRAME_NANOS)) /
+            NANOS_PER_SECOND.toFloat()
+        var totalX = 0
+        var totalY = 0
+        for ((_, state) in sources.toSortedMap()) {
+            val xAccumulated = state.rightStickX * profile.cameraSensitivity *
+                GAMEPAD_CAMERA_PIXELS_PER_SECOND * elapsedSeconds + state.relativeRemainderX
+            val yAccumulated = state.rightStickY * profile.cameraSensitivity *
+                GAMEPAD_CAMERA_PIXELS_PER_SECOND * elapsedSeconds + state.relativeRemainderY
+            val dx = xAccumulated.toInt()
+            val dy = yAccumulated.toInt()
+            state.relativeRemainderX = xAccumulated - dx
+            state.relativeRemainderY = yAccumulated - dy
+            totalX += dx
+            totalY += dy
+        }
+        if (totalX == 0 && totalY == 0) return@synchronized false
+        sink.inject(SinkEvent.PointerMoveDelta(totalX, totalY))
+        true
     }
 
     // ---- focus / cleanup --------------------------------------------------
@@ -487,13 +571,9 @@ class InputContract(
         if (!acceptLocked(generation)) return@synchronized
         imeActive = false
         cancelImeQueueLocked()
-        val state = sources.remove(IME_SOURCE)
-        val keys = state?.keys?.toList()?.sorted().orEmpty()
-        for (key in keys) injectAndroidKey(key, pressed = false)
-        val buttons = state?.buttons?.toList()?.sortedWith(BUTTON_RELEASE_ORDER).orEmpty()
-        for (button in buttons) sink.inject(SinkEvent.PointerButton(button.toSink(), pressed = false))
-        releasedKeys.addAndGet(keys.size.toLong())
-        releasedButtons.addAndGet(buttons.size.toLong())
+        val (keys, buttons) = removeSourceLocked(IME_SOURCE)
+        releasedKeys.addAndGet(keys.toLong())
+        releasedButtons.addAndGet(buttons.toLong())
     }
 
     /** True while the IME is open (gameplay keys released; cursor input remains available). */
@@ -541,7 +621,7 @@ class InputContract(
                 val meta = if (m.shift) {
                     KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON
                 } else 0
-                imeQueue.addLast(ImePulse(m.keyCode, meta))
+                imeQueue.addLast(ImePulse(m.keyCode, meta, gapAfterMs = imeKeyGapMs))
             }
             startImeQueueLocked(generation)
             result
@@ -561,7 +641,7 @@ class InputContract(
             if (pendingImePulseCountLocked() + toDelete > MAX_PENDING_IME_PULSES) {
                 return@synchronized 0
             }
-            repeat(toDelete) { imeQueue.addLast(ImePulse(KeyEvent.KEYCODE_DEL, 0)) }
+            repeat(toDelete) { imeQueue.addLast(ImePulse(KeyEvent.KEYCODE_DEL, 0, gapAfterMs = imeKeyGapMs)) }
             startImeQueueLocked(generation)
             toDelete
         }
@@ -572,7 +652,7 @@ class InputContract(
         return synchronized(lock) {
             if (!acceptLocked(generation) || !imeActive) return@synchronized false
             if (pendingImePulseCountLocked() >= MAX_PENDING_IME_PULSES) return@synchronized false
-            imeQueue.addLast(ImePulse(keyCode, 0))
+            imeQueue.addLast(ImePulse(keyCode, 0, gapAfterMs = imeKeyGapMs))
             startImeQueueLocked(generation)
             true
         }
@@ -623,7 +703,7 @@ class InputContract(
             fun enqueueClick(xFraction: Float, yFraction: Float) {
                 imeQueue.addLast(ImePulse(
                     keyCode = null,
-                    gapAfterMs = AUTO_LOGIN_FIELD_SETTLE_MS,
+                    gapAfterMs = fieldSettleMs,
                     pointerX = loginWindowX + (loginWindowWidth * xFraction).toInt(),
                     pointerY = loginWindowY + (loginWindowHeight * yFraction).toInt(),
                 ))
@@ -633,7 +713,7 @@ class InputContract(
                     val meta = if (mapped.shift) {
                         KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON
                     } else 0
-                    imeQueue.addLast(ImePulse(mapped.keyCode, meta))
+                    imeQueue.addLast(ImePulse(mapped.keyCode, meta, gapAfterMs = imeKeyGapMs))
                 }
             }
             enqueueClick(0.50f, 0.523f)
@@ -647,8 +727,9 @@ class InputContract(
     }
 
     private fun noHeldInputLocked(): Boolean = sources.values.none { state ->
-        state.keys.isNotEmpty() || state.buttons.isNotEmpty() ||
-            state.axisKeys.values.any { it != null }
+        state.keyOwners.isNotEmpty() || state.buttonOwners.isNotEmpty() || state.axisPressed.isNotEmpty() ||
+            state.axisKeys.values.any { it != null } || state.cameraToggleOwners.isNotEmpty() ||
+            state.rightStickX != 0f || state.rightStickY != 0f
     }
 
     private fun pendingImePulseCountLocked(): Int =
@@ -672,17 +753,18 @@ class InputContract(
         val pointerY = pulse.pointerY
         if (pointerX != null && pointerY != null) {
             sink.inject(SinkEvent.PointerMove(pointerX, pointerY))
-            state.buttons.add(PointerButton.LEFT)
+            pointerButtonLocked(
+                IME_SOURCE, ControlOwner.ImePulse, PointerButton.LEFT, pressed = true,
+            )
             imeInFlightKey = IME_POINTER_IN_FLIGHT
-            sink.inject(SinkEvent.PointerButton(SinkButton.LEFT, pressed = true))
-            imeScheduler.postDelayed(IME_POINTER_DWELL_MS) {
+            imeScheduler.postDelayed(pointerDwellMs) {
                 synchronized(lock) {
                     if (epoch != imePulseEpoch || !acceptingInput ||
                         generation != activeGeneration || !imeActive) return@synchronized
                     val current = sources[IME_SOURCE]
-                    if (current?.buttons?.remove(PointerButton.LEFT) == true) {
-                        sink.inject(SinkEvent.PointerButton(SinkButton.LEFT, pressed = false))
-                    }
+                    pointerButtonLocked(
+                        IME_SOURCE, ControlOwner.ImePulse, PointerButton.LEFT, pressed = false,
+                    )
                     finishImePulseLocked(pulse, epoch, generation, current)
                 }
             }
@@ -690,26 +772,26 @@ class InputContract(
         }
         val keyCode = requireNotNull(pulse.keyCode)
         val now = android.os.SystemClock.uptimeMillis()
-        state.keys.add(keyCode)
         imeInFlightKey = keyCode
-        sink.inject(SinkEvent.Key(
+        acquireKeyLocked(
+            state,
+            ControlOwner.ImePulse,
+            keyCode,
             KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0, pulse.metaState),
-            logicalKeyCode = keyCode,
-            pressed = true,
-        ))
-        imeScheduler.postDelayed(IME_KEY_DWELL_MS) {
+        )
+        imeScheduler.postDelayed(imeKeyDwellMs) {
             synchronized(lock) {
                 if (epoch != imePulseEpoch || !acceptingInput || generation != activeGeneration || !imeActive) {
                     return@synchronized
                 }
                 val current = sources[IME_SOURCE]
-                if (current?.keys?.remove(keyCode) == true) {
+                if (current != null) {
                     val releaseAt = android.os.SystemClock.uptimeMillis()
-                    sink.inject(SinkEvent.Key(
+                    releaseKeyLocked(
+                        current,
+                        ControlOwner.ImePulse,
                         KeyEvent(releaseAt, releaseAt, KeyEvent.ACTION_UP, keyCode, 0, pulse.metaState),
-                        logicalKeyCode = keyCode,
-                        pressed = false,
-                    ))
+                    )
                 }
                 finishImePulseLocked(pulse, epoch, generation, current)
             }
@@ -722,7 +804,7 @@ class InputContract(
         generation: Long,
         current: SourceState?,
     ) {
-        if (current != null && current.keys.isEmpty() && current.buttons.isEmpty()) {
+        if (current != null && current.keyOwners.isEmpty() && current.buttonOwners.isEmpty()) {
             sources.remove(IME_SOURCE)
         }
         imeInFlightKey = null
@@ -772,36 +854,88 @@ class InputContract(
     fun releaseSource(src: Int, reason: ReleaseReason = ReleaseReason.DEVICE_REMOVED): ReleaseReport =
         synchronized(lock) {
             if (src == IME_SOURCE) cancelImeQueueLocked()
-            val st = sources.remove(src) ?: return ReleaseReport(reason, emptyList(), 0, 0, rejectedStale.get())
-            val buttons = st.buttons.toList().sortedWith(BUTTON_RELEASE_ORDER)
-            for (b in buttons) sink.inject(SinkEvent.PointerButton(b.toSink(), pressed = false))
-            val keys = st.keys.toList().sorted()
-            for (k in keys) injectAndroidKey(k, pressed = false)
-            releasedKeys.addAndGet(keys.size.toLong())
-            releasedButtons.addAndGet(buttons.size.toLong())
-            ReleaseReport(reason, listOf(src), keys.size, buttons.size, rejectedStale.get())
+            val ownsCameraLock = cameraLockOwnerSource == src
+            if (src !in sources && !ownsCameraLock) {
+                return ReleaseReport(reason, emptyList(), 0, 0, rejectedStale.get())
+            }
+            var keys = 0
+            var buttons = 0
+
+            if (ownsCameraLock) {
+                // Transfer RIGHT ownership before dropping the explicit lock.
+                // Otherwise retiring the lock owner emits an UP/DOWN pair even
+                // though another live right stick is already displaced.
+                if (hasDisplacedRightStickSourceLocked(excluding = src) &&
+                    !automaticGamepadCameraActive
+                ) {
+                    setAutomaticGamepadCameraLocked(true)
+                }
+                if (logicalButtonOwnerCounts[PointerButton.RIGHT] == 1) buttons++
+                setCameraLockLocked(false, src)
+            }
+
+            if (src in sources) {
+                val removed = removeSourceLocked(src)
+                keys += removed.first
+                buttons += removed.second
+            }
+
+            // Cleanup may retire an owner that had already activated automatic
+            // camera mode, but it must never activate dormant ABS stick state.
+            // Activation remains exclusively frame-pump driven (apart from the
+            // seamless explicit-lock handoff above).
+            if (automaticGamepadCameraActive && !hasDisplacedRightStickSourceLocked()) {
+                if (logicalButtonOwnerCounts[PointerButton.RIGHT] == 1) buttons++
+                setAutomaticGamepadCameraLocked(false)
+            }
+            releasedKeys.addAndGet(keys.toLong())
+            releasedButtons.addAndGet(buttons.toLong())
+            ReleaseReport(reason, listOf(src), keys, buttons, rejectedStale.get())
                 .also { reportRef.set(it) }
         }
 
+    /** Remove every exact owner for one source, returning actual final X releases. */
+    private fun removeSourceLocked(src: Int): Pair<Int, Int> {
+        val state = sources[src] ?: return 0 to 0
+        var releasedButtonTransitions = 0
+        state.buttonOwners.entries.toList()
+            .sortedWith(compareByDescending<Map.Entry<ControlOwner, PointerButton>> { it.value.ordinal })
+            .forEach { (owner, button) ->
+                if (logicalButtonOwnerCounts[button] == 1) releasedButtonTransitions++
+                check(pointerButtonLocked(src, owner, button, pressed = false)) {
+                    "held pointer owner could not be released"
+                }
+            }
+        var releasedKeyTransitions = 0
+        state.keyOwners.entries.toList().sortedBy { it.value }.forEach { (owner, keyCode) ->
+            if (logicalKeyOwnerCounts[keyCode] == 1) releasedKeyTransitions++
+            check(releaseKeyLocked(state, owner)) { "held key owner could not be released" }
+        }
+        sources.remove(src)
+        return releasedKeyTransitions to releasedButtonTransitions
+    }
+
     private fun releaseAllLocked(reason: ReleaseReason): ReleaseReport {
         cancelImeQueueLocked()
+        gamepadPointerFrameTimeNanos = 0L
         val all = sources.toMap()
         sources.clear()
-        var totalKeys = 0
-        var totalButtons = 0
-        // Release each source in deviceId order; within a source, the fixed
-        // button order (right, middle, left) then keys in keycode order.
-        for ((_, st) in all.toSortedMap()) {
-            val buttons = st.buttons.toList().sortedWith(BUTTON_RELEASE_ORDER)
-            for (b in buttons) sink.inject(SinkEvent.PointerButton(b.toSink(), pressed = false))
-            totalButtons += buttons.size
-            val keys = st.keys.toList().sorted()
-            for (k in keys) injectAndroidKey(k, pressed = false)
-            totalKeys += keys.size
-        }
+        val wasCameraLocked = cameraLocked
+        cameraLocked = false
+        cameraLockOwnerSource = null
+        automaticGamepadCameraActive = false
+        val buttons = logicalButtonOwnerCounts.keys.toList().sortedWith(BUTTON_RELEASE_ORDER)
+        for (button in buttons) sink.inject(SinkEvent.PointerButton(button.toSink(), pressed = false))
+        val totalButtons = buttons.size
+        val keys = logicalKeyOwnerCounts.keys.toList().sorted()
+        for (key in keys) injectAndroidKey(key, pressed = false)
+        val totalKeys = keys.size
+        logicalButtonOwnerCounts.clear()
+        logicalKeyOwnerCounts.clear()
         val report = ReleaseReport(reason, all.keys.toList().sorted(), totalKeys, totalButtons, rejectedStale.get())
         releasedKeys.addAndGet(totalKeys.toLong())
         releasedButtons.addAndGet(totalButtons.toLong())
+        if (wasCameraLocked) onCameraLockChanged(false)
         reportRef.set(report)
         return report
     }
@@ -813,20 +947,56 @@ class InputContract(
         event: KeyEvent,
         logicalKeyCode: Int = event.keyCode,
         pressedOverride: Boolean? = null,
+        owner: ControlOwner = ControlOwner.AndroidKey(event.keyCode),
     ): Boolean {
         val pressed = pressedOverride ?: (event.action == KeyEvent.ACTION_DOWN)
         val state = sources.getOrPut(src) { SourceState() }
-        if (pressed) {
-            state.keys.add(logicalKeyCode)
+        return if (pressed) {
+            acquireKeyLocked(state, owner, logicalKeyCode, event)
         } else {
-            if (logicalKeyCode !in state.keys) return false
-            state.keys.remove(logicalKeyCode)
+            releaseKeyLocked(state, owner, event)
         }
-        sink.inject(SinkEvent.Key(
-            event,
-            logicalKeyCode = logicalKeyCode,
-            pressed = pressed,
-        ))
+    }
+
+    /** Emit only the first logical make across every exact physical owner. */
+    private fun acquireKeyLocked(
+        state: SourceState,
+        owner: ControlOwner,
+        logicalKeyCode: Int,
+        event: KeyEvent,
+    ): Boolean {
+        val existing = state.keyOwners[owner]
+        if (existing != null) return existing == logicalKeyCode
+        state.keyOwners[owner] = logicalKeyCode
+        val count = logicalKeyOwnerCounts[logicalKeyCode] ?: 0
+        logicalKeyOwnerCounts[logicalKeyCode] = count + 1
+        if (count == 0) {
+            sink.inject(SinkEvent.Key(event, logicalKeyCode = logicalKeyCode, pressed = true))
+        }
+        return true
+    }
+
+    /** Emit only the final logical break after the last exact owner releases. */
+    private fun releaseKeyLocked(
+        state: SourceState,
+        owner: ControlOwner,
+        event: KeyEvent? = null,
+    ): Boolean {
+        val logicalKeyCode = state.keyOwners.remove(owner) ?: return false
+        val count = checkNotNull(logicalKeyOwnerCounts[logicalKeyCode]) {
+            "logical key owner count is absent"
+        }
+        check(count > 0) { "logical key owner count underflow" }
+        if (count == 1) {
+            logicalKeyOwnerCounts.remove(logicalKeyCode)
+            if (event != null) {
+                sink.inject(SinkEvent.Key(event, logicalKeyCode = logicalKeyCode, pressed = false))
+            } else {
+                injectAndroidKey(logicalKeyCode, pressed = false)
+            }
+        } else {
+            logicalKeyOwnerCounts[logicalKeyCode] = count - 1
+        }
         return true
     }
 
@@ -876,45 +1046,170 @@ class InputContract(
         }
         val previous = state.axisKeys[axis]
         if (previous == next) return
-        previous?.let { emitSyntheticKeyLocked(state, it, KeyEvent.ACTION_UP) }
-        next?.let { emitSyntheticKeyLocked(state, it, KeyEvent.ACTION_DOWN) }
+        val owner = ControlOwner.Axis(axis)
+        previous?.let {
+            releaseKeyLocked(state, owner, KeyEvent(KeyEvent.ACTION_UP, it))
+        }
+        next?.let {
+            acquireKeyLocked(state, owner, it, KeyEvent(KeyEvent.ACTION_DOWN, it))
+        }
         state.axisKeys[axis] = next
     }
 
-    private fun injectRelativeAxisLocked(
+    private fun updateRelativeAxisStateLocked(
         state: SourceState,
         axis: GamepadAxis,
         value: Float,
-        sensitivity: Float,
         horizontal: Boolean,
     ) {
-        val delta = (value * sensitivity * GAMEPAD_CAMERA_SCALE).toInt()
-        if (delta == 0) return
-        // Keep the axis entry present so releaseSource/releaseAll can clear a
-        // future extension without inventing a key release for relative motion.
+        var adjusted = applyDeadZone(value, profile.rightStickDeadZone)
+        if (horizontal && profile.invertCameraX) adjusted = -adjusted
+        if (!horizontal && profile.invertCameraY) adjusted = -adjusted
+        if (adjusted == 0f) {
+            // Do not let a fraction retained before the stick returned to
+            // neutral become a delayed cursor movement on the next gesture.
+            if (horizontal) state.relativeRemainderX = 0f else state.relativeRemainderY = 0f
+        }
+        if (horizontal) {
+            state.rightStickX = adjusted
+        } else {
+            state.rightStickY = adjusted
+        }
+        // Keep the axis entry present without inventing a key release.
         state.axisKeys.putIfAbsent(axis, null)
-        if (horizontal) sink.inject(SinkEvent.PointerMoveDelta(delta, 0))
-        else sink.inject(SinkEvent.PointerMoveDelta(0, delta))
     }
 
-    private fun emitSyntheticKeyLocked(state: SourceState, keyCode: Int, action: Int) {
-        if (action == KeyEvent.ACTION_DOWN) state.keys.add(keyCode) else state.keys.remove(keyCode)
-        sink.inject(SinkEvent.Key(
-            KeyEvent(action, keyCode),
-            logicalKeyCode = keyCode,
-            pressed = action == KeyEvent.ACTION_DOWN,
-        ))
+    /**
+     * A controller right stick is camera input, not an absolute mouse. Hold
+     * WoW's right button only while a stick is outside its dead zone so camera
+     * look works without a separate lock/hold control. Manual right-button and
+     * optional explicit camera-lock sources remain independently reference
+     * counted by [pointerButtonLocked].
+     */
+    private fun syncAutomaticGamepadCameraLocked() {
+        val shouldHold = !imeActive && hasDisplacedRightStickSourceLocked()
+        if (shouldHold == automaticGamepadCameraActive) return
+        setAutomaticGamepadCameraLocked(shouldHold)
     }
 
-    private fun pointerButtonLocked(src: Int, button: PointerButton, pressed: Boolean): Boolean {
+    private fun hasDisplacedRightStickSourceLocked(excluding: Int? = null): Boolean =
+        sources.any { (source, state) ->
+            source >= 0 && source != excluding &&
+                (state.rightStickX != 0f || state.rightStickY != 0f)
+        }
+
+    private fun setAutomaticGamepadCameraLocked(enabled: Boolean) {
+        if (enabled == automaticGamepadCameraActive) return
+        automaticGamepadCameraActive = enabled
+        pointerButtonLocked(
+            AUTO_GAMEPAD_CAMERA_SOURCE,
+            ControlOwner.AutomaticCamera,
+            PointerButton.RIGHT,
+            pressed = enabled,
+        )
+    }
+
+    private fun pointerButtonLocked(
+        src: Int,
+        owner: ControlOwner,
+        button: PointerButton,
+        pressed: Boolean,
+    ): Boolean {
         val state = sources.getOrPut(src) { SourceState() }
         if (pressed) {
-            if (!state.buttons.add(button)) return false
-        } else if (!state.buttons.remove(button)) {
-            return false
+            val existing = state.buttonOwners[owner]
+            if (existing != null) return existing == button
+            state.buttonOwners[owner] = button
+            val count = logicalButtonOwnerCounts[button] ?: 0
+            logicalButtonOwnerCounts[button] = count + 1
+            if (count == 0) {
+                sink.inject(SinkEvent.PointerButton(button.toSink(), pressed = true))
+            }
+        } else {
+            val logical = state.buttonOwners.remove(owner) ?: return false
+            check(logical == button) { "pointer owner changed logical button while held" }
+            val count = checkNotNull(logicalButtonOwnerCounts[button]) {
+                "logical pointer owner count is absent"
+            }
+            check(count > 0) { "logical pointer owner count underflow" }
+            if (count == 1) {
+                logicalButtonOwnerCounts.remove(button)
+                sink.inject(SinkEvent.PointerButton(button.toSink(), pressed = false))
+            } else {
+                logicalButtonOwnerCounts[button] = count - 1
+            }
         }
-        sink.inject(SinkEvent.PointerButton(button.toSink(), pressed))
         return true
+    }
+
+    private fun setCameraLockLocked(enabled: Boolean, source: Int): Boolean {
+        if (cameraLocked == enabled) return cameraLocked
+        cameraLocked = enabled
+        if (enabled) {
+            cameraLockOwnerSource = source
+            pointerButtonLocked(
+                CAMERA_LOCK_SOURCE, ControlOwner.CameraLock, PointerButton.RIGHT, pressed = true,
+            )
+        } else {
+            cameraLockOwnerSource = null
+            pointerButtonLocked(
+                CAMERA_LOCK_SOURCE, ControlOwner.CameraLock, PointerButton.RIGHT, pressed = false,
+            )
+        }
+        onCameraLockChanged(cameraLocked)
+        return cameraLocked
+    }
+
+    private fun gamepadActionLocked(
+        src: Int,
+        owner: ControlOwner,
+        binding: GamepadBinding,
+        pressed: Boolean,
+    ): Boolean =
+        when (binding) {
+            is GamepadBinding.Key -> {
+                if (imeActive) false else keyLocked(
+                    src,
+                    KeyEvent(if (pressed) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP, binding.keyCode),
+                    logicalKeyCode = binding.keyCode,
+                    pressedOverride = pressed,
+                    owner = owner,
+                )
+            }
+            is GamepadBinding.Pointer -> pointerButtonLocked(src, owner, binding.button, pressed)
+            GamepadBinding.CameraLock -> if (imeActive) false else {
+                val state = sources.getOrPut(src) { SourceState() }
+                if (pressed) {
+                    if (state.cameraToggleOwners.add(owner)) {
+                        setCameraLockLocked(!cameraLocked, src)
+                    }
+                    true
+                } else {
+                    state.cameraToggleOwners.remove(owner)
+                }
+            }
+        }
+
+    private fun updateAxisActionLocked(
+        src: Int,
+        state: SourceState,
+        axis: GamepadAxis,
+        value: Float,
+        onThreshold: Float,
+        offThreshold: Float,
+        binding: GamepadBinding?,
+    ) {
+        val wasPressed = axis in state.axisPressed
+        val pressed = if (wasPressed) value > offThreshold else value >= onThreshold
+        if (pressed == wasPressed) return
+        if (pressed) state.axisPressed.add(axis) else state.axisPressed.remove(axis)
+        binding?.let { gamepadActionLocked(src, ControlOwner.Axis(axis), it, pressed) }
+    }
+
+    private fun applyDeadZone(value: Float, deadZone: Float): Float {
+        val magnitude = kotlin.math.abs(value)
+        if (magnitude <= deadZone) return 0f
+        return kotlin.math.sign(value) * ((magnitude - deadZone) / (1f - deadZone)).coerceIn(0f, 1f)
     }
 
     private fun PointerButton.toSink(): SinkButton = when (this) {
@@ -932,10 +1227,6 @@ class InputContract(
         private val BUTTON_RELEASE_ORDER: Comparator<PointerButton> =
             compareByDescending<PointerButton> { it.ordinal }
 
-        private fun sortedMutableSet(): MutableSet<Int> = java.util.TreeSet()
-        private fun sortedMutableButtonSet(): MutableSet<PointerButton> =
-            java.util.TreeSet(compareByDescending { it.ordinal })
-
         /** Synthetic source id for IME-committed text injection. */
         internal const val IME_SOURCE: Int = -2
         internal const val IME_KEY_DWELL_MS: Long = 50L
@@ -943,12 +1234,27 @@ class InputContract(
         internal const val AUTO_LOGIN_FIELD_SETTLE_MS: Long = 300L
         internal const val IME_POINTER_DWELL_MS: Long = 80L
         private const val IME_POINTER_IN_FLIGHT: Int = -3
+        internal const val CAMERA_LOCK_SOURCE: Int = -4
+        internal const val AUTO_GAMEPAD_CAMERA_SOURCE: Int = -5
         internal const val MAX_PENDING_IME_PULSES: Int = 256
-        private const val GAMEPAD_CAMERA_SCALE = 8f
+        private const val GAMEPAD_CAMERA_PIXELS_PER_SECOND = 8f * 60f
+        private const val MAX_GAMEPAD_FRAME_NANOS = 50_000_000L
+        private const val NANOS_PER_SECOND = 1_000_000_000L
 
         private sealed class GamepadBinding {
             data class Key(val keyCode: Int) : GamepadBinding()
             data class Pointer(val button: PointerButton) : GamepadBinding()
+            data object CameraLock : GamepadBinding()
+        }
+
+        private fun actionBinding(action: ControllerAction): GamepadBinding? {
+            action.keyCode?.let { return GamepadBinding.Key(it) }
+            action.pointer?.let { pointer ->
+                return GamepadBinding.Pointer(
+                    if (pointer == ControlPointer.LEFT) PointerButton.LEFT else PointerButton.RIGHT,
+                )
+            }
+            return if (action.cameraLockToggle) GamepadBinding.CameraLock else null
         }
 
         private fun gamepadBinding(
@@ -956,12 +1262,13 @@ class InputContract(
             layout: GamepadLayout,
             profile: InputProfile,
         ): GamepadBinding? {
-            if (layout == GamepadLayout.RETROID_POCKET_6) {
-                val control = when (keyCode) {
-                    KeyEvent.KEYCODE_BUTTON_A -> Rp6Control.FACE_BOTTOM
-                    KeyEvent.KEYCODE_BUTTON_X -> Rp6Control.FACE_LEFT
-                    KeyEvent.KEYCODE_BUTTON_Y -> Rp6Control.FACE_TOP
-                    KeyEvent.KEYCODE_BUTTON_B -> Rp6Control.FACE_RIGHT
+            if (layout == GamepadLayout.DISABLED) return null
+            if (layout == GamepadLayout.RETROID_POCKET_6 || layout == GamepadLayout.PROFILED) {
+                val faceLayout = if (
+                    layout == GamepadLayout.RETROID_POCKET_6 &&
+                    profile.controllerFamily == ControllerFamily.AUTO
+                ) FaceButtonLayout.RP6_PRINTED else profile.faceButtonLayout
+                val control = faceControlForKeyCode(keyCode, faceLayout) ?: when (keyCode) {
                     KeyEvent.KEYCODE_DPAD_DOWN -> Rp6Control.DPAD_DOWN
                     KeyEvent.KEYCODE_DPAD_LEFT -> Rp6Control.DPAD_LEFT
                     KeyEvent.KEYCODE_DPAD_UP -> Rp6Control.DPAD_UP
@@ -978,16 +1285,28 @@ class InputContract(
                     KeyEvent.KEYCODE_BUTTON_Z -> Rp6Control.REAR_RIGHT
                     else -> null
                 } ?: return null
-                val action = InputProfile.actionFor(profile, control)
-                action.keyCode?.let { return GamepadBinding.Key(it) }
-                return when (action.pointer) {
-                    ControlPointer.LEFT -> GamepadBinding.Pointer(PointerButton.LEFT)
-                    ControlPointer.RIGHT -> GamepadBinding.Pointer(PointerButton.RIGHT)
-                    null -> null
-                }
+                return actionBinding(InputProfile.actionFor(profile, control))
             }
             return logicalGamepadKey(keyCode)?.let(GamepadBinding::Key)
         }
+
+        internal fun faceControlForKeyCode(keyCode: Int, layout: FaceButtonLayout): Rp6Control? =
+            when (layout) {
+                FaceButtonLayout.ANDROID_STANDARD -> when (keyCode) {
+                    KeyEvent.KEYCODE_BUTTON_A -> Rp6Control.FACE_BOTTOM
+                    KeyEvent.KEYCODE_BUTTON_X -> Rp6Control.FACE_LEFT
+                    KeyEvent.KEYCODE_BUTTON_Y -> Rp6Control.FACE_TOP
+                    KeyEvent.KEYCODE_BUTTON_B -> Rp6Control.FACE_RIGHT
+                    else -> null
+                }
+                FaceButtonLayout.RP6_PRINTED -> when (keyCode) {
+                    KeyEvent.KEYCODE_BUTTON_A -> Rp6Control.FACE_RIGHT
+                    KeyEvent.KEYCODE_BUTTON_B -> Rp6Control.FACE_BOTTOM
+                    KeyEvent.KEYCODE_BUTTON_Y -> Rp6Control.FACE_LEFT
+                    KeyEvent.KEYCODE_BUTTON_X -> Rp6Control.FACE_TOP
+                    else -> null
+                }
+            }
 
         internal fun logicalGamepadKey(keyCode: Int): Int? = when (keyCode) {
             KeyEvent.KEYCODE_BUTTON_A -> KeyEvent.KEYCODE_SPACE

@@ -56,15 +56,24 @@ bool RingBuffer_hasStatus(RingBuffer* ring, uint32_t status) {
 }
 
 RingBuffer* RingBuffer_create(int shmFd, uint32_t bufferSize) {
-    RingBuffer* ring = calloc(1, sizeof(RingBuffer));
-
     STRUCT_OFFSETS();
+    if (shmFd < 0 || bufferSize == 0 ||
+            (bufferSize & (bufferSize - 1u)) != 0 ||
+            bufferSize > UINT32_MAX - (uint32_t)offsetof(struct Offsets, buffer)) {
+        return NULL;
+    }
+    RingBuffer* ring = calloc(1, sizeof(RingBuffer));
+    if (!ring) return NULL;
 
     int shmSize = RingBuffer_getSHMemSize(bufferSize);
     void* sharedData = mmap(NULL, shmSize, PROT_READ | PROT_WRITE, MAP_SHARED, shmFd, 0);
-    if (sharedData == MAP_FAILED) return NULL;
+    if (sharedData == MAP_FAILED) {
+        free(ring);
+        return NULL;
+    }
     memset(sharedData, 0, shmSize);
 
+    ring->sharedData = sharedData;
     ring->head = sharedData + offsetof(struct Offsets, head);
     ring->tail = sharedData + offsetof(struct Offsets, tail);
     ring->status = sharedData + offsetof(struct Offsets, status);
@@ -76,16 +85,21 @@ RingBuffer* RingBuffer_create(int shmFd, uint32_t bufferSize) {
 }
 
 uint32_t RingBuffer_size(RingBuffer* ring) {
+    if (!ring) return 0;
     return RingBuffer_getTail(ring) - RingBuffer_getHead(ring);
 }
 
 uint32_t RingBuffer_freeSpace(RingBuffer* ring) {
-    return ring->bufferSize - RingBuffer_size(ring);
+    if (!ring) return 0;
+    const uint32_t used = RingBuffer_size(ring);
+    return used <= ring->bufferSize ? ring->bufferSize - used : 0;
 }
 
 bool RingBuffer_read(RingBuffer* ring, void* data, uint32_t size) {
-    if (size > ring->bufferSize) {
-        debug_printf("ring: buffer overflow on read (%d/%d)\n", size, ring->bufferSize);
+    if (!ring || !ring->buffer || (size != 0 && !data) ||
+            size > ring->bufferSize) {
+        debug_printf("ring: invalid read (%u/%u)\n", size,
+                ring ? ring->bufferSize : 0u);
         return false;
     }
 
@@ -107,8 +121,10 @@ bool RingBuffer_read(RingBuffer* ring, void* data, uint32_t size) {
 }
 
 bool RingBuffer_write(RingBuffer* ring, const void* data, uint32_t size) {
-    if (size > ring->bufferSize) {
-        debug_printf("ring: buffer overflow on write (%d/%d)\n", size, ring->bufferSize);
+    if (!ring || !ring->buffer || (size != 0 && !data) ||
+            size > ring->bufferSize) {
+        debug_printf("ring: invalid write (%u/%u)\n", size,
+                ring ? ring->bufferSize : 0u);
         return false;
     }
 
@@ -126,6 +142,43 @@ bool RingBuffer_write(RingBuffer* ring, const void* data, uint32_t size) {
     }
 
     RingBuffer_setTail(ring, tail + size);
+    return true;
+}
+
+static void RingBuffer_copyAt(
+        RingBuffer* ring, uint32_t position, const void* source, uint32_t size) {
+    if (size == 0) return;
+    const uint32_t offset = position & (ring->bufferSize - 1u);
+    uint8_t* destination = (uint8_t*)ring->buffer;
+    const uint8_t* bytes = (const uint8_t*)source;
+    if (offset + size <= ring->bufferSize) {
+        memcpy(destination + offset, bytes, size);
+    }
+    else {
+        const uint32_t first = ring->bufferSize - offset;
+        memcpy(destination + offset, bytes, first);
+        memcpy(destination, bytes + first, size - first);
+    }
+}
+
+bool RingBuffer_writeFrame(
+        RingBuffer* ring,
+        const void* header,
+        uint32_t headerSize,
+        const void* data,
+        uint32_t dataSize) {
+    if (!ring || !ring->buffer || !header || headerSize == 0 ||
+            (dataSize != 0 && !data) ||
+            headerSize > ring->bufferSize ||
+            dataSize > ring->bufferSize - headerSize) {
+        return false;
+    }
+    const uint32_t total = headerSize + dataSize;
+    if (!RingBuffer_waitForWrite(ring, total)) return false;
+    const uint32_t tail = RingBuffer_getTail(ring);
+    RingBuffer_copyAt(ring, tail, header, headerSize);
+    RingBuffer_copyAt(ring, tail + headerSize, data, dataSize);
+    RingBuffer_setTail(ring, tail + total);
     return true;
 }
 
@@ -148,6 +201,7 @@ void RingBuffer_free(RingBuffer* ring) {
 }
 
 bool RingBuffer_waitForRead(RingBuffer* ring, uint32_t size) {
+    if (!ring || size > ring->bufferSize) return false;
     uint32_t busyWaitIter = 0;
     do {
         if (RingBuffer_size(ring) >= size) break;
@@ -159,6 +213,7 @@ bool RingBuffer_waitForRead(RingBuffer* ring, uint32_t size) {
 }
 
 bool RingBuffer_waitForWrite(RingBuffer* ring, uint32_t size) {
+    if (!ring || size > ring->bufferSize) return false;
     uint32_t busyWaitIter = 0;
     do {
         if (RingBuffer_freeSpace(ring) >= size) break;

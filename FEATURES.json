@@ -399,7 +399,7 @@
         "Native ARM64 database/realmd/mangosd no-bot startup, save, stop, dirty recovery, and 4 KB/16 KB checks match the x86 contracts",
         "The x86 database backup and managed client require no architecture-specific destructive migration"
       ],
-      "notes": "Bounded ARM64 parity work is permitted to supply the provider needed for final O14 RP6 acceptance; this does not close O14 or G5. ARM OpenSSL/Boost/SQLite, core realm/runtime, packaging, X-server, O09 realm, O11 extractor, and the official Termux aarch64 MariaDB package conversion now pass in isolated arm64-v8a roots with provenance/lockfiles. The database-only qualification APK is reproducibly assembled with -PpocketAbi=arm64-v8a -PpocketLane=database and its hash is recorded in native/.build-arm64/mariadb-staging/databaseRuntime-apk-manifest.json; it is provider evidence only, not a game APK. The full laboratory lane now packages independently selectable Box64/FEXCore translators and DXVK/Client-OpenGL renderers. FEXCore is native Bionic Proton 9 ARM64EC with pinned FEXCore 2608 WoW64 DLLs, not ordinary Linux FEX; Client OpenGL uses a source-matched Bionic ARM64 Gladio bridge. The exact built FEXCore runtime and Gladio hashes are recorded in PROGRESS.md and generated provenance. This matrix is built but has no RP6 launch, visual, lifecycle, input, or sustained-performance acceptance. The converted MariaDB provider still needs RP6 initialization/recovery and integrated server evidence. Final O14 still requires the report-defined real-client UX-T01 through UX-T08 and named physical-peripheral evidence.",
+      "notes": "Bounded ARM64 parity work is permitted to supply the provider needed for final O14 RP6 acceptance; this does not close O14 or G5. ARM OpenSSL/Boost/SQLite, core realm/runtime, packaging, X-server, O09 realm, O11 extractor, and the official Termux aarch64 MariaDB package conversion now pass in isolated arm64-v8a roots with provenance/lockfiles. The database-only qualification APK is reproducibly assembled with -PpocketAbi=arm64-v8a -PpocketLane=database and its hash is recorded in native/.build-arm64/mariadb-staging/databaseRuntime-apk-manifest.json; it is provider evidence only, not a game APK. ARM client production now has exactly one route: Box64 plus pinned Wine WoW64 and an explicit DXVK/Turnip package. FEXCore and client OpenGL were removed from settings, control, runtime, assets, and validation; old selections migrate to Box64 + DXVK. This route still has no RP6 launch, visual, lifecycle, input, or sustained-performance acceptance. The converted MariaDB provider still needs RP6 initialization/recovery and integrated server evidence. Final O14 still requires the report-defined real-client UX-T01 through UX-T08 and named physical-peripheral evidence.",
       "evidence": [],
       "reference": "Report sections 11, 12, and 21.1/21.6"
     },
@@ -437,7 +437,7 @@
       ],
       "plan": "PLAN.md - Gate G5",
       "acceptance": [
-        "WineD3D safe mode and DXVK/driver candidates are separately selectable, reported, and tested without silent fallback",
+        "ARM uses only an exact pinned Box64 + DXVK/driver tuple and fails closed without WineD3D or client-OpenGL fallback",
         "Zero/25-bot sessions pass on the reference RP6/Adreno profile; claimed Mali support passes its own complete profile",
         "Frame/world timing, PSS, storage/cache, audio, battery, thermal, and input metrics are retained by exact device/runtime/profile",
         "The controller reduces optional quality/load without weakening durability, current gameplay, or visible/party/combat bots"
@@ -549,6 +549,26 @@
       "notes": "",
       "evidence": [],
       "reference": "Report sections 1.5-1.6, 25.7, 27.4, and Appendix F"
+    },
+    {
+      "id": "O23",
+      "track": "offline",
+      "priority": 230,
+      "title": "Toggleable vanilla-tweaks, user-chosen realm account auto-login, and (plumbed) game audio",
+      "status": "pending",
+      "depends": [
+        "O14"
+      ],
+      "plan": "fixed/PLAN-vanilla-tweaks-autologin.md",
+      "acceptance": [
+        "Toggling a client tweak regenerates a root-level WoW.exe.patched whose sidecar matches and the pristine WoW.exe sha256 is unchanged",
+        "A user-chosen account is stored on ACCOUNT_CREATED and auto-logs in on the next client launch; the random bot identity is the fallback only",
+        "Custom auto-login timings flow through ClientDisplayHost -> InputContract/SinglePlayerAutoLogin and the password never enters logs/journal/evidence",
+        "audioMode defaults to OFF; the ALSA backend (M3.1+M3.2) is qualified on-device (M3.4) before the default is flipped to ON"
+      ],
+      "notes": "JVM/Kotlin track (Milestone 1) and native patcher cross-compile for both ABIs (Milestone 2) are implemented and verified via assembleDebug + testDebugUnitTest. M3 audio was re-implemented per plan A.7 after a first attempt was stripped: the ca3d735 alsaserver is vendored into runtime/xserver-winlator (reusing libwinlator's XConnectorEpoll + SysVSharedMemory for mandatory SHM), paired with the upstream android_aserver plugin rebuilt by tools/build_alsa_plugin.py; the ALSA config uses the stock alsa.conf + an android_aserver .asoundrc overlay with explicit ALSA_CONFIG_PATH (fixing the prior config-replacement failure). The server runs in ClientDisplayHost; the Box64 lane wires ANDROID_ALSA_SERVER/ALSA_PLUGIN_DIR/ALSA_CONFIG_PATH/ANDROID_ASERVER_USE_SHM. Host assembleDebug + testDebugUnitTest pass. Remaining (device-gated): build the plugin .so (Docker), re-stage, reinstall assembleRealmRuntime, then on-device M3.4 qualification before flipping default ON. ClientTweaksConfig.expectedOriginalBytes() stays empty until populated empirically from a real enUS-5875 binary; until then the patch step safely declines.",
+      "evidence": [],
+      "reference": "DECISIONS.md O23 overlay; native/vanilla-tweaks/BUILD_PROVENANCE.json"
     },
     {
       "id": "C01",
@@ -688,7 +708,7 @@
       ],
       "plan": "PLAN.md ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Milestone B3",
       "acceptance": [
-        "Gameplay/economy/protocol invariants remain enforced under Box64/FEX/Wine",
+        "Gameplay/economy/protocol invariants remain enforced under Box64/Wine",
         "Unreliable memory/renderer/timing checks are disabled or evidence-only, not global anti-cheat",
         "Observe/correct/kick policy is calibrated with false-positive evidence"
       ],

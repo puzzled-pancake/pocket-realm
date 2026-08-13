@@ -4,6 +4,8 @@ Last verified implementation milestone: `O13 — G4 measured 25-playerbot tier o
 
 Active feature: `O14 — G4 touch, gamepad, keyboard/mouse, IME, and minimal addon UX` (active)
 
+Parallel in-progress overlay: `O23 — vanilla-tweaks client patcher + audio` (uncommitted on this working tree; no release gate promoted).
+
 Current gate: `G4 — bots and mobile input UX`. G0 production packaging, G1 direct-client proof, G2 native realm baseline, and G3 integrated x86 application are complete on their stated lanes; O13's 25-bot soak is qualified on the large lane but its remaining sub-acceptance paths are still open.
 
 Plan/reference alignment: `3 August 2026`
@@ -485,9 +487,13 @@ stale-callback cancellation, and clean Wine-probe exit. The exact host suite
 also passed 99 tests with zero failures. It does not claim named
 physical-device qualification or the real WoW gameplay sequence.
 
-### ARM laboratory translator/renderer matrix (built, device qualification pending)
+### Retired ARM translator/renderer matrix (historical build evidence)
 
-The ARM full-lane APK now packages two independently selectable translators
+This section records a superseded experiment. The current ARM APK and runtime
+support only Box64 + explicitly pinned DXVK/Turnip; the FEXCore and client
+OpenGL code, settings, staged assets, and schema record have been removed.
+
+The former ARM full-lane APK packaged two independently selectable translators
 and two independently selectable renderers: Box64 or FEXCore, paired with DXVK
 or Client OpenGL. Research rejected the ordinary Linux FEX executable because
 upstream does not support Android. The implemented FEX path instead follows the
@@ -511,6 +517,65 @@ while producing this build. The resulting single-ABI `realmRuntime` APK is
 `02637e63832f054d826417bfdab7deefbde9c2f8738232f09bbdf99d21681192`;
 its signer, packaged ABI set, and native-library hashes are recorded in the
 generated `fexcore-opengl-apk-manifest.json` beside the APK.
+
+## O23 — vanilla-tweaks client patcher + audio (in progress)
+
+Rides uncommitted on the O14 working tree; no release gate is promoted. Two
+independent features merged into one overlay.
+
+Feature B — user-chosen realm account + auto-login: **done**. `UserAccountStore`
+(schema-versioned, atomic, owner-only, redacted), HomeScreen capture-on-create,
+`AutoLoginPolicy.resolveAutoLogin` (user account wins; bot random identity is
+the fallback), null-safe `IntegratedClientDisplay` (missing credentials skip,
+never throw), and the full 10-field `AutoLoginTimings` set threaded through
+`SinglePlayerAutoLogin`/`InputContract`/`ClientDisplayHost` behind an Advanced
+toggle. Tests: `UserAccountStoreValidationTest`, `AutoLoginPolicyTest`, and the
+`imeKeyGapMs -> ImePulse.gapAfterMs` assertion.
+
+Feature A — toggleable vanilla-tweaks + audio:
+- **M1 (JVM) — done.** Per-tweak `ClientTweaksConfig` (upstream v1.6.0 defaults)
+  persisted as one JSON-string DataStore key; "Client tweaks" card in the
+  Advanced screen; runtime wiring through `AndroidRuntimeBackend`,
+  `PrefixRequest`/`LaunchRequest`, `X86DirectWineRuntime`, and
+  `ClientRuntimeService`. The patched exe is produced as a root-level
+  `WoW.exe.patched` sibling of the pristine managed exe (manifest invariant
+  preserved), with an enUS-5875 byte-signature locale guard and a `.signature`
+  sidecar for idempotency.
+- **M2 (native patcher) — done.** Vendored `brndd/vanilla-tweaks` v1.6.0 (MIT);
+  `tools/build_vanilla_tweaks.py` cross-compiles `libpocket_vanilla_tweaks.so`
+  for arm64-v8a and x86_64; staged and added to the required native closure.
+- **Audio — re-implemented per the plan (M3.1+M3.2); default OFF, on-device
+  qualification pending.** The prior attempt was stripped (it diverged from the
+  report and produced no sound). The re-implementation fixes its three root
+  causes: (1) the ALSA config — the stock `share/alsa/alsa.conf` is now staged
+  from the alsa-lib pkg and materialized into the rootfs, with an
+  `android_aserver` `.asoundrc` overlay (the stock `alsa.conf` `@hooks` loads
+  it), and `ALSA_CONFIG_PATH` points libasound at the copy (no more hand-written
+  replacement discarding cards/hw/plughw); (2) a matched plugin/server pair —
+  the ca3d735 `alsaserver` (`ALSAClient`/`ALSARequestHandler`/handler/`RequestCodes`,
+  vendored into `runtime/xserver-winlator`) paired with the **upstream**
+  `module_pcm_android_aserver.c` rebuilt by `tools/build_alsa_plugin.py` (the old
+  ludashi plugin was a different protocol); (3) SHM is mandatory and now
+  implemented — the server sends a memfd on PREPARE via the vendored
+  `SysVSharedMemory.createMemoryFd` + `XOutputStream.setAncillaryFd` (SCM_RIGHTS),
+  and `ANDROID_ASERVER_USE_SHM=true`. The server runs in the display process
+  (`ClientDisplayHost`, as a sibling of the `sysvshm` `XConnectorEpoll`) and
+  reuses `libwinlator.so` — no new native code. Box64 lane wires
+  `ANDROID_ALSA_SERVER`/`ALSA_PLUGIN_DIR` (=`lib/x86_64-linux-gnu`, where the
+  symlink tree places the staged glibc closure libs)/`ALSA_CONFIG_PATH`.
+  `audioMode` (default `OFF`) + the "Sound" card were re-added to gate it. The
+  plugin `.so` was rebuilt from the upstream source in a `gcc:14-bookworm`
+  container (`sha256=372598359c670c39f…`, 16 KB-aligned, 55280 B), re-staged
+  (the staging manifest now maps `libasound.so.2` + the plugin into the on-device
+  symlink tree at `lib/x86_64-linux-gnu`), and the stock `alsa.conf` extracted
+  into `assets/alsa/alsa.conf`; the debug APK packages all three
+  (`lib/x86_64/libasound_module_pcm_android_aserver.so`,
+  `lib/x86_64/liblibasound.so.2.so`, `assets/alsa/alsa.conf` — APK plugin sha
+  matches the build). Remaining is device-side only: reinstall on the RP6, then
+  the on-device M3.4 qualification (Sound ON → confirm `ALSA client connected` +
+  `prepare ch=2 …` + audible sound) before the default is flipped ON. x86-dev
+  and FEX/ARM64EC lanes stay audio-off (FEX has no arm64 winealsa).
+  `AudioCaps`/audio-focus/AAudio (3.3) remain deferred.
 
 ## Next action
 

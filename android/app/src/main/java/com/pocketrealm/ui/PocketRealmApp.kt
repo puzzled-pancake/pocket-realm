@@ -1,5 +1,6 @@
 package com.pocketrealm.ui
 
+import android.net.Uri
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,10 +32,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import androidx.navigation.navigation
 
 /** Responsive product shell: bottom navigation on phones, controller-friendly rail in landscape. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,17 +48,20 @@ fun PocketRealmApp() {
     val backStack by navController.currentBackStackEntryAsState()
     val current = backStack?.destination
     val route = current?.route
-    val topLevel = topDestinations.any { destination ->
-        current?.hierarchy?.any { it.route == destination.route } == true
-    }
+    val topLevel = route in setOf(
+        Screen.Home.route,
+        AddonRoutes.HUB,
+        Screen.Controls.route,
+        Screen.Settings.route,
+    )
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val wide = maxWidth >= 840.dp
-        val contentWidth = if (wide) maxWidth - 104.dp else maxWidth
+        val wide = paneLayout(maxWidth.value, maxHeight.value) == PaneLayout.WIDE
+        val contentWidth = if (wide) maxWidth - 88.dp else maxWidth
         Scaffold(
             topBar = {
                 CenterAlignedTopAppBar(
-                    title = { Text(Screen.fromRoute(route)?.label ?: "Pocket Realm") },
+                    title = { Text(screenTitle(route)) },
                     navigationIcon = {
                         if (!topLevel) {
                             IconButton(onClick = { navController.popBackStack() }) {
@@ -82,7 +89,7 @@ fun PocketRealmApp() {
         ) { inner ->
             Row(Modifier.fillMaxSize().padding(inner)) {
                 if (wide) {
-                    NavigationRail(Modifier.width(104.dp)) {
+                    NavigationRail(Modifier.width(88.dp)) {
                         topDestinations.forEach { destination ->
                             val selected = current?.hierarchy?.any { it.route == destination.route } == true
                             NavigationRailItem(
@@ -100,7 +107,51 @@ fun PocketRealmApp() {
                     modifier = Modifier.width(contentWidth),
                 ) {
                     composable(Screen.Home.route) { HomeScreen() }
-                    composable(Screen.Addons.route) { AddonsScreen() }
+                    navigation(startDestination = AddonRoutes.HUB, route = Screen.Addons.route) {
+                        composable(AddonRoutes.HUB) {
+                            AddonsHubScreen(
+                                onRecommended = { navController.navigate(AddonRoutes.RECOMMENDED) },
+                                onInstalled = { navController.navigate(AddonRoutes.INSTALLED) },
+                                onBrowse = { navController.navigate(AddonRoutes.BROWSE) },
+                                onCustom = { navController.navigate(AddonRoutes.CUSTOM) },
+                            )
+                        }
+                        composable(AddonRoutes.RECOMMENDED) {
+                            RecommendedAddonsScreen { matrixId ->
+                                navController.navigate(AddonRoutes.catalogDetail(matrixId))
+                            }
+                        }
+                        composable(AddonRoutes.INSTALLED) {
+                            InstalledAddonsScreen(
+                                onOpenCatalogAddon = { matrixId ->
+                                    navController.navigate(AddonRoutes.catalogDetail(matrixId))
+                                },
+                                onOpenCustomAddon = { installId ->
+                                    navController.navigate(AddonRoutes.installedDetail(installId))
+                                },
+                            )
+                        }
+                        composable(AddonRoutes.BROWSE) {
+                            BrowseAddonsScreen { matrixId ->
+                                navController.navigate(AddonRoutes.catalogDetail(matrixId))
+                            }
+                        }
+                        composable(AddonRoutes.CUSTOM) { CustomAddonInstallScreen() }
+                        composable(
+                            AddonRoutes.CATALOG_DETAIL,
+                            arguments = listOf(navArgument("matrixId") { type = NavType.StringType }),
+                        ) { entry ->
+                            CatalogAddonDetailScreen(checkNotNull(entry.arguments?.getString("matrixId")))
+                        }
+                        composable(
+                            AddonRoutes.INSTALLED_DETAIL,
+                            arguments = listOf(navArgument("installId") { type = NavType.StringType }),
+                        ) { entry ->
+                            InstalledAddonDetailScreen(
+                                Uri.decode(checkNotNull(entry.arguments?.getString("installId"))),
+                            )
+                        }
+                    }
                     composable(Screen.Controls.route) { ControlsScreen() }
                     composable(Screen.Settings.route) {
                         SettingsScreen(
@@ -124,6 +175,34 @@ private fun navigateTop(navController: androidx.navigation.NavHostController, ro
         launchSingleTop = true
         restoreState = true
     }
+}
+
+internal object AddonRoutes {
+    const val HUB = "addons/home"
+    const val RECOMMENDED = "addons/recommended"
+    const val INSTALLED = "addons/installed"
+    const val BROWSE = "addons/browse"
+    const val CUSTOM = "addons/custom"
+    const val CATALOG_DETAIL = "addons/catalog/{matrixId}"
+    const val INSTALLED_DETAIL = "addons/installed/{installId}"
+
+    fun catalogDetail(matrixId: String): String {
+        require(matrixId.matches(Regex("\\d{3}"))) { "invalid catalog add-on identity" }
+        return "addons/catalog/$matrixId"
+    }
+
+    fun installedDetail(installId: String): String = "addons/installed/${Uri.encode(installId)}"
+}
+
+internal fun screenTitle(route: String?): String = when {
+    route == AddonRoutes.HUB -> "Add-ons"
+    route == AddonRoutes.RECOMMENDED -> "Recommended add-ons"
+    route == AddonRoutes.INSTALLED -> "My add-ons"
+    route == AddonRoutes.BROWSE -> "Browse add-ons"
+    route == AddonRoutes.CUSTOM -> "Install from GitHub"
+    route == AddonRoutes.CATALOG_DETAIL -> "Add-on details"
+    route == AddonRoutes.INSTALLED_DETAIL -> "Installed add-on"
+    else -> Screen.fromRoute(route)?.label ?: "Pocket Realm"
 }
 
 sealed class Screen(val route: String, val label: String, val icon: ImageVector) {
@@ -150,3 +229,9 @@ sealed class Screen(val route: String, val label: String, val icon: ImageVector)
 }
 
 private val topDestinations = listOf(Screen.Home, Screen.Addons, Screen.Controls, Screen.Settings)
+
+internal enum class PaneLayout { WIDE, STACKED }
+
+/** Shared, pure responsive rule used by landscape screens and host UI tests. */
+internal fun paneLayout(widthDp: Float, heightDp: Float): PaneLayout =
+    if (widthDp >= 600f && widthDp > heightDp) PaneLayout.WIDE else PaneLayout.STACKED

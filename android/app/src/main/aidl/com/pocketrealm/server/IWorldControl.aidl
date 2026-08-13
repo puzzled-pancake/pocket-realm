@@ -7,11 +7,15 @@ interface IWorldControl {
     String claim(String sessionId, String instanceToken, IBinder ownerLease);
     String status();
     String start();
+    String startAt(String bindAddress);
     String startNormal();
+    String startNormalAt(String bindAddress);
     String startBotProfile(String profileId);
+    String startBotProfileAt(String profileId, String bindAddress);
     String setBotTarget(int target);
     String botStatus();
     String createAccount(String username, String password);
+    String verifyAccountPassword(String username, String password);
     String setAccountGmLevel(String username, int level);
     String accountStatus(String username);
     String characterPersistence(String username, String characterName);

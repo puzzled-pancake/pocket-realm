@@ -114,3 +114,56 @@ set_target_properties(gladiorenderer PROPERTIES
     OUTPUT_NAME "gladiorenderer"
     LINK_FLAGS "-Wl,-z,max-page-size=0x4000"
 )
+
+# Both supported 64-bit ABIs compile the reviewed authority-complete bridge
+# against Android's system Vulkan through Winlator's pinned
+# Vortek guest/server protocol.  The provider sources remain in the immutable
+# ca3d735 extraction; only main.c is replaced by a system-loader-only adapter
+# so no adrenotools/custom Android driver enters this process.
+if(ANDROID_ABI STREQUAL "arm64-v8a" OR ANDROID_ABI STREQUAL "x86_64")
+    set(VORTEK_DIR ${CMAKE_CURRENT_SOURCE_DIR}/vortekrenderer)
+    add_library(vortekrenderer SHARED
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/vortek_system_main.c
+        ${VORTEK_DIR}/src/handle_registry.c
+        ${VORTEK_DIR}/src/vk_object.c
+        ${VORTEK_DIR}/src/request_handler.c
+        ${VORTEK_DIR}/src/vortek_decode.c
+        ${VORTEK_DIR}/src/vulkan_helper.c
+        ${VORTEK_DIR}/src/vk_context.c
+        ${VORTEK_DIR}/src/resource_memory.c
+        ${VORTEK_DIR}/src/xwindow_swapchain.c
+        ${VORTEK_DIR}/src/texture_decoder.c
+        ${VORTEK_DIR}/src/shader_inspector.c
+        ${VORTEK_DIR}/src/vortek_safe_lane.c
+        ${VORTEK_DIR}/src/async_pipeline_creator.c
+        ${VORTEK_DIR}/src/timeline_semaphore.c
+    )
+    # The header remains fail-closed for every unreviewed/standalone build.
+    # Production opens dispatch only here, after the complete synchronous,
+    # async, window-lifetime and teardown authority review has passed.
+    target_compile_definitions(vortekrenderer PRIVATE
+        VK_USE_PLATFORM_ANDROID_KHR
+        VORTEK_REQUEST_HANDLE_AUTHORITY_COMPLETE=1
+    )
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+        target_compile_options(vortekrenderer PRIVATE
+            -Werror=incompatible-pointer-types
+            -Wno-incompatible-pointer-types-discards-qualifiers
+        )
+    endif()
+    target_include_directories(vortekrenderer PRIVATE
+        ${VORTEK_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_link_libraries(vortekrenderer winlator log android dl)
+    set_target_properties(vortekrenderer PROPERTIES
+        OUTPUT_NAME "vortekrenderer"
+        LINK_FLAGS "-Wl,-z,max-page-size=0x4000"
+    )
+
+    add_executable(vortek_safe_lane_test
+        ${VORTEK_DIR}/src/vortek_safe_lane.c
+        ${VORTEK_DIR}/tests/vortek_safe_lane_test.c
+    )
+    target_include_directories(vortek_safe_lane_test PRIVATE ${VORTEK_DIR}/include)
+endif()

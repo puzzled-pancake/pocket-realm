@@ -6,13 +6,16 @@
 #define MAX_FDS 32
 
 static inline int send_fds(int sockFd, int* fds, int numFds, void* data, int size) {
+    if (sockFd < 0 || numFds < 0 || numFds > MAX_FDS ||
+            (numFds > 0 && !fds) ||
+            size < 0 || (!data && size > 0)) return -1;
     if (!data) size = 1;
     char zero = 0;
     struct iovec iovmsg = {.iov_base = data ? data : &zero, .iov_len = size};
     struct {
         struct cmsghdr align;
         int fds[MAX_FDS];
-    } ctrlmsg;
+    } ctrlmsg = {0};
 
     struct msghdr msg = {
         .msg_name = NULL,
@@ -20,17 +23,25 @@ static inline int send_fds(int sockFd, int* fds, int numFds, void* data, int siz
         .msg_iov = &iovmsg,
         .msg_iovlen = 1,
         .msg_flags = 0,
-        .msg_control = &ctrlmsg,
-        .msg_controllen = sizeof(struct cmsghdr) + numFds * sizeof(int)
+        .msg_control = numFds > 0 ? &ctrlmsg : NULL,
+        .msg_controllen = numFds > 0
+                ? CMSG_SPACE((size_t)numFds * sizeof(int)) : 0
     };
 
-    struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
-    cmsg->cmsg_level = SOL_SOCKET;
-    cmsg->cmsg_type = SCM_RIGHTS;
-    cmsg->cmsg_len = msg.msg_controllen;
-
-    for (int i = 0; i < numFds; i++) ((int*)CMSG_DATA(cmsg))[i] = fds[i];
+    if (numFds > 0) {
+        struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
+        if (!cmsg) return -1;
+        cmsg->cmsg_level = SOL_SOCKET;
+        cmsg->cmsg_type = SCM_RIGHTS;
+        cmsg->cmsg_len = CMSG_LEN((size_t)numFds * sizeof(int));
+        for (int i = 0; i < numFds; i++)
+            ((int*)CMSG_DATA(cmsg))[i] = fds[i];
+    }
+#ifdef MSG_NOSIGNAL
+    return sendmsg(sockFd, &msg, MSG_NOSIGNAL);
+#else
     return sendmsg(sockFd, &msg, 0);
+#endif
 }
 
 static inline int recv_fds(int sockFd, int* outFds, int* outNumFds, void* outData, int size) {

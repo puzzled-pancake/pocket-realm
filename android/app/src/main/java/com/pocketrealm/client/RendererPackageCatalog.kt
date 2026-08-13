@@ -6,7 +6,8 @@ data class RendererPackage(
     val translator: ArmTranslationBackend,
     val label: String,
     val dxvkVersion: String,
-    val turnipVersion: String,
+    /** Minimum host Vulkan API when this DXVK package uses System Vortek. */
+    val minimumSystemVulkanApi: Int,
     val buildId: String,
     val qualification: String,
     val system32Asset: String? = null,
@@ -16,6 +17,9 @@ data class RendererPackage(
 ) {
     init {
         require(ID.matches(id)) { "invalid renderer package id" }
+        require(minimumSystemVulkanApi >= vulkanVersion(1, 1)) {
+            "renderer System Vulkan floor is below the Vortek bridge minimum"
+        }
         val paths = listOfNotNull(system32Asset, syswow64Asset)
         require(paths.all { it.startsWith("arm-translated/renderer-packages/") && ".." !in it })
         require(listOfNotNull(system32Sha256, syswow64Sha256).all(SHA256::matches))
@@ -32,17 +36,16 @@ data class RendererPackage(
 object RendererPackageCatalog {
     const val BOX64_DEFAULT = "box64-dxvk-2.4.1"
     const val BOX64_LEGACY = "box64-dxvk-1.10.3"
-    const val FEX_DEFAULT = "fex-dxvk-2.3.1-arm64ec"
 
     private val packages = listOf(
         RendererPackage(
             id = BOX64_DEFAULT,
             translator = ArmTranslationBackend.BOX64,
-            label = "DXVK 2.4.1 · Turnip 26.1",
+            label = "DXVK 2.4.1",
             dxvkVersion = "2.4.1",
-            turnipVersion = "26.1.0",
-            buildId = "turnip-26.1.0-dxvk-2.4.1-d3d9",
-            qualification = "Current RP6 test package",
+            minimumSystemVulkanApi = vulkanVersion(1, 3),
+            buildId = "dxvk-2.4.1-d3d9",
+            qualification = "Current pinned package; System pairing requires the Vulkan 1.3 capability profile.",
             system32Asset = "arm-translated/renderer-packages/$BOX64_DEFAULT/system32/d3d9.dll",
             system32Sha256 = "216058f9320d0667d551f4cea840ee539396449ef8c8e89fe481e4f0ddb628ae",
             syswow64Asset = "arm-translated/renderer-packages/$BOX64_DEFAULT/syswow64/d3d9.dll",
@@ -51,24 +54,15 @@ object RendererPackageCatalog {
         RendererPackage(
             id = BOX64_LEGACY,
             translator = ArmTranslationBackend.BOX64,
-            label = "DXVK 1.10.3 · Turnip 26.1",
+            label = "DXVK 1.10.3",
             dxvkVersion = "1.10.3",
-            turnipVersion = "26.1.0",
-            buildId = "turnip-26.1.0-dxvk-1.10.3-d3d9",
-            qualification = "Legacy comparison package",
+            minimumSystemVulkanApi = vulkanVersion(1, 1),
+            buildId = "dxvk-1.10.3-d3d9",
+            qualification = "Legacy pinned package; System pairing requires the Vulkan 1.1 capability profile.",
             system32Asset = "arm-translated/renderer-packages/$BOX64_LEGACY/system32/d3d9.dll",
             system32Sha256 = "7129d7e67b9abb06608fe1c30bec4c7a7c7f0649198e39425cd7ef322569c383",
             syswow64Asset = "arm-translated/renderer-packages/$BOX64_LEGACY/syswow64/d3d9.dll",
             syswow64Sha256 = "b6cfa2cd62af73b80d461085d126004b0e22dd3944c9246c58e3a68e747b56b6",
-        ),
-        RendererPackage(
-            id = FEX_DEFAULT,
-            translator = ArmTranslationBackend.FEX,
-            label = "DXVK 2.3.1 ARM64EC · Turnip 26.2",
-            dxvkVersion = "2.3.1-arm64ec-gplasync",
-            turnipVersion = "26.2.0",
-            buildId = "turnip-26.2.0-dxvk-2.3.1-arm64ec",
-            qualification = "Built; live qualification pending",
         ),
     )
     private val byId = packages.associateBy(RendererPackage::id)
@@ -76,15 +70,17 @@ object RendererPackageCatalog {
     fun compatible(translator: ArmTranslationBackend): List<RendererPackage> =
         packages.filter { it.translator == translator }
 
-    fun default(translator: ArmTranslationBackend): RendererPackage = requireNotNull(
-        byId[if (translator == ArmTranslationBackend.FEX) FEX_DEFAULT else BOX64_DEFAULT],
-    )
+    fun default(translator: ArmTranslationBackend): RendererPackage {
+        require(translator == ArmTranslationBackend.BOX64) {
+            "Box64 is the only supported ARM translator"
+        }
+        return requireNotNull(byId[BOX64_DEFAULT])
+    }
 
     fun find(id: String?): RendererPackage? = id?.let(byId::get)
 
     /** Resolve a persisted preference, falling back to the compatible default. */
     fun resolve(translator: ArmTranslationBackend, renderer: String, requestedId: String?): RendererPackage? {
-        if (renderer == "opengl") return null
         require(renderer == "dxvk") { "unsupported ARM renderer: $renderer" }
         return find(requestedId).takeIf { it?.translator == translator } ?: default(translator)
     }
@@ -94,12 +90,11 @@ object RendererPackageCatalog {
         translator: ArmTranslationBackend,
         renderer: String,
         requestedId: String?,
-    ): RendererPackage? {
-        if (renderer == "opengl") {
-            require(requestedId == null) { "OpenGL does not accept a DXVK package" }
-            return null
-        }
+    ): RendererPackage {
         require(renderer == "dxvk") { "unsupported ARM renderer: $renderer" }
+        require(translator == ArmTranslationBackend.BOX64) {
+            "Box64 is the only supported ARM translator"
+        }
         requireNotNull(requestedId) { "DXVK requires an explicit renderer package" }
         val selected = requireNotNull(find(requestedId)) {
             "unknown renderer package: $requestedId"
@@ -117,5 +112,8 @@ object RendererPackageCatalog {
         translator: ArmTranslationBackend,
         renderer: String,
         requestedId: String?,
-    ): String = requireForRequest(translator, renderer, requestedId)?.id ?: "opengl"
+    ): String = requireForRequest(translator, renderer, requestedId).id
 }
+
+internal fun vulkanVersion(major: Int, minor: Int, patch: Int = 0): Int =
+    (major shl 22) or (minor shl 12) or patch

@@ -38,6 +38,7 @@
 #include <ctype.h>
 #include <poll.h>
 #include <signal.h>
+#include <stdatomic.h>
 #include <time.h>
 #include <sys/stat.h>
 #include <sys/ptrace.h>
@@ -45,10 +46,32 @@
 #include <elf.h>
 #include <android/log.h>
 
-static volatile sig_atomic_t g_active_direct_pgid = 0;
+static _Atomic int g_active_direct_pgid = 0;
+
+static int await_direct_process_group_drained(pid_t pgid, int timeout_ms) {
+    struct timespec started, now;
+    clock_gettime(CLOCK_MONOTONIC, &started);
+    while (1) {
+        if (kill(-pgid, 0) != 0 && errno == ESRCH) return 1;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        long long elapsed = (now.tv_sec - started.tv_sec) * 1000LL +
+                            (now.tv_nsec - started.tv_nsec) / 1000000LL;
+        if (elapsed >= timeout_ms) return 0;
+        usleep(20000);
+    }
+}
+
+static int terminate_and_await_direct_process_group(pid_t pgid) {
+    if (kill(-pgid, 0) != 0 && errno == ESRCH) return 1;
+    (void)kill(-pgid, SIGTERM);
+    usleep(150000);
+    (void)kill(-pgid, SIGKILL);
+    return await_direct_process_group_drained(pgid, 5000);
+}
 
 int wine_spike_cancel_active_direct(void) {
-    pid_t pgid = (pid_t)g_active_direct_pgid;
+    pid_t pgid = (pid_t)atomic_load_explicit(
+        &g_active_direct_pgid, memory_order_acquire);
     if (pgid <= 0) return 0;
     int delivered = kill(-pgid, SIGTERM) == 0;
     usleep(150000);
@@ -1212,7 +1235,7 @@ int wine_spike_run_wine_direct(const char *native_dir,
         _exit(127);
     }
     setpgid(pid, pid);
-    g_active_direct_pgid = (sig_atomic_t)pid;
+    atomic_store_explicit(&g_active_direct_pgid, (int)pid, memory_order_release);
     close(out_pipe[1]); close(err_pipe[1]);
     set_nonblocking(out_pipe[0]);
     set_nonblocking(err_pipe[0]);
@@ -1381,7 +1404,13 @@ int wine_spike_run_wine_direct(const char *native_dir,
     if (out_pipe[0] >= 0) close(out_pipe[0]);
     if (err_pipe[0] >= 0) close(err_pipe[0]);
     out->exit_status = got_status ? status : -1;
-    if (g_active_direct_pgid == (sig_atomic_t)pid) g_active_direct_pgid = 0;
+    out->process_tree_drained = terminate_and_await_direct_process_group(pid);
+    if (out->process_tree_drained) {
+        int expected = (int)pid;
+        (void)atomic_compare_exchange_strong_explicit(
+            &g_active_direct_pgid, &expected, 0,
+            memory_order_acq_rel, memory_order_acquire);
+    }
     out->proot_rc = WINE_SPIKE_OK;
     LOGI("direct_run: done status=%d timeout=%d desc=%d stdout=%zu stderr=%zu",
          out->exit_status, out->timed_out, out->descendant_count, out_len, err_len);

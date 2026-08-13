@@ -3,6 +3,7 @@
 
 #include "Common.h"
 #include "Config/Config.h"
+#include "Accounts/AccountMgr.h"
 #include "Database/DatabaseEnv.h"
 #include "Globals/ObjectAccessor.h"
 #include "Log/Log.h"
@@ -209,6 +210,20 @@ public:
         const int result = issue_command(command, timeout_ms, nullptr);
         return result == POCKET_SERVER_OK ? result :
             (result == POCKET_SERVER_TIMEOUT ? result : POCKET_SERVER_ACCOUNT_REJECTED);
+    }
+
+    bool verify_account_password(const std::string& username, const std::string& password)
+    {
+        if (m_state.state() != POCKET_SERVER_READY || username.empty() || password.empty() ||
+            username.size() > 16 || password.size() > 16)
+            return false;
+        const auto is_account_token = [](const std::string& value) {
+            return std::all_of(value.begin(), value.end(),
+                [](unsigned char c) { return c < 0x80 && std::isalnum(c); });
+        };
+        if (!is_account_token(username) || !is_account_token(password)) return false;
+        const auto account = account_info(username);
+        return account.first != 0 && sAccountMgr.CheckPassword(account.first, password);
     }
 
     std::pair<uint32_t, int32_t> account_info(const std::string& username)
@@ -713,6 +728,14 @@ Java_com_pocketrealm_server_WorldNative_createAccountNative(
 {
     return g_runtime.create_account(from_jstring(env, username), from_jstring(env, password),
         static_cast<uint64_t>(std::max<jlong>(0, timeout_ms)));
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_pocketrealm_server_WorldNative_verifyAccountPasswordNative(
+    JNIEnv* env, jclass, jstring username, jstring password)
+{
+    return g_runtime.verify_account_password(
+        from_jstring(env, username), from_jstring(env, password)) ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jint JNICALL

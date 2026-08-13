@@ -27,7 +27,7 @@ class O10RuntimeSupervisorTest {
 
     @Test fun durableDependencyOwnershipShutdownAndRecovery() {
         val sessionBeforeFirstStart = persistedSession()
-        RealmService.start(context)
+        RealmService.start(context, includeClient = false)
         var supervisor = bindSupervisor()
         var ready = waitPhase(
             supervisor.api, 300_000, RuntimePhase.WORLD_READY,
@@ -56,7 +56,7 @@ class O10RuntimeSupervisorTest {
         // A killed supervisor cannot clean its journal. Its Binder-owned child
         // services lose the owner and apply their safe teardown policy. The
         // next explicit Start must recover before creating a new session.
-        RealmService.start(context)
+        RealmService.start(context, includeClient = false)
         supervisor = bindSupervisor()
         ready = waitPhase(supervisor.api, 240_000, RuntimePhase.WORLD_READY)
         val killedSession = ready.getString("sessionId")
@@ -66,7 +66,7 @@ class O10RuntimeSupervisorTest {
         Thread.sleep(2_000)
         assertJournalPhaseNotClean()
 
-        RealmService.start(context)
+        RealmService.start(context, includeClient = false)
         supervisor = bindSupervisor()
         val recovered = waitPhase(
             supervisor.api, 300_000, RuntimePhase.WORLD_READY, sessionNot = killedSession)

@@ -24,6 +24,17 @@ data class ClientRuntimeSelection(
     val reason: String,
 )
 
+/** Keeps the persisted preference portable while unsupported providers fail honestly. */
+object ClientAudioPolicy {
+    fun isSupported(provider: ClientRuntimeProvider): Boolean =
+        provider == ClientRuntimeProvider.ARM_TRANSLATED_WINE
+
+    fun effectiveMode(provider: ClientRuntimeProvider, requestedMode: String): String {
+        require(requestedMode in setOf("off", "on")) { "only off/on audioMode is supported" }
+        return if (isSupported(provider)) requestedMode else "off"
+    }
+}
+
 object ClientRuntimeSelector {
     /** Pure selection rule used by both the UI boundary and host tests. */
     fun selectForAbis(
@@ -63,6 +74,9 @@ object ClientRuntimeSelector {
         context: Context,
         translator: ArmTranslationBackend = ArmTranslationBackend.BOX64,
     ): ClientRuntimeSelection {
+        require(translator == ArmTranslationBackend.BOX64) {
+            "Box64 is the only supported ARM translator"
+        }
         val armMarker = ArmTranslatedWineRuntime.isProviderMarkerPresent(context, translator)
         return selectForAbis(Build.SUPPORTED_ABIS.asList(), armMarker)
     }
@@ -99,32 +113,20 @@ class ArmTranslatedWineRuntime(context: Context) : ClientRuntime, AutoCloseable 
             translator: ArmTranslationBackend = ArmTranslationBackend.BOX64,
         ): Boolean =
             runCatching {
-                val nativeBox64 = java.io.File(context.applicationInfo.nativeLibraryDir, BOX64_LIBRARY)
-                val rootfs = java.io.File(
-                    context.noBackupFilesDir,
-                    "arm-translated/winlator-ca3d735/rootfs",
-                )
-                val translatorPresent = when (translator) {
-                    ArmTranslationBackend.BOX64 -> nativeBox64.isFile
-                    ArmTranslationBackend.FEX -> {
-                        val zstd = java.io.File(
-                            context.applicationInfo.nativeLibraryDir,
-                            "libpocket_zstd_exec.so",
-                        )
-                        zstd.isFile && runCatching {
-                            context.assets.open(
-                                "arm-translated/fexcore/BUILD_PROVENANCE.json"
-                            ).close()
-                            context.assets.open(
-                                "arm-translated/fexcore/fexcore-runtime.tar.zst"
-                            ).close()
-                            true
-                        }.getOrDefault(false)
-                    }
+                require(translator == ArmTranslationBackend.BOX64) {
+                    "Box64 is the only supported ARM translator"
                 }
-                translatorPresent && (translator == ArmTranslationBackend.FEX ||
-                    (java.io.File(rootfs, ".pocket-rootfs-ready").isFile &&
-                        java.io.File(rootfs, "opt/wine/bin/wine").isFile))
+                val nativeBox64 = java.io.File(context.applicationInfo.nativeLibraryDir, BOX64_LIBRARY)
+                val packagedRootfs = context.assets.open(
+                    "arm-translated-wine/rootfs.tzst",
+                    android.content.res.AssetManager.ACCESS_STREAMING,
+                ).use { it.read() >= 0 }
+                val packagedPatches = context.assets.open(
+                    "arm-translated-wine/rootfs_patches.tzst",
+                    android.content.res.AssetManager.ACCESS_STREAMING,
+                ).use { it.read() >= 0 }
+                nativeBox64.isFile &&
+                    packagedRootfs && packagedPatches
             }.getOrDefault(false)
     }
 }

@@ -13,6 +13,7 @@ interface IDatabaseControl {
     String initialize();
     String start();
     String queryHealth();
+    String projectRealmEndpoint(String instanceToken, String address, int worldPort);
     String applyPinnedMigrations();
     String stop();
     String stopOwned(String instanceToken);

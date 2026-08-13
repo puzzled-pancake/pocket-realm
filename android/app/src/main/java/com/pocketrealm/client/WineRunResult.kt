@@ -4,6 +4,7 @@ internal data class WineRunResult(
     val rc: Int,
     val exitStatus: Int,
     val timedOut: Boolean,
+    val processTreeDrained: Boolean,
     val stdout: String,
     val stderr: String,
 ) {
@@ -29,5 +30,8 @@ internal fun parseWineRunResult(value: String): WineRunResult {
         value.substring(stdoutAt + stdoutMarker.length, stderrAt)
     } else ""
     val stderr = if (stderrAt >= 0) value.substring(stderrAt + stderrMarker.length) else ""
-    return WineRunResult(field("RC"), field("EXIT"), field("TIMED_OUT") == 1, stdout, stderr)
+    return WineRunResult(
+        field("RC"), field("EXIT"), field("TIMED_OUT") == 1,
+        field("TREE_DRAINED") == 1, stdout, stderr,
+    )
 }

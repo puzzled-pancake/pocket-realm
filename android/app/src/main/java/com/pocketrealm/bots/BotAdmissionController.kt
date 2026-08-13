@@ -23,12 +23,14 @@ data class BotAdmissionState(
 
 /** Pure policy core; applying a target remains the native control bridge's job. */
 class BotAdmissionController(private val profile: BotProfile) {
-    private var effectiveTarget = profile.selectedTarget
+    private var effectiveTarget = profile.initialTarget
     private var lastChangeMs = Long.MIN_VALUE
     private var healthySinceMs: Long? = null
+    private var startupHealthySinceMs: Long? = null
+    private var startupPhase = profile.initialTarget < profile.selectedTarget
     private var performanceReadyAtMs: Long? = null
     private var lastHardStallTotal = 0L
-    private var reason = "selected-profile"
+    private var reason = if (startupPhase) "startup-initial-target" else "selected-profile"
 
     fun observe(sample: BotResourceSample): BotAdmissionState {
         require(sample.elapsedMs >= 0 && sample.onlineBots >= 0)
@@ -43,10 +45,23 @@ class BotAdmissionController(private val profile: BotProfile) {
             sample.hardStallTotal
         }
         lastHardStallTotal = sample.hardStallTotal
-        val overload = safetyOverloadReason(sample) ?:
-            performanceOverloadReason(sample, newHardStalls).takeIf { performanceReady }
+        val safetyOverload = safetyOverloadReason(sample)
+        val performanceOverload = performanceOverloadReason(sample, newHardStalls)
         var changed = false
-        if (overload != null) {
+        if (safetyOverload != null) {
+            healthySinceMs = null
+            startupHealthySinceMs = null
+            if (cooldownPassed(sample.elapsedMs) && effectiveTarget > profile.minimumOnline) {
+                effectiveTarget = (effectiveTarget - profile.admission.reduceStep)
+                    .coerceAtLeast(profile.minimumOnline)
+                lastChangeMs = sample.elapsedMs
+                changed = true
+                startupPhase = false
+            }
+            reason = if (changed) safetyOverload else "$safetyOverload;cooldown-or-floor"
+        } else if (startupPhase) {
+            changed = observeStartup(sample, performanceOverload)
+        } else if (performanceOverload != null && performanceReady) {
             healthySinceMs = null
             if (cooldownPassed(sample.elapsedMs) && effectiveTarget > profile.minimumOnline) {
                 effectiveTarget = (effectiveTarget - profile.admission.reduceStep)
@@ -54,7 +69,7 @@ class BotAdmissionController(private val profile: BotProfile) {
                 lastChangeMs = sample.elapsedMs
                 changed = true
             }
-            reason = if (changed) overload else "$overload;cooldown-or-floor"
+            reason = if (changed) performanceOverload else "$performanceOverload;cooldown-or-floor"
         } else if (sample.thermal >= ThermalLevel.MODERATE) {
             healthySinceMs = null
             reason = "thermal-ramp-paused:${sample.thermal.name.lowercase()}"
@@ -89,6 +104,50 @@ class BotAdmissionController(private val profile: BotProfile) {
         )
     }
 
+    private fun observeStartup(
+        sample: BotResourceSample,
+        performanceOverload: String?,
+    ): Boolean {
+        healthySinceMs = null
+        when {
+            sample.thermal >= ThermalLevel.MODERATE -> {
+                startupHealthySinceMs = null
+                reason = "startup-paused:thermal-${sample.thermal.name.lowercase()}"
+                return false
+            }
+            performanceOverload != null -> {
+                startupHealthySinceMs = null
+                reason = "startup-paused:$performanceOverload"
+                return false
+            }
+            sample.onlineBots + STARTUP_CATCHUP_TOLERANCE < effectiveTarget -> {
+                startupHealthySinceMs = null
+                reason = "startup-catching-up"
+                return false
+            }
+        }
+        val healthySince = startupHealthySinceMs ?: sample.elapsedMs.also {
+            startupHealthySinceMs = it
+        }
+        if (sample.elapsedMs - healthySince < profile.startupRampIntervalMs ||
+            !cooldownPassed(sample.elapsedMs)) {
+            reason = "startup-healthy-hold"
+            return false
+        }
+        effectiveTarget = (effectiveTarget + profile.startupIncreaseStep)
+            .coerceAtMost(profile.selectedTarget)
+        lastChangeMs = sample.elapsedMs
+        startupHealthySinceMs = sample.elapsedMs
+        if (effectiveTarget == profile.selectedTarget) {
+            startupPhase = false
+            performanceReadyAtMs = sample.elapsedMs
+            reason = "startup-complete"
+        } else {
+            reason = "startup-ramp"
+        }
+        return true
+    }
+
     private fun cooldownPassed(nowMs: Long): Boolean =
         lastChangeMs == Long.MIN_VALUE || nowMs - lastChangeMs >= profile.admission.changeCooldownMs
 
@@ -106,5 +165,9 @@ class BotAdmissionController(private val profile: BotProfile) {
         newHardStalls >= 2 -> "repeated-hard-stall"
         sample.worldP99Ms > profile.admission.maxWorldP99Ms -> "world-p99"
         else -> null
+    }
+
+    companion object {
+        private const val STARTUP_CATCHUP_TOLERANCE = 2
     }
 }

@@ -84,9 +84,20 @@ public class GPUImage extends Texture {
         return hardwareBufferPtr;
     }
 
+    /** Returns a pointer with one native AHardwareBuffer reference owned by
+     * the caller.  The caller must release it after importing or inspecting
+     * it.  Callers serialize access with the Drawable render lock. */
+    public long acquireHardwareBufferPtr() {
+        long value = hardwareBufferPtr;
+        if (value != 0) acquireHardwareBuffer(value);
+        return value;
+    }
+
     private native long createHardwareBuffer(short width, short height, boolean cpuAccess, boolean useHALPixelFormatBGRA8888);
 
     private native void destroyHardwareBuffer(long hardwareBufferPtr, boolean locked);
+
+    private native void acquireHardwareBuffer(long hardwareBufferPtr);
 
     private native ByteBuffer lockHardwareBuffer(long hardwareBufferPtr);
 

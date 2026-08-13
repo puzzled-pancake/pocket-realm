@@ -17,6 +17,9 @@ public class XConnectorEpoll {
     private boolean multithreadedClients = false;
     private int initialInputBufferCapacity = 64;
     private int initialOutputBufferCapacity = 64;
+    private final Object destroyLock = new Object();
+    private final ThreadLocal<Boolean> nativeCallback = new ThreadLocal<>();
+    private boolean destroyInProgress = false;
     private long nativePtr;
 
     static {
@@ -32,59 +35,110 @@ public class XConnectorEpoll {
     }
 
     public void start() {
-        if (nativePtr != 0) startEpollThread(nativePtr, multithreadedClients);
+        synchronized (destroyLock) {
+            if (nativePtr != 0) startEpollThread(nativePtr, multithreadedClients);
+        }
     }
 
     public void destroy() {
-        if (nativePtr != 0) {
-            stopEpollThread(nativePtr);
-            destroy(nativePtr);
+        long claimedPtr;
+        synchronized (destroyLock) {
+            if (nativePtr == 0) {
+                // A callback must unwind so the listener can join its client
+                // thread. Ordinary callers wait for the winning teardown to
+                // reclaim every native client and listener resource.
+                if (Boolean.TRUE.equals(nativeCallback.get())) return;
+                boolean interrupted = false;
+                while (destroyInProgress) {
+                    try {
+                        destroyLock.wait();
+                    }
+                    catch (InterruptedException e) {
+                        interrupted = true;
+                    }
+                }
+                if (interrupted) Thread.currentThread().interrupt();
+                return;
+            }
+
+            claimedPtr = nativePtr;
             nativePtr = 0;
+            destroyInProgress = true;
         }
+
+        // Native teardown returns false only when this is an owned callback
+        // thread. The listener then drains clients and reports completion.
+        if (destroy(claimedPtr)) handleNativeDestroyComplete();
     }
 
     @Keep
     private void handleConnectionShutdown(Object tag) {
-        ConnectedClient client = (ConnectedClient)tag;
-        connectionHandler.handleConnectionShutdown(client);
-        client.destroy();
+        nativeCallback.set(Boolean.TRUE);
+        try {
+            ConnectedClient client = (ConnectedClient)tag;
+            connectionHandler.handleConnectionShutdown(client);
+            client.destroy();
 
-        synchronized (connectedClients) {
-            connectedClients.remove(client);
+            synchronized (connectedClients) {
+                connectedClients.remove(client);
+            }
+        }
+        finally {
+            nativeCallback.remove();
         }
     }
 
     @Keep
     private Object handleNewConnection(long clientPtr, int fd) {
-        ConnectedClient client = connectionHandler.newConnectedClient(clientPtr, fd);
-        client.createInputStream(initialInputBufferCapacity);
-        client.createOutputStream(initialOutputBufferCapacity);
-        connectionHandler.handleNewConnection(client);
+        nativeCallback.set(Boolean.TRUE);
+        try {
+            ConnectedClient client = connectionHandler.newConnectedClient(clientPtr, fd);
+            client.createInputStream(initialInputBufferCapacity);
+            client.createOutputStream(initialOutputBufferCapacity);
+            connectionHandler.handleNewConnection(client);
 
-        synchronized (connectedClients) {
-            connectedClients.add(client);
+            synchronized (connectedClients) {
+                connectedClients.add(client);
+            }
+            return client;
         }
-        return client;
+        finally {
+            nativeCallback.remove();
+        }
     }
 
     @Keep
     private void handleExistingConnection(Object tag) {
-        ConnectedClient client = (ConnectedClient)tag;
-        XInputStream inputStream = client.getInputStream();
-
+        nativeCallback.set(Boolean.TRUE);
         try {
-            if (inputStream != null) {
-                if (inputStream.readMoreData(canReceiveAncillaryMessages) > 0) {
-                    int activePosition = 0;
-                    while (requestHandler.handleRequest(client)) activePosition = inputStream.getActivePosition();
-                    inputStream.setActivePosition(activePosition);
+            ConnectedClient client = (ConnectedClient)tag;
+            XInputStream inputStream = client.getInputStream();
+
+            try {
+                if (inputStream != null) {
+                    if (inputStream.readMoreData(canReceiveAncillaryMessages) > 0) {
+                        int activePosition = 0;
+                        while (requestHandler.handleRequest(client)) activePosition = inputStream.getActivePosition();
+                        inputStream.setActivePosition(activePosition);
+                    }
+                    else killConnection(client);
                 }
-                else killConnection(client);
+                else requestHandler.handleRequest(client);
             }
-            else requestHandler.handleRequest(client);
+            catch (IOException e) {
+                killConnection(client);
+            }
         }
-        catch (IOException e) {
-            killConnection(client);
+        finally {
+            nativeCallback.remove();
+        }
+    }
+
+    @Keep
+    private void handleNativeDestroyComplete() {
+        synchronized (destroyLock) {
+            destroyInProgress = false;
+            destroyLock.notifyAll();
         }
     }
 
@@ -147,7 +201,7 @@ public class XConnectorEpoll {
 
     private native long nativeAllocate(String sockPath);
 
-    private static native void destroy(long nativePtr);
+    private static native boolean destroy(long nativePtr);
 
     private static native void startEpollThread(long nativePtr, boolean multithreadedClients);
 

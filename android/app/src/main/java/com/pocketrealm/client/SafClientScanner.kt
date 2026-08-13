@@ -51,7 +51,7 @@ internal class SafClientScanner(private val resolver: ContentResolver) {
             }
             if (identity?.version == EXPECTED_VERSION) {
                 if (identity.sha256 == KNOWN_EXE_SHA256) warnings += "VAL-03: executable hash matches the inspected build-5875 copy"
-                else warnings += "VAL-03: build confirmed but executable hash is not on the local evidence allowlist"
+                else warnings += "VAL-03: build confirmed; this WoW.exe is accepted for vanilla launch, but optional executable tweaks require the inspected byte layout"
             }
         }
 

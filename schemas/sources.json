@@ -226,34 +226,12 @@
       }
     },
     {
-      "id": "winlator-bionic-fexcore-2608-arm64ec",
-      "kind": "verified-package-extracted-runtime",
-      "architecture": "arm64ec-fexcore",
-      "upstream_url": "https://github.com/StevenMXZ/Winlator-Ludashi",
-      "tag": "v3.1.h",
-      "version": "Proton-9.0-ARM64EC/FEXCore-2608",
-      "package": "bionic-vanilla.apk",
-      "package_url": "https://github.com/StevenMXZ/Winlator-Ludashi/releases/download/v3.1.h/bionic-vanilla.apk",
-      "package_sha256": "eb7cc5ded4cbfddb3dac01847bf39cdbc9cd52cbad8cb54787aa84d79a4ce6d7",
-      "fexcore_upstream_url": "https://github.com/FEX-Emu/FEX",
-      "fexcore_component_url": "https://raw.githubusercontent.com/StevenMXZ/Winlator-Contents/main/FEXCore/2608.wcp",
-      "fexcore_component_sha256": "aa822c0343f73d213d06a3f72ce002afb41b51751c6bef3119313769ac697a8c",
-      "build_script": "tools/stage_fexcore_runtime.py",
-      "role": "Selectable Android ARM64EC Wine provider. Native Bionic Proton 9 loads the pinned FEXCore Windows DLLs through HODLL=libwow64fex.dll. Renderer selection is independent: ARM64EC DXVK uses Turnip/Vulkan, while client OpenGL uses the source-built Bionic ARM64 Gladio bridge to Android GLES. Ordinary Linux FEX and its glibc executable are not packaged or launched on Android.",
-      "license": "mixed: Wine LGPL-2.1; FEXCore MIT; Gladio LGPL-2.1; DXVK zlib",
-      "redistribution": {
-        "verdict": "component-only-redistribution-subject-to-recorded-licenses",
-        "notes": "Pocket Realm does not republish the whole Winlator APK. The build extracts only the hash-pinned Bionic image, Proton ARM64EC runtime, FEXCore DLLs, graphics components, and corresponding source-built Gladio client. Exact inputs and the generated provider archive are recorded in BUILD_PROVENANCE.json."
-      },
-      "qualification": "Built but unqualified until FEXCore/OpenGL and FEXCore/DXVK each pass RP6 Wine-version, visible-login, clean-relaunch, input, and performance comparison gates."
-    },
-    {
       "id": "xserver-winlator-ca3d735",
       "kind": "vendored-source",
       "upstream_url": "https://github.com/brunodev85/winlator-app",
       "commit": "ca3d735a60d653a787daf16d14fafef28d9c2c23",
       "commit_date": "2026-07-27 (author) / 2026-07-28 (committer)",
-      "role": "O06/O07 in-app X server, display, input, and GLX server. The pinned Java X11 layer (143 files) and native epoll/SCM_RIGHTS transport are vendored, NDK-built, 16 KB-aligned, and packaged; no Java transport rewrite exists. O06 qualifies the GDI path on both 4 KB/16 KB lanes. O07 enables BigReq, Sync, XComposite, and source-matched GLX at their original wire opcodes; DRI3, MIT-SHM, and Present remain unadvertised. The paired Gladio server is adapted in-tree for a bounded explicit transient-attribute protocol, GLES 3.1 shaders, and the qualified OpenGL 3.0 / GLSL 1.30 capability subset. Internal-format queries remain advertised for WineD3D render-target classification, while unsupported modern instancing/base-vertex/sampler/UBO paths are withheld. The fixed API-35 x86_64 4 KB lane renders and relaunches the visible build-5875 login screen.",
+      "role": "In-app X server, display, and input transport. The pinned Java X11 layer and native epoll/SCM_RIGHTS transport are vendored, NDK-built, 16 KB-aligned, and packaged. ARM advertises the source-matched DRI3/Present path required by the fixed DXVK route and does not load or advertise GLX. The source-matched GLX/Gladio server remains packaged and advertised only on the historical x86 WineD3D validation lane.",
       "license": "LGPL-2.1 (verified from root LICENSE at this commit; NOT MIT)",
       "redistribution": {
         "verdict": "source-redistributable-under-LGPL-2.1",

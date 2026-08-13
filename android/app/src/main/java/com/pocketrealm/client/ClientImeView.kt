@@ -141,9 +141,8 @@ class ClientImeView(
                 val accepted = contractProvider().imeDelete(1, generationProvider()) == 1
                 if (accepted) super.deleteSurroundingText(1, 0)
                 accepted
-            } else {
-                contractProvider().imeKeyTap(event.keyCode, generationProvider())
-            }
+            } else contractProvider().imeKeyTap(event.keyCode, generationProvider())
+                .also { accepted -> if (accepted) closeImeAfterSubmit() }
         }
 
         override fun performEditorAction(actionCode: Int): Boolean {
@@ -158,7 +157,16 @@ class ClientImeView(
             return contractProvider().imeKeyTap(
                 android.view.KeyEvent.KEYCODE_ENTER,
                 generationProvider(),
-            )
+            ).also { accepted -> if (accepted) closeImeAfterSubmit() }
+        }
+
+        private fun closeImeAfterSubmit() {
+            view.post {
+                val manager = view.context.getSystemService(Context.INPUT_METHOD_SERVICE)
+                    as android.view.inputmethod.InputMethodManager
+                manager.hideSoftInputFromWindow(view.windowToken, 0)
+                view.onImeClosed()
+            }
         }
 
         override fun finishComposingText(): Boolean {

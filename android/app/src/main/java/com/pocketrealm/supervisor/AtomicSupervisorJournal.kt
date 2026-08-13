@@ -16,7 +16,7 @@ class AtomicSupervisorJournal(context: Context) : SupervisorJournal {
     override fun read(): RuntimeSnapshot? = synchronized(lock) {
         if (!journal.isFile) return null
         try {
-            decode(JSONObject(journal.readText(Charsets.UTF_8)))
+            RuntimeSnapshotJournalCodec.decode(JSONObject(journal.readText(Charsets.UTF_8)))
         } catch (error: Throwable) {
             RuntimeSnapshot(
                 phase = RuntimePhase.ERROR,
@@ -54,6 +54,10 @@ class AtomicSupervisorJournal(context: Context) : SupervisorJournal {
         .put("sessionId", value.sessionId)
         .put("phase", value.phase.name)
         .put("requestedProfile", value.requestedProfile)
+        .put("runtimeMode", value.runtimeMode.name)
+        .put("realmEndpoint", value.realmEndpoint.address)
+        .put("realmPort", RealmEndpoint.REALM_PORT)
+        .put("worldPort", RealmEndpoint.WORLD_PORT)
         .put("clean", value.clean)
         .put("components", JSONObject().also { components ->
             RuntimeComponent.entries.forEach { component ->
@@ -71,8 +75,15 @@ class AtomicSupervisorJournal(context: Context) : SupervisorJournal {
         .put("updatedAtElapsedMs", value.updatedAtElapsedMs)
         .put("recoverability", value.recoverability.name)
 
-    private fun decode(value: JSONObject): RuntimeSnapshot {
-        require(value.getInt("schema") == RuntimeSnapshot.JOURNAL_SCHEMA) { "unsupported journal schema" }
+}
+
+/** Pure schema decoder so legacy migration is unit-testable without an Android Context. */
+internal object RuntimeSnapshotJournalCodec {
+    fun decode(value: JSONObject): RuntimeSnapshot {
+        val storedSchema = value.getInt("schema")
+        require(storedSchema == 2 || storedSchema == RuntimeSnapshot.JOURNAL_SCHEMA) {
+            "unsupported journal schema"
+        }
         fun nullable(name: String): String? = if (value.isNull(name)) null else value.getString(name)
         val session = nullable("sessionId")
         if (session != null) java.util.UUID.fromString(session)
@@ -88,10 +99,31 @@ class AtomicSupervisorJournal(context: Context) : SupervisorJournal {
                 detail = encoded.optString("detail").take(512),
             )
         }
+        val mode = if (storedSchema == 2) RuntimeMode.LOCAL
+            else RuntimeMode.valueOf(value.getString("runtimeMode"))
+        val endpoint = if (storedSchema == 2) RealmEndpoint.LOCAL else {
+            require(value.getInt("realmPort") == RealmEndpoint.REALM_PORT &&
+                value.getInt("worldPort") == RealmEndpoint.WORLD_PORT) {
+                "journal contains non-canonical realm ports"
+            }
+            RealmEndpoint.parseStored(value.getString("realmEndpoint"))
+        }
+        require((mode == RuntimeMode.LOCAL) == endpoint.isLoopback) {
+            "journal topology and endpoint disagree"
+        }
+        if (mode == RuntimeMode.LAN_JOIN) {
+            require(listOf(RuntimeComponent.DATABASE, RuntimeComponent.REALM, RuntimeComponent.WORLD)
+                .all { component ->
+                    val state = components.getValue(component)
+                    state.state == ComponentLifecycle.STOPPED && state.instanceToken == null
+                }) { "client-only journal contains server ownership state" }
+        }
         return RuntimeSnapshot(
             sessionId = session,
             phase = RuntimePhase.valueOf(value.getString("phase")),
             requestedProfile = nullable("requestedProfile"),
+            runtimeMode = mode,
+            realmEndpoint = endpoint,
             clean = value.getBoolean("clean"),
             components = components,
             lastDurableAction = value.getString("lastDurableAction").take(128),
@@ -102,5 +134,5 @@ class AtomicSupervisorJournal(context: Context) : SupervisorJournal {
         )
     }
 
-    companion object { private val TOKEN = Regex("[0-9a-f]{64}") }
+    private val TOKEN = Regex("[0-9a-f]{64}")
 }

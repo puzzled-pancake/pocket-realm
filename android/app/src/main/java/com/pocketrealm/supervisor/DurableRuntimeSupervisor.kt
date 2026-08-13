@@ -20,52 +20,81 @@ class DurableRuntimeSupervisor(
     private val _state = MutableStateFlow(journal.read() ?: RuntimeSnapshot())
     val state: StateFlow<RuntimeSnapshot> = _state.asStateFlow()
 
-    suspend fun preflight(profileId: String): RuntimeOperation = operationLock.withLock {
-        val result = runCatching { backend.preflight(profileId) }
+    suspend fun preflight(profileId: String): RuntimeOperation =
+        preflight(RuntimeLaunchSpec.local(profileId))
+
+    suspend fun preflight(spec: RuntimeLaunchSpec): RuntimeOperation = operationLock.withLock {
+        if (_state.value.phase !in STARTABLE || !_state.value.clean) {
+            return@withLock operation(false, "runtime must be clean and stopped before preflight")
+        }
+        val result = runCatching { backend.preflight(spec) }
             .getOrElse { RuntimeActionResult(false, it.message ?: it.javaClass.simpleName) }
         if (!result.ok) {
-            publish(_state.value.copy(
-                phase = RuntimePhase.UNCONFIGURED,
-                lastError = bounded(result.detail),
-                lastDurableAction = "preflight-failed",
-                recoverability = Recoverability.USER_ACTION_REQUIRED,
-            ))
+            publishPreflightFailure(spec, result.detail)
         }
         RuntimeOperation(result.ok, _state.value, result.detail)
     }
 
-    suspend fun start(profileId: String, includeClient: Boolean): RuntimeOperation = operationLock.withLock {
-        require(PROFILE.matches(profileId)) { "invalid profile identity" }
+    suspend fun start(profileId: String, includeClient: Boolean): RuntimeOperation =
+        start(RuntimeLaunchSpec.local(profileId, includeClient))
+
+    suspend fun start(spec: RuntimeLaunchSpec): RuntimeOperation = operationLock.withLock {
         // A process-recreated supervisor may load a dirty active-looking phase
         // from the prior generation. Recover that journal before applying the
         // ordinary "already active" guard; persisted phase is not liveness.
-        if (!_state.value.clean && !recoverLocked()) {
-            return@withLock operation(false, _state.value.lastError ?: "recovery failed")
+        if (!_state.value.clean) {
+            if (spec.mode == RuntimeMode.LAN_JOIN && _state.value.runtimeMode != RuntimeMode.LAN_JOIN) {
+                return@withLock operation(false, "recover the interrupted local runtime before joining LAN")
+            }
+            if (!recoverLocked()) {
+                return@withLock operation(false, _state.value.lastError ?: "recovery failed")
+            }
         }
         if (_state.value.phase !in STARTABLE) return@withLock operation(false, "runtime is already active")
-        val preflight = runCatching { backend.preflight(profileId) }
+        val preflight = runCatching { backend.preflight(spec) }
             .getOrElse { RuntimeActionResult(false, it.message ?: it.javaClass.simpleName) }
         if (!preflight.ok) {
-            fail(RuntimePhase.UNCONFIGURED, preflight.detail, Recoverability.USER_ACTION_REQUIRED)
+            publishPreflightFailure(spec, preflight.detail)
             return@withLock operation(false, preflight.detail)
         }
 
         val sessionId = tokens.sessionId()
         publish(RuntimeSnapshot(
             sessionId = sessionId,
-            requestedProfile = profileId,
+            requestedProfile = spec.profileId,
+            runtimeMode = spec.mode,
+            realmEndpoint = spec.endpoint,
             clean = false,
             lastDurableAction = "start-accepted",
             updatedAtWallMs = clock.wallMs(),
             updatedAtElapsedMs = clock.elapsedMs(),
         ))
-        for ((component, phase) in SERVER_START_ORDER) {
-            if (!startStage(component, phase, sessionId, profileId)) {
+        for (component in spec.componentPlan()) {
+            if (!startStage(component, phaseFor(component), sessionId, spec)) {
+                if (component == RuntimeComponent.CLIENT) {
+                    return@withLock isolateClientFailure(
+                        detail = _state.value.lastError ?: "client start failed",
+                        durableAction = if (spec.mode == RuntimeMode.LAN_JOIN)
+                            "lan-client-start-failed" else "client-start-failed-realm-retained",
+                        isolatedOperationOk = false,
+                    )
+                }
                 stopStartedAfterFailure(component)
                 return@withLock operation(false, _state.value.lastError ?: "$component start failed")
             }
+            if (component == RuntimeComponent.DATABASE) {
+                val projected = runCatching {
+                    backend.projectRealmEndpoint(checkNotNull(ownerOf(component)), spec.endpoint)
+                }.getOrElse { RuntimeActionResult(false, it.message ?: it.javaClass.simpleName) }
+                if (!projected.ok) {
+                    failStage(component, "realm endpoint projection failed: ${projected.detail}")
+                    stopStartedAfterFailure(component)
+                    return@withLock operation(false, _state.value.lastError ?: "endpoint projection failed")
+                }
+                publish(_state.value.copy(lastDurableAction = "realm-endpoint-projected"))
+            }
         }
-        if (!includeClient) {
+        if (!spec.includeClient) {
             publish(_state.value.copy(
                 phase = RuntimePhase.WORLD_READY,
                 lastDurableAction = "world-ready-client-not-requested",
@@ -73,20 +102,12 @@ class DurableRuntimeSupervisor(
             ))
             return@withLock operation(true, "native realm ready; client not requested")
         }
-        if (!startStage(RuntimeComponent.CLIENT, RuntimePhase.CLIENT_STARTING, sessionId, profileId)) {
-            publish(_state.value.copy(
-                phase = RuntimePhase.CLIENT_FAILED,
-                lastDurableAction = "client-start-failed-realm-retained",
-                recoverability = Recoverability.RELAUNCH_CLIENT,
-            ))
-            return@withLock operation(false, _state.value.lastError ?: "client start failed")
-        }
         publish(_state.value.copy(
             phase = RuntimePhase.RUNNING,
             lastDurableAction = "client-window-ready",
             recoverability = Recoverability.NONE,
         ))
-        operation(true, "runtime ready")
+        operation(true, if (spec.mode == RuntimeMode.LAN_JOIN) "LAN client ready" else "runtime ready")
     }
 
     suspend fun relaunchClient(): RuntimeOperation = operationLock.withLock {
@@ -94,23 +115,38 @@ class DurableRuntimeSupervisor(
         if (current.phase !in setOf(RuntimePhase.CLIENT_FAILED, RuntimePhase.WORLD_READY)) {
             return@withLock operation(false, "client relaunch is not available in ${current.phase}")
         }
-        if (listOf(RuntimeComponent.DATABASE, RuntimeComponent.REALM, RuntimeComponent.WORLD)
+        if (current.runtimeMode != RuntimeMode.LAN_JOIN &&
+            listOf(RuntimeComponent.DATABASE, RuntimeComponent.REALM, RuntimeComponent.WORLD)
                 .any { current.components.getValue(it).state != ComponentLifecycle.READY }) {
             return@withLock operation(false, "server dependency is not ready")
         }
         val session = checkNotNull(current.sessionId)
-        val profile = checkNotNull(current.requestedProfile)
-        if (!startStage(RuntimeComponent.CLIENT, RuntimePhase.CLIENT_STARTING, session, profile)) {
-            publish(_state.value.copy(
-                phase = RuntimePhase.CLIENT_FAILED,
-                lastDurableAction = "client-relaunch-failed",
-                recoverability = Recoverability.RELAUNCH_CLIENT,
-            ))
-            return@withLock operation(false, _state.value.lastError ?: "client relaunch failed")
+        val spec = launchSpecOf(current, includeClient = true)
+        val retainedOwner = ownerOf(RuntimeComponent.CLIENT)
+        if (retainedOwner != null) {
+            val drained = forceOwned(RuntimeComponent.CLIENT, retainedOwner)
+            if (!drained.ok) {
+                fail(
+                    RuntimePhase.ERROR,
+                    "CLIENT retry cleanup failed: ${drained.detail}",
+                    Recoverability.RECOVERY_REQUIRED,
+                )
+                return@withLock operation(false, _state.value.lastError ?: "client retry cleanup failed")
+            }
+            updateComponent(RuntimeComponent.CLIENT, ComponentLifecycle.STOPPED,
+                detail = "prior client owner drained before relaunch")
+        }
+        if (!startStage(RuntimeComponent.CLIENT, RuntimePhase.CLIENT_STARTING, session, spec)) {
+            return@withLock isolateClientFailure(
+                detail = _state.value.lastError ?: "client relaunch failed",
+                durableAction = "client-relaunch-failed",
+                isolatedOperationOk = false,
+            )
         }
         publish(_state.value.copy(
             phase = RuntimePhase.RUNNING,
             lastDurableAction = "client-relaunch-window-ready",
+            lastError = null,
             recoverability = Recoverability.NONE,
         ))
         operation(true, "client relaunched")
@@ -127,6 +163,41 @@ class DurableRuntimeSupervisor(
         if (_state.value.clean) return@withLock operation(true, "journal is already clean")
         val ok = recoverLocked()
         operation(ok, if (ok) "recovery complete" else _state.value.lastError ?: "recovery failed")
+    }
+
+    /**
+     * Converts an exception which escaped a service operation into a durable,
+     * visible terminal state. A failure before any generation was accepted is
+     * safe to retry without recovery. Once a generation may own work, the
+     * journal stays dirty so a later Start cannot skip ownership recovery.
+     */
+    suspend fun unexpectedOperationFailure(detail: String): RuntimeOperation = operationLock.withLock {
+        val current = _state.value
+        val generationMayBeActive = !current.clean || current.sessionId != null ||
+            current.phase !in INACTIVE_TERMINAL_PHASES ||
+            current.components.values.any { it.state != ComponentLifecycle.STOPPED }
+        if (generationMayBeActive) {
+            publish(current.copy(
+                phase = RuntimePhase.ERROR,
+                clean = false,
+                lastError = bounded(detail),
+                lastDurableAction = "unexpected-operation-failure",
+                recoverability = Recoverability.RECOVERY_REQUIRED,
+            ))
+        } else {
+            publish(RuntimeSnapshot(
+                phase = RuntimePhase.ERROR,
+                requestedProfile = current.requestedProfile,
+                runtimeMode = current.runtimeMode,
+                realmEndpoint = current.realmEndpoint,
+                clean = true,
+                components = RuntimeSnapshot.stoppedComponents(),
+                lastDurableAction = "unexpected-operation-failure-before-generation",
+                lastError = bounded(detail),
+                recoverability = Recoverability.RETRY,
+            ))
+        }
+        operation(false, detail)
     }
 
     suspend fun provisionAccount(
@@ -159,24 +230,52 @@ class DurableRuntimeSupervisor(
     suspend fun componentFailed(component: RuntimeComponent, detail: String): RuntimeOperation =
         operationLock.withLock {
             if (component == RuntimeComponent.CLIENT) {
-                updateComponent(component, ComponentLifecycle.FAILED, detail = detail)
-                publish(_state.value.copy(
-                    phase = RuntimePhase.CLIENT_FAILED,
-                    lastError = bounded("CLIENT: $detail"),
-                    lastDurableAction = "client-failed-realm-retained",
-                    recoverability = Recoverability.RELAUNCH_CLIENT,
-                ))
-                return@withLock operation(true, "client failure isolated")
+                return@withLock isolateClientFailure(
+                    detail = "CLIENT: $detail",
+                    durableAction = if (_state.value.runtimeMode == RuntimeMode.LAN_JOIN)
+                        "lan-client-failed" else "client-failed-realm-retained",
+                    isolatedOperationOk = true,
+                )
             }
             updateComponent(component, ComponentLifecycle.FAILED, detail = detail)
             stopLocked(StopMode.FORCED, RuntimePhase.ERROR, "$component: $detail")
         }
 
+    /** A relaunchable client failure is published only after exact-owner teardown succeeds. */
+    private suspend fun isolateClientFailure(
+        detail: String,
+        durableAction: String,
+        isolatedOperationOk: Boolean,
+    ): RuntimeOperation {
+        val retainedOwner = ownerOf(RuntimeComponent.CLIENT)
+        if (retainedOwner != null) {
+            val drained = forceOwned(RuntimeComponent.CLIENT, retainedOwner)
+            if (!drained.ok) {
+                fail(
+                    RuntimePhase.ERROR,
+                    "CLIENT cleanup failed: ${drained.detail}",
+                    Recoverability.RECOVERY_REQUIRED,
+                )
+                return operation(false, _state.value.lastError ?: "client cleanup failed")
+            }
+            updateComponent(RuntimeComponent.CLIENT, ComponentLifecycle.STOPPED,
+                detail = "failed client owner drained")
+        }
+        updateComponent(RuntimeComponent.CLIENT, ComponentLifecycle.FAILED, detail = detail)
+        publish(_state.value.copy(
+            phase = RuntimePhase.CLIENT_FAILED,
+            lastError = bounded(detail),
+            lastDurableAction = durableAction,
+            recoverability = Recoverability.RELAUNCH_CLIENT,
+        ))
+        return operation(isolatedOperationOk, "client failure isolated")
+    }
+
     private suspend fun startStage(
         component: RuntimeComponent,
         phase: RuntimePhase,
         sessionId: String,
-        profileId: String,
+        spec: RuntimeLaunchSpec,
     ): Boolean {
         val owner = ComponentOwner(sessionId, tokens.instanceToken())
         updateComponent(component, ComponentLifecycle.STARTING, owner, "launch requested")
@@ -186,8 +285,8 @@ class DurableRuntimeSupervisor(
             recoverability = Recoverability.RETRY,
         ))
         val observation = runCatching {
-            withTimeout(timeouts.start(component, BotProfiles.find(profileId) != null)) {
-                backend.start(component, owner, profileId)
+            withTimeout(timeouts.start(component, BotProfiles.find(spec.profileId) != null)) {
+                backend.start(component, owner, spec)
             }
         }.getOrElse {
             failStage(component, "${it.javaClass.simpleName}: ${it.message}")
@@ -211,7 +310,9 @@ class DurableRuntimeSupervisor(
             lastDurableAction = "dirty-journal-recovery-started",
             recoverability = Recoverability.RECOVERY_REQUIRED,
         ))
-        for (component in STOP_ORDER) {
+        val recoveryOrder = if (prior.runtimeMode == RuntimeMode.LAN_JOIN)
+            listOf(RuntimeComponent.CLIENT) else STOP_ORDER
+        for (component in recoveryOrder) {
             val recorded = prior.components.getValue(component)
             val token = recorded.instanceToken ?: continue
             val session = prior.sessionId ?: continue
@@ -233,12 +334,14 @@ class DurableRuntimeSupervisor(
                 return false
             }
         }
-        val database = runCatching {
-            withTimeout(timeouts.recoveryMs) { backend.recoverDatabase() }
-        }.getOrElse { RuntimeActionResult(false, it.message ?: it.javaClass.simpleName) }
-        if (!database.ok) {
-            fail(RuntimePhase.ERROR, "database recovery failed: ${database.detail}")
-            return false
+        if (prior.runtimeMode != RuntimeMode.LAN_JOIN) {
+            val database = runCatching {
+                withTimeout(timeouts.recoveryMs) { backend.recoverDatabase() }
+            }.getOrElse { RuntimeActionResult(false, it.message ?: it.javaClass.simpleName) }
+            if (!database.ok) {
+                fail(RuntimePhase.ERROR, "database recovery failed: ${database.detail}")
+                return false
+            }
         }
         publish(RuntimeSnapshot(
             phase = RuntimePhase.STOPPED,
@@ -288,7 +391,8 @@ class DurableRuntimeSupervisor(
                 detail = if (graceful.ok) "clean stop" else "forced stop")
             publish(_state.value.copy(lastDurableAction = "client-stopped"))
         }
-        val world = ownerOf(RuntimeComponent.WORLD)
+        val world = if (_state.value.runtimeMode == RuntimeMode.LAN_JOIN) null
+            else ownerOf(RuntimeComponent.WORLD)
         if (world != null && _state.value.components.getValue(RuntimeComponent.WORLD).state == ComponentLifecycle.READY) {
             val saved = runCatching {
                 withTimeout(timeouts.componentStopMs) { backend.saveWorld(world) }
@@ -296,7 +400,9 @@ class DurableRuntimeSupervisor(
             durable = durable && saved.ok
             publish(_state.value.copy(lastDurableAction = if (saved.ok) "world-save-acknowledged" else "world-save-failed"))
         }
-        for (component in STOP_ORDER.drop(1)) {
+        val serverStopOrder = if (_state.value.runtimeMode == RuntimeMode.LAN_JOIN)
+            emptyList() else STOP_ORDER.drop(1)
+        for (component in serverStopOrder) {
             val owner = ownerOf(component) ?: continue
             val recorded = _state.value.components.getValue(component)
             if (recorded.state == ComponentLifecycle.STOPPED) continue
@@ -376,6 +482,20 @@ class DurableRuntimeSupervisor(
         ))
     }
 
+    private fun publishPreflightFailure(spec: RuntimeLaunchSpec, detail: String) {
+        publish(RuntimeSnapshot(
+            phase = RuntimePhase.UNCONFIGURED,
+            requestedProfile = spec.profileId,
+            runtimeMode = spec.mode,
+            realmEndpoint = spec.endpoint,
+            clean = true,
+            components = RuntimeSnapshot.stoppedComponents(),
+            lastDurableAction = "preflight-failed",
+            lastError = bounded(detail),
+            recoverability = Recoverability.USER_ACTION_REQUIRED,
+        ))
+    }
+
     private fun updateComponent(
         component: RuntimeComponent,
         lifecycle: ComponentLifecycle,
@@ -404,13 +524,28 @@ class DurableRuntimeSupervisor(
 
     override fun close() = backend.close()
 
+    private fun launchSpecOf(snapshot: RuntimeSnapshot, includeClient: Boolean): RuntimeLaunchSpec {
+        val profile = checkNotNull(snapshot.requestedProfile)
+        return when (snapshot.runtimeMode) {
+            RuntimeMode.LOCAL -> RuntimeLaunchSpec.local(profile, includeClient)
+            RuntimeMode.LAN_JOIN -> RuntimeLaunchSpec.lanJoin(profile, snapshot.realmEndpoint.address)
+            RuntimeMode.LAN_HOST -> RuntimeLaunchSpec.lanHost(profile, snapshot.realmEndpoint.address, includeClient)
+        }
+    }
+
+    private fun phaseFor(component: RuntimeComponent): RuntimePhase = when (component) {
+        RuntimeComponent.DATABASE -> RuntimePhase.DB_STARTING
+        RuntimeComponent.REALM -> RuntimePhase.REALM_STARTING
+        RuntimeComponent.WORLD -> RuntimePhase.WORLD_STARTING
+        RuntimeComponent.CLIENT -> RuntimePhase.CLIENT_STARTING
+    }
+
     companion object {
-        private val PROFILE = Regex("[A-Za-z0-9._-]{1,64}")
         private val STARTABLE = setOf(RuntimePhase.STOPPED, RuntimePhase.ERROR, RuntimePhase.UNCONFIGURED)
-        private val SERVER_START_ORDER = listOf(
-            RuntimeComponent.DATABASE to RuntimePhase.DB_STARTING,
-            RuntimeComponent.REALM to RuntimePhase.REALM_STARTING,
-            RuntimeComponent.WORLD to RuntimePhase.WORLD_STARTING,
+        private val INACTIVE_TERMINAL_PHASES = setOf(
+            RuntimePhase.STOPPED,
+            RuntimePhase.UNCONFIGURED,
+            RuntimePhase.ERROR,
         )
         private val STOP_ORDER = listOf(
             RuntimeComponent.CLIENT,

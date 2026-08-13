@@ -14,6 +14,7 @@ coroutinesTest = "1.8.1"
 coroutinesAndroid = "1.8.1"
 okhttp = "5.3.0"
 commonsCompress = "1.28.0"
+zstdJni = "1.5.7-4"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }

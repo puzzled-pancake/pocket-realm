@@ -31,6 +31,14 @@ extern uint32_t RingBuffer_size(RingBuffer* ring);
 extern uint32_t RingBuffer_freeSpace(RingBuffer* ring);
 extern bool RingBuffer_read(RingBuffer* ring, void* data, uint32_t size);
 extern bool RingBuffer_write(RingBuffer* ring, const void *data, uint32_t size);
+/* Publishes a complete header+payload frame with one release-store of tail, so
+ * a consumer can never observe a committed header whose payload is absent. */
+extern bool RingBuffer_writeFrame(
+    RingBuffer* ring,
+    const void* header,
+    uint32_t headerSize,
+    const void* data,
+    uint32_t dataSize);
 extern uint32_t RingBuffer_getSHMemSize(uint32_t bufferSize);
 extern void RingBuffer_free(RingBuffer* ring);
 extern bool RingBuffer_waitForRead(RingBuffer* ring, uint32_t size);

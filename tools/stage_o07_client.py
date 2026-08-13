@@ -271,16 +271,32 @@ exit 0
 
     def _push_to_target(self, source: Path, relative: str) -> None:
         encoded = base64.b64encode(relative.encode()).decode()
+        last_error = "transfer was not attempted"
         try:
-            pushed = subprocess.run(
-                self.command("push", str(source), self.transfer),
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+            for attempt in range(1, 4):
+                pushed = subprocess.run(
+                    self.command("push", str(source), self.transfer),
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+                )
+                if pushed.returncode:
+                    last_error = pushed.stderr.decode(errors="replace").strip()
+                else:
+                    copied = self.run_as(
+                        "sh", "no_backup/client/.o07-write.sh", "copy", encoded,
+                    )
+                    measured = self.stat_size(relative)
+                    if copied.returncode == 0 and measured == str(source.stat().st_size):
+                        return
+                    last_error = (
+                        copied.stderr.decode(errors="replace").strip() or
+                        copied.stdout.decode(errors="replace").strip() or
+                        f"size={measured!r}, expected={source.stat().st_size}"
+                    )
+                if attempt < 3:
+                    time.sleep(attempt)
+            raise ImportFailure(
+                f"app-private copy failed for {relative} after 3 attempts: {last_error}"
             )
-            if pushed.returncode:
-                raise ImportFailure(f"adb push failed for {relative}: {pushed.stderr.decode(errors='replace')}")
-            self.run_as("sh", "no_backup/client/.o07-write.sh", "copy", encoded)
-            if self.stat_size(relative) != str(source.stat().st_size):
-                raise ImportFailure(f"app-private copy failed for {relative}")
         finally:
             subprocess.run(self.command("shell", "rm", "-f", self.transfer),
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
@@ -294,13 +310,28 @@ exit 0
         return self.run_as("sh", "no_backup/client/.o07-write.sh", "sha", encoded).stdout.decode().split()[0].lower()
 
 
-def stage(source: Path, serial: str, package: str, replace: bool) -> dict[str, object]:
+def stage(
+    source: Path,
+    serial: str,
+    package: str,
+    replace: bool,
+    restore_arm64_after_app_data_loss: bool = False,
+) -> dict[str, object]:
     files, identity = scan_source(source)
     adb = Adb(serial, package)
     props = subprocess.run(adb.command("shell", "getprop", "ro.product.cpu.abi"), capture_output=True, text=True, check=True).stdout.strip()
     page = subprocess.run(adb.command("shell", "getconf", "PAGESIZE"), capture_output=True, text=True, check=True).stdout.strip()
-    if props != "x86_64" or page != "4096":
-        raise ImportFailure(f"O07 fixed lane requires x86_64/4096, got {props}/{page}")
+    ordinary_lane = props == "x86_64" and page == "4096"
+    exact_arm64_restore = (
+        restore_arm64_after_app_data_loss and
+        props == "arm64-v8a" and page == "4096" and
+        identity["sha256"] == EXPECTED_EXE_SHA256
+    )
+    if not ordinary_lane and not exact_arm64_restore:
+        raise ImportFailure(
+            "O07 staging requires x86_64/4096, or the explicit exact-hash "
+            f"ARM64 data-loss restore lane; got {props}/{page}"
+        )
     free_lines = adb.run_as("df", "-Pk", "no_backup").stdout.decode().splitlines()
     free_out = free_lines[-1].split() if free_lines else []
     if len(free_out) < 4:
@@ -412,6 +443,11 @@ def main() -> int:
     parser.add_argument("--package", default=PACKAGE)
     parser.add_argument("--validate-only", action="store_true")
     parser.add_argument("--replace", action="store_true")
+    parser.add_argument(
+        "--restore-arm64-after-app-data-loss",
+        action="store_true",
+        help="explicitly restore the inspected build-5875 source to an ARM64 device",
+    )
     parser.add_argument("--evidence-out", type=Path)
     args = parser.parse_args()
     try:
@@ -432,7 +468,13 @@ def main() -> int:
                 encoding="utf-8",
             )
         if not args.validate_only:
-            stage(args.source, args.serial, args.package, args.replace)
+            stage(
+                args.source,
+                args.serial,
+                args.package,
+                args.replace,
+                args.restore_arm64_after_app_data_loss,
+            )
         return 0
     except (ImportFailure, OSError, subprocess.CalledProcessError) as failure:
         print(f"ERROR: {failure}", file=sys.stderr)

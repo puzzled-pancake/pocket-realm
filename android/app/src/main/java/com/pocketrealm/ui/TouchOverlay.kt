@@ -39,26 +39,49 @@ import kotlin.math.roundToInt
 fun TouchOverlay(host: ClientDisplayHost, modifier: Modifier = Modifier) {
     val profile by host.profile.collectAsState()
     var visible by remember(host.generation) { mutableStateOf(profile.overlayEnabled) }
-    var captured by remember(host.generation) { mutableStateOf(host.isPointerCaptured) }
     LaunchedEffect(profile.overlayEnabled) { visible = profile.overlayEnabled }
+
+    // A persisted disabled overlay must be genuinely absent. Users re-enable
+    // it from Controls; the transient Hide button below is only for an enabled
+    // overlay during gameplay.
+    if (!profile.overlayEnabled) return
 
     val opacity = profile.overlayOpacity
     val scale = profile.overlayScale
     Box(modifier.fillMaxSize()) {
-        if (visible) {
+        if (!visible) {
+            // Transient hide means genuinely clear gameplay: movement, actions,
+            // camera, USB-mouse capture, and keyboard controls all disappear.
+            // Keep one deliberately quiet restore tab so the user is never
+            // trapped without a way to bring the overlay back.
+            OverlayButton(
+                label = "Controls",
+                tag = "touch-overlay-toggle",
+                opacity = opacity.coerceAtMost(HIDDEN_RESTORE_OPACITY),
+                compact = true,
+                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+            ) { visible = true }
+        } else {
             Box(
                 Modifier
                     .align(Alignment.Center)
                     .fillMaxHeight()
                     .fillMaxWidth(profile.cameraRegionWidth)
                     .pointerInput(host.generation, profile.invertCameraX, profile.invertCameraY) {
-                        detectDragGestures { _, drag ->
-                            val x = if (profile.invertCameraX) -drag.x else drag.x
-                            val y = if (profile.invertCameraY) -drag.y else drag.y
-                            host.dispatchRelativePointer(x.roundToInt(), y.roundToInt())
-                        }
+                        detectDragGestures(
+                            onDragStart = { host.dispatchRightButton(true) },
+                            onDragEnd = { host.dispatchRightButton(false) },
+                            onDragCancel = { host.dispatchRightButton(false) },
+                            onDrag = { _, drag ->
+                                val x = if (profile.invertCameraX) -drag.x else drag.x
+                                val y = if (profile.invertCameraY) -drag.y else drag.y
+                                host.dispatchRelativePointer(x.roundToInt(), y.roundToInt())
+                            },
+                        )
                     }
-                    .background(Color(0x18000000), RoundedCornerShape(18.dp))
+                    // Keep the drag surface fully invisible. The former shaded
+                    // camera rectangle looked like a rendering fault and
+                    // obscured the game even though it was only an input zone.
                     .testTag("touch-camera-region"),
             )
 
@@ -96,25 +119,18 @@ fun TouchOverlay(host: ClientDisplayHost, modifier: Modifier = Modifier) {
                     ActionKey(host, profile, control, (index + 1).toString(), opacity)
                 }
             }
-        }
 
-        Row(
-            Modifier.align(Alignment.TopEnd).padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            OverlayButton(
-                label = if (visible) "Hide" else "Show controls",
-                tag = "touch-overlay-toggle",
-                opacity = opacity,
-            ) { visible = !visible }
-            OverlayButton(
-                label = if (captured) "Cursor" else "Mouse look",
-                tag = "touch-pointer-capture",
-                opacity = opacity,
+            Row(
+                Modifier.align(Alignment.TopEnd).padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                captured = host.setPointerCapture(!captured)
+                OverlayButton(
+                    label = "Hide",
+                    tag = "touch-overlay-toggle",
+                    opacity = opacity,
+                ) { visible = false }
+                OverlayButton("Keyboard", "touch-chat", opacity) { host.showIme() }
             }
-            OverlayButton("Keyboard", "touch-chat", opacity) { host.showIme() }
         }
     }
 }
@@ -144,12 +160,17 @@ private fun OverlayButton(
     label: String,
     tag: String,
     opacity: Float,
+    compact: Boolean = false,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     Box(
-        Modifier
+        modifier
             .background(Color(0xFF101720).copy(alpha = opacity), RoundedCornerShape(14.dp))
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .padding(
+                horizontal = if (compact) 10.dp else 14.dp,
+                vertical = if (compact) 6.dp else 10.dp,
+            )
             .testTag(tag)
             .pointerInput(tag) { detectTapGestures(onTap = { onClick() }) },
         contentAlignment = Alignment.Center,
@@ -177,15 +198,25 @@ private fun ControllerAction.shortLabel(fallback: String): String = when (this) 
     ControllerAction.DISABLED -> "Off"
     ControllerAction.POINTER_LEFT -> "LMB"
     ControllerAction.POINTER_RIGHT -> "RMB"
+    ControllerAction.CAMERA_LOCK -> "Cam"
     ControllerAction.JUMP -> "Jump"
     ControllerAction.ESCAPE -> "Menu"
     ControllerAction.RADIAL_MENU -> "F7"
     ControllerAction.AUTO_RUN -> "Auto"
     ControllerAction.INTERACT -> "Use"
     ControllerAction.MAP -> "Map"
+    ControllerAction.INVENTORY -> "Bags"
+    ControllerAction.PRP_BANK -> "Bank"
+    ControllerAction.PRP_LAYER_2 -> "L2"
+    ControllerAction.PRP_LAYER_3 -> "L3"
+    ControllerAction.NAV_UP -> "Up"
+    ControllerAction.NAV_DOWN -> "Down"
+    ControllerAction.NAV_LEFT -> "Left"
+    ControllerAction.NAV_RIGHT -> "Right"
     ControllerAction.TARGET -> "Tab"
     else -> keyCode?.let { displayName.removePrefix("Key ").removePrefix("Move ").removePrefix("Strafe ") }
         ?: fallback
 }
 
 private const val VIRTUAL_SOURCE_BASE = 0x7400
+private const val HIDDEN_RESTORE_OPACITY = 0.38f

@@ -309,6 +309,22 @@
       "provides": [],
       "depends_on": [],
       "build_recipe": "gpkg/xcb-proto/build.sh"
+    },
+    {
+      "name": "alsa-lib",
+      "gpkg_dir": "gpkg/alsa-lib",
+      "version": "1.2.16.1",
+      "upstream_source_url": "https://www.alsa-project.org/files/pub/lib/alsa-lib-1.2.16.1.tar.bz2",
+      "upstream_source_sha256": "f740db7f488255944ffd4428416ee3390a96742856916433df468c281436480e",
+      "license": "LGPL-2.1",
+      "role": "O23 OPTIONAL (audio): libasound.so.2 is the DT_NEEDED of winealsa.so and of the android_aserver PCM plugin. Absent is fine for audio-off (the default); present enables the O23 audio backend when audioMode=on. Built on demand: python tools/build_glibc_closure.py --packages alsa-lib",
+      "provides": [
+        "libasound.so.2"
+      ],
+      "depends_on": [
+        "glibc"
+      ],
+      "build_recipe": "gpkg/alsa-lib/build.sh"
     }
   ],
   "intentionally_absent_optional": {
@@ -316,7 +332,7 @@
     "libs": [
       "libgnutls.so.30 (TLS; dlopened)",
       "libvulkan.so.1 (GAP in glibc-packages; --without-vulkan sidesteps for O06)",
-      "libpulse.so.0 / libasound.so.2 (audio off)",
+      "libpulse.so.0 (audio off; libasound.so.2 is now O23-conditional — build alsa-lib for the audio backend)",
       "libGL.so.1 / libEGL.so.1 (WineD3D GL; deferred)",
       "libXrandr/libXrender/libXcomposite/libXinerama/libXi/libXfixes/libXcursor/libXxf86vm (X extensions; degrade silently)",
       "libgphoto2/libgsm/libmpg123/libv4l/libusb/libcups/libSDL2/libFAudio/lcms2/sane/capi20/pcsclite/samba/libxpresent/libjxr (all --without-* disablable)"

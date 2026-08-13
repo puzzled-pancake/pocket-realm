@@ -40,9 +40,13 @@ public class Window extends XResource {
     private final List<Window> immutableChildren = Collections.unmodifiableList(children);
     private final ArrayList<EventListener> eventListeners = new ArrayList<>();
     private FullscreenTransformation fullscreenTransformation;
+    /** Process-wide identity for this exact Java window lifetime.  XIDs are
+     * reusable and therefore cannot serve as renderer authority by themselves. */
+    public final long authorityLifetime;
 
     public Window(int id, Drawable content, int x, int y, int width, int height, XClient originClient) {
         super(id);
+        this.authorityLifetime = WindowAuthorityLifetime.allocate();
         this.content = content;
         this.x = (short)x;
         this.y = (short)y;

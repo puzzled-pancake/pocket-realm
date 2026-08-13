@@ -392,8 +392,10 @@ Java_com_pocketrealm_wine_WineSpikeNative_runWineDirectNative(
 
     std::string out;
     char header[256];
-    snprintf(header, sizeof(header), "RC=%d|EXIT=%d|TIMED_OUT=%d|DESCS=%d",
-             rc, r.exit_status, r.timed_out, r.descendant_count);
+    snprintf(header, sizeof(header),
+             "RC=%d|EXIT=%d|TIMED_OUT=%d|TREE_DRAINED=%d|DESCS=%d",
+             rc, r.exit_status, r.timed_out, r.process_tree_drained,
+             r.descendant_count);
     out += header;
     for (int i = 0; i < r.descendant_count; i++) {
         const struct wine_spike_proc_info *d = &r.descendants[i];
@@ -414,6 +416,65 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_com_pocketrealm_wine_WineSpikeNative_cancelActiveDirectNative(
     JNIEnv *, jobject) {
     return wine_spike_cancel_active_direct() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_pocketrealm_wine_WineSpikeNative_runTrackedBionicProgramNative(
+        JNIEnv *env, jobject,
+        jstring jNativeDir, jstring jExecutable, jstring jArgv0,
+        jstring jWorkingDir, jstring jRuntimeRoot, jstring jLibraryPath,
+        jstring jArgsBlob, jstring jEnvBlob, jstring jStdinPath,
+        jint jTimeoutMs, jboolean jTrackAsDaemon) {
+    const char *native_dir = env->GetStringUTFChars(jNativeDir, nullptr);
+    const char *executable = env->GetStringUTFChars(jExecutable, nullptr);
+    const char *argv0 = env->GetStringUTFChars(jArgv0, nullptr);
+    const char *working_dir = env->GetStringUTFChars(jWorkingDir, nullptr);
+    const char *runtime_root = env->GetStringUTFChars(jRuntimeRoot, nullptr);
+    const char *library_path = env->GetStringUTFChars(jLibraryPath, nullptr);
+    const char *args_blob = env->GetStringUTFChars(jArgsBlob, nullptr);
+    const char *env_blob = env->GetStringUTFChars(jEnvBlob, nullptr);
+    const char *stdin_path = env->GetStringUTFChars(jStdinPath, nullptr);
+
+    struct wine_spike_proot_run_result result;
+    int rc = wine_spike_run_bionic_program(
+        native_dir, executable, argv0, working_dir, runtime_root, library_path,
+        args_blob, env_blob, stdin_path, (int)jTimeoutMs,
+        jTrackAsDaemon == JNI_TRUE, &result);
+
+    env->ReleaseStringUTFChars(jNativeDir, native_dir);
+    env->ReleaseStringUTFChars(jExecutable, executable);
+    env->ReleaseStringUTFChars(jArgv0, argv0);
+    env->ReleaseStringUTFChars(jWorkingDir, working_dir);
+    env->ReleaseStringUTFChars(jRuntimeRoot, runtime_root);
+    env->ReleaseStringUTFChars(jLibraryPath, library_path);
+    env->ReleaseStringUTFChars(jArgsBlob, args_blob);
+    env->ReleaseStringUTFChars(jEnvBlob, env_blob);
+    env->ReleaseStringUTFChars(jStdinPath, stdin_path);
+
+    std::string wire;
+    char header[160];
+    snprintf(header, sizeof(header),
+             "RC=%d|EXIT=%d|TIMED_OUT=%d|TREE_DRAINED=%d|DESCS=0",
+             rc, result.exit_status, result.timed_out,
+             result.process_tree_drained);
+    wire += header;
+    wire += "\n@@@STDOUT@@@\n";
+    wire += result.stdout_buf;
+    wire += "\n@@@STDERR@@@\n";
+    wire += result.stderr_buf;
+    return env->NewStringUTF(wire.c_str());
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_pocketrealm_wine_WineSpikeNative_cancelActiveTrackedBionicProgramNative(
+        JNIEnv *, jobject) {
+    return wine_spike_cancel_active_glibc_program() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_pocketrealm_wine_WineSpikeNative_isTrackedBionicProcessGroupDrainedNative(
+        JNIEnv *, jobject) {
+    return wine_spike_active_glibc_process_group_drained() ? JNI_TRUE : JNI_FALSE;
 }
 
 /* O08: fixed-command MariaDB launcher. This JNI primitive is process-local to

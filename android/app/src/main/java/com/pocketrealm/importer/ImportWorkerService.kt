@@ -23,6 +23,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 
 /** Finite, restartable import work isolated from the UI and Wine processes. */
@@ -54,6 +55,7 @@ class ImportWorkerService : Service() {
         val interruptAfter = if (testProfile) intent.getIntExtra(EXTRA_INTERRUPT_AFTER, 0) else 0
         val interruptPoint = if (testProfile) intent.getStringExtra(EXTRA_INTERRUPT_POINT) else null
         startForegroundCompat("Checking selected client…")
+        ImportProcessMetricsSampler.markStarted(applicationContext)
         wakeLock = getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:o11-import")
             .apply { acquire(8L * 60L * 60L * 1000L) }
@@ -93,6 +95,7 @@ class ImportWorkerService : Service() {
                 updateNotification(importer.status())
             } finally {
                 importer.close()
+                ImportProcessMetricsSampler.markStopped(applicationContext)
                 wakeLock?.let { if (it.isHeld) it.release() }
                 wakeLock = null
                 ServiceCompat.stopForeground(this@ImportWorkerService, ServiceCompat.STOP_FOREGROUND_DETACH)
@@ -105,6 +108,7 @@ class ImportWorkerService : Service() {
     override fun onDestroy() {
         task?.cancel()
         scope.cancel()
+        ImportProcessMetricsSampler.markStopped(applicationContext)
         wakeLock?.let { if (it.isHeld) it.release() }
         super.onDestroy()
     }
@@ -165,13 +169,38 @@ class ImportWorkerService : Service() {
 
         fun readStatus(context: Context): JSONObject = ManagedClientImporter(context).use { importer ->
             val value = importer.status()
-            JSONObject().put("schema", 1).put("phase", value.phase.name)
+            val checkpoints = importer.dataCheckpoints(value.importId)
+            val activeFile = importer.activeFile(value.importId)
+            val metrics = ImportProcessMetricsSampler.sample(context.applicationContext)
+            JSONObject().put("schema", 2).put("phase", value.phase.name)
                 .put("filesProcessed", value.filesProcessed).put("filesTotal", value.filesTotal)
                 .put("bytesCopied", value.bytesCopied).put("bytesTotal", value.bytesTotal)
                 .put("lastRelativePath", value.lastRelativePath).put("warningCount", value.warningCount)
                 .put("lastError", value.lastError).put("activeGeneration", value.activeGeneration)
                 .put("dataPreparationEnabled", BuildConfig.ENABLE_CLIENT_DATA_PREPARATION)
                 .put("updatedAtMs", value.updatedAtMs)
+                .put("activeFile", activeFile?.let {
+                    JSONObject().put("relativePath", it.relativePath)
+                        .put("copiedBytes", it.copiedBytes).put("expectedBytes", it.expectedBytes)
+                })
+                .put("dataStages", JSONArray().apply {
+                    checkpoints.forEach { checkpoint ->
+                        put(JSONObject().put("stage", checkpoint.stage.name)
+                            .put("state", checkpoint.state.name)
+                            .put("processed", checkpoint.processed).put("total", checkpoint.total)
+                            .put("bytesWritten", checkpoint.bytesWritten)
+                            .put("checkpoint", checkpoint.checkpoint)
+                            .put("attempt", checkpoint.attempt)
+                            .put("lastError", checkpoint.lastError)
+                            .put("updatedAtMs", checkpoint.updatedAtMs))
+                    }
+                })
+                .put("worker", JSONObject().put("present", metrics.workerPresent)
+                    .put("state", metrics.state).put("rssBytes", metrics.rssBytes)
+                    .put("threadCount", metrics.threadCount)
+                    .put("processCount", metrics.processCount)
+                    .put("sampleWindowMs", metrics.sampleWindowMs)
+                    .put("cpuPercent", metrics.cpuPercent))
         }
     }
 }

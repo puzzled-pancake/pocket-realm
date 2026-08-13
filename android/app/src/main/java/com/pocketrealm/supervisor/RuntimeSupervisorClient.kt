@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
 import com.pocketrealm.realm.RealmState
+import com.pocketrealm.realm.ClientLaunchState
 import com.pocketrealm.service.RealmService
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
@@ -54,6 +55,10 @@ class RuntimeSupervisorClient(context: Context) {
             transact { remote -> JSONObject(remote.createAccount(username, password, gmLevel)) }
         }
 
+    suspend fun relaunchClient(): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.relaunchClient()) }
+    }
+
     suspend fun createBackup(name: String): JSONObject = withContext(Dispatchers.IO) {
         transact { remote -> JSONObject(remote.createBackup(name)) }
     }
@@ -98,23 +103,38 @@ class RuntimeSupervisorClient(context: Context) {
             continuation.invokeOnCancellation { runCatching { appContext.unbindService(connection) } }
         }
 
-    private fun decodeRealmState(raw: String): RealmState {
-        val value = JSONObject(raw)
-        check(value.optBoolean("ok"))
-        val phase = RuntimePhase.valueOf(value.getString("phase"))
-        val generationActive = value.optBoolean("supervisorGenerationActive")
-        return when (phase) {
-            RuntimePhase.STOPPED, RuntimePhase.UNCONFIGURED -> RealmState.Idle
-            RuntimePhase.PREPARING, RuntimePhase.DB_STARTING, RuntimePhase.REALM_STARTING,
-            RuntimePhase.WORLD_STARTING, RuntimePhase.CLIENT_STARTING -> RealmState.Starting(1)
-            RuntimePhase.WORLD_READY, RuntimePhase.RUNNING, RuntimePhase.CLIENT_FAILED -> {
-                if (generationActive) RealmState.Running(
-                    value.optLong("updatedAtWallMs", System.currentTimeMillis()))
-                else RealmState.Failed("Previous runtime was interrupted. Tap Start to recover safely.")
+    companion object {
+        internal fun decodeRealmState(raw: String): RealmState {
+            val value = JSONObject(raw)
+            check(value.optBoolean("ok"))
+            val phase = RuntimePhase.valueOf(value.getString("phase"))
+            val generationActive = value.optBoolean("supervisorGenerationActive")
+            val lastError = value.optString("lastError").trim().takeIf { it.isNotEmpty() }
+            return when (phase) {
+                RuntimePhase.STOPPED, RuntimePhase.UNCONFIGURED -> {
+                    if (value.optBoolean("clean") && lastError == null) RealmState.Idle
+                    else RealmState.Failed(lastError ?: "Previous runtime needs recovery before it can start.")
+                }
+                RuntimePhase.PREPARING, RuntimePhase.DB_STARTING, RuntimePhase.REALM_STARTING,
+                RuntimePhase.WORLD_STARTING, RuntimePhase.CLIENT_STARTING -> RealmState.Starting(1)
+                RuntimePhase.WORLD_READY, RuntimePhase.RUNNING, RuntimePhase.CLIENT_FAILED -> {
+                    if (generationActive) RealmState.Running(
+                        value.optLong("updatedAtWallMs", System.currentTimeMillis()),
+                        RuntimeMode.valueOf(value.optString("runtimeMode", RuntimeMode.LOCAL.name)),
+                        value.optString("realmEndpoint", RealmEndpoint.LOOPBACK_ADDRESS),
+                        clientState = when (phase) {
+                            RuntimePhase.WORLD_READY -> ClientLaunchState.NOT_STARTED
+                            RuntimePhase.CLIENT_FAILED -> ClientLaunchState.FAILED
+                            else -> ClientLaunchState.READY
+                        },
+                        clientFailure = lastError.takeIf { phase == RuntimePhase.CLIENT_FAILED },
+                    )
+                    else RealmState.Failed("Previous runtime was interrupted. Tap Start to recover safely.")
+                }
+                RuntimePhase.STOPPING -> RealmState.Stopping(false)
+                RuntimePhase.RECOVERING -> RealmState.Recovering(value.optString("lastDurableAction"))
+                RuntimePhase.ERROR -> RealmState.Failed(lastError ?: "runtime failed")
             }
-            RuntimePhase.STOPPING -> RealmState.Stopping(false)
-            RuntimePhase.RECOVERING -> RealmState.Recovering(value.optString("lastDurableAction"))
-            RuntimePhase.ERROR -> RealmState.Failed(value.optString("lastError", "runtime failed"))
         }
     }
 }

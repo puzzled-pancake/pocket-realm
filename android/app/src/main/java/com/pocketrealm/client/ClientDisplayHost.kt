@@ -7,6 +7,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.widget.FrameLayout
 import com.pocketrealm.log.AppLog
+import com.pocketrealm.storage.Settings
 import com.winlator.XServerDisplayActivity
 import com.winlator.widget.XServerView
 import com.winlator.xconnector.UnixSocketConfig
@@ -14,6 +15,10 @@ import com.winlator.xconnector.XConnectorEpoll
 import com.winlator.sysvshm.SysVSHMConnectionHandler
 import com.winlator.sysvshm.SysVSHMRequestHandler
 import com.winlator.sysvshm.SysVSharedMemory
+import com.winlator.alsaserver.ALSAClient
+import com.winlator.alsaserver.ALSAClientConnectionHandler
+import com.winlator.alsaserver.ALSARequestHandler
+import com.winlator.xenvironment.components.VortekRendererComponent
 import com.winlator.xserver.Atom
 import com.winlator.xserver.events.Event
 import com.winlator.xserver.ScreenInfo
@@ -37,16 +42,18 @@ class ClientDisplayHost(
     /** Single-ABI selection preserves x86 Balanced and enables ARM64 Quality. */
     val displayProfile: ClientDisplayProfile =
         ClientDisplayProfile.forDevice(Build.SUPPORTED_ABIS.asList(), Build.MODEL),
+    val frameCap: Int = ClientFrameCap.FPS_30.fps,
+    val vulkanDriverId: String? = null,
+    val rendererPackageId: String? = null,
     autoLoginCredentials: SinglePlayerAutoLoginCredentials? = null,
+    private val timings: Settings.AutoLoginTimings = Settings.AutoLoginTimings(),
+    private val audioEnabled: Boolean = false,
     private val onWindowVisible: () -> Unit,
 ) : AutoCloseable {
-    /**
-     * Physical transport root. The Box64 image resolves :0 below rootfs/tmp;
-     * the ARM64EC/FEX image uses imagefs/usr/tmp. Selecting this from the
-     * pinned rootfs layout keeps the Java X socket, SYSV-SHM endpoint, and
-     * Wine's X11 environment on the same filesystem namespace.
-     */
+    /** Physical transport root used by both the fixed Box64 provider and x86 validation. */
     val transportRoot: java.io.File = resolveTransportRoot(runtimeRoot).apply { mkdirs() }
+    /** The one ALSA filesystem node owned by this host. */
+    private val alsaSocket = java.io.File(transportRoot, ".sound/AS0")
     val xServer: XServer
     val view: XServerView
     /** IME-capable wrapper around [view] for soft-keyboard embedding (O14 increment 2). */
@@ -61,6 +68,8 @@ class ClientDisplayHost(
     val container: FrameLayout
     private val connector: XConnectorEpoll
     private val sysvConnector: XConnectorEpoll
+    private val alsaConnector: XConnectorEpoll?
+    private val vortekComponent: VortekRendererComponent?
     private val sysvSharedMemory: SysVSharedMemory
     private val inputManager = context.getSystemService(Context.INPUT_SERVICE) as InputManager
     private val inputDeviceListener = object : InputManager.InputDeviceListener {
@@ -74,6 +83,10 @@ class ClientDisplayHost(
     private val profileStore = InputProfileStore(context)
     private val mutableProfile = MutableStateFlow(InputProfile.DEFAULT)
     val profile: StateFlow<InputProfile> = mutableProfile.asStateFlow()
+    private val mutableCameraLocked = MutableStateFlow(false)
+    val cameraLocked: StateFlow<Boolean> = mutableCameraLocked.asStateFlow()
+    private val mutablePointerCaptured = MutableStateFlow(false)
+    val pointerCaptured: StateFlow<Boolean> = mutablePointerCaptured.asStateFlow()
     /**
      * Monotonic display/client generation owned by this host instance. A fresh
      * host (surface recreate or client relaunch) gets a new generation; the
@@ -90,9 +103,25 @@ class ClientDisplayHost(
     private var closeAttempts = 0
     private var deleteTargetLogged = false
     private val closeRetry = Runnable { attemptClose() }
+    private var gamepadPointerPumpRunning = false
+    private val gamepadPointerFrameCallback = object : android.view.Choreographer.FrameCallback {
+        override fun doFrame(frameTimeNanos: Long) {
+            if (!gamepadPointerPumpRunning || paused || closed) {
+                gamepadPointerPumpRunning = false
+                return
+            }
+            contract.pumpGamepadPointer(frameTimeNanos, generation)
+            android.view.Choreographer.getInstance().postFrameCallback(this)
+        }
+    }
     val windowVisible: Boolean get() = reportedWindow
     val rendererReady: Boolean get() = view.renderer.isSurfaceReady
     val rendererSurfaceGeneration: Long get() = view.renderer.surfaceGeneration
+    val vulkanBridgeReady: Boolean get() = vortekComponent?.isReady ?: vulkanDriverId == null ||
+        VulkanDriverCatalog.find(vulkanDriverId)?.kind != VulkanDriverKind.SYSTEM
+    @Volatile var presentationFrameRateHint: Float = 0f
+        private set
+    private lateinit var presentationCallback: android.view.SurfaceHolder.Callback
 
     private fun resolveTransportRoot(runtimeRoot: String): java.io.File {
         val root = java.io.File(runtimeRoot)
@@ -100,17 +129,29 @@ class ClientDisplayHost(
             return java.io.File(root, "tmp")
         }
         val rootfs = java.io.File(root, "rootfs")
-        val fexWine = java.io.File(rootfs, "opt/proton-9.0-arm64ec/bin/wine")
-        return if (fexWine.isFile) java.io.File(rootfs, "usr/tmp")
-        else java.io.File(rootfs, "tmp")
+        return java.io.File(rootfs, "tmp")
     }
 
     init {
+        ClientFrameCap.requireFps(frameCap)
+        val arm = Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a"
+        val vulkanDriver = if (arm) VulkanDriverCatalog.requireForRequest(vulkanDriverId) else {
+            require(vulkanDriverId == null) { "x86 display does not accept an ARM Vulkan driver" }
+            null
+        }
+        val rendererPackage = if (arm) RendererPackageCatalog.requireForRequest(
+            ArmTranslationBackend.BOX64, "dxvk", rendererPackageId,
+        ) else {
+            require(rendererPackageId == null) { "x86 display does not accept an ARM renderer package" }
+            null
+        }
         System.loadLibrary("winlator")
         generation = nextGeneration()
         val tmp = transportRoot
         java.io.File(tmp, ".X11-unix").mkdirs()
         java.io.File(tmp, ".sysvshm").mkdirs()
+        if (audioEnabled) java.io.File(tmp, ".sound").mkdirs()
+        if (vulkanDriver?.kind == VulkanDriverKind.SYSTEM) java.io.File(tmp, ".vortek").mkdirs()
         xServer = XServer(
             XServerDisplayActivity(),
             ScreenInfo(displayProfile.virtualWidth, displayProfile.virtualHeight),
@@ -121,23 +162,49 @@ class ClientDisplayHost(
             contentDescription = "Pocket Realm client display"
             isFocusable = true
             isFocusableInTouchMode = true
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                setPointerCaptureObserver { captured ->
+                    mutablePointerCaptured.value = captured
+                }
+            }
         }
         xServer.setRenderer(view.renderer)
+        presentationCallback = object : android.view.SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: android.view.SurfaceHolder) = applyFrameRateHint(holder)
+            override fun surfaceChanged(
+                holder: android.view.SurfaceHolder,
+                format: Int,
+                width: Int,
+                height: Int,
+            ) = applyFrameRateHint(holder)
+            override fun surfaceDestroyed(holder: android.view.SurfaceHolder) {
+                presentationFrameRateHint = 0f
+            }
+        }
+        view.holder.addCallback(presentationCallback)
         contract = InputContract(
             XServerInputSink(xServer),
             ImePulseScheduler { delayMillis, action ->
                 view.postDelayed(action, delayMillis)
             },
+            imeKeyDwellMs = timings.imeKeyDwellMs,
+            imeKeyGapMs = timings.imeKeyGapMs,
+            fieldSettleMs = timings.fieldSettleMs,
+            pointerDwellMs = timings.pointerDwellMs,
+            onCameraLockChanged = { locked -> mutableCameraLocked.value = locked },
         )
         // Attach with no session yet; the bridge stamps every event with this
         // host's generation. A session id is informational only and may be set
         // later without changing the generation (the host IS the generation).
-        val persistedProfile = profileStore.load(InputProfile.DEFAULT_ASPECT_IDENTITY).profile
+        val displayAspectIdentity = InputProfile.aspectIdentity(
+            displayProfile.virtualWidth, displayProfile.virtualHeight,
+        )
+        val persistedProfile = profileStore.load(displayAspectIdentity).profile
         contract.attach(
             sessionId = null,
             generation = generation,
             newProfile = persistedProfile,
-            aspectIdentity = aspectIdentityFor(view),
+            aspectIdentity = displayAspectIdentity,
         )
         profileStore.save(contract.activeProfile)
         mutableProfile.value = contract.activeProfile
@@ -157,19 +224,6 @@ class ClientDisplayHost(
             inputDeviceListener,
             android.os.Handler(android.os.Looper.getMainLooper()),
         )
-        view.addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
-            val width = right - left
-            val height = bottom - top
-            if (width > 0 && height > 0) {
-                val aspect = InputProfile.aspectIdentity(width, height)
-                if (aspect != contract.activeProfile.aspectIdentity) {
-                    val stored = profileStore.load(aspect).profile
-                    contract.switchProfile(stored, aspect, generation)
-                    profileStore.save(contract.activeProfile)
-                    mutableProfile.value = contract.activeProfile
-                }
-            }
-        }
         imeView = ClientImeView(
             context = context,
             contractProvider = { contract },
@@ -284,6 +338,7 @@ class ClientDisplayHost(
                     )
                 },
                 onTerminal = { view.post { autoLogin = null } },
+                timings = timings,
             )
         }
         autoLogin?.start(autoLoginTopologySnapshot())
@@ -301,6 +356,40 @@ class ClientDisplayHost(
             setInitialOutputBufferCapacity(256)
             setCanReceiveAncillaryMessages(true)
         }
+        // O23 audio: Android-side ALSA server (peer to the Winlator android_aserver
+        // The audio socket is a real blocking endpoint. Keep it entirely absent
+        // when Settings says muted so an audio-off session has no idle connector,
+        // thread, or stale socket to inherit on the next launch.
+        // Remove only our exact endpoint. In particular, never recursively
+        // delete .sound because other transports may share that directory.
+        alsaSocket.delete()
+        alsaConnector = if (audioEnabled) {
+            val alsaConfig = UnixSocketConfig.create(tmp.absolutePath, ".sound/AS0")
+            ALSAClient.assignFramesPerBuffer(context)
+            XConnectorEpoll(
+                alsaConfig,
+                ALSAClientConnectionHandler(ALSAClient.Options()),
+                ALSARequestHandler(),
+            ).apply { setMultithreadedClients(true) }
+        } else null
+        vortekComponent = if (vulkanDriver?.kind == VulkanDriverKind.SYSTEM) {
+            val systemCapabilities = AndroidSystemVulkanProbe.probe()
+            val compatibility = VulkanDriverCatalog.requireCompatiblePair(
+                vulkanDriver,
+                requireNotNull(rendererPackage),
+                systemCapabilities,
+            )
+            val options = VortekRendererComponent.Options().apply {
+                vkMaxVersion = compatibility.vkMaxVersion
+                hardenedSafeLane = true
+            }
+            VortekRendererComponent(
+                context,
+                xServer,
+                UnixSocketConfig.create(tmp.absolutePath, ".vortek/V0"),
+                options,
+            )
+        } else null
         connector = XConnectorEpoll(config, XClientConnectionHandler(xServer), XClientRequestHandler()).apply {
             setInitialInputBufferCapacity(4096)
             setInitialOutputBufferCapacity(4096)
@@ -350,6 +439,8 @@ class ClientDisplayHost(
             }
         })
         sysvConnector.start()
+        alsaConnector?.start()
+        vortekComponent?.start()
         connector.start()
     }
 
@@ -399,8 +490,9 @@ class ClientDisplayHost(
         } else {
             topLevel.filter { window ->
                 window.name.isNullOrEmpty() && window.className.equals("wow.exe", ignoreCase = true) &&
-                    window.processId > 0 && window.width.toInt() in 640..1280 &&
-                    window.height.toInt() in 480..720
+                    window.processId > 0 &&
+                    window.width.toInt() == displayProfile.virtualWidth &&
+                    window.height.toInt() == displayProfile.virtualHeight
             }
         }
         val target = candidates.singleOrNull() ?: return null
@@ -474,8 +566,19 @@ class ClientDisplayHost(
             contract.pointerButton(source, InputContract.PointerButton.RIGHT, pressed, generation)
             true
         }
+        action.cameraLockToggle -> {
+            if (pressed) contract.toggleCameraLock(generation, source)
+            true
+        }
         else -> false
     }
+
+    /** Toggle persistent right-mouse camera look for stick and touch movement. */
+    fun toggleCameraLock(source: Int = VIRTUAL_SOURCE): Boolean =
+        contract.toggleCameraLock(generation, source)
+
+    fun setCameraLock(enabled: Boolean, source: Int = VIRTUAL_SOURCE): Boolean =
+        contract.setCameraLock(enabled, generation, source)
 
     /** Request/release Android pointer capture for physical mouse camera-look. */
     fun setPointerCapture(enabled: Boolean): Boolean {
@@ -485,6 +588,7 @@ class ClientDisplayHost(
             view.requestPointerCapture()
         } else {
             view.releasePointerCapture()
+            mutablePointerCaptured.value = false
         }
         // requestPointerCapture() is asynchronous. Returning the requested
         // state lets the UI acknowledge the mode change immediately; callers
@@ -500,7 +604,9 @@ class ClientDisplayHost(
 
     /** Persist a profile only after the contract has atomically switched to it. */
     fun switchInputProfile(profile: InputProfile): InputContract.ReleaseReport {
-        val aspect = aspectIdentityFor(view)
+        val aspect = InputProfile.aspectIdentity(
+            displayProfile.virtualWidth, displayProfile.virtualHeight,
+        )
         val report = contract.switchProfile(profile, aspect, generation)
         profileStore.save(contract.activeProfile)
         mutableProfile.value = contract.activeProfile
@@ -671,6 +777,7 @@ class ClientDisplayHost(
         if (closed) return
         paused = true
         autoLogin?.cancel()
+        stopGamepadPointerPump()
         setPointerCapture(false)
         // Lifecycle pause must close the contract-side IME state as well as
         // hiding the Android window. Otherwise a background/orientation round
@@ -689,6 +796,25 @@ class ClientDisplayHost(
         // damage while backgrounded.
         view.requestRender()
         view.requestFocus()
+        startGamepadPointerPump()
+    }
+
+    private fun startGamepadPointerPump() {
+        if (gamepadPointerPumpRunning || paused || closed) return
+        check(android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            "gamepad pointer pump must start on the main thread"
+        }
+        gamepadPointerPumpRunning = true
+        android.view.Choreographer.getInstance().postFrameCallback(gamepadPointerFrameCallback)
+    }
+
+    private fun stopGamepadPointerPump() {
+        if (!gamepadPointerPumpRunning) return
+        check(android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            "gamepad pointer pump must stop on the main thread"
+        }
+        gamepadPointerPumpRunning = false
+        android.view.Choreographer.getInstance().removeFrameCallback(gamepadPointerFrameCallback)
     }
 
     override fun close() {
@@ -703,6 +829,7 @@ class ClientDisplayHost(
         val finished = java.util.concurrent.CountDownLatch(1)
         val cleanup = Runnable {
             try {
+                stopGamepadPointerPump()
                 view.removeCallbacks(closeRetry)
                 val imm = imeView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
                     as android.view.inputmethod.InputMethodManager
@@ -710,8 +837,18 @@ class ClientDisplayHost(
                 imeView.clearFocus()
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) view.releasePointerCapture()
                 inputManager.unregisterInputDeviceListener(inputDeviceListener)
+                try {
+                    alsaConnector?.destroy()
+                } finally {
+                    alsaSocket.delete()
+                    alsaSocket.parentFile?.let { soundDirectory ->
+                        if (soundDirectory.list()?.isEmpty() == true) soundDirectory.delete()
+                    }
+                }
                 connector.destroy()
+                vortekComponent?.close()
                 sysvConnector.destroy()
+                view.holder.removeCallback(presentationCallback)
                 sysvSharedMemory.deleteAll()
                 view.releaseRenderer()
             } finally {
@@ -740,16 +877,19 @@ class ClientDisplayHost(
         private val generationCounter = java.util.concurrent.atomic.AtomicLong(0L)
         private fun nextGeneration(): Long = generationCounter.incrementAndGet()
 
-        /** Derive the active aspect identity from the rendered view's transformation. */
-        private fun aspectIdentityFor(view: XServerView): String {
-            val w = view.width.coerceAtLeast(0)
-            val h = view.height.coerceAtLeast(0)
-            return if (w == 0 || h == 0) {
-                // Both qualified desktop profiles use the fixed 16:9 aspect.
-                InputProfile.DEFAULT_ASPECT_IDENTITY
-            } else {
-                InputProfile.aspectIdentity(w, h)
-            }
+    }
+
+    private fun applyFrameRateHint(holder: android.view.SurfaceHolder) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || !holder.surface.isValid) return
+        runCatching {
+            holder.surface.setFrameRate(
+                frameCap.toFloat(),
+                android.view.Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
+            )
+            presentationFrameRateHint = frameCap.toFloat()
+        }.onFailure {
+            presentationFrameRateHint = 0f
+            AppLog.w(TAG, "Android presentation frame-rate hint was rejected")
         }
     }
 }
@@ -775,6 +915,12 @@ internal class ClientInputBridge(
     private val virtualHeight: Int,
     private val ensureKeyboardFocus: () -> Unit,
 ) {
+    private data class RelativeFraction(var x: Float = 0f, var y: Float = 0f)
+
+    private val keyTraceBudget = java.util.concurrent.atomic.AtomicInteger(24)
+    private val motionTraceBudget = java.util.concurrent.atomic.AtomicInteger(12)
+    private val capturedPointerFractions = mutableMapOf<Int, RelativeFraction>()
+
     init {
         view.setOnKeyListener { _, _, event -> dispatchKey(event) }
         view.setOnTouchListener { _, event -> dispatchPointer(event) }
@@ -798,13 +944,45 @@ internal class ClientInputBridge(
     }
 
     fun dispatchKey(event: KeyEvent): Boolean {
-        if (isAndroidSystemKey(event.keyCode)) return false
-        ensureKeyboardFocus()
+        if (isAndroidSystemEvent(event)) return false
+        // Retroid exposes one combined KEYBOARD|GAMEPAD|JOYSTICK device. Its
+        // BTN_* KeyEvents may carry SOURCE_KEYBOARD even though the owning
+        // InputDevice is a gamepad, so classify using both the event and device
+        // source masks. Treating those keycodes as keyboard keys makes every
+        // face/shoulder button disappear in X11's keyboard map.
+        val deviceSources = event.device?.sources ?: 0
+        val isGamepad = isGamepadSource(event.source, deviceSources, event.keyCode)
         val layout = gamepadLayout(event.device)
-        return if (
-            event.isFromSource(android.view.InputDevice.SOURCE_GAMEPAD) ||
-            event.isFromSource(android.view.InputDevice.SOURCE_JOYSTICK)
-        ) {
+        if (keyTraceBudget.getAndDecrement() > 0) {
+            AppLog.i(
+                INPUT_TAG,
+                "key device=${event.deviceId} name=${event.device?.name?.take(48)} " +
+                    "eventSource=0x${event.source.toString(16)} deviceSources=0x${deviceSources.toString(16)} " +
+                    "code=${event.keyCode} action=${event.action} gamepad=$isGamepad layout=$layout",
+            )
+        }
+        if (isGamepad && layout == InputContract.GamepadLayout.DISABLED) return false
+        if (!isGamepad && contract.activeProfile.controllerFamily == ControllerFamily.TOUCH_ONLY) {
+            return false
+        }
+        if (isGamepad && hasAnalogueTrigger(event.device, event.keyCode)) {
+            // A number of pads emit both a digital trigger key and an analogue
+            // axis. The axis owns the press so hysteresis cannot double-inject
+            // Shift/Ctrl or leave one copy held after release.
+            return true
+        }
+        if (isGamepad && shouldSuppressDigitalDpad(
+                event.keyCode,
+                hasAxis(event.device, MotionEvent.AXIS_HAT_X),
+                hasAxis(event.device, MotionEvent.AXIS_HAT_Y),
+            )) {
+            // Some controllers publish both D-pad key events and HAT axes.
+            // The HAT state owns each advertised direction so a key UP cannot
+            // prematurely release the corresponding logical action.
+            return true
+        }
+        ensureKeyboardFocus()
+        return if (isGamepad) {
             contract.gamepadButton(
                 event.deviceId,
                 event.keyCode,
@@ -821,6 +999,8 @@ internal class ClientInputBridge(
         if (event.isFromSource(android.view.InputDevice.SOURCE_JOYSTICK)) {
             return dispatchGamepad(event)
         }
+        if (event.isFromSource(android.view.InputDevice.SOURCE_MOUSE) &&
+            contract.activeProfile.controllerFamily == ControllerFamily.TOUCH_ONLY) return false
         val t = view.renderer.viewTransformation
         val aspect = if (t.aspect > 0f) t.aspect else 1f
         val x = ((event.x - t.viewOffsetX) / aspect).roundToInt()
@@ -830,6 +1010,15 @@ internal class ClientInputBridge(
         contract.pointerAbsolute(event.deviceId, x, y, generation)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
+                    event.isFromSource(android.view.InputDevice.SOURCE_MOUSE) &&
+                    !view.hasPointerCapture()) {
+                    // Desktop-style physical-mouse behavior: clicking the game
+                    // claims relative input automatically. Controller camera
+                    // input does not depend on Android pointer capture.
+                    view.requestFocus()
+                    view.requestPointerCapture()
+                }
                 // Some Wine top-levels (notably WoW 1.12) advertise WM_CLASS
                 // but no WM_NAME/window-group, so Winlator's DesktopHelper does
                 // not classify them as application windows. Repair X focus
@@ -855,6 +1044,7 @@ internal class ClientInputBridge(
             return dispatchGamepad(event)
         }
         if (!event.isFromSource(android.view.InputDevice.SOURCE_MOUSE)) return false
+        if (contract.activeProfile.controllerFamily == ControllerFamily.TOUCH_ONLY) return false
         return when (event.actionMasked) {
             MotionEvent.ACTION_SCROLL -> {
                 dispatchMouseWheel(event)
@@ -880,32 +1070,64 @@ internal class ClientInputBridge(
         val source = event.deviceId
         val device = event.device
         val layout = gamepadLayout(device)
-        contract.gamepadAxis(source, InputContract.GamepadAxis.LEFT_X,
-            event.getAxisValue(MotionEvent.AXIS_X), generation, layout)
-        contract.gamepadAxis(source, InputContract.GamepadAxis.LEFT_Y,
-            event.getAxisValue(MotionEvent.AXIS_Y), generation, layout)
-        val rp6 = layout == InputContract.GamepadLayout.RETROID_POCKET_6
-        val rightXAxis = if (rp6 && device?.getMotionRange(
-                MotionEvent.AXIS_Z, android.view.InputDevice.SOURCE_JOYSTICK,
-            ) != null) MotionEvent.AXIS_Z else MotionEvent.AXIS_RX
-        val rightYAxis = if (rp6 && device?.getMotionRange(
-                MotionEvent.AXIS_RZ, android.view.InputDevice.SOURCE_JOYSTICK,
-            ) != null) MotionEvent.AXIS_RZ else MotionEvent.AXIS_RY
-        contract.gamepadAxis(source, InputContract.GamepadAxis.RIGHT_X,
-            event.getAxisValue(rightXAxis), generation, layout)
-        contract.gamepadAxis(source, InputContract.GamepadAxis.RIGHT_Y,
-            event.getAxisValue(rightYAxis), generation, layout)
-        if (rp6) {
-            contract.gamepadAxis(source, InputContract.GamepadAxis.HAT_X,
-                event.getAxisValue(MotionEvent.AXIS_HAT_X), generation, layout)
-            contract.gamepadAxis(source, InputContract.GamepadAxis.HAT_Y,
-                event.getAxisValue(MotionEvent.AXIS_HAT_Y), generation, layout)
+        if (layout == InputContract.GamepadLayout.DISABLED) return false
+        if (motionTraceBudget.getAndDecrement() > 0) {
+            AppLog.i(
+                INPUT_TAG,
+                "joystick device=$source name=${device?.name?.take(48)} history=${event.historySize} " +
+                    "layout=$layout z=${event.getAxisValue(MotionEvent.AXIS_Z)} " +
+                    "rz=${event.getAxisValue(MotionEvent.AXIS_RZ)}",
+            )
         }
+        // Android batches high-rate joystick samples between display frames.
+        // Consume the historical points in order instead of throwing them away;
+        // dropping two of every three RP6 samples produces the visible cursor
+        // skips reported during a steady left-to-right sweep.
+        for (historyIndex in 0 until event.historySize) {
+            dispatchGamepadSample(event, device, layout, historyIndex)
+        }
+        dispatchGamepadSample(event, device, layout, CURRENT_SAMPLE)
         return true
     }
 
+    private fun dispatchGamepadSample(
+        event: MotionEvent,
+        device: android.view.InputDevice?,
+        layout: InputContract.GamepadLayout,
+        historyIndex: Int,
+    ) {
+        val source = event.deviceId
+        contract.gamepadAxis(source, InputContract.GamepadAxis.LEFT_X,
+            axisValue(event, MotionEvent.AXIS_X, historyIndex), generation, layout)
+        contract.gamepadAxis(source, InputContract.GamepadAxis.LEFT_Y,
+            axisValue(event, MotionEvent.AXIS_Y, historyIndex), generation, layout)
+        val rightXAxis = preferredAxis(device, MotionEvent.AXIS_Z, MotionEvent.AXIS_RX)
+        val rightYAxis = preferredAxis(device, MotionEvent.AXIS_RZ, MotionEvent.AXIS_RY)
+        contract.gamepadAxis(source, InputContract.GamepadAxis.RIGHT_X,
+            axisValue(event, rightXAxis, historyIndex), generation, layout)
+        contract.gamepadAxis(source, InputContract.GamepadAxis.RIGHT_Y,
+            axisValue(event, rightYAxis, historyIndex), generation, layout)
+        if (hasAxis(device, MotionEvent.AXIS_HAT_X) || hasAxis(device, MotionEvent.AXIS_HAT_Y)) {
+            contract.gamepadAxis(source, InputContract.GamepadAxis.HAT_X,
+                axisValue(event, MotionEvent.AXIS_HAT_X, historyIndex), generation, layout)
+            contract.gamepadAxis(source, InputContract.GamepadAxis.HAT_Y,
+                axisValue(event, MotionEvent.AXIS_HAT_Y, historyIndex), generation, layout)
+        }
+        triggerValue(event, device, MotionEvent.AXIS_BRAKE, MotionEvent.AXIS_LTRIGGER, historyIndex)?.let { value ->
+            contract.gamepadAxis(source, InputContract.GamepadAxis.LEFT_TRIGGER, value, generation, layout)
+        }
+        triggerValue(event, device, MotionEvent.AXIS_GAS, MotionEvent.AXIS_RTRIGGER, historyIndex)?.let { value ->
+            contract.gamepadAxis(source, InputContract.GamepadAxis.RIGHT_TRIGGER, value, generation, layout)
+        }
+    }
+
+    private fun axisValue(event: MotionEvent, axis: Int, historyIndex: Int): Float =
+        if (historyIndex == CURRENT_SAMPLE) event.getAxisValue(axis)
+        else event.getHistoricalAxisValue(axis, historyIndex)
+
     private fun dispatchCapturedPointer(event: MotionEvent): Boolean {
         if (!event.isFromSource(android.view.InputDevice.SOURCE_MOUSE)) return false
+        if (contract.activeProfile.controllerFamily == ControllerFamily.TOUCH_ONLY) return false
         if (event.actionMasked == MotionEvent.ACTION_SCROLL) {
             dispatchMouseWheel(event)
             return true
@@ -915,8 +1137,29 @@ internal class ClientInputBridge(
             dispatchMouseButton(event, event.actionMasked == MotionEvent.ACTION_BUTTON_PRESS)
             return true
         }
-        val dx = event.getAxisValue(MotionEvent.AXIS_RELATIVE_X).roundToInt()
-        val dy = event.getAxisValue(MotionEvent.AXIS_RELATIVE_Y).roundToInt()
+        if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
+            capturedPointerFractions.remove(event.deviceId)
+            contract.releaseSource(event.deviceId, InputContract.ReleaseReason.EXPLICIT_RELEASE_INPUT)
+            return true
+        }
+        // Captured high-rate mice are commonly batched and may report
+        // sub-pixel deltas. Consuming only the current sample and rounding each
+        // one independently drops motion, producing the visible skips that were
+        // reported during a steady sweep. Preserve every historical delta and
+        // carry the fraction between events.
+        val fraction = capturedPointerFractions.getOrPut(event.deviceId) { RelativeFraction() }
+        var accumulatedX = fraction.x
+        var accumulatedY = fraction.y
+        for (historyIndex in 0 until event.historySize) {
+            accumulatedX += event.getHistoricalAxisValue(MotionEvent.AXIS_RELATIVE_X, historyIndex)
+            accumulatedY += event.getHistoricalAxisValue(MotionEvent.AXIS_RELATIVE_Y, historyIndex)
+        }
+        accumulatedX += event.getAxisValue(MotionEvent.AXIS_RELATIVE_X)
+        accumulatedY += event.getAxisValue(MotionEvent.AXIS_RELATIVE_Y)
+        val dx = accumulatedX.toInt()
+        val dy = accumulatedY.toInt()
+        fraction.x = accumulatedX - dx
+        fraction.y = accumulatedY - dy
         if (dx != 0 || dy != 0) contract.pointerRelative(event.deviceId, dx, dy, generation)
         return true
     }
@@ -962,17 +1205,56 @@ internal class ClientInputBridge(
      */
     fun releaseAll(source: Int? = null) {
         if (source == null) {
+            capturedPointerFractions.clear()
             contract.releaseAll(InputContract.ReleaseReason.EXPLICIT_RELEASE_INPUT)
         } else {
+            capturedPointerFractions.remove(source)
             contract.releaseSource(source)
         }
     }
+
+    private fun gamepadLayout(device: android.view.InputDevice?): InputContract.GamepadLayout =
+        gamepadLayoutFor(
+            contract.activeProfile.controllerFamily,
+            device != null && isRetroidPocketController(
+                device.name, device.descriptor, device.vendorId, device.productId,
+            ),
+        )
 
     companion object {
         private const val RP6_CONTROLLER_NAME = "Retroid Pocket Controller"
         private const val RP6_CONTROLLER_DESCRIPTOR = "dc75afea56e3c3a269b97967aa26b8c93c0bd3fb"
         private const val RP6_VENDOR_ID = 0x2022
         private const val RP6_PRODUCT_ID = 0x3001
+        private const val INPUT_TAG = "ClientInput"
+        private const val CURRENT_SAMPLE = -1
+
+        internal fun isGamepadSource(eventSources: Int, deviceSources: Int, keyCode: Int): Boolean =
+            hasSource(eventSources, android.view.InputDevice.SOURCE_GAMEPAD) ||
+                hasSource(eventSources, android.view.InputDevice.SOURCE_JOYSTICK) ||
+                (isControllerOwnedKey(keyCode) && (
+                    hasSource(deviceSources, android.view.InputDevice.SOURCE_GAMEPAD) ||
+                        hasSource(deviceSources, android.view.InputDevice.SOURCE_JOYSTICK)
+                    ))
+
+        private fun isControllerOwnedKey(keyCode: Int): Boolean =
+            // Keep the explicit ranges for host-JVM policy tests and for
+            // vendor KeyEvents whose framework classification is incomplete.
+            KeyEvent.isGamepadButton(keyCode) ||
+                keyCode in KeyEvent.KEYCODE_BUTTON_A..KeyEvent.KEYCODE_BUTTON_MODE ||
+                keyCode in KeyEvent.KEYCODE_BUTTON_1..KeyEvent.KEYCODE_BUTTON_16 ||
+                keyCode in setOf(
+                KeyEvent.KEYCODE_DPAD_UP,
+                KeyEvent.KEYCODE_DPAD_DOWN,
+                KeyEvent.KEYCODE_DPAD_LEFT,
+                KeyEvent.KEYCODE_DPAD_RIGHT,
+            )
+
+        internal fun isAndroidSystemEvent(event: KeyEvent): Boolean =
+            event.isSystem || isAndroidSystemKey(event.keyCode)
+
+        private fun hasSource(sources: Int, requested: Int): Boolean =
+            (sources and requested) == requested
 
         internal fun isRetroidPocketController(
             name: String?,
@@ -986,6 +1268,9 @@ internal class ClientInputBridge(
         internal fun isAndroidSystemKey(keyCode: Int): Boolean = keyCode in setOf(
             KeyEvent.KEYCODE_HOME,
             KeyEvent.KEYCODE_BACK,
+            KeyEvent.KEYCODE_MENU,
+            KeyEvent.KEYCODE_CALL,
+            KeyEvent.KEYCODE_ENDCALL,
             KeyEvent.KEYCODE_VOLUME_UP,
             KeyEvent.KEYCODE_VOLUME_DOWN,
             KeyEvent.KEYCODE_VOLUME_MUTE,
@@ -994,12 +1279,81 @@ internal class ClientInputBridge(
             KeyEvent.KEYCODE_SLEEP,
             KeyEvent.KEYCODE_WAKEUP,
             KeyEvent.KEYCODE_APP_SWITCH,
+            KeyEvent.KEYCODE_CAMERA,
+            KeyEvent.KEYCODE_FOCUS,
+            KeyEvent.KEYCODE_SEARCH,
+            KeyEvent.KEYCODE_HEADSETHOOK,
+            KeyEvent.KEYCODE_MEDIA_PLAY,
+            KeyEvent.KEYCODE_MEDIA_PAUSE,
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+            KeyEvent.KEYCODE_MEDIA_STOP,
+            KeyEvent.KEYCODE_MEDIA_NEXT,
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+            KeyEvent.KEYCODE_MEDIA_REWIND,
+            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
+            KeyEvent.KEYCODE_MEDIA_RECORD,
         )
 
-        private fun gamepadLayout(device: android.view.InputDevice?): InputContract.GamepadLayout =
-            if (device != null && isRetroidPocketController(
-                    device.name, device.descriptor, device.vendorId, device.productId,
-                )) InputContract.GamepadLayout.RETROID_POCKET_6
-            else InputContract.GamepadLayout.GENERIC
+        internal fun gamepadLayoutFor(
+            family: ControllerFamily,
+            isRetroidPocketController: Boolean,
+        ): InputContract.GamepadLayout = when (family) {
+            ControllerFamily.TOUCH_ONLY,
+            ControllerFamily.KEYBOARD_MOUSE -> InputContract.GamepadLayout.DISABLED
+            ControllerFamily.RETROID_POCKET_6 -> InputContract.GamepadLayout.RETROID_POCKET_6
+            ControllerFamily.AUTO -> if (isRetroidPocketController) {
+                InputContract.GamepadLayout.RETROID_POCKET_6
+            } else InputContract.GamepadLayout.PROFILED
+            ControllerFamily.XBOX,
+            ControllerFamily.PLAYSTATION,
+            ControllerFamily.GENERIC -> InputContract.GamepadLayout.PROFILED
+        }
+
+        internal fun shouldSuppressDigitalDpad(
+            keyCode: Int,
+            hasHatX: Boolean,
+            hasHatY: Boolean,
+        ): Boolean = when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> hasHatX
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> hasHatY
+            else -> false
+        }
+
+        private fun hasAxis(device: android.view.InputDevice?, axis: Int): Boolean =
+            device?.getMotionRange(axis, android.view.InputDevice.SOURCE_JOYSTICK) != null
+
+        private fun preferredAxis(device: android.view.InputDevice?, preferred: Int, fallback: Int): Int =
+            if (hasAxis(device, preferred)) preferred else fallback
+
+        private fun triggerValue(
+            event: MotionEvent,
+            device: android.view.InputDevice?,
+            preferred: Int,
+            fallback: Int,
+            historyIndex: Int,
+        ): Float? {
+            val axis = when {
+                hasAxis(device, preferred) -> preferred
+                hasAxis(device, fallback) -> fallback
+                else -> return null
+            }
+            val range = device?.getMotionRange(axis, android.view.InputDevice.SOURCE_JOYSTICK)
+                ?: return null
+            val span = range.max - range.min
+            if (span <= 0f) return 0f
+            val raw = if (historyIndex == CURRENT_SAMPLE) event.getAxisValue(axis)
+                else event.getHistoricalAxisValue(axis, historyIndex)
+            return ((raw - range.min) / span).coerceIn(0f, 1f)
+        }
+
+        private fun hasAnalogueTrigger(device: android.view.InputDevice?, keyCode: Int): Boolean =
+            when (keyCode) {
+                KeyEvent.KEYCODE_BUTTON_L2 ->
+                    hasAxis(device, MotionEvent.AXIS_BRAKE) || hasAxis(device, MotionEvent.AXIS_LTRIGGER)
+                KeyEvent.KEYCODE_BUTTON_R2 ->
+                    hasAxis(device, MotionEvent.AXIS_GAS) || hasAxis(device, MotionEvent.AXIS_RTRIGGER)
+                else -> false
+            }
+
     }
 }

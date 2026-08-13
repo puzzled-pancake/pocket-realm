@@ -45,7 +45,25 @@ class SinglePlayerAutoLoginTest {
     }
 
     @Test
-    fun armVirtualDesktopIsNotMistakenForTheGameWindow() {
+    fun x86MatcherUsesTheExactSelectedVirtualDesktop() {
+        fun pair(width: Int, height: Int) = listOf(
+            AutoLoginWindow("", "wow.exe", width, height, 42, true, true),
+            AutoLoginWindow("", "", width, height, 0, true, true),
+        )
+
+        assertTrue(Build5875LoginTopology.matches(
+            pair(1280, 720), AutoLoginWindowLane.X86_DIRECT, 1280, 720,
+        ))
+        assertTrue(Build5875LoginTopology.matches(
+            pair(1920, 1080), AutoLoginWindowLane.X86_DIRECT, 1920, 1080,
+        ))
+        assertFalse(Build5875LoginTopology.matches(
+            pair(1280, 720), AutoLoginWindowLane.X86_DIRECT, 1920, 1080,
+        ))
+    }
+
+    @Test
+    fun removedArmVirtualDesktopShapeIsRejected() {
         val desktop = AutoLoginWindow(
             name = "Wine desktop",
             className = "explorer.exe",
@@ -69,7 +87,7 @@ class SinglePlayerAutoLoginTest {
         assertFalse(Build5875LoginTopology.matches(
             listOf(desktop), AutoLoginWindowLane.ARM_TRANSLATED,
         ))
-        assertTrue(Build5875LoginTopology.matches(
+        assertFalse(Build5875LoginTopology.matches(
             listOf(desktop, game), AutoLoginWindowLane.ARM_TRANSLATED,
         ))
         assertFalse(Build5875LoginTopology.matches(

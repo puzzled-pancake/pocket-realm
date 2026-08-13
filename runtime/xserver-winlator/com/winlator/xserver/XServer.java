@@ -1,5 +1,7 @@
 package com.winlator.xserver;
 
+import android.os.Build;
+
 import com.winlator.XServerDisplayActivity;
 import com.winlator.contentdialog.DebugDialog;
 import com.winlator.core.CursorLocker;
@@ -149,8 +151,21 @@ public class XServer {
 
     public void injectPointerMoveDelta(int dx, int dy) {
         try (XLock lock = lock(Lockable.WINDOW_MANAGER, Lockable.INPUT_DEVICE)) {
-            pointer.setPosition(pointer.getX() + dx, pointer.getY() + dy);
+            // External relative sources (captured mouse and controller stick)
+            // must not accumulate an invisible off-screen position. Without
+            // this clamp, reversing at an edge spends many samples traversing
+            // hidden coordinates and then appears to jump back onto the game.
+            pointer.setPosition(
+                clampInjectedPointerCoordinate(pointer.getX(), dx, screenInfo.width),
+                clampInjectedPointerCoordinate(pointer.getY(), dy, screenInfo.height)
+            );
         }
+    }
+
+    public static int clampInjectedPointerCoordinate(int current, int delta, int extent) {
+        if (extent <= 0) return 0;
+        long candidate = (long)current + (long)delta;
+        return (int)Math.max(0L, Math.min((long)extent - 1L, candidate));
     }
 
     public void injectPointerButtonPress(Pointer.Button buttonCode) {
@@ -182,8 +197,9 @@ public class XServer {
     }
 
     private Extension[] setupExtensions() {
-        // O06 qualified a GDI/X11-only set. O07 adds the source-matched
-        // libgladiorenderer.so, so GLX is now honest to advertise for WineD3D.
+        // O06 qualified a GDI/X11-only set. O07's GLX bridge is retained only
+        // on the historical x86 WineD3D validation lane. ARM production uses
+        // DRI3/Present for DXVK and must not advertise an OpenGL client route.
         // Still omitted:
         //   - MITSHMExtension : the separate SysV service component is not
         //     hosted by Pocket Realm. DRI3 uses the restored static fd mapper.
@@ -197,12 +213,21 @@ public class XServer {
         //   - BigReq (always safe, pure protocol)
         //   - Sync  (pure-Java, counters only)
         //   - XComposite (window management references composited windows)
-        //   - GLX (native Gladio renderer, required by WineD3D)
+        //   - GLX on x86 only (native Gladio renderer, required by WineD3D)
         // Preserve Winlator's wire opcodes even when optional extensions are
         // omitted. In particular the matching Gladio client intentionally
         // sends GLX on -106; compacting this array had incorrectly moved GLX
         // to -103 and made the server index past the end of the array.
         final byte first = Extension.START_MAJOR_OPCODE;
+        if (!java.util.Arrays.asList(Build.SUPPORTED_ABIS).contains("x86_64")) {
+            return new Extension[]{
+                new BigReqExtension(this, first),
+                new DRI3Extension(this, (byte)(first - 2)),
+                new PresentExtension(this, (byte)(first - 3)),
+                new SyncExtension(this, (byte)(first - 4)),
+                new XComposite(this, (byte)(first - 5))
+            };
+        }
         return new Extension[]{
             new BigReqExtension(this, first),
             new DRI3Extension(this, (byte)(first - 2)),

@@ -6,11 +6,46 @@ import org.json.JSONObject
 
 enum class ControlPointer { LEFT, RIGHT }
 
+/** Named, testable control maps. Per-control edits move a profile to [CUSTOM]. */
+enum class ControlScheme(val displayName: String, val description: String) {
+    CLASSIC_CAMERA(
+        "Built-in WoW controls (no add-on)",
+        "The right stick directly controls the camera; no lock button or PocketRealmPad is required.",
+    ),
+    POCKET_REALM_PAD(
+        "PocketRealmPad 0.5 (optional)",
+        "Use only when the optional add-on is installed; matches its face, layer, navigation, targeting, inventory, and jump semantics.",
+    ),
+    POCKET_REALM_PAD_CAMERA(
+        "PocketRealmPad + camera lock (optional)",
+        "The optional PocketRealmPad map with rear-right changed to a safe tap-to-lock camera toggle; R3 remains Jump.",
+    ),
+    CUSTOM("Custom", "Individually edited physical or on-screen bindings."),
+}
+
+/** How Android button names correspond to the four physical face positions. */
+enum class FaceButtonLayout(val displayName: String) {
+    ANDROID_STANDARD("Android / Xbox positions"),
+    RP6_PRINTED("RP6 printed A/B/X/Y"),
+}
+
+/** Physical input-family override. All non-touch families share the remappable logical map. */
+enum class ControllerFamily(val displayName: String, val description: String) {
+    AUTO("Automatic", "Use the RP6 profile for the built-in Retroid controller and Android-standard positions otherwise."),
+    RETROID_POCKET_6("Retroid Pocket 6", "RP6 printed face labels, rear paddles, Z/RZ right stick, and analogue triggers."),
+    XBOX("Xbox / Android", "A/B/X/Y Android-standard positions and common gamepad buttons."),
+    PLAYSTATION("PlayStation 4 / 5", "Cross/Circle/Square/Triangle positions using Android's standard gamepad events."),
+    GENERIC("Generic controller", "Android-standard axes and buttons for third-party pads; every logical output remains editable."),
+    KEYBOARD_MOUSE("Keyboard & mouse", "Ignore gamepads; use a physical keyboard/mouse with touch still available for precision."),
+    TOUCH_ONLY("On-screen controls only", "Ignore physical gameplay controllers and use the editable touch overlay."),
+}
+
 /** Allowlisted outputs for the handheld profile; arbitrary key strings/macros are not accepted. */
 enum class ControllerAction(
     val displayName: String,
     val keyCode: Int? = null,
     val pointer: ControlPointer? = null,
+    val cameraLockToggle: Boolean = false,
 ) {
     DISABLED("Disabled"),
     KEY_1("Key 1", KeyEvent.KEYCODE_1),
@@ -39,8 +74,17 @@ enum class ControllerAction(
     ESCAPE("Escape", KeyEvent.KEYCODE_ESCAPE),
     ENTER("Enter", KeyEvent.KEYCODE_ENTER),
     TARGET("Tab / target", KeyEvent.KEYCODE_TAB),
+    INVENTORY("B / controller inventory", KeyEvent.KEYCODE_B),
+    PRP_BANK("F8 / ability bank", KeyEvent.KEYCODE_F8),
+    PRP_LAYER_2("F9 / ability layer 2", KeyEvent.KEYCODE_F9),
+    PRP_LAYER_3("F10 / ability layer 3", KeyEvent.KEYCODE_F10),
+    NAV_UP("Up / menu navigation", KeyEvent.KEYCODE_DPAD_UP),
+    NAV_DOWN("Down / menu navigation", KeyEvent.KEYCODE_DPAD_DOWN),
+    NAV_LEFT("Left / menu navigation", KeyEvent.KEYCODE_DPAD_LEFT),
+    NAV_RIGHT("Right / menu navigation", KeyEvent.KEYCODE_DPAD_RIGHT),
     POINTER_LEFT("Mouse left", pointer = ControlPointer.LEFT),
     POINTER_RIGHT("Mouse right", pointer = ControlPointer.RIGHT),
+    CAMERA_LOCK("Camera lock (toggle)", cameraLockToggle = true),
 }
 
 /** Physical RP6 controls whose gameplay output can be changed in Settings. */
@@ -115,12 +159,20 @@ data class InputProfile(
     val deadZone: Float,
     val aspectIdentity: String,
     val cameraSensitivity: Float = 1.0f,
+    val rightStickDeadZone: Float = 0.05f,
     val overlayOpacity: Float = 0.85f,
     val overlayEnabled: Boolean = true,
     val overlayScale: Float = 1.0f,
     val cameraRegionWidth: Float = 0.42f,
     val invertCameraX: Boolean = false,
     val invertCameraY: Boolean = false,
+    val leftTriggerOnThreshold: Float = 0.30f,
+    val leftTriggerOffThreshold: Float = 0.20f,
+    val rightTriggerOnThreshold: Float = 0.40f,
+    val rightTriggerOffThreshold: Float = 0.25f,
+    val scheme: ControlScheme = ControlScheme.CLASSIC_CAMERA,
+    val controllerFamily: ControllerFamily = ControllerFamily.AUTO,
+    val faceButtonLayout: FaceButtonLayout = FaceButtonLayout.ANDROID_STANDARD,
     val rp6Bindings: Map<Rp6Control, ControllerAction> = defaultRp6Bindings(),
     val overlayBindings: Map<OverlayControl, ControllerAction> = defaultOverlayBindings(),
 ) {
@@ -129,14 +181,21 @@ data class InputProfile(
         require(deadZone in 0f..0.5f) { "deadZone out of range: $deadZone" }
         require(aspectIdentity.isNotBlank()) { "aspectIdentity must not be blank" }
         require(cameraSensitivity in 0.25f..4.0f) { "cameraSensitivity out of range: $cameraSensitivity" }
+        require(rightStickDeadZone in 0.05f..0.35f) { "rightStickDeadZone out of range: $rightStickDeadZone" }
         require(overlayOpacity in 0.35f..1.0f) { "overlayOpacity out of range: $overlayOpacity" }
         require(overlayScale in 0.75f..1.5f) { "overlayScale out of range: $overlayScale" }
         require(cameraRegionWidth in 0.25f..0.7f) { "cameraRegionWidth out of range: $cameraRegionWidth" }
+        require(leftTriggerOffThreshold in 0f..leftTriggerOnThreshold) { "invalid left trigger hysteresis" }
+        require(leftTriggerOnThreshold in 0.1f..0.9f) { "left trigger threshold out of range" }
+        require(rightTriggerOffThreshold in 0f..rightTriggerOnThreshold) { "invalid right trigger hysteresis" }
+        require(rightTriggerOnThreshold in 0.1f..0.9f) { "right trigger threshold out of range" }
     }
 
     companion object {
         /** Current [InputProfile] schema version. */
-        const val CURRENT_VERSION: Int = 4
+        const val CURRENT_VERSION: Int = 7
+
+        private const val V6_DEFAULT_RIGHT_STICK_DEAD_ZONE: Float = 0.12f
 
         /**
          * The default profile. Used at first launch and whenever the active
@@ -152,7 +211,9 @@ data class InputProfile(
         /** Aspect identity assumed by the default profile (16:9, 1280x720). */
         const val DEFAULT_ASPECT_IDENTITY: String = "16:9"
 
-        fun defaultRp6Bindings(): Map<Rp6Control, ControllerAction> = linkedMapOf(
+        fun defaultRp6Bindings(): Map<Rp6Control, ControllerAction> = classicRp6Bindings(cameraLock = false)
+
+        fun classicRp6Bindings(cameraLock: Boolean): Map<Rp6Control, ControllerAction> = linkedMapOf(
             Rp6Control.LEFT_STICK_UP to ControllerAction.MOVE_W,
             Rp6Control.LEFT_STICK_DOWN to ControllerAction.MOVE_S,
             Rp6Control.LEFT_STICK_LEFT to ControllerAction.STRAFE_Q,
@@ -174,7 +235,33 @@ data class InputProfile(
             Rp6Control.L3 to ControllerAction.AUTO_RUN,
             Rp6Control.R3 to ControllerAction.POINTER_LEFT,
             Rp6Control.REAR_LEFT to ControllerAction.INTERACT,
-            Rp6Control.REAR_RIGHT to ControllerAction.POINTER_RIGHT,
+            Rp6Control.REAR_RIGHT to if (cameraLock) ControllerAction.CAMERA_LOCK else ControllerAction.POINTER_RIGHT,
+        )
+
+        /** Position-first PocketRealmPad 0.5 contract from the imported implementation bundle. */
+        fun pocketRealmPadBindings(cameraLock: Boolean): Map<Rp6Control, ControllerAction> = linkedMapOf(
+            Rp6Control.LEFT_STICK_UP to ControllerAction.MOVE_W,
+            Rp6Control.LEFT_STICK_DOWN to ControllerAction.MOVE_S,
+            Rp6Control.LEFT_STICK_LEFT to ControllerAction.STRAFE_Q,
+            Rp6Control.LEFT_STICK_RIGHT to ControllerAction.STRAFE_E,
+            Rp6Control.FACE_RIGHT to ControllerAction.KEY_1,
+            Rp6Control.FACE_BOTTOM to ControllerAction.KEY_2,
+            Rp6Control.FACE_LEFT to ControllerAction.KEY_3,
+            Rp6Control.FACE_TOP to ControllerAction.KEY_4,
+            Rp6Control.DPAD_UP to ControllerAction.NAV_UP,
+            Rp6Control.DPAD_DOWN to ControllerAction.NAV_DOWN,
+            Rp6Control.DPAD_LEFT to ControllerAction.NAV_LEFT,
+            Rp6Control.DPAD_RIGHT to ControllerAction.NAV_RIGHT,
+            Rp6Control.R1 to ControllerAction.PRP_BANK,
+            Rp6Control.L1 to ControllerAction.PRP_LAYER_2,
+            Rp6Control.L2 to ControllerAction.PRP_LAYER_3,
+            Rp6Control.R2 to ControllerAction.POINTER_RIGHT,
+            Rp6Control.START to ControllerAction.RADIAL_MENU,
+            Rp6Control.SELECT to ControllerAction.INVENTORY,
+            Rp6Control.L3 to ControllerAction.TARGET,
+            Rp6Control.R3 to ControllerAction.JUMP,
+            Rp6Control.REAR_LEFT to ControllerAction.TARGET,
+            Rp6Control.REAR_RIGHT to if (cameraLock) ControllerAction.CAMERA_LOCK else ControllerAction.JUMP,
         )
 
         fun defaultOverlayBindings(): Map<OverlayControl, ControllerAction> = linkedMapOf(
@@ -183,6 +270,8 @@ data class InputProfile(
             OverlayControl.MOVE_LEFT to ControllerAction.STRAFE_Q,
             OverlayControl.MOVE_RIGHT to ControllerAction.STRAFE_E,
             OverlayControl.JUMP to ControllerAction.JUMP,
+            // Escape is always useful in the stock client. F7 becomes the
+            // PocketRealmPad quick menu only when that integration is active.
             OverlayControl.MENU to ControllerAction.ESCAPE,
             OverlayControl.ACTION_1 to ControllerAction.KEY_1,
             OverlayControl.ACTION_2 to ControllerAction.KEY_2,
@@ -194,16 +283,61 @@ data class InputProfile(
             OverlayControl.ACTION_8 to ControllerAction.KEY_8,
         )
 
+        fun pocketRealmPadOverlayBindings(): Map<OverlayControl, ControllerAction> =
+            defaultOverlayBindings() + (OverlayControl.MENU to ControllerAction.RADIAL_MENU)
+
         fun actionFor(profile: InputProfile, control: Rp6Control): ControllerAction =
             profile.rp6Bindings[control] ?: defaultRp6Bindings().getValue(control)
 
         fun actionFor(profile: InputProfile, control: OverlayControl): ControllerAction =
             profile.overlayBindings[control] ?: defaultOverlayBindings().getValue(control)
 
+        fun profileForScheme(
+            scheme: ControlScheme,
+            aspectIdentity: String,
+            base: InputProfile = DEFAULT.copy(aspectIdentity = aspectIdentity),
+        ): InputProfile = when (scheme) {
+            ControlScheme.CLASSIC_CAMERA -> base.copy(
+                scheme = scheme,
+                rp6Bindings = classicRp6Bindings(cameraLock = false),
+                overlayBindings = defaultOverlayBindings(),
+            )
+            ControlScheme.POCKET_REALM_PAD -> base.copy(
+                scheme = scheme,
+                rp6Bindings = pocketRealmPadBindings(cameraLock = false),
+                overlayBindings = pocketRealmPadOverlayBindings(),
+            )
+            ControlScheme.POCKET_REALM_PAD_CAMERA -> base.copy(
+                scheme = scheme,
+                rp6Bindings = pocketRealmPadBindings(cameraLock = true),
+                overlayBindings = pocketRealmPadOverlayBindings(),
+            )
+            ControlScheme.CUSTOM -> base.copy(scheme = scheme)
+        }
+
         fun fromJson(value: JSONObject): InputProfile {
             val storedVersion = value.optInt("version", 1)
             require(storedVersion in 1..CURRENT_VERSION) { "unsupported InputProfile version=$storedVersion" }
-            val bindings = defaultRp6Bindings().toMutableMap()
+            val missingRightStickDeadZone = if (storedVersion <= 6) {
+                V6_DEFAULT_RIGHT_STICK_DEAD_ZONE
+            } else {
+                DEFAULT.rightStickDeadZone
+            }
+            val storedRightStickDeadZone = value.optDouble(
+                "rightStickDeadZone",
+                missingRightStickDeadZone.toDouble(),
+            ).toFloat()
+            // v7 lowers only the exact former default. A user-tuned value --
+            // including a v7 profile explicitly set back to 0.12 -- is data,
+            // not a migration marker, and must be preserved.
+            val rightStickDeadZone = if (
+                storedVersion <= 6 && storedRightStickDeadZone == V6_DEFAULT_RIGHT_STICK_DEAD_ZONE
+            ) DEFAULT.rightStickDeadZone else storedRightStickDeadZone
+            val bindings = (if (storedVersion < 5) {
+                classicRp6Bindings(cameraLock = false)
+            } else if (storedVersion == 5) {
+                classicRp6Bindings(cameraLock = true)
+            } else defaultRp6Bindings()).toMutableMap()
             value.optJSONObject("rp6Bindings")?.let { stored ->
                 Rp6Control.values().forEach { control ->
                     val actionName = stored.optString(control.name, "")
@@ -211,7 +345,9 @@ data class InputProfile(
                     if (action != null) bindings[control] = action
                 }
             }
-            val overlayBindings = defaultOverlayBindings().toMutableMap()
+            val overlayBindings = (if (storedVersion < 5) {
+                legacyOverlayBindings()
+            } else defaultOverlayBindings()).toMutableMap()
             value.optJSONObject("overlayBindings")?.let { stored ->
                 OverlayControl.values().forEach { control ->
                     val actionName = stored.optString(control.name, "")
@@ -219,19 +355,51 @@ data class InputProfile(
                     if (action != null) overlayBindings[control] = action
                 }
             }
+            val legacyDefault = storedVersion < 5 && bindings == classicRp6Bindings(cameraLock = false)
+            val legacyOverlayDefault = storedVersion < 5 && overlayBindings == legacyOverlayBindings()
+            val parsedScheme = value.optString("scheme")
+                .takeIf { it.isNotBlank() }
+                ?.let { stored -> ControlScheme.values().firstOrNull { it.name == stored } }
+                ?: if (legacyDefault) ControlScheme.CLASSIC_CAMERA else ControlScheme.CUSTOM
+            val v5CameraLockDefault = storedVersion == 5 &&
+                parsedScheme == ControlScheme.CLASSIC_CAMERA &&
+                bindings == classicRp6Bindings(cameraLock = true)
+            // The first v5 development build temporarily made F7 the classic
+            // overlay default. Repair only that exact default; custom and PRP
+            // profiles retain their explicit choice.
+            val repairedOverlay = if (
+                storedVersion == 5 && parsedScheme == ControlScheme.CLASSIC_CAMERA &&
+                overlayBindings == pocketRealmPadOverlayBindings()
+            ) defaultOverlayBindings() else if (legacyOverlayDefault) {
+                defaultOverlayBindings()
+            } else overlayBindings
             return InputProfile(
                 version = CURRENT_VERSION,
                 deadZone = value.optDouble("deadZone", DEFAULT.deadZone.toDouble()).toFloat(),
                 aspectIdentity = value.optString("aspectIdentity", DEFAULT_ASPECT_IDENTITY),
                 cameraSensitivity = value.optDouble("cameraSensitivity", 1.0).toFloat(),
+                rightStickDeadZone = rightStickDeadZone,
                 overlayOpacity = value.optDouble("overlayOpacity", 0.85).toFloat(),
                 overlayEnabled = value.optBoolean("overlayEnabled", true),
                 overlayScale = value.optDouble("overlayScale", 1.0).toFloat(),
                 cameraRegionWidth = value.optDouble("cameraRegionWidth", 0.42).toFloat(),
                 invertCameraX = value.optBoolean("invertCameraX", false),
                 invertCameraY = value.optBoolean("invertCameraY", false),
-                rp6Bindings = bindings,
-                overlayBindings = overlayBindings,
+                leftTriggerOnThreshold = value.optDouble("leftTriggerOnThreshold", 0.30).toFloat(),
+                leftTriggerOffThreshold = value.optDouble("leftTriggerOffThreshold", 0.20).toFloat(),
+                rightTriggerOnThreshold = value.optDouble("rightTriggerOnThreshold", 0.40).toFloat(),
+                rightTriggerOffThreshold = value.optDouble("rightTriggerOffThreshold", 0.25).toFloat(),
+                scheme = parsedScheme,
+                controllerFamily = value.optString("controllerFamily")
+                    .takeIf { it.isNotBlank() }
+                    ?.let { stored -> ControllerFamily.values().firstOrNull { it.name == stored } }
+                    ?: ControllerFamily.AUTO,
+                faceButtonLayout = value.optString("faceButtonLayout")
+                    .takeIf { it.isNotBlank() }
+                    ?.let { stored -> FaceButtonLayout.values().firstOrNull { it.name == stored } }
+                    ?: FaceButtonLayout.ANDROID_STANDARD,
+                rp6Bindings = if (legacyDefault || v5CameraLockDefault) defaultRp6Bindings() else bindings,
+                overlayBindings = repairedOverlay,
             )
         }
 
@@ -249,15 +417,26 @@ data class InputProfile(
                 .put("deadZone", profile.deadZone.toDouble())
                 .put("aspectIdentity", profile.aspectIdentity)
                 .put("cameraSensitivity", profile.cameraSensitivity.toDouble())
+                .put("rightStickDeadZone", profile.rightStickDeadZone.toDouble())
                 .put("overlayOpacity", profile.overlayOpacity.toDouble())
                 .put("overlayEnabled", profile.overlayEnabled)
                 .put("overlayScale", profile.overlayScale.toDouble())
                 .put("cameraRegionWidth", profile.cameraRegionWidth.toDouble())
                 .put("invertCameraX", profile.invertCameraX)
                 .put("invertCameraY", profile.invertCameraY)
+                .put("leftTriggerOnThreshold", profile.leftTriggerOnThreshold.toDouble())
+                .put("leftTriggerOffThreshold", profile.leftTriggerOffThreshold.toDouble())
+                .put("rightTriggerOnThreshold", profile.rightTriggerOnThreshold.toDouble())
+                .put("rightTriggerOffThreshold", profile.rightTriggerOffThreshold.toDouble())
+                .put("scheme", profile.scheme.name)
+                .put("controllerFamily", profile.controllerFamily.name)
+                .put("faceButtonLayout", profile.faceButtonLayout.name)
                 .put("rp6Bindings", bindings)
                 .put("overlayBindings", overlayBindings)
         }
+
+        private fun legacyOverlayBindings(): Map<OverlayControl, ControllerAction> =
+            defaultOverlayBindings()
 
         /**
          * Compute a stable aspect identity string from width/height in pixels.
@@ -285,9 +464,15 @@ class InputProfileStore(context: Context) {
     data class LoadResult(val profile: InputProfile, val resetForAspect: Boolean)
 
     fun load(aspectIdentity: String): LoadResult {
-        val raw = preferences.getString(KEY, null)
-            ?: LEGACY_KEYS.firstNotNullOfOrNull { preferences.getString(it, null) }
-        val stored = raw?.let { runCatching { InputProfile.fromJson(JSONObject(it)) }.getOrNull() }
+        // A partially-written/corrupt current record must not hide the last
+        // valid legacy profile. A valid current record remains authoritative,
+        // including an intentional aspect mismatch.
+        val stored = (listOf(KEY) + LEGACY_KEYS).asSequence()
+            .mapNotNull { preferences.getString(it, null) }
+            .mapNotNull { raw ->
+                runCatching { InputProfile.fromJson(JSONObject(raw)) }.getOrNull()
+            }
+            .firstOrNull()
         return if (stored != null && stored.aspectIdentity == aspectIdentity) {
             LoadResult(stored, resetForAspect = false)
         } else if (stored != null) {
@@ -305,7 +490,7 @@ class InputProfileStore(context: Context) {
 
     private companion object {
         const val NAME = "pocket_input_profile"
-        const val KEY = "profile_v4"
-        val LEGACY_KEYS = listOf("profile_v3", "profile_v2")
+        const val KEY = "profile_v7"
+        val LEGACY_KEYS = listOf("profile_v6", "profile_v5", "profile_v4", "profile_v3", "profile_v2")
     }
 }

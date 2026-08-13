@@ -9,15 +9,24 @@ import android.os.Binder
 import android.os.IBinder
 import com.pocketrealm.bots.BotProfiles
 import com.pocketrealm.client.ClientRuntimeContract
+import com.pocketrealm.client.ClientTweaksConfig
+import com.pocketrealm.client.ClientTeardownGate
+import com.pocketrealm.client.ClientAudioPolicy
 import com.pocketrealm.client.ClientDisplayService
+import com.pocketrealm.client.ClientDisplayCapabilities
 import com.pocketrealm.client.ClientRuntimeSelector
 import com.pocketrealm.client.ClientRuntimeService
 import com.pocketrealm.client.ArmTranslationBackend
+import com.pocketrealm.client.AndroidSystemVulkanProbe
 import com.pocketrealm.client.IClientDisplayControl
 import com.pocketrealm.client.IClientRuntimeControl
 import com.pocketrealm.client.ManagedClientStore
+import com.pocketrealm.client.RendererPackageCatalog
+import com.pocketrealm.client.VulkanDriverCatalog
+import com.pocketrealm.client.VulkanDriverKind
 import com.pocketrealm.database.DatabaseService
 import com.pocketrealm.database.IDatabaseControl
+import com.pocketrealm.log.AppLog
 import com.pocketrealm.server.IRealmControl
 import com.pocketrealm.server.IWorldControl
 import com.pocketrealm.server.PreparedDataStore
@@ -35,22 +44,9 @@ import kotlinx.coroutines.flow.first
 import org.json.JSONObject
 import java.io.File
 
-internal enum class AutomaticAccountCreateAction { INITIALIZE_CREATED, ROTATE_COLLISION, FAIL }
-
-/** Pure decision boundary: a collision is never eligible for privilege mutation. */
-internal fun automaticAccountCreateAction(result: JSONObject): AutomaticAccountCreateAction =
-    when (result.optString("code")) {
-        "ACCOUNT_CREATED" -> if (result.optLong("accountId") > 0) {
-            AutomaticAccountCreateAction.INITIALIZE_CREATED
-        } else AutomaticAccountCreateAction.FAIL
-        "ACCOUNT_EXISTS" -> AutomaticAccountCreateAction.ROTATE_COLLISION
-        else -> AutomaticAccountCreateAction.FAIL
-    }
-
 /** Binder adapter that preserves the O08/O09 process fault boundaries. */
 class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
     private val appContext = context.applicationContext
-    private val singlePlayerCredentials = SinglePlayerCredentialStore(appContext)
     private val ownerLease = Binder()
     private val database = ServiceHandle(appContext, DatabaseService::class.java) {
         IDatabaseControl.Stub.asInterface(it)
@@ -68,36 +64,85 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         IClientDisplayControl.Stub.asInterface(it)
     }
 
-    override suspend fun preflight(profileId: String): RuntimeActionResult = withContext(Dispatchers.IO) {
+    override suspend fun preflight(spec: RuntimeLaunchSpec): RuntimeActionResult = withContext(Dispatchers.IO) {
+        val profileId = spec.profileId
         if (profileId !in setOf(DEFAULT_PROFILE, INTEGRATED_PROFILE) && BotProfiles.find(profileId) == null) {
             return@withContext RuntimeActionResult(false, "unknown profile")
         }
-        val runtimeSettings = Settings(appContext).flow.first()
-        val translator = when (runtimeSettings.provider) {
-            Settings.RuntimeProvider.BOX64 -> ArmTranslationBackend.BOX64
-            Settings.RuntimeProvider.FEX -> ArmTranslationBackend.FEX
+        if (spec.mode == RuntimeMode.LAN_JOIN && profileId != INTEGRATED_PROFILE) {
+            return@withContext RuntimeActionResult(false, "LAN join uses the normal client profile")
         }
-        val runtimeSelection = ClientRuntimeSelector.select(appContext, translator)
-        if (!runtimeSelection.supported) {
-            return@withContext RuntimeActionResult(false, runtimeSelection.reason)
-        }
-        val db = json(database.api().status())
-        if (!db.optBoolean("initialized")) return@withContext RuntimeActionResult(false, "database is not initialized")
-        if (profileId != DEFAULT_PROFILE) {
-            runCatching {
-                PreparedDataStore(File(StorageRoots.get(appContext).content, "o11-server")).requireActive()
+        if (spec.requiresClient) {
+            val runtimeSelection = ClientRuntimeSelector.select(appContext, ArmTranslationBackend.BOX64)
+            if (!runtimeSelection.supported) {
+                return@withContext RuntimeActionResult(false, runtimeSelection.reason)
             }
-                .getOrElse { return@withContext RuntimeActionResult(false, "prepared data: ${it.message}") }
             runCatching { ManagedClientStore(appContext).load(CLIENT_BUILD_ID) }
                 .getOrElse { return@withContext RuntimeActionResult(false, "managed client: ${it.message}") }
+            if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
+                val runtimeSettings = Settings(appContext).flow.first()
+                runCatching {
+                    val renderer = RendererPackageCatalog.requireForRequest(
+                        ArmTranslationBackend.BOX64,
+                        "dxvk",
+                        runtimeSettings.selectedDxvkPackageId(),
+                    )
+                    val driverId = runtimeSettings.selectedVulkanDriverId()
+                    val driver = VulkanDriverCatalog.requireForRequest(driverId)
+                    VulkanDriverCatalog.requireAvailableCompatiblePair(
+                        driverId,
+                        renderer,
+                        Build.MODEL,
+                        if (driver.kind == VulkanDriverKind.SYSTEM) {
+                            AndroidSystemVulkanProbe.probe()
+                        } else null,
+                    )
+                }.getOrElse {
+                    return@withContext RuntimeActionResult(
+                        false,
+                        "graphics selection: ${it.message ?: "capability check failed"}",
+                    )
+                }
+            }
+        }
+        if (spec.mode == RuntimeMode.LAN_JOIN) {
+            return@withContext RuntimeActionResult(true, "client and private LAN endpoint verified")
+        }
+        if (spec.mode == RuntimeMode.LAN_HOST) {
+            val runtimeSettings = Settings(appContext).flow.first()
+            if (!runtimeSettings.allowLanPlayers) {
+                return@withContext RuntimeActionResult(false, "Allow LAN players is disabled in Settings")
+            }
+            if (!LanInterfacePolicy.isCurrentPrivateInterface(spec.endpoint)) {
+                return@withContext RuntimeActionResult(false,
+                    "LAN host address is not an active private IPv4 interface")
+            }
+        }
+        val db = json(database.api().status())
+        if (!db.optBoolean("providerReady")) {
+            return@withContext RuntimeActionResult(false, "pinned database provider is incomplete")
+        }
+        if (profileId != DEFAULT_PROFILE) {
+            runCatching {
+                PreparedDataStore(File(StorageRoots.get(appContext).content, "o11-server"))
+                    .requireActiveEnvelope()
+            }
+                .getOrElse { return@withContext RuntimeActionResult(false, "prepared data: ${it.message}") }
         } else {
             val data = File(StorageRoots.get(appContext).content, "o09-server/active/BUILD_PROVENANCE.json")
-            if (!data.isFile) return@withContext RuntimeActionResult(false, "verified O09 server data is missing")
+            if (!data.isFile) return@withContext RuntimeActionResult(
+                false,
+                "Prepared server world data is missing. Open Game files and finish preparing it, then try again.",
+            )
         }
         val native = File(appContext.applicationInfo.nativeLibraryDir)
         val required = listOf("libpocket_realmd_runtime.so", "libpocket_world_runtime.so")
         if (required.any { !File(native, it).isFile }) return@withContext RuntimeActionResult(false, "native realm runtime is incomplete")
-        RuntimeActionResult(true, "profile, database, data, and native runtimes verified")
+        RuntimeActionResult(
+            true,
+            if (spec.requiresClient) "server and client prerequisites verified"
+            else "profile, database, data, and native server runtimes verified",
+        )
     }
 
     override suspend fun observe(component: RuntimeComponent): ComponentObservation = withContext(Dispatchers.IO) {
@@ -105,39 +150,60 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
             RuntimeComponent.DATABASE -> observation(component, json(database.api().status()), "RUNNING")
             RuntimeComponent.REALM -> observation(component, json(realm.api().status()), "READY")
             RuntimeComponent.WORLD -> observation(component, json(world.api().status()), "READY")
-            RuntimeComponent.CLIENT -> clientObservation(json(client.api().statusCurrent()))
+            RuntimeComponent.CLIENT -> observeClientComposite()
         }
     }
 
     override suspend fun start(
         component: RuntimeComponent,
         owner: ComponentOwner,
-        profileId: String,
+        spec: RuntimeLaunchSpec,
     ): ComponentObservation = withContext(Dispatchers.IO) {
+        val profileId = spec.profileId
         when (component) {
             RuntimeComponent.DATABASE -> {
                 json(database.api().claim(owner.sessionId, owner.instanceToken, ownerLease))
-                val before = json(database.api().status())
-                if (!before.getBoolean("cleanMarker")) json(database.api().recover())
+                prepareDatabaseForStart()
                 json(database.api().start())
                 observation(component, json(database.api().status()), "RUNNING")
             }
             RuntimeComponent.REALM -> {
+                if (spec.mode == RuntimeMode.LAN_HOST) check(
+                    LanInterfacePolicy.isCurrentPrivateInterface(spec.endpoint)) {
+                    "LAN host interface disappeared before realmd start"
+                }
                 json(realm.api().claim(owner.sessionId, owner.instanceToken, ownerLease))
-                json(realm.api().start())
+                json(realm.api().startAt(spec.endpoint.address))
                 waitReady(component) { json(realm.api().status()) }
             }
             RuntimeComponent.WORLD -> {
+                if (spec.mode == RuntimeMode.LAN_HOST) check(
+                    LanInterfacePolicy.isCurrentPrivateInterface(spec.endpoint)) {
+                    "LAN host interface disappeared before world start"
+                }
                 json(world.api().claim(owner.sessionId, owner.instanceToken, ownerLease))
                 when {
-                    BotProfiles.find(profileId) != null -> json(world.api().startBotProfile(profileId))
-                    profileId == INTEGRATED_PROFILE -> json(world.api().startNormal())
-                    else -> json(world.api().start())
+                    BotProfiles.find(profileId) != null ->
+                        json(world.api().startBotProfileAt(profileId, spec.endpoint.address))
+                    profileId == INTEGRATED_PROFILE -> json(world.api().startNormalAt(spec.endpoint.address))
+                    else -> json(world.api().startAt(spec.endpoint.address))
                 }
                 waitReady(component) { json(world.api().status()) }
             }
-            RuntimeComponent.CLIENT -> startClient(owner, profileId)
+            RuntimeComponent.CLIENT -> startClient(owner, spec)
         }
+    }
+
+    override suspend fun projectRealmEndpoint(
+        databaseOwner: ComponentOwner,
+        endpoint: RealmEndpoint,
+    ): RuntimeActionResult = withContext(Dispatchers.IO) {
+        val projected = json(database.api().projectRealmEndpoint(
+            databaseOwner.instanceToken,
+            endpoint.address,
+            RealmEndpoint.WORLD_PORT,
+        ))
+        RuntimeActionResult(projected.getBoolean("ok"), projected.optString("operation"))
     }
 
     override suspend fun stop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult =
@@ -160,14 +226,11 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                     .also { realm.close() }
                 RuntimeComponent.WORLD -> killBinder { world.api().forceStopOwned(owner.instanceToken) }
                     .also { world.close() }
-                RuntimeComponent.CLIENT -> {
-                    runCatching { display.api().release(owner.instanceToken) }
-                    killBinder { client.api().forceStopOwned(owner.instanceToken) }.also { client.close() }
-                }
+                RuntimeComponent.CLIENT -> forceStopClientAndThenDisplay(owner)
             }
             // Do not let a newly started component inherit a Binder generation
             // that is still finishing the old supervisor's unbind/onDestroy.
-            if (component != RuntimeComponent.CLIENT) delay(500)
+            delay(500)
             result
         }
 
@@ -192,6 +255,19 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         if (!created.optBoolean("ok")) {
             return@withContext AccountProvisionResult(false, created.optString("code", "ACCOUNT_REJECTED"))
         }
+        if (created.optString("code") == "ACCOUNT_EXISTS") {
+            // Never adopt or mutate an existing identity before proving its password.
+            val verified = JSONObject(world.api().verifyAccountPassword(username, password))
+            if (!verified.optBoolean("passwordVerified")) {
+                return@withContext AccountProvisionResult(false, "ACCOUNT_PASSWORD_MISMATCH")
+            }
+            return@withContext AccountProvisionResult(
+                true,
+                "ACCOUNT_VERIFIED",
+                verified.optLong("accountId", created.optLong("accountId")),
+                verified.optInt("gmLevel", created.optInt("gmLevel", 0)),
+            )
+        }
         var result = created
         if (created.optInt("gmLevel", -1) != gmLevel) {
             result = JSONObject(world.api().setAccountGmLevel(username, gmLevel))
@@ -201,7 +277,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         }
         AccountProvisionResult(
             true,
-            if (created.optString("code") == "ACCOUNT_EXISTS") "ACCOUNT_EXISTS" else "ACCOUNT_CREATED",
+            "ACCOUNT_CREATED",
             result.optLong("accountId", created.optLong("accountId")),
             result.optInt("gmLevel", gmLevel),
         )
@@ -217,13 +293,34 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         if (status.getString("state") == "RUNNING") {
             return@withContext RuntimeActionResult(false, "unowned database is still running")
         }
-        if (status.optBoolean("restorePending")) {
-            json(database.api().rollbackPendingRestore())
-            return@withContext RuntimeActionResult(true, "interrupted restore rolled back to safety copy")
+        prepareDatabaseForStart()
+        RuntimeActionResult(true, "database transactions recovered and stopped generation prepared")
+    }
+
+    /**
+     * First-run, upgrade and interrupted-transaction preparation. This runs
+     * inside RealmService's already-reserved foreground operation and wake
+     * lease. DatabaseEngine remains the independent authority for every seal,
+     * snapshot and process-drain check.
+     */
+    private suspend fun prepareDatabaseForStart() {
+        repeat(MAX_DATABASE_PREPARATION_STEPS) {
+            val status = json(database.api().status())
+            when (DatabaseStartPreparation.next(status)) {
+                DatabaseStartPreparation.Action.ROLLBACK_PENDING_RESTORE ->
+                    json(database.api().rollbackPendingRestore())
+                DatabaseStartPreparation.Action.RESUME_INITIALIZATION,
+                DatabaseStartPreparation.Action.INITIALIZE ->
+                    json(database.api().initialize())
+                DatabaseStartPreparation.Action.RESUME_MIGRATIONS,
+                DatabaseStartPreparation.Action.APPLY_PINNED_MIGRATIONS ->
+                    json(database.api().applyPinnedMigrations())
+                DatabaseStartPreparation.Action.RECOVER_DIRTY_GENERATION ->
+                    json(database.api().recover())
+                DatabaseStartPreparation.Action.READY -> return
+            }
         }
-        if (status.getBoolean("cleanMarker")) return@withContext RuntimeActionResult(true, "database generation is clean")
-        val recovered = json(database.api().recover())
-        RuntimeActionResult(recovered.getBoolean("ok"), "database recovery classified")
+        error("database preparation did not converge")
     }
 
     suspend fun createNamedBackup(name: String): JSONObject = withContext(Dispatchers.IO) {
@@ -258,117 +355,205 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         }
     }
 
-    private suspend fun startClient(owner: ComponentOwner, profileId: String): ComponentObservation {
+    private suspend fun startClient(owner: ComponentOwner, spec: RuntimeLaunchSpec): ComponentObservation {
+        val profileId = spec.profileId
         if (profileId != INTEGRATED_PROFILE && BotProfiles.find(profileId) == null) {
             return ComponentObservation(RuntimeComponent.CLIENT, ComponentLifecycle.FAILED, false, owner,
-                detail = "client is not authorized for the O10 baseline profile")
+                detail = "This client is not compatible with the selected game profile.")
         }
         val runtimeSettings = Settings(appContext).flow.first()
-        val translator = when (runtimeSettings.provider) {
-            Settings.RuntimeProvider.BOX64 -> ArmTranslationBackend.BOX64
-            Settings.RuntimeProvider.FEX -> ArmTranslationBackend.FEX
-        }
+        val translator = ArmTranslationBackend.BOX64
         val runtimeSelection = ClientRuntimeSelector.select(appContext, translator)
         check(runtimeSelection.supported) { runtimeSelection.reason }
-        val singlePlayerAutoLogin = BotProfiles.find(profileId) != null
-        if (singlePlayerAutoLogin) ensureSinglePlayerAccount(owner)
-        json(client.api().claim(owner.sessionId, owner.instanceToken, ownerLease))
-        json(display.api().claim(owner.sessionId, owner.instanceToken, ownerLease))
-        val probe = json(client.api().probe(JSONObject()
-            .put("protocol", ClientRuntimeContract.PROTOCOL_VERSION)
-            .put("provider", runtimeSelection.provider.id)
-            .put("translator", translator.id)
-            .put("abi", Build.SUPPORTED_ABIS.firstOrNull().orEmpty()).put("api", Build.VERSION.SDK_INT)
-            .put("pageSize", android.system.Os.sysconf(android.system.OsConstants._SC_PAGESIZE))
-            .put("clientId", CLIENT_BUILD_ID).toString()))
-        check(probe.getBoolean("supported")) { probe.optString("reason", "client runtime unavailable") }
-        val renderer = when {
-            Build.SUPPORTED_ABIS.firstOrNull() != "arm64-v8a" -> "wined3d"
-            runtimeSettings.renderer == Settings.Renderer.DXVK -> "dxvk"
-            else -> "opengl"
+        val audioModeLiteral = ClientAudioPolicy.effectiveMode(
+            runtimeSelection.provider,
+            runtimeSettings.audioMode.name.lowercase(),
+        )
+        val requestedTweaksJson = runtimeSettings.tweaks.toJson()
+        val armClient = Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a"
+        val renderer = if (armClient) "dxvk" else "wined3d"
+        val rendererPackageId = runtimeSettings.selectedDxvkPackageId().takeIf { armClient }
+        val vulkanDriverId = runtimeSettings.selectedVulkanDriverId().takeIf { armClient }
+        if (armClient) {
+            val rendererPackage = RendererPackageCatalog.requireForRequest(
+                translator,
+                renderer,
+                rendererPackageId,
+            )
+            val requestedDriver = VulkanDriverCatalog.requireForRequest(vulkanDriverId)
+            VulkanDriverCatalog.requireAvailableCompatiblePair(
+                vulkanDriverId,
+                rendererPackage,
+                Build.MODEL,
+                if (requestedDriver.kind == VulkanDriverKind.SYSTEM) {
+                    AndroidSystemVulkanProbe.probe()
+                } else null,
+            )
         }
-        val rendererPackageId = runtimeSettings.selectedDxvkPackageId()
-            .takeIf { renderer == "dxvk" && Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a" }
-        val prepareRequest = JSONObject()
-            .put("protocol", ClientRuntimeContract.PROTOCOL_VERSION)
-            .put("clientId", CLIENT_BUILD_ID).put("renderer", renderer)
-            .put("audioMode", "off").put("translator", translator.id)
-            .put("inputSafeMode", runtimeSettings.inputSafeMode)
-        rendererPackageId?.let { prepareRequest.put("rendererPackageId", it) }
-        val prepared = json(client.api().preparePrefix(prepareRequest.toString()))
-        json(display.api().prepare(
-            prepared.getString("runtimeRoot"),
-            owner.instanceToken,
-            singlePlayerAutoLogin,
-            CLIENT_BUILD_ID,
-        ))
-        val launchRequest = JSONObject()
-            .put("protocol", ClientRuntimeContract.PROTOCOL_VERSION)
-            .put("prefixId", prepared.getString("prefixId"))
-            .put("display", ":0").put("audioMode", "off")
-            .put("translator", translator.id).put("renderer", renderer)
-        rendererPackageId?.let { launchRequest.put("rendererPackageId", it) }
-        val launched = json(client.api().launch(launchRequest.toString()))
-        json(display.api().attachSession(owner.instanceToken, launched.getString("sessionId")))
-        while (true) {
-            val observed = clientObservation(json(client.api().statusCurrent()))
-            if (observed.ready || observed.state == ComponentLifecycle.FAILED) return observed
-            delay(100)
-        }
-    }
-
-    /**
-     * Ensure that the randomly named app-owned account still resolves to the
-     * same database identity before its secret is made available to display.
-     * A first-run ACCOUNT_EXISTS or a changed account id is a collision and is
-     * rejected; no unknown password is ever guessed.
-     */
-    private suspend fun ensureSinglePlayerAccount(clientOwner: ComponentOwner) {
-        val status = observation(RuntimeComponent.WORLD, json(world.api().status()), "READY")
-        val worldOwner = status.owner
-        check(status.ready && worldOwner != null && worldOwner.sessionId == clientOwner.sessionId) {
-            "single-player account provisioning requires the owned ready world"
-        }
-        var credentials = singlePlayerCredentials.loadOrCreate()
-        if (credentials.provisioned) {
-            val current = json(world.api().accountStatus(credentials.username))
-            if (current.optBoolean("accountExists")) {
-                check(current.optLong("accountId") == credentials.accountId) {
-                    "single-player account identity mismatch"
+        var clientClaimed = false
+        var clientReady = false
+        try {
+            json(client.api().claim(owner.sessionId, owner.instanceToken, ownerLease))
+            clientClaimed = true
+            json(display.api().claim(owner.sessionId, owner.instanceToken, ownerLease))
+            val probe = json(client.api().probe(JSONObject()
+                .put("protocol", ClientRuntimeContract.PROTOCOL_VERSION)
+                .put("provider", runtimeSelection.provider.id)
+                .put("translator", translator.id)
+                .put("abi", Build.SUPPORTED_ABIS.firstOrNull().orEmpty()).put("api", Build.VERSION.SDK_INT)
+                .put("pageSize", android.system.Os.sysconf(android.system.OsConstants._SC_PAGESIZE))
+                .put("clientId", CLIENT_BUILD_ID).toString()))
+            check(probe.getBoolean("supported")) {
+                probe.optString("reason", "client runtime unavailable")
+            }
+            val displaySelection = ClientDisplayCapabilities.requireSelection(
+                appContext,
+                runtimeSettings.displayProfileId,
+                runtimeSettings.clientFrameCap,
+            )
+            val prepareRequest = JSONObject()
+                .put("protocol", ClientRuntimeContract.PROTOCOL_VERSION)
+                .put("clientId", CLIENT_BUILD_ID).put("renderer", renderer)
+                .put("audioMode", audioModeLiteral).put("translator", translator.id)
+                .put("inputSafeMode", runtimeSettings.inputSafeMode)
+                .put("realmEndpoint", spec.endpoint.address)
+                .put("displayProfileId", displaySelection.profile.id)
+                .put("frameCap", displaySelection.frameCap.fps)
+                .put("tweaks", requestedTweaksJson)
+            rendererPackageId?.let { prepareRequest.put("rendererPackageId", it) }
+            vulkanDriverId?.let { prepareRequest.put("vulkanDriverId", it) }
+            val prepared = json(client.api().preparePrefix(prepareRequest.toString()))
+            val effectiveTweaksJson = ClientTweaksConfig.fromControlJson(
+                prepared.getString("effectiveTweaks"),
+            ).toJson()
+            if (prepared.optBoolean("tweaksFallback")) {
+                AppLog.w(
+                    TAG,
+                    "optional client tweaks skipped: imported build 5875 has an unqualified byte layout",
+                )
+            }
+            // Prefix preparation can be slow. Load and verify the secret only at the
+            // final handoff boundary, after every non-secret preparation step has passed.
+            val userStore = if (spec.mode == RuntimeMode.LAN_JOIN) null else UserAccountStore(appContext)
+            val candidate = userStore?.loadOrQuarantine()
+            val autoLogin = AutoLoginPolicy.resolveAutoLogin(
+                profileId = profileId,
+                autoLoginOnLaunch = runtimeSettings.autoLoginOnLaunch,
+                userAccountProvisioned = candidate != null,
+                isBotProfile = { BotProfiles.find(it) != null },
+            )
+            var verifiedAccount: UserAccountStore.UserAccount? = null
+            if (candidate != null && autoLogin.singlePlayerAutoLogin) {
+                val worldStatus = observation(
+                    RuntimeComponent.WORLD,
+                    json(world.api().status()),
+                    "READY",
+                )
+                val worldOwner = worldStatus.owner
+                check(worldStatus.ready && worldOwner != null &&
+                    worldOwner.sessionId == owner.sessionId) {
+                    "Auto-login could not verify the running realm. " +
+                        "Your saved account was kept; tap Retry game."
                 }
-                check(current.optInt("gmLevel", -1) == 0) {
-                    "single-player account privilege mismatch"
+                val proof = JSONObject(
+                    world.api().verifyAccountPassword(candidate.username, candidate.password),
+                )
+                when (AutoLoginCredentialProof.evaluate(
+                    expectedOwner = worldOwner,
+                    expectedAccountId = candidate.accountId,
+                    expectedGmLevel = candidate.gmLevel,
+                    responseOk = proof.optBoolean("ok"),
+                    passwordVerified = proof.optBoolean("passwordVerified"),
+                    accountExists = proof.optBoolean("accountExists"),
+                    accountId = proof.optLong("accountId"),
+                    gmLevel = proof.optInt("gmLevel", -1),
+                    ownerSessionId = proof.optString("ownerSessionId").takeIf(String::isNotEmpty),
+                    ownerInstanceToken = proof.optString("instanceToken").takeIf(String::isNotEmpty),
+                )) {
+                    AutoLoginCredentialProof.Disposition.ACCEPT -> verifiedAccount = candidate
+                    // Keep the record for explicit correction/clear. A realm
+                    // proof can race a user replacing the saved account in the
+                    // UI; deleting here could erase the newer credential based
+                    // on rejection of the older candidate.
+                    AutoLoginCredentialProof.Disposition.INVALID_CREDENTIAL -> error(
+                        "The saved account no longer matches this realm. " +
+                            "Create or verify it again, then tap Retry game. " +
+                            "The saved account was kept.",
+                    )
+                    AutoLoginCredentialProof.Disposition.AUTHORITY_UNAVAILABLE -> error(
+                        "Auto-login verification changed while the game was starting. " +
+                            "Your saved account was kept; tap Retry game.",
+                    )
                 }
-                return
+            }
+            val displayPrepared = json(display.api().prepare(
+                prepared.getString("runtimeRoot"),
+                owner.instanceToken,
+                verifiedAccount?.username.orEmpty(),
+                verifiedAccount?.password.orEmpty(),
+                runtimeSettings.effectiveAutoLoginTimings().toControlJson(),
+                audioModeLiteral,
+                CLIENT_BUILD_ID,
+                vulkanDriverId.orEmpty(),
+                rendererPackageId.orEmpty(),
+                displaySelection.profile.id,
+                displaySelection.frameCap.fps,
+            ))
+            check(prepared.getString("displayProfileId") ==
+                displayPrepared.getString("displayProfile") &&
+                prepared.getInt("virtualWidth") == displayPrepared.getInt("virtualWidth") &&
+                prepared.getInt("virtualHeight") == displayPrepared.getInt("virtualHeight") &&
+                prepared.getInt("frameCap") == displayPrepared.getInt("frameCap")) {
+                "client runtime and Android display selected different display identities"
+            }
+            if (vulkanDriverId != null) {
+                check(prepared.getString("vulkanDriverId") == vulkanDriverId &&
+                    displayPrepared.getString("vulkanDriverId") == vulkanDriverId) {
+                    "client runtime and Android display selected different Vulkan drivers"
+                }
+                check(prepared.getString("rendererPackageId") == rendererPackageId &&
+                    displayPrepared.getString("rendererPackageId") == rendererPackageId) {
+                    "client runtime and Android display selected different renderer packages"
+                }
+                val driver = VulkanDriverCatalog.requireForRequest(vulkanDriverId)
+                check(driver.kind != VulkanDriverKind.SYSTEM ||
+                    displayPrepared.getBoolean("vulkanBridgeReady")) {
+                    "Android system Vulkan bridge is not ready"
+                }
+            }
+            val launchRequest = JSONObject()
+                .put("protocol", ClientRuntimeContract.PROTOCOL_VERSION)
+                .put("prefixId", prepared.getString("prefixId"))
+                .put("display", ":0").put("audioMode", audioModeLiteral)
+                .put("translator", translator.id).put("renderer", renderer)
+                .put("displayProfileId", displaySelection.profile.id)
+                .put("frameCap", displaySelection.frameCap.fps)
+                .put("tweaks", effectiveTweaksJson)
+            rendererPackageId?.let { launchRequest.put("rendererPackageId", it) }
+            vulkanDriverId?.let { launchRequest.put("vulkanDriverId", it) }
+            val launched = json(client.api().launch(launchRequest.toString()))
+            json(display.api().attachSession(owner.instanceToken, launched.getString("sessionId")))
+            while (true) {
+                val observed = observeClientComposite()
+                if (observed.ready) {
+                    clientReady = true
+                    return observed
+                }
+                if (observed.state == ComponentLifecycle.FAILED) return observed
+                delay(100)
+            }
+        } finally {
+            if (!clientReady) {
+                // A failed/aborted client start must not leave a published black surface or
+                // an ownership claim that makes the advertised relaunch action impossible.
+                // Wine can still call X/Vulkan/SysV/ALSA, so the display is released only
+                // after forceStopOwned returns both runtime and process-tree drain proofs.
+                if (clientClaimed) {
+                    val cleanup = forceStopClientAndThenDisplay(owner)
+                    check(cleanup.ok) { "failed client runtime cleanup: ${cleanup.detail}" }
+                }
             }
         }
-        repeat(MAX_SINGLE_PLAYER_ACCOUNT_ATTEMPTS) {
-            // Use the raw create surface here. The general provisionAccount()
-            // helper may adjust GM level for ACCOUNT_EXISTS, which is correct
-            // for an explicit user request but must never mutate an unrelated
-            // random-name collision during automatic provisioning.
-            val created = json(world.api().createAccount(credentials.username, credentials.password))
-            val code = created.optString("code")
-            when (automaticAccountCreateAction(created)) {
-            AutomaticAccountCreateAction.INITIALIZE_CREATED -> {
-                if (created.optInt("gmLevel", -1) != 0) {
-                    val normalized = json(world.api().setAccountGmLevel(credentials.username, 0))
-                    check(normalized.optInt("gmLevel", -1) == 0) {
-                        "single-player account privilege initialization failed"
-                    }
-                }
-                singlePlayerCredentials.markProvisioned(credentials, created.getLong("accountId"))
-                return
-            }
-            AutomaticAccountCreateAction.ROTATE_COLLISION -> {
-                credentials = singlePlayerCredentials.rotateUnprovisioned(credentials)
-            }
-            AutomaticAccountCreateAction.FAIL -> {
-                error("single-player account provisioning failed: ${code.take(64)}")
-            }
-            }
-        }
-        error("single-player account provisioning exhausted collision retries")
     }
 
     private suspend fun stopClient(owner: ComponentOwner): RuntimeActionResult {
@@ -384,10 +569,16 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         repeat(450) {
             val status = json(client.api().statusCurrent())
             val rawState = status.optString("state")
-            if (rawState == "EXITED" && status.optBoolean("cleanExit")) {
+            if (clientGracefulReleaseReady(
+                    rawState,
+                    status.optBoolean("cleanExit"),
+                    status.optBoolean("runtimeFinished"),
+                )) {
                 json(client.api().releaseOwned(owner.instanceToken))
-                json(display.api().release(owner.instanceToken))
-                return RuntimeActionResult(true, "client exited after graceful close")
+                val displayCleanup = cleanupDisplayAfterClientDrain(owner)
+                return if (displayCleanup.ok) {
+                    RuntimeActionResult(true, "client exited after graceful close")
+                } else displayCleanup
             }
             if (rawState == "FAILED" || rawState == "FORCE_STOPPED") {
                 return RuntimeActionResult(false,
@@ -404,7 +595,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
             "PREPARING", "READY", "STARTING" -> ComponentLifecycle.STARTING
             "RUNNING" -> ComponentLifecycle.READY
             "CLOSE_REQUESTED" -> ComponentLifecycle.STOPPING
-            "EXITED", "FORCE_STOPPED" -> ComponentLifecycle.STOPPED
+            "EXITED", "FORCE_STOPPED" -> clientTerminalLifecycle(raw, value.optBoolean("hasOwner"))
             "FAILED" -> ComponentLifecycle.FAILED
             else -> ComponentLifecycle.UNKNOWN
         }
@@ -413,6 +604,29 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         return ComponentObservation(RuntimeComponent.CLIENT, state, state == ComponentLifecycle.READY,
             owner, detail = value.optString("detail", raw).take(512))
     }
+
+    private suspend fun observeClientComposite(): ComponentObservation {
+        val runtime = clientObservation(json(client.api().statusCurrent()))
+        val displayHealth = runCatching {
+            displayHealth(json(display.api().status()))
+        }.getOrElse { failure ->
+            return compositeClientObservation(
+                runtime,
+                display = null,
+                displayUnavailableDetail = "client display unavailable: ${failure.javaClass.simpleName}",
+            )
+        }
+        return compositeClientObservation(runtime, displayHealth)
+    }
+
+    private fun displayHealth(value: JSONObject): ClientDisplayHealth = ClientDisplayHealth(
+        owner = if (value.optBoolean("hasOwner")) ComponentOwner(
+            value.getString("ownerSessionId"),
+            value.getString("instanceToken"),
+        ) else null,
+        prepared = value.optBoolean("prepared"),
+        rendererReady = value.optBoolean("rendererReady"),
+    )
 
     private fun observation(component: RuntimeComponent, value: JSONObject, readyState: String): ComponentObservation {
         val raw = value.getString("state")
@@ -440,6 +654,75 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         check(it.optBoolean("ok")) { it.optString("error", "component control request failed") }
     }
 
+    private suspend fun forceStopClientAndThenDisplay(owner: ComponentOwner): RuntimeActionResult {
+        val current = runCatching { json(client.api().statusCurrent()) }.getOrElse { failure ->
+            return RuntimeActionResult(false,
+                "client ownership could not be verified before stop: ${failure.javaClass.simpleName}")
+        }
+        val currentOwner = if (current.optBoolean("hasOwner")) ComponentOwner(
+            current.getString("ownerSessionId"),
+            current.getString("instanceToken"),
+        ) else null
+        when {
+            currentOwner == owner -> {
+                val response = try {
+                    JSONObject(client.api().forceStopOwned(owner.instanceToken))
+                } catch (failure: Throwable) {
+                    return RuntimeActionResult(false,
+                        "client stop did not return a runtime drain proof: ${failure.javaClass.simpleName}")
+                }
+                if (!ClientTeardownGate.mayReleaseDisplay(
+                        controlSucceeded = response.optBoolean("ok"),
+                        runtimeFinished = response.optBoolean("runtimeFinished"),
+                        processTreeDrained = response.optBoolean("processTreeDrained"),
+                    )) {
+                    return RuntimeActionResult(false,
+                        response.optString("error", "client process tree did not drain; display retained"))
+                }
+            }
+            currentOwner != null -> return RuntimeActionResult(
+                false,
+                "client ownership mismatch; stop withheld",
+            )
+            !clientAlreadyDrained(
+                state = current.optString("state"),
+                hasOwner = false,
+                runtimeFinished = current.optBoolean("runtimeFinished"),
+                detail = current.optString("detail"),
+            ) -> return RuntimeActionResult(false, "client drain could not be proven")
+        }
+        client.close()
+        return cleanupDisplayAfterClientDrain(owner)
+    }
+
+    private suspend fun cleanupDisplayAfterClientDrain(owner: ComponentOwner): RuntimeActionResult {
+        val health = runCatching { displayHealth(json(display.api().status())) }.getOrElse { failure ->
+            return RuntimeActionResult(false,
+                "client drained but display state is unavailable: ${failure.javaClass.simpleName}")
+        }
+        return when (displayCleanupAction(owner, health)) {
+            DisplayCleanupAction.ALREADY_RELEASED -> {
+                display.close()
+                RuntimeActionResult(true, "client drained and display was already released")
+            }
+            DisplayCleanupAction.RELEASE_EXACT_OWNER -> {
+                val released = runCatching {
+                    json(display.api().release(owner.instanceToken))
+                }.getOrElse { failure ->
+                    return RuntimeActionResult(false,
+                        "client drained but display release failed: ${failure.javaClass.simpleName}")
+                }
+                check(released.optBoolean("ok"))
+                display.close()
+                RuntimeActionResult(true, "client process tree drained before display release")
+            }
+            DisplayCleanupAction.REJECT -> RuntimeActionResult(
+                false,
+                "client drained but display ownership/preparation did not match; release withheld",
+            )
+        }
+    }
+
     private inline fun killBinder(block: () -> String): RuntimeActionResult = try {
         val response = block()
         if (response.isBlank()) RuntimeActionResult(true, "owned process terminated")
@@ -455,14 +738,84 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
     }
 
     companion object {
+        private const val TAG = "AndroidRuntimeBackend"
+        private const val MAX_DATABASE_PREPARATION_STEPS = 12
         const val DEFAULT_PROFILE = "mobile-low-v1"
         const val INTEGRATED_PROFILE = "mobile-low-v2-normal"
         const val BOT_LOW_25_PROFILE = "mobile-low-b1-25-v1"
         const val BOT_LIVELY_700_PROFILE = "mobile-lively-b700-v2"
         const val CLIENT_BUILD_ID = ClientRuntimeContract.WOW_5875_ID
-        private const val MAX_SINGLE_PLAYER_ACCOUNT_ATTEMPTS = 3
     }
 }
+
+internal fun clientGracefulReleaseReady(
+    state: String,
+    cleanExit: Boolean,
+    runtimeFinished: Boolean,
+): Boolean = state == "EXITED" && cleanExit && runtimeFinished
+
+internal fun clientTerminalLifecycle(state: String, hasOwner: Boolean): ComponentLifecycle {
+    require(state == "EXITED" || state == "FORCE_STOPPED") { "not a terminal client state" }
+    return if (hasOwner) ComponentLifecycle.STOPPING else ComponentLifecycle.STOPPED
+}
+
+internal data class ClientDisplayHealth(
+    val owner: ComponentOwner?,
+    val prepared: Boolean,
+    val rendererReady: Boolean,
+)
+
+internal fun compositeClientObservation(
+    runtime: ComponentObservation,
+    display: ClientDisplayHealth?,
+    displayUnavailableDetail: String = "client display unavailable",
+): ComponentObservation {
+    require(runtime.component == RuntimeComponent.CLIENT)
+    if (runtime.state in setOf(ComponentLifecycle.STARTING, ComponentLifecycle.READY) &&
+        runtime.owner != null) {
+        val failure = when {
+            display == null -> displayUnavailableDetail
+            display.owner == null -> "client display has no supervisor owner"
+            display.owner != runtime.owner -> "client runtime and display ownership do not match"
+            !display.prepared -> "client display is not prepared"
+            !display.rendererReady -> "client display renderer is not ready"
+            else -> null
+        }
+        return if (failure == null) runtime.copy(ready = runtime.state == ComponentLifecycle.READY)
+        else runtime.copy(state = ComponentLifecycle.FAILED, ready = false, detail = failure.take(512))
+    }
+    if (runtime.state == ComponentLifecycle.STOPPED && display != null) {
+        if (display.owner == null && !display.prepared) return runtime.copy(ready = false)
+        return ComponentObservation(
+            component = RuntimeComponent.CLIENT,
+            state = ComponentLifecycle.FAILED,
+            ready = false,
+            owner = runtime.owner ?: display.owner,
+            detail = "client display remained after the client runtime stopped",
+        )
+    }
+    return runtime.copy(ready = false)
+}
+
+internal enum class DisplayCleanupAction { ALREADY_RELEASED, RELEASE_EXACT_OWNER, REJECT }
+
+internal fun displayCleanupAction(
+    expectedOwner: ComponentOwner,
+    display: ClientDisplayHealth,
+): DisplayCleanupAction = when {
+    display.owner == expectedOwner -> DisplayCleanupAction.RELEASE_EXACT_OWNER
+    display.owner != null -> DisplayCleanupAction.REJECT
+    !display.prepared -> DisplayCleanupAction.ALREADY_RELEASED
+    else -> DisplayCleanupAction.REJECT
+}
+
+internal fun clientAlreadyDrained(
+    state: String,
+    hasOwner: Boolean,
+    runtimeFinished: Boolean,
+    detail: String,
+): Boolean = !hasOwner && state in setOf("EXITED", "FORCE_STOPPED") &&
+    (runtimeFinished || detail == "no active client session")
 
 private class ServiceHandle<T>(
     private val context: Context,

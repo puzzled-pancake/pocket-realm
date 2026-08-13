@@ -32,6 +32,9 @@ data class AddonOperation(
 
 data class AddonCatalogState(
     val installed: List<InstalledAddon> = emptyList(),
+    /** Installed add-on id -> latest GitHub commit when it differs from the installed commit. */
+    val availableUpdates: Map<String, String> = emptyMap(),
+    val updatesCheckedAtEpochMs: Long? = null,
     val operation: AddonOperation? = null,
     val notice: String? = null,
     val errorTitle: String? = null,
