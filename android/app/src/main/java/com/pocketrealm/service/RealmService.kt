@@ -141,6 +141,9 @@ class RealmService : Service() {
     override fun onCreate() {
         super.onCreate()
         ensureChannel(this)
+        // Saved bot presets must resolve in the supervisor process so
+        // usr5 launch identities validate identically to the UI process.
+        com.pocketrealm.bots.BotCustomPresets.install(java.io.File(filesDir, "bots"))
         backend = AndroidRuntimeBackend(applicationContext)
         supervisor = DurableRuntimeSupervisor(backend, AtomicSupervisorJournal(applicationContext))
         operationWakeLock = getSystemService(PowerManager::class.java)

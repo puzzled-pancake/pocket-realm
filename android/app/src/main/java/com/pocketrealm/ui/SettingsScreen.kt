@@ -33,11 +33,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.pocketrealm.bots.BotProfiles
-import com.pocketrealm.bots.BotAdvancedSettings
-import com.pocketrealm.bots.BotBehaviorPreset
-import com.pocketrealm.bots.matchesBehaviorPreset
-import com.pocketrealm.bots.withBehaviorPreset
 import com.pocketrealm.client.ArmTranslationBackend
 import com.pocketrealm.client.AndroidSystemVulkanProbe
 import com.pocketrealm.client.ClientAudioPolicy
@@ -57,13 +52,13 @@ import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 /**
- * Bounded Advanced screen. Values here are presets within safe ranges; runtime
- * tuples / addon profiles / visual overlays are generation-managed elsewhere
- * (O17), not free text here.
+ * General application/server settings. Bot world configuration lives in the
+ * dedicated Bots destination; LAN host/join lives in the LAN destination.
  */
 @Composable
 fun SettingsScreen(
     contentPadding: PaddingValues = PaddingValues(),
+    onBots: (() -> Unit)? = null,
     onClientSetup: (() -> Unit)? = null,
     onCapability: (() -> Unit)? = null,
     onDiagnostics: (() -> Unit)? = null,
@@ -241,124 +236,16 @@ fun SettingsScreen(
             Text("Applies on the next game launch.", style = MaterialTheme.typography.labelMedium)
         }
 
-        SettingCard("LAN play") {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(
-                    checked = snap.allowLanPlayers,
-                    onCheckedChange = { enabled ->
-                        scope.launch { settings.update { it.copy(allowLanPlayers = enabled) } }
-                    },
-                    modifier = Modifier.testTag("allow-lan-players"),
-                )
-                Text("  Allow LAN players", style = MaterialTheme.typography.bodyMedium)
-            }
+        SettingCard("Bots") {
             Text(
-                "Off by default. When enabled, Start binds realmd and the world only to the exact active private IPv4 interface. " +
-                    "Hosting is experimental; MariaDB, RA, and SOAP remain private or disabled.",
+                "Bot population, presets, behaviour, scheduling and custom realms are configured in the dedicated Bots destination.",
                 style = MaterialTheme.typography.bodySmall,
             )
-            Text(
-                "Join LAN on Home accepts only a canonical private/link-local IPv4 address. Discovery, hostnames, IPv6, UPnP, and mDNS are not used.",
-                style = MaterialTheme.typography.labelMedium,
-            )
-        }
-
-        val selectedBotProfile = BotProfiles.find(snap.botProfileId)
-            ?.takeIf { it.userSelectable }
-            ?: BotProfiles.migrateLegacyTarget(snap.botPopulationTarget)
-        val effectiveBotProfile = remember(snap) {
-            if (snap.botAdvancedEnabled) {
-                BotProfiles.advanced(snap.botPopulationTarget, snap.botAdvanced)
-            } else selectedBotProfile
-        }
-        SettingCard("World population") {
-            BotProfiles.userSelectable().forEach { profile ->
-                FilterChip(
-                    selected = !snap.botAdvancedEnabled && selectedBotProfile.id == profile.id,
-                    onClick = {
-                        scope.launch {
-                            settings.update {
-                                it.copy(
-                                    botPopulationTarget = profile.selectedTarget,
-                                    botProfileId = profile.id,
-                                    botAdvanced = BotAdvancedSettings.fromProfile(profile),
-                                    botAdvancedEnabled = false,
-                                )
-                            }
-                        }
-                    },
-                    label = { Text(profile.displayName) },
-                    modifier = Modifier.fillMaxWidth().testTag("bot-profile-${profile.selectedTarget}"),
-                )
-                Text(profile.summary, style = MaterialTheme.typography.bodySmall)
-            }
-            Text(
-                "Selected: ${effectiveBotProfile.minimumOnline}-${effectiveBotProfile.maximumOnline} bots, " +
-                    "with ${effectiveBotProfile.nearPlayerTeleportMaxAmount} favored per nearby cluster. " +
-                    "Applied when the realm next starts.",
-                style = MaterialTheme.typography.labelMedium,
-            )
-
-            HorizontalDivider()
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(
-                    checked = snap.botAdvancedEnabled,
-                    onCheckedChange = { enabled ->
-                        scope.launch { settings.update { it.copy(botAdvancedEnabled = enabled) } }
-                    },
-                    modifier = Modifier.testTag("bot-advanced-enabled"),
-                )
-                Text("  Advanced bot tuning", style = MaterialTheme.typography.titleSmall)
-            }
-            Text(
-                "All controls stay inside the measured mobile limits. Safety floors and automatic load shedding remain active.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-
-            if (snap.botAdvancedEnabled) {
-                AdvancedBotControls(
-                    target = snap.botPopulationTarget,
-                    advanced = snap.botAdvanced,
-                    onTarget = { target ->
-                        scope.launch {
-                            settings.update {
-                                it.copy(
-                                    botPopulationTarget = target,
-                                    botAdvanced = it.botAdvanced.copy(
-                                        nearbyBotLimit = minOf(it.botAdvanced.nearbyBotLimit, target),
-                                    ),
-                                )
-                            }
-                        }
-                    },
-                    onAdvanced = { transform ->
-                        scope.launch {
-                            settings.update { current ->
-                                val transformed = transform(current.botAdvanced)
-                                val nearbyLimit = transformed.nearbyBotLimit.coerceAtMost(
-                                    minOf(50, current.botPopulationTarget),
-                                )
-                                current.copy(
-                                    botAdvanced = transformed.copy(
-                                        nearbyBotLimit = nearbyLimit,
-                                        nearbyRadius = if (nearbyLimit == 0) 0
-                                            else transformed.nearbyRadius,
-                                    ),
-                                )
-                            }
-                        }
-                    },
-                    onReset = {
-                        scope.launch {
-                            settings.update {
-                                it.copy(botAdvanced = BotAdvancedSettings.fromProfile(
-                                    BotProfiles.find(it.botProfileId)
-                                        ?: BotProfiles.migrateLegacyTarget(it.botPopulationTarget),
-                                ))
-                            }
-                        }
-                    },
-                )
+            onBots?.let { action ->
+                OutlinedButton(
+                    onClick = action,
+                    modifier = Modifier.fillMaxWidth().testTag("settings-open-bots"),
+                ) { Text("Configure in Bots →") }
             }
         }
 
@@ -533,205 +420,6 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun AdvancedBotControls(
-    target: Int,
-    advanced: BotAdvancedSettings,
-    onTarget: (Int) -> Unit,
-    onAdvanced: ((BotAdvancedSettings) -> BotAdvancedSettings) -> Unit,
-    onReset: () -> Unit,
-) {
-    LabeledSlider(
-        label = "Population target",
-        valueText = "$target bots",
-        value = target.toFloat(),
-        range = 25f..700f,
-        steps = 26,
-        tag = "bot-advanced-target",
-    ) { onTarget((it / 25f).roundToInt() * 25) }
-
-    LabeledSlider(
-        label = "Nearby density",
-        valueText = if (advanced.nearbyBotLimit == 0) "Off" else "${advanced.nearbyBotLimit} bots",
-        value = advanced.nearbyBotLimit.toFloat(),
-        range = 0f..minOf(50, target).toFloat(),
-        steps = minOf(50, target) - 1,
-        tag = "bot-advanced-nearby",
-    ) { raw ->
-        val limit = normalizeNearbyBotLimit(raw, target)
-        onAdvanced { current ->
-            current.copy(
-                nearbyBotLimit = limit,
-                nearbyRadius = if (limit == 0) 0 else current.nearbyRadius.coerceAtLeast(100),
-            )
-        }
-    }
-    if (advanced.nearbyBotLimit > 0) {
-        LabeledSlider(
-            label = "Nearby radius",
-            valueText = "${advanced.nearbyRadius} yards",
-            value = advanced.nearbyRadius.toFloat(),
-            range = 100f..500f,
-            steps = 7,
-            tag = "bot-advanced-radius",
-        ) { value ->
-            onAdvanced { it.copy(nearbyRadius = (value / 50f).roundToInt() * 50) }
-        }
-    }
-
-    LabeledSlider(
-        label = "Login batch",
-        valueText = "${advanced.loginBatchSize} per interval",
-        value = advanced.loginBatchSize.toFloat(),
-        range = 1f..10f,
-        steps = 8,
-        tag = "bot-advanced-login-batch",
-    ) { value -> onAdvanced { it.copy(loginBatchSize = value.roundToInt()) } }
-    LabeledSlider(
-        label = "Maintenance batch",
-        valueText = "${advanced.maintenanceBatchSize} bots",
-        value = advanced.maintenanceBatchSize.toFloat(),
-        range = 1f..32f,
-        steps = 30,
-        tag = "bot-advanced-maintenance-batch",
-    ) { value -> onAdvanced { it.copy(maintenanceBatchSize = value.roundToInt()) } }
-    LabeledSlider(
-        label = "Background update interval",
-        valueText = "${advanced.updateIntervalMs / 1000f} seconds",
-        value = advanced.updateIntervalMs.toFloat(),
-        range = 1_000f..5_000f,
-        steps = 15,
-        tag = "bot-advanced-update-interval",
-    ) { value ->
-        onAdvanced { it.copy(updateIntervalMs = (value / 250f).roundToInt() * 250) }
-    }
-
-    Text("Nearby teleport cadence", style = MaterialTheme.typography.labelLarge)
-    Text(
-        "This range controls how often distant bots may be moved near active players.",
-        style = MaterialTheme.typography.bodySmall,
-    )
-    listOf(30 to 120, 60 to 240, 120 to 480, 240 to 720).forEach { (min, max) ->
-        FilterChip(
-            selected = advanced.teleportMinMinutes == min && advanced.teleportMaxMinutes == max,
-            onClick = {
-                onAdvanced { it.copy(teleportMinMinutes = min, teleportMaxMinutes = max) }
-            },
-            label = { Text("${formatMinutes(min)} – ${formatMinutes(max)}") },
-            modifier = Modifier.testTag("bot-advanced-teleport-$min-$max"),
-        )
-    }
-
-    LabeledSlider(
-        label = "Bot work per tick",
-        valueText = "${advanced.iterationsPerTick} iterations",
-        value = advanced.iterationsPerTick.toFloat(),
-        range = 1f..20f,
-        steps = 18,
-        tag = "bot-advanced-iterations",
-    ) { value -> onAdvanced { it.copy(iterationsPerTick = value.roundToInt()) } }
-    Text(
-        "Lower values smooth CPU usage; higher values make bot decisions catch up faster.",
-        style = MaterialTheme.typography.bodySmall,
-    )
-
-    LabeledSlider(
-        label = "Reduce population above world p99",
-        valueText = "${advanced.admissionWorldP99Ms} ms",
-        value = advanced.admissionWorldP99Ms.toFloat(),
-        range = 100f..300f,
-        steps = 7,
-        tag = "bot-advanced-p99",
-    ) { value ->
-        onAdvanced { it.copy(admissionWorldP99Ms = (value / 25f).roundToInt() * 25) }
-    }
-
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Switch(
-            checked = advanced.syncLevelWithPlayers,
-            onCheckedChange = { enabled ->
-                onAdvanced { it.copy(syncLevelWithPlayers = enabled) }
-            },
-            modifier = Modifier.testTag("bot-advanced-sync-level"),
-        )
-        Column(Modifier.padding(start = 8.dp)) {
-            Text("Keep fresh-realm bots near player level")
-            Text(
-                "New bots are adjusted toward active player levels so early zones remain useful.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-    }
-
-    HorizontalDivider()
-    Text("Behaviour", style = MaterialTheme.typography.titleSmall)
-    Text(
-        "Choose a starting style, then change any individual behaviour below.",
-        style = MaterialTheme.typography.bodySmall,
-    )
-    BotBehaviorPreset.values().forEach { preset ->
-        FilterChip(
-            selected = advanced.matchesBehaviorPreset(preset),
-            onClick = { onAdvanced { it.withBehaviorPreset(preset) } },
-            label = { Text(preset.label) },
-            modifier = Modifier.fillMaxWidth().testTag("bot-behavior-${preset.name.lowercase()}"),
-        )
-        Text(preset.summary, style = MaterialTheme.typography.bodySmall)
-    }
-
-    LabeledSlider(
-        label = "Fully active background bots",
-        valueText = "${advanced.activeBotPercent}%",
-        value = advanced.activeBotPercent.toFloat(),
-        range = 1f..20f,
-        steps = 18,
-        tag = "bot-advanced-active-percent",
-    ) { value -> onAdvanced { it.copy(activeBotPercent = value.roundToInt()) } }
-    Text(
-        "Nearby bots are still promoted separately; lowering this reduces off-screen CPU work.",
-        style = MaterialTheme.typography.bodySmall,
-    )
-    BehaviorSwitch("Limit background combat work", advanced.limitCombatActivity,
-        "bot-behavior-limit-combat") { value -> onAdvanced { it.copy(limitCombatActivity = value) } }
-    BehaviorSwitch("Quest and level autonomously", advanced.autoDoQuests,
-        "bot-behavior-quests") { value -> onAdvanced { it.copy(autoDoQuests = value) } }
-    BehaviorSwitch("Chat without a player master", advanced.allowBotChat,
-        "bot-behavior-chat") { value -> onAdvanced { it.copy(allowBotChat = value) } }
-    BehaviorSwitch("Invite the player", advanced.allowPlayerInvites,
-        "bot-behavior-invites") { value -> onAdvanced { it.copy(allowPlayerInvites = value) } }
-    BehaviorSwitch("Form groups with nearby bots", advanced.groupNearby,
-        "bot-behavior-groups") { value -> onAdvanced { it.copy(groupNearby = value) } }
-    BehaviorSwitch("Wander when idle", advanced.wanderWhenIdle,
-        "bot-behavior-wander") { value -> onAdvanced { it.copy(wanderWhenIdle = value) } }
-    BehaviorSwitch("Use off-spec strategies", advanced.enableOffSpecStrategies,
-        "bot-behavior-offspec") { value -> onAdvanced { it.copy(enableOffSpecStrategies = value) } }
-
-    OutlinedButton(onClick = onReset, modifier = Modifier.fillMaxWidth()) {
-        Text("Use selected profile defaults")
-    }
-    Text("Advanced changes are validated immediately and apply on the next realm start.",
-        style = MaterialTheme.typography.bodySmall)
-}
-
-@Composable
-private fun BehaviorSwitch(
-    label: String,
-    checked: Boolean,
-    tag: String,
-    onChange: (Boolean) -> Unit,
-) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Switch(checked = checked, onCheckedChange = onChange, modifier = Modifier.testTag(tag))
-        Column(Modifier.padding(start = 8.dp).weight(1f)) {
-            Text(label, style = MaterialTheme.typography.bodyMedium)
-            Text(advancedExplanation(label), style = MaterialTheme.typography.bodySmall)
-        }
-    }
-}
-
-internal fun normalizeNearbyBotLimit(raw: Float, target: Int): Int =
-    ((raw / 2f).roundToInt() * 2).coerceIn(0, minOf(50, target))
-
-@Composable
 private fun AutoLoginTimingControls(
     timings: Settings.AutoLoginTimings,
     onTimings: ((Settings.AutoLoginTimings) -> Settings.AutoLoginTimings) -> Unit,
@@ -856,12 +544,6 @@ private fun LabeledSlider(
     )
 }
 
-private fun formatMinutes(minutes: Int): String = when {
-    minutes < 60 -> "${minutes}m"
-    minutes % 60 == 0 -> "${minutes / 60}h"
-    else -> "${minutes / 60}h ${minutes % 60}m"
-}
-
 @Composable
 private fun SettingCard(title: String, content: @Composable () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -873,22 +555,6 @@ private fun SettingCard(title: String, content: @Composable () -> Unit) {
 }
 
 internal val advancedSettingExplanations: Map<String, String> = mapOf(
-    "Population target" to "Sets the long-run bot population requested after the realm finishes ramping up.",
-    "Nearby density" to "Caps how many bots are favored around active players; Off disables nearby promotion.",
-    "Nearby radius" to "Defines the distance used to count bots as nearby for player-focused population.",
-    "Login batch" to "Limits how many bots may log in during one admission interval to avoid startup spikes.",
-    "Maintenance batch" to "Limits how many bot records are refreshed in one maintenance pass.",
-    "Background update interval" to "Sets the delay between background bot update passes; longer delays reduce CPU use.",
-    "Bot work per tick" to "Controls how many queued bot decisions run per world tick.",
-    "Reduce population above world p99" to "Starts load shedding when the slowest one percent of world updates exceed this time.",
-    "Fully active background bots" to "Sets the percentage of off-screen bots allowed to run full behavior logic.",
-    "Limit background combat work" to "Reduces combat simulation for bots far from every player.",
-    "Quest and level autonomously" to "Lets bots choose quests and gain levels without a player directing them.",
-    "Chat without a player master" to "Allows autonomous bot chat, which can make the world livelier but noisier.",
-    "Invite the player" to "Allows nearby bots to send group invitations to the player.",
-    "Form groups with nearby bots" to "Allows bots to create local parties instead of acting only as individuals.",
-    "Wander when idle" to "Lets idle bots travel locally rather than waiting in place.",
-    "Use off-spec strategies" to "Allows bots to use strategies outside their primary role when useful.",
     "Poll interval" to "Sets how often auto-login checks whether the login screen is ready.",
     "Stable polls" to "Requires this many unchanged readiness checks before auto-login sends input.",
     "Login UI settle" to "Adds a bounded wait for login controls to finish appearing before input begins.",

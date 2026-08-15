@@ -37,6 +37,8 @@ class WorldRuntimeService : Service() {
     private var normalDataLease: PreparedDataStore.GenerationLease? = null
     override fun onCreate() {
         super.onCreate()
+        // Saved bot presets must resolve in the world process too.
+        com.pocketrealm.bots.BotCustomPresets.install(java.io.File(filesDir, "bots"))
         files = ServerRuntimeFiles(applicationContext)
         resourceSampler = BotResourceSampler(applicationContext, applicationContext.filesDir)
         ownership = ComponentOwnership("world") {

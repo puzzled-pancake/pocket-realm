@@ -83,17 +83,16 @@ data class BotCustomConfiguration(
         return copy(
             selectedTarget = target,
             minimumOnline = minimumOnline.coerceAtMost(target),
-            maximumOnline = maximumOnline.coerceAtLeast(target)
-                .coerceAtMost(BotPopulationPolicy.MAX_SUPPORTED_TARGET),
+            // The configured maximum tracks the target; the Advanced
+            // population section can raise it deliberately afterwards.
+            maximumOnline = target,
             initialTarget = initialTarget.coerceIn(
                 minimumOnline.coerceAtMost(target), target,
             ),
             startupIncreaseStep = startupIncreaseStep.coerceIn(1, target),
             activationBatchSize = activationBatchSize.coerceIn(1, 64),
             nearPlayerTeleportMaxAmount = nearPlayerTeleportMaxAmount.coerceAtMost(target),
-            accountCount = BotPopulationPolicy.allocatedAccounts(
-                maximumOnline.coerceAtLeast(target),
-            ),
+            accountCount = BotPopulationPolicy.allocatedAccounts(target),
         )
     }
 

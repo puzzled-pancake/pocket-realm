@@ -16,13 +16,9 @@ class LandscapeUiContractTest {
 
     @Test
     fun everyAdvancedControlHasConcisePlainEnglishHelp() {
+        // Bot advanced controls moved to the dedicated Bots destination; this
+        // contract now covers the controls Settings still renders.
         val required = setOf(
-            "Population target", "Nearby density", "Nearby radius", "Login batch",
-            "Maintenance batch", "Background update interval", "Bot work per tick",
-            "Reduce population above world p99", "Fully active background bots",
-            "Limit background combat work", "Quest and level autonomously",
-            "Chat without a player master", "Invite the player",
-            "Form groups with nearby bots", "Wander when idle", "Use off-spec strategies",
             "Poll interval", "Stable polls", "Login UI settle", "Session timeout",
             "Drain poll", "Input drain timeout", "IME key dwell", "IME key gap",
             "Field settle", "Pointer dwell", "Widescreen FoV fix", "Farclip cap raise",
