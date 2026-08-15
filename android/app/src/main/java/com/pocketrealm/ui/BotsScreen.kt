@@ -70,6 +70,7 @@ import com.pocketrealm.realm.RealmState
 import com.pocketrealm.storage.Settings
 import com.pocketrealm.supervisor.RuntimeSupervisorClient
 import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /** What the editor is currently pointed at. */
@@ -88,9 +89,12 @@ private sealed interface EditorTarget {
 fun BotsScreen() {
     val context = LocalContext.current
     val settings = remember(context) { Settings(context) }
-    val snapshot by settings.flow.collectAsState(initial = Settings.Snapshot())
+    val snapshotState: Settings.Snapshot? by settings.flow.collectAsState(initial = null)
+    val snapshot = snapshotState ?: Settings.Snapshot()
     val store = remember(context) {
-        BotCustomPresets.install(File(context.filesDir, "bots"))
+        if (BotCustomPresets.store() == null) {
+            BotCustomPresets.install(File(context.filesDir, "bots"))
+        }
         BotCustomPresets.store() ?: BotPresetStore(File(context.filesDir, "bots"))
     }
     val presets by store.presets.collectAsState()
@@ -101,15 +105,22 @@ fun BotsScreen() {
     }.collectAsState(initial = RealmState.Idle)
 
     // One-time migration of a legacy advanced setup into a named preset (§42).
-    LaunchedEffect(snapshot.botPresetsImported, snapshot.botAdvancedEnabled) {
-        if (!snapshot.botPresetsImported && snapshot.botAdvancedEnabled) {
-            val legacy = BotProfiles.advanced(snapshot.botPopulationTarget, snapshot.botAdvanced)
+    LaunchedEffect(snapshotState?.botPresetsImported, snapshotState?.botAdvancedEnabled) {
+        val snap = snapshotState ?: return@LaunchedEffect
+        if (!snap.botPresetsImported && snap.botAdvancedEnabled) {
+            val legacy = BotProfiles.advanced(snap.botPopulationTarget, snap.botAdvanced)
             val imported = runCatching {
                 store.create("Imported Advanced Setup", base = legacy)
             }.getOrNull()
             if (imported != null) {
-                settings.update {
-                    it.copy(botSavedPresetId = imported.id, botPresetsImported = true)
+                runCatching {
+                    settings.update {
+                        it.copy(
+                            botSavedPresetId = imported.id,
+                            botPresetsImported = true,
+                            botAdvancedEnabled = false,
+                        )
+                    }
                 }
             }
         }
@@ -133,18 +144,20 @@ fun BotsScreen() {
         val preset = pendingExport
         pendingExport = null
         if (uri != null && preset != null) {
-            runCatching {
-                context.contentResolver.openOutputStream(uri)?.use { output ->
-                    output.write(store.exportJson(preset).toByteArray(Charsets.UTF_8))
-                } ?: error("could not open the selected location")
-            }.onFailure { actionError = "Export failed: ${it.message}" }
+            scope.launch(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openOutputStream(uri)?.use { output ->
+                        output.write(store.exportJson(preset).toByteArray(Charsets.UTF_8))
+                    } ?: error("could not open the selected location")
+                }.onFailure { actionError = "Export failed: ${it.message}" }
+            }
         }
     }
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
         if (uri != null) {
-            scope.launch {
+            scope.launch(Dispatchers.IO) {
                 runCatching {
                     val text = context.contentResolver.openInputStream(uri)?.use { input ->
                         input.readBytes().toString(Charsets.UTF_8)
@@ -159,14 +172,15 @@ fun BotsScreen() {
 
     // Sync editor with the persisted selection when the user has not started
     // editing something else yet (or after apply/reset navigates it).
-    LaunchedEffect(snapshot.botSavedPresetId, snapshot.botProfileId, presets) {
-        if (target == null || targetIsStale(target, snapshot, presets)) {
-            val saved = snapshot.botSavedPresetId?.let { id -> presets.firstOrNull { it.id == id } }
+    LaunchedEffect(snapshotState, presets) {
+        val snap = snapshotState ?: return@LaunchedEffect
+        if (target == null || targetIsStale(target, presets)) {
+            val saved = snap.botSavedPresetId?.let { id -> presets.firstOrNull { it.id == id } }
             if (saved != null) {
                 target = EditorTarget.Saved(saved.id)
                 working = saved.configuration
             } else {
-                val builtin = BotProfiles.find(snapshot.botProfileId)
+                val builtin = BotProfiles.find(snap.botProfileId)
                     ?: BotProfiles.defaultProfile
                 target = EditorTarget.BuiltIn(builtin.id)
                 working = BotCustomConfiguration.fromProfile(builtin)
@@ -223,7 +237,9 @@ fun BotsScreen() {
                     }
                 }
                 is EditorTarget.Saved -> {
-                    settings.update { it.copy(botSavedPresetId = t.presetId) }
+                    settings.update {
+                        it.copy(botSavedPresetId = t.presetId, botAdvancedEnabled = false)
+                    }
                 }
                 EditorTarget.NewDraft, null -> Unit
             }
@@ -231,12 +247,14 @@ fun BotsScreen() {
     }
     fun saveWorkingAsPreset(name: String) {
         val trimmed = name.trim()
-        if (trimmed.isEmpty()) return
+        if (!BotPresetStore.isValidName(trimmed)) return
         scope.launch {
-            val created = store.create(trimmed, base = null)
-            store.save(created.id, working)
-            settings.update { it.copy(botSavedPresetId = created.id) }
-            target = EditorTarget.Saved(created.id)
+            runCatching {
+                val created = store.create(trimmed, base = null)
+                store.save(created.id, working)
+                settings.update { it.copy(botSavedPresetId = created.id) }
+                target = EditorTarget.Saved(created.id)
+            }.onFailure { actionError = it.message ?: "The preset could not be saved" }
         }
     }
 
@@ -259,7 +277,10 @@ fun BotsScreen() {
                     exportLauncher.launch("${preset.name}.botpreset.json")
                 },
                 onToggleFavorite = { id, favorite ->
-                    scope.launch { store.setFavorite(id, favorite) }
+                    scope.launch {
+                        runCatching { store.setFavorite(id, favorite) }
+                            .onFailure { actionError = it.message ?: "Could not update the preset" }
+                    }
                 },
                 onDuplicate = { id ->
                     val source = presets.firstOrNull { it.id == id } ?: return@PresetsPane
@@ -267,7 +288,12 @@ fun BotsScreen() {
                         title = "Duplicate “${source.name}”",
                         initial = "${source.name} copy",
                     ) { name ->
-                        scope.launch { store.duplicate(id, name.trim()) }
+                        scope.launch {
+                            runCatching { store.duplicate(id, name.trim()) }
+                                .onFailure {
+                                    actionError = it.message ?: "Could not duplicate the preset"
+                                }
+                        }
                     }
                 },
                 onRename = { id ->
@@ -276,7 +302,10 @@ fun BotsScreen() {
                         title = "Rename preset",
                         initial = source.name,
                     ) { name ->
-                        scope.launch { store.rename(id, name.trim()) }
+                        scope.launch {
+                            runCatching { store.rename(id, name.trim()) }
+                                .onFailure { actionError = it.message ?: "Could not rename the preset" }
+                        }
                     }
                 },
                 onDelete = { id -> deleteRequest = id },
@@ -305,7 +334,10 @@ fun BotsScreen() {
                 onSave = {
                     when (val t = target) {
                         is EditorTarget.Saved -> scope.launch {
-                            store.save(t.presetId, working)
+                            runCatching { store.save(t.presetId, working) }
+                                .onFailure {
+                                    actionError = it.message ?: "The preset could not be saved"
+                                }
                         }
                         EditorTarget.NewDraft -> nameRequest = NameRequest(
                             title = "New preset name",
@@ -364,6 +396,8 @@ fun BotsScreen() {
 
     nameRequest?.let { request ->
         var value by remember(request) { mutableStateOf(request.initial) }
+        val trimmed = value.trim()
+        val nameValid = BotPresetStore.isValidName(trimmed)
         AlertDialog(
             onDismissRequest = { nameRequest = null },
             title = { Text(request.title) },
@@ -373,6 +407,16 @@ fun BotsScreen() {
                     onValueChange = { value = it },
                     singleLine = true,
                     label = { Text("Preset name") },
+                    isError = trimmed.isNotEmpty() && !nameValid,
+                    supportingText = {
+                        Text(
+                            if (trimmed.isNotEmpty() && !nameValid) {
+                                "Use up to 48 letters, numbers, or spaces"
+                            } else {
+                                " "
+                            },
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth().testTag("preset-name-field"),
                 )
             },
@@ -380,9 +424,9 @@ fun BotsScreen() {
                 TextButton(
                     onClick = {
                         nameRequest = null
-                        request.onConfirm(value)
+                        request.onConfirm(trimmed)
                     },
-                    enabled = value.trim().isNotEmpty(),
+                    enabled = nameValid,
                 ) { Text("Save") }
             },
             dismissButton = {
@@ -400,7 +444,8 @@ fun BotsScreen() {
                 TextButton(onClick = {
                     deleteRequest = null
                     scope.launch {
-                        store.delete(id)
+                        runCatching { store.delete(id) }
+                            .onFailure { actionError = it.message ?: "Could not delete the preset" }
                         if (snapshot.botSavedPresetId == id) {
                             settings.update { it.copy(botSavedPresetId = null) }
                         }
@@ -432,13 +477,13 @@ private data class NameRequest(
 
 private fun targetIsStale(
     target: EditorTarget?,
-    snapshot: Settings.Snapshot,
     presets: List<BotPresetStore.SavedPreset>,
 ): Boolean = when (target) {
-    is EditorTarget.Saved ->
-        snapshot.botSavedPresetId != target.presetId ||
-            presets.none { it.id == target.presetId }
-    is EditorTarget.BuiltIn -> false // editor-driven; apply syncs it back
+    // Only deletion invalidates the editing target. Requiring the persisted
+    // selection to match made every store write (favorite/rename/save) snap
+    // the editor away and silently discard in-progress edits.
+    is EditorTarget.Saved -> presets.none { it.id == target.presetId }
+    is EditorTarget.BuiltIn -> false
     EditorTarget.NewDraft, null -> false
 }
 
@@ -836,7 +881,12 @@ private fun AdvancedSections(
 ) {
     HorizontalDivider()
     Stepper("Minimum online", working.minimumOnline, 0..working.selectedTarget) { value ->
-        onWorking(working.copy(minimumOnline = value))
+        onWorking(
+            working.copy(
+                minimumOnline = value,
+                initialTarget = maxOf(working.initialTarget, value),
+            ),
+        )
     }
     Stepper("Initial bots", working.initialTarget, working.minimumOnline..working.selectedTarget) { value ->
         onWorking(working.copy(initialTarget = value))
@@ -851,7 +901,15 @@ private fun AdvancedSections(
         onWorking(working.copy(activationBatchSize = value))
     }
     Stepper("Maximum configured", working.maximumOnline, working.selectedTarget..BotPopulationPolicy.MAX_SUPPORTED_TARGET) { value ->
-        onWorking(working.copy(maximumOnline = value))
+        onWorking(
+            working.copy(
+                maximumOnline = value,
+                accountCount = maxOf(
+                    working.accountCount,
+                    BotPopulationPolicy.allocatedAccounts(value),
+                ),
+            ),
+        )
     }
 
     HorizontalDivider()
@@ -1150,7 +1208,8 @@ private fun ResultPane(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = onApply,
-                    enabled = !dirty,
+                    enabled = !dirty &&
+                        (target is EditorTarget.BuiltIn || target is EditorTarget.Saved),
                     modifier = Modifier.weight(1f).testTag("result-apply"),
                 ) { Text("Apply") }
                 Button(

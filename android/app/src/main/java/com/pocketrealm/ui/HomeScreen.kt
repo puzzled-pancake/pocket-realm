@@ -30,6 +30,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -105,7 +106,15 @@ fun HomeScreen(
             ).takeUnless { it.available }?.reason
         }
     } else null
-    val selection = remember(settingsSnapshot) {
+    // Re-resolve when a saved preset gains a revision so Home shows and
+    // launches the latest applied configuration, not a stale one.
+    val savedPresets by remember {
+        com.pocketrealm.bots.BotCustomPresets.store()?.presets
+            ?: kotlinx.coroutines.flow.MutableStateFlow(
+                emptyList<com.pocketrealm.bots.BotPresetStore.SavedPreset>(),
+            )
+    }.collectAsState()
+    val selection = remember(settingsSnapshot, savedPresets) {
         BotSelection.resolve(
             savedPresetId = settingsSnapshot.botSavedPresetId,
             advancedEnabled = settingsSnapshot.botAdvancedEnabled,
@@ -116,6 +125,9 @@ fun HomeScreen(
     }
     val botProfile = selection.profile
     val displayHost by IntegratedClientDisplay.host.collectAsState()
+    // Accounts are provisioned by the local world; hide the card while
+    // joined to a remote host as a client-only session.
+    val lanJoinActive = (state as? RealmState.Running)?.mode == RuntimeMode.LAN_JOIN
     val scope = rememberCoroutineScope()
     val accountStore = remember(context) { UserAccountStore(context) }
     var username by remember { mutableStateOf("") }
@@ -132,9 +144,16 @@ fun HomeScreen(
         accountOperationPending = accountOperationPending,
     )
 
+    // Auto-enter the game exactly once per prepared session. Without the
+    // remembered generation, every re-entry into Home (rail navigation, back)
+    // re-fired this effect while a session host was still published, bouncing
+    // the user straight back into the fullscreen game task.
+    var autoLaunchedGeneration by rememberSaveable { mutableStateOf<Long?>(null) }
     LaunchedEffect(displayHost?.generation) {
-        displayHost?.let { host ->
-            context.startActivity(ClientActivity.intent(context, host.generation))
+        val generation = displayHost?.generation
+        if (generation != null && generation != autoLaunchedGeneration) {
+            autoLaunchedGeneration = generation
+            context.startActivity(ClientActivity.intent(context, generation))
         }
     }
 
@@ -282,7 +301,7 @@ fun HomeScreen(
                         onOpenSettings = onOpenSettings,
                         modifier = Modifier.weight(0.82f),
                     )
-                    AccountCard(
+                    if (!lanJoinActive) AccountCard(
                         username = username,
                         onUsername = { username = it },
                         password = password,
@@ -294,7 +313,8 @@ fun HomeScreen(
                         onCreate = createAccount,
                         onClear = clearAccount,
                         landscape = true,
-                        creationEnabled = state is RealmState.Running && !accountOperationPending,
+                        creationEnabled = state is RealmState.Running &&
+                            !lanJoinActive && !accountOperationPending,
                         operationPending = accountOperationPending,
                         modifier = Modifier.weight(1.18f),
                     )
@@ -331,7 +351,7 @@ fun HomeScreen(
                     onOpenSettings = onOpenSettings,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                if (state is RealmState.Running) {
+                if (state is RealmState.Running && !lanJoinActive) {
                     AccountCard(
                         username = username,
                         onUsername = { username = it },

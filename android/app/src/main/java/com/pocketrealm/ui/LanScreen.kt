@@ -22,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,14 +30,20 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import android.os.Build
 import com.pocketrealm.bots.BotSelection
+import com.pocketrealm.client.AndroidSystemVulkanProbe
+import com.pocketrealm.client.SystemVulkanCapabilities
+import com.pocketrealm.client.VulkanDriverCatalog
 import com.pocketrealm.realm.RealmState
 import com.pocketrealm.service.RealmService
 import com.pocketrealm.storage.Settings
 import com.pocketrealm.supervisor.RuntimeMode
 import com.pocketrealm.supervisor.RuntimeSupervisorClient
 import com.pocketrealm.supervisor.RealmEndpoint
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Dedicated LAN destination (brief §44). Owns host/join networking only;
@@ -54,6 +61,21 @@ fun LanScreen() {
     val settings = remember(context) { Settings(context) }
     val snapshot by settings.flow.collectAsState(initial = Settings.Snapshot())
     val scope = rememberCoroutineScope()
+    val systemVulkanProbe by produceState<Result<SystemVulkanCapabilities>?>(initialValue = null) {
+        value = withContext(Dispatchers.IO) { runCatching { AndroidSystemVulkanProbe.probe() } }
+    }
+    // LAN join is a client-only session; it cannot start when the
+    // translated client stack is unavailable on this device.
+    val clientUnavailableReason = if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
+        VulkanDriverCatalog.availabilityForPair(
+            snapshot.selectedVulkanDriverId(),
+            snapshot.selectedDxvkPackageId(),
+            Build.MODEL,
+            systemVulkanProbe?.getOrNull(),
+        ).takeUnless { it.available }?.reason
+    } else null
+    val realmBusy = !(state is RealmState.Idle || state is RealmState.Failed ||
+        state is RealmState.Recovering)
     var lanAddress by remember { mutableStateOf("") }
     var lanError by remember { mutableStateOf<String?>(null) }
 
@@ -102,11 +124,12 @@ fun LanScreen() {
                 lanError = lanError,
                 joined = joined,
                 joinedAddress = if (joined) running?.endpointAddress else null,
-                enabled = !hosting && !joined,
+                enabled = !hosting && !joined && !realmBusy && clientUnavailableReason == null,
+                clientUnavailableReason = clientUnavailableReason,
                 modifier = modifier,
             )
         }
-        if (twoPane || maxWidth > 720.dp) {
+        if (twoPane) {
             Column(
                 Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -270,6 +293,7 @@ private fun LanJoinPane(
     joined: Boolean,
     joinedAddress: String?,
     enabled: Boolean,
+    clientUnavailableReason: String? = null,
     modifier: Modifier = Modifier,
 ) {
     Card(modifier = modifier.testTag("lan-join-pane")) {
@@ -286,6 +310,13 @@ private fun LanJoinPane(
                     style = MaterialTheme.typography.bodySmall,
                 )
             } else {
+                clientUnavailableReason?.let {
+                    Text(
+                        it,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 OutlinedTextField(
                     value = lanAddress,
                     onValueChange = onLanAddress,

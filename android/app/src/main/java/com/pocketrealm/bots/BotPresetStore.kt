@@ -1,9 +1,11 @@
 package com.pocketrealm.bots
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -33,6 +35,9 @@ class BotPresetStore(private val directory: File) {
 
         /** Highest revision retained per preset; bounds file growth. */
         private val ALLOWED_NAME = Regex("[\\p{L}\\p{N}\\p{P}\\p{Zs}'’-]{1,48}")
+
+        /** Shared with the editor so dialogs reject names the store would refuse. */
+        fun isValidName(name: String): Boolean = name.matches(ALLOWED_NAME)
     }
 
     data class Revision(
@@ -255,19 +260,21 @@ class BotPresetStore(private val directory: File) {
             result
         }
 
-    private suspend fun loadFromDisk(): List<SavedPreset> {
+    private suspend fun loadFromDisk(): List<SavedPreset> = withContext(Dispatchers.IO) {
         val loaded = runCatching { readPresets(file) }
         loaded.exceptionOrNull()?.let {
             // Preserve the corrupt document for diagnosis instead of crashing.
             runCatching { file.copyTo(File(file.path + ".corrupt"), overwrite = true) }
         }
         val presets = loaded.getOrDefault(emptyList())
-        state.value = presets
-        loadedAtMillis = runCatching { file.lastModified() }.getOrDefault(System.currentTimeMillis())
-        return presets
+        presets
+    }.also { loaded ->
+        state.value = loaded
+        loadedAtMillis = runCatching { file.lastModified() }
+            .getOrDefault(System.currentTimeMillis())
     }
 
-    private suspend fun persist(presets: List<SavedPreset>) {
+    private suspend fun persist(presets: List<SavedPreset>) = withContext(Dispatchers.IO) {
         directory.mkdirs()
         require(directory.isDirectory) { "preset directory unavailable" }
         val document = JSONObject()
@@ -282,7 +289,8 @@ class BotPresetStore(private val directory: File) {
         } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
             Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING)
         }
-        loadedAtMillis = runCatching { file.lastModified() }.getOrDefault(System.currentTimeMillis())
+        loadedAtMillis = runCatching { file.lastModified() }
+            .getOrDefault(System.currentTimeMillis())
     }
 
     private fun readPresets(source: File): List<SavedPreset> {
