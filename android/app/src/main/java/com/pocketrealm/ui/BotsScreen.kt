@@ -315,14 +315,21 @@ fun BotsScreen() {
                             initial = "",
                         ) { name -> presetNameDraft = name; saveWorkingAsPreset(name) }
                     } else {
-                        settings.update {
-                            it.copy(
-                                botProfileId = profile.id,
-                                botPopulationTarget = profile.selectedTarget,
-                                botSavedPresetId = null,
-                                botAdvancedEnabled = false,
-                                botAdvanced = BotAdvancedSettings.fromProfile(profile),
-                            )
+                        // Same failure handling as the store writes: a
+                        // DataStore I/O error must surface as a dialog,
+                        // not an uncaught exception in the scope.
+                        runCatching {
+                            settings.update {
+                                it.copy(
+                                    botProfileId = profile.id,
+                                    botPopulationTarget = profile.selectedTarget,
+                                    botSavedPresetId = null,
+                                    botAdvancedEnabled = false,
+                                    botAdvanced = BotAdvancedSettings.fromProfile(profile),
+                                )
+                            }
+                        }.onFailure {
+                            actionError = it.message ?: "The selection could not be applied"
                         }
                     }
                 }
@@ -335,7 +342,13 @@ fun BotsScreen() {
                             return@launch
                         }
                     }
-                    settings.update { it.copy(botSavedPresetId = t.presetId, botAdvancedEnabled = false) }
+                    runCatching {
+                        settings.update {
+                            it.copy(botSavedPresetId = t.presetId, botAdvancedEnabled = false)
+                        }
+                    }.onFailure {
+                        actionError = it.message ?: "The selection could not be applied"
+                    }
                 }
                 EditorTarget.NewDraft -> nameRequest = NameRequest(
                     title = "New preset name",
