@@ -438,6 +438,18 @@ class VanillaConsolePortAssetTest {
         assertTrue(bars.contains("CooldownFrame_SetTimer(button.cooldown, start, duration, enable)"))
         assertTrue(bars.contains("button:SetID(index)"))
         assertTrue(bars.contains("button:SetHitRectInsets(-14, -14, -14, -14)"))
+        // Drop reliability: a wide tooltip over the lower tiles buries the
+        // upper ones (touch never synthesizes the OnLeave), a touch roll can
+        // turn a tap into a drag that voids the carried spell, and a pickup
+        // released as a click must still place. Pages follow the stock
+        // 12-slot stride.
+        assertTrue(bars.contains("local function CursorCarriesPickup()"))
+        assertTrue(bars.contains("if CursorHasItem and CursorHasItem() then return true end"))
+        assertTrue(bars.contains("if CursorCarriesPickup() then\n            GameTooltip:Hide()\n            return\n        end"))
+        assertTrue(bars.contains("not CursorCarriesPickup() then\n            PickupAction"))
+        assertTrue(bars.contains("CursorCarriesPickup() then\n            PlaceAction"))
+        assertTrue(bars.contains("(self.page - 1) * 12 + buttonIndex"))
+        assertFalse(bars.contains("(self.page - 1) * 10 + buttonIndex"))
         // The two action stars are movable as units through their cluster
         // containers: buttons parent and anchor to the cluster, so one
         // journal entry moves or scales the whole star.

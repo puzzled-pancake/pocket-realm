@@ -64,7 +64,7 @@ function Bars:GetActionSlot(buttonIndex)
         local bonus = GetBonusBarOffset and GetBonusBarOffset() or 0
         if bonus and bonus > 0 then return 60 + bonus * 12 + buttonIndex end
     end
-    return (self.page - 1) * 10 + buttonIndex
+    return (self.page - 1) * 12 + buttonIndex
 end
 
 function Bars:UseSlot(slot)
@@ -74,9 +74,18 @@ function Bars:UseSlot(slot)
     if page == 1 then
         actionSlot = self:GetActionSlot(buttonIndex)
     else
-        actionSlot = (page - 1) * 10 + buttonIndex
+        actionSlot = (page - 1) * 12 + buttonIndex
     end
     if HasAction(actionSlot) then UseAction(actionSlot) end
+end
+
+-- Interface 11200 has no GetCursorInfo; the stock pickup checks are the
+-- CursorHas family, with the spell variant optional in case the host build
+-- predates it.
+local function CursorCarriesPickup()
+    if CursorHasItem and CursorHasItem() then return true end
+    if CursorHasSpell and CursorHasSpell() then return true end
+    return false
 end
 
 function Bars:CreateButton(index)
@@ -170,15 +179,34 @@ function Bars:CreateButton(index)
     count:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -4, 4)
 
     button:SetScript("OnClick", function()
+        -- A held pickup places directly, the stock unit-frame click idiom,
+        -- so a tap-drop still lands when the host delivers the release as
+        -- a click instead of a receive-drag.
+        if LOCK_ACTIONBAR ~= "1" and CursorCarriesPickup() then
+            PlaceAction(Bars:GetActionSlot(index))
+            Bars:Refresh()
+            return
+        end
         Bars:UseSlot((Bars.page - 1) * 8 + index)
     end)
     button:SetScript("OnDragStart", function()
-        if LOCK_ACTIONBAR ~= "1" then PickupAction(Bars:GetActionSlot(index)) end
+        -- Never self-pickup while the cursor already carries something: a
+        -- touch roll would otherwise void the spell being carried.
+        if LOCK_ACTIONBAR ~= "1" and not CursorCarriesPickup() then
+            PickupAction(Bars:GetActionSlot(index))
+        end
     end)
     button:SetScript("OnReceiveDrag", function()
         if LOCK_ACTIONBAR ~= "1" then PlaceAction(Bars:GetActionSlot(index)); Bars:Refresh() end
     end)
     button:SetScript("OnEnter", function()
+        -- Tooltips render above these buttons and a wide one over the lower
+        -- tiles physically buries the upper tiles; never raise one while a
+        -- pickup is held, and dismiss any earlier one.
+        if CursorCarriesPickup() then
+            GameTooltip:Hide()
+            return
+        end
         local slot = Bars:GetActionSlot(index)
         GameTooltip:SetOwner(this, "ANCHOR_TOP")
         GameTooltip:SetAction(slot)
