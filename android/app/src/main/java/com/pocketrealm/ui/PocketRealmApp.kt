@@ -44,7 +44,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
-import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -265,13 +264,21 @@ internal fun realmStatusBadge(state: RealmState): String = when (state) {
     is RealmState.Failed -> "Needs attention"
 }
 
+/**
+ * Top-level selection must always land on the destination. Reveal an existing
+ * back-stack entry directly (anything above it pops, saving state) and only
+ * fall back to a navigate push when the destination has no entry yet. This
+ * deliberately avoids navigate()+restoreState, which on androidx.navigation
+ * 2.8.x can silently do nothing when saved state exists for the target.
+ */
 private fun navigateTop(navController: androidx.navigation.NavHostController, route: String) {
     AppLog.i("Nav", "top: $route (from=${navController.currentDestination?.route})")
-    navController.navigate(route) {
-        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-        launchSingleTop = true
-        restoreState = true
+    if (navController.popBackStack(route, inclusive = false, saveState = true)) return
+    if (route != Screen.Home.route) {
+        // Keep top-level destinations siblings of Home, not a growing stack.
+        navController.popBackStack(Screen.Home.route, inclusive = false, saveState = true)
     }
+    navController.navigate(route) { launchSingleTop = true }
 }
 
 /** In-content pushes keep the back stack; singleTop guards double-taps. */
