@@ -1,6 +1,8 @@
 -- Android Port frame mover: clean-room Interface 11200 layout journal for
--- curated stock frames. Bag and bank frames are re-anchored by the stock UI
--- whenever they open, so only their scale is journaled (scaleOnly).
+-- curated stock frames plus journaled panels. Bag and bank frames are
+-- re-anchored by the stock UI whenever they open, so only their scale is
+-- journaled (scaleOnly) and the stock anchor sweep is wrapped so journaled
+-- layout survives bag open and close.
 VanillaConsolePort.FrameMover = VanillaConsolePort.FrameMover or {}
 local Mover = VanillaConsolePort.FrameMover
 Mover.ready = Mover.ready or false
@@ -18,15 +20,56 @@ local curatedFrames = {
     { name = "PartyMemberFrame4", label = "Party member 4" },
     { name = "CastingBarFrame", label = "Cast bar" },
     { name = "UIErrorsFrame", label = "Error text" },
-    { name = "MiniMapCluster", label = "Minimap" },
+    { name = "MinimapCluster", label = "Minimap" },
     { name = "QuestLogFrame", label = "Quest log" },
     { name = "LootFrame", label = "Loot window" },
+    { name = "GossipFrame", label = "Gossip" },
+    { name = "QuestFrame", label = "Quest" },
+    { name = "MerchantFrame", label = "Merchant" },
+    { name = "TradeFrame", label = "Trade" },
+    { name = "MailFrame", label = "Mail" },
+    { name = "CharacterFrame", label = "Character" },
+    { name = "SpellBookFrame", label = "Spellbook" },
+    { name = "TalentFrame", label = "Talents" },
+    { name = "SkillFrame", label = "Skills" },
+    { name = "FriendsFrame", label = "Social" },
+    { name = "HelpFrame", label = "Help" },
+    { name = "GameMenuFrame", label = "Game menu" },
+    { name = "WorldMapFrame", label = "World map" },
+    { name = "BattlefieldFrame", label = "Battlefield" },
+    { name = "DurabilityFrame", label = "Durability" },
+    { name = "QuestWatchFrame", label = "Quest watch" },
+    { name = "RaidFrame", label = "Raid" },
+    { name = "ChatFrame1", label = "Chat" },
+    { name = "ChatFrame2", label = "Combat log" },
+    { name = "ChatFrame3", label = "Chat 3" },
+    { name = "ChatFrame4", label = "Chat 4" },
+    { name = "ChatFrame5", label = "Chat 5" },
+    { name = "ChatFrame6", label = "Chat 6" },
+    { name = "ChatFrame7", label = "Chat 7" },
     { name = "ContainerFrame1", label = "Backpack", scaleOnly = true },
     { name = "ContainerFrame2", label = "Bag 2", scaleOnly = true },
     { name = "ContainerFrame3", label = "Bag 3", scaleOnly = true },
     { name = "ContainerFrame4", label = "Bag 4", scaleOnly = true },
     { name = "BankFrame", label = "Bank", scaleOnly = true },
 }
+
+-- Journal anchors may only reference these relatives by name. Applying a
+-- saved anchor resolves the name through this whitelist and falls back to
+-- UIParent, so a journal entry can never install an anchor into a foreign
+-- frame that a third-party addon may later free.
+local relativeWhitelist = { UIParent = true, Minimap = true, MainMenuBar = true }
+for _, spec in ipairs(curatedFrames) do
+    relativeWhitelist[spec.name] = true
+end
+
+local function SafeRelative(name)
+    if relativeWhitelist[name] then
+        local frame = getglobal(name)
+        if frame then return frame end
+    end
+    return UIParent
+end
 
 local function HasFrameLayoutMethods(frame)
     return frame and frame.GetPoint and frame.SetPoint and frame.ClearAllPoints and
@@ -46,7 +89,7 @@ function Mover:CapturePoints(frame)
     for index = 1, count do
         local point, relativeTo, relativePoint, x, y = frame:GetPoint(index)
         local relativeName = relativeTo and relativeTo.GetName and relativeTo:GetName() or nil
-        if point and relativeName then
+        if point and relativeName and relativeWhitelist[relativeName] then
             tinsert(points, {
                 point = point,
                 relative = relativeName,
@@ -57,7 +100,7 @@ function Mover:CapturePoints(frame)
         end
     end
     if table.getn(points) == 0 then
-        -- No named relative among the points; journal a restorable
+        -- No whitelisted relative among the points; journal a restorable
         -- absolute centre instead so the frame can always come back.
         if not frame.GetCenter then return nil end
         local centerX, centerY = frame:GetCenter()
@@ -95,7 +138,7 @@ function Mover:ApplySavedFrame(frame, saved)
     if saved.points and table.getn(saved.points) > 0 and frame.ClearAllPoints then
         frame:ClearAllPoints()
         for _, stored in ipairs(saved.points) do
-            local relative = getglobal(stored.relative) or UIParent
+            local relative = SafeRelative(stored.relative)
             frame:SetPoint(stored.point, relative, stored.relativePoint, stored.x, stored.y)
         end
     end
@@ -105,6 +148,48 @@ function Mover:ApplySavedFrame(frame, saved)
         if scale > Mover.SCALE_MAX then scale = Mover.SCALE_MAX end
         frame:SetScale(scale)
     end
+    return true
+end
+
+-- A journaled left or center panel must leave the stock panel manager, which
+-- re-anchors such panels every time they open. Full-screen panels keep their
+-- registration so full-screen bookkeeping stays intact. A de-registered panel
+-- still opens normally, but Escape no longer closes it and panels overlap
+-- instead of pushing each other, so only journaled panels are released.
+function Mover:ReleasePanelManagement(name)
+    if type(UIPanelWindows) ~= "table" then return false end
+    local info = UIPanelWindows[name]
+    if info == nil or info.area == "full" then return false end
+    local db = VanillaConsolePortDB
+    if type(db) ~= "table" then return false end
+    local released = db.panelReleases
+    if type(released) ~= "table" then
+        released = {}
+        db.panelReleases = released
+    end
+    if released[name] == nil then released[name] = info end
+    UIPanelWindows[name] = nil
+    return true
+end
+
+-- Stock frames can re-anchor themselves when shown; chain our re-apply after
+-- the stock OnShow. The original runs synchronously first so the stock
+-- handler still sees the correct global this.
+function Mover:ChainOnShow(name, frame)
+    if not frame or not frame.SetScript then return false end
+    if self.chainedOnShow == nil then self.chainedOnShow = {} end
+    if self.chainedOnShow[name] then return false end
+    self.chainedOnShow[name] = true
+    local original = frame.GetScript and frame:GetScript("OnShow") or nil
+    frame:SetScript("OnShow", function()
+        if original then original() end
+        local anchors = VanillaConsolePortDB and VanillaConsolePortDB.frameAnchors
+        local saved = type(anchors) == "table" and anchors[name] or nil
+        if saved and saved.points then
+            local target = getglobal(name)
+            if target then pcall(function() Mover:ApplySavedFrame(target, saved) end) end
+        end
+    end)
     return true
 end
 
@@ -136,6 +221,8 @@ function Mover:SaveFrame(frame, label)
     if frame.GetScale then entry.scale = frame:GetScale() end
     if not self:IsValidSavedFrame(entry) then return false end
     db.frameAnchors[name] = entry
+    self:ReleasePanelManagement(name)
+    self:ChainOnShow(name, frame)
     return true
 end
 
@@ -163,7 +250,37 @@ function Mover:RestoreFrames()
     for name, saved in pairs(anchors) do
         local frame = getglobal(name)
         if frame and self:IsValidSavedFrame(saved) then
+            -- pcall guards Lua errors only; it is not crash protection.
             pcall(function() Mover:ApplySavedFrame(frame, saved) end)
+            Mover:ChainOnShow(name, frame)
+        end
+    end
+    return true
+end
+
+-- The stock bag sweep runs from both the open and the close path and also
+-- resets container scale, so re-assert journaled layout after it settles.
+function Mover:ReassertContainers()
+    local anchors = VanillaConsolePortDB and VanillaConsolePortDB.frameAnchors
+    if type(anchors) ~= "table" then return end
+    for name, saved in pairs(anchors) do
+        if string.find(name, "ContainerFrame", 1, true) or name == "BankFrame" then
+            local frame = getglobal(name)
+            if frame and frame.IsShown and frame:IsShown() then
+                pcall(function() Mover:ApplySavedFrame(frame, saved) end)
+            end
+        end
+    end
+end
+
+function Mover:InstallStockHooks()
+    if self.hooksInstalled then return true end
+    self.hooksInstalled = true
+    if type(updateContainerFrameAnchors) == "function" then
+        Mover.stockContainerAnchors = updateContainerFrameAnchors
+        updateContainerFrameAnchors = function()
+            Mover.stockContainerAnchors()
+            Mover:ReassertContainers()
         end
     end
     return true
@@ -175,6 +292,13 @@ end
 function Mover:ResetUI()
     local db = VanillaConsolePortDB
     if type(db) ~= "table" then return false end
+    local released = db.panelReleases
+    if type(released) == "table" and type(UIPanelWindows) == "table" then
+        for name, info in pairs(released) do
+            UIPanelWindows[name] = info
+        end
+    end
+    db.panelReleases = nil
     local restored = 0
     if type(db.frameBackups) == "table" then
         for name, backup in pairs(db.frameBackups) do
@@ -209,6 +333,7 @@ function Mover:Initialize()
                     if candidate and candidate.handle then candidate.handle:Hide() end
                     candidate = {
                         id = key,
+                        name = spec.name,
                         frame = frame,
                         label = spec.label or spec.name,
                         registered = true,
@@ -224,5 +349,6 @@ function Mover:Initialize()
     if not ok then return false end
     self.ready = true
     self:RestoreFrames()
+    self:InstallStockHooks()
     return true
 end

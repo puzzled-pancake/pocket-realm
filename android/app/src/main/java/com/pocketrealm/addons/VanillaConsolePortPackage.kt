@@ -11,5 +11,5 @@ internal object VanillaConsolePortPackage {
     const val DISPLAY_NAME = "Android Port"
     const val ASSET_PATH = "addons/vanilla-console-port"
     const val ADDON_FOLDER = "VanillaConsolePort"
-    const val VERSION = "0.4.0"
+    const val VERSION = "0.5.0"
 }

@@ -2,7 +2,7 @@
 VanillaConsolePort = VanillaConsolePort or {}
 local VCP = VanillaConsolePort
 
-VCP.VERSION = "0.4.0"
+VCP.VERSION = "0.5.0"
 VCP.BINDING_SCHEMA = 5
 VCP.keys = { "1", "2", "3", "4", "5", "6", "7", "8" }
 
@@ -69,6 +69,7 @@ local unsafeFrameNameParts = {
     "actionbutton", "bonusaction", "multibar", "playerframe", "targetframe",
     "partyframe", "partymember", "petframe", "castingbar", "buffbutton",
     "debuffbutton", "lootbutton", "containerframe", "vanillaconsoleport",
+    "uiparent", "worldframe", "gametooltip", "pfminimappin",
 }
 
 local stockMinimapFrames = {
@@ -90,6 +91,7 @@ local knownAddonIcons = {
 VCP.addonIconRegistry = VCP.addonIconRegistry or {}
 VCP.addonIconCandidates = VCP.addonIconCandidates or {}
 VCP.addonIconHandleCount = VCP.addonIconHandleCount or 0
+VCP.liveFrameNames = VCP.liveFrameNames or {}
 
 local function IsValidAnchor(saved)
     if type(saved) ~= "table" then return false end
@@ -145,6 +147,22 @@ function VCP:IsSafeAddonIconFrame(frame, registered)
         string.find(lower, "icon", 1, true) or string.find(lower, "broker", 1, true)
 end
 
+-- Candidates carry names, never frame userdata. Interface 11200 can free a
+-- frame while a saved global still points at it, so every candidate use
+-- re-resolves the name here: curated stock frames live for the whole session
+-- and resolve via getglobal alone, every other candidate must additionally
+-- appear in the live set built from the engine's own frame list.
+function VCP:ResolveCandidate(candidate)
+    if not candidate or type(candidate.name) ~= "string" then return nil end
+    local frame = getglobal(candidate.name)
+    if not frame then return nil end
+    if candidate.curated then return frame end
+    if self.liveFrameNames and self.liveFrameNames[candidate.name] then
+        return frame
+    end
+    return nil
+end
+
 function VCP:RegisterAddonIcon(id, frameOrName, label)
     if type(id) ~= "string" or id == "" or not frameOrName then return false end
     self.addonIconRegistry[id] = {
@@ -179,20 +197,22 @@ function VCP:RestoreAddonIcon(candidate)
     return true
 end
 
--- One movable-target predicate: curated frame candidates are vetted by the
--- frame mover registry; icon candidates keep the conservative icon filter.
+-- One movable-target predicate: curated and swept window candidates are
+-- vetted by name resolution and frame capability; icon candidates keep the
+-- conservative icon filter.
 function VCP:CanMoveCandidate(candidate)
-    local frame = candidate and candidate.frame
-    if candidate and candidate.curated then
-        return frame ~= nil and HasMoverMethods(frame) and
+    local frame = self:ResolveCandidate(candidate)
+    if not frame then return false end
+    if candidate.curated or candidate.window then
+        return HasMoverMethods(frame) and
             (not frame.IsProtected or not frame:IsProtected())
     end
     return self:IsSafeAddonIconFrame(frame, candidate and candidate.registered)
 end
 
 function VCP:SaveAddonIcon(candidate)
-    local frame = candidate and candidate.frame
-    if not self:CanMoveCandidate(candidate) then return false end
+    local frame = self:ResolveCandidate(candidate)
+    if not frame or not self:CanMoveCandidate(candidate) then return false end
     if candidate.scaleOnly then
         if self.FrameMover then return self.FrameMover:SaveScaleOnly(frame) end
         return false
@@ -218,27 +238,86 @@ function VCP:AddAddonIconCandidate(id, frame, label, registered, seen)
     local candidate = self.addonIconCandidates[id]
     if not candidate or candidate.frame ~= frame then
         if candidate and candidate.handle then candidate.handle:Hide() end
-        if candidate and candidate.wasMovable == false and candidate.frame.SetMovable then
-            candidate.frame:SetMovable(nil)
-        end
-        candidate = { id = id, frame = frame, label = label or id, registered = registered, icon = true }
+        candidate = {
+            id = id,
+            name = frame.GetName and frame:GetName() or nil,
+            frame = frame,
+            label = label or id,
+            registered = registered,
+            icon = true,
+        }
         self.addonIconCandidates[id] = candidate
         self:RestoreAddonIcon(candidate)
     end
     if self.moveUiActive then self:ShowAddonIconHandle(candidate) end
 end
 
-function VCP:DiscoverMinimapAddonIcons(root, depth, seen)
-    if not root or not root.GetChildren or depth > 5 then return end
-    local children = { root:GetChildren() }
-    for _, child in ipairs(children) do
-        if child and child.GetName then
-            local name = child:GetName()
-            if self:IsSafeAddonIconFrame(child, false) then
-                self:AddAddonIconCandidate("minimap:" .. string.lower(name), child, name, false, seen)
+-- Sweep the engine's own frame list into a live-name set. A non-nil
+-- getglobal cannot prove the global still points at a live object in
+-- Interface 11200, so third-party candidates are only actionable while
+-- their name is a member of this set.
+function VCP:BuildLiveFrameSet()
+    local live = {}
+    if type(EnumerateFrames) ~= "function" then
+        self.liveFrameNames = live
+        return live
+    end
+    local frame = EnumerateFrames()
+    local guard = 0
+    while frame and guard < 6000 do
+        guard = guard + 1
+        if frame.GetName then
+            local name = frame:GetName()
+            if name and name ~= "" and getglobal(name) == frame then
+                live[name] = true
             end
-            self:DiscoverMinimapAddonIcons(child, depth + 1, seen)
         end
+        frame = EnumerateFrames(frame)
+    end
+    self.liveFrameNames = live
+    return live
+end
+
+-- Discover visible top-level windows by name. Anchors and drag never touch
+-- candidate userdata across ticks, so a freed third-party frame can never be
+-- dereferenced: it simply stops resolving and its handle is detached.
+function VCP:DiscoverTopLevelFrames(seen)
+    if type(EnumerateFrames) ~= "function" then return end
+    local frame = EnumerateFrames()
+    local guard = 0
+    while frame and guard < 6000 do
+        guard = guard + 1
+        local name = frame.GetName and frame:GetName() or nil
+        if name and name ~= "" and not seen[name] and
+            self.liveFrameNames[name] and getglobal(name) == frame and
+            not IsUnsafeFrameName(name) and HasMoverMethods(frame) then
+            local parent = frame.GetParent and frame:GetParent() or nil
+            if (parent == UIParent or parent == nil) and
+                frame.IsShown and frame:IsShown() and
+                (not frame.IsProtected or not frame:IsProtected()) then
+                local width = frame.GetWidth and frame:GetWidth() or 0
+                local height = frame.GetHeight and frame:GetHeight() or 0
+                if width >= 48 and height >= 24 then
+                    seen[name] = true
+                    self:AddWindowCandidate(name)
+                end
+            end
+        end
+        frame = EnumerateFrames(frame)
+    end
+end
+
+function VCP:AddWindowCandidate(name)
+    local key = "window:" .. name
+    local candidate = self.addonIconCandidates[key]
+    if not candidate then
+        candidate = {
+            id = key,
+            name = name,
+            label = name,
+            window = true,
+        }
+        self.addonIconCandidates[key] = candidate
     end
 end
 
@@ -247,13 +326,13 @@ function VCP:RefreshAddonIcons()
     self.addonIconRefreshActive = true
     local ok = pcall(function()
         self:RegisterKnownAddonIcons()
+        self:BuildLiveFrameSet()
         local seen = {}
         for id, record in pairs(self.addonIconRegistry) do
             local frame = ResolveFrame(record.reference)
             if frame then self:AddAddonIconCandidate(id, frame, record.label, true, seen) end
         end
-        self:DiscoverMinimapAddonIcons(Minimap, 0, seen)
-        if MinimapCluster ~= Minimap then self:DiscoverMinimapAddonIcons(MinimapCluster, 0, seen) end
+        self:DiscoverTopLevelFrames(seen)
     end)
     self.addonIconRefreshActive = nil
     return ok
@@ -274,7 +353,7 @@ function VCP:GetMoveInstructions()
     end
     text:ClearAllPoints()
     text:SetPoint("LEFT", frame, "LEFT", 12, 0)
-    text:SetText("Move UI: drag a green handle; D-pad Down/Up focuses, Left/Right scales\nSelect + Start or Escape saves and exits")
+    text:SetText("Move UI: drag a green handle; D-pad Down/Up focuses, Left/Right scales\nOpen any window to make it movable; Select + Start or Escape saves and exits")
     local exit = frame.exitButton
     if not exit then
         exit = CreateFrame("Button", "VanillaConsolePortMoveSaveExit", frame, "UIPanelButtonTemplate")
@@ -297,9 +376,15 @@ function VCP:GetMoveInstructions()
     return frame
 end
 
+-- Targets are never dragged directly: the handle is an addon-owned child of
+-- UIParent, so its userdata can never go stale. On mouse-down the target's
+-- screen rectangle is sampled; on mouse-up a single absolute SetPoint moves
+-- the freshly re-resolved target. SetPoint stores the resolved object, so a
+-- handle never keeps an anchor into a frame the poll has not confirmed.
 function VCP:ShowAddonIconHandle(candidate)
-    local frame = candidate.frame
-    if not frame.IsShown or not frame:IsShown() then return false end
+    if candidate.moving then return true end
+    local frame = self:ResolveCandidate(candidate)
+    if not frame or not frame.IsShown or not frame:IsShown() then return false end
     local handle = candidate.handle
     if not handle then
         self.addonIconHandleCount = self.addonIconHandleCount + 1
@@ -323,22 +408,28 @@ function VCP:ShowAddonIconHandle(candidate)
     handle:SetScript("OnMouseDown", function()
         if not VCP.moveUiActive then return end
         if candidate.scaleOnly then return end
-        frame:StartMoving()
+        local target = VCP:ResolveCandidate(candidate)
+        if not target then return end
+        candidate.grabLeft = handle:GetLeft()
+        candidate.grabTop = handle:GetTop()
+        candidate.grabTargetLeft = target.GetLeft and target:GetLeft() or nil
+        candidate.grabTargetTop = target.GetTop and target:GetTop() or nil
+        if not candidate.grabTargetLeft or not candidate.grabTargetTop then return end
+        handle:ClearAllPoints()
+        handle:StartMoving()
         candidate.moving = true
     end)
         handle:SetScript("OnMouseUp", function()
             if not candidate.moving then return end
-            frame:StopMovingOrSizing()
+            handle:StopMovingOrSizing()
             candidate.moving = nil
-            VCP:SaveAddonIcon(candidate)
+            VCP:ApplyHandleDrop(candidate, handle)
         end)
         candidate.handle = handle
     end
     handle:ClearAllPoints()
     handle:SetPoint("TOPLEFT", frame, "TOPLEFT", -5, 5)
     handle:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 5, -5)
-    candidate.wasMovable = frame.IsMovable and frame:IsMovable() or false
-    frame:SetMovable(1)
     handle:Show()
     return true
 end
@@ -348,18 +439,72 @@ function VCP:FinishMoveUI(silent)
     self.moveUiActive = nil
     self.moveFocused = nil
     for _, candidate in pairs(self.addonIconCandidates) do
-        local frame = candidate.frame
-        if candidate.moving and frame and frame.StopMovingOrSizing then frame:StopMovingOrSizing() end
+        local handle = candidate.handle
+        if candidate.moving and handle then handle:StopMovingOrSizing() end
         candidate.moving = nil
         self:SaveAddonIcon(candidate)
-        if candidate.wasMovable == false and frame and frame.SetMovable then frame:SetMovable(nil) end
-        candidate.wasMovable = nil
-        if candidate.handle then candidate.handle:Hide() end
+        if handle then
+            -- Detach before hiding: a shown mouse-enabled handle anchored
+            -- into freed memory can fault the client without any Lua call.
+            handle:ClearAllPoints()
+            handle:Hide()
+        end
     end
     if self.moveUiInstructions then self.moveUiInstructions:Hide() end
     self.moveUiInstructions = nil
-    if not silent then Print("addon icon positions saved; move mode closed") end
+    if not silent then Print("layout saved; move mode closed") end
     return true
+end
+
+-- Move the target by the exact distance the handle was dragged, then journal
+-- the new absolute anchor through the frame mover.
+function VCP:ApplyHandleDrop(candidate, handle)
+    local target = self:ResolveCandidate(candidate)
+    if not target or not target.SetPoint then return false end
+    local left = handle.GetLeft and handle:GetLeft() or nil
+    local top = handle.GetTop and handle:GetTop() or nil
+    if not left or not top or not candidate.grabLeft or not candidate.grabTop or
+        not candidate.grabTargetLeft or not candidate.grabTargetTop then
+        return false
+    end
+    local x = candidate.grabTargetLeft + (left - candidate.grabLeft)
+    local y = candidate.grabTargetTop + (top - candidate.grabTop)
+    target:ClearAllPoints()
+    target:SetPoint("TOPLEFT", "UIParent", "TOPLEFT", x, y)
+    return self:SaveAddonIcon(candidate)
+end
+
+-- Revalidate every candidate against a fresh live-set sweep: rebind live
+-- handles, detach handles whose target vanished, and retire swept windows
+-- that stay dead for several polls so transient frames do not accumulate.
+function VCP:RefreshMoveHandles()
+    for key, candidate in pairs(self.addonIconCandidates) do
+        local frame = self:ResolveCandidate(candidate)
+        local shown = frame and frame.IsShown and frame:IsShown()
+        if shown then
+            candidate.missed = nil
+            self:ShowAddonIconHandle(candidate)
+        else
+            local handle = candidate.handle
+            if handle then
+                handle:ClearAllPoints()
+                handle:Hide()
+            end
+            candidate.moving = nil
+            if candidate.window then
+                candidate.missed = (candidate.missed or 0) + 1
+                if candidate.missed >= 4 then
+                    self.addonIconCandidates[key] = nil
+                end
+            end
+        end
+    end
+end
+
+function VCP:PulseMoveUI()
+    if not self.moveUiActive then return end
+    self:RefreshAddonIcons()
+    self:RefreshMoveHandles()
 end
 
 local MOVE_SCALE_MIN = 0.5
@@ -391,7 +536,7 @@ function VCP:SetMoveFocus(candidate)
 end
 
 function VCP:ScaleMoveCandidate(candidate, direction)
-    local frame = candidate and candidate.frame
+    local frame = self:ResolveCandidate(candidate)
     if not frame or not frame.GetScale or not frame.SetScale then return false end
     if type(direction) ~= "number" or direction == 0 then return false end
     local scale = frame:GetScale() + direction * MOVE_SCALE_STEP
@@ -435,13 +580,30 @@ function VCP:ToggleMoveUI()
     end
     if visible == 0 then
         self.moveUiActive = nil
-        Print("no movable addon icons are currently visible")
+        Print("no movable windows are currently visible; open a window and try again")
         return
     end
     self.moveUiInstructions = self:GetMoveInstructions()
     self.moveUiInstructions:Show()
-    Print("drag any highlighted frame or icon; D-pad Down/Up changes focus, Left/Right scales; Select + Start saves and exits")
+    Print("drag any highlighted window; D-pad Down/Up changes focus, Left/Right scales; Select + Start saves and exits")
 end
+
+-- Slow poll while move mode is open: refreshes the live set, picks up newly
+-- shown windows, and detaches handles whose target has vanished.
+local movePoll = getglobal("VanillaConsolePortMovePoll")
+if not movePoll then
+    movePoll = CreateFrame("Frame", "VanillaConsolePortMovePoll", UIParent)
+end
+movePoll:SetScript("OnUpdate", function()
+    if not VCP.moveUiActive then
+        this.elapsed = nil
+        return
+    end
+    this.elapsed = (this.elapsed or 0) + arg1
+    if this.elapsed < 0.25 then return end
+    this.elapsed = 0
+    VCP:PulseMoveUI()
+end)
 
 function VCP:GetBindingJournal()
     if GetCurrentBindingSet() == 2 then return VanillaConsolePortCharacterDB end
@@ -602,10 +764,12 @@ SlashCmdList["VANILLACONSOLEPORT"] = function(message)
         VCP:RestoreBindings()
     elseif message == "resetui" then
         if VCP.FrameMover then VCP.FrameMover:ResetUI() end
+    elseif message == "chat" then
+        if VCP.Hud then VCP.Hud:ToggleChat() end
     elseif message == "radial" then
         VanillaConsolePort_ToggleRadial()
     else
-        Print("/vcp radial opens the menu; /vcp restore restores pre-install key bindings; /vcp resetui restores the stock frame layout")
+        Print("/vcp radial opens the menu; /vcp chat toggles the minimal chat; /vcp restore restores pre-install key bindings; /vcp resetui restores the stock frame layout")
     end
 end
 
@@ -617,6 +781,7 @@ function VCP:InitializeModules()
     self:InitializeDatabase()
     self:RefreshAddonIcons()
     if self.FrameMover then self.FrameMover:Initialize() end
+    if self.Hud then self.Hud:Initialize() end
     local barsReady = self.ActionBars and self.ActionBars:Initialize()
     local radialReady = self.Radial and self.Radial:Initialize()
     if barsReady and radialReady then return true end

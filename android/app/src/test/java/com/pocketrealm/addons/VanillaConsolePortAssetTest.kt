@@ -24,7 +24,7 @@ class VanillaConsolePortAssetTest {
         assertTrue(toc.lineSequence().any { it.trim() == "## Interface: 11200" })
         val declared = toc.lineSequence().map(String::trim)
             .filter { it.endsWith(".lua") || it.endsWith(".xml") }.toList()
-        assertEquals(listOf("Core.lua", "ActionBars.lua", "Radial.lua", "FrameMover.lua"), declared)
+        assertEquals(listOf("Core.lua", "ActionBars.lua", "Radial.lua", "FrameMover.lua", "Hud.lua"), declared)
         declared.forEach { assertTrue("TOC entry $it", File(addon, it).isFile) }
         // Vanilla discovers this reserved filename itself. Listing it in the
         // TOC sends it through the generic FrameXML loader, which reports one
@@ -191,9 +191,15 @@ class VanillaConsolePortAssetTest {
         assertTrue(core.contains("function VCP:RegisterAddonIcon(id, frameOrName, label)"))
         assertTrue(core.contains("id = \"pfquest-route-arrow\", frame = \"pfQuestRouteArrow\""))
         assertTrue(core.contains("id = \"pfquest-minimap-button\", frame = \"pfQuestMinimapButton\""))
-        assertTrue(core.contains("function VCP:DiscoverMinimapAddonIcons(root, depth, seen)"))
-        assertTrue(core.contains("self:DiscoverMinimapAddonIcons(Minimap, 0, seen)"))
-        assertTrue(core.contains("self:DiscoverMinimapAddonIcons(MinimapCluster, 0, seen)"))
+        assertTrue(core.contains("function VCP:DiscoverTopLevelFrames(seen)"))
+        assertTrue(core.contains("self:BuildLiveFrameSet()"))
+        assertTrue(core.contains("self:DiscoverTopLevelFrames(seen)"))
+        assertTrue(core.contains("function VCP:ResolveCandidate(candidate)"))
+        // The recursive minimap walk held raw frame userdata past those
+        // frames' lifetime and crashed the client on freed objects; the sweep
+        // must resolve everything by name against the engine frame list.
+        assertFalse(core.contains("GetChildren"))
+        assertTrue(core.contains("\"pfminimappin\""))
         assertTrue(core.contains("objectType == \"Button\""))
         assertTrue(core.contains("if not insideMinimap then return false end"))
         assertTrue(core.contains("if frame.IsProtected and frame:IsProtected() then return false end"))
@@ -243,8 +249,15 @@ class VanillaConsolePortAssetTest {
         assertTrue(handle.contains("handle:SetPoint(\"BOTTOMRIGHT\", frame"))
         assertFalse(handle.contains("SetAllPoints(UIParent)"))
         assertFalse(handle.contains("UIParent:EnableMouse"))
-        assertTrue(core.contains("frame:StartMoving()"))
-        assertTrue(core.contains("frame:StopMovingOrSizing()"))
+        // Only the addon-owned handle is ever dragged; the target receives a
+        // single absolute SetPoint on drop. Dragging foreign frames directly
+        // is the freed-object crash class this layout must never reintroduce.
+        assertTrue(core.contains("handle:StartMoving()"))
+        assertTrue(core.contains("handle:StopMovingOrSizing()"))
+        assertTrue(core.contains("target:SetPoint(\"TOPLEFT\", \"UIParent\", \"TOPLEFT\""))
+        assertFalse(core.contains("frame:StartMoving()"))
+        assertFalse(core.contains("frame:StopMovingOrSizing()"))
+        assertFalse(core.contains("frame:SetMovable"))
         assertTrue(core.contains("pfQuest_config[\"pocketrealm_arrow_position\"]"))
         assertTrue(core.contains("events:RegisterEvent(\"PLAYER_LOGOUT\")"))
         assertFalse(core.contains("PointerButton"))
@@ -255,14 +268,14 @@ class VanillaConsolePortAssetTest {
         val mover = File(addon, "FrameMover.lua").readText()
         val toc = File(addon, "VanillaConsolePort.toc").readText()
 
-        assertTrue(core.contains("VCP.VERSION = \"0.4.0\""))
-        assertTrue(toc.contains("## Version: 0.4.0"))
+        assertTrue(core.contains("VCP.VERSION = \"0.5.0\""))
+        assertTrue(toc.contains("## Version: 0.5.0"))
         assertTrue(mover.contains("VanillaConsolePort.FrameMover = VanillaConsolePort.FrameMover or {}"))
         assertTrue(mover.contains("Mover.SCALE_MIN = 0.5"))
         assertTrue(mover.contains("Mover.SCALE_MAX = 1.5"))
         assertTrue(mover.contains("name = \"PlayerFrame\", label = \"Player frame\""))
         assertTrue(mover.contains("name = \"TargetFrame\", label = \"Target frame\""))
-        assertTrue(mover.contains("name = \"MiniMapCluster\", label = \"Minimap\""))
+        assertTrue(mover.contains("name = \"MinimapCluster\", label = \"Minimap\""))
         assertTrue(mover.contains("name = \"ContainerFrame1\", label = \"Backpack\", scaleOnly = true"))
         assertTrue(mover.contains("name = \"BankFrame\", label = \"Bank\", scaleOnly = true"))
 
@@ -291,6 +304,62 @@ class VanillaConsolePortAssetTest {
         assertTrue(core.contains("if saved.scale and candidate.frame.SetScale then candidate.frame:SetScale(saved.scale) end"))
         assertTrue(core.contains("if self.FrameMover then self.FrameMover:Initialize() end"))
         assertTrue(core.contains("elseif message == \"resetui\" then"))
+
+        // Stock re-anchor resistance: the bag sweep runs on both open and
+        // close and also resets scale, so the chokepoint itself is wrapped;
+        // journaled panels leave the stock panel manager (full-screen panels
+        // never do) and re-assert their anchor after the stock OnShow runs.
+        assertTrue(mover.contains("updateContainerFrameAnchors = function()"))
+        assertTrue(mover.contains("function Mover:ReassertContainers()"))
+        assertTrue(mover.contains("function Mover:ReleasePanelManagement(name)"))
+        assertTrue(mover.contains("info.area == \"full\" then return false end"))
+        assertTrue(mover.contains("function Mover:ChainOnShow(name, frame)"))
+        assertTrue(mover.contains("db.panelReleases"))
+        assertTrue(mover.contains("UIPanelWindows[name] = info"))
+        // Journal relatives resolve through a stock-only whitelist, so a
+        // saved anchor can never point into a frame a third-party addon
+        // may later free.
+        assertTrue(mover.contains("local relative = SafeRelative(stored.relative)"))
+        assertTrue(mover.contains("relativeWhitelist[relativeName]"))
+    }
+
+    @Test fun `hud docks a minimal chat and a player frame xp strip`() {
+        val core = File(addon, "Core.lua").readText()
+        val hud = File(addon, "Hud.lua").readText()
+        val toc = File(addon, "VanillaConsolePort.toc").readText()
+        assertTrue(toc.lineSequence().map(String::trim).contains("Hud.lua"))
+        assertTrue(core.contains("if self.Hud then self.Hud:Initialize() end"))
+        assertTrue(core.contains("elseif message == \"chat\" then"))
+
+        // Minimal chat: never persisted into the stored chat profile, so the
+        // trailing doNotSave argument and the stock hover threshold parking
+        // must both survive, and re-asserted on UPDATE_CHAT_WINDOWS.
+        assertTrue(hud.contains("function Hud:ApplyChatFrame()"))
+        assertTrue(hud.contains("FCF_SetWindowAlpha(chat, 0, 1)"))
+        assertTrue(hud.contains("FCF_SetWindowColor(chat, 0, 0, 0, 1)"))
+        assertTrue(hud.contains("chat.oldAlpha = 0.25"))
+        assertTrue(hud.contains("chat:SetUserPlaced(1)"))
+        assertTrue(hud.contains("getglobal(\"ChatFrame1Tab\")"))
+        assertTrue(hud.contains("getglobal(\"ChatFrameMenuButton\")"))
+        assertTrue(hud.contains("events:RegisterEvent(\"UPDATE_CHAT_WINDOWS\")"))
+        assertTrue(hud.contains("FCF_UpdateDockPosition = function()"))
+        assertTrue(hud.contains("function Hud:RestoreChatFrame()"))
+        assertTrue(hud.contains("function Hud:ToggleChat()"))
+        // The default anchor clears the action clusters on both handheld
+        // layout profiles: bottom + padding + button + 8 above the floor.
+        assertTrue(hud.contains("layout.bottom + layout.padding + layout.button + 8"))
+
+        // XP strip: a StatusBar child of PlayerFrame moves and scales with
+        // the unit frame, updates on the stock XP event set, hides at the
+        // level cap the way the stock bar branches, and never journals.
+        assertTrue(hud.contains("CreateFrame(\"StatusBar\", \"VanillaConsolePortXPBar\", playerFrame)"))
+        assertTrue(hud.contains("events:RegisterEvent(\"PLAYER_XP_UPDATE\")"))
+        assertTrue(hud.contains("events:RegisterEvent(\"UPDATE_EXHAUSTION\")"))
+        assertTrue(hud.contains("events:RegisterEvent(\"PLAYER_LEVEL_UP\")"))
+        assertTrue(hud.contains("UnitXPMax(\"player\")"))
+        assertTrue(hud.contains("UnitLevel(\"player\") >= MAX_PLAYER_LEVEL"))
+        assertTrue(hud.contains("GetXPExhaustion()"))
+        assertTrue(hud.contains("function Hud:FailSafe()"))
     }
 
     @Test fun `move UI focus cycling and scaling stay balanced and clamped`() {

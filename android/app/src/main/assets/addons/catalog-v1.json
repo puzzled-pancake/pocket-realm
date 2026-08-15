@@ -3246,7 +3246,7 @@
       "builtinId": "builtin__vanillaconsoleport",
       "assetPath": "addons/vanilla-console-port",
       "clientTarget": "Vanilla 1.12.1 / Interface 11200",
-      "version": "0.4.0 Pocket Realm",
+      "version": "0.5.0 Pocket Realm",
       "verifiedUpdate": "2026-08-15",
       "dateConfidence": "Project-owned Interface 11200 source",
       "communitySignal": "New Pocket Realm built-in; not externally rated",
