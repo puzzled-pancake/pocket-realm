@@ -23,10 +23,11 @@ end
 
 -- Default anchor raised past the action clusters so the chat never overlaps
 -- either one on any supported screen; the offset follows the shared layout
--- so short and tall profiles both clear the buttons.
+-- so short and tall profiles both clear the buttons, with headroom for the
+-- edit box that hangs below the frame.
 function Hud:ChatAnchorY()
     local layout = VanillaConsolePort:GetLayout()
-    return layout.bottom + layout.padding + layout.button + 8
+    return layout.bottom + layout.padding + layout.button + 20
 end
 
 function Hud:HideChatChrome()
@@ -36,6 +37,8 @@ function Hud:HideChatChrome()
     end
     local tab = getglobal("ChatFrame1Tab")
     if tab then tab:Hide() end
+    local combatTab = getglobal("ChatFrame2Tab")
+    if combatTab then combatTab:Hide() end
     local menu = getglobal("ChatFrameMenuButton")
     if menu then menu:Hide() end
 end
@@ -47,6 +50,8 @@ function Hud:ShowChatChrome()
     end
     local tab = getglobal("ChatFrame1Tab")
     if tab then tab:Show() end
+    local combatTab = getglobal("ChatFrame2Tab")
+    if combatTab then combatTab:Show() end
     local menu = getglobal("ChatFrameMenuButton")
     if menu then menu:Show() end
 end
@@ -76,6 +81,14 @@ function Hud:ApplyChatFrame()
     -- oldAlpha is below its own fade threshold; park it exactly at that
     -- threshold so the minimal look survives hovering.
     chat.oldAlpha = 0.25
+    -- The docked combat log shares the rect, so its chrome gets the same
+    -- treatment or it reappears alongside the minimal chat.
+    local combat = getglobal("ChatFrame2")
+    if combat and combat.SetPoint then
+        if type(FCF_SetWindowAlpha) == "function" then FCF_SetWindowAlpha(combat, 0, 1) end
+        if type(FCF_SetWindowColor) == "function" then FCF_SetWindowColor(combat, 0, 0, 0, 1) end
+        combat.oldAlpha = 0.25
+    end
     self:HideChatChrome()
     return true
 end
@@ -91,6 +104,10 @@ function Hud:RestoreChatFrame()
     if type(FCF_SetWindowAlpha) == "function" then FCF_SetWindowAlpha(chat, 0.25, 1) end
     if type(FCF_SetWindowColor) == "function" then FCF_SetWindowColor(chat, 0, 0, 0, 1) end
     chat.oldAlpha = 0.25
+    local combat = getglobal("ChatFrame2")
+    if combat and type(FCF_SetWindowAlpha) == "function" then
+        FCF_SetWindowAlpha(combat, 0.25, 1)
+    end
     self:ShowChatChrome()
     return true
 end
@@ -127,6 +144,21 @@ function Hud:InstallChatHooks()
         FCF_UpdateCombatLogPosition = function()
             Hud.stockCombatLogUpdate()
             if Hud:ChatEnabled() then Hud:ApplyChatFrame() end
+        end
+    end
+    -- Stock's hover pass unconditionally re-shows the tab and, once a hover
+    -- cycle has reset oldAlpha, fades the whole chrome back in. Simple chat
+    -- avoids that by failing the per-frame validity gate; do the same for
+    -- the treated frames so the minimal look survives pointer traffic.
+    if type(FCF_IsValidChatFrame) == "function" then
+        Hud.stockIsValidChatFrame = FCF_IsValidChatFrame
+        FCF_IsValidChatFrame = function(frame)
+            if Hud:ChatEnabled() then
+                if frame == getglobal("ChatFrame1") or frame == getglobal("ChatFrame2") then
+                    return nil
+                end
+            end
+            return Hud.stockIsValidChatFrame(frame)
         end
     end
     return true
@@ -239,7 +271,24 @@ events:RegisterEvent("UPDATE_EXHAUSTION")
 events:RegisterEvent("PLAYER_LEVEL_UP")
 events:SetScript("OnEvent", function()
     if event == "PLAYER_ENTERING_WORLD" or event == "UPDATE_CHAT_WINDOWS" then
-        Hud:ApplyChatFrame()
+        -- The engine applies the saved chat rectangle after the load-time
+        -- pass, silently dropping the window back onto the action cluster;
+        -- schedule delayed re-asserts so our rect wins no matter the timing.
+        if event == "PLAYER_ENTERING_WORLD" then
+            this.pendingReassert = { 1, 3, 7 }
+            this.elapsed = 0
+        end
+        pcall(function() Hud:ApplyChatFrame() end)
     end
     Hud:UpdateXPBar()
+end)
+events:SetScript("OnUpdate", function()
+    if not this.pendingReassert then return end
+    this.elapsed = (this.elapsed or 0) + arg1
+    if this.elapsed < this.pendingReassert[1] then return end
+    this.elapsed = 0
+    tremove(this.pendingReassert, 1)
+    if table.getn(this.pendingReassert) == 0 then this.pendingReassert = nil end
+    -- pcall guards Lua errors only; it is not crash protection.
+    pcall(function() if Hud:ChatEnabled() then Hud:ApplyChatFrame() end end)
 end)

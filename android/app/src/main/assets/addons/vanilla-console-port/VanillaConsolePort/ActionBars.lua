@@ -26,6 +26,39 @@ local layoutMap = {
     { side = -1, x = 1, y = 0, label = "8 >" },
 }
 
+-- Movable containers for the two action stars. They exist from file load so
+-- the frame mover's curated registry can adopt them, the buttons anchor to
+-- them, and one journaled move or scale carries the whole cluster.
+local clusterNames = {
+    [1] = "VanillaConsolePortRightCluster",
+    [-1] = "VanillaConsolePortLeftCluster",
+}
+Bars.clusterFrames = Bars.clusterFrames or {}
+
+local function EnsureCluster(side)
+    local layout = VanillaConsolePort:GetLayout()
+    local name = clusterNames[side]
+    local cluster = getglobal(name)
+    if not cluster then
+        cluster = CreateFrame("Frame", name, UIParent)
+        cluster:EnableMouse(false)
+        cluster:SetFrameStrata("BACKGROUND")
+        local size = layout.button + 2 * layout.padding + 8
+        cluster:SetWidth(size)
+        cluster:SetHeight(size)
+        cluster:ClearAllPoints()
+        cluster:SetPoint("CENTER", UIParent, "BOTTOM", side * layout.star / 2, layout.bottom)
+    end
+    cluster:Show()
+    return cluster
+end
+
+-- Errors here leave the fallback UIParent anchoring in ApplyLayout active.
+pcall(function()
+    Bars.clusterFrames[1] = EnsureCluster(1)
+    Bars.clusterFrames[-1] = EnsureCluster(-1)
+end)
+
 function Bars:GetActionSlot(buttonIndex)
     if self.page == 1 then
         local bonus = GetBonusBarOffset and GetBonusBarOffset() or 0
@@ -49,11 +82,22 @@ end
 function Bars:CreateButton(index)
     local name = "VanillaConsolePortButton" .. index
     local button = getglobal(name)
-    if not button then button = CreateFrame("Button", name, UIParent) end
+    local cluster = self.clusterFrames[layoutMap[index].side]
+    if not button then
+        button = CreateFrame("Button", name, cluster or UIParent)
+    elseif cluster and button:GetParent() ~= cluster then
+        -- Children inherit cluster scale, so a journaled resize of the star
+        -- has to reach the buttons through parenting, not anchors alone.
+        button:SetParent(cluster)
+    end
     button:Hide()
     button:SetFrameStrata("MEDIUM")
+    button:SetID(index)
     button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    button:RegisterForDrag("LeftButton")
+    button:RegisterForDrag("LeftButton", "RightButton")
+    -- The native movement overlay on the host can shadow the star's edge, so
+    -- grow the release surface past the visible tile.
+    button:SetHitRectInsets(-14, -14, -14, -14)
 
     local background = button.background
     if not background then
@@ -164,11 +208,19 @@ function Bars:ApplyLayout(buttons)
         button:SetWidth(layout.button)
         button:SetHeight(layout.button)
         button:ClearAllPoints()
-        button:SetPoint(
-            "BOTTOM", UIParent, "BOTTOM",
-            item.side * halfGap + item.x * layout.padding,
-            layout.bottom + item.y * layout.padding
-        )
+        local cluster = self.clusterFrames[item.side]
+        if cluster then
+            button:SetPoint(
+                "BOTTOM", cluster, "CENTER",
+                item.x * layout.padding, item.y * layout.padding
+            )
+        else
+            button:SetPoint(
+                "BOTTOM", UIParent, "BOTTOM",
+                item.side * halfGap + item.x * layout.padding,
+                layout.bottom + item.y * layout.padding
+            )
+        end
         button.prompt:SetWidth(math.max(28, math.floor(layout.button * 0.42)))
         button.prompt:SetHeight(math.max(22, math.floor(layout.button * 0.30)))
     end

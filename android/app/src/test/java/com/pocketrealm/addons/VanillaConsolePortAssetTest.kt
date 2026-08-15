@@ -252,15 +252,25 @@ class VanillaConsolePortAssetTest {
         // Only the addon-owned handle is ever dragged; the target receives a
         // single absolute SetPoint on drop. Dragging foreign frames directly
         // is the freed-object crash class this layout must never reintroduce.
+        assertTrue(core.contains("handle:SetMovable(1)"))
         assertTrue(core.contains("handle:StartMoving()"))
         assertTrue(core.contains("handle:StopMovingOrSizing()"))
         assertTrue(core.contains("target:SetPoint(\"TOPLEFT\", \"UIParent\", \"TOPLEFT\""))
+        // GetTop measures from the screen floor while the anchor offset is
+        // up-positive from UIParent's top edge; the origins must convert.
+        assertTrue(core.contains("- UIParent:GetTop()"))
         assertFalse(core.contains("frame:StartMoving()"))
         assertFalse(core.contains("frame:StopMovingOrSizing()"))
         assertFalse(core.contains("frame:SetMovable"))
         assertTrue(core.contains("pfQuest_config[\"pocketrealm_arrow_position\"]"))
         assertTrue(core.contains("events:RegisterEvent(\"PLAYER_LOGOUT\")"))
         assertFalse(core.contains("PointerButton"))
+        // Exit journals only what the player actually dragged or scaled, so
+        // untouched stock panels stay under the stock panel manager, and a
+        // touch release off the handle still completes the drop.
+        assertTrue(core.contains("if candidate.moved then self:SaveAddonIcon(candidate) end"))
+        assertTrue(core.contains("candidate.moved = true"))
+        assertTrue(core.contains("not IsMouseButtonDown()"))
     }
 
     @Test fun `frame mover curates stock frames journals layout and resets cleanly`() {
@@ -346,8 +356,18 @@ class VanillaConsolePortAssetTest {
         assertTrue(hud.contains("function Hud:RestoreChatFrame()"))
         assertTrue(hud.contains("function Hud:ToggleChat()"))
         // The default anchor clears the action clusters on both handheld
-        // layout profiles: bottom + padding + button + 8 above the floor.
-        assertTrue(hud.contains("layout.bottom + layout.padding + layout.button + 8"))
+        // layout profiles: bottom + padding + button + 20 above the floor.
+        assertTrue(hud.contains("layout.bottom + layout.padding + layout.button + 20"))
+        // Stock's hover pass unconditionally re-shows the tab and later fades
+        // the whole chrome back in; failing the per-frame validity gate is the
+        // simple-chat mechanism and keeps the minimal look stable.
+        assertTrue(hud.contains("FCF_IsValidChatFrame = function(frame)"))
+        assertTrue(hud.contains("return Hud.stockIsValidChatFrame(frame)"))
+        // The docked combat log shares the rect and gets the same treatment.
+        assertTrue(hud.contains("FCF_SetWindowAlpha(combat, 0, 1)"))
+        // The engine applies the saved chat rectangle after the load-time
+        // pass; delayed re-asserts keep our rect authoritative.
+        assertTrue(hud.contains("this.pendingReassert = { 1, 3, 7 }"))
 
         // XP strip: a StatusBar child of PlayerFrame moves and scales with
         // the unit frame, updates on the stock XP event set, hides at the
@@ -401,11 +421,23 @@ class VanillaConsolePortAssetTest {
 
     @Test fun `replacement action buttons retain placement and cooldown functionality`() {
         val bars = File(addon, "ActionBars.lua").readText()
-        assertTrue(bars.contains("RegisterForDrag(\"LeftButton\")"))
+        val mover = File(addon, "FrameMover.lua").readText()
+        assertTrue(bars.contains("RegisterForDrag(\"LeftButton\", \"RightButton\")"))
         assertTrue(bars.contains("PickupAction(Bars:GetActionSlot(index))"))
         assertTrue(bars.contains("PlaceAction(Bars:GetActionSlot(index))"))
         assertTrue(bars.contains("GetActionCooldown(slot)"))
         assertTrue(bars.contains("CooldownFrame_SetTimer(button.cooldown, start, duration, enable)"))
+        assertTrue(bars.contains("button:SetID(index)"))
+        assertTrue(bars.contains("button:SetHitRectInsets(-14, -14, -14, -14)"))
+        // The two action stars are movable as units through their cluster
+        // containers: buttons parent and anchor to the cluster, so one
+        // journal entry moves or scales the whole star.
+        assertTrue(bars.contains("[1] = \"VanillaConsolePortRightCluster\""))
+        assertTrue(bars.contains("[-1] = \"VanillaConsolePortLeftCluster\""))
+        assertTrue(bars.contains("button:SetPoint(\n                \"BOTTOM\", cluster, \"CENTER\","))
+        assertTrue(bars.contains("button:SetParent(cluster)"))
+        assertTrue(mover.contains("name = \"VanillaConsolePortLeftCluster\", label = \"Left action cluster\""))
+        assertTrue(mover.contains("name = \"VanillaConsolePortRightCluster\", label = \"Right action cluster\""))
     }
 
     @Test fun `initialization is transactional retryable and gates stock replacement`() {

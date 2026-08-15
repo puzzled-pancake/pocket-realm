@@ -399,8 +399,11 @@ function VCP:ShowAddonIconHandle(candidate)
         local label = handle:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         label:SetPoint("BOTTOM", handle, "TOP", 0, 2)
         label:SetText(candidate.label)
-    handle:EnableMouse(true)
-    handle:EnableMouseWheel(1)
+        handle:EnableMouse(true)
+        -- StartMoving raises an engine error on any frame that was not
+        -- flagged movable first; the flag lives on the handle only.
+        handle:SetMovable(1)
+        handle:EnableMouseWheel(1)
     handle:SetScript("OnMouseWheel", function()
         if not VCP.moveUiActive then return end
         VCP:ScaleMoveCandidate(candidate, arg1)
@@ -442,7 +445,10 @@ function VCP:FinishMoveUI(silent)
         local handle = candidate.handle
         if candidate.moving and handle then handle:StopMovingOrSizing() end
         candidate.moving = nil
-        self:SaveAddonIcon(candidate)
+        -- Only candidates actually dragged or scaled this session are
+        -- journaled; saving untouched stock panels would de-register them
+        -- from the stock panel manager without the player asking.
+        if candidate.moved then self:SaveAddonIcon(candidate) end
         if handle then
             -- Detach before hiding: a shown mouse-enabled handle anchored
             -- into freed memory can fault the client without any Lua call.
@@ -468,9 +474,12 @@ function VCP:ApplyHandleDrop(candidate, handle)
         return false
     end
     local x = candidate.grabTargetLeft + (left - candidate.grabLeft)
-    local y = candidate.grabTargetTop + (top - candidate.grabTop)
+    -- GetTop measures from the screen floor, but the anchor offset below is
+    -- up-positive from UIParent's top edge, so convert origins here.
+    local y = candidate.grabTargetTop + (top - candidate.grabTop) - UIParent:GetTop()
     target:ClearAllPoints()
     target:SetPoint("TOPLEFT", "UIParent", "TOPLEFT", x, y)
+    candidate.moved = true
     return self:SaveAddonIcon(candidate)
 end
 
@@ -479,13 +488,21 @@ end
 -- that stay dead for several polls so transient frames do not accumulate.
 function VCP:RefreshMoveHandles()
     for key, candidate in pairs(self.addonIconCandidates) do
+        local handle = candidate.handle
+        if candidate.moving and handle and
+            type(IsMouseButtonDown) == "function" and not IsMouseButtonDown() then
+            -- A touch release off the handle never delivers OnMouseUp there;
+            -- finish the drop once no button is held anymore.
+            handle:StopMovingOrSizing()
+            candidate.moving = nil
+            self:ApplyHandleDrop(candidate, handle)
+        end
         local frame = self:ResolveCandidate(candidate)
         local shown = frame and frame.IsShown and frame:IsShown()
         if shown then
             candidate.missed = nil
             self:ShowAddonIconHandle(candidate)
         else
-            local handle = candidate.handle
             if handle then
                 handle:ClearAllPoints()
                 handle:Hide()
@@ -543,6 +560,7 @@ function VCP:ScaleMoveCandidate(candidate, direction)
     if scale < MOVE_SCALE_MIN then scale = MOVE_SCALE_MIN end
     if scale > MOVE_SCALE_MAX then scale = MOVE_SCALE_MAX end
     frame:SetScale(scale)
+    candidate.moved = true
     return true
 end
 
@@ -574,6 +592,9 @@ function VCP:ToggleMoveUI()
     if self:FinishMoveUI(false) then return end
     self:RefreshAddonIcons()
     self.moveUiActive = true
+    for _, candidate in pairs(self.addonIconCandidates) do
+        candidate.moved = nil
+    end
     local visible = 0
     for _, candidate in pairs(self.addonIconCandidates) do
         if self:ShowAddonIconHandle(candidate) then visible = visible + 1 end

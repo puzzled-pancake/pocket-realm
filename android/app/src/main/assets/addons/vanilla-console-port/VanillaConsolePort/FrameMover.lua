@@ -52,6 +52,11 @@ local curatedFrames = {
     { name = "ContainerFrame3", label = "Bag 3", scaleOnly = true },
     { name = "ContainerFrame4", label = "Bag 4", scaleOnly = true },
     { name = "BankFrame", label = "Bank", scaleOnly = true },
+    -- The console action stars are this addon's own session-lifetime frames;
+    -- curating them keeps the crash-safety exemption honest (they can never
+    -- be freed under us) while making the stars movable and scalable as units.
+    { name = "VanillaConsolePortLeftCluster", label = "Left action cluster" },
+    { name = "VanillaConsolePortRightCluster", label = "Right action cluster" },
 }
 
 -- Journal anchors may only reference these relatives by name. Applying a
