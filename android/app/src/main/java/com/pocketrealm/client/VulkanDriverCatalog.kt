@@ -82,13 +82,17 @@ data class PersistedVulkanDriverSelection(
 )
 
 object VulkanDriverCatalog {
-    /** Hardened Vortek bridge over the Android system Vulkan loader. */
+    /** Experimental Vortek bridge retained for developer qualification only. */
     const val SYSTEM_DEFAULT = "system-vulkan-vortek-2.1"
     const val TURNIP_26_1 = "turnip-26.1.0"
-    const val RELEASE_DEFAULT = SYSTEM_DEFAULT
+    const val RELEASE_DEFAULT = TURNIP_26_1
     const val TURNIP_UNQUALIFIED_REASON =
         "Packaged Turnip is currently qualified only on Retroid Pocket 6 / Adreno 740."
-    const val SELECTION_SCHEMA = 2
+    const val SYSTEM_EXPERIMENTAL_REASON =
+        "System Vortek is experimental and retained only for developer qualification."
+    const val RP6_SYSTEM_MIGRATION_NOTICE =
+        "Experimental System Vortek was replaced with the qualified Turnip 26.1.0 driver on this Retroid Pocket 6."
+    const val SELECTION_SCHEMA = 3
     const val VORTEK_BRIDGE_MAX_API_VERSION: Int = (1 shl 22) or (3 shl 12) or 128
 
     val VORTEK_REQUIRED_DEVICE_EXTENSIONS: Set<String> = setOf(
@@ -102,39 +106,18 @@ object VulkanDriverCatalog {
         "VK_KHR_external_fence_fd",
     )
 
-    private val packages = listOf(
-        VulkanDriverPackage(
-            id = SYSTEM_DEFAULT,
-            label = "System Vulkan driver",
-            version = "2.1",
-            kind = VulkanDriverKind.SYSTEM,
-            summary = "Uses the GPU driver supplied by this Android device through Winlator's Vortek bridge.",
-            qualification = "Portable default when the selected DXVK version passes the exact Vulkan capability check.",
-            libraryAsset = "arm-translated/vulkan-drivers/$SYSTEM_DEFAULT/libvulkan_vortek.so",
-            libraryName = "libvulkan_vortek.so",
-            librarySha256 = "894665b2df007b3dafcf987a56ddd0e67475ab6d7ef91224c395fffda3301c25",
-            icdAsset = "arm-translated/vulkan-drivers/$SYSTEM_DEFAULT/vortek_icd.aarch64.json",
-            icdFileName = "vortek_icd.aarch64.json",
-            icdSha256 = "9e80133ca51ef57dac0cdc29ff8614d1fdffc5335fcf4e8ce38066da43f3c262",
-        ),
-        VulkanDriverPackage(
-            id = TURNIP_26_1,
-            label = "Turnip 26.1.0",
-            version = "26.1.0",
-            kind = VulkanDriverKind.TURNIP,
-            summary = "Uses the packaged Mesa Turnip driver instead of Android's system driver.",
-            qualification = "Optional pinned driver qualified only on the RP6 / Adreno 740 lane.",
-            libraryAsset = "arm-translated/vulkan-drivers/$TURNIP_26_1/libvulkan_freedreno.so",
-            libraryName = "libvulkan_freedreno.so",
-            librarySha256 = "f4d09b00d5d7e463f1af76a9974bdd4f2d8298951de9ae2bfc7678a3631e7ab0",
-            icdAsset = "arm-translated/vulkan-drivers/$TURNIP_26_1/freedreno_icd.aarch64.json",
-            icdFileName = "freedreno_icd.aarch64.json",
-            icdSha256 = "8ab797c2c31441271acee4b2423106683eb9e500de6e168ceb035f02c30aeb92",
-        ),
-    )
+    private val packages = GeneratedVulkanDriverCatalog.packages.also { generated ->
+        check(GeneratedVulkanDriverCatalog.DEFAULT_ID == RELEASE_DEFAULT)
+        check(GeneratedVulkanDriverCatalog.SELECTION_POLICY == "exact-request-fail-closed")
+        check(generated.map(VulkanDriverPackage::id).toSet() == setOf(SYSTEM_DEFAULT, TURNIP_26_1))
+    }
     private val byId = packages.associateBy(VulkanDriverPackage::id)
 
     fun all(): List<VulkanDriverPackage> = packages
+
+    /** Normal Settings UI: experimental packages never appear as selectable choices. */
+    fun userSelectable(deviceModel: String): List<VulkanDriverPackage> =
+        packages.filter { availability(it, deviceModel).available }
 
     fun default(): VulkanDriverPackage = checkNotNull(byId[RELEASE_DEFAULT])
 
@@ -143,8 +126,8 @@ object VulkanDriverCatalog {
     fun availability(driver: VulkanDriverPackage, deviceModel: String): VulkanDriverAvailability =
         when (driver.kind) {
             VulkanDriverKind.SYSTEM -> VulkanDriverAvailability(
-                available = true,
-                reason = driver.qualification,
+                available = false,
+                reason = SYSTEM_EXPERIMENTAL_REASON,
             )
             VulkanDriverKind.TURNIP -> if (isQualifiedRp6(deviceModel)) {
                 VulkanDriverAvailability(available = true, reason = driver.qualification)
@@ -166,21 +149,25 @@ object VulkanDriverCatalog {
         requestedId ?: RELEASE_DEFAULT
 
     /**
-     * Schema 1 temporarily used Turnip as the RP6 default. Those persisted
-     * values cannot be distinguished reliably from an explicit user choice,
-     * so schema 2 preserves every identity exactly and only changes the default
-     * for missing selections.
+     * Schema 3 removes experimental System/Vortek from the normal RP6 path.
+     * Existing schema-0/1/2 RP6 System selections are migrated once to the
+     * qualified pinned Turnip package. Post-schema explicit identities remain
+     * exact, but an experimental System request still fails the release gate.
      */
     fun resolvePersistedSelection(
         requestedId: String?,
         selectionSchema: Int,
         deviceModel: String,
     ): PersistedVulkanDriverSelection {
-        val resolvedId = normalize(requestedId, deviceModel)
+        val migrateRp6System = selectionSchema < SELECTION_SCHEMA &&
+            isQualifiedRp6(deviceModel) &&
+            (requestedId == null || requestedId == SYSTEM_DEFAULT)
+        val resolvedId = if (migrateRp6System) TURNIP_26_1 else normalize(requestedId, deviceModel)
         val needsSchemaStamp = selectionSchema < SELECTION_SCHEMA
         return PersistedVulkanDriverSelection(
             driverId = resolvedId,
             migrated = needsSchemaStamp,
+            notice = RP6_SYSTEM_MIGRATION_NOTICE.takeIf { migrateRp6System },
         )
     }
 
@@ -243,9 +230,9 @@ object VulkanDriverCatalog {
     }
 
     /**
-     * Evaluate an exact immutable driver/renderer pair. This does not consult
-     * the release enablement flag: System remains globally unavailable until
-     * hardening is complete, while its portability matrix stays testable.
+     * Evaluate an exact immutable driver/renderer pair without changing the
+     * production release gate. This keeps the experimental portability matrix
+     * testable by developer qualification tools while normal launch stays off.
      */
     fun compatibility(
         driver: VulkanDriverPackage,

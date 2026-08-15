@@ -87,6 +87,23 @@ The canonical offline decisions are ADR-001 through ADR-012 in
     Persisted FEX/OpenGL choices resolve deterministically to Box64 plus the
     current pinned DXVK default. This supersedes decisions #27 and #47 for ARM
     production; the x86 WineD3D/Gladio lane remains historical validation only.
+49. The experimental ARM renderers (Legacy OpenGL/Gladio, Mesa VirGL) are
+    selectable for on-device qualification without a passing EGL capability
+    probe. On the Retroid Pocket 6 the in-app probe can block indefinitely
+    (a clean-process probe of the identical EGL sequence passes), so the probe
+    now runs under a 3 s watchdog and its result is informational only:
+    availability and launch identity checks keep failing closed on packaging,
+    server-library SHA, generation-manifest, and live graphics-proof invariants,
+    but never on the probe itself. The Gladio ARM client is additionally
+    repinned at `gladio-eaa2a8d-arm64-glibc-gles-v4` (530432 bytes,
+    sha256 f34d4f1aad7e9fba53c66db6fc838c95bd6c49794c2bdf4cd436ac185a680cff)
+    applying the phase-2 WoW 1.12.1 research corrections (spec-exact integer
+    color/normal normalization, client-active-texture selection for
+    glMultiTexCoordPointerEXT and indexed client-state enables, clamped
+    info-log replies, populated glAreTexturesResident) via
+    `tools/patches/gladio-phase2-gl_calls.patch` inside
+    `tools/build_gladio_client.py`; the paired server and the x86_64 lane stay
+    byte-pinned and unchanged.
 
 ## G0 overlay (2026-08-01, feature O05)
 

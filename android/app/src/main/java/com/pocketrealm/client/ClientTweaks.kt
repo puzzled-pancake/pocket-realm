@@ -11,7 +11,11 @@ import java.nio.ByteOrder
  * The field set and CLI flag identifiers mirror the vendored upstream `main.rs`
  * exactly (commit pinned in `native/vanilla-tweaks/BUILD_PROVENANCE.json`). Each
  * patch defaults to the upstream default (patch applied, upstream-default value);
- * [toFlags] emits the CLI form the patcher consumes.
+ * [toFlags] emits the CLI form the patcher consumes. Published builds carry one
+ * Pocket-Realm-owned companion patch on top of the upstream output: the
+ * nearby-loot acceptance patch (see [ClientTweaksConfig.applyNearbyLootAcceptPatch])
+ * that lets the L1 nearby-use feature open loot windows through the vanilla
+ * client loot lifecycle.
  *
  * Persisted as a single JSON-string DataStore key by [com.pocketrealm.storage.Settings]
  * (DECISIONS.md: no JSON-string precedent existed in Settings; introduced here for
@@ -32,7 +36,7 @@ data class ClientTweaksConfig(
     val nameplateDistance: Float = DEFAULT_NAMEPLATE_DISTANCE,
     val largeAddressAwareEnabled: Boolean = false,
     val cameraSkipFixEnabled: Boolean = false,
-    // Upstream default: max-camera-distance patch is OFF (game default 50 unchanged).
+    // Upstream patch is OFF by default. When enabled, raise the vanilla 50 limit to 100.
     val maxCameraDistanceEnabled: Boolean = false,
     val maxCameraDistance: Float = DEFAULT_CAMERA_DISTANCE_MAX,
 ) {
@@ -130,17 +134,18 @@ data class ClientTweaksConfig(
         const val DEFAULT_FRILLDISTANCE: Float = 300f
         const val DEFAULT_NAMEPLATE_DISTANCE: Float = 41f
         const val DEFAULT_SOUND_CHANNELS: Int = 64
-        const val DEFAULT_CAMERA_DISTANCE_MAX: Float = 50f
+        const val DEFAULT_CAMERA_DISTANCE_MAX: Float = 100f
+        private const val LEGACY_NOOP_CAMERA_DISTANCE_MAX: Float = 50f
         const val AUTHORIZED_CLIENT_SHA256: String =
             "b4756d38ef207c02ed651f4952bd89a70b4857b73a33413339e1b285b28d2dc7"
 
-        /** Conservative one-tap set: data/flag tweaks only; executable code injection stays off. */
+        /** Conservative one-tap set: CPU-heavier sound channels and code injection stay off. */
         fun commonPreset() = ClientTweaksConfig(
             fovEnabled = true,
             farclipEnabled = true,
             frilldistanceEnabled = true,
             soundInBackgroundEnabled = true,
-            soundChannelsEnabled = true,
+            soundChannelsEnabled = false,
             quicklootEnabled = true,
             nameplateEnabled = true,
             largeAddressAwareEnabled = true,
@@ -160,6 +165,10 @@ data class ClientTweaksConfig(
             if (raw.isNullOrBlank()) return ClientTweaksConfig()
             return runCatching {
                 val o = JSONObject(raw)
+                val storedMaxCameraDistance = o.optDouble(
+                    "maxCameraDistance",
+                    DEFAULT_CAMERA_DISTANCE_MAX.toDouble(),
+                ).toFloat()
                 ClientTweaksConfig(
                     fovEnabled = o.optBoolean("fovEnabled", false),
                     fov = o.optDouble("fov", DEFAULT_FOV.toDouble()).toFloat(),
@@ -176,7 +185,11 @@ data class ClientTweaksConfig(
                     largeAddressAwareEnabled = o.optBoolean("largeAddressAwareEnabled", false),
                     cameraSkipFixEnabled = o.optBoolean("cameraSkipFixEnabled", false),
                     maxCameraDistanceEnabled = o.optBoolean("maxCameraDistanceEnabled", false),
-                    maxCameraDistance = o.optDouble("maxCameraDistance", DEFAULT_CAMERA_DISTANCE_MAX.toDouble()).toFloat(),
+                    // The first UI stored 50 here, making the "raise" switch a no-op.
+                    // There was no value editor, so that exact persisted value is legacy state.
+                    maxCameraDistance = if (storedMaxCameraDistance == LEGACY_NOOP_CAMERA_DISTANCE_MAX) {
+                        DEFAULT_CAMERA_DISTANCE_MAX
+                    } else storedMaxCameraDistance,
                 )
             }.getOrDefault(ClientTweaksConfig())
         }
@@ -210,9 +223,13 @@ data class ClientTweaksConfig(
         }
 
         /**
-         * Computes the only byte sequence an authorized patcher may publish.
-         * This mirrors vanilla-tweaks 1.6.0 exactly and lets the runtime reject
-         * successful-but-unexpected native output byte for byte.
+         * Computes the byte sequence the vanilla-tweaks patcher itself may
+         * publish for [config]. This mirrors vanilla-tweaks 1.6.0 exactly and
+         * lets the runtime reject successful-but-unexpected native output byte
+         * for byte. The published `WoW.exe.patched` additionally carries the
+         * Pocket Realm nearby-loot companion patch (see
+         * [applyNearbyLootAcceptPatch]); use [expectedPublishedPatchedBytes]
+         * for the final on-disk image.
          */
         fun expectedPatchedBytes(pristine: ByteArray, config: ClientTweaksConfig): ByteArray {
             require(peMagicOk(pristine)) { "managed client is not a PE image" }
@@ -282,7 +299,93 @@ data class ClientTweaksConfig(
         )
 
         /**
-         * Sparse diagnostic signature for the authorized enUS build-5875 image.
+         * Companion patch (Pocket Realm, L1 nearby use): the stock 1.12.1 client
+         * only enters its loot lifecycle for an `SMSG_LOOT_RESPONSE` whose GUID
+         * matches a loot the client itself requested (or for the spontaneous
+         * loot types 2-4, e.g. pickpocketing/fishing). Any other loot response
+         * is politely declined: the client sends `CMSG_LOOT_RELEASE` and no
+         * `LOOT_OPENED` ever fires. The server-side nearby-use interaction
+         * therefore opens the loot session invisibly.
+         *
+         * The gate lives in the response handler's fallback branch: with no
+         * matching pending loot GUID it accepts only loot-type bytes 2, 3 and 4
+         * (`cmp al,2/3/4; je open`). This patch rewrites the first test to
+         * `cmp al,1; jae open` — two bytes — so every real loot type (corpse
+         * loot is type 1; the fork never sends 0) is accepted through the same
+         * untouched vanilla open path. Client-initiated loot (the GUID-matching
+         * branch) is not modified.
+         *
+         * Fail-closed: the 24-byte original signature must appear exactly once
+         * in the image, so any non-qualified client layout aborts publication
+         * instead of patching the wrong code.
+         */
+        fun applyNearbyLootAcceptPatch(bytes: ByteArray): ByteArray {
+            require(peMagicOk(bytes)) { "managed client is not a PE image" }
+            require(bytes.size >= NEARBY_LOOT_ACCEPT_OFFSET + NEARBY_LOOT_ACCEPT_SIGNATURE.size) {
+                "managed client is too small for the nearby-loot gate"
+            }
+            var occurrences = 0
+            var index = indexOfSignature(bytes, NEARBY_LOOT_ACCEPT_SIGNATURE)
+            while (index != -1) {
+                occurrences++
+                index = indexOfSignature(
+                    bytes,
+                    NEARBY_LOOT_ACCEPT_SIGNATURE,
+                    fromIndex = index + 1,
+                )
+            }
+            require(occurrences == 1) {
+                "nearby-loot gate signature matched $occurrences times (expected 1)"
+            }
+            val result = bytes.copyOf()
+            NEARBY_LOOT_ACCEPT_WRITES.forEach { (offset, value) ->
+                require(offset in result.indices) {
+                    "nearby-loot patch offset is outside the managed client"
+                }
+                result[offset] = value
+            }
+            return result
+        }
+
+        /** The complete `WoW.exe.patched` image: vanilla-tweaks output plus the companion patch. */
+        fun expectedPublishedPatchedBytes(pristine: ByteArray, config: ClientTweaksConfig): ByteArray =
+            applyNearbyLootAcceptPatch(expectedPatchedBytes(pristine, config))
+
+        private fun indexOfSignature(
+            bytes: ByteArray,
+            signature: ByteArray,
+            fromIndex: Int = 0,
+        ): Int {
+            if (signature.isEmpty() || bytes.size - fromIndex < signature.size) return -1
+            outer@ for (i in fromIndex..bytes.size - signature.size) {
+                for (j in signature.indices) {
+                    if (bytes[i + j] != signature[j]) continue@outer
+                }
+                return i
+            }
+            return -1
+        }
+
+        /** Original bytes at 0x1EB944 (VA 0x5EB944) of the authorized enUS build-5875 image. */
+        private val NEARBY_LOOT_ACCEPT_SIGNATURE = byteArrayOf(
+            0x0B, 0xC1.toByte(),             // or eax, ecx            (pending GUID nonzero?)
+            0x8A.toByte(), 0x45, 0xFE.toByte(), // mov al, [ebp-2]        (client loot type)
+            0x75, 0x18,                      // jne release
+            0x3C, 0x02,                      // cmp al, 2              <- becomes cmp al, 1
+            0x0F, 0x84.toByte(), 0xA1.toByte(), 0x00, 0x00, 0x00, // je open <- becomes jae
+            0x3C, 0x03,                      // cmp al, 3
+            0x0F, 0x84.toByte(), 0x99.toByte(), 0x00, 0x00, 0x00, // je open
+            0x3C, 0x04,                      // cmp al, 4
+        )
+
+        private const val NEARBY_LOOT_ACCEPT_OFFSET = 0x1EB944
+
+        private val NEARBY_LOOT_ACCEPT_WRITES = listOf(
+            0x1EB94C to 0x01.toByte(),       // cmp al, 2 -> cmp al, 1
+            0x1EB94E to 0x83.toByte(),       // je +0xA1   -> jae +0xA1
+        )
+
+        /**
          * Runtime authorization is deliberately stronger: it requires the full
          * managed-client SHA-256 and then compares the patcher's complete output
          * with [expectedPatchedBytes].  These bytes remain useful for qualification

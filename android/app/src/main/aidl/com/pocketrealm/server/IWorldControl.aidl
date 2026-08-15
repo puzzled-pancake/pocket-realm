@@ -7,11 +7,11 @@ interface IWorldControl {
     String claim(String sessionId, String instanceToken, IBinder ownerLease);
     String status();
     String start();
-    String startAt(String bindAddress);
+    String startAt(String bindAddress, int nearbyInteractTriggerGuardMs);
     String startNormal();
-    String startNormalAt(String bindAddress);
+    String startNormalAt(String bindAddress, int nearbyInteractTriggerGuardMs);
     String startBotProfile(String profileId);
-    String startBotProfileAt(String profileId, String bindAddress);
+    String startBotProfileAt(String profileId, String bindAddress, int nearbyInteractTriggerGuardMs);
     String setBotTarget(int target);
     String botStatus();
     String createAccount(String username, String password);

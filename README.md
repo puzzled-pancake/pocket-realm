@@ -1,5 +1,9 @@
 # Pocket Realm compact Claude Code handoff
 
+## Plain-language project wiki
+
+The human-readable project guide, current screenshots, setup help, feature explanations, and troubleshooting pages are in [`docs/wiki/README.md`](docs/wiki/README.md).
+
 This package replaces the previous oversized handoff. Copy its contents into the root of a clean implementation repository, or remove the old generated handoff/control files first. Do not load both instruction systems: Claude concatenates applicable project memory files.
 
 Claude Code reads `CLAUDE.md`, not `agent.md` directly. `CLAUDE.md` imports the requested `agent.md`, so there is one concise instruction source.

@@ -1,13 +1,7 @@
 {
   "schema": 1,
   "researchedAt": "2026-08-11",
-  "sourceWorkbook": "WoW_1.12_Vanilla_Addons_PocketRealmPad_Integrated_2026.xlsx",
-  "bundled": {
-    "matrixId": "155",
-    "assetPath": "addons/PocketRealmPad-0.5.0-alpha.zip",
-    "version": "0.5.0-alpha",
-    "sha256": "3e114c810e559d84dded6c31a9d49897f1d39f503582014899675f3be91d368c"
-  },
+  "sourceWorkbook": "WoW_1.12_Vanilla_Addons_2026.xlsx",
   "addons": [
     {
       "matrixId": "001",
@@ -2858,25 +2852,25 @@
     },
     {
       "matrixId": "133",
-      "name": "Bagnon (Vanilla archive)",
+      "name": "Bagnon",
       "category": "Bags / bank",
       "description": "Unified bags/bank with persistent inventory modules; one of the historically popular Vanilla bag replacements.",
-      "githubUrl": null,
+      "githubUrl": "https://github.com/McPewPew/Bagnon",
       "clientTarget": "1.12.1",
-      "version": "Legacy Vanilla build",
-      "verifiedUpdate": "Legacy / archive snapshot",
-      "dateConfidence": "Archive signal",
+      "version": "6.10.30 Vanilla build",
+      "verifiedUpdate": "Direct Vanilla repository verified 2026-08-14",
+      "dateConfidence": "Repository and Interface 11200 verified",
       "communitySignal": "High — historical Vanilla addon libraries show strong usage",
       "maintenance": "Legacy / feature-complete",
-      "compatibilityNotes": "Use a preserved 1.12 build, not current Bagnon for modern clients.",
+      "compatibilityNotes": "Direct Vanilla 1.12 build. Use instead of pfUI Bags, or disable pfUI's Bags module.",
       "researchSources": [
-        "https://github.com/beren12/wow-vanilla-addons",
-        "https://vanillawowaddons.com/"
+        "https://github.com/McPewPew/Bagnon",
+        "https://raw.githubusercontent.com/McPewPew/Bagnon/master/Bagnon.toc"
       ],
       "compatibilityRole": "Bag UI",
       "handheldScore": 8.7,
       "handheldVerdict": "Strong",
-      "installSource": "reference"
+      "installSource": "github"
     },
     {
       "matrixId": "134",
@@ -3245,26 +3239,26 @@
     },
     {
       "matrixId": "151",
-      "name": "ConsoleExperienceClassic",
+      "name": "Android Port",
       "category": "Controller UI / action bars",
-      "description": "Controller-first Vanilla interface with gamepad action bars, cursor navigation, radial menu, virtual keyboard, cast bar and touch sidebars.",
-      "githubUrl": "https://github.com/pepordev/ConsoleExperienceClassic",
-      "clientTarget": "1.12.1 / Turtle WoW",
-      "version": "0.17.3 (early alpha)",
-      "verifiedUpdate": "2026-03-10",
-      "dateConfidence": "Verified exact",
-      "communitySignal": "High/growing — 46 GitHub stars and active Reddit discussion for couch/handheld play",
-      "maintenance": "Active / early alpha",
-      "compatibilityNotes": "Best handheld-oriented option found. Integrates with pfUI, Bagshui and Bagnon. Disable pfUI Action Bars. Optional Interact.dll improves interaction.",
+      "description": "Controller-first Vanilla 1.12.1 interface with Pocket Realm's responsive 6-inch action bars, modern controller prompts, four eight-action layers and a compact radial menu. A built-in Move UI repositions stock frames and add-on icons; the mouse wheel or D-pad scales the focused frame. Text entry continues to use Pocket Realm's Android keyboard.",
+      "githubUrl": null,
+      "builtinId": "builtin__vanillaconsoleport",
+      "assetPath": "addons/vanilla-console-port",
+      "clientTarget": "Vanilla 1.12.1 / Interface 11200",
+      "version": "0.4.0 Pocket Realm",
+      "verifiedUpdate": "2026-08-15",
+      "dateConfidence": "Project-owned Interface 11200 source",
+      "communitySignal": "New Pocket Realm built-in; not externally rated",
+      "maintenance": "Built into Pocket Realm / clean-room Vanilla implementation",
+      "compatibilityNotes": "Project-owned Interface 11200 add-on with 1280x720 and 1920x1080 six-inch layouts, controller-button chrome, four action layers and no touch sidebars or add-on keyboard. RP6 M1/M2 rear buttons are intentionally disabled because they can latch on some units. Disable other action-bar replacements. Includes its own Move UI (Select + Start) for stock frames and add-on icons, so external frame movers are optional. Native DLL payloads are not used.",
       "researchSources": [
-        "https://github.com/pepordev/ConsoleExperienceClassic",
-        "https://github.com/pepordev/ConsoleExperienceClassic/blob/main/CHANGELOG.md",
-        "https://github.com/pepordev/ConsoleExperienceClassic/blob/main/docs/AddonIntegrations.md"
+        "builtin:addons/vanilla-console-port"
       ],
       "compatibilityRole": "Controller UI",
       "handheldScore": 9.1,
       "handheldVerdict": "Strong",
-      "installSource": "github"
+      "installSource": "builtin"
     },
     {
       "matrixId": "152",
@@ -3299,7 +3293,7 @@
       "dateConfidence": "Verified archive date",
       "communitySignal": "Niche — simple historical controller helper",
       "maintenance": "Archived / minimal",
-      "compatibilityNotes": "Requires the controller to be mapped to keyboard keys first. Much less complete than ConsoleExperienceClassic.",
+      "compatibilityNotes": "Requires the controller to be mapped to keyboard keys first. It is a smaller alternative to Android Port.",
       "researchSources": [
         "https://github.com/yutsuku/Gamepad"
       ],
@@ -3320,7 +3314,7 @@
       "dateConfidence": "Legacy date not verified",
       "communitySignal": "High for handheld layouts; also used by established Steam Deck configurations",
       "maintenance": "Legacy / feature-complete",
-      "compatibilityNotes": "Excellent handheld setup tool. Use cautiously with frames already controlled by a full UI replacement.",
+      "compatibilityNotes": "Excellent handheld setup tool. Use cautiously with frames already controlled by a full UI replacement. Android Port includes its own Move UI, so MoveAnything is optional on Pocket Realm.",
       "researchSources": [
         "https://github.com/JembaWoW/MoveAnything",
         "https://github.com/Ryac1/Ryac_TW_Steamdeck_UI"
@@ -3329,31 +3323,6 @@
       "handheldScore": 9.6,
       "handheldVerdict": "Strong",
       "installSource": "github"
-    },
-    {
-      "matrixId": "155",
-      "name": "PocketRealmPad",
-      "category": "Controller UI / Android handheld",
-      "description": "Android-only controller-and-touch interface for original WoW 1.12.1: responsive action bar, target card, quick menu, controller inventory, focus navigation for stock panels, targeting, pet/forms and beginner help.",
-      "githubUrl": null,
-      "clientTarget": "WoW 1.12.1 build 5875 / Interface 11200 / Android + Winlator",
-      "version": "0.5.0-alpha",
-      "verifiedUpdate": "2026-08-05",
-      "dateConfidence": "Verified from uploaded bundle",
-      "communitySignal": "New engineering alpha — not yet popularity-validated on Reddit",
-      "maintenance": "Active engineering alpha / host-verified",
-      "compatibilityNotes": "Self-contained addon with 14 essential bindings and 99 total commands. Uses only stock 1.12 APIs and explicit Blizzard-frame adapters; arbitrary third-party addon panels require touch. Host tests pass, but live build-5875 and physical-device qualification remain pending.",
-      "researchSources": [
-        "Uploaded bundle: PocketRealmPad_Design_Implementation_Bundle-v0.5(1).zip",
-        "README.md",
-        "API_MATRIX.md",
-        "INTEGRATION.md",
-        "PocketRealmPad_Test_Report-v0.5.txt"
-      ],
-      "compatibilityRole": "Controller UI / Android handheld",
-      "handheldScore": 9.1,
-      "handheldVerdict": "Strong",
-      "installSource": "bundled"
     }
   ],
   "compatibilityPairs": [
@@ -3741,11 +3710,11 @@
       "addonB": "151",
       "status": "⚙",
       "meaning": "Configure",
-      "reason": "ConsoleExperienceClassic documents pfUI integration, but pfUI's Action Bars module must be disabled; its chat module is handled automatically.",
+      "reason": "Android Port and pfUI both own the primary action-bar presentation.",
       "action": "Disable pfUI > Action Bars. Keep only one controller/action-bar owner.",
-      "basis": "Documented integration",
+      "basis": "Built-in package structure",
       "evidenceSources": [
-        "https://github.com/pepordev/ConsoleExperienceClassic/blob/main/docs/AddonIntegrations.md"
+        "builtin:addons/vanilla-console-port"
       ]
     },
     {
@@ -4698,12 +4667,12 @@
       "addonA": "026",
       "addonB": "151",
       "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "The addons overlap with ConsoleExperienceClassic's radial/action or cast-bar features.",
-      "action": "Keep only the feature implementation you actively use.",
-      "basis": "Structural overlap",
+      "meaning": "Complementary with layout check",
+      "reason": "Android Port does not replace the player cast bar.",
+      "action": "Use the cast-bar add-on normally and position it clear of the two controller button clusters.",
+      "basis": "Built-in feature inventory",
       "evidenceSources": [
-        "https://github.com/pepordev/ConsoleExperienceClassic"
+        "builtin:addons/vanilla-console-port"
       ]
     },
     {
@@ -5139,11 +5108,11 @@
       "addonB": "151",
       "status": "?",
       "meaning": "Unclear / test",
-      "reason": "No explicit integration was found, and both projects modify core UI/action-bar behavior.",
+      "reason": "No explicit integration is built in, and both projects modify core UI/action-bar behavior.",
       "action": "Test on a copied WTF folder; start with the controller addon plus default UI or pfUI instead.",
       "basis": "Undocumented combination",
       "evidenceSources": [
-        "https://github.com/pepordev/ConsoleExperienceClassic"
+        "builtin:addons/vanilla-console-port"
       ]
     },
     {
@@ -5371,11 +5340,11 @@
       "addonB": "151",
       "status": "?",
       "meaning": "Unclear / test",
-      "reason": "No explicit integration was found, and both projects modify core UI/action-bar behavior.",
+      "reason": "No explicit integration is built in, and both projects modify core UI/action-bar behavior.",
       "action": "Test on a copied WTF folder; start with the controller addon plus default UI or pfUI instead.",
       "basis": "Undocumented combination",
       "evidenceSources": [
-        "https://github.com/pepordev/ConsoleExperienceClassic"
+        "builtin:addons/vanilla-console-port"
       ]
     },
     {
@@ -5591,11 +5560,11 @@
       "addonB": "151",
       "status": "?",
       "meaning": "Unclear / test",
-      "reason": "No explicit integration was found, and both projects modify core UI/action-bar behavior.",
+      "reason": "No explicit integration is built in, and both projects modify core UI/action-bar behavior.",
       "action": "Test on a copied WTF folder; start with the controller addon plus default UI or pfUI instead.",
       "basis": "Undocumented combination",
       "evidenceSources": [
-        "https://github.com/pepordev/ConsoleExperienceClassic"
+        "builtin:addons/vanilla-console-port"
       ]
     },
     {
@@ -5951,11 +5920,11 @@
       "addonB": "151",
       "status": "◎",
       "meaning": "Complementary",
-      "reason": "ConsoleExperienceClassic has explicit cursor/navigation integration for Bagshui.",
-      "action": "Safe preferred handheld bag pairing; configure cursor speed and bag scale for the device.",
-      "basis": "Documented integration",
+      "reason": "Bagshui does not replace the action bar; its windows remain usable with Pocket Realm's native mouse pointer.",
+      "action": "Configure bag scale for the device and use the native pointer; there is no special controller-focus integration.",
+      "basis": "Built-in feature inventory",
       "evidenceSources": [
-        "https://github.com/pepordev/ConsoleExperienceClassic/blob/main/docs/AddonIntegrations.md"
+        "builtin:addons/vanilla-console-port"
       ]
     },
     {
@@ -6457,11 +6426,11 @@
       "addonB": "151",
       "status": "⚠",
       "meaning": "Overlap/redundancy",
-      "reason": "The addons overlap with ConsoleExperienceClassic's radial/action or cast-bar features.",
-      "action": "Keep only the feature implementation you actively use.",
+      "reason": "Both add-ons provide a radial action utility.",
+      "action": "Keep one radial menu to avoid duplicate UI and key ownership.",
       "basis": "Structural overlap",
       "evidenceSources": [
-        "https://github.com/pepordev/ConsoleExperienceClassic"
+        "builtin:addons/vanilla-console-port"
       ]
     },
     {
@@ -6521,10 +6490,10 @@
       "status": "✕",
       "meaning": "Avoid together",
       "reason": "Both systems own the primary action-bar layout and controller/action paging.",
-      "action": "Choose ConsoleExperienceClassic or the standalone action-bar replacement, not both.",
+      "action": "Choose Android Port or the standalone action-bar replacement, not both.",
       "basis": "Structural conflict",
       "evidenceSources": [
-        "https://github.com/pepordev/ConsoleExperienceClassic"
+        "builtin:addons/vanilla-console-port"
       ]
     },
     {
@@ -6557,10 +6526,10 @@
       "status": "✕",
       "meaning": "Avoid together",
       "reason": "Both systems own the primary action-bar layout and controller/action paging.",
-      "action": "Choose ConsoleExperienceClassic or the standalone action-bar replacement, not both.",
+      "action": "Choose Android Port or the standalone action-bar replacement, not both.",
       "basis": "Structural conflict",
       "evidenceSources": [
-        "https://github.com/pepordev/ConsoleExperienceClassic"
+        "builtin:addons/vanilla-console-port"
       ]
     },
     {
@@ -6579,12 +6548,12 @@
       "addonA": "103",
       "addonB": "151",
       "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "The addons overlap with ConsoleExperienceClassic's radial/action or cast-bar features.",
-      "action": "Keep only the feature implementation you actively use.",
-      "basis": "Structural overlap",
+      "meaning": "Complementary with layout check",
+      "reason": "Flyout uses ordinary action slots while Android Port renders and activates those slots.",
+      "action": "Place Flyout on a visible controller action slot and verify its popup is pointer-reachable.",
+      "basis": "Built-in feature inventory",
       "evidenceSources": [
-        "https://github.com/pepordev/ConsoleExperienceClassic"
+        "builtin:addons/vanilla-console-port"
       ]
     },
     {
@@ -6683,11 +6652,11 @@
       "addonB": "151",
       "status": "◎",
       "meaning": "Complementary",
-      "reason": "ConsoleExperienceClassic has explicit cursor/navigation integration for Bagnon (Vanilla archive).",
-      "action": "Safe preferred handheld bag pairing; configure cursor speed and bag scale for the device.",
-      "basis": "Documented integration",
+      "reason": "Bagnon does not replace the action bar; its window remains usable with Pocket Realm's native mouse pointer.",
+      "action": "Configure bag scale for the device and use the native pointer; there is no special controller-focus integration.",
+      "basis": "Built-in feature inventory",
       "evidenceSources": [
-        "https://github.com/pepordev/ConsoleExperienceClassic/blob/main/docs/AddonIntegrations.md"
+        "builtin:addons/vanilla-console-port"
       ]
     },
     {
@@ -6699,7 +6668,7 @@
       "action": "Choose one controller layer.",
       "basis": "Structural conflict",
       "evidenceSources": [
-        "https://github.com/pepordev/ConsoleExperienceClassic",
+        "builtin:addons/vanilla-console-port",
         "https://github.com/shagu/ShaguController"
       ]
     },
@@ -6709,23 +6678,23 @@
       "status": "⚠",
       "meaning": "Overlap/redundancy",
       "reason": "Both bind controller navigation/action cycling; duplicate mappings are likely.",
-      "action": "Use ConsoleExperienceClassic alone unless the minimal helper supplies a deliberately unmapped function.",
+      "action": "Use Android Port alone unless the minimal helper supplies a deliberately unmapped function.",
       "basis": "Structural overlap",
       "evidenceSources": [
-        "https://github.com/pepordev/ConsoleExperienceClassic",
+        "builtin:addons/vanilla-console-port",
         "https://github.com/yutsuku/Gamepad"
       ]
     },
     {
       "addonA": "151",
       "addonB": "154",
-      "status": "◎",
-      "meaning": "Complementary",
-      "reason": "Controller navigation plus frame movement/scaling is especially useful on 5.5–7 inch displays.",
-      "action": "Use MoveAnything only for frames not already controlled by the active full-UI addon.",
+      "status": "⚠",
+      "meaning": "Overlap/redundancy",
+      "reason": "Android Port's built-in Move UI already repositions stock frames and add-on icons for the handheld layout.",
+      "action": "Use MoveAnything only for deeper customization; avoid moving the same frame in both tools.",
       "basis": "Handheld layout recommendation",
       "evidenceSources": [
-        "https://github.com/pepordev/ConsoleExperienceClassic",
+        "builtin:addons/vanilla-console-port",
         "https://github.com/JembaWoW/MoveAnything"
       ]
     },
@@ -6753,591 +6722,6 @@
       "evidenceSources": [
         "https://github.com/JembaWoW/MoveAnything",
         "https://github.com/shagu/ShaguController"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "001",
-      "status": "?",
-      "meaning": "Unclear / test",
-      "reason": "PocketRealmPad has no declared integration with this full UI and focuses explicit Blizzard FrameXML controls; hidden/replaced stock frames and bonus-bar visibility may change behavior.",
-      "action": "Test with a copied WTF folder. Prefer stock UI for qualification, or disable replacement action bars/bags/panel modules before testing.",
-      "basis": "Undocumented full-UI combination",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/shagu/pfUI"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "002",
-      "status": "◎",
-      "meaning": "Complementary",
-      "reason": "The quest database adds objective/map guidance without taking ownership of PocketRealmPad's controller routing.",
-      "action": "Use exactly one quest database.",
-      "basis": "Complementary solo-questing functions",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/shagu/pfQuest"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "003",
-      "status": "⚙",
-      "meaning": "Configure",
-      "reason": "The QoL suite can change stock bars, bags and panel behavior that PocketRealmPad expects to remain predictable.",
-      "action": "Disable overlapping action-bar, bag, auto-interaction and panel-modifying modules; keep only independent QoL features.",
-      "basis": "Configurable stock-UI overlap",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/shagu/ShaguTweaks"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "004",
-      "status": "⚙",
-      "meaning": "Configure",
-      "reason": "PocketRealmPad adds its own compact target card while the unit-frame addon also presents target information.",
-      "action": "Hide one target display in the chosen UI/profile to conserve the handheld screen.",
-      "basis": "Duplicate target presentation",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/Aviana/LunaUnitFrames"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "005",
-      "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "PocketRealmPad's auction adapters target stock AuctionFrame controls; the replacement auction UI is outside its bounded frame allowlist.",
-      "action": "Use touch for the replacement auction window or temporarily use the stock auction UI.",
-      "basis": "Stock-panel replacement warning",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/shirsig/aux-addon-vanilla"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "010",
-      "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "PocketRealmPad's mail focus adapters target stock MailFrame controls; a replacement mailbox can expose different controls.",
-      "action": "Use stock mail for controller focus or operate the replacement mailbox by touch.",
-      "basis": "Stock-panel replacement warning",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/shirsig/Mail"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "011",
-      "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "PocketRealmPad's mail focus adapters target stock MailFrame controls; a replacement mailbox can expose different controls.",
-      "action": "Use stock mail for controller focus or operate the replacement mailbox by touch.",
-      "basis": "Stock-panel replacement warning",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/wow-vanilla-addons/Postal"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "013",
-      "status": "◎",
-      "meaning": "Complementary",
-      "reason": "PocketRealmPad executes the normal action slots, so compatible macros placed on those slots remain usable through controller actions.",
-      "action": "Document modifier layers and avoid macros that require unsupported mouse targeting.",
-      "basis": "Complementary action-slot macros",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/DennisWG/Roid-Macros"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "014",
-      "status": "◎",
-      "meaning": "Complementary",
-      "reason": "PocketRealmPad executes the normal action slots, so compatible macros placed on those slots remain usable through controller actions.",
-      "action": "Document modifier layers and avoid macros that require unsupported mouse targeting.",
-      "basis": "Complementary action-slot macros",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/Monteo/SuperMacro"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "018",
-      "status": "◎",
-      "meaning": "Complementary",
-      "reason": "Large visual alerts reduce the need to inspect tiny buff rows while using a handheld controller.",
-      "action": "Keep alerts sparse and large enough for the target resolution.",
-      "basis": "Complementary handheld alerts",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/tdymel/ModifiedPowerAuras"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "019",
-      "status": "◎",
-      "meaning": "Complementary",
-      "reason": "Large visual alerts reduce the need to inspect tiny buff rows while using a handheld controller.",
-      "action": "Keep alerts sparse and large enough for the target resolution.",
-      "basis": "Complementary handheld alerts",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/laytya/PowerAuras-vanilla"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "023",
-      "status": "⚙",
-      "meaning": "Configure",
-      "reason": "PocketRealmPad adds its own compact target card while the unit-frame addon also presents target information.",
-      "action": "Hide one target display in the chosen UI/profile to conserve the handheld screen.",
-      "basis": "Duplicate target presentation",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/OldManAlpha/Puppeteer"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "040",
-      "status": "?",
-      "meaning": "Unclear / test",
-      "reason": "PocketRealmPad has no declared integration with this full UI and focuses explicit Blizzard FrameXML controls; hidden/replaced stock frames and bonus-bar visibility may change behavior.",
-      "action": "Test with a copied WTF folder. Prefer stock UI for qualification, or disable replacement action bars/bags/panel modules before testing.",
-      "basis": "Undocumented full-UI combination",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/ElvUI-Vanilla/ElvUI"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "041",
-      "status": "?",
-      "meaning": "Unclear / test",
-      "reason": "PocketRealmPad has no declared integration with this full UI and focuses explicit Blizzard FrameXML controls; hidden/replaced stock frames and bonus-bar visibility may change behavior.",
-      "action": "Test with a copied WTF folder. Prefer stock UI for qualification, or disable replacement action bars/bags/panel modules before testing.",
-      "basis": "Undocumented full-UI combination",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/obble/modui"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "042",
-      "status": "?",
-      "meaning": "Unclear / test",
-      "reason": "PocketRealmPad has no declared integration with this full UI and focuses explicit Blizzard FrameXML controls; hidden/replaced stock frames and bonus-bar visibility may change behavior.",
-      "action": "Test with a copied WTF folder. Prefer stock UI for qualification, or disable replacement action bars/bags/panel modules before testing.",
-      "basis": "Undocumented full-UI combination",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/Ko0z/zUI"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "045",
-      "status": "⚙",
-      "meaning": "Configure",
-      "reason": "PocketRealmPad adds its own compact target card while the unit-frame addon also presents target information.",
-      "action": "Hide one target display in the chosen UI/profile to conserve the handheld screen.",
-      "basis": "Duplicate target presentation",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/satan666/ag_UnitFrames_Improved"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "049",
-      "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "PocketRealmPad's World Map helper and focus logic assume the stock WorldMapFrame; a replacement map may not expose the expected controls.",
-      "action": "Use touch for the replacement map and verify the Quick Menu's World Map action.",
-      "basis": "Stock-panel replacement warning",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/Road-block/Cartographer"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "050",
-      "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "PocketRealmPad's World Map helper and focus logic assume the stock WorldMapFrame; a replacement map may not expose the expected controls.",
-      "action": "Use touch for the replacement map and verify the Quick Menu's World Map action.",
-      "basis": "Stock-panel replacement warning",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/laytya/Metamap-vanilla"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "052",
-      "status": "◎",
-      "meaning": "Complementary",
-      "reason": "The quest database adds objective/map guidance without taking ownership of PocketRealmPad's controller routing.",
-      "action": "Use exactly one quest database.",
-      "basis": "Complementary solo-questing functions",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/AeroScripts/QuestieDev"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "053",
-      "status": "◎",
-      "meaning": "Complementary",
-      "reason": "The leveling guide supplies route order while PocketRealmPad supplies controller navigation and action access.",
-      "action": "Strong solo-leveling pairing; use touch when the guide exposes unsupported custom controls.",
-      "basis": "Complementary solo-leveling functions",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/Lanjelin/VanillaGuide"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "054",
-      "status": "◎",
-      "meaning": "Complementary",
-      "reason": "The leveling guide supplies route order while PocketRealmPad supplies controller navigation and action access.",
-      "action": "Strong solo-leveling pairing; use touch when the guide exposes unsupported custom controls.",
-      "basis": "Complementary solo-leveling functions",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/GabHST/VanillaGuide-Enhanced"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "057",
-      "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "Automation can accept, close or advance panels before PocketRealmPad's guarded confirm flow completes.",
-      "action": "Disable overlapping quest/vendor/interaction automation while qualifying PocketRealmPad.",
-      "basis": "Interaction automation overlap",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/WobLight/QuestHaste"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "059",
-      "status": "◎",
-      "meaning": "Complementary",
-      "reason": "VoiceOver adds audio quest/NPC presentation while PocketRealmPad handles stock dialogue focus and controller confirmation.",
-      "action": "Compatible immersive pairing; keep touch available for reward selection and text fields.",
-      "basis": "Complementary quest-presentation functions",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/mrthinger/wow-voiceover"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "060",
-      "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "PocketRealmPad has a separate controller inventory and does not scan arbitrary third-party bag frames.",
-      "action": "Use PocketRealmPad inventory for controller play; open the bag replacement by touch only, or remove it.",
-      "basis": "Inventory UI overlap / unsupported third-party frame",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/veechs/Bagshui"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "061",
-      "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "PocketRealmPad has a separate controller inventory and does not scan arbitrary third-party bag frames.",
-      "action": "Use PocketRealmPad inventory for controller play; open the bag replacement by touch only, or remove it.",
-      "basis": "Inventory UI overlap / unsupported third-party frame",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/laytya/Vanilla-Addons"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "062",
-      "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "PocketRealmPad has a separate controller inventory and does not scan arbitrary third-party bag frames.",
-      "action": "Use PocketRealmPad inventory for controller play; open the bag replacement by touch only, or remove it.",
-      "basis": "Inventory UI overlap / unsupported third-party frame",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/Zerf/EngInventory"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "065",
-      "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "PocketRealmPad's auction adapters target stock AuctionFrame controls; the replacement auction UI is outside its bounded frame allowlist.",
-      "action": "Use touch for the replacement auction window or temporarily use the stock auction UI.",
-      "basis": "Stock-panel replacement warning",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/UndercityAddons-Vanilla/Auctioneer"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "066",
-      "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "PocketRealmPad's auction adapters target stock AuctionFrame controls; the replacement auction UI is outside its bounded frame allowlist.",
-      "action": "Use touch for the replacement auction window or temporarily use the stock auction UI.",
-      "basis": "Stock-panel replacement warning",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/nimeral/AuctionatorVanilla"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "075",
-      "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "PocketRealmPad focuses stock CraftFrame/TradeSkillFrame controls; the replacement profession window is not recursively scanned.",
-      "action": "Use touch in the replacement profession window or retain the stock profession UI.",
-      "basis": "Stock-panel replacement warning",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/laytya/AdvancedTradeSkillWindow-vanilla"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "076",
-      "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "PocketRealmPad focuses stock CraftFrame/TradeSkillFrame controls; the replacement profession window is not recursively scanned.",
-      "action": "Use touch in the replacement profession window or retain the stock profession UI.",
-      "basis": "Stock-panel replacement warning",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/shirsig/crafty"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "099",
-      "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "PocketRealmPad already supplies a Quick Menu and layered action access; the other addon adds another grouped-action surface that is not part of PRP focus navigation.",
-      "action": "Keep only one primary grouped-action workflow, or operate the secondary surface by touch.",
-      "basis": "Grouped-action overlap",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/jsb/RingMenu"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "101",
-      "status": "✕",
-      "meaning": "Avoid together",
-      "reason": "PocketRealmPad owns a responsive action surface and page/layer semantics; the other addon also owns the primary action-bar presentation.",
-      "action": "Use PocketRealmPad with stock action slots and remove the standalone action-bar replacement.",
-      "basis": "Primary action-bar ownership conflict",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/McPewPew/Bartender2-Read-Instructions"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "102",
-      "status": "✕",
-      "meaning": "Avoid together",
-      "reason": "PocketRealmPad owns a responsive action surface and page/layer semantics; the other addon also owns the primary action-bar presentation.",
-      "action": "Use PocketRealmPad with stock action slots and remove the standalone action-bar replacement.",
-      "basis": "Primary action-bar ownership conflict",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/UndercityAddons-Vanilla/Bongos"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "103",
-      "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "PocketRealmPad already supplies a Quick Menu and layered action access; the other addon adds another grouped-action surface that is not part of PRP focus navigation.",
-      "action": "Keep only one primary grouped-action workflow, or operate the secondary surface by touch.",
-      "basis": "Grouped-action overlap",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/Chad90b/Flyout"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "106",
-      "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "Automation can accept, close or advance panels before PocketRealmPad's guarded confirm flow completes.",
-      "action": "Disable overlapping quest/vendor/interaction automation while qualifying PocketRealmPad.",
-      "basis": "Interaction automation overlap",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/Lichery/Automaton"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "107",
-      "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "Automation can accept, close or advance panels before PocketRealmPad's guarded confirm flow completes.",
-      "action": "Disable overlapping quest/vendor/interaction automation while qualifying PocketRealmPad.",
-      "basis": "Interaction automation overlap",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/bfeelin/_LP"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "132",
-      "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "PocketRealmPad has a separate controller inventory and does not scan arbitrary third-party bag frames.",
-      "action": "Use PocketRealmPad inventory for controller play; open the bag replacement by touch only, or remove it.",
-      "basis": "Inventory UI overlap / unsupported third-party frame",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/beren12/wow-vanilla-addons/tree/master/OneBag"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "133",
-      "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "PocketRealmPad has a separate controller inventory and does not scan arbitrary third-party bag frames.",
-      "action": "Use PocketRealmPad inventory for controller play; open the bag replacement by touch only, or remove it.",
-      "basis": "Inventory UI overlap / unsupported third-party frame",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/beren12/wow-vanilla-addons/tree/master/Bagnon"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "137",
-      "status": "⚙",
-      "meaning": "Configure",
-      "reason": "PocketRealmPad adds its own compact target card while the unit-frame addon also presents target information.",
-      "action": "Hide one target display in the chosen UI/profile to conserve the handheld screen.",
-      "basis": "Duplicate target presentation",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/Excitor/Xperl"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "148",
-      "status": "⚙",
-      "meaning": "Configure",
-      "reason": "The QoL suite can change stock bars, bags and panel behavior that PocketRealmPad expects to remain predictable.",
-      "action": "Disable overlapping action-bar, bag, auto-interaction and panel-modifying modules; keep only independent QoL features.",
-      "basis": "Configurable stock-UI overlap",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/shagu/ShaguTweaks-extras"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "150",
-      "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "FuBar reserves screen edges while PocketRealmPad places a target card at the top and action surface at the bottom.",
-      "action": "Reserve panel margins or hide FuBar during handheld play.",
-      "basis": "Handheld screen-layout overlap",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/xVitali2/Addons-for-Vanilla-1.12.1"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "151",
-      "status": "✕",
-      "meaning": "Avoid together",
-      "reason": "Both are complete controller-interface layers with their own action semantics, navigation, menus and bindings.",
-      "action": "Choose one controller layer and one Winlator mapping profile.",
-      "basis": "Controller-layer conflict",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/pepordev/ConsoleExperienceClassic"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "152",
-      "status": "✕",
-      "meaning": "Avoid together",
-      "reason": "Both are complete controller-interface layers with their own action semantics, navigation, menus and bindings.",
-      "action": "Choose one controller layer and one Winlator mapping profile.",
-      "basis": "Controller-layer conflict",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/shagu/ShaguController"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "153",
-      "status": "⚠",
-      "meaning": "Overlap/redundancy",
-      "reason": "Both addons add controller-oriented commands and can be mapped to the same physical keys.",
-      "action": "Normally remove Gamepad; otherwise keep every binding non-overlapping.",
-      "basis": "Controller binding overlap",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/yutsuku/Gamepad"
-      ]
-    },
-    {
-      "addonA": "155",
-      "addonB": "154",
-      "status": "⚙",
-      "meaning": "Configure",
-      "reason": "PocketRealmPad manages responsive positions for its own frames, while MoveAnything can also move or rescale UI elements.",
-      "action": "Use PocketRealmPad's profile/drag settings for PRP frames and MoveAnything only for unmanaged Blizzard frames.",
-      "basis": "Layout ownership overlap",
-      "evidenceSources": [
-        "Uploaded PocketRealmPad v0.5 bundle: README.md; API_MATRIX.md; INTEGRATION.md; PocketRealmPad_Test_Report-v0.5.txt",
-        "https://github.com/JembaWoW/MoveAnything"
       ]
     }
   ]

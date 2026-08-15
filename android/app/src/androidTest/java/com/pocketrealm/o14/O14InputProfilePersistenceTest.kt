@@ -5,7 +5,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.pocketrealm.client.InputProfile
 import com.pocketrealm.client.InputProfileStore
+import com.pocketrealm.client.ControlScheme
 import com.pocketrealm.storage.Settings
+import com.pocketrealm.ui.loadProfileForControls
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -18,10 +20,47 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class O14InputProfilePersistenceTest {
     @Test
+    fun vanillaConsolePortIsOptionalAndCompareRestoresThePriorProfile() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val prefs = context.getSharedPreferences("pocket_input_profile", Context.MODE_PRIVATE)
+        val keys = listOf(
+            "profile_v11", "profile_v10", "profile_v9", "profile_v8", "profile_v7", "profile_v6", "profile_v5", "profile_v4", "profile_v3", "profile_v2",
+            "vanilla_console_port_prior_v1", "vanilla_console_port_applied_v1",
+        )
+        val originals = keys.associateWith { prefs.getString(it, null) }
+        try {
+            prefs.edit().apply { keys.forEach(::remove) }.commit()
+            val store = InputProfileStore(context)
+            val prior = InputProfile.DEFAULT.copy(cameraSensitivity = 1.35f)
+            store.save(prior)
+
+            val enabled = store.enableVanillaConsolePort()
+            assertEquals(ControlScheme.VANILLA_CONSOLE_PORT, enabled.scheme)
+            assertTrue(store.hasManagedVanillaConsolePort())
+            assertEquals(prior, store.disableVanillaConsolePort())
+            assertFalse(store.hasManagedVanillaConsolePort())
+
+            store.enableVanillaConsolePort()
+            val customized = store.loadStoredOrDefault().copy(cameraSensitivity = 1.7f)
+            store.save(customized)
+            assertEquals(customized, store.disableVanillaConsolePort())
+            assertFalse(store.hasManagedVanillaConsolePort())
+        } finally {
+            val edit = prefs.edit()
+            originals.forEach { (key, original) ->
+                if (original == null) edit.remove(key) else edit.putString(key, original)
+            }
+            edit.commit()
+        }
+    }
+
+    @Test
     fun profileSurvivesStoreReloadAndFlagsAspectChange() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val prefs = context.getSharedPreferences("pocket_input_profile", Context.MODE_PRIVATE)
-        val keys = listOf("profile_v7", "profile_v6", "profile_v5", "profile_v4", "profile_v3", "profile_v2")
+        val keys = listOf(
+            "profile_v11", "profile_v10", "profile_v9", "profile_v8", "profile_v7", "profile_v6", "profile_v5", "profile_v4", "profile_v3", "profile_v2",
+        )
         val originals = keys.associateWith { prefs.getString(it, null) }
         try {
             val store = InputProfileStore(context)
@@ -53,7 +92,9 @@ class O14InputProfilePersistenceTest {
     fun nonWidescreenProfileSurvivesAndCorruptCurrentFallsBackToLegacy() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val prefs = context.getSharedPreferences("pocket_input_profile", Context.MODE_PRIVATE)
-        val keys = listOf("profile_v7", "profile_v6", "profile_v5", "profile_v4", "profile_v3", "profile_v2")
+        val keys = listOf(
+            "profile_v11", "profile_v10", "profile_v9", "profile_v8", "profile_v7", "profile_v6", "profile_v5", "profile_v4", "profile_v3", "profile_v2",
+        )
         val originals = keys.associateWith { prefs.getString(it, null) }
         try {
             val store = InputProfileStore(context)
@@ -63,9 +104,21 @@ class O14InputProfilePersistenceTest {
             )
             store.save(nonWidescreen)
             assertEquals(nonWidescreen, store.load("16:10").profile)
+            assertEquals(nonWidescreen, loadProfileForControls(context))
+            // A hostless settings read must be non-mutating and must not
+            // manufacture the default 16:9 identity.
+            assertEquals("16:10", InputProfile.fromJson(
+                org.json.JSONObject(prefs.getString("profile_v11", null)!!),
+            ).aspectIdentity)
 
             prefs.edit()
-                .putString("profile_v7", "{not valid json")
+                // Remove the valid current record so this test genuinely
+                // exercises legacy fallback without contaminating profile_v11.
+                .remove("profile_v11")
+                .putString("profile_v10", "{not valid json")
+                .putString("profile_v9", "{not valid legacy json")
+                .putString("profile_v8", "{not valid legacy json")
+                .putString("profile_v7", "{not valid legacy json")
                 .putString("profile_v6", InputProfile.toJson(
                     nonWidescreen.copy(version = InputProfile.CURRENT_VERSION),
                 ).put("version", 6).toString())

@@ -1,5 +1,6 @@
 package com.pocketrealm.supervisor
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -86,5 +87,34 @@ class ClientTerminalObservationTest {
         assertTrue(clientAlreadyDrained("EXITED", false, false, "no active client session"))
         assertFalse(clientAlreadyDrained("RUNNING", false, true, "owner loss"))
         assertFalse(clientAlreadyDrained("EXITED", true, true, "still owned"))
+    }
+
+    @Test fun experimentalProofUsesLiveCountersAndRevokesInvalidVirglRoute() {
+        val healthy = JSONObject()
+            .put("virglServerStarted", true)
+            .put("glxTransportContexts", 0)
+            .put("glxContexts", 0)
+            .put("virglActiveConnections", 1)
+            .put("virglInitializedConnections", 1)
+            .put("virglCapsReadyConnections", 1)
+            .put("virglSuccessfulFlushes", 3)
+        assertEquals(ExperimentalGraphicsProof(1, 1, 3),
+            experimentalGraphicsProof("virgl", healthy))
+
+        assertEquals(ExperimentalGraphicsProof(0, 1, 3),
+            experimentalGraphicsProof("virgl", JSONObject(healthy.toString())
+                .put("virglActiveConnections", 0)))
+        assertEquals(ExperimentalGraphicsProof(0, 0, 0),
+            experimentalGraphicsProof("virgl", JSONObject(healthy.toString())
+                .put("virglServerStarted", false)))
+        assertEquals(ExperimentalGraphicsProof(0, 0, 0),
+            experimentalGraphicsProof("virgl", JSONObject(healthy.toString())
+                .put("glxContexts", 1)))
+
+        val gladio = experimentalGraphicsProof("opengl", JSONObject()
+            .put("glxTransportContexts", 1)
+            .put("glxContexts", 2)
+            .put("glxPresentedFrames", 4))
+        assertEquals(ExperimentalGraphicsProof(1, 2, 4), gladio)
     }
 }

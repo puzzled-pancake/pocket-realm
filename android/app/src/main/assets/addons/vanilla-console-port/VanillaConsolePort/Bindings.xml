@@ -1,0 +1,45 @@
+<Bindings>
+  <Binding name="VCP_ACTION_1" header="VANILLA_CONSOLE_PORT" runOnUp="true">VanillaConsolePort_Action(1, keystate)</Binding>
+  <Binding name="VCP_ACTION_2" runOnUp="true">VanillaConsolePort_Action(2, keystate)</Binding>
+  <Binding name="VCP_ACTION_3" runOnUp="true">VanillaConsolePort_Action(3, keystate)</Binding>
+  <Binding name="VCP_ACTION_4" runOnUp="true">VanillaConsolePort_Action(4, keystate)</Binding>
+  <Binding name="VCP_ACTION_5" runOnUp="true">VanillaConsolePort_Action(5, keystate)</Binding>
+  <Binding name="VCP_ACTION_6" runOnUp="true">VanillaConsolePort_Action(6, keystate)</Binding>
+  <Binding name="VCP_ACTION_7" runOnUp="true">VanillaConsolePort_Action(7, keystate)</Binding>
+  <Binding name="VCP_ACTION_8" runOnUp="true">VanillaConsolePort_Action(8, keystate)</Binding>
+  <Binding name="VCP_ACTION_9" runOnUp="true">VanillaConsolePort_Action(9, keystate)</Binding>
+  <Binding name="VCP_ACTION_10" runOnUp="true">VanillaConsolePort_Action(10, keystate)</Binding>
+  <Binding name="VCP_ACTION_11" runOnUp="true">VanillaConsolePort_Action(11, keystate)</Binding>
+  <Binding name="VCP_ACTION_12" runOnUp="true">VanillaConsolePort_Action(12, keystate)</Binding>
+  <Binding name="VCP_ACTION_13" runOnUp="true">VanillaConsolePort_Action(13, keystate)</Binding>
+  <Binding name="VCP_ACTION_14" runOnUp="true">VanillaConsolePort_Action(14, keystate)</Binding>
+  <Binding name="VCP_ACTION_15" runOnUp="true">VanillaConsolePort_Action(15, keystate)</Binding>
+  <Binding name="VCP_ACTION_16" runOnUp="true">VanillaConsolePort_Action(16, keystate)</Binding>
+  <Binding name="VCP_ACTION_17" runOnUp="true">VanillaConsolePort_Action(17, keystate)</Binding>
+  <Binding name="VCP_ACTION_18" runOnUp="true">VanillaConsolePort_Action(18, keystate)</Binding>
+  <Binding name="VCP_ACTION_19" runOnUp="true">VanillaConsolePort_Action(19, keystate)</Binding>
+  <Binding name="VCP_ACTION_20" runOnUp="true">VanillaConsolePort_Action(20, keystate)</Binding>
+  <Binding name="VCP_ACTION_21" runOnUp="true">VanillaConsolePort_Action(21, keystate)</Binding>
+  <Binding name="VCP_ACTION_22" runOnUp="true">VanillaConsolePort_Action(22, keystate)</Binding>
+  <Binding name="VCP_ACTION_23" runOnUp="true">VanillaConsolePort_Action(23, keystate)</Binding>
+  <Binding name="VCP_ACTION_24" runOnUp="true">VanillaConsolePort_Action(24, keystate)</Binding>
+  <Binding name="VCP_ACTION_25" runOnUp="true">VanillaConsolePort_Action(25, keystate)</Binding>
+  <Binding name="VCP_ACTION_26" runOnUp="true">VanillaConsolePort_Action(26, keystate)</Binding>
+  <Binding name="VCP_ACTION_27" runOnUp="true">VanillaConsolePort_Action(27, keystate)</Binding>
+  <Binding name="VCP_ACTION_28" runOnUp="true">VanillaConsolePort_Action(28, keystate)</Binding>
+  <Binding name="VCP_ACTION_29" runOnUp="true">VanillaConsolePort_Action(29, keystate)</Binding>
+  <Binding name="VCP_ACTION_30" runOnUp="true">VanillaConsolePort_Action(30, keystate)</Binding>
+  <Binding name="VCP_ACTION_31" runOnUp="true">VanillaConsolePort_Action(31, keystate)</Binding>
+  <Binding name="VCP_ACTION_32" runOnUp="true">VanillaConsolePort_Action(32, keystate)</Binding>
+  <Binding name="VCP_ACTION_33" runOnUp="true">VanillaConsolePort_Action(33, keystate)</Binding>
+  <Binding name="VCP_ACTION_34" runOnUp="true">VanillaConsolePort_Action(34, keystate)</Binding>
+  <Binding name="VCP_ACTION_35" runOnUp="true">VanillaConsolePort_Action(35, keystate)</Binding>
+  <Binding name="VCP_ACTION_36" runOnUp="true">VanillaConsolePort_Action(36, keystate)</Binding>
+  <Binding name="VCP_ACTION_37" runOnUp="true">VanillaConsolePort_Action(37, keystate)</Binding>
+  <Binding name="VCP_ACTION_38" runOnUp="true">VanillaConsolePort_Action(38, keystate)</Binding>
+  <Binding name="VCP_ACTION_39" runOnUp="true">VanillaConsolePort_Action(39, keystate)</Binding>
+  <Binding name="VCP_ACTION_40" runOnUp="true">VanillaConsolePort_Action(40, keystate)</Binding>
+  <Binding name="VCP_TOGGLE_RADIAL">VanillaConsolePort_ToggleRadial()</Binding>
+  <Binding name="VCP_MOVE_UI">VanillaConsolePort_ToggleMoveUI()</Binding>
+  <Binding name="VCP_NEARBY_INTERACT">VanillaConsolePort_NearbyInteract()</Binding>
+</Bindings>

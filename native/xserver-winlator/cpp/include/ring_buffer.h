@@ -13,6 +13,7 @@ typedef struct RingBuffer {
     void* buffer;
     void* sharedData;
     uint32_t bufferSize;
+    int peerFd;
 } RingBuffer;
 
 #define RING_STATUS_IDLE (1u<<0)
@@ -27,6 +28,7 @@ extern void RingBuffer_setStatus(RingBuffer* ring, uint32_t status);
 extern void RingBuffer_unsetStatus(RingBuffer* ring, uint32_t status);
 extern bool RingBuffer_hasStatus(RingBuffer* ring, uint32_t status);
 extern RingBuffer* RingBuffer_create(int shmFd, uint32_t bufferSize);
+extern void RingBuffer_setPeerFd(RingBuffer* ring, int peerFd);
 extern uint32_t RingBuffer_size(RingBuffer* ring);
 extern uint32_t RingBuffer_freeSpace(RingBuffer* ring);
 extern bool RingBuffer_read(RingBuffer* ring, void* data, uint32_t size);

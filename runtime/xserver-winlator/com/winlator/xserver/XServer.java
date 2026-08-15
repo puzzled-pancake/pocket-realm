@@ -44,10 +44,17 @@ public class XServer {
     private WinHandler winHandler;
     private final EnumMap<Lockable, ReentrantLock> locks = new EnumMap<>(Lockable.class);
     private boolean relativeMouseMovement = false;
+    private final boolean glxEnabled;
 
     public XServer(XServerDisplayActivity activity, ScreenInfo screenInfo) {
+        this(activity, screenInfo,
+            java.util.Arrays.asList(Build.SUPPORTED_ABIS).contains("x86_64"));
+    }
+
+    public XServer(XServerDisplayActivity activity, ScreenInfo screenInfo, boolean enableGlx) {
         this.activity = activity;
         this.screenInfo = screenInfo;
+        this.glxEnabled = enableGlx;
         cursorLocker = new CursorLocker(this);
         for (Lockable lockable : Lockable.values()) locks.put(lockable, new ReentrantLock());
 
@@ -60,7 +67,11 @@ public class XServer {
         grabManager = new GrabManager(this);
 
         DesktopHelper.attachTo(this);
-        extensions = setupExtensions();
+        extensions = setupExtensions(enableGlx);
+    }
+
+    public boolean isGlxEnabled() {
+        return glxEnabled;
     }
 
     public boolean isRelativeMouseMovement() {
@@ -196,10 +207,10 @@ public class XServer {
         }
     }
 
-    private Extension[] setupExtensions() {
-        // O06 qualified a GDI/X11-only set. O07's GLX bridge is retained only
-        // on the historical x86 WineD3D validation lane. ARM production uses
-        // DRI3/Present for DXVK and must not advertise an OpenGL client route.
+    private Extension[] setupExtensions(boolean enableGlx) {
+        // DXVK keeps the DRI3/Present set with GLX disabled. Explicit Gladio
+        // and Mesa VirGL selections enable the pinned GLX opcode; VirGL needs
+        // its Fake-GLX negotiation bases even though frames travel over V0.
         // Still omitted:
         //   - MITSHMExtension : the separate SysV service component is not
         //     hosted by Pocket Realm. DRI3 uses the restored static fd mapper.
@@ -219,7 +230,7 @@ public class XServer {
         // sends GLX on -106; compacting this array had incorrectly moved GLX
         // to -103 and made the server index past the end of the array.
         final byte first = Extension.START_MAJOR_OPCODE;
-        if (!java.util.Arrays.asList(Build.SUPPORTED_ABIS).contains("x86_64")) {
+        if (!enableGlx) {
             return new Extension[]{
                 new BigReqExtension(this, first),
                 new DRI3Extension(this, (byte)(first - 2)),

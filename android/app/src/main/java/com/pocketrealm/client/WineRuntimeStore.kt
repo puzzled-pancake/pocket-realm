@@ -20,6 +20,7 @@ import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
+import java.nio.file.Paths
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
@@ -41,6 +42,14 @@ internal fun resolveEffectiveClientTweaks(
     return EffectiveClientTweaks(effective, fallback = effective != requested)
 }
 
+/** Pure Config.wtf projection for the optional executable sound-channel patch. */
+internal fun managedSoundChannelsConfigLine(
+    audioMode: String,
+    effectiveTweaks: ClientTweaksConfig,
+): String = if (audioMode == "on" && effectiveTweaks.soundChannelsEnabled) {
+    "SET SoundSoftwareChannels \"${effectiveTweaks.soundChannels}\"\n"
+} else ""
+
 /** Exact immutable identity of one physical ARM Wine prefix/cache generation. */
 internal data class ArmGraphicsGenerationIdentity(
     val runtimeBuildId: String,
@@ -52,27 +61,78 @@ internal data class ArmGraphicsGenerationIdentity(
     val managedClientGeneration: String,
     val managedClientManifestSha256: String,
     val managedClientExecutableSha256: String,
-    val rendererPackageId: String,
-    val rendererPackageBuildId: String,
-    val rendererPackageDxvkVersion: String,
-    val rendererPackageSystem32Sha256: String,
-    val rendererPackageSyswow64Sha256: String,
-    val vulkanDriverId: String,
-    val vulkanDriverBuildId: String,
-    val vulkanDriverLibrarySha256: String,
-    val vulkanDriverIcdSha256: String,
+    val rendererPackageId: String? = null,
+    val rendererPackageBuildId: String? = null,
+    val rendererPackageDxvkVersion: String? = null,
+    val rendererPackageSystem32Sha256: String? = null,
+    val rendererPackageSyswow64Sha256: String? = null,
+    val vulkanDriverId: String? = null,
+    val vulkanDriverBuildId: String? = null,
+    val vulkanDriverLibrarySha256: String? = null,
+    val vulkanDriverIcdSha256: String? = null,
+    val gladioPackageId: String? = null,
+    val gladioPackageBuildId: String? = null,
+    val gladioClientSha256: String? = null,
+    val gladioServerBuildId: String? = null,
+    val virglPackageId: String? = null,
+    val virglPackageBuildId: String? = null,
+    val virglClientSha256: String? = null,
+    val virglServerBuildId: String? = null,
 ) {
     init {
         require(prefixSchema > 0)
         require(values().all { it.isNotBlank() })
-        require(listOf(
-            managedClientManifestSha256,
-            managedClientExecutableSha256,
-            rendererPackageSystem32Sha256,
-            rendererPackageSyswow64Sha256,
-            vulkanDriverLibrarySha256,
-            vulkanDriverIcdSha256,
-        ).all { SHA256.matches(it) })
+        require(SHA256.matches(managedClientManifestSha256) &&
+            SHA256.matches(managedClientExecutableSha256))
+        when (rendererId) {
+            "dxvk" -> {
+                require(listOf(
+                    rendererPackageId, rendererPackageBuildId, rendererPackageDxvkVersion,
+                    rendererPackageSystem32Sha256, rendererPackageSyswow64Sha256,
+                    vulkanDriverId, vulkanDriverBuildId, vulkanDriverLibrarySha256,
+                    vulkanDriverIcdSha256,
+                ).all { !it.isNullOrBlank() })
+                require(listOf(
+                    rendererPackageSystem32Sha256, rendererPackageSyswow64Sha256,
+                    vulkanDriverLibrarySha256, vulkanDriverIcdSha256,
+                ).all { SHA256.matches(requireNotNull(it)) })
+                require(listOf(
+                    gladioPackageId, gladioPackageBuildId, gladioClientSha256,
+                    gladioServerBuildId, virglPackageId, virglPackageBuildId,
+                    virglClientSha256, virglServerBuildId,
+                ).all { it == null })
+            }
+            "opengl" -> {
+                require(listOf(
+                    rendererPackageId, rendererPackageBuildId, rendererPackageDxvkVersion,
+                    rendererPackageSystem32Sha256, rendererPackageSyswow64Sha256,
+                    vulkanDriverId, vulkanDriverBuildId, vulkanDriverLibrarySha256,
+                    vulkanDriverIcdSha256,
+                ).all { it == null })
+                require(listOf(
+                    gladioPackageId, gladioPackageBuildId, gladioClientSha256,
+                    gladioServerBuildId,
+                ).all { !it.isNullOrBlank() })
+                require(SHA256.matches(requireNotNull(gladioClientSha256)))
+                require(listOf(
+                    virglPackageId, virglPackageBuildId, virglClientSha256, virglServerBuildId,
+                ).all { it == null })
+            }
+            "virgl" -> {
+                require(listOf(
+                    rendererPackageId, rendererPackageBuildId, rendererPackageDxvkVersion,
+                    rendererPackageSystem32Sha256, rendererPackageSyswow64Sha256,
+                    vulkanDriverId, vulkanDriverBuildId, vulkanDriverLibrarySha256,
+                    vulkanDriverIcdSha256, gladioPackageId, gladioPackageBuildId,
+                    gladioClientSha256, gladioServerBuildId,
+                ).all { it == null })
+                require(listOf(
+                    virglPackageId, virglPackageBuildId, virglClientSha256, virglServerBuildId,
+                ).all { !it.isNullOrBlank() })
+                require(SHA256.matches(requireNotNull(virglClientSha256)))
+            }
+            else -> error("unsupported ARM generation renderer: $rendererId")
+        }
     }
 
     /** Short physical name; the full collision-resistant tuple is attested in the manifest. */
@@ -84,7 +144,8 @@ internal data class ArmGraphicsGenerationIdentity(
         "g-${digest.take(32)}"
     }
 
-    fun toJson(): JSONObject = JSONObject()
+    fun toJson(): JSONObject {
+        val value = JSONObject()
         .put("runtime_build_id", runtimeBuildId)
         .put("renderer_build_id", rendererBuildId)
         .put("prefix_schema", prefixSchema)
@@ -94,44 +155,36 @@ internal data class ArmGraphicsGenerationIdentity(
         .put("managed_client_generation", managedClientGeneration)
         .put("managed_client_manifest_sha256", managedClientManifestSha256)
         .put("managed_client_executable_sha256", managedClientExecutableSha256)
-        .put("renderer_package_id", rendererPackageId)
-        .put("renderer_package_build_id", rendererPackageBuildId)
-        .put("renderer_package_dxvk_version", rendererPackageDxvkVersion)
-        .put("renderer_package_system32_sha256", rendererPackageSystem32Sha256)
-        .put("renderer_package_syswow64_sha256", rendererPackageSyswow64Sha256)
-        .put("vulkan_driver_id", vulkanDriverId)
-        .put("vulkan_driver_build_id", vulkanDriverBuildId)
-        .put("vulkan_driver_library_sha256", vulkanDriverLibrarySha256)
-        .put("vulkan_driver_icd_sha256", vulkanDriverIcdSha256)
+        if (rendererId == "dxvk") {
+            value.put("renderer_package_id", rendererPackageId)
+                .put("renderer_package_build_id", rendererPackageBuildId)
+                .put("renderer_package_dxvk_version", rendererPackageDxvkVersion)
+                .put("renderer_package_system32_sha256", rendererPackageSystem32Sha256)
+                .put("renderer_package_syswow64_sha256", rendererPackageSyswow64Sha256)
+                .put("vulkan_driver_id", vulkanDriverId)
+                .put("vulkan_driver_build_id", vulkanDriverBuildId)
+                .put("vulkan_driver_library_sha256", vulkanDriverLibrarySha256)
+                .put("vulkan_driver_icd_sha256", vulkanDriverIcdSha256)
+        } else if (rendererId == "opengl") {
+            value.put("gladio_package_id", gladioPackageId)
+                .put("gladio_package_build_id", gladioPackageBuildId)
+                .put("gladio_client_sha256", gladioClientSha256)
+                .put("gladio_server_build_id", gladioServerBuildId)
+        } else {
+            value.put("virgl_package_id", virglPackageId)
+                .put("virgl_package_build_id", virglPackageBuildId)
+                .put("virgl_client_sha256", virglClientSha256)
+                .put("virgl_server_build_id", virglServerBuildId)
+        }
+        return value
+    }
 
     fun matchesManifest(manifest: JSONObject): Boolean = runCatching {
         val actual = manifest.getJSONObject("compatibility")
-        val stringFields = listOf(
-            "runtime_build_id" to runtimeBuildId,
-            "renderer_build_id" to rendererBuildId,
-            "translator" to translatorId,
-            "renderer" to rendererId,
-            "managed_client_id" to managedClientId,
-            "managed_client_generation" to managedClientGeneration,
-            "managed_client_manifest_sha256" to managedClientManifestSha256,
-            "managed_client_executable_sha256" to managedClientExecutableSha256,
-            "renderer_package_id" to rendererPackageId,
-            "renderer_package_build_id" to rendererPackageBuildId,
-            "renderer_package_dxvk_version" to rendererPackageDxvkVersion,
-            "renderer_package_system32_sha256" to rendererPackageSystem32Sha256,
-            "renderer_package_syswow64_sha256" to rendererPackageSyswow64Sha256,
-            "vulkan_driver_id" to vulkanDriverId,
-            "vulkan_driver_build_id" to vulkanDriverBuildId,
-            "vulkan_driver_library_sha256" to vulkanDriverLibrarySha256,
-            "vulkan_driver_icd_sha256" to vulkanDriverIcdSha256,
-        )
-        val schema = actual.opt("prefix_schema")
-        actual.length() == stringFields.size + 1 &&
-            schema is Int && schema == prefixSchema &&
-            stringFields.all { (key, expected) ->
-                val value = actual.opt(key)
-                value is String && value == expected
-            }
+        val expected = toJson()
+        actual.length() == expected.length() && expected.keys().asSequence().all { key ->
+            actual.has(key) && actual.opt(key) == expected.opt(key)
+        }
     }.getOrDefault(false)
 
     private fun values(): List<String> = listOf(
@@ -144,15 +197,23 @@ internal data class ArmGraphicsGenerationIdentity(
         managedClientGeneration,
         managedClientManifestSha256,
         managedClientExecutableSha256,
-        rendererPackageId,
-        rendererPackageBuildId,
-        rendererPackageDxvkVersion,
-        rendererPackageSystem32Sha256,
-        rendererPackageSyswow64Sha256,
-        vulkanDriverId,
-        vulkanDriverBuildId,
-        vulkanDriverLibrarySha256,
-        vulkanDriverIcdSha256,
+        rendererPackageId ?: "-",
+        rendererPackageBuildId ?: "-",
+        rendererPackageDxvkVersion ?: "-",
+        rendererPackageSystem32Sha256 ?: "-",
+        rendererPackageSyswow64Sha256 ?: "-",
+        vulkanDriverId ?: "-",
+        vulkanDriverBuildId ?: "-",
+        vulkanDriverLibrarySha256 ?: "-",
+        vulkanDriverIcdSha256 ?: "-",
+        gladioPackageId ?: "-",
+        gladioPackageBuildId ?: "-",
+        gladioClientSha256 ?: "-",
+        gladioServerBuildId ?: "-",
+        virglPackageId ?: "-",
+        virglPackageBuildId ?: "-",
+        virglClientSha256 ?: "-",
+        virglServerBuildId ?: "-",
     )
 
     companion object {
@@ -490,8 +551,9 @@ internal class WineRuntimeStore(private val context: Context) {
         if (!prefixReady(p.prefix, 1_000)) initializePrefix(p)
         check(prefixReady(p.prefix, 1_000)) { "Wine prefix did not become ready" }
         check(p.executable.isFile) { "Authorized client executable is absent" }
+        val effectivePrepared = applyTweaks(p, tweaks)
         if (!p.selfTest) enforceManagedSafeMode(
-            p, renderer, displayProfile, inputSafeMode, audioMode, realmEndpoint,
+            effectivePrepared, renderer, displayProfile, inputSafeMode, audioMode, realmEndpoint,
         )
 
         val manifest = JSONObject()
@@ -524,7 +586,7 @@ internal class WineRuntimeStore(private val context: Context) {
                 .put("client_version", identity.getString("version"))
                 .put("working_directory", "app-private-managed-client")
                 .put("safe_profile", JSONObject()
-                    .put("resolution_ceiling", displayProfile.resolution)
+                    .put("resolution_ceiling", resolveVirtualDisplay(displayProfile).resolution)
                     .put("qualified_effective_resolution", "800x600")
                     .put("fps_cap", selectedFrameCap.fps)
                     .put("realm_endpoint", realmEndpoint.address)
@@ -536,7 +598,7 @@ internal class WineRuntimeStore(private val context: Context) {
         }
         writeAtomic(manifestFile, manifest.toString(2))
         enforceQuotas(p)
-        applyTweaks(p, tweaks)
+        effectivePrepared
         } catch (error: Throwable) {
             p.close()
             throw error
@@ -560,20 +622,47 @@ internal class WineRuntimeStore(private val context: Context) {
         require(translator == ArmTranslationBackend.BOX64) {
             "Box64 is the only supported ARM translator"
         }
-        require(renderer == "dxvk") { "Box64 + DXVK is the only supported ARM client route" }
-        val rendererPackage = requireNotNull(RendererPackageCatalog.requireForRequest(
-            translator,
+        val rendererSelection = ArmClientRendererCatalog.requireRuntimeRenderer(
             renderer,
-            rendererPackageId,
-        ))
-        val vulkanDriver = VulkanDriverCatalog.requireForRequest(vulkanDriverId)
+            if (renderer != "dxvk") runCatching {
+                AndroidGladioCapabilityProbe.probe(context)
+            } else null,
+        )
+        if (rendererSelection != ArmClientRenderer.DXVK) {
+            val (libraryName, expectedDigest) = when (rendererSelection) {
+                ArmClientRenderer.LEGACY_GLADIO ->
+                    "libgladiorenderer.so" to ArmClientRendererCatalog.GLADIO_SERVER_SHA256
+                ArmClientRenderer.MESA_VIRGL ->
+                    "libvirglrenderer.so" to ArmClientRendererCatalog.VIRGL_SERVER_SHA256
+                ArmClientRenderer.DXVK -> error("unreachable renderer server attestation")
+            }
+            val server = File(context.applicationInfo.nativeLibraryDir, libraryName)
+            check(server.isFile && !Files.isSymbolicLink(server.toPath()) &&
+                sha256(server) == expectedDigest) {
+                "selected ${rendererSelection.label} Android server is absent or changed"
+            }
+        }
+        val rendererPackage = if (rendererSelection == ArmClientRenderer.DXVK) {
+            requireNotNull(RendererPackageCatalog.requireForRequest(
+                translator, renderer, rendererPackageId,
+            ))
+        } else {
+            require(rendererPackageId == null) { "$renderer does not accept a DXVK package" }
+            null
+        }
+        val vulkanDriver = if (rendererSelection == ArmClientRenderer.DXVK) {
+            VulkanDriverCatalog.requireForRequest(vulkanDriverId)
+        } else {
+            require(vulkanDriverId == null) { "$renderer does not accept a Vulkan driver" }
+            null
+        }
         val generationIdentity = ArmGraphicsGenerationIdentity(
             runtimeBuildId = ClientRuntimeContract.armRuntimeBuildId(translator),
             rendererBuildId = ClientRuntimeContract.armRendererBuildId(
                 translator,
                 renderer,
-                rendererPackage.id,
-                vulkanDriver.id,
+                rendererPackage?.id,
+                vulkanDriver?.id,
             ),
             prefixSchema = ClientRuntimeContract.PREFIX_SCHEMA,
             translatorId = translator.id,
@@ -582,15 +671,39 @@ internal class WineRuntimeStore(private val context: Context) {
             managedClientGeneration = managed.generation,
             managedClientManifestSha256 = managed.manifestSha256,
             managedClientExecutableSha256 = managed.executableSha256,
-            rendererPackageId = rendererPackage.id,
-            rendererPackageBuildId = rendererPackage.buildId,
-            rendererPackageDxvkVersion = rendererPackage.dxvkVersion,
-            rendererPackageSystem32Sha256 = requireNotNull(rendererPackage.system32Sha256),
-            rendererPackageSyswow64Sha256 = requireNotNull(rendererPackage.syswow64Sha256),
-            vulkanDriverId = vulkanDriver.id,
-            vulkanDriverBuildId = vulkanDriver.buildId,
-            vulkanDriverLibrarySha256 = vulkanDriver.librarySha256,
-            vulkanDriverIcdSha256 = vulkanDriver.icdSha256,
+            rendererPackageId = rendererPackage?.id,
+            rendererPackageBuildId = rendererPackage?.buildId,
+            rendererPackageDxvkVersion = rendererPackage?.dxvkVersion,
+            rendererPackageSystem32Sha256 = rendererPackage?.system32Sha256,
+            rendererPackageSyswow64Sha256 = rendererPackage?.syswow64Sha256,
+            vulkanDriverId = vulkanDriver?.id,
+            vulkanDriverBuildId = vulkanDriver?.buildId,
+            vulkanDriverLibrarySha256 = vulkanDriver?.librarySha256,
+            vulkanDriverIcdSha256 = vulkanDriver?.icdSha256,
+            gladioPackageId = ArmClientRendererCatalog.GLADIO_PACKAGE_ID.takeIf {
+                rendererSelection == ArmClientRenderer.LEGACY_GLADIO
+            },
+            gladioPackageBuildId = ArmClientRendererCatalog.GLADIO_BUILD_ID.takeIf {
+                rendererSelection == ArmClientRenderer.LEGACY_GLADIO
+            },
+            gladioClientSha256 = ArmClientRendererCatalog.GLADIO_CLIENT_SHA256.takeIf {
+                rendererSelection == ArmClientRenderer.LEGACY_GLADIO
+            },
+            gladioServerBuildId = ArmClientRendererCatalog.GLADIO_SERVER_BUILD_ID.takeIf {
+                rendererSelection == ArmClientRenderer.LEGACY_GLADIO
+            },
+            virglPackageId = ArmClientRendererCatalog.VIRGL_PACKAGE_ID.takeIf {
+                rendererSelection == ArmClientRenderer.MESA_VIRGL
+            },
+            virglPackageBuildId = ArmClientRendererCatalog.VIRGL_BUILD_ID.takeIf {
+                rendererSelection == ArmClientRenderer.MESA_VIRGL
+            },
+            virglClientSha256 = ArmClientRendererCatalog.VIRGL_CLIENT_SHA256.takeIf {
+                rendererSelection == ArmClientRenderer.MESA_VIRGL
+            },
+            virglServerBuildId = ArmClientRendererCatalog.VIRGL_SERVER_BUILD_ID.takeIf {
+                rendererSelection == ArmClientRenderer.MESA_VIRGL
+            },
         )
         val root = File(
             context.noBackupFilesDir,
@@ -617,8 +730,8 @@ internal class WineRuntimeStore(private val context: Context) {
                 "client=${generationIdentity.managedClientId}",
                 "clientGeneration=${generationIdentity.managedClientGeneration}",
                 "clientManifest=${generationIdentity.managedClientManifestSha256}",
-                "dxvk=${generationIdentity.rendererPackageId}",
-                "vulkan=${generationIdentity.vulkanDriverId}",
+                "renderer=${generationIdentity.rendererId}",
+                "payload=${generationIdentity.rendererPackageId ?: generationIdentity.gladioPackageId ?: generationIdentity.virglPackageId}",
             ).joinToString(":"),
             root = root,
             tree = rootfs,
@@ -631,8 +744,8 @@ internal class WineRuntimeStore(private val context: Context) {
             selfTest = false,
             armTranslator = translator,
             armRenderer = renderer,
-            armRendererPackageId = rendererPackage.id,
-            armVulkanDriverId = vulkanDriver.id,
+            armRendererPackageId = rendererPackage?.id,
+            armVulkanDriverId = vulkanDriver?.id,
             managedClient = managed,
             clientLease = leased.lease,
             armGenerationIdentity = generationIdentity,
@@ -665,18 +778,28 @@ internal class WineRuntimeStore(private val context: Context) {
         require(translator == ArmTranslationBackend.BOX64) {
             "Box64 is the only supported ARM translator"
         }
-        require(renderer == "dxvk") { "Box64 + DXVK is the only supported ARM client route" }
+        require(renderer == "dxvk" || renderer == "opengl" || renderer == "virgl") {
+            "unsupported Box64 ARM renderer: $renderer"
+        }
         retireRemovedArmRuntimeState()
         require(audioMode in setOf("off", "on")) { "only off/on audioMode is supported" }
-        val rendererPackage = requireNotNull(RendererPackageCatalog.requireForRequest(
-            translator,
-            renderer,
-            rendererPackageId,
-        ))
-        val vulkanDriver = VulkanDriverCatalog.requireForRequest(vulkanDriverId)
+        val rendererPackage = if (renderer == "dxvk") {
+            requireNotNull(RendererPackageCatalog.requireForRequest(
+                translator, renderer, rendererPackageId,
+            ))
+        } else {
+            require(rendererPackageId == null) { "$renderer does not accept a DXVK package" }
+            null
+        }
+        val vulkanDriver = if (renderer == "dxvk") {
+            VulkanDriverCatalog.requireForRequest(vulkanDriverId)
+        } else {
+            require(vulkanDriverId == null) { "$renderer does not accept a Vulkan driver" }
+            null
+        }
         val tweaks = ClientTweaksConfig.fromControlJson(tweaksJson)
         val p = armPaths(
-            clientId, translator, renderer, rendererPackage.id, vulkanDriver.id,
+            clientId, translator, renderer, rendererPackage?.id, vulkanDriver?.id,
         ).copy(
             audioMode = audioMode,
             tweaksJson = tweaks.toJson(),
@@ -694,17 +817,24 @@ internal class WineRuntimeStore(private val context: Context) {
         }
         installArmRuntimeAliases(p.tree)
         patchWinlatorPackagePaths(p.tree)
-        disableArmOpenGlClient(p.tree)
         validateArmGenerationBeforeReuse(p)
         ensureBox64RendererPrefix(p)
         linkArmBuiltins(p)
-        installPinnedArmGraphics(p, rendererPackage, vulkanDriver)
+        when (renderer) {
+            "dxvk" -> installPinnedArmGraphics(
+                p, checkNotNull(rendererPackage), checkNotNull(vulkanDriver),
+            )
+            "opengl" -> installPinnedArmGladio(p)
+            "virgl" -> installPinnedArmVirgl(p)
+        }
         p.tmp.mkdirs()
         ensureArmCacheDirectories(p)
-        writeAtomic(
-            File(p.cache, ClientRuntimeContract.DXVK_CONFIG_FILE_NAME),
-            ClientRuntimeContract.dxvkFrameCapConfig(selectedFrameCap.fps),
-        )
+        if (renderer == "dxvk") {
+            writeAtomic(
+                File(p.cache, ClientRuntimeContract.DXVK_CONFIG_FILE_NAME),
+                ClientRuntimeContract.dxvkFrameCapConfig(selectedFrameCap.fps),
+            )
+        }
         val runAlias = File(p.root, "run")
         if (runAlias.isDirectory && !Files.isSymbolicLink(runAlias.toPath()) &&
             runAlias.listFiles().isNullOrEmpty()) {
@@ -716,13 +846,14 @@ internal class WineRuntimeStore(private val context: Context) {
         check(prefixReady(p.prefix, 1_000)) { "pinned ARM Wine prefix is incomplete" }
         check(p.executable.isFile) { "authorized build-5875 client executable is absent" }
         if (audioMode == "on") validateArmAudioRuntime(p)
+        val effectivePrepared = applyTweaks(p, tweaks)
 
         val dosDevices = File(p.prefix, "dosdevices").apply { mkdirs() }
         val z = File(dosDevices, "z:").toPath()
         if (Files.exists(z, LinkOption.NOFOLLOW_LINKS)) Files.delete(z)
         Files.createSymbolicLink(z, File("/").toPath())
         enforceManagedSafeMode(
-            p, renderer, displayProfile, inputSafeMode, audioMode, realmEndpoint,
+            effectivePrepared, renderer, displayProfile, inputSafeMode, audioMode, realmEndpoint,
         )
 
         val generationIdentity = checkNotNull(p.armGenerationIdentity) {
@@ -736,8 +867,8 @@ internal class WineRuntimeStore(private val context: Context) {
             .put("renderer_build_id", ClientRuntimeContract.armRendererBuildId(
                 translator,
                 renderer,
-                rendererPackage.id,
-                vulkanDriver.id,
+                rendererPackage?.id,
+                vulkanDriver?.id,
             ))
             .put("provider", ClientRuntimeProvider.ARM_TRANSLATED_WINE.id)
             .put("translator", translator.id)
@@ -750,25 +881,53 @@ internal class WineRuntimeStore(private val context: Context) {
             .put("windows_arch", "win32-on-wow64")
             .put("renderer", renderer)
             .put("display_profile", displayProfile.id)
-            .put("resolution", displayProfile.resolution)
+            .put("resolution", resolveVirtualDisplay(displayProfile).resolution)
             .put("fps_cap", selectedFrameCap.fps)
-            .put("graphics_driver", vulkanDriver.buildId)
-            .put("dx_wrapper", "dxvk-${rendererPackage.dxvkVersion}")
+            .put("graphics_driver", when (renderer) {
+                "dxvk" -> checkNotNull(vulkanDriver).buildId
+                "opengl" -> ArmClientRendererCatalog.GLADIO_BUILD_ID
+                else -> ArmClientRendererCatalog.VIRGL_BUILD_ID
+            })
+            .put("dx_wrapper", when (renderer) {
+                "dxvk" -> "dxvk-${checkNotNull(rendererPackage).dxvkVersion}"
+                "opengl" -> "disabled-native-client-opengl"
+                else -> "wined3d-mesa-virpipe"
+            })
             .put("client_id", clientId)
             .put("managed_client_generation", generationIdentity.managedClientGeneration)
             .put("managed_client_manifest_sha256", generationIdentity.managedClientManifestSha256)
             .put("working_directory", "app-private-managed-client")
-        manifest.put("renderer_package_id", rendererPackage.id)
-            .put("renderer_package_qualification", rendererPackage.qualification)
-            .put("vulkan_driver_id", vulkanDriver.id)
-            .put("vulkan_driver_qualification", vulkanDriver.qualification)
-            .put("cache_layout", JSONObject()
-                .put("dxvk_state", "$ARM_CACHE_DIRECTORY/dxvk")
-                .put("mesa_shader", "$ARM_CACHE_DIRECTORY/mesa")
-                .put("xdg", "$ARM_CACHE_DIRECTORY/xdg"))
+        if (renderer == "dxvk") {
+            val dxvkPackage = checkNotNull(rendererPackage)
+            val driver = checkNotNull(vulkanDriver)
+            manifest.put("renderer_package_id", dxvkPackage.id)
+                .put("renderer_package_qualification", dxvkPackage.qualification)
+                .put("vulkan_driver_id", driver.id)
+                .put("vulkan_driver_qualification", driver.qualification)
+                .put("cache_layout", JSONObject()
+                    .put("dxvk_state", "$ARM_CACHE_DIRECTORY/dxvk")
+                    .put("mesa_shader", "$ARM_CACHE_DIRECTORY/mesa")
+                    .put("xdg", "$ARM_CACHE_DIRECTORY/xdg"))
+        } else if (renderer == "opengl") {
+            manifest.put("gladio_package_id", ArmClientRendererCatalog.GLADIO_PACKAGE_ID)
+                .put("gladio_client_sha256", ArmClientRendererCatalog.GLADIO_CLIENT_SHA256)
+                .put("gladio_server_build_id", ArmClientRendererCatalog.GLADIO_SERVER_BUILD_ID)
+                .put("cache_layout", JSONObject()
+                    .put("gladio", "$ARM_CACHE_DIRECTORY/gladio")
+                    .put("wine", "$ARM_CACHE_DIRECTORY/wine")
+                    .put("xdg", "$ARM_CACHE_DIRECTORY/xdg"))
+        } else {
+            manifest.put("virgl_package_id", ArmClientRendererCatalog.VIRGL_PACKAGE_ID)
+                .put("virgl_client_sha256", ArmClientRendererCatalog.VIRGL_CLIENT_SHA256)
+                .put("virgl_server_build_id", ArmClientRendererCatalog.VIRGL_SERVER_BUILD_ID)
+                .put("virgl_environment_id", ArmClientRendererCatalog.VIRGL_ENVIRONMENT_ID)
+                .put("cache_layout", JSONObject()
+                    .put("mesa_shader", "$ARM_CACHE_DIRECTORY/virgl")
+                    .put("xdg", "$ARM_CACHE_DIRECTORY/xdg"))
+        }
         writeAtomic(File(p.prefix.parentFile, "prefix-manifest.json"), manifest.toString(2))
         pruneInactiveArmGenerations(p)
-        applyTweaks(p, tweaks)
+        effectivePrepared
         } catch (error: Throwable) {
             p.close()
             throw error
@@ -796,7 +955,7 @@ internal class WineRuntimeStore(private val context: Context) {
         val manifestFile = File(generationRoot, ARM_PREFIX_MANIFEST_FILE)
         val prefixReusable = Files.isDirectory(p.prefix.toPath(), LinkOption.NOFOLLOW_LINKS) &&
             !Files.isSymbolicLink(p.prefix.toPath()) && prefixReady(p.prefix, 1_000)
-        val cacheSafe = plainDirectoryIfPresent(p.cache) && ARM_CACHE_SUBDIRECTORIES.all {
+        val cacheSafe = plainDirectoryIfPresent(p.cache) && armCacheSubdirectories(p).all {
             plainDirectoryIfPresent(File(p.cache, it))
         }
         val compatible = manifestFile.isFile && !Files.isSymbolicLink(manifestFile.toPath()) &&
@@ -841,7 +1000,7 @@ internal class WineRuntimeStore(private val context: Context) {
             "ARM cache escaped its prefix generation"
         }
         requirePlainDirectory(p.cache)
-        for (name in ARM_CACHE_SUBDIRECTORIES) {
+        for (name in armCacheSubdirectories(p)) {
             val directory = File(p.cache, name)
             requirePlainDirectory(directory)
             check(directory.canonicalFile.parentFile == p.cache.canonicalFile) {
@@ -852,7 +1011,8 @@ internal class WineRuntimeStore(private val context: Context) {
 
     private fun attestArmCacheDirectories(p: Prepared) {
         val generationRoot = checkNotNull(p.prefix.parentFile).canonicalFile
-        val directories = listOf(p.cache) + ARM_CACHE_SUBDIRECTORIES.map { File(p.cache, it) }
+        val subdirectories = armCacheSubdirectories(p)
+        val directories = listOf(p.cache) + subdirectories.map { File(p.cache, it) }
         directories.forEach { directory ->
             val path = directory.toPath()
             check(Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS) &&
@@ -861,11 +1021,18 @@ internal class WineRuntimeStore(private val context: Context) {
             }
         }
         check(p.cache.canonicalFile.parentFile == generationRoot &&
-            ARM_CACHE_SUBDIRECTORIES.all {
+            subdirectories.all {
                 File(p.cache, it).canonicalFile.parentFile == p.cache.canonicalFile
             }) {
             "prepared ARM cache layout escaped its tuple generation"
         }
+    }
+
+    private fun armCacheSubdirectories(p: Prepared): List<String> = when (p.armRenderer) {
+        "dxvk" -> listOf("dxvk", "mesa", "xdg")
+        "opengl" -> listOf("gladio", "wine", "xdg")
+        "virgl" -> listOf("virgl", "xdg")
+        else -> error("unsupported ARM cache renderer: ${p.armRenderer}")
     }
 
     /** Retain a small working set; prune only unlocked, noncurrent generations. */
@@ -1054,6 +1221,73 @@ internal class WineRuntimeStore(private val context: Context) {
         files.forEach(::installPinnedAsset)
     }
 
+    /** Install Gladio only inside the selected graphics generation.
+     * The shared Winlator rootfs is never used as a payload destination. */
+    private fun installPinnedArmGladio(p: Prepared) {
+        check(p.armRenderer == "opengl" && p.armRendererPackageId == null &&
+            p.armVulkanDriverId == null) {
+            "Gladio installer received a non-OpenGL graphics identity"
+        }
+        val generationRoot = checkNotNull(p.prefix.parentFile).canonicalFile
+        val gladioDirectory = File(generationRoot, GLADIO_PAYLOAD_DIRECTORY)
+        requirePlainDirectory(File(generationRoot, "graphics"))
+        requirePlainDirectory(gladioDirectory)
+        check(gladioDirectory.canonicalFile.toPath().startsWith(generationRoot.toPath())) {
+            "Gladio payload escaped its tuple generation"
+        }
+        val library = File(gladioDirectory, GLADIO_CLIENT_FILE_NAME)
+        installPinnedAsset(PinnedAsset(
+            ArmClientRendererCatalog.GLADIO_CLIENT_ASSET,
+            library,
+            ArmClientRendererCatalog.GLADIO_CLIENT_SHA256,
+            executable = true,
+        ))
+        for (aliasName in listOf("libGL.so", "libGL.so.1")) {
+            val alias = File(gladioDirectory, aliasName).toPath()
+            if (Files.exists(alias, LinkOption.NOFOLLOW_LINKS)) {
+                check(Files.isSymbolicLink(alias) &&
+                    Files.readSymbolicLink(alias) == Paths.get(GLADIO_CLIENT_FILE_NAME)) {
+                    "Gladio library alias is unsafe: $aliasName"
+                }
+            } else {
+                Files.createSymbolicLink(alias, Paths.get(GLADIO_CLIENT_FILE_NAME))
+            }
+        }
+    }
+
+    /** Install the matched Mesa virpipe guest only inside its renderer generation. */
+    private fun installPinnedArmVirgl(p: Prepared) {
+        check(p.armRenderer == "virgl" && p.armRendererPackageId == null &&
+            p.armVulkanDriverId == null) {
+            "VirGL installer received a Vulkan/DXVK graphics identity"
+        }
+        val generationRoot = checkNotNull(p.prefix.parentFile).canonicalFile
+        val virglDirectory = File(generationRoot, VIRGL_PAYLOAD_DIRECTORY)
+        requirePlainDirectory(File(generationRoot, "graphics"))
+        requirePlainDirectory(virglDirectory)
+        check(virglDirectory.canonicalFile.toPath().startsWith(generationRoot.toPath())) {
+            "VirGL payload escaped its tuple generation"
+        }
+        val library = File(virglDirectory, VIRGL_CLIENT_FILE_NAME)
+        installPinnedAsset(PinnedAsset(
+            ArmClientRendererCatalog.VIRGL_CLIENT_ASSET,
+            library,
+            ArmClientRendererCatalog.VIRGL_CLIENT_SHA256,
+            executable = true,
+        ))
+        for (aliasName in listOf("libGL.so", "libGL.so.1")) {
+            val alias = File(virglDirectory, aliasName).toPath()
+            if (Files.exists(alias, LinkOption.NOFOLLOW_LINKS)) {
+                check(Files.isSymbolicLink(alias) &&
+                    Files.readSymbolicLink(alias) == Paths.get(VIRGL_CLIENT_FILE_NAME)) {
+                    "VirGL library alias is unsafe: $aliasName"
+                }
+            } else {
+                Files.createSymbolicLink(alias, Paths.get(VIRGL_CLIENT_FILE_NAME))
+            }
+        }
+    }
+
     private data class PinnedAsset(
         val assetPath: String,
         val target: File,
@@ -1156,9 +1390,11 @@ internal class WineRuntimeStore(private val context: Context) {
      * `WoW.exe.patched` sibling of the pristine managed exe only when its full
      * SHA-256 identifies the byte layout supported by the patch model. A valid
      * imported 1.12.1 build-5875 executable does not need to match that one
-     * reference hash when no binary tweak is requested. Native output must
-     * match the independent byte-for-byte patch model before publication.
-     * Idempotent via the authenticated manifest sidecar; self-tests are never patched.
+     * reference hash when no binary tweak is requested. The upstream patcher
+     * output is finalized with the Pocket Realm nearby-loot companion patch
+     * and must then match the independent byte-for-byte patch model before
+     * publication. Idempotent via the authenticated manifest sidecar;
+     * self-tests are never patched.
      */
     private fun applyTweaks(p: Prepared, tweaks: ClientTweaksConfig): Prepared {
         if (p.selfTest) return p
@@ -1187,7 +1423,7 @@ internal class WineRuntimeStore(private val context: Context) {
         check(effective.acceptsExecutableForLaunch(pristineSha)) {
             "effective optional client tweaks do not match the leased WoW.exe"
         }
-        val expectedBytes = ClientTweaksConfig.expectedPatchedBytes(pristineBytes, effective)
+        val expectedBytes = ClientTweaksConfig.expectedPublishedPatchedBytes(pristineBytes, effective)
         val parent = checkNotNull(pristine.parentFile) { "managed client parent is absent" }
         val patched = File(parent, "WoW.exe.patched")
         val manifestFile = File(parent, "WoW.exe.patched.manifest.json")
@@ -1218,8 +1454,13 @@ internal class WineRuntimeStore(private val context: Context) {
         temporary.delete()
         try {
             runPatcher(pristine, temporary, parent, effective.toFlags())
-            RandomAccessFile(temporary, "rw").use { it.fd.sync() }
-            val actualBytes = temporary.readBytes()
+            // Companion patch owned by Pocket Realm (upstream patcher output is
+            // verified against it together with the vanilla-tweaks model below).
+            val actualBytes = ClientTweaksConfig.applyNearbyLootAcceptPatch(temporary.readBytes())
+            RandomAccessFile(temporary, "rw").use {
+                it.write(actualBytes)
+                it.fd.sync()
+            }
             check(actualBytes.size == pristineBytes.size) { "patched executable size changed" }
             checkPeX86(actualBytes)
             check(actualBytes.contentEquals(expectedBytes)) {
@@ -1234,6 +1475,7 @@ internal class WineRuntimeStore(private val context: Context) {
                     .put("signature", signature)
                     .put("pristineSha256", pristineSha)
                     .put("patchedSha256", patchedSha)
+                    .put("nearbyLootAccept", true)
                     .put("config", JSONObject(canonical))
                     .toString(),
             )
@@ -1312,18 +1554,12 @@ internal class WineRuntimeStore(private val context: Context) {
         val configFile = File(managed.root, "WTF/Config.wtf")
         check(configFile.isFile && !Files.isSymbolicLink(configFile.toPath()) &&
             configFile.readText(Charsets.UTF_8) == managedConfigText(
-                p, displayProfile, p.audioMode, p.realmEndpoint,
+                p, displayProfile, p.audioMode, p.realmEndpoint, config,
             )) {
             "prepared WoW display/audio configuration changed after preparation"
         }
 
         if (p.armRenderer != null) {
-            val rendererPackage = requireNotNull(RendererPackageCatalog.find(p.armRendererPackageId)) {
-                "prepared renderer package is unavailable"
-            }
-            val driver = requireNotNull(VulkanDriverCatalog.find(p.armVulkanDriverId)) {
-                "prepared Vulkan driver package is unavailable"
-            }
             val identity = checkNotNull(p.armGenerationIdentity) {
                 "prepared ARM graphics generation identity is absent"
             }
@@ -1339,39 +1575,6 @@ internal class WineRuntimeStore(private val context: Context) {
                 "prepared ARM prefix/cache generation identity changed after preparation"
             }
             attestArmCacheDirectories(p)
-            val pinned = listOf(
-                Triple(
-                    File(p.tree, "usr/lib/${driver.libraryName}"),
-                    driver.librarySha256,
-                    "Vulkan driver library",
-                ),
-                Triple(
-                    File(p.tree, "usr/share/vulkan/icd.d/${driver.icdFileName}"),
-                    driver.icdSha256,
-                    "Vulkan driver manifest",
-                ),
-                Triple(
-                    File(p.prefix, "drive_c/windows/system32/d3d9.dll"),
-                    requireNotNull(rendererPackage.system32Sha256),
-                    "DXVK system32 D3D9",
-                ),
-                Triple(
-                    File(p.prefix, "drive_c/windows/syswow64/d3d9.dll"),
-                    requireNotNull(rendererPackage.syswow64Sha256),
-                    "DXVK syswow64 D3D9",
-                ),
-            )
-            pinned.forEach { (file, digest, label) ->
-                check(file.isFile && !Files.isSymbolicLink(file.toPath()) && sha256(file) == digest) {
-                    "$label changed after preparation"
-                }
-            }
-            val dxvkConfig = File(p.cache, ClientRuntimeContract.DXVK_CONFIG_FILE_NAME)
-            check(dxvkConfig.isFile && !Files.isSymbolicLink(dxvkConfig.toPath()) &&
-                dxvkConfig.readText(Charsets.UTF_8) ==
-                    ClientRuntimeContract.dxvkFrameCapConfig(p.frameCap)) {
-                "prepared DXVK frame limiter changed after preparation"
-            }
             val manifestFile = File(p.prefix.parentFile, ARM_PREFIX_MANIFEST_FILE)
             check(manifestFile.isFile && !Files.isSymbolicLink(manifestFile.toPath())) {
                 "prepared ARM prefix manifest is absent or unsafe"
@@ -1381,16 +1584,110 @@ internal class WineRuntimeStore(private val context: Context) {
             check(manifest.getInt("manifest_schema") == ARM_PREFIX_MANIFEST_SCHEMA &&
                 manifest.getString("generation") == identity.generationName &&
                 identity.matchesManifest(manifest) &&
-                manifest.getString("renderer_package_id") == rendererPackage.id &&
-                manifest.getString("vulkan_driver_id") == driver.id &&
                 manifest.getString("display_profile") == p.displayProfileId &&
-                manifest.getString("resolution") == displayProfile.resolution &&
-                manifest.getInt("fps_cap") == p.frameCap &&
-                cacheLayout.length() == 3 &&
-                cacheLayout.getString("dxvk_state") == "$ARM_CACHE_DIRECTORY/dxvk" &&
-                cacheLayout.getString("mesa_shader") == "$ARM_CACHE_DIRECTORY/mesa" &&
-                cacheLayout.getString("xdg") == "$ARM_CACHE_DIRECTORY/xdg") {
-                "prepared graphics/cache/display manifest changed after preparation"
+                manifest.getString("resolution") == resolveVirtualDisplay(displayProfile).resolution &&
+                manifest.getInt("fps_cap") == p.frameCap) {
+                "prepared graphics/display manifest changed after preparation"
+            }
+            when (p.armRenderer) {
+                "dxvk" -> {
+                    val rendererPackage = requireNotNull(
+                        RendererPackageCatalog.find(p.armRendererPackageId),
+                    ) { "prepared renderer package is unavailable" }
+                    val driver = requireNotNull(VulkanDriverCatalog.find(p.armVulkanDriverId)) {
+                        "prepared Vulkan driver package is unavailable"
+                    }
+                    val pinned = listOf(
+                        Triple(File(p.tree, "usr/lib/${driver.libraryName}"),
+                            driver.librarySha256, "Vulkan driver library"),
+                        Triple(File(p.tree, "usr/share/vulkan/icd.d/${driver.icdFileName}"),
+                            driver.icdSha256, "Vulkan driver manifest"),
+                        Triple(File(p.prefix, "drive_c/windows/system32/d3d9.dll"),
+                            requireNotNull(rendererPackage.system32Sha256), "DXVK system32 D3D9"),
+                        Triple(File(p.prefix, "drive_c/windows/syswow64/d3d9.dll"),
+                            requireNotNull(rendererPackage.syswow64Sha256), "DXVK syswow64 D3D9"),
+                    )
+                    pinned.forEach { (file, digest, label) ->
+                        check(file.isFile && !Files.isSymbolicLink(file.toPath()) &&
+                            sha256(file) == digest) { "$label changed after preparation" }
+                    }
+                    val dxvkConfig = File(p.cache, ClientRuntimeContract.DXVK_CONFIG_FILE_NAME)
+                    check(dxvkConfig.isFile && !Files.isSymbolicLink(dxvkConfig.toPath()) &&
+                        dxvkConfig.readText(Charsets.UTF_8) ==
+                            ClientRuntimeContract.dxvkFrameCapConfig(p.frameCap)) {
+                        "prepared DXVK frame limiter changed after preparation"
+                    }
+                    check(manifest.getString("renderer_package_id") == rendererPackage.id &&
+                        manifest.getString("vulkan_driver_id") == driver.id &&
+                        cacheLayout.length() == 3 &&
+                        cacheLayout.getString("dxvk_state") == "$ARM_CACHE_DIRECTORY/dxvk" &&
+                        cacheLayout.getString("mesa_shader") == "$ARM_CACHE_DIRECTORY/mesa" &&
+                        cacheLayout.getString("xdg") == "$ARM_CACHE_DIRECTORY/xdg") {
+                        "prepared DXVK cache manifest changed after preparation"
+                    }
+                }
+                "opengl" -> {
+                    check(p.armRendererPackageId == null && p.armVulkanDriverId == null) {
+                        "prepared Gladio launch carries Vulkan/DXVK identities"
+                    }
+                    val gladioDirectory = File(generationRoot, GLADIO_PAYLOAD_DIRECTORY)
+                    val library = File(gladioDirectory, GLADIO_CLIENT_FILE_NAME)
+                    check(library.isFile && !Files.isSymbolicLink(library.toPath()) &&
+                        sha256(library) == ArmClientRendererCatalog.GLADIO_CLIENT_SHA256) {
+                        "generation-local Gladio client changed after preparation"
+                    }
+                    for (aliasName in listOf("libGL.so", "libGL.so.1")) {
+                        val alias = File(gladioDirectory, aliasName).toPath()
+                        check(Files.isSymbolicLink(alias) &&
+                            Files.readSymbolicLink(alias) == Paths.get(GLADIO_CLIENT_FILE_NAME)) {
+                            "generation-local Gladio alias changed: $aliasName"
+                        }
+                    }
+                    check(manifest.getString("gladio_package_id") ==
+                        ArmClientRendererCatalog.GLADIO_PACKAGE_ID &&
+                        manifest.getString("gladio_client_sha256") ==
+                            ArmClientRendererCatalog.GLADIO_CLIENT_SHA256 &&
+                        manifest.getString("gladio_server_build_id") ==
+                            ArmClientRendererCatalog.GLADIO_SERVER_BUILD_ID &&
+                        cacheLayout.length() == 3 &&
+                        cacheLayout.getString("gladio") == "$ARM_CACHE_DIRECTORY/gladio" &&
+                        cacheLayout.getString("wine") == "$ARM_CACHE_DIRECTORY/wine" &&
+                        cacheLayout.getString("xdg") == "$ARM_CACHE_DIRECTORY/xdg") {
+                        "prepared Gladio payload/cache manifest changed after preparation"
+                    }
+                }
+                "virgl" -> {
+                    check(p.armRendererPackageId == null && p.armVulkanDriverId == null) {
+                        "prepared VirGL launch carries Vulkan/DXVK identities"
+                    }
+                    val virglDirectory = File(generationRoot, VIRGL_PAYLOAD_DIRECTORY)
+                    val library = File(virglDirectory, VIRGL_CLIENT_FILE_NAME)
+                    check(library.isFile && !Files.isSymbolicLink(library.toPath()) &&
+                        sha256(library) == ArmClientRendererCatalog.VIRGL_CLIENT_SHA256) {
+                        "generation-local VirGL client changed after preparation"
+                    }
+                    for (aliasName in listOf("libGL.so", "libGL.so.1")) {
+                        val alias = File(virglDirectory, aliasName).toPath()
+                        check(Files.isSymbolicLink(alias) &&
+                            Files.readSymbolicLink(alias) == Paths.get(VIRGL_CLIENT_FILE_NAME)) {
+                            "generation-local VirGL alias changed: $aliasName"
+                        }
+                    }
+                    check(manifest.getString("virgl_package_id") ==
+                        ArmClientRendererCatalog.VIRGL_PACKAGE_ID &&
+                        manifest.getString("virgl_client_sha256") ==
+                            ArmClientRendererCatalog.VIRGL_CLIENT_SHA256 &&
+                        manifest.getString("virgl_server_build_id") ==
+                            ArmClientRendererCatalog.VIRGL_SERVER_BUILD_ID &&
+                        manifest.getString("virgl_environment_id") ==
+                            ArmClientRendererCatalog.VIRGL_ENVIRONMENT_ID &&
+                        cacheLayout.length() == 2 &&
+                        cacheLayout.getString("mesa_shader") == "$ARM_CACHE_DIRECTORY/virgl" &&
+                        cacheLayout.getString("xdg") == "$ARM_CACHE_DIRECTORY/xdg") {
+                        "prepared VirGL payload/cache manifest changed after preparation"
+                    }
+                }
+                else -> error("unsupported prepared ARM renderer: ${p.armRenderer}")
             }
         }
     }
@@ -1429,7 +1726,10 @@ internal class WineRuntimeStore(private val context: Context) {
         private const val ARM_PREFIX_MANIFEST_FILE = "prefix-manifest.json"
         private const val MAX_RETAINED_INACTIVE_ARM_GENERATIONS = 3
         private const val MAX_RETAINED_RETIRED_ARM_GENERATIONS = 1
-        private val ARM_CACHE_SUBDIRECTORIES = listOf("dxvk", "mesa", "xdg")
+        internal const val GLADIO_PAYLOAD_DIRECTORY = "graphics/gladio"
+        internal const val GLADIO_CLIENT_FILE_NAME = "libGL.so.1.7.0"
+        internal const val VIRGL_PAYLOAD_DIRECTORY = "graphics/virgl"
+        internal const val VIRGL_CLIENT_FILE_NAME = "libGL.so.1.7.0"
         private val ARM_GENERATION_NAME = Regex("g-[0-9a-f]{32}")
         private const val VANILLA_TWEAKS_VERSION = "1.6.0"
         private const val PATCHER_LIB = "libpocket_vanilla_tweaks.so"
@@ -1481,20 +1781,6 @@ internal class WineRuntimeStore(private val context: Context) {
             }
             Files.createSymbolicLink(alias, target)
         }
-    }
-
-    /** Remove the retired host libGL client from old and newly provisioned rootfs generations. */
-    private fun disableArmOpenGlClient(rootfs: File) {
-        val lib = File(rootfs, "usr/lib")
-        for (name in listOf("libGL.so", "libGL.so.1", "libGL.so.1.7.0")) {
-            val target = File(lib, name)
-            if (Files.exists(target.toPath(), LinkOption.NOFOLLOW_LINKS)) {
-                check(target.delete()) { "retired ARM OpenGL client could not be removed: $name" }
-            }
-        }
-        check(listOf("libGL.so", "libGL.so.1", "libGL.so.1.7.0").none {
-            Files.exists(File(lib, it).toPath(), LinkOption.NOFOLLOW_LINKS)
-        }) { "retired ARM OpenGL client is still present" }
     }
 
     /** The pinned Winlator payload embeds its original package root in a
@@ -1592,6 +1878,15 @@ internal class WineRuntimeStore(private val context: Context) {
         linkBuiltins(p)
     }
 
+    /**
+     * Panel-resolved desktop for a profile. Deterministic for one device, so
+     * the launch-side Config.wtf, the safe-profile record, and the later
+     * integrity checks all agree without threading the geometry around.
+     */
+    private fun resolveVirtualDisplay(profile: ClientDisplayProfile): ClientVirtualDisplay =
+        ClientDisplayCapabilities.physicalLandscapeBounds(context)
+            .let { (width, height) -> profile.resolveFor(width, height) }
+
     private fun enforceManagedSafeMode(
         p: Prepared,
         renderer: String,
@@ -1601,17 +1896,24 @@ internal class WineRuntimeStore(private val context: Context) {
         realmEndpoint: RealmEndpoint,
     ) {
         check(p.clientId == ClientRuntimeContract.WOW_5875_ID) { "safe profile target mismatch" }
-        require(renderer == "dxvk" || renderer == "wined3d") {
+        require(renderer == "dxvk" || renderer == "opengl" || renderer == "virgl" ||
+            renderer == "wined3d") {
             "unsupported managed renderer: $renderer"
         }
-        val config = managedConfigText(p, displayProfile, audioMode, realmEndpoint)
+        // [p] is the value returned by applyTweaks. Its canonical tweaks JSON
+        // is launch-effective and may intentionally differ from the user's
+        // persisted request when the imported executable is unqualified.
+        val effectiveTweaks = ClientTweaksConfig.fromControlJson(p.tweaksJson)
+        val config = managedConfigText(
+            p, displayProfile, audioMode, realmEndpoint, effectiveTweaks,
+        )
         ClientRealmEndpointProjection.project(File(p.workingDir, "realmlist.wtf"), realmEndpoint)
         File(p.workingDir, "WTF").mkdirs()
         writeAtomic(File(p.workingDir, "WTF/Config.wtf"), config)
         val activeAddons = AddonRuntimeProjector(context).project(p.workingDir, inputSafeMode)
         val record = JSONObject()
             .put("schema", 1).put("client_id", p.clientId)
-            .put("renderer", renderer).put("resolution", displayProfile.resolution)
+            .put("renderer", renderer).put("resolution", resolveVirtualDisplay(displayProfile).resolution)
             .put("fps_cap", p.frameCap).put("audio", audioMode)
             .put("game_windowed", true).put("game_maximized", displayProfile.gameMaximized)
             .put("realm_endpoint", realmEndpoint.address)
@@ -1627,29 +1929,45 @@ internal class WineRuntimeStore(private val context: Context) {
         displayProfile: ClientDisplayProfile,
         audioMode: String,
         realmEndpoint: RealmEndpoint,
+        effectiveTweaks: ClientTweaksConfig,
     ): String {
         val gameMaximize = if (displayProfile.gameMaximized) "1" else "0"
+        // The virtual desktop adopts the panel's aspect; WoW must render at
+        // exactly that geometry or its window letterboxes inside the desktop.
+        val resolution = resolveVirtualDisplay(displayProfile).resolution
         val soundOn = audioMode == "on"
         val soundFlag = if (soundOn) "1" else "0"
-        val soundChannelsLine = if (soundOn) "SET SoundSoftwareChannels \"64\"\n" else ""
+        val soundMixRateLine = if (soundOn) "SET SoundMixRate \"48000\"\n" else ""
+        // Build 5875 defaults its FMOD/DirectSound queue to 50 ms. That is
+        // independently shorter than the qualified Android ALSA queue and is
+        // a plausible Wine scheduling boundary for this client. Keep both at
+        // 100 ms without changing the selected Wine driver.
+        val soundBufferSizeLine = if (soundOn) "SET SoundBufferSize \"100\"\n" else ""
+        val soundChannelsLine = managedSoundChannelsConfigLine(audioMode, effectiveTweaks)
         val realmNameLine = if (realmEndpoint.isLoopback) "SET realmName \"MaNGOS\"\n" else ""
+        val graphicsApi = if (p.armRenderer == "opengl") "opengl" else "d3d"
+        val legacyShaderLine = if (p.armRenderer == "opengl") "SET M2UseShaders \"0\"\n" else ""
         return """SET readTOS "1"
 SET readEULA "1"
 SET readScanning "1"
 SET movie "0"
-SET gxApi "d3d"
-SET gxResolution "${displayProfile.resolution}"
-SET gxWindowedResolution "${displayProfile.resolution}"
+SET gxApi "$graphicsApi"
+SET gxResolution "$resolution"
+SET gxWindowedResolution "$resolution"
 SET gxWindow "1"
 SET gxMaximize "$gameMaximize"
 SET gxVSync "0"
 SET gxMultisample "1"
 SET gxMultisampleQuality "0.000000"
 SET maxFPS "${p.frameCap}"
+SET scriptMemory "0"
+$legacyShaderLine
 SET Sound_EnableAllSound "$soundFlag"
 SET Sound_EnableMusic "$soundFlag"
 SET Sound_EnableSFX "$soundFlag"
 SET Sound_EnableAmbience "$soundFlag"
+$soundMixRateLine
+$soundBufferSizeLine
 $soundChannelsLine
 SET ffxGlow "0"
 SET ffxDeath "0"

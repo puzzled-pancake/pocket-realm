@@ -7,6 +7,7 @@ import org.apache.commons.compress.archivers.zip.UnixStat
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
 import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
 import java.io.File
+import java.nio.file.Files
 import java.util.concurrent.CancellationException
 
 class AddonArchiveValidatorTest {
@@ -40,20 +41,22 @@ class AddonArchiveValidatorTest {
         }
     }
 
-    @Test fun `unreferenced native and executable payloads fail closed case insensitively`() {
+    @Test fun `regular addon payloads are accepted regardless of filename extension`() {
         listOf("payload.EXE", "payload.DlL", "payload.so", "payload.so.1", "payload.DYLIB").forEach { payload ->
             val archive = zip(
                 "root/Example.toc" to "## Interface: 11200\nExample.lua\n",
                 "root/Example.lua" to "-- safe\n",
                 "root/$payload" to "not executable bytes",
             )
-            assertThrows(IllegalArgumentException::class.java) {
-                AddonArchiveValidator().validate(archive, "Example")
-            }
+            val result = AddonArchiveValidator().validate(archive, "Example")
+            assertEquals(
+                setOf("Example/Example.toc", "Example/Example.lua", "Example/$payload"),
+                result.entries.map { it.relativeName }.toSet(),
+            )
         }
     }
 
-    @Test fun `absolute traversal symlink and executable mode entries fail closed`() {
+    @Test fun `absolute traversal and symlink entries fail closed`() {
         listOf("/root/evil.lua", "root/../evil.lua", "C:/root/evil.lua").forEach { name ->
             assertThrows(IllegalArgumentException::class.java) {
                 AddonArchiveValidator().validate(archive(
@@ -71,12 +74,61 @@ class AddonArchiveValidatorTest {
                 ArchiveRecord("root/link.lua", "Example.lua", UnixStat.LINK_FLAG or 0x1ff),
             ), "Example")
         }
-        assertThrows(IllegalArgumentException::class.java) {
-            AddonArchiveValidator().validate(archive(
-                ArchiveRecord("root/Example.toc", "## Interface: 11200\nExample.lua\n"),
-                ArchiveRecord("root/Example.lua", "-- unsafe mode\n", UnixStat.FILE_FLAG or 0x1ed),
-            ), "Example")
-        }
+    }
+
+    @Test fun `safe addon files are accepted when zip metadata marks them executable`() {
+        val archive = archive(
+            ArchiveRecord("root/Example.toc", "## Interface: 11200\nExample.lua\n", UnixStat.FILE_FLAG or 0x1ed),
+            ArchiveRecord("root/Example.lua", "-- safe addon data\n", UnixStat.FILE_FLAG or 0x1ed),
+        )
+
+        val result = AddonArchiveValidator().validate(archive, "Example")
+
+        assertEquals(listOf("Example"), result.addonFolders)
+        assertEquals(
+            setOf("Example/Example.toc", "Example/Example.lua"),
+            result.entries.map { it.relativeName }.toSet(),
+        )
+        val extracted = Files.createTempDirectory("addon-mode-test-").toFile().apply { deleteOnExit() }
+        AddonArchiveExtractor().extract(archive, result, extracted)
+        assertEquals("-- safe addon data\n", File(extracted, "Example/Example.lua").readText())
+    }
+
+    @Test fun `multi client repository selects only the Vanilla root toc`() {
+        val executableFile = UnixStat.FILE_FLAG or 0x1ed
+        val archive = archive(
+            ArchiveRecord("root/pfQuest.toc", "## Interface: 11200\ndatabase.lua\n"),
+            ArchiveRecord("root/pfQuest-tbc.toc", "## Interface: 20400\ndatabase.lua\n"),
+            ArchiveRecord("root/pfQuest-wotlk.toc", "## Interface: 30300\ndatabase.lua\n"),
+            ArchiveRecord("root/database.lua", "-- shared database\n"),
+            ArchiveRecord("root/toolbox/compressdb.sh", "#!/bin/sh\n", executableFile),
+        )
+
+        val result = AddonArchiveValidator().validate(archive, "pfQuest")
+
+        assertEquals(listOf("pfQuest"), result.addonFolders)
+        assertEquals(
+            setOf(
+                "pfQuest/pfQuest.toc",
+                "pfQuest/pfQuest-tbc.toc",
+                "pfQuest/pfQuest-wotlk.toc",
+                "pfQuest/database.lua",
+                "pfQuest/toolbox/compressdb.sh",
+            ),
+            result.entries.map { it.relativeName }.toSet(),
+        )
+    }
+
+    @Test fun `repository root toc accepts Vanilla windows path declarations`() {
+        val archive = zip(
+            "root/VanillaGuide.toc" to "## Interface: 11200\nlibs\\AceLibrary\\AceLibrary.lua\nCore.lua\n",
+            "root/libs/AceLibrary/AceLibrary.lua" to "-- library\n",
+            "root/Core.lua" to "-- guide\n",
+        )
+
+        val result = AddonArchiveValidator().validate(archive, "VanillaGuide")
+
+        assertEquals(listOf("VanillaGuide"), result.addonFolders)
     }
 
     @Test fun `validation cooperatively cancels during central directory walk`() {
@@ -116,6 +168,91 @@ class AddonArchiveValidatorTest {
         )
         val result = AddonArchiveValidator().validate(archive, "Bundle")
         assertEquals(setOf("Core", "Extra"), result.addonFolders.toSet())
+    }
+
+    @Test fun `VoiceOver data policy accepts only the version agnostic upstream data module`() {
+        val executableFile = UnixStat.FILE_FLAG or 0x1ed
+        val archive = archive(
+            ArchiveRecord("AI_VoiceOverData_Vanilla/AI_VoiceOverData_Vanilla.toc", """
+                ## Interface: 100000
+                ## OptionalDeps: AI_VoiceOver_112, AI_VoiceOver
+                ## X-VoiceOver-DataModule-Version: 1
+                Module.lua
+                generated/quest_id_lookups.lua
+                generated/sounds/quests/example.mp3
+            """.trimIndent(), executableFile),
+            ArchiveRecord("AI_VoiceOverData_Vanilla/Module.lua", "-- module\n", executableFile),
+            ArchiveRecord("AI_VoiceOverData_Vanilla/generated/quest_id_lookups.lua", "return {}\n", executableFile),
+            ArchiveRecord("AI_VoiceOverData_Vanilla/generated/sounds/quests/example.mp3", "audio", executableFile),
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            AddonArchiveValidator().validate(archive, "VoiceOver data")
+        }
+        val result = AddonArchiveValidator().validate(
+            archive,
+            "VoiceOver data",
+            policy = AddonArchiveValidator.Policy.VOICEOVER_DATA,
+        )
+        assertEquals(listOf("AI_VoiceOverData_Vanilla"), result.addonFolders)
+        assertEquals(4, result.entries.size)
+    }
+
+    @Test fun `VoiceOver player policy selects the Vanilla toc from the multi-client release`() {
+        val executableFile = UnixStat.FILE_FLAG or 0x1ed
+        val archive = archive(
+            ArchiveRecord("AI_VoiceOver/AI_VoiceOver.toc", "## Interface: 11200\naddon.xml\n", executableFile),
+            ArchiveRecord("AI_VoiceOver/AI_VoiceOver_Mainline.toc", "## Interface: 11509\naddon.xml\n", executableFile),
+            ArchiveRecord("AI_VoiceOver/AI_VoiceOver_3.3.5.toc", "## Interface: 30300\naddon.xml\n", executableFile),
+            ArchiveRecord("AI_VoiceOver/addon.xml", "<Ui/>\n", executableFile),
+        )
+
+        assertEquals(
+            listOf("AI_VoiceOver"),
+            AddonArchiveValidator().validate(archive, "VoiceOver player").addonFolders,
+        )
+        val result = AddonArchiveValidator().validate(
+            archive,
+            "VoiceOver player",
+            policy = AddonArchiveValidator.Policy.VOICEOVER_PLAYER,
+        )
+        assertEquals(listOf("AI_VoiceOver"), result.addonFolders)
+        assertEquals(4, result.entries.size)
+    }
+
+    @Test fun `VoiceOver data policy rejects lookalike folders and missing dependency metadata`() {
+        val wrongFolder = zip(
+            "Lookalike/Lookalike.toc" to """
+                ## Interface: 100000
+                ## OptionalDeps: AI_VoiceOver_112, AI_VoiceOver
+                ## X-VoiceOver-DataModule-Version: 1
+                Module.lua
+            """.trimIndent(),
+            "Lookalike/Module.lua" to "-- no\n",
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            AddonArchiveValidator().validate(
+                wrongFolder,
+                "VoiceOver data",
+                policy = AddonArchiveValidator.Policy.VOICEOVER_DATA,
+            )
+        }
+
+        val missingDependency = zip(
+            "AI_VoiceOverData_Vanilla/AI_VoiceOverData_Vanilla.toc" to """
+                ## Interface: 100000
+                ## X-VoiceOver-DataModule-Version: 1
+                Module.lua
+            """.trimIndent(),
+            "AI_VoiceOverData_Vanilla/Module.lua" to "-- no\n",
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            AddonArchiveValidator().validate(
+                missingDependency,
+                "VoiceOver data",
+                policy = AddonArchiveValidator.Policy.VOICEOVER_DATA,
+            )
+        }
     }
 
     @Test fun `unsafe and incompatible archives fail closed`() {

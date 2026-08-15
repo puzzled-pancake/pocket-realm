@@ -2,10 +2,6 @@ package com.pocketrealm.addons
 
 import android.content.Context
 import android.system.Os
-import com.pocketrealm.client.ControlScheme
-import com.pocketrealm.client.ControllerAction
-import com.pocketrealm.client.InputProfile
-import com.pocketrealm.client.InputProfileStore
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -18,48 +14,57 @@ import java.util.Locale
 class AddonRuntimeProjector(
     context: Context,
     rootOverride: File? = null,
-    private val profileOverride: InputProfile? = null,
 ) {
     private val appContext = context.applicationContext
-    private val root = rootOverride ?: File(context.applicationContext.noBackupFilesDir, "addons")
+    private val root = rootOverride ?: File(appContext.noBackupFilesDir, "addons")
     private val registry = File(root, "registry.json")
 
     fun project(clientRoot: File, safeMode: Boolean): List<String> {
         val addons = File(clientRoot, "Interface/AddOns").apply { mkdirs() }
         val ownership = File(addons, OWNERSHIP_FILE)
-        val previous = readOwned(ownership).distinctBy { it.lowercase(Locale.ROOT) }
+        val previous = readOwned(ownership)
+            .distinctBy { it.lowercase(Locale.ROOT) }
+        val vanillaConsolePortWasManaged = previous.any {
+            it.equals(VanillaConsolePortPackage.ADDON_FOLDER, ignoreCase = true)
+        }
         val previousKeys = previous.map { it.lowercase(Locale.ROOT) }.toSet()
-        val requested = linkedMapOf<String, Pair<String, File>>()
+        // A null source denotes the APK-owned built-in tree. It is copied
+        // directly from current assets at every launch, so an app upgrade
+        // cannot race an asynchronous package-cache refresh.
+        val requested = linkedMapOf<String, Pair<String, File?>>()
         val installed = if (registry.isFile) {
             runCatching { readInstalled() }.getOrElse { failure ->
                 if (safeMode) emptyList() else throw failure
             }
         } else emptyList()
-        val hasPocketRealmPad = installed.any { addon ->
-            addon.folders.any { it.equals(POCKET_REALM_PAD_FOLDER, ignoreCase = true) }
-        }
+        // The built-in semantic actions emit qualified balanced F6 target and
+        // F9 auto-run surrogates, including when the retired controller add-on
+        // was never installed. The repair is idempotent, preserves arbitrary
+        // player bindings on either key, and retires legacy claims when found.
+        LegacyControllerBindingRepair.repair(clientRoot)
         if (!safeMode) {
-            installed.forEach { addon ->
-                val packageRoot = safePackage(addon.packagePath)
+            installed.filterNot(::isRetiredProduct).forEach { addon ->
                 addon.folders.forEach { folder ->
-                    val source = safeChild(packageRoot, folder)
-                    require(source.isDirectory) { "Installed addon folder is missing: $folder" }
-                    require(requested.put(folder.lowercase(Locale.ROOT), folder to source) == null) {
+                    val source = if (addon.id == VanillaConsolePortPackage.INSTALL_ID) {
+                        require(folder == VanillaConsolePortPackage.ADDON_FOLDER) {
+                            "Built-in Android Port registry has an unexpected folder"
+                        }
+                        null
+                    } else {
+                        val packageRoot = safePackage(addon.packagePath)
+                        safeChild(packageRoot, folder).also {
+                            require(it.isDirectory) { "Installed addon folder is missing: $folder" }
+                        }
+                    }
+                    val folderKey = folder.lowercase(Locale.ROOT)
+                    require(requested.put(folderKey, folder to source) == null) {
                         "Two installed packages provide the same addon folder: $folder"
                     }
                 }
             }
         }
-        // Once projected, keep the tiny disabled helper managed even after PRP
-        // is removed. It must run once (and may harmlessly remain thereafter)
-        // to restore the user's previous bindings from its SavedVariables.
-        val keepRestorationHelper = hasPocketRealmPad ||
-            LAUNCHER_FOLDER.lowercase(Locale.ROOT) in previousKeys
-        val generatedFolders = if (keepRestorationHelper) listOf(LAUNCHER_FOLDER) else emptyList()
-        require(generatedFolders.none { requested.containsKey(it.lowercase(Locale.ROOT)) }) {
-            "Installed addon conflicts with the launcher-managed PocketRealmPad helper"
-        }
-        val desiredFolders = requested.values.map { it.first } + generatedFolders
+        val vanillaConsolePortInstalled = installed.any { it.id == VanillaConsolePortPackage.INSTALL_ID }
+        val desiredFolders = requested.values.map { it.first }
 
         desiredFolders.forEach { folder ->
             val target = safeChild(addons, folder)
@@ -76,13 +81,12 @@ class AddonRuntimeProjector(
         try {
             check(stagingRoot.mkdirs()) { "Addon staging directory could not be created" }
             requested.values.forEach { (folder, source) ->
-                copyTree(source, safeChild(stagingRoot, folder))
-            }
-            if (keepRestorationHelper) {
-                writePocketRealmPadLauncher(
-                    safeChild(stagingRoot, LAUNCHER_FOLDER),
-                    safeMode || !hasPocketRealmPad,
-                )
+                val target = safeChild(stagingRoot, folder)
+                if (source == null) {
+                    copyBuiltInAssetTree("${VanillaConsolePortPackage.ASSET_PATH}/$folder", target)
+                } else {
+                    copyTree(source, target)
+                }
             }
             check(backupRoot.mkdirs()) { "Addon rollback directory could not be created" }
             previous.forEach { folder ->
@@ -103,7 +107,6 @@ class AddonRuntimeProjector(
             val applied = desiredFolders
             writeOwned(ownership, applied)
             backupRoot.deleteRecursively()
-            return applied
         } catch (failure: Throwable) {
             published.asReversed().forEach { it.deleteRecursively() }
             var restoreFailed = false
@@ -122,6 +125,17 @@ class AddonRuntimeProjector(
         } finally {
             stagingRoot.deleteRecursively()
         }
+        // Binding mutation happens after folder publication is committed but
+        // still before Wine launches. A collision or staging failure therefore
+        // cannot leave stale binding provenance behind. If this step fails,
+        // launch fails closed and retries against the committed folder state.
+        if (!safeMode && vanillaConsolePortInstalled) {
+            VanillaConsolePortBindingRepair.captureBeforeLaunch(clientRoot, File(root, VCP_BINDING_JOURNAL))
+        } else if (!vanillaConsolePortInstalled &&
+            (vanillaConsolePortWasManaged || File(root, VCP_BINDING_JOURNAL).isFile)) {
+            VanillaConsolePortBindingRepair.restoreAfterRemoval(clientRoot, File(root, VCP_BINDING_JOURNAL))
+        }
+        return desiredFolders
     }
 
     private fun readInstalled(): List<InstalledAddon> {
@@ -162,83 +176,11 @@ class AddonRuntimeProjector(
         Os.rename(temp.absolutePath, file.absolutePath)
     }
 
-    /**
-     * Projects a tiny app-owned companion next to PocketRealmPad. It changes
-     * bindings only after the user selects a PocketRealmPad control profile,
-     * remembers the prior WoW binding for every claimed key, and restores those
-     * bindings when the profile or safe mode disables integration.
-     */
-    private fun writePocketRealmPadLauncher(destination: File, safeMode: Boolean) {
-        check(destination.mkdirs()) { "PocketRealmPad launcher directory could not be created" }
-        val profile = profileOverride ?: InputProfileStore(appContext)
-            .load(InputProfile.DEFAULT_ASPECT_IDENTITY).profile
-        val enabled = !safeMode && profile.usesPocketRealmPadCommands()
-        writeSynced(
-            File(destination, "$LAUNCHER_FOLDER.toc"),
-            """## Interface: 11200
-## Title: Pocket Realm - PocketRealmPad bindings
-## Notes: Applies the control profile selected in the Pocket Realm launcher.
-## OptionalDeps: PocketRealmPad
-## SavedVariables: PocketRealmPadLauncherDB
-$LAUNCHER_FOLDER.lua
-""",
-        )
-        writeSynced(File(destination, "$LAUNCHER_FOLDER.lua"), launcherLua(enabled))
-    }
+    private fun isRetiredProduct(addon: InstalledAddon): Boolean =
+        addon.id in RETIRED_PRODUCT_INSTALL_IDS || addon.folders.any(::isRetiredProductFolder)
 
-    private fun launcherLua(enabled: Boolean): String {
-        val active = if (enabled) "true" else "false"
-        return """local wanted = $active
-local stamp = "pocketrealm-pad-v1-" .. (wanted and "on" or "off")
-local keys = {
-  ["1"]="PRP_ACTION1", ["2"]="PRP_ACTION2", ["3"]="PRP_ACTION3", ["4"]="PRP_ACTION4",
-  ["5"]="PRP_ACTION5", ["6"]="PRP_ACTION6", ["7"]="PRP_ACTION7", ["8"]="PRP_ACTION8",
-  ["F8"]="PRP_MOD_BANK", ["F9"]="PRP_MOD_SHIFT", ["F10"]="PRP_MOD_CTRL",
-  ["UP"]="PRP_NAV_UP", ["DOWN"]="PRP_NAV_DOWN", ["LEFT"]="PRP_NAV_LEFT", ["RIGHT"]="PRP_NAV_RIGHT",
-  ["F7"]="PRP_QUICK_MENU", ["B"]="PRP_INVENTORY", ["TAB"]="PRP_TARGET_NEXT_ENEMY"
-}
-local frame = CreateFrame("Frame")
-frame:RegisterEvent("PLAYER_LOGIN")
-frame:SetScript("OnEvent", function()
-  if type(SetBinding) ~= "function" or type(SaveBindings) ~= "function" then return end
-  if type(PocketRealmPadLauncherDB) ~= "table" then PocketRealmPadLauncherDB = {} end
-  local db = PocketRealmPadLauncherDB
-  if db.stamp == stamp then return end
-  if type(db.previous) ~= "table" then db.previous = {} end
-  if wanted then
-    if not db.active then
-      for key, command in pairs(keys) do
-        local prior = GetBindingAction and GetBindingAction(key) or ""
-        db.previous[key] = prior ~= "" and prior or false
-      end
-    end
-    for key, command in pairs(keys) do SetBinding(key, command) end
-    db.active = true
-  elseif db.active then
-    for key, command in pairs(keys) do
-      local prior = db.previous[key]
-      if prior and prior ~= "" then SetBinding(key, prior) else SetBinding(key) end
-    end
-    db.active = false
-  end
-  SaveBindings((GetCurrentBindingSet and GetCurrentBindingSet()) or 1)
-  db.stamp = stamp
-end)
-"""
-    }
-
-    private fun InputProfile.usesPocketRealmPadCommands(): Boolean =
-        scheme == ControlScheme.POCKET_REALM_PAD ||
-            scheme == ControlScheme.POCKET_REALM_PAD_CAMERA ||
-            rp6Bindings.values.any { it in POCKET_REALM_PAD_ACTIONS } ||
-            overlayBindings.values.any { it in POCKET_REALM_PAD_ACTIONS }
-
-    private fun writeSynced(file: File, content: String) {
-        FileOutputStream(file).use { output ->
-            output.write(content.toByteArray(Charsets.UTF_8))
-            output.fd.sync()
-        }
-    }
+    private fun isRetiredProductFolder(folder: String): Boolean =
+        RETIRED_PRODUCT_FOLDERS.any { it.equals(folder, ignoreCase = true) }
 
     private fun copyTree(source: File, destination: File) {
         require(!destination.exists()) { "Addon staging collision" }
@@ -254,6 +196,49 @@ end)
                     FileOutputStream(target).use { output -> input.copyTo(output); output.fd.sync() }
                 }
             }
+        }
+    }
+
+    private fun copyBuiltInAssetTree(assetRoot: String, destination: File) {
+        var files = 0
+        var bytes = 0L
+        fun copy(path: String, target: File) {
+            val children = appContext.assets.list(path)?.sorted().orEmpty()
+            if (children.isNotEmpty()) {
+                check(target.mkdirs() || target.isDirectory) { "Built-in add-on directory could not be staged" }
+                children.forEach { name ->
+                    require(name.matches(Regex("[A-Za-z0-9_. -]+")) && name != "." && name != "..") {
+                        "Built-in add-on contains an unsafe asset name"
+                    }
+                    copy("$path/$name", safeChild(target, name))
+                }
+                return
+            }
+            files += 1
+            require(files <= MAX_BUILTIN_FILES) { "Built-in add-on contains too many files" }
+            require(target.extension.lowercase(Locale.ROOT) in BUILTIN_ALLOWED_EXTENSIONS) {
+                "Built-in add-on contains a forbidden file type: ${target.name}"
+            }
+            target.parentFile!!.mkdirs()
+            appContext.assets.open(path).use { input ->
+                FileOutputStream(target).use { output ->
+                    val buffer = ByteArray(32 * 1024)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        bytes += count
+                        require(bytes <= MAX_BUILTIN_BYTES) { "Built-in add-on is larger than supported" }
+                        output.write(buffer, 0, count)
+                    }
+                    output.fd.sync()
+                }
+            }
+        }
+        copy(assetRoot, destination)
+        require(files > 0) { "Built-in Android Port assets are missing" }
+        val toc = File(destination, "${VanillaConsolePortPackage.ADDON_FOLDER}.toc")
+        require(toc.isFile && Regex("""(?m)^## Interface:\s*11200\s*$""").containsMatchIn(toc.readText())) {
+            "Built-in Android Port is not an Interface 11200 add-on"
         }
     }
 
@@ -278,18 +263,14 @@ end)
 
     private companion object {
         const val OWNERSHIP_FILE = ".pocketrealm-managed.json"
-        const val POCKET_REALM_PAD_FOLDER = "PocketRealmPad"
-        const val LAUNCHER_FOLDER = "PocketRealmPadLauncher"
-        val POCKET_REALM_PAD_ACTIONS = setOf(
-            ControllerAction.PRP_BANK,
-            ControllerAction.PRP_LAYER_2,
-            ControllerAction.PRP_LAYER_3,
-            ControllerAction.NAV_UP,
-            ControllerAction.NAV_DOWN,
-            ControllerAction.NAV_LEFT,
-            ControllerAction.NAV_RIGHT,
-            ControllerAction.INVENTORY,
-            ControllerAction.RADIAL_MENU,
+        val RETIRED_PRODUCT_INSTALL_IDS = setOf(
+            "bundled__pocketrealmpad",
+            "pepordev__consoleexperienceclassic",
         )
+        val RETIRED_PRODUCT_FOLDERS = setOf("PocketRealmPad", "PocketRealmPadLauncher")
+        const val MAX_BUILTIN_FILES = 512
+        const val MAX_BUILTIN_BYTES = 8L * 1024 * 1024
+        val BUILTIN_ALLOWED_EXTENSIONS = setOf("lua", "toc", "xml", "md", "txt", "tga", "blp")
+        const val VCP_BINDING_JOURNAL = "vanilla-console-port-bindings.json"
     }
 }

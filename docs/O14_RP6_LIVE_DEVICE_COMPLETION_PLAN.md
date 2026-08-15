@@ -161,8 +161,8 @@ Before editing:
 1. Run `git status --short` and inspect every existing diff.
 2. Preserve user and earlier-agent changes. Do not reset, checkout, or rewrite
    them to obtain a clean tree.
-3. Do not touch, stage, delete, open as an archive, or redistribute
-   `docs/PocketRealmPad-0.1.0-alpha.zip`.
+3. The retired controller add-on archive is not part of the product or build;
+   do not recreate, redistribute, or project it into a managed client.
 4. Do not clear app data, remove the managed client, replace the database, or
    delete a prefix without explicit user approval and a verified backup.
 5. Do not place WoW files, extracted MPQ contents, database dumps containing

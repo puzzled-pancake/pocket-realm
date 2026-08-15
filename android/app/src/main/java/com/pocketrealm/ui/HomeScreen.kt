@@ -43,12 +43,16 @@ import androidx.compose.ui.unit.dp
 import com.pocketrealm.bots.BotProfile
 import com.pocketrealm.bots.BotProfiles
 import com.pocketrealm.client.IntegratedClientDisplay
+import com.pocketrealm.client.ArmClientRenderer
+import com.pocketrealm.client.ArmClientRendererCatalog
+import com.pocketrealm.client.AndroidGladioCapabilityProbe
 import com.pocketrealm.client.AndroidSystemVulkanProbe
 import com.pocketrealm.client.ClientAudioPolicy
 import com.pocketrealm.client.ClientDisplayProfile
 import com.pocketrealm.client.ClientRuntimeSelector
 import com.pocketrealm.client.RendererPackageCatalog
 import com.pocketrealm.client.SystemVulkanCapabilities
+import com.pocketrealm.client.GladioCapability
 import com.pocketrealm.client.VulkanDriverCatalog
 import com.pocketrealm.realm.RealmState
 import com.pocketrealm.realm.ClientLaunchState
@@ -74,13 +78,28 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
     val systemVulkanProbe by produceState<Result<SystemVulkanCapabilities>?>(initialValue = null) {
         value = withContext(Dispatchers.IO) { runCatching { AndroidSystemVulkanProbe.probe() } }
     }
+    val gladioProbe by produceState<Result<GladioCapability>?>(initialValue = null) {
+        value = withContext(Dispatchers.IO) {
+            runCatching { AndroidGladioCapabilityProbe.probe(context) }
+        }
+    }
     val clientUnavailableReason = if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
-        VulkanDriverCatalog.availabilityForPair(
-            settingsSnapshot.selectedVulkanDriverId(),
-            settingsSnapshot.selectedDxvkPackageId(),
-            Build.MODEL,
-            systemVulkanProbe?.getOrNull(),
-        ).takeUnless { it.available }?.reason
+        when (settingsSnapshot.selectedArmRenderer()) {
+            ArmClientRenderer.DXVK -> VulkanDriverCatalog.availabilityForPair(
+                settingsSnapshot.selectedVulkanDriverId(),
+                settingsSnapshot.selectedDxvkPackageId(),
+                Build.MODEL,
+                systemVulkanProbe?.getOrNull(),
+            ).takeUnless { it.available }?.reason
+            ArmClientRenderer.LEGACY_GLADIO -> ArmClientRendererCatalog.availability(
+                ArmClientRenderer.LEGACY_GLADIO, gladioProbe,
+                Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
+            ).takeUnless { it.available }?.reason
+            ArmClientRenderer.MESA_VIRGL -> ArmClientRendererCatalog.availability(
+                ArmClientRenderer.MESA_VIRGL, gladioProbe,
+                Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
+            ).takeUnless { it.available }?.reason
+        }
     } else null
     val botProfile = remember(settingsSnapshot) {
         if (settingsSnapshot.botAdvancedEnabled) {
@@ -572,15 +591,25 @@ private fun CurrentSetupCard(
     storedAccount: String?,
     modifier: Modifier = Modifier,
 ) {
-    val display = runCatching { settings.displaySelection() }.getOrElse {
-        com.pocketrealm.client.ClientDisplaySelection.defaultForDevice(
-            Build.SUPPORTED_ABIS.asList(), Build.MODEL,
-        )
+    val context = LocalContext.current
+    val display = remember(context, settings.displayProfileId, settings.clientFrameCap) {
+        runCatching {
+            com.pocketrealm.client.ClientDisplayCapabilities.requireSelection(
+                context, settings.displayProfileId, settings.clientFrameCap,
+            )
+        }.getOrElse { settings.displaySelection() }
     }
-    val dxvk = RendererPackageCatalog.find(settings.selectedDxvkPackageId())?.dxvkVersion
-        ?: "pinned"
-    val vulkan = com.pocketrealm.client.VulkanDriverCatalog
-        .find(settings.selectedVulkanDriverId())?.label ?: "System Vulkan"
+    val graphics = when (settings.selectedArmRenderer()) {
+        ArmClientRenderer.DXVK -> {
+            val dxvk = RendererPackageCatalog.find(settings.selectedDxvkPackageId())?.dxvkVersion
+                ?: "pinned"
+            val vulkan = VulkanDriverCatalog.find(settings.selectedVulkanDriverId())?.label
+                ?: "Vulkan"
+            "$vulkan / DXVK $dxvk"
+        }
+        ArmClientRenderer.LEGACY_GLADIO -> "Legacy OpenGL / Gladio (experimental)"
+        ArmClientRenderer.MESA_VIRGL -> "Mesa VirGL / virpipe (experimental)"
+    }
     val behavior = when {
         profile.allowBotChat || profile.allowPlayerInvites -> "Social"
         profile.autoDoQuests || profile.groupNearby || profile.wanderWhenIdle -> "Natural"
@@ -616,7 +645,7 @@ private fun CurrentSetupCard(
                 style = MaterialTheme.typography.bodySmall,
             )
             Text(
-                "${display.resolution} · ${display.frameCap.fps} FPS · $vulkan · DXVK $dxvk · $sound",
+                "${display.resolution} · ${display.frameCap.fps} FPS · $graphics · $sound",
                 style = MaterialTheme.typography.bodySmall,
             )
             Text(login, style = MaterialTheme.typography.bodySmall)
