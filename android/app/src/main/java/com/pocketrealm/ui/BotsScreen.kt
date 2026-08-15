@@ -1396,9 +1396,6 @@ private fun AccountsSection(
         Stepper("Maintenance batch", working.maintenanceBatchSize, 1..64) { value ->
             onWorking(working.copy(maintenanceBatchSize = value))
         }
-        Stepper("Alternate bots per account", working.maximumAltBots, 0..8) { value ->
-            onWorking(working.copy(maximumAltBots = value))
-        }
         Stepper("Generation batch", working.generationBatchSize, 1..10) { value ->
             onWorking(working.copy(generationBatchSize = value))
         }
