@@ -52,6 +52,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.navigation
+import com.pocketrealm.log.AppLog
 import com.pocketrealm.realm.RealmState
 import com.pocketrealm.supervisor.RuntimeSupervisorClient
 
@@ -136,8 +137,8 @@ fun PocketRealmApp() {
                 ) {
                     composable(Screen.Home.route) {
                         HomeScreen(
-                            onOpenBots = { navController.navigate(Screen.Bots.route) },
-                            onOpenSettings = { navController.navigate(Screen.Settings.route) },
+                            onOpenBots = { navigatePush(navController, Screen.Bots.route) },
+                            onOpenSettings = { navigatePush(navController, Screen.Settings.route) },
                         )
                     }
                     composable(Screen.Bots.route) {
@@ -149,30 +150,30 @@ fun PocketRealmApp() {
                     navigation(startDestination = AddonRoutes.HUB, route = Screen.Addons.route) {
                         composable(AddonRoutes.HUB) {
                             AddonsHubScreen(
-                                onRecommended = { navController.navigate(AddonRoutes.RECOMMENDED) },
-                                onInstalled = { navController.navigate(AddonRoutes.INSTALLED) },
-                                onBrowse = { navController.navigate(AddonRoutes.BROWSE) },
-                                onCustom = { navController.navigate(AddonRoutes.CUSTOM) },
+                                onRecommended = { navigatePush(navController, AddonRoutes.RECOMMENDED) },
+                                onInstalled = { navigatePush(navController, AddonRoutes.INSTALLED) },
+                                onBrowse = { navigatePush(navController, AddonRoutes.BROWSE) },
+                                onCustom = { navigatePush(navController, AddonRoutes.CUSTOM) },
                             )
                         }
                         composable(AddonRoutes.RECOMMENDED) {
                             RecommendedAddonsScreen { matrixId ->
-                                navController.navigate(AddonRoutes.catalogDetail(matrixId))
+                                navigatePush(navController, AddonRoutes.catalogDetail(matrixId))
                             }
                         }
                         composable(AddonRoutes.INSTALLED) {
                             InstalledAddonsScreen(
                                 onOpenCatalogAddon = { matrixId ->
-                                    navController.navigate(AddonRoutes.catalogDetail(matrixId))
+                                    navigatePush(navController, AddonRoutes.catalogDetail(matrixId))
                                 },
                                 onOpenCustomAddon = { installId ->
-                                    navController.navigate(AddonRoutes.installedDetail(installId))
+                                    navigatePush(navController, AddonRoutes.installedDetail(installId))
                                 },
                             )
                         }
                         composable(AddonRoutes.BROWSE) {
                             BrowseAddonsScreen { matrixId ->
-                                navController.navigate(AddonRoutes.catalogDetail(matrixId))
+                                navigatePush(navController, AddonRoutes.catalogDetail(matrixId))
                             }
                         }
                         composable(AddonRoutes.CUSTOM) { CustomAddonInstallScreen() }
@@ -194,10 +195,10 @@ fun PocketRealmApp() {
                     composable(Screen.Controls.route) { ControlsScreen() }
                     composable(Screen.Settings.route) {
                         SettingsScreen(
-                            onBots = { navController.navigate(Screen.Bots.route) },
-                            onClientSetup = { navController.navigate(Screen.Client.route) },
-                            onCapability = { navController.navigate(Screen.Capability.route) },
-                            onDiagnostics = { navController.navigate(Screen.Diagnostics.route) },
+                            onBots = { navigatePush(navController, Screen.Bots.route) },
+                            onClientSetup = { navigatePush(navController, Screen.Client.route) },
+                            onCapability = { navigatePush(navController, Screen.Capability.route) },
+                            onDiagnostics = { navigatePush(navController, Screen.Diagnostics.route) },
                         )
                     }
                     composable(Screen.Client.route) { ClientScreen(PaddingValues()) }
@@ -265,11 +266,18 @@ internal fun realmStatusBadge(state: RealmState): String = when (state) {
 }
 
 private fun navigateTop(navController: androidx.navigation.NavHostController, route: String) {
+    AppLog.i("Nav", "top: $route (from=${navController.currentDestination?.route})")
     navController.navigate(route) {
         popUpTo(navController.graph.findStartDestination().id) { saveState = true }
         launchSingleTop = true
         restoreState = true
     }
+}
+
+/** In-content pushes keep the back stack; singleTop guards double-taps. */
+private fun navigatePush(navController: androidx.navigation.NavHostController, route: String) {
+    AppLog.i("Nav", "push: $route (from=${navController.currentDestination?.route})")
+    navController.navigate(route) { launchSingleTop = true }
 }
 
 internal object AddonRoutes {

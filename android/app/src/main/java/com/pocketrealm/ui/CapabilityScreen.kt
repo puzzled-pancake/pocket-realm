@@ -2,6 +2,8 @@ package com.pocketrealm.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -41,6 +43,7 @@ import kotlinx.coroutines.launch
  * driven by the host driver, not here; this screen offers a short bounded
  * smoke for quick verification.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CapabilityScreen(contentPadding: PaddingValues = PaddingValues()) {
     val context = LocalContext.current
@@ -110,7 +113,7 @@ fun CapabilityScreen(contentPadding: PaddingValues = PaddingValues()) {
             Text("System checks", style = MaterialTheme.typography.titleMedium)
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { launch { runner.runPkg01() } }, enabled = !busy) { Text("Native runtime") }
                 Button(onClick = { launch { runner.runPkg02() } }, enabled = !busy) { Text("Services") }
                 Button(onClick = { launch { runner.runPkg06(durationSeconds = 10) } }, enabled = !busy) { Text("Client session (10s)") }

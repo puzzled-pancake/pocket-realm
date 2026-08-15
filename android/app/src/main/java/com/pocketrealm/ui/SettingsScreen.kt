@@ -340,7 +340,7 @@ fun SettingsScreen(
             )
             LabeledSlider(
                 label = "Repeated-press guard",
-                valueText = "${snap.nearbyInteractTriggerGuardMs} ms",
+                valueText = { "${it.roundToInt()} ms" },
                 value = snap.nearbyInteractTriggerGuardMs.toFloat(),
                 range = NearbyInteractPolicy.MIN_TRIGGER_GUARD_MS.toFloat()..
                     NearbyInteractPolicy.MAX_TRIGGER_GUARD_MS.toFloat(),
@@ -521,43 +521,43 @@ private fun AutoLoginTimingControls(
     onTimings: ((Settings.AutoLoginTimings) -> Settings.AutoLoginTimings) -> Unit,
     onReset: () -> Unit,
 ) {
-    LabeledSlider("Poll interval", "${timings.pollIntervalMs} ms",
+    LabeledSlider("Poll interval", { "${it.toLong()} ms" },
         timings.pollIntervalMs.toFloat(), 100f..1000f, 17, "al-poll") { v ->
         onTimings { it.copy(pollIntervalMs = v.toLong().coerceIn(100, 1000)) }
     }
-    LabeledSlider("Stable polls", "${timings.requiredStablePolls}",
+    LabeledSlider("Stable polls", { "${it.toInt()}" },
         timings.requiredStablePolls.toFloat(), 1f..12f, 10, "al-stable") { v ->
         onTimings { it.copy(requiredStablePolls = v.toInt().coerceIn(1, 12)) }
     }
-    LabeledSlider("Login UI settle", "${timings.loginUiSettleMs} ms",
+    LabeledSlider("Login UI settle", { "${it.toLong()} ms" },
         timings.loginUiSettleMs.toFloat(), 1000f..30000f, 57, "al-settle") { v ->
         onTimings { it.copy(loginUiSettleMs = v.toLong().coerceIn(1000, 30000)) }
     }
-    LabeledSlider("Session timeout", "${timings.sessionTimeoutMs / 1000} s",
+    LabeledSlider("Session timeout", { "${it.toLong() / 1000} s" },
         timings.sessionTimeoutMs.toFloat(), 60000f..900000f, 55, "al-session") { v ->
         onTimings { it.copy(sessionTimeoutMs = v.toLong().coerceIn(60000, 900000)) }
     }
-    LabeledSlider("Drain poll", "${timings.drainPollMs} ms",
+    LabeledSlider("Drain poll", { "${it.toLong()} ms" },
         timings.drainPollMs.toFloat(), 25f..200f, 34, "al-drain") { v ->
         onTimings { it.copy(drainPollMs = v.toLong().coerceIn(25, 200)) }
     }
-    LabeledSlider("Input drain timeout", "${timings.inputDrainTimeoutMs} ms",
+    LabeledSlider("Input drain timeout", { "${it.toLong()} ms" },
         timings.inputDrainTimeoutMs.toFloat(), 1000f..30000f, 57, "al-input-drain") { v ->
         onTimings { it.copy(inputDrainTimeoutMs = v.toLong().coerceIn(1000, 30000)) }
     }
-    LabeledSlider("IME key dwell", "${timings.imeKeyDwellMs} ms",
+    LabeledSlider("IME key dwell", { "${it.toLong()} ms" },
         timings.imeKeyDwellMs.toFloat(), 20f..200f, 35, "al-ime-dwell") { v ->
         onTimings { it.copy(imeKeyDwellMs = v.toLong().coerceIn(20, 200)) }
     }
-    LabeledSlider("IME key gap", "${timings.imeKeyGapMs} ms",
+    LabeledSlider("IME key gap", { "${it.toLong()} ms" },
         timings.imeKeyGapMs.toFloat(), 0f..100f, 19, "al-ime-gap") { v ->
         onTimings { it.copy(imeKeyGapMs = v.toLong().coerceIn(0, 100)) }
     }
-    LabeledSlider("Field settle", "${timings.fieldSettleMs} ms",
+    LabeledSlider("Field settle", { "${it.toLong()} ms" },
         timings.fieldSettleMs.toFloat(), 50f..2000f, 38, "al-field") { v ->
         onTimings { it.copy(fieldSettleMs = v.toLong().coerceIn(50, 2000)) }
     }
-    LabeledSlider("Pointer dwell", "${timings.pointerDwellMs} ms",
+    LabeledSlider("Pointer dwell", { "${it.toLong()} ms" },
         timings.pointerDwellMs.toFloat(), 20f..500f, 47, "al-pointer") { v ->
         onTimings { it.copy(pointerDwellMs = v.toLong().coerceIn(20, 500)) }
     }
@@ -616,24 +616,31 @@ private fun TweakSwitch(label: String, checked: Boolean, tag: String, onChange: 
     }
 }
 
+/**
+ * Slider that persists only when the drag finishes; every onValueChange
+ * frame stays local so a drag does not open one DataStore transaction per
+ * frame (the multi-process preferences file is contended with :supervisor).
+ */
 @Composable
 private fun LabeledSlider(
     label: String,
-    valueText: String,
+    valueText: (Float) -> String,
     value: Float,
     range: ClosedFloatingPointRange<Float>,
     steps: Int,
     tag: String,
-    onValueChange: (Float) -> Unit,
+    onCommit: (Float) -> Unit,
 ) {
+    var position by remember(value) { mutableStateOf(value) }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(label, style = MaterialTheme.typography.labelLarge)
-        Text(valueText, style = MaterialTheme.typography.labelMedium)
+        Text(valueText(position), style = MaterialTheme.typography.labelMedium)
     }
     Text(advancedExplanation(label), style = MaterialTheme.typography.bodySmall)
     Slider(
-        value = value,
-        onValueChange = onValueChange,
+        value = position,
+        onValueChange = { position = it },
+        onValueChangeFinished = { onCommit(position) },
         valueRange = range,
         steps = steps,
         modifier = Modifier.fillMaxWidth().testTag(tag),

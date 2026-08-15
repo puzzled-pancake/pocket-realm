@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -50,12 +52,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pocketrealm.bots.BotActivityPreset
 import com.pocketrealm.bots.BotAdvancedSettings
@@ -105,13 +109,17 @@ fun BotsScreen() {
     }.collectAsState(initial = RealmState.Idle)
 
     // One-time migration of a legacy advanced setup into a named preset (§42).
-    LaunchedEffect(snapshotState?.botPresetsImported, snapshotState?.botAdvancedEnabled) {
+    // Reuses an existing "Imported Advanced Setup" preset so a half-completed
+    // earlier attempt (process death between store write and DataStore write)
+    // can never leave duplicates behind.
+    LaunchedEffect(snapshotState?.botPresetsImported, snapshotState?.botAdvancedEnabled, presets) {
         val snap = snapshotState ?: return@LaunchedEffect
         if (!snap.botPresetsImported && snap.botAdvancedEnabled) {
             val legacy = BotProfiles.advanced(snap.botPopulationTarget, snap.botAdvanced)
-            val imported = runCatching {
-                store.create("Imported Advanced Setup", base = legacy)
-            }.getOrNull()
+            val imported = presets.firstOrNull { it.name == IMPORTED_PRESET_NAME }
+                ?: runCatching {
+                    store.create(IMPORTED_PRESET_NAME, base = legacy)
+                }.getOrNull()
             if (imported != null) {
                 runCatching {
                     settings.update {
@@ -133,7 +141,9 @@ fun BotsScreen() {
     var nameRequest by remember { mutableStateOf<NameRequest?>(null) }
     var deleteRequest by remember { mutableStateOf<String?>(null) }
     var advancedOpen by remember { mutableStateOf(false) }
-    var pendingExport by remember { mutableStateOf<BotPresetStore.SavedPreset?>(null) }
+    // The preset id, not the object, survives process death while the system
+    // file picker is open; the callback re-resolves it against the store.
+    var pendingExportId by rememberSaveable { mutableStateOf<String?>(null) }
     var actionError by remember { mutableStateOf<String?>(null) }
 
     // Preset interchange: export writes a checked JSON document through the
@@ -141,8 +151,11 @@ fun BotsScreen() {
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
     ) { uri ->
-        val preset = pendingExport
-        pendingExport = null
+        val preset = pendingExportId?.let { id -> presets.firstOrNull { it.id == id } }
+        pendingExportId = null
+        if (uri != null && preset == null) {
+            actionError = "The preset to export is no longer available"
+        }
         if (uri != null && preset != null) {
             scope.launch(Dispatchers.IO) {
                 runCatching {
@@ -273,7 +286,7 @@ fun BotsScreen() {
                 onNew = ::startNewDraft,
                 onImport = { importLauncher.launch(arrayOf("application/json", "text/*")) },
                 onExport = { preset ->
-                    pendingExport = preset
+                    pendingExportId = preset.id
                     exportLauncher.launch("${preset.name}.botpreset.json")
                 },
                 onToggleFavorite = { id, favorite ->
@@ -469,6 +482,8 @@ fun BotsScreen() {
     }
 }
 
+private const val IMPORTED_PRESET_NAME = "Imported Advanced Setup"
+
 private data class NameRequest(
     val title: String,
     val initial: String,
@@ -642,6 +657,7 @@ private fun SavedPresetRow(
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     "${preset.configuration.selectedTarget} bots · " +
@@ -650,6 +666,7 @@ private fun SavedPresetRow(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             Box {
@@ -699,6 +716,7 @@ private fun PresetChip(
 // Configuration pane
 // ---------------------------------------------------------------------
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ConfigPane(
     target: EditorTarget?,
@@ -732,7 +750,7 @@ private fun ConfigPane(
             }
 
             Text("WORLD SIZE", style = MaterialTheme.typography.labelSmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 BotProfiles.experiencePresets.map { it.selectedTarget }.forEach { size ->
                     FilterChip(
                         selected = working.selectedTarget == size &&
@@ -760,7 +778,7 @@ private fun ConfigPane(
             }
 
             Text("ACTIVITY", style = MaterialTheme.typography.labelSmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(
                     BotActivityPreset.SMART, BotActivityPreset.ACTIVE,
                     BotActivityPreset.BALANCED, BotActivityPreset.LIGHT,
@@ -825,6 +843,7 @@ private fun titleFor(target: EditorTarget?, working: BotCustomConfiguration): St
 }
 
 /** Direct numeric population entry (brief §11): not a %25 ladder, no 600 cap. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CustomPopulationEditor(
     working: BotCustomConfiguration,
@@ -863,7 +882,7 @@ private fun CustomPopulationEditor(
             label = { Text("Target bots") },
             modifier = Modifier.fillMaxWidth().testTag("custom-target-field"),
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf(80, 160, 240, 320, 400, 500, 600).forEach { size ->
                 OutlinedButton(
                     onClick = { onWorking(working.withTarget(size)) },
