@@ -40,6 +40,7 @@ class ArmRootfsProvisioner(private val context: Context) {
                     // WineRuntimeStore instead of treating the partial .wine
                     // directory in rootfs.tzst as a complete prefix.
                     extractArchive(CONTAINER_PATTERN_ASSET, File(staging, "home/xuser"))
+                    stripUnscopedOpenGlClient(staging)
                     requireExpectedPayload(staging)
                     writeReadyMarker(staging)
                     publish(canonicalRoot, staging, target)
@@ -170,8 +171,17 @@ class ArmRootfsProvisioner(private val context: Context) {
         )) {
             "pinned ARM rootfs has the wrong android_aserver plug-in ABI or content"
         }
+        check(hasNoUnscopedOpenGlClient(rootfs)) {
+            "pinned ARM rootfs retained an unscoped OpenGL client"
+        }
     }
 
+    /**
+     * Remove the provider's generic libGL names only while constructing a new,
+     * unpublished rootfs. Renderer clients are installed later in attested,
+     * generation-local directories; active/shared roots are never mutated by
+     * renderer selection or lease preparation.
+     */
     private fun writeReadyMarker(rootfs: File) {
         val marker = File(rootfs, READY_MARKER)
         val value = JSONObject()
@@ -198,6 +208,7 @@ class ArmRootfsProvisioner(private val context: Context) {
             File(rootfs, "home/xuser/.wine/user.reg").isFile &&
             File(rootfs, "home/xuser/.wine/userdef.reg").isFile &&
             File(rootfs, "home/xuser/.wine/.update-timestamp").isFile &&
+            hasNoUnscopedOpenGlClient(rootfs) &&
             isExpectedAudioPlugin(
                 File(rootfs, "usr/lib/alsa-lib/libasound_module_pcm_android_aserver.so"),
             )
@@ -227,9 +238,9 @@ class ArmRootfsProvisioner(private val context: Context) {
                 entry.name.removePrefix("./") == ".wine/dosdevices/z:" &&
                 entry.linkName == "/data/data/com.winlator/files/rootfs"
 
-        // Schema 3 repairs installations where the provider's AArch64 ALSA
-        // plug-in was accidentally replaced by an x86-64 build.
-        private const val SCHEMA = 3
+        // Schema 4 also republishes any prior rootfs that retained provider
+        // libGL aliases outside the renderer-generation identity.
+        private const val SCHEMA = 4
         private const val READY_MARKER = ".pocket-rootfs-ready"
         private const val ROOTFS_ASSET = "arm-translated-wine/rootfs.tzst"
         private const val PATCHES_ASSET = "arm-translated-wine/rootfs_patches.tzst"
@@ -248,6 +259,43 @@ class ArmRootfsProvisioner(private val context: Context) {
         private const val MAX_ENTRIES = 100_000
         private const val MAX_ENTRY_BYTES = 512L * 1024L * 1024L
         private const val MAX_TOTAL_BYTES = 2L * 1024L * 1024L * 1024L
+        internal fun isUnscopedOpenGlClientName(name: String): Boolean =
+            name == "libGL.so" || name.startsWith("libGL.so.")
+
+        internal fun hasNoUnscopedOpenGlClient(rootfs: File): Boolean {
+            val libraryDirectory = File(rootfs, "usr/lib")
+            if (!libraryDirectory.exists()) return true
+            if (!libraryDirectory.isDirectory || Files.isSymbolicLink(libraryDirectory.toPath())) {
+                return false
+            }
+            val entries = libraryDirectory.listFiles() ?: return false
+            return entries.none { isUnscopedOpenGlClientName(it.name) }
+        }
+
+        internal fun stripUnscopedOpenGlClient(rootfs: File) {
+            val canonicalRoot = rootfs.canonicalFile.toPath()
+            val libraryDirectory = File(rootfs, "usr/lib")
+            check(libraryDirectory.isDirectory &&
+                !Files.isSymbolicLink(libraryDirectory.toPath()) &&
+                libraryDirectory.canonicalFile.toPath().startsWith(canonicalRoot)) {
+                "ARM rootfs library directory escaped its staging root"
+            }
+            val targets = checkNotNull(libraryDirectory.listFiles()) {
+                "ARM rootfs library directory could not be enumerated"
+            }.filter { isUnscopedOpenGlClientName(it.name) }
+            for (target in targets) {
+                // Delete the directory entry itself. Never canonicalize/follow
+                // a selected symlink: an outside target must remain untouched.
+                if (Files.exists(target.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                    check(target.delete()) {
+                        "unscoped ARM OpenGL client could not be removed: ${target.name}"
+                    }
+                }
+            }
+            check(hasNoUnscopedOpenGlClient(rootfs)) {
+                "unscoped ARM OpenGL client is still present"
+            }
+        }
 
         internal fun isExpectedAudioPlugin(file: File): Boolean = runCatching {
             file.isFile &&

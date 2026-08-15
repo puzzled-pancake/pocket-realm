@@ -136,7 +136,7 @@ class InputContract(
     }
 
     /** Named mappings are selected by the Android-device bridge, never globally. */
-    enum class GamepadLayout { GENERIC, PROFILED, RETROID_POCKET_6, DISABLED }
+    enum class GamepadLayout { GENERIC, PROFILED, RETROID_POCKET_6, RETROID_POCKET_6_XBOX, DISABLED }
 
     /** Exact physical/synthetic control that owns one logical held input. */
     private sealed interface ControlOwner {
@@ -144,10 +144,30 @@ class InputContract(
         data class GamepadButton(val keyCode: Int) : ControlOwner
         data class Axis(val axis: GamepadAxis) : ControlOwner
         data class DirectPointer(val button: PointerButton) : ControlOwner
+        data class SemanticAction(val action: ControllerAction) : ControlOwner
         data object ImePulse : ControlOwner
         data object CameraLock : ControlOwner
-        data object AutomaticCamera : ControlOwner
     }
+
+    /** One utility selected while an external pad's Select modifier is held. */
+    private enum class ExternalSelectChord {
+        CAMERA_LOCK,
+        POINTER_LEFT,
+        TARGET_LAST_HOSTILE,
+        USE_AT_POINTER,
+        JUMP,
+        MOVE_UI,
+    }
+
+    /** Select-chord vocabulary is tied to the exact configured Select action. */
+    private enum class ExternalSelectMode { MAP, CONSOLE_PORT }
+
+    private data class PendingExternalSelectTap(
+        val token: Long,
+        val generation: Long,
+        val owner: ControlOwner,
+        val binding: GamepadBinding.ExternalSelectModifier,
+    )
 
     /** Per-source pressed state. One entry per Android `deviceId` or synthetic source. */
     private data class SourceState(
@@ -164,6 +184,18 @@ class InputContract(
         var rightStickX: Float = 0f,
         var rightStickY: Float = 0f,
         val cameraToggleOwners: MutableSet<ControlOwner> = LinkedHashSet(),
+        /** Physical owners whose semantic pulse is already down; repeats are ignored. */
+        val pulseOwners: MutableSet<ControlOwner> = LinkedHashSet(),
+        val layerOwners: MutableMap<ControlOwner, FaceLayer> = LinkedHashMap(),
+        val startedGamepadBindings: MutableMap<ControlOwner, GamepadBinding> = LinkedHashMap(),
+        /**
+         * Product-default profiles do not rely on rear buttons, so Select is
+         * a deterministic utility modifier. These fields are deliberately per source:
+         * one controller can never complete another controller's chord.
+         */
+        var externalSelectHeld: Boolean = false,
+        var externalSelectChord: ExternalSelectChord? = null,
+        var pendingExternalSelectTap: PendingExternalSelectTap? = null,
         var lastSeq: Long = 0L,
     )
 
@@ -189,8 +221,10 @@ class InputContract(
     private val logicalButtonOwnerCounts = java.util.EnumMap<PointerButton, Int>(PointerButton::class.java)
     private var cameraLocked = false
     private var cameraLockOwnerSource: Int? = null
-    private var automaticGamepadCameraActive = false
+    private var cameraAimPoint: Pair<Int, Int>? = null
     private var gamepadPointerFrameTimeNanos = 0L
+    /** Monotonic invalidation token for uncancellable scheduler callbacks. */
+    private var externalSelectTapEpoch = 0L
     private data class ImePulse(
         val keyCode: Int?,
         val metaState: Int = 0,
@@ -351,6 +385,14 @@ class InputContract(
 
     val isCameraLocked: Boolean get() = synchronized(lock) { cameraLocked }
 
+    /** Configure the one-time world aim point used when camera lock is acquired. */
+    fun setCameraAimPoint(x: Int, y: Int, generation: Long): Boolean = synchronized(lock) {
+        if (!acceptLocked(generation)) return@synchronized false
+        require(x >= 0 && y >= 0) { "camera aim point must be non-negative" }
+        cameraAimPoint = x to y
+        true
+    }
+
     /**
      * Wheel pulse: atomic press+release. Never retained as pressed state, never
      * counted in [releaseAll] held-state totals, and recorded in diagnostics
@@ -414,9 +456,82 @@ class InputContract(
     ): Boolean {
         return synchronized(lock) {
             if (!acceptLocked(generation)) return@synchronized false
-            val binding = gamepadBinding(keyCode, layout, profile) ?: return@synchronized false
-            gamepadActionLocked(src, ControlOwner.GamepadButton(keyCode), binding, pressed)
+            val state = sources.getOrPut(src) { SourceState() }
+            val owner = ControlOwner.GamepadButton(keyCode)
+            if (pressed) {
+                if (owner in state.startedGamepadBindings) return@synchronized true
+                val activeLayer = when {
+                    FaceLayer.L1 in state.layerOwners.values -> FaceLayer.L1
+                    FaceLayer.L2 in state.layerOwners.values -> FaceLayer.L2
+                    else -> null
+                }
+                val utilityMode = selectUtilityMode(layout, profile)
+                val binding = when {
+                    utilityMode != null && keyCode == KeyEvent.KEYCODE_BUTTON_SELECT ->
+                        GamepadBinding.ExternalSelectModifier(
+                            tapBinding = checkNotNull(actionBinding(
+                                InputProfile.actionFor(profile, Rp6Control.SELECT),
+                            )),
+                            preparePointerMenu = utilityMode == ExternalSelectMode.CONSOLE_PORT,
+                        )
+                    utilityMode != null &&
+                        keyCode == KeyEvent.KEYCODE_BUTTON_THUMBR ->
+                        externalSelectChordBindingLocked(
+                            state, ExternalSelectChord.CAMERA_LOCK, utilityMode,
+                        )
+                            ?: gamepadBinding(keyCode, layout, profile, activeLayer)
+                    utilityMode == ExternalSelectMode.CONSOLE_PORT &&
+                        keyCode == KeyEvent.KEYCODE_BUTTON_START ->
+                        externalSelectChordBindingLocked(
+                            state, ExternalSelectChord.MOVE_UI, utilityMode,
+                        ) ?: gamepadBinding(keyCode, layout, profile, activeLayer)
+                    utilityMode == ExternalSelectMode.CONSOLE_PORT &&
+                        keyCode == KeyEvent.KEYCODE_BUTTON_R1 ->
+                        externalSelectChordBindingLocked(
+                            state, ExternalSelectChord.TARGET_LAST_HOSTILE, utilityMode,
+                        ) ?: gamepadBinding(keyCode, layout, profile, activeLayer)
+                    utilityMode == ExternalSelectMode.CONSOLE_PORT &&
+                        keyCode == KeyEvent.KEYCODE_BUTTON_L1 ->
+                        externalSelectChordBindingLocked(
+                            state, ExternalSelectChord.USE_AT_POINTER, utilityMode,
+                        ) ?: gamepadBinding(keyCode, layout, profile, activeLayer)
+                    utilityMode == ExternalSelectMode.CONSOLE_PORT &&
+                        keyCode == KeyEvent.KEYCODE_BUTTON_THUMBL ->
+                        externalSelectChordBindingLocked(
+                            state, ExternalSelectChord.JUMP, utilityMode,
+                        ) ?: gamepadBinding(keyCode, layout, profile, activeLayer)
+                    utilityMode != null &&
+                        keyCode == KeyEvent.KEYCODE_BUTTON_R2 ->
+                        externalSelectChordBindingLocked(
+                            state,
+                            ExternalSelectChord.POINTER_LEFT,
+                            utilityMode,
+                        )
+                            ?: gamepadBinding(keyCode, layout, profile, activeLayer)
+                    else -> gamepadBinding(keyCode, layout, profile, activeLayer)
+                }
+                    ?: return@synchronized false
+                state.startedGamepadBindings[owner] = binding
+                gamepadActionLocked(src, owner, binding, pressed = true).also { accepted ->
+                    if (!accepted) state.startedGamepadBindings.remove(owner)
+                }
+            } else {
+                val binding = state.startedGamepadBindings.remove(owner) ?: return@synchronized false
+                gamepadActionLocked(src, owner, binding, pressed = false)
+            }
         }
+    }
+
+    /** Dispatch an allowlisted semantic action from the touch overlay. */
+    fun virtualAction(
+        src: Int,
+        action: ControllerAction,
+        pressed: Boolean,
+        generation: Long,
+    ): Boolean = synchronized(lock) {
+        if (!acceptLocked(generation)) return@synchronized false
+        val binding = actionBinding(action) ?: return@synchronized action == ControllerAction.DISABLED
+        gamepadActionLocked(src, ControlOwner.SemanticAction(action), binding, pressed)
     }
 
     /**
@@ -441,7 +556,8 @@ class InputContract(
             val bounded = value.coerceIn(-1f, 1f)
             val st = sources.getOrPut(src) { SourceState() }
             val deadZone = profile.deadZone
-            val profiled = layout == GamepadLayout.RETROID_POCKET_6 || layout == GamepadLayout.PROFILED
+            val profiled = layout == GamepadLayout.RETROID_POCKET_6 ||
+                layout == GamepadLayout.RETROID_POCKET_6_XBOX || layout == GamepadLayout.PROFILED
             when (axis) {
                 GamepadAxis.LEFT_X -> updateAxisKeyLocked(
                     st, axis, bounded, deadZone,
@@ -464,17 +580,17 @@ class InputContract(
                 GamepadAxis.RIGHT_X -> updateRelativeAxisStateLocked(st, axis, bounded, horizontal = true)
                 GamepadAxis.RIGHT_Y -> updateRelativeAxisStateLocked(st, axis, bounded, horizontal = false)
                 GamepadAxis.HAT_X -> if (profiled) {
-                    updateAxisKeyLocked(
-                        st, axis, bounded, deadZone,
-                        InputProfile.actionFor(profile, Rp6Control.DPAD_LEFT).keyCode,
-                        InputProfile.actionFor(profile, Rp6Control.DPAD_RIGHT).keyCode,
+                    updateAxisBindingLocked(
+                        src, st, axis, bounded, deadZone,
+                        actionBinding(InputProfile.actionFor(profile, Rp6Control.DPAD_LEFT)),
+                        actionBinding(InputProfile.actionFor(profile, Rp6Control.DPAD_RIGHT)),
                     )
                 }
                 GamepadAxis.HAT_Y -> if (profiled) {
-                    updateAxisKeyLocked(
-                        st, axis, bounded, deadZone,
-                        InputProfile.actionFor(profile, Rp6Control.DPAD_UP).keyCode,
-                        InputProfile.actionFor(profile, Rp6Control.DPAD_DOWN).keyCode,
+                    updateAxisBindingLocked(
+                        src, st, axis, bounded, deadZone,
+                        actionBinding(InputProfile.actionFor(profile, Rp6Control.DPAD_UP)),
+                        actionBinding(InputProfile.actionFor(profile, Rp6Control.DPAD_DOWN)),
                     )
                 }
                 GamepadAxis.LEFT_TRIGGER -> if (profiled) {
@@ -485,11 +601,22 @@ class InputContract(
                     )
                 }
                 GamepadAxis.RIGHT_TRIGGER -> if (profiled) {
-                    updateAxisActionLocked(
-                        src, st, axis, bounded,
-                        profile.rightTriggerOnThreshold, profile.rightTriggerOffThreshold,
-                        actionBinding(InputProfile.actionFor(profile, Rp6Control.R2)),
-                    )
+                    val utilityMode = selectUtilityMode(layout, profile)
+                    if (utilityMode != null) {
+                        updateExternalRightTriggerLocked(
+                            src, st, bounded,
+                            profile.rightTriggerOnThreshold, profile.rightTriggerOffThreshold,
+                            ExternalSelectChord.POINTER_LEFT,
+                            utilityMode,
+                            actionBinding(InputProfile.actionFor(profile, Rp6Control.R2)),
+                        )
+                    } else {
+                        updateAxisActionLocked(
+                            src, st, axis, bounded,
+                            profile.rightTriggerOnThreshold, profile.rightTriggerOffThreshold,
+                            actionBinding(InputProfile.actionFor(profile, Rp6Control.R2)),
+                        )
+                    }
                 }
             }
             return true
@@ -506,7 +633,6 @@ class InputContract(
     fun pumpGamepadPointer(frameTimeNanos: Long, generation: Long): Boolean = synchronized(lock) {
         if (!acceptLocked(generation)) return@synchronized false
         require(frameTimeNanos >= 0L) { "frame time must be non-negative" }
-        syncAutomaticGamepadCameraLocked()
         val previous = gamepadPointerFrameTimeNanos
         gamepadPointerFrameTimeNanos = frameTimeNanos
         if (previous == 0L || frameTimeNanos <= previous) return@synchronized false
@@ -729,6 +855,9 @@ class InputContract(
     private fun noHeldInputLocked(): Boolean = sources.values.none { state ->
         state.keyOwners.isNotEmpty() || state.buttonOwners.isNotEmpty() || state.axisPressed.isNotEmpty() ||
             state.axisKeys.values.any { it != null } || state.cameraToggleOwners.isNotEmpty() ||
+            state.pulseOwners.isNotEmpty() ||
+            state.layerOwners.isNotEmpty() || state.startedGamepadBindings.isNotEmpty() ||
+            state.externalSelectHeld || state.pendingExternalSelectTap != null ||
             state.rightStickX != 0f || state.rightStickY != 0f
     }
 
@@ -862,16 +991,8 @@ class InputContract(
             var buttons = 0
 
             if (ownsCameraLock) {
-                // Transfer RIGHT ownership before dropping the explicit lock.
-                // Otherwise retiring the lock owner emits an UP/DOWN pair even
-                // though another live right stick is already displaced.
-                if (hasDisplacedRightStickSourceLocked(excluding = src) &&
-                    !automaticGamepadCameraActive
-                ) {
-                    setAutomaticGamepadCameraLocked(true)
-                }
                 if (logicalButtonOwnerCounts[PointerButton.RIGHT] == 1) buttons++
-                setCameraLockLocked(false, src)
+                setCameraLockLocked(false, src, forceFreeMouse = false)
             }
 
             if (src in sources) {
@@ -880,14 +1001,6 @@ class InputContract(
                 buttons += removed.second
             }
 
-            // Cleanup may retire an owner that had already activated automatic
-            // camera mode, but it must never activate dormant ABS stick state.
-            // Activation remains exclusively frame-pump driven (apart from the
-            // seamless explicit-lock handoff above).
-            if (automaticGamepadCameraActive && !hasDisplacedRightStickSourceLocked()) {
-                if (logicalButtonOwnerCounts[PointerButton.RIGHT] == 1) buttons++
-                setAutomaticGamepadCameraLocked(false)
-            }
             releasedKeys.addAndGet(keys.toLong())
             releasedButtons.addAndGet(buttons.toLong())
             ReleaseReport(reason, listOf(src), keys, buttons, rejectedStale.get())
@@ -897,6 +1010,7 @@ class InputContract(
     /** Remove every exact owner for one source, returning actual final X releases. */
     private fun removeSourceLocked(src: Int): Pair<Int, Int> {
         val state = sources[src] ?: return 0 to 0
+        cancelPendingExternalSelectTapLocked(state)
         var releasedButtonTransitions = 0
         state.buttonOwners.entries.toList()
             .sortedWith(compareByDescending<Map.Entry<ControlOwner, PointerButton>> { it.value.ordinal })
@@ -917,13 +1031,15 @@ class InputContract(
 
     private fun releaseAllLocked(reason: ReleaseReason): ReleaseReport {
         cancelImeQueueLocked()
+        // ImePulseScheduler has no remove API. Epoch invalidation makes every
+        // queued Select callback a no-op before sources can be reused.
+        externalSelectTapEpoch++
         gamepadPointerFrameTimeNanos = 0L
         val all = sources.toMap()
         sources.clear()
         val wasCameraLocked = cameraLocked
         cameraLocked = false
         cameraLockOwnerSource = null
-        automaticGamepadCameraActive = false
         val buttons = logicalButtonOwnerCounts.keys.toList().sortedWith(BUTTON_RELEASE_ORDER)
         for (button in buttons) sink.inject(SinkEvent.PointerButton(button.toSink(), pressed = false))
         val totalButtons = buttons.size
@@ -1056,6 +1172,34 @@ class InputContract(
         state.axisKeys[axis] = next
     }
 
+    /** HAT directions use the complete semantic binding path, not keyCode-only projection. */
+    private fun updateAxisBindingLocked(
+        src: Int,
+        state: SourceState,
+        axis: GamepadAxis,
+        value: Float,
+        deadZone: Float,
+        negativeBinding: GamepadBinding?,
+        positiveBinding: GamepadBinding?,
+    ) {
+        val next = when {
+            value < -deadZone -> negativeBinding
+            value > deadZone -> positiveBinding
+            else -> null
+        }
+        val owner = ControlOwner.Axis(axis)
+        val previous = state.startedGamepadBindings[owner]
+        if (previous == next) return
+        if (previous != null) {
+            gamepadActionLocked(src, owner, previous, pressed = false)
+            state.startedGamepadBindings.remove(owner)
+        }
+        if (next != null) {
+            state.startedGamepadBindings[owner] = next
+            gamepadActionLocked(src, owner, next, pressed = true)
+        }
+    }
+
     private fun updateRelativeAxisStateLocked(
         state: SourceState,
         axis: GamepadAxis,
@@ -1077,36 +1221,6 @@ class InputContract(
         }
         // Keep the axis entry present without inventing a key release.
         state.axisKeys.putIfAbsent(axis, null)
-    }
-
-    /**
-     * A controller right stick is camera input, not an absolute mouse. Hold
-     * WoW's right button only while a stick is outside its dead zone so camera
-     * look works without a separate lock/hold control. Manual right-button and
-     * optional explicit camera-lock sources remain independently reference
-     * counted by [pointerButtonLocked].
-     */
-    private fun syncAutomaticGamepadCameraLocked() {
-        val shouldHold = !imeActive && hasDisplacedRightStickSourceLocked()
-        if (shouldHold == automaticGamepadCameraActive) return
-        setAutomaticGamepadCameraLocked(shouldHold)
-    }
-
-    private fun hasDisplacedRightStickSourceLocked(excluding: Int? = null): Boolean =
-        sources.any { (source, state) ->
-            source >= 0 && source != excluding &&
-                (state.rightStickX != 0f || state.rightStickY != 0f)
-        }
-
-    private fun setAutomaticGamepadCameraLocked(enabled: Boolean) {
-        if (enabled == automaticGamepadCameraActive) return
-        automaticGamepadCameraActive = enabled
-        pointerButtonLocked(
-            AUTO_GAMEPAD_CAMERA_SOURCE,
-            ControlOwner.AutomaticCamera,
-            PointerButton.RIGHT,
-            pressed = enabled,
-        )
     }
 
     private fun pointerButtonLocked(
@@ -1142,10 +1256,22 @@ class InputContract(
         return true
     }
 
-    private fun setCameraLockLocked(enabled: Boolean, source: Int): Boolean {
-        if (cameraLocked == enabled) return cameraLocked
+    private fun setCameraLockLocked(
+        enabled: Boolean,
+        source: Int,
+        forceFreeMouse: Boolean = true,
+    ): Boolean {
+        if (cameraLocked == enabled) {
+            if (!enabled && forceFreeMouse) {
+                clearRightStickStateLocked()
+                forceReleaseRightMouseLocked()
+                onCameraLockChanged(false)
+            }
+            return cameraLocked
+        }
         cameraLocked = enabled
         if (enabled) {
+            cameraAimPoint?.let { (x, y) -> sink.inject(SinkEvent.PointerMove(x, y)) }
             cameraLockOwnerSource = source
             pointerButtonLocked(
                 CAMERA_LOCK_SOURCE, ControlOwner.CameraLock, PointerButton.RIGHT, pressed = true,
@@ -1155,9 +1281,35 @@ class InputContract(
             pointerButtonLocked(
                 CAMERA_LOCK_SOURCE, ControlOwner.CameraLock, PointerButton.RIGHT, pressed = false,
             )
+            // Unlock means cursor mode. Clear stale stick momentum and every
+            // right-button owner so a missed trigger/touch release cannot leave
+            // WoW in camera-look after the UI says the mouse is free.
+            if (forceFreeMouse) {
+                clearRightStickStateLocked()
+                forceReleaseRightMouseLocked()
+            }
         }
         onCameraLockChanged(cameraLocked)
         return cameraLocked
+    }
+
+    private fun clearRightStickStateLocked() {
+        sources.values.forEach { state ->
+            state.rightStickX = 0f
+            state.rightStickY = 0f
+            state.relativeRemainderX = 0f
+            state.relativeRemainderY = 0f
+        }
+    }
+
+    /** Force one final RIGHT-up and forget all exact owners of that logical button. */
+    private fun forceReleaseRightMouseLocked() {
+        val held = logicalButtonOwnerCounts.remove(PointerButton.RIGHT) ?: return
+        check(held > 0) { "logical right-button owner count underflow" }
+        sources.values.forEach { state ->
+            state.buttonOwners.entries.removeAll { it.value == PointerButton.RIGHT }
+        }
+        sink.inject(SinkEvent.PointerButton(PointerButton.RIGHT.toSink(), pressed = false))
     }
 
     private fun gamepadActionLocked(
@@ -1177,6 +1329,53 @@ class InputContract(
                 )
             }
             is GamepadBinding.Pointer -> pointerButtonLocked(src, owner, binding.button, pressed)
+            GamepadBinding.TargetPulse -> semanticPulseLocked(src, owner, pressed) {
+                injectAndroidKey(KeyEvent.KEYCODE_F6, pressed = true)
+                injectAndroidKey(KeyEvent.KEYCODE_F6, pressed = false)
+            }
+            GamepadBinding.UseLootClick -> semanticPulseLocked(src, owner, pressed) {
+                useLootClickLocked()
+            }
+            GamepadBinding.NearbyUsePulse -> semanticPulseLocked(src, owner, pressed) {
+                // The 1.12 client polls input per emulated frame and can miss
+                // an instantaneous DOWN+UP pair, so pace the release like the
+                // IME key pulses instead of emitting both edges at once. The
+                // raw inject has no ownership, so the release must still fire
+                // when only the generation is unchanged.
+                injectAndroidKey(KeyEvent.KEYCODE_F7, pressed = true)
+                val scheduledGeneration = activeGeneration
+                imeScheduler.postDelayed(imeKeyDwellMs) {
+                    synchronized(lock) {
+                        if (!acceptingInput || activeGeneration != scheduledGeneration) {
+                            return@synchronized
+                        }
+                        injectAndroidKey(KeyEvent.KEYCODE_F7, pressed = false)
+                    }
+                }
+            }
+            GamepadBinding.AutoRunPulse -> semanticPulseLocked(src, owner, pressed) {
+                injectAndroidKey(KeyEvent.KEYCODE_F9, pressed = true)
+                injectAndroidKey(KeyEvent.KEYCODE_F9, pressed = false)
+            }
+            GamepadBinding.MoveUiToggle -> semanticPulseLocked(src, owner, pressed) {
+                setCameraLockLocked(false, src)
+                injectAndroidKey(KeyEvent.KEYCODE_F8, pressed = true)
+                injectAndroidKey(KeyEvent.KEYCODE_F8, pressed = false)
+            }
+            is GamepadBinding.Wheel -> semanticPulseLocked(src, owner, pressed) {
+                val button = if (binding.ticks < 0) SinkButton.SCROLL_UP else SinkButton.SCROLL_DOWN
+                repeat(kotlin.math.abs(binding.ticks)) {
+                    sink.inject(SinkEvent.PointerButton(button, pressed = true))
+                    sink.inject(SinkEvent.PointerButton(button, pressed = false))
+                }
+            }
+            is GamepadBinding.Layer -> if (imeActive) false else {
+                val state = sources.getOrPut(src) { SourceState() }
+                if (pressed) {
+                    state.layerOwners[owner] = binding.layer
+                    true
+                } else state.layerOwners.remove(owner) == binding.layer
+            }
             GamepadBinding.CameraLock -> if (imeActive) false else {
                 val state = sources.getOrPut(src) { SourceState() }
                 if (pressed) {
@@ -1188,7 +1387,156 @@ class InputContract(
                     state.cameraToggleOwners.remove(owner)
                 }
             }
+            is GamepadBinding.ExternalSelectModifier -> if (imeActive) false else {
+                val state = sources.getOrPut(src) { SourceState() }
+                if (pressed) {
+                    // A deliberate re-press replaces, rather than flushes, a
+                    // prior tap that is still waiting for its chord grace.
+                    cancelPendingExternalSelectTapLocked(state)
+                    state.externalSelectHeld = true
+                    state.externalSelectChord = null
+                    true
+                } else {
+                    val emitTap = state.externalSelectHeld && state.externalSelectChord == null
+                    state.externalSelectHeld = false
+                    state.externalSelectChord = null
+                    if (emitTap) {
+                        scheduleExternalSelectTapLocked(src, owner, binding)
+                    }
+                    true
+                }
+            }
         }
+
+    private fun scheduleExternalSelectTapLocked(
+        src: Int,
+        owner: ControlOwner,
+        binding: GamepadBinding.ExternalSelectModifier,
+    ) {
+        val state = sources.getOrPut(src) { SourceState() }
+        cancelPendingExternalSelectTapLocked(state)
+        val token = ++externalSelectTapEpoch
+        val scheduledGeneration = activeGeneration
+        state.pendingExternalSelectTap = PendingExternalSelectTap(
+            token = token,
+            generation = scheduledGeneration,
+            owner = owner,
+            binding = binding,
+        )
+        imeScheduler.postDelayed(EXTERNAL_SELECT_CHORD_GRACE_MS) {
+            synchronized(lock) {
+                if (!acceptingInput || activeGeneration != scheduledGeneration || imeActive) {
+                    return@synchronized
+                }
+                val liveState = sources[src] ?: return@synchronized
+                val pending = liveState.pendingExternalSelectTap ?: return@synchronized
+                if (pending.token != token || pending.generation != scheduledGeneration) {
+                    return@synchronized
+                }
+                liveState.pendingExternalSelectTap = null
+                emitExternalSelectTapLocked(src, pending.owner, pending.binding)
+            }
+        }
+    }
+
+    private fun emitExternalSelectTapLocked(
+        src: Int,
+        owner: ControlOwner,
+        binding: GamepadBinding.ExternalSelectModifier,
+    ) {
+        if (binding.preparePointerMenu) {
+            setCameraLockLocked(false, src)
+            cameraAimPoint?.let { (x, y) -> sink.inject(SinkEvent.PointerMove(x, y)) }
+        }
+        check(gamepadActionLocked(src, owner, binding.tapBinding, pressed = true)) {
+            "Select tap binding could not be pressed"
+        }
+        check(gamepadActionLocked(src, owner, binding.tapBinding, pressed = false)) {
+            "Select tap binding could not be released"
+        }
+    }
+
+    private fun cancelPendingExternalSelectTapLocked(state: SourceState) {
+        if (state.pendingExternalSelectTap != null) {
+            state.pendingExternalSelectTap = null
+            externalSelectTapEpoch++
+        }
+    }
+
+    /**
+     * Select must already be down. Once one chord is chosen, duplicate Android
+     * representations of that same control (notably digital + analogue R2)
+     * retain the chord meaning, while a different later control keeps its
+     * ordinary binding.
+     */
+    private fun externalSelectChordBindingLocked(
+        state: SourceState,
+        chord: ExternalSelectChord,
+        mode: ExternalSelectMode,
+    ): GamepadBinding? {
+        if (!state.externalSelectHeld && state.pendingExternalSelectTap == null) return null
+        val selected = state.externalSelectChord
+        if (selected != null && selected != chord) return null
+        state.externalSelectChord = chord
+        // Sequential Select-up then candidate-down consumes the deferred tap.
+        // A held-order chord has no pending tap and preserves prior behavior.
+        cancelPendingExternalSelectTapLocked(state)
+        return when (mode) {
+            ExternalSelectMode.MAP -> when (chord) {
+                ExternalSelectChord.CAMERA_LOCK -> GamepadBinding.CameraLock
+                ExternalSelectChord.POINTER_LEFT -> GamepadBinding.Pointer(PointerButton.LEFT)
+                else -> error("unsupported Map Select chord: $chord")
+            }
+            ExternalSelectMode.CONSOLE_PORT -> when (chord) {
+                ExternalSelectChord.CAMERA_LOCK -> GamepadBinding.CameraLock
+                ExternalSelectChord.TARGET_LAST_HOSTILE -> GamepadBinding.Key(KeyEvent.KEYCODE_G)
+                ExternalSelectChord.POINTER_LEFT -> GamepadBinding.Pointer(PointerButton.LEFT)
+                ExternalSelectChord.USE_AT_POINTER -> GamepadBinding.UseLootClick
+                ExternalSelectChord.JUMP -> GamepadBinding.Key(KeyEvent.KEYCODE_SPACE)
+                ExternalSelectChord.MOVE_UI -> GamepadBinding.MoveUiToggle
+                else -> error("unsupported Console Port Select chord: $chord")
+            }
+        }
+    }
+
+    /** Run one balanced action on the first DOWN and merely retire its owner on UP. */
+    private inline fun semanticPulseLocked(
+        src: Int,
+        owner: ControlOwner,
+        pressed: Boolean,
+        pulse: () -> Unit,
+    ): Boolean {
+        if (imeActive) return false
+        val state = sources.getOrPut(src) { SourceState() }
+        if (pressed) {
+            if (state.pulseOwners.add(owner)) pulse()
+        } else {
+            state.pulseOwners.remove(owner)
+        }
+        return true
+    }
+
+    /**
+     * Send one secondary interaction while preserving logical RIGHT owners.
+     *
+     * With camera lock active, the release ends the current TurnOrAction hold
+     * and the single restore press is itself the interaction. A second
+     * press/release pair would call TurnOrActionStart twice, which duplicates
+     * NPC interaction (including its audio). Without an existing owner this is
+     * an ordinary balanced secondary click. Everything remains atomic under
+     * [lock], and the retained owner still receives its one final release when
+     * camera lock or its source is retired.
+     */
+    private fun useLootClickLocked() {
+        val wasHeld = (logicalButtonOwnerCounts[PointerButton.RIGHT] ?: 0) > 0
+        if (wasHeld) {
+            sink.inject(SinkEvent.PointerButton(SinkButton.RIGHT, pressed = false))
+            sink.inject(SinkEvent.PointerButton(SinkButton.RIGHT, pressed = true))
+        } else {
+            sink.inject(SinkEvent.PointerButton(SinkButton.RIGHT, pressed = true))
+            sink.inject(SinkEvent.PointerButton(SinkButton.RIGHT, pressed = false))
+        }
+    }
 
     private fun updateAxisActionLocked(
         src: Int,
@@ -1204,6 +1552,38 @@ class InputContract(
         if (pressed == wasPressed) return
         if (pressed) state.axisPressed.add(axis) else state.axisPressed.remove(axis)
         binding?.let { gamepadActionLocked(src, ControlOwner.Axis(axis), it, pressed) }
+    }
+
+    /** PROFILED R2 participates in Select+R2 whether Android reports an axis or a key. */
+    private fun updateExternalRightTriggerLocked(
+        src: Int,
+        state: SourceState,
+        value: Float,
+        onThreshold: Float,
+        offThreshold: Float,
+        chord: ExternalSelectChord,
+        mode: ExternalSelectMode,
+        defaultBinding: GamepadBinding?,
+    ) {
+        val axis = GamepadAxis.RIGHT_TRIGGER
+        val owner = ControlOwner.Axis(axis)
+        val wasPressed = axis in state.axisPressed
+        val pressed = if (wasPressed) value > offThreshold else value >= onThreshold
+        if (pressed == wasPressed) return
+        if (pressed) {
+            state.axisPressed.add(axis)
+            val binding = externalSelectChordBindingLocked(state, chord, mode)
+                ?: defaultBinding
+            if (binding != null) {
+                state.startedGamepadBindings[owner] = binding
+                gamepadActionLocked(src, owner, binding, pressed = true)
+            }
+        } else {
+            state.axisPressed.remove(axis)
+            state.startedGamepadBindings.remove(owner)?.let { binding ->
+                gamepadActionLocked(src, owner, binding, pressed = false)
+            }
+        }
     }
 
     private fun applyDeadZone(value: Float, deadZone: Float): Float {
@@ -1233,9 +1613,9 @@ class InputContract(
         internal const val IME_KEY_GAP_MS: Long = 10L
         internal const val AUTO_LOGIN_FIELD_SETTLE_MS: Long = 300L
         internal const val IME_POINTER_DWELL_MS: Long = 80L
+        internal const val EXTERNAL_SELECT_CHORD_GRACE_MS: Long = 300L
         private const val IME_POINTER_IN_FLIGHT: Int = -3
         internal const val CAMERA_LOCK_SOURCE: Int = -4
-        internal const val AUTO_GAMEPAD_CAMERA_SOURCE: Int = -5
         internal const val MAX_PENDING_IME_PULSES: Int = 256
         private const val GAMEPAD_CAMERA_PIXELS_PER_SECOND = 8f * 60f
         private const val MAX_GAMEPAD_FRAME_NANOS = 50_000_000L
@@ -1244,30 +1624,59 @@ class InputContract(
         private sealed class GamepadBinding {
             data class Key(val keyCode: Int) : GamepadBinding()
             data class Pointer(val button: PointerButton) : GamepadBinding()
+            data object TargetPulse : GamepadBinding()
+            data object UseLootClick : GamepadBinding()
+            data object NearbyUsePulse : GamepadBinding()
+            data object AutoRunPulse : GamepadBinding()
+            data object MoveUiToggle : GamepadBinding()
+            data class Wheel(val ticks: Int) : GamepadBinding()
+            data class Layer(val layer: FaceLayer) : GamepadBinding()
             data object CameraLock : GamepadBinding()
+            data class ExternalSelectModifier(
+                val tapBinding: GamepadBinding,
+                val preparePointerMenu: Boolean,
+            ) : GamepadBinding()
         }
 
         private fun actionBinding(action: ControllerAction): GamepadBinding? {
+            if (action.targetPulse) return GamepadBinding.TargetPulse
+            if (action.useLootClick) return GamepadBinding.UseLootClick
+            if (action.nearbyUsePulse) return GamepadBinding.NearbyUsePulse
+            if (action.autoRunPulse) return GamepadBinding.AutoRunPulse
+            // F12 is held and released through the same exact-owner path as
+            // every other key. This avoids synthesizing Shift edges around
+            // Escape while L2 or a physical keyboard already owns Shift.
+            if (action.radialMenuPulse) return GamepadBinding.Key(KeyEvent.KEYCODE_F12)
+            action.wheelTicks?.let { return GamepadBinding.Wheel(it) }
+            if (action == ControllerAction.LAYER_L2) return GamepadBinding.Layer(FaceLayer.L2)
+            if (action == ControllerAction.LAYER_L1) return GamepadBinding.Layer(FaceLayer.L1)
             action.keyCode?.let { return GamepadBinding.Key(it) }
             action.pointer?.let { pointer ->
-                return GamepadBinding.Pointer(
-                    if (pointer == ControlPointer.LEFT) PointerButton.LEFT else PointerButton.RIGHT,
-                )
+                return GamepadBinding.Pointer(when (pointer) {
+                    ControlPointer.LEFT -> PointerButton.LEFT
+                    ControlPointer.MIDDLE -> PointerButton.MIDDLE
+                    ControlPointer.RIGHT -> PointerButton.RIGHT
+                })
             }
             return if (action.cameraLockToggle) GamepadBinding.CameraLock else null
         }
+
 
         private fun gamepadBinding(
             keyCode: Int,
             layout: GamepadLayout,
             profile: InputProfile,
+            activeLayer: FaceLayer? = null,
         ): GamepadBinding? {
             if (layout == GamepadLayout.DISABLED) return null
-            if (layout == GamepadLayout.RETROID_POCKET_6 || layout == GamepadLayout.PROFILED) {
+            if (layout == GamepadLayout.RETROID_POCKET_6 ||
+                layout == GamepadLayout.RETROID_POCKET_6_XBOX || layout == GamepadLayout.PROFILED) {
                 val faceLayout = if (
-                    layout == GamepadLayout.RETROID_POCKET_6 &&
                     profile.controllerFamily == ControllerFamily.AUTO
-                ) FaceButtonLayout.RP6_PRINTED else profile.faceButtonLayout
+                ) {
+                    if (layout == GamepadLayout.RETROID_POCKET_6) FaceButtonLayout.RP6_PRINTED
+                    else FaceButtonLayout.ANDROID_STANDARD
+                } else profile.faceButtonLayout
                 val control = faceControlForKeyCode(keyCode, faceLayout) ?: when (keyCode) {
                     KeyEvent.KEYCODE_DPAD_DOWN -> Rp6Control.DPAD_DOWN
                     KeyEvent.KEYCODE_DPAD_LEFT -> Rp6Control.DPAD_LEFT
@@ -1285,9 +1694,30 @@ class InputContract(
                     KeyEvent.KEYCODE_BUTTON_Z -> Rp6Control.REAR_RIGHT
                     else -> null
                 } ?: return null
-                return actionBinding(InputProfile.actionFor(profile, control))
+                val action = if (activeLayer != null && control in FACE_CONTROLS) {
+                    InputProfile.actionFor(profile, activeLayer, control)
+                        ?: InputProfile.actionFor(profile, control)
+                } else InputProfile.actionFor(profile, control)
+                return actionBinding(action)
             }
             return logicalGamepadKey(keyCode)?.let(GamepadBinding::Key)
+        }
+
+        /** Product Select actions opt into a fixed, discoverable chord vocabulary. */
+        private fun selectUtilityMode(
+            layout: GamepadLayout,
+            profile: InputProfile,
+        ): ExternalSelectMode? {
+            if (layout !in setOf(
+                GamepadLayout.PROFILED,
+                GamepadLayout.RETROID_POCKET_6,
+                GamepadLayout.RETROID_POCKET_6_XBOX,
+            )) return null
+            return when (InputProfile.actionFor(profile, Rp6Control.SELECT)) {
+                ControllerAction.MAP -> ExternalSelectMode.MAP
+                ControllerAction.CONSOLE_RADIAL -> ExternalSelectMode.CONSOLE_PORT
+                else -> null
+            }
         }
 
         internal fun faceControlForKeyCode(keyCode: Int, layout: FaceButtonLayout): Rp6Control? =
@@ -1318,5 +1748,12 @@ class InputContract(
             KeyEvent.KEYCODE_BUTTON_START -> KeyEvent.KEYCODE_ESCAPE
             else -> null
         }
+
+        private val FACE_CONTROLS = setOf(
+            Rp6Control.FACE_BOTTOM,
+            Rp6Control.FACE_LEFT,
+            Rp6Control.FACE_TOP,
+            Rp6Control.FACE_RIGHT,
+        )
     }
 }

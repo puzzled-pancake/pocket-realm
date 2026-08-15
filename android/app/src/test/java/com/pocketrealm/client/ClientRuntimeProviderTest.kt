@@ -58,7 +58,7 @@ class ClientRuntimeProviderTest {
     }
 
     @Test
-    fun armRouteIsExactlyBox64AndDxvk() {
+    fun armRoutesRemainExactAndDxvkIsDefault() {
         assertEquals(ArmTranslationBackend.BOX64, ArmTranslationBackend.parse("box64"))
         assertTrue(runCatching { ArmTranslationBackend.parse("fex") }.isFailure)
         assertTrue(runCatching { ArmTranslationBackend.parse("unknown") }.isFailure)
@@ -85,21 +85,40 @@ class ClientRuntimeProviderTest {
                 VulkanDriverCatalog.TURNIP_26_1,
             ),
         )
-        assertTrue(runCatching {
+        assertEquals(
+            ArmClientRendererCatalog.GLADIO_BUILD_ID,
             ClientRuntimeContract.armRendererBuildId(
                 ArmTranslationBackend.BOX64,
                 "opengl",
                 null,
                 null,
-            )
-        }.isFailure)
+            ),
+        )
+        assertEquals(
+            ArmClientRendererCatalog.VIRGL_BUILD_ID,
+            ClientRuntimeContract.armRendererBuildId(
+                ArmTranslationBackend.BOX64,
+                "virgl",
+                null,
+                null,
+            ),
+        )
         assertEquals(
             listOf("C:/WoW/WoW.exe"),
             ClientRuntimeContract.armClientArguments("C:/WoW/WoW.exe", "dxvk"),
         )
-        assertTrue(runCatching {
-            ClientRuntimeContract.armClientArguments("C:/WoW/WoW.exe", "opengl")
-        }.isFailure)
+        assertEquals(
+            listOf("C:/WoW/WoW.exe", "-opengl"),
+            ClientRuntimeContract.armClientArguments("C:/WoW/WoW.exe", "opengl"),
+        )
+        assertEquals(
+            listOf("C:/WoW/WoW.exe"),
+            ClientRuntimeContract.armClientArguments("C:/WoW/WoW.exe", "virgl"),
+        )
+        assertEquals(
+            "d3d9=b;dxgi=b;winealsa.drv=d;winepulse.drv=d",
+            ClientRuntimeContract.armWineDllOverrides("virgl", audioOn = false),
+        )
         assertEquals(
             "d3d9=n,b;dxgi=n,b;winealsa.drv=d;winepulse.drv=d",
             ClientRuntimeContract.armWineDllOverrides(audioOn = false),
@@ -118,6 +137,29 @@ class ClientRuntimeProviderTest {
             "1.10.3",
             VulkanDriverCatalog.requireForRequest(VulkanDriverCatalog.TURNIP_26_1),
         ))
+        assertEquals(
+            "WoW_d3d9.log",
+            ClientRuntimeContract.armDxvkLogFileName("WoW.exe"),
+        )
+        assertEquals(
+            "WoW.exe.patched_d3d9.log",
+            ClientRuntimeContract.armDxvkLogFileName("WoW.exe.patched"),
+        )
+        assertTrue(ClientRuntimeContract.isArmDxvkLogAttested(
+            "info: Game: WoW.exe.patched\ninfo: DXVK: v2.4.1\ninfo: Turnip Adreno (TM) 740",
+            "2.4.1",
+            VulkanDriverCatalog.requireForRequest(VulkanDriverCatalog.TURNIP_26_1),
+            "WoW.exe.patched",
+        ))
+        assertFalse(ClientRuntimeContract.isArmDxvkLogAttested(
+            "info: Game: WoW.exe.patched\ninfo: DXVK: v2.4.1\ninfo: Turnip Adreno (TM) 740",
+            "2.4.1",
+            VulkanDriverCatalog.requireForRequest(VulkanDriverCatalog.TURNIP_26_1),
+            "WoW.exe",
+        ))
+        assertTrue(runCatching {
+            ClientRuntimeContract.armDxvkLogFileName("../WoW.exe")
+        }.isFailure)
         assertFalse(ClientRuntimeContract.isArmDxvkLogAttested(
             "info: Game: WoW.exe\ninfo: DXVK: v1.10.3\ninfo: Turnip Adreno (TM) 740",
             "2.4.1",
@@ -136,5 +178,15 @@ class ClientRuntimeProviderTest {
         )
         assertTrue(runCatching { ClientRuntimeContract.dxvkFrameCapConfig(31) }.isFailure)
         assertTrue("opengl32.dll" in ClientRuntimeContract.ARM_REQUIRED_WINE_GUEST_DLLS)
+    }
+
+    @Test fun `experimental live renderer proof is revoked after promotion`() {
+        assertTrue(experimentalRendererProofReady(1, 1, 1))
+        assertFalse(experimentalRendererProofReady(0, 1, 1))
+        assertFalse(experimentalRendererProofRevoked(ClientState.STARTING, 0, 1, 1))
+        assertFalse(experimentalRendererProofRevoked(ClientState.RUNNING, 1, 1, 1))
+        assertTrue(experimentalRendererProofRevoked(ClientState.RUNNING, 0, 1, 1))
+        assertTrue(experimentalRendererProofRevoked(ClientState.RUNNING, 1, 0, 1))
+        assertTrue(experimentalRendererProofRevoked(ClientState.RUNNING, 1, 1, 0))
     }
 }

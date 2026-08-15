@@ -45,6 +45,9 @@ class ClientRuntimeService : Service() {
         var stdout: String = "",
         var stderr: String = "",
         var rendererProofDeadlineElapsedMs: Long = 0,
+        var graphicsTransportContexts: Int = 0,
+        var graphicsRendererContexts: Int = 0,
+        var graphicsPresentedFrames: Long = 0,
         var runtimeFinished: Boolean = false,
         var processTreeStarted: Boolean = false,
         var processTreeDrained: Boolean = false,
@@ -138,20 +141,31 @@ class ClientRuntimeService : Service() {
                 request.getInt("frameCap"),
             )
             if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
-                require(renderer == "dxvk") { "Box64 + DXVK is the only supported ARM client route" }
-                requireNotNull(rendererPackageId) { "DXVK requires an explicit renderer package" }
-                val rendererPackage = requireNotNull(RendererPackageCatalog.requireForRequest(
-                    translator, renderer, rendererPackageId,
-                ))
-                val requestedDriver = VulkanDriverCatalog.requireForRequest(vulkanDriverId)
-                VulkanDriverCatalog.requireAvailableCompatiblePair(
-                    vulkanDriverId,
-                    rendererPackage,
-                    Build.MODEL,
-                    if (requestedDriver.kind == VulkanDriverKind.SYSTEM) {
-                        AndroidSystemVulkanProbe.probe()
+                val rendererSelection = ArmClientRendererCatalog.requireRuntimeRenderer(
+                    renderer,
+                    if (renderer != "dxvk") runCatching {
+                        AndroidGladioCapabilityProbe.probe(applicationContext)
                     } else null,
                 )
+                if (rendererSelection == ArmClientRenderer.DXVK) {
+                    requireNotNull(rendererPackageId) { "DXVK requires an explicit renderer package" }
+                    val rendererPackage = requireNotNull(RendererPackageCatalog.requireForRequest(
+                        translator, renderer, rendererPackageId,
+                    ))
+                    val requestedDriver = VulkanDriverCatalog.requireForRequest(vulkanDriverId)
+                    VulkanDriverCatalog.requireAvailableCompatiblePair(
+                        vulkanDriverId,
+                        rendererPackage,
+                        Build.MODEL,
+                        if (requestedDriver.kind == VulkanDriverKind.SYSTEM) {
+                            AndroidSystemVulkanProbe.probe()
+                        } else null,
+                    )
+                } else {
+                    require(rendererPackageId == null && vulkanDriverId == null) {
+                        "$renderer does not accept Vulkan/DXVK package identities"
+                    }
+                }
             } else {
                 require(vulkanDriverId == null) {
                     "x86 direct Wine does not accept an ARM Vulkan driver"
@@ -181,6 +195,7 @@ class ClientRuntimeService : Service() {
             synchronized(lock) { prepared = p }
             JSONObject().put("ok", true).put("prefixId", p.prefixId)
                 .put("runtimeRoot", p.root.absolutePath).put("prefixPath", p.prefix.absolutePath)
+                .put("renderer", p.armRenderer ?: "wined3d")
                 .put("vulkanDriverId", p.armVulkanDriverId ?: JSONObject.NULL)
                 .put("rendererPackageId", p.armRendererPackageId ?: JSONObject.NULL)
                 .put("displayProfileId", p.displayProfileId)
@@ -336,8 +351,33 @@ class ClientRuntimeService : Service() {
             synchronized(lock) {
                 r.windowVisible = true
                 if (r.rendererProofDeadlineElapsedMs == 0L) {
-                    r.rendererProofDeadlineElapsedMs = SystemClock.elapsedRealtime() + 10_000L
+                    r.rendererProofDeadlineElapsedMs =
+                        SystemClock.elapsedRealtime() + RENDERER_PROOF_TIMEOUT_MS
                 }
+                maybePromoteRunningLocked(r)
+            }
+            eventJson(r)
+        }
+
+        override fun reportGraphicsProof(
+            sessionId: String,
+            renderer: String,
+            transportContexts: Int,
+            rendererContexts: Int,
+            presentedFrames: Long,
+        ): String = guarded(sessionId) {
+            val r = requireSession(sessionId)
+            synchronized(lock) {
+                check(renderer == r.prepared.armRenderer) { "graphics renderer identity mismatch" }
+                require(transportContexts >= 0 && rendererContexts >= 0 && presentedFrames >= 0) {
+                    "graphics proof counters must be non-negative"
+                }
+                // These are live renderer milestones, not historical telemetry.
+                // A disconnected context or restarted VirGL client must revoke
+                // readiness until the currently active route proves itself.
+                r.graphicsTransportContexts = transportContexts
+                r.graphicsRendererContexts = rendererContexts
+                r.graphicsPresentedFrames = presentedFrames
                 maybePromoteRunningLocked(r)
             }
             eventJson(r)
@@ -487,31 +527,61 @@ class ClientRuntimeService : Service() {
         val x86Lib = File(rootfs, "lib/x86_64-linux-gnu")
         val home = File(rootfs, "home/xuser")
         val renderer = checkNotNull(r.prepared.armRenderer) { "ARM renderer identity missing" }
-        check(renderer == "dxvk") { "Box64 + DXVK is the only supported ARM client route" }
+        check(renderer == "dxvk" || renderer == "opengl" || renderer == "virgl") {
+            "unsupported Box64 ARM renderer: $renderer"
+        }
         val dxvkConfig = File(r.prepared.cache, ClientRuntimeContract.DXVK_CONFIG_FILE_NAME)
-        check(dxvkConfig.isFile && dxvkConfig.readText() ==
-            ClientRuntimeContract.dxvkFrameCapConfig(r.prepared.frameCap)) {
-            "app-owned DXVK frame cap is missing or stale"
+        if (renderer == "dxvk") {
+            check(dxvkConfig.isFile && dxvkConfig.readText() ==
+                ClientRuntimeContract.dxvkFrameCapConfig(r.prepared.frameCap)) {
+                "app-owned DXVK frame cap is missing or stale"
+            }
         }
         File(r.prepared.tmp, "shm").mkdirs()
         val audioOn = r.prepared.audioMode == "on"
-        val driver = checkNotNull(VulkanDriverCatalog.find(r.prepared.armVulkanDriverId)) {
-            "ARM Vulkan driver identity missing"
-        }
-        val driverEnv = when (driver.kind) {
-            VulkanDriverKind.SYSTEM -> listOf(
-                "VK_ICD_FILENAMES=${File(rootfs, "usr/share/vulkan/icd.d/${driver.icdFileName}").absolutePath}",
-            )
-            VulkanDriverKind.TURNIP -> buildList {
-                add("VK_ICD_FILENAMES=${File(rootfs, "usr/share/vulkan/icd.d/${driver.icdFileName}").absolutePath}")
-                add("MESA_VK_WSI_PRESENT_MODE=mailbox")
-                add("MESA_VK_WSI_USE_HWBUF=1")
-                add(if (Build.MODEL.trim().equals("Retroid Pocket 6", ignoreCase = true)) {
-                    "TU_DEBUG=noconform,sysmem"
-                } else {
-                    "TU_DEBUG=noconform"
-                })
+        val driverEnv = if (renderer == "dxvk") {
+            val driver = checkNotNull(VulkanDriverCatalog.find(r.prepared.armVulkanDriverId)) {
+                "ARM Vulkan driver identity missing"
             }
+            when (driver.kind) {
+                VulkanDriverKind.SYSTEM -> listOf(
+                    "VK_ICD_FILENAMES=${File(rootfs, "usr/share/vulkan/icd.d/${driver.icdFileName}").absolutePath}",
+                )
+                VulkanDriverKind.TURNIP -> buildList {
+                    add("VK_ICD_FILENAMES=${File(rootfs, "usr/share/vulkan/icd.d/${driver.icdFileName}").absolutePath}")
+                    add("MESA_VK_WSI_PRESENT_MODE=mailbox")
+                    add("MESA_VK_WSI_USE_HWBUF=1")
+                    add(if (Build.MODEL.trim().equals("Retroid Pocket 6", ignoreCase = true)) {
+                        "TU_DEBUG=noconform,sysmem"
+                    } else {
+                        "TU_DEBUG=noconform"
+                    })
+                }
+            }
+        } else emptyList()
+        val rendererEnv = when (renderer) {
+            "dxvk" -> listOf(
+                "DXVK_STATE_CACHE_PATH=${File(r.prepared.cache, "dxvk").absolutePath}",
+                "MESA_SHADER_CACHE_DIR=${File(r.prepared.cache, "mesa").absolutePath}",
+                "DXVK_CONFIG_FILE=${dxvkConfig.absolutePath}",
+                "DXVK_LOG_PATH=${File(r.prepared.root, "sessions/${r.id}").absolutePath}",
+                "DXVK_LOG_LEVEL=info",
+                "vblank_mode=0",
+            )
+            "opengl" -> listOf(
+                "POCKET_GLADIO_X11_SOCKET=${File(rootfs, "tmp/.X11-unix/X0").absolutePath}",
+            )
+            "virgl" -> listOf(
+                "GALLIUM_DRIVER=virpipe",
+                "VIRGL_NO_READBACK=true",
+                "VIRGL_SERVER_PATH=${File(rootfs, "tmp/.virgl/V0").absolutePath}",
+                "MESA_DEBUG=silent",
+                "MESA_NO_ERROR=1",
+                "MESA_EXTENSION_OVERRIDE=-GL_KHR_debug -GL_EXT_vertex_array_bgra",
+                "MESA_GL_VERSION_OVERRIDE=3.1",
+                "MESA_SHADER_CACHE_DIR=${File(r.prepared.cache, "virgl").absolutePath}",
+            )
+            else -> error("unsupported Box64 ARM renderer: $renderer")
         }
         val env = listOf(
             "HOME=${home.absolutePath}",
@@ -525,7 +595,7 @@ class ClientRuntimeService : Service() {
             "WINEFSYNC=0",
             // Use the proven Wine loader order; readiness below independently
             // attests the fresh DXVK/Turnip session log.
-            "WINEDLLOVERRIDES=${ClientRuntimeContract.armWineDllOverrides(audioOn)}",
+            "WINEDLLOVERRIDES=${ClientRuntimeContract.armWineDllOverrides(renderer, audioOn)}",
             "BOX64_NOBANNER=1",
             "BOX64_DYNAREC=1",
             "BOX64_UNITYPLAYER=0",
@@ -545,16 +615,10 @@ class ClientRuntimeService : Service() {
             "BOX64_X11GLX=1",
             "BOX64_LD_LIBRARY_PATH=${x86Lib.absolutePath}",
             "BOX64_PATH=${File(rootfs, "opt/wine/bin").absolutePath}",
-            "DXVK_STATE_CACHE_PATH=${File(r.prepared.cache, "dxvk").absolutePath}",
-            "MESA_SHADER_CACHE_DIR=${File(r.prepared.cache, "mesa").absolutePath}",
             "XDG_CACHE_HOME=${File(r.prepared.cache, "xdg").absolutePath}",
-            "DXVK_CONFIG_FILE=${dxvkConfig.absolutePath}",
-            "DXVK_LOG_PATH=${File(r.prepared.root, "sessions/${r.id}").absolutePath}",
-            "DXVK_LOG_LEVEL=info",
-            "vblank_mode=0",
             "FONTCONFIG_FILE=${File(rootfs, "etc/fonts/fonts.conf").absolutePath}",
             "FONTCONFIG_PATH=${File(rootfs, "etc/fonts").absolutePath}",
-        ) + driverEnv + (if (audioOn) listOf(
+        ) + driverEnv + rendererEnv + (if (audioOn) listOf(
             // O23 audio: route libasound to the on-device ALSA server (bound by
             // ClientDisplayHost at <transportRoot>/.sound/AS0) via the android_aserver
             // plugin. The plugin is installed into the ca3d735 rootfs at
@@ -588,7 +652,19 @@ class ClientRuntimeService : Service() {
                 box64.absolutePath,
                 r.prepared.workingDir.absolutePath,
                 r.prepared.root.absolutePath,
-                armLib.absolutePath,
+                when (renderer) {
+                    "opengl" -> listOf(
+                        File(checkNotNull(r.prepared.prefix.parentFile),
+                            WineRuntimeStore.GLADIO_PAYLOAD_DIRECTORY).absolutePath,
+                        armLib.absolutePath,
+                    ).joinToString(":")
+                    "virgl" -> listOf(
+                        File(checkNotNull(r.prepared.prefix.parentFile),
+                            WineRuntimeStore.VIRGL_PAYLOAD_DIRECTORY).absolutePath,
+                        armLib.absolutePath,
+                    ).joinToString(":")
+                    else -> armLib.absolutePath
+                },
                 (listOf(wine.absolutePath) + ClientRuntimeContract.armClientArguments(
                     r.prepared.executable.absolutePath,
                     renderer,
@@ -701,17 +777,99 @@ class ClientRuntimeService : Service() {
     /** Promote an ARM window only after proving that the selected pinned DXVK
      * package, rather than WineD3D, created this exact session's D3D9 device. */
     private fun maybePromoteRunningLocked(r: SessionRecord) {
-        if (r.state != ClientState.STARTING || !r.windowVisible) return
+        if (r.state !in setOf(ClientState.STARTING, ClientState.RUNNING) || !r.windowVisible) return
         if (Build.SUPPORTED_ABIS.firstOrNull() != "arm64-v8a") {
-            transition(r, ClientState.RUNNING, "mapped client window visible")
+            if (r.state == ClientState.STARTING) {
+                transition(r, ClientState.RUNNING, "mapped client window visible")
+            }
             return
+        }
+        if (r.prepared.armRenderer == "opengl") {
+            if (experimentalRendererProofReady(
+                    r.graphicsTransportContexts,
+                    r.graphicsRendererContexts,
+                    r.graphicsPresentedFrames,
+                )) {
+                if (r.state == ClientState.STARTING) {
+                    transition(
+                        r,
+                        ClientState.RUNNING,
+                        "mapped client window with live Gladio GLX and presented frame",
+                    )
+                }
+            } else if (experimentalRendererProofRevoked(
+                    r.state,
+                    r.graphicsTransportContexts,
+                    r.graphicsRendererContexts,
+                    r.graphicsPresentedFrames,
+                )) {
+                transition(
+                    r,
+                    ClientState.FAILED,
+                    "Gladio live proof revoked: transport=${r.graphicsTransportContexts} " +
+                        "glx=${r.graphicsRendererContexts} frames=${r.graphicsPresentedFrames}",
+                )
+            } else if (r.rendererProofDeadlineElapsedMs > 0L &&
+                SystemClock.elapsedRealtime() >= r.rendererProofDeadlineElapsedMs) {
+                transition(
+                    r,
+                    ClientState.FAILED,
+                    "Gladio readiness timed out: transport=${r.graphicsTransportContexts} " +
+                        "glx=${r.graphicsRendererContexts} frames=${r.graphicsPresentedFrames}",
+                )
+            }
+            return
+        }
+        if (r.prepared.armRenderer == "virgl") {
+            if (experimentalRendererProofReady(
+                    r.graphicsTransportContexts,
+                    r.graphicsRendererContexts,
+                    r.graphicsPresentedFrames,
+                )) {
+                if (r.state == ClientState.STARTING) {
+                    transition(
+                        r,
+                        ClientState.RUNNING,
+                        "mapped client window with initialized VirGL caps and validated flush",
+                    )
+                }
+            } else if (experimentalRendererProofRevoked(
+                    r.state,
+                    r.graphicsTransportContexts,
+                    r.graphicsRendererContexts,
+                    r.graphicsPresentedFrames,
+                )) {
+                transition(
+                    r,
+                    ClientState.FAILED,
+                    "VirGL live proof revoked: connections=${r.graphicsTransportContexts} " +
+                        "capsReady=${r.graphicsRendererContexts} flushes=${r.graphicsPresentedFrames}",
+                )
+            } else if (r.rendererProofDeadlineElapsedMs > 0L &&
+                SystemClock.elapsedRealtime() >= r.rendererProofDeadlineElapsedMs) {
+                transition(
+                    r,
+                    ClientState.FAILED,
+                    "VirGL readiness timed out: connections=${r.graphicsTransportContexts} " +
+                        "capsReady=${r.graphicsRendererContexts} flushes=${r.graphicsPresentedFrames}",
+                )
+            }
+            return
+        }
+        if (r.state != ClientState.STARTING) return
+        check(r.prepared.armRenderer == "dxvk") {
+            "unsupported ARM renderer readiness route: ${r.prepared.armRenderer}"
         }
         val rendererPackage = RendererPackageCatalog.find(r.prepared.armRendererPackageId)
         val driver = VulkanDriverCatalog.find(r.prepared.armVulkanDriverId)
-        val proof = readPrefix(File(r.prepared.root, "sessions/${r.id}/WoW_d3d9.log"))
+        val executableName = r.prepared.executable.name
+        val proof = readPrefix(File(
+            r.prepared.root,
+            "sessions/${r.id}/${ClientRuntimeContract.armDxvkLogFileName(executableName)}",
+        ))
         if (rendererPackage != null && driver != null &&
             ClientRuntimeContract.isArmDxvkLogAttested(
-                proof, rendererPackage.dxvkVersion, driver,
+                proof, rendererPackage.dxvkVersion, driver, executableName,
             )) {
             transition(
                 r,
@@ -768,9 +926,14 @@ class ClientRuntimeService : Service() {
     }
 
     private fun eventJsonUnsafe(r: SessionRecord) = JSONObject().put("ok", true)
+        .put("sessionId", r.id.toString())
         .put("sequence", r.sequence).put("state", r.state.name).put("detail", r.detail)
         .put("cleanExit", r.cleanExit).put("forced", r.forced)
         .put("windowVisible", r.windowVisible).put("runtimeFinished", r.runtimeFinished)
+        .put("renderer", r.prepared.armRenderer ?: "wined3d")
+        .put("graphicsTransportContexts", r.graphicsTransportContexts)
+        .put("graphicsRendererContexts", r.graphicsRendererContexts)
+        .put("graphicsPresentedFrames", r.graphicsPresentedFrames)
         .put("rendererPackageId", r.prepared.armRendererPackageId ?: JSONObject.NULL)
         .put("vulkanDriverId", r.prepared.armVulkanDriverId ?: JSONObject.NULL)
         .put("displayProfileId", r.prepared.displayProfileId)
@@ -779,6 +942,10 @@ class ClientRuntimeService : Service() {
     private fun diagnosticsJson(r: SessionRecord) = synchronized(lock) {
         JSONObject().put("ok", true).put("sessionId", r.id.toString()).put("state", r.state.name)
             .put("cleanExit", r.cleanExit).put("forced", r.forced).put("windowVisible", r.windowVisible)
+            .put("renderer", r.prepared.armRenderer ?: "wined3d")
+            .put("graphicsTransportContexts", r.graphicsTransportContexts)
+            .put("graphicsRendererContexts", r.graphicsRendererContexts)
+            .put("graphicsPresentedFrames", r.graphicsPresentedFrames)
             .put("rendererPackageId", r.prepared.armRendererPackageId ?: JSONObject.NULL)
             .put("vulkanDriverId", r.prepared.armVulkanDriverId ?: JSONObject.NULL)
             .put("displayProfileId", r.prepared.displayProfileId)
@@ -811,6 +978,10 @@ class ClientRuntimeService : Service() {
         .put("protocol", ClientRuntimeContract.PROTOCOL_VERSION).put("sessionId", r.id.toString())
         .put("state", r.state.name).put("sequence", r.sequence).put("detail", r.detail)
         .put("cleanExit", r.cleanExit).put("forced", r.forced).put("windowVisible", r.windowVisible)
+        .put("renderer", r.prepared.armRenderer ?: "wined3d")
+        .put("graphicsTransportContexts", r.graphicsTransportContexts)
+        .put("graphicsRendererContexts", r.graphicsRendererContexts)
+        .put("graphicsPresentedFrames", r.graphicsPresentedFrames)
         .put("rendererPackageId", r.prepared.armRendererPackageId ?: JSONObject.NULL)
         .put("vulkanDriverId", r.prepared.armVulkanDriverId ?: JSONObject.NULL)
         .put("displayProfileId", r.prepared.displayProfileId)
@@ -860,6 +1031,22 @@ class ClientRuntimeService : Service() {
         private const val TAG = "ClientRuntime"
         private const val FORCE_DRAIN_TIMEOUT_MS = 15_000L
         private const val FORCE_DRAIN_POLL_MS = 50L
+        private const val RENDERER_PROOF_TIMEOUT_MS = 15_000L
         private val TERMINAL_STATES = setOf(ClientState.EXITED, ClientState.FORCE_STOPPED, ClientState.FAILED)
     }
 }
+
+internal fun experimentalRendererProofReady(
+    transportContexts: Int,
+    rendererContexts: Int,
+    presentedFrames: Long,
+): Boolean = transportContexts > 0 && rendererContexts > 0 && presentedFrames > 0
+
+internal fun experimentalRendererProofRevoked(
+    state: ClientState,
+    transportContexts: Int,
+    rendererContexts: Int,
+    presentedFrames: Long,
+): Boolean = state == ClientState.RUNNING && !experimentalRendererProofReady(
+    transportContexts, rendererContexts, presentedFrames,
+)

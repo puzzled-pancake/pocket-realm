@@ -42,6 +42,15 @@ internal class AddonArchiveExtractor {
                     }
                 }
                 require(copied == record.size) { "Add-on entry size changed during extraction" }
+                // Archive mode bits are deliberately not restored. In
+                // particular, GitHub repositories often mark maintenance
+                // scripts or Lua tools executable even though every extracted
+                // add-on entry is private data consumed by WoW.
+                // Best effort is sufficient here: Android creates this app-
+                // private file from scratch without copying the ZIP mode. The
+                // return value is platform-specific (notably on Windows unit
+                // test hosts), so it is not a validation signal.
+                target.setExecutable(false, false)
             }
         }
     }

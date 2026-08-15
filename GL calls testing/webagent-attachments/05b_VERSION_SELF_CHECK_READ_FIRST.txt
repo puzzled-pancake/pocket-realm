@@ -1,0 +1,48 @@
+# VERSION SELF-CHECK — read before analyzing 05_client_gl_calls.c_DEPLOYED_V5
+
+## Why this note exists
+
+A prior review pass reported that the attached gl_calls.c "still contains stubbed
+glEnableClientStateIndexedEXT / glDisableClientStateIndexedEXT, the old
+server-active-texture glMultiTexCoordPointerEXT, stubbed glLightModelfv and
+glTexGenfv". That describes the ROUND-1 upstream file (pristine Gladio eaa2a8d),
+which is a DIFFERENT attachment from the first research session. It is not this
+file. Before writing any diff against file 05, verify you are reading file 05.
+
+## Self-check (run against the file you actually have open)
+
+sha256 must equal EXACTLY:
+614693d16ae2cc20c5d78c6ed4073172124b3d05580ac934d1ac9c93266296f9
+
+Markers that MUST be present in the deployed v5 (occurrence counts):
+  gladioSignedNormalizedToFloat                     -> 79
+  gladioUnsignedNormalizedToFloat                   -> 61
+  gladio_unimplemented                              -> 153
+  "REQUEST_CODE_GL_TEX_GENFV, outputBuffer"         -> 1  (texgen forwarding impl)
+  "REQUEST_CODE_GL_LIGHT_MODELFV, outputBuffer"     -> 1  (light-model forwarding impl)
+  "oldTexunit != texunit) glClientActiveTexture(texunit)" -> 1 (glMultiTexCoordPointerEXT repair)
+
+If ANY of these are absent, you are reading the round-1 upstream file, NOT the
+deployment — stop and request 05_client_gl_calls.c_DEPLOYED_V5 again.
+
+## What IS genuinely still unfixed in the deployed v5 (do not flag as version drift)
+
+- glEnd()'s trailing command-buffer write:
+      RingBuffer_write(currentGLContext->serverRing, commandBuffer->data.buffer, ...)
+  is still UNCHECKED (return value ignored). This is a known pending B-phase
+  hardening item, present in the deployed source, and NOT evidence of a version
+  mismatch.
+- Any remaining gladio_unimplemented(...) call sites are deployed stubs that log
+  once per name (spam-guarded); the full list of still-stubbed functions is
+  welcome output for Phase 2.
+
+## Deployment identity (matched pair currently on the device)
+
+- Client libGL.so.1: gladio-eaa2a8d-arm64-glibc-gles-v5, 497808 bytes,
+  sha256 1a634a5d9259a87188979a29d93b098edf09e8ee1639b7fb05e446e31327e865
+  (built from the attached source; the gl_calls.c content lock above is enforced
+  by the build script, so the attached source and the deployed binary are the
+  same tree by construction).
+- Server libgladiorenderer.so: gladio-eaa2a8d-android-gles-server-1ffa75ce,
+  1309312 bytes,
+  sha256 1ffa75ce4f2dd45b85feb83c5f5db5208a496d5a89ef7a434833cfb8a9d76a28.

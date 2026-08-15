@@ -73,7 +73,7 @@ fun AddonsHubScreen(
             item {
                 AddonHubRow(
                     title = "Recommended for Pocket Realm",
-                    summary = "${catalog.recommended.size} complementary, handheld-friendly choices with a reason for each.",
+                    summary = "${catalog.recommended.size} handheld-friendly choices that stay clear of Android Port's controller bars.",
                     status = "Nothing is installed automatically",
                     onClick = onRecommended,
                     tag = "addon-hub-recommended",
@@ -139,8 +139,9 @@ fun RecommendedAddonsScreen(onOpenAddon: (String) -> Unit) {
                     supporting = checkNotNull(catalog.recommendationReason(addon.matrixId)),
                     status = when {
                         installed -> "Installed"
-                        addon.installSource == AddonInstallSource.BUNDLED -> "Included offline · optional"
-                        else -> "Optional · installs from GitHub"
+                        addon.installSource == AddonInstallSource.BUILTIN -> "Optional · built into Pocket Realm"
+                        addon.installSource == AddonInstallSource.GITHUB -> "Optional · installs from GitHub"
+                        else -> "Reference only"
                     },
                     onClick = { onOpenAddon(addon.matrixId) },
                     tag = "addon-recommended-${addon.matrixId}",
@@ -259,7 +260,6 @@ fun BrowseAddonsScreen(onOpenAddon: (String) -> Unit) {
                         supporting = addon.description,
                         status = when {
                             installed -> "Installed"
-                            addon.installSource == AddonInstallSource.BUNDLED -> "Included offline · optional"
                             !addon.installable -> "Research reference only"
                             else -> "${addon.handheldScore}/10 · ${addon.handheldVerdict}"
                         },
@@ -308,8 +308,8 @@ fun CatalogAddonDetailScreen(matrixId: String) {
             busy = state.operation != null,
             onInstall = {
                 when (addon.installSource) {
+                    AddonInstallSource.BUILTIN -> repository.installBuiltIn(addon)
                     AddonInstallSource.GITHUB -> repository.install(requireNotNull(addon.githubUrl))
-                    AddonInstallSource.BUNDLED -> repository.installBundledPocketRealmPad()
                     AddonInstallSource.REFERENCE -> Unit
                 }
             },
@@ -526,7 +526,6 @@ private fun AddonDetail(
                 when {
                     updateAvailable -> "Update available"
                     installed != null -> "Installed"
-                    addon.installSource == AddonInstallSource.BUNDLED -> "Included offline · optional"
                     else -> "Optional"
                 },
                 color = MaterialTheme.colorScheme.primary,
@@ -605,9 +604,8 @@ private fun AddonDetailActions(
         ) {
             Text(when {
                 updateAvailable -> "Install update"
-                installed != null && addon.installSource == AddonInstallSource.BUNDLED -> "Reinstall included version"
                 installed != null -> "Reinstall latest"
-                addon.installSource == AddonInstallSource.BUNDLED -> "Install optional included ${addon.version}"
+                addon.installSource == AddonInstallSource.BUILTIN -> "Install built-in"
                 addon.installable -> "Install from GitHub"
                 else -> "Reference only"
             })

@@ -1,0 +1,103 @@
+{
+  "schema": 2,
+  "default": "turnip-26.1.0",
+  "selection_policy": "exact-request-fail-closed",
+  "drivers": [
+    {
+      "id": "system-vulkan-vortek-2.1",
+      "kind": "system-vortek",
+      "version": "2.1",
+      "qualification": "source-matched-winlator-system-vulkan",
+      "display": {
+        "label": "System Vulkan driver",
+        "summary": "Uses the GPU driver supplied by this Android device through Winlator's Vortek bridge.",
+        "qualification": "Experimental developer-qualification path; not enabled for normal production launches."
+      },
+      "release": {
+        "enabled": false,
+        "default": false,
+        "experimental": true,
+        "protocol_profile": "winlator-2.1-source-matched",
+        "minimum_vulkan_by_renderer": {
+          "box64-dxvk-2.4.1": "1.3",
+          "box64-dxvk-1.10.3": "1.1"
+        },
+        "required_device_extensions": [
+          "VK_KHR_swapchain",
+          "VK_ANDROID_external_memory_android_hardware_buffer",
+          "VK_KHR_external_memory",
+          "VK_KHR_external_memory_fd",
+          "VK_KHR_external_semaphore",
+          "VK_KHR_external_semaphore_fd",
+          "VK_KHR_external_fence",
+          "VK_KHR_external_fence_fd"
+        ],
+        "requires_native_texture_compression_bc": true
+      },
+      "source": {
+        "upstream": "https://github.com/brunodev85/Vortek",
+        "commit": "ab7329c4b445a4abd9b9af91b8148e1ca41464fa",
+        "build_script": "tools/build_vortek_guest.py",
+        "builder_image": "ubuntu@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea",
+        "compatibility_archive": "graphics_driver/vortek-2.1.tzst",
+        "compatibility_archive_sha256": "f2cce15552bc6ff195823bf066ad1a421cb1f453bf80afa3ccd925ff0b1a5713",
+        "license": "LGPL-2.1"
+      },
+      "files": [
+        {
+          "role": "guest-vulkan-bridge-library",
+          "asset": "arm-translated/vulkan-drivers/system-vulkan-vortek-2.1/libvulkan_vortek.so",
+          "size": 406496,
+          "sha256": "10208431d516184e0e92ac1612a04c25a2e6a8925e89f3ef4829ee35eb1164d9",
+          "elf_machine": 183
+        },
+        {
+          "role": "guest-vulkan-icd-manifest",
+          "asset": "arm-translated/vulkan-drivers/system-vulkan-vortek-2.1/vortek_icd.aarch64.json",
+          "size": 192,
+          "sha256": "9e80133ca51ef57dac0cdc29ff8614d1fdffc5335fcf4e8ce38066da43f3c262"
+        }
+      ]
+    },
+    {
+      "id": "turnip-26.1.0",
+      "kind": "turnip",
+      "version": "26.1.0",
+      "qualification": "explicit-rp6-adreno-740",
+      "display": {
+        "label": "Turnip 26.1.0",
+        "summary": "Uses the packaged Mesa Turnip driver instead of Android's system driver.",
+        "qualification": "Built-in production default qualified for the RP6 / Adreno 740 lane."
+      },
+      "release": {
+        "enabled": true,
+        "default": true,
+        "qualified_device_models": [
+          "Retroid Pocket 6"
+        ]
+      },
+      "source": {
+        "upstream": "https://github.com/brunodev85/winlator-app",
+        "commit": "ca3d735a60d653a787daf16d14fafef28d9c2c23",
+        "archive": "graphics_driver/turnip-26.1.0.tzst",
+        "archive_sha256": "9b4a10975456197e403c2b6a8a9781a8fd42ccf5048262a8cdea6538bb68d288",
+        "license": "Mesa MIT"
+      },
+      "files": [
+        {
+          "role": "guest-vulkan-icd-library",
+          "asset": "arm-translated/vulkan-drivers/turnip-26.1.0/libvulkan_freedreno.so",
+          "size": 16101536,
+          "sha256": "f4d09b00d5d7e463f1af76a9974bdd4f2d8298951de9ae2bfc7678a3631e7ab0",
+          "elf_machine": 183
+        },
+        {
+          "role": "guest-vulkan-icd-manifest",
+          "asset": "arm-translated/vulkan-drivers/turnip-26.1.0/freedreno_icd.aarch64.json",
+          "size": 195,
+          "sha256": "8ab797c2c31441271acee4b2423106683eb9e500de6e168ceb035f02c30aeb92"
+        }
+      ]
+    }
+  ]
+}

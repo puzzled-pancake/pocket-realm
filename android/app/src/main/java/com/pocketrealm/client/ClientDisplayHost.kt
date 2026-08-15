@@ -6,6 +6,7 @@ import android.os.Build
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.widget.FrameLayout
+import com.pocketrealm.BuildConfig
 import com.pocketrealm.log.AppLog
 import com.pocketrealm.storage.Settings
 import com.winlator.XServerDisplayActivity
@@ -17,8 +18,10 @@ import com.winlator.sysvshm.SysVSHMRequestHandler
 import com.winlator.sysvshm.SysVSharedMemory
 import com.winlator.alsaserver.ALSAClient
 import com.winlator.alsaserver.ALSAClientConnectionHandler
+import com.winlator.alsaserver.ALSADiagnostics
 import com.winlator.alsaserver.ALSARequestHandler
 import com.winlator.xenvironment.components.VortekRendererComponent
+import com.winlator.xenvironment.components.VirGLRendererComponent
 import com.winlator.xserver.Atom
 import com.winlator.xserver.events.Event
 import com.winlator.xserver.ScreenInfo
@@ -29,11 +32,27 @@ import com.winlator.xserver.XClientConnectionHandler
 import com.winlator.xserver.XClientRequestHandler
 import com.winlator.xserver.XServer
 import com.winlator.xserver.events.ClientMessage
+import com.winlator.xserver.extensions.GLXExtension
+import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlin.math.roundToInt
+
+/** Positively identified physical gameplay-controller topology. */
+enum class ControllerDeviceMode {
+    NONE,
+    RP6_RETRO,
+    RP6_XBOX,
+    OTHER_CONTROLLER,
+}
+
+/** Resolve bridge readiness without relying on mixed Elvis/boolean precedence. */
+internal fun resolveVulkanBridgeReady(
+    componentReady: Boolean?,
+    driverKind: VulkanDriverKind?,
+): Boolean = componentReady ?: (driverKind != VulkanDriverKind.SYSTEM)
 
 /** UI-owned X transport, rendered SurfaceView, and normalized input bridge. */
 class ClientDisplayHost(
@@ -42,7 +61,18 @@ class ClientDisplayHost(
     /** Single-ABI selection preserves x86 Balanced and enables ARM64 Quality. */
     val displayProfile: ClientDisplayProfile =
         ClientDisplayProfile.forDevice(Build.SUPPORTED_ABIS.asList(), Build.MODEL),
+    /**
+     * Panel-resolved virtual desktop. The X screen, the input mapping, and the
+     * auto-login topology all use this size; the profile enum only fixes the
+     * height class and 16:9 reference geometry.
+     */
+    val virtualDisplay: ClientVirtualDisplay =
+        ClientDisplayCapabilities.physicalLandscapeBounds(context)
+            .let { (width, height) -> displayProfile.resolveFor(width, height) },
     val frameCap: Int = ClientFrameCap.FPS_30.fps,
+    val renderer: String = if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
+        "dxvk"
+    } else "wined3d",
     val vulkanDriverId: String? = null,
     val rendererPackageId: String? = null,
     autoLoginCredentials: SinglePlayerAutoLoginCredentials? = null,
@@ -54,6 +84,9 @@ class ClientDisplayHost(
     val transportRoot: java.io.File = resolveTransportRoot(runtimeRoot).apply { mkdirs() }
     /** The one ALSA filesystem node owned by this host. */
     private val alsaSocket = java.io.File(transportRoot, ".sound/AS0")
+    /** Resolved desktop bounds reported through the display binder. */
+    val virtualWidth: Int get() = virtualDisplay.width
+    val virtualHeight: Int get() = virtualDisplay.height
     val xServer: XServer
     val view: XServerView
     /** IME-capable wrapper around [view] for soft-keyboard embedding (O14 increment 2). */
@@ -70,12 +103,25 @@ class ClientDisplayHost(
     private val sysvConnector: XConnectorEpoll
     private val alsaConnector: XConnectorEpoll?
     private val vortekComponent: VortekRendererComponent?
+    private val virglComponent: VirGLRendererComponent?
     private val sysvSharedMemory: SysVSharedMemory
     private val inputManager = context.getSystemService(Context.INPUT_SERVICE) as InputManager
     private val inputDeviceListener = object : InputManager.InputDeviceListener {
-        override fun onInputDeviceAdded(deviceId: Int) = Unit
-        override fun onInputDeviceChanged(deviceId: Int) = Unit
-        override fun onInputDeviceRemoved(deviceId: Int) { releaseInput(deviceId) }
+        override fun onInputDeviceAdded(deviceId: Int) {
+            input.onInputDeviceTopologyChanged()
+            refreshPhysicalControllerState()
+            view.post { if (!closed && !paused) view.requestFocus() }
+        }
+        override fun onInputDeviceChanged(deviceId: Int) {
+            releaseInput(deviceId)
+            input.onInputDeviceTopologyChanged()
+            refreshPhysicalControllerState()
+            view.post { if (!closed && !paused) view.requestFocus() }
+        }
+        override fun onInputDeviceRemoved(deviceId: Int) {
+            releaseInput(deviceId)
+            refreshPhysicalControllerState(excludedDeviceId = deviceId)
+        }
     }
     private val contract: InputContract
     private val input: ClientInputBridge
@@ -87,6 +133,10 @@ class ClientDisplayHost(
     val cameraLocked: StateFlow<Boolean> = mutableCameraLocked.asStateFlow()
     private val mutablePointerCaptured = MutableStateFlow(false)
     val pointerCaptured: StateFlow<Boolean> = mutablePointerCaptured.asStateFlow()
+    private val mutableControllerDeviceMode = MutableStateFlow(ControllerDeviceMode.NONE)
+    val controllerDeviceMode: StateFlow<ControllerDeviceMode> = mutableControllerDeviceMode.asStateFlow()
+    private val mutablePhysicalControllerConnected = MutableStateFlow(false)
+    val physicalControllerConnected: StateFlow<Boolean> = mutablePhysicalControllerConnected.asStateFlow()
     /**
      * Monotonic display/client generation owned by this host instance. A fresh
      * host (surface recreate or client relaunch) gets a new generation; the
@@ -117,8 +167,21 @@ class ClientDisplayHost(
     val windowVisible: Boolean get() = reportedWindow
     val rendererReady: Boolean get() = view.renderer.isSurfaceReady
     val rendererSurfaceGeneration: Long get() = view.renderer.surfaceGeneration
-    val vulkanBridgeReady: Boolean get() = vortekComponent?.isReady ?: vulkanDriverId == null ||
-        VulkanDriverCatalog.find(vulkanDriverId)?.kind != VulkanDriverKind.SYSTEM
+    val glxEnabled: Boolean get() = xServer.isGlxEnabled
+    private val glxExtension: GLXExtension?
+        get() = xServer.getExtensionByName("GLX") as? GLXExtension
+    val glxTransportContextCount: Int get() = glxExtension?.liveTransportContextCount ?: 0
+    val glxContextCount: Int get() = glxExtension?.liveGLXContextCount ?: 0
+    val glxPresentedFrameCount: Long get() = glxExtension?.successfulPresentCount ?: 0L
+    val virglServerStarted: Boolean get() = virglComponent?.isStarted == true
+    val virglActiveConnectionCount: Int get() = virglComponent?.activeConnectionCount ?: 0
+    val virglInitializedConnectionCount: Int get() = virglComponent?.initializedConnectionCount ?: 0
+    val virglCapsReadyConnectionCount: Int get() = virglComponent?.capsReadyConnectionCount ?: 0
+    val virglSuccessfulFlushCount: Long get() = virglComponent?.successfulFlushCount ?: 0L
+    val vulkanBridgeReady: Boolean get() = resolveVulkanBridgeReady(
+        componentReady = vortekComponent?.isReady,
+        driverKind = VulkanDriverCatalog.find(vulkanDriverId)?.kind,
+    )
     @Volatile var presentationFrameRateHint: Float = 0f
         private set
     private lateinit var presentationCallback: android.view.SurfaceHolder.Callback
@@ -135,26 +198,48 @@ class ClientDisplayHost(
     init {
         ClientFrameCap.requireFps(frameCap)
         val arm = Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a"
-        val vulkanDriver = if (arm) VulkanDriverCatalog.requireForRequest(vulkanDriverId) else {
-            require(vulkanDriverId == null) { "x86 display does not accept an ARM Vulkan driver" }
+        val rendererSelection = if (arm) {
+            ArmClientRendererCatalog.requireRuntimeRenderer(
+                renderer,
+                if (renderer != "dxvk") runCatching {
+                    AndroidGladioCapabilityProbe.probe(context)
+                } else null,
+            )
+        } else {
+            require(renderer == "wined3d") { "x86 display requires WineD3D" }
             null
         }
-        val rendererPackage = if (arm) RendererPackageCatalog.requireForRequest(
-            ArmTranslationBackend.BOX64, "dxvk", rendererPackageId,
-        ) else {
-            require(rendererPackageId == null) { "x86 display does not accept an ARM renderer package" }
+        val vulkanDriver = if (rendererSelection == ArmClientRenderer.DXVK) {
+            VulkanDriverCatalog.requireForRequest(vulkanDriverId)
+        } else {
+            require(vulkanDriverId == null) { "$renderer display does not accept a Vulkan driver" }
+            null
+        }
+        val rendererPackage = if (rendererSelection == ArmClientRenderer.DXVK) {
+            RendererPackageCatalog.requireForRequest(
+                ArmTranslationBackend.BOX64, renderer, rendererPackageId,
+            )
+        } else {
+            require(rendererPackageId == null) { "$renderer display does not accept a DXVK package" }
             null
         }
         System.loadLibrary("winlator")
+        if (rendererSelection == ArmClientRenderer.DXVK) {
+            // A failed System/Vortek generation must not leave its native ring
+            // workers competing with a later Turnip/audio session.
+            VortekRendererComponent.reclaimLeakedContexts()
+        }
         generation = nextGeneration()
         val tmp = transportRoot
         java.io.File(tmp, ".X11-unix").mkdirs()
         java.io.File(tmp, ".sysvshm").mkdirs()
         if (audioEnabled) java.io.File(tmp, ".sound").mkdirs()
         if (vulkanDriver?.kind == VulkanDriverKind.SYSTEM) java.io.File(tmp, ".vortek").mkdirs()
+        if (rendererSelection == ArmClientRenderer.MESA_VIRGL) java.io.File(tmp, ".virgl").mkdirs()
         xServer = XServer(
             XServerDisplayActivity(),
-            ScreenInfo(displayProfile.virtualWidth, displayProfile.virtualHeight),
+            ScreenInfo(virtualDisplay.width, virtualDisplay.height),
+            renderer == "opengl" || renderer == "virgl" || renderer == "wined3d",
         )
         sysvSharedMemory = SysVSharedMemory()
         xServer.setSHMSegmentManager(SHMSegmentManager(sysvSharedMemory))
@@ -191,13 +276,22 @@ class ClientDisplayHost(
             imeKeyGapMs = timings.imeKeyGapMs,
             fieldSettleMs = timings.fieldSettleMs,
             pointerDwellMs = timings.pointerDwellMs,
-            onCameraLockChanged = { locked -> mutableCameraLocked.value = locked },
+            onCameraLockChanged = { locked ->
+                mutableCameraLocked.value = locked
+                // Keep the user-visible camera mode and Android's physical
+                // mouse capture in one state. Post out of InputContract's
+                // owner lock because pointer capture is asynchronous.
+                view.post {
+                    if (!closed && !paused) setPointerCapture(locked)
+                    else if (!locked) setPointerCapture(false)
+                }
+            },
         )
         // Attach with no session yet; the bridge stamps every event with this
         // host's generation. A session id is informational only and may be set
         // later without changing the generation (the host IS the generation).
         val displayAspectIdentity = InputProfile.aspectIdentity(
-            displayProfile.virtualWidth, displayProfile.virtualHeight,
+            virtualDisplay.width, virtualDisplay.height,
         )
         val persistedProfile = profileStore.load(displayAspectIdentity).profile
         contract.attach(
@@ -212,10 +306,16 @@ class ClientDisplayHost(
             contract,
             view,
             generation,
-            displayProfile.virtualWidth,
-            displayProfile.virtualHeight,
+            virtualDisplay.width,
+            virtualDisplay.height,
             ::ensureKeyboardFocus,
         )
+        contract.setCameraAimPoint(
+            virtualDisplay.width / 2,
+            virtualDisplay.height / 2,
+            generation,
+        )
+        refreshPhysicalControllerState()
         // IntegratedClientDisplay constructs hosts from its Binder worker;
         // InputManager's null-handler overload assumes the calling thread has
         // a Looper. Device callbacks mutate the UI-owned input contract, so
@@ -274,8 +374,8 @@ class ClientDisplayHost(
                 password = credentials.password,
                 generation = generation,
                 lane = lane,
-                expectedWidth = displayProfile.virtualWidth,
-                expectedHeight = displayProfile.virtualHeight,
+                expectedWidth = virtualDisplay.width,
+                expectedHeight = virtualDisplay.height,
                 bridge = object : AutoLoginBridge {
                     override fun isActive(generation: Long): Boolean =
                         this@ClientDisplayHost.generation == generation && !paused && !closed
@@ -366,9 +466,19 @@ class ClientDisplayHost(
         alsaConnector = if (audioEnabled) {
             val alsaConfig = UnixSocketConfig.create(tmp.absolutePath, ".sound/AS0")
             ALSAClient.assignFramesPerBuffer(context)
+            val alsaConnectionHandler = if (BuildConfig.DEBUG) {
+                val options = ALSAClient.Options().apply {
+                    // Temporary isolation experiment; an exact regular file
+                    // in app cache is the only runtime enable switch.
+                    syntheticTone = File(context.cacheDir, "alsa-synthetic-tone").isFile
+                }
+                ALSAClientConnectionHandler(options, ALSADiagnostics())
+            } else {
+                ALSAClientConnectionHandler(ALSAClient.Options())
+            }
             XConnectorEpoll(
                 alsaConfig,
-                ALSAClientConnectionHandler(ALSAClient.Options()),
+                alsaConnectionHandler,
                 ALSARequestHandler(),
             ).apply { setMultithreadedClients(true) }
         } else null
@@ -381,13 +491,24 @@ class ClientDisplayHost(
             )
             val options = VortekRendererComponent.Options().apply {
                 vkMaxVersion = compatibility.vkMaxVersion
-                hardenedSafeLane = true
+                // AUTO prefers Vulkan OPAQUE_FD when advertised, but the guest
+                // Vortek ICD maps the received fd with POSIX mmap(). Vulkan's
+                // opaque-fd contract does not guarantee that operation. The
+                // DMA-BUF route is mmap-compatible and already falls back to
+                // Android HardwareBuffer if direct import is unavailable.
+                resourceMemoryType = VortekRendererComponent.Options.RESOURCE_MEMORY_TYPE_DMA_BUF
             }
             VortekRendererComponent(
                 context,
                 xServer,
                 UnixSocketConfig.create(tmp.absolutePath, ".vortek/V0"),
                 options,
+            )
+        } else null
+        virglComponent = if (rendererSelection == ArmClientRenderer.MESA_VIRGL) {
+            VirGLRendererComponent(
+                xServer,
+                UnixSocketConfig.create(tmp.absolutePath, ".virgl/V0"),
             )
         } else null
         connector = XConnectorEpoll(config, XClientConnectionHandler(xServer), XClientRequestHandler()).apply {
@@ -438,15 +559,47 @@ class ClientDisplayHost(
                 view.post { autoLogin?.onTopologyChanged(snapshot) }
             }
         })
+        // Match Winlator's component order. X must be listening before the
+        // Vortek guest asks for its window's Android hardware buffer.
         sysvConnector.start()
-        alsaConnector?.start()
-        vortekComponent?.start()
         connector.start()
+        alsaConnector?.start()
+        virglComponent?.start()
+        vortekComponent?.start()
+    }
+
+    private fun refreshPhysicalControllerState(
+        observed: android.view.InputDevice? = null,
+        excludedDeviceId: Int? = null,
+    ) {
+        if (closed) {
+            mutableControllerDeviceMode.value = ControllerDeviceMode.NONE
+            mutablePhysicalControllerConnected.value = false
+            return
+        }
+        val devices = android.view.InputDevice.getDeviceIds().asSequence()
+            .filter { it != excludedDeviceId }
+            .mapNotNull(android.view.InputDevice::getDevice)
+            .toList()
+            .let { listed -> if (observed != null && listed.none { it.id == observed.id }) listed + observed else listed }
+        val mode = devices.asSequence()
+            .map { ClientInputBridge.controllerDeviceMode(it.name, it.descriptor, it.vendorId, it.productId, it.sources) }
+            .filter { it != ControllerDeviceMode.NONE }
+            .maxByOrNull { candidate -> when (candidate) {
+                ControllerDeviceMode.RP6_RETRO, ControllerDeviceMode.RP6_XBOX -> 2
+                ControllerDeviceMode.OTHER_CONTROLLER -> 1
+                ControllerDeviceMode.NONE -> 0
+            } } ?: ControllerDeviceMode.NONE
+        mutableControllerDeviceMode.value = mode
+        mutablePhysicalControllerConnected.value = mode != ControllerDeviceMode.NONE
     }
 
     fun releaseInput(source: Int? = null) = input.releaseAll(source)
-    fun awaitRendererReady(timeoutMs: Long): Boolean =
-        view.renderer.awaitSurfaceReady(timeoutMs, TimeUnit.MILLISECONDS)
+    fun awaitRendererReady(timeoutMs: Long): Boolean {
+        if (!view.renderer.awaitSurfaceReady(timeoutMs, TimeUnit.MILLISECONDS)) return false
+        val virgl = virglComponent ?: return true
+        return virgl.probeSurfaceGeneration(view.renderer.surfaceGeneration)
+    }
 
     /** Capture on the X callback thread so transient modals cannot disappear
      * before the main-thread state machine observes their topology. */
@@ -473,14 +626,14 @@ class ClientDisplayHost(
         val candidates = if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
             val topTargets = topLevel.filter { window ->
                 !window.isDesktopWindow &&
-                    window.width.toInt() == displayProfile.virtualWidth &&
-                    window.height.toInt() == displayProfile.virtualHeight
+                    window.width.toInt() == virtualDisplay.width &&
+                    window.height.toInt() == virtualDisplay.height
             }
             val nestedTargets = mapped.filter { window ->
                 window.parent !== xServer.windowManager.rootWindow &&
                     !window.isDesktopWindow &&
-                    window.width.toInt() == displayProfile.virtualWidth &&
-                    window.height.toInt() == displayProfile.virtualHeight
+                    window.width.toInt() == virtualDisplay.width &&
+                    window.height.toInt() == virtualDisplay.height
             }
             when {
                 topTargets.size == 1 -> topTargets
@@ -491,15 +644,15 @@ class ClientDisplayHost(
             topLevel.filter { window ->
                 window.name.isNullOrEmpty() && window.className.equals("wow.exe", ignoreCase = true) &&
                     window.processId > 0 &&
-                    window.width.toInt() == displayProfile.virtualWidth &&
-                    window.height.toInt() == displayProfile.virtualHeight
+                    window.width.toInt() == virtualDisplay.width &&
+                    window.height.toInt() == virtualDisplay.height
             }
         }
         val target = candidates.singleOrNull() ?: return null
         if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
             val desktop = topLevel.filter {
-                it.isDesktopWindow && it.width.toInt() == displayProfile.virtualWidth &&
-                    it.height.toInt() == displayProfile.virtualHeight
+                it.isDesktopWindow && it.width.toInt() == virtualDisplay.width &&
+                    it.height.toInt() == virtualDisplay.height
             }
             if ((target.parent !== xServer.windowManager.rootWindow && desktop.size != 1) ||
                 topLevel.any {
@@ -542,9 +695,15 @@ class ClientDisplayHost(
             xServer.windowManager.setFocus(window, WindowManager.FocusRevertTo.POINTER_ROOT)
         }
     }
-    fun dispatchKey(event: KeyEvent): Boolean = input.dispatchKey(event)
+    fun dispatchKey(event: KeyEvent): Boolean {
+        refreshPhysicalControllerState(event.device)
+        return input.dispatchKey(event)
+    }
     fun dispatchPointer(event: MotionEvent): Boolean = input.dispatchPointer(event)
-    fun dispatchGamepad(event: MotionEvent): Boolean = input.dispatchGamepad(event)
+    fun dispatchGamepad(event: MotionEvent): Boolean {
+        refreshPhysicalControllerState(event.device)
+        return input.dispatchGamepad(event)
+    }
 
     /** Send one logical virtual-control key through the same source tracking. */
     fun dispatchVirtualKey(keyCode: Int, pressed: Boolean, source: Int = VIRTUAL_SOURCE): Boolean =
@@ -555,23 +714,7 @@ class ClientDisplayHost(
         action: ControllerAction,
         pressed: Boolean,
         source: Int = VIRTUAL_SOURCE,
-    ): Boolean = when {
-        action == ControllerAction.DISABLED -> true
-        action.keyCode != null -> input.dispatchVirtualKey(action.keyCode, pressed, source)
-        action.pointer == ControlPointer.LEFT -> {
-            contract.pointerButton(source, InputContract.PointerButton.LEFT, pressed, generation)
-            true
-        }
-        action.pointer == ControlPointer.RIGHT -> {
-            contract.pointerButton(source, InputContract.PointerButton.RIGHT, pressed, generation)
-            true
-        }
-        action.cameraLockToggle -> {
-            if (pressed) contract.toggleCameraLock(generation, source)
-            true
-        }
-        else -> false
-    }
+    ): Boolean = contract.virtualAction(source, action, pressed, generation)
 
     /** Toggle persistent right-mouse camera look for stick and touch movement. */
     fun toggleCameraLock(source: Int = VIRTUAL_SOURCE): Boolean =
@@ -605,7 +748,7 @@ class ClientDisplayHost(
     /** Persist a profile only after the contract has atomically switched to it. */
     fun switchInputProfile(profile: InputProfile): InputContract.ReleaseReport {
         val aspect = InputProfile.aspectIdentity(
-            displayProfile.virtualWidth, displayProfile.virtualHeight,
+            virtualDisplay.width, virtualDisplay.height,
         )
         val report = contract.switchProfile(profile, aspect, generation)
         profileStore.save(contract.activeProfile)
@@ -668,6 +811,21 @@ class ClientDisplayHost(
 
     /** Hide the soft IME if it is showing and restore gameplay focus. */
     fun hideIme() = hideIme(restoreGameplayFocus = true)
+
+    /**
+     * Reconcile Android dismissing the soft keyboard through a gesture or the
+     * system IME control. Those paths do not reliably call View.onKeyPreIme and
+     * previously left movement suppressed behind an invisible editor.
+     */
+    fun onSoftImeDismissed() {
+        if (closed || !contract.isImeActive ||
+            autoLogin?.state == SinglePlayerAutoLoginController.State.INJECTING) return
+        contract.imeClosed(generation)
+        imeView.clearFocus()
+        imeView.isFocusable = false
+        imeView.isFocusableInTouchMode = false
+        if (!paused) view.requestFocus()
+    }
 
     private fun hideIme(restoreGameplayFocus: Boolean) {
         if (closed) return
@@ -819,6 +977,8 @@ class ClientDisplayHost(
 
     override fun close() {
         if (!closeStarted.compareAndSet(false, true)) return
+        mutableControllerDeviceMode.value = ControllerDeviceMode.NONE
+        mutablePhysicalControllerConnected.value = false
         paused = true
         autoLogin?.cancel()
         closeRequested = false
@@ -826,6 +986,19 @@ class ClientDisplayHost(
         // the close race. Binder release and Compose disposal can arrive
         // concurrently, but only this caller owns teardown from here onward.
         contract.detach()
+        // Native Vortek contexts own ring workers and X drawable callbacks, so
+        // reclaim them synchronously before any UI cleanup can throw or time
+        // out. The process registry covers a missed connector callback.
+        runCatching { vortekComponent?.close() }
+            .onFailure { AppLog.e(TAG, "Vortek connector close failed", it) }
+        // VirGL shares the live Android EGL root. Stop and destroy every guest
+        // renderer context before XServerView clears that root generation.
+        runCatching { virglComponent?.close() }
+            .onFailure { AppLog.e(TAG, "VirGL connector close failed", it) }
+        if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
+            runCatching { VortekRendererComponent.reclaimLeakedContexts() }
+                .onFailure { AppLog.e(TAG, "Vortek residual context reclaim failed", it) }
+        }
         val finished = java.util.concurrent.CountDownLatch(1)
         val cleanup = Runnable {
             try {
@@ -846,7 +1019,6 @@ class ClientDisplayHost(
                     }
                 }
                 connector.destroy()
-                vortekComponent?.close()
                 sysvConnector.destroy()
                 view.holder.removeCallback(presentationCallback)
                 sysvSharedMemory.deleteAll()
@@ -921,6 +1093,12 @@ internal class ClientInputBridge(
     private val motionTraceBudget = java.util.concurrent.atomic.AtomicInteger(12)
     private val capturedPointerFractions = mutableMapOf<Int, RelativeFraction>()
 
+    /** A Retroid controller-mode switch recreates the Android InputDevice. */
+    fun onInputDeviceTopologyChanged() {
+        keyTraceBudget.set(24)
+        motionTraceBudget.set(12)
+    }
+
     init {
         view.setOnKeyListener { _, _, event -> dispatchKey(event) }
         view.setOnTouchListener { _, event -> dispatchPointer(event) }
@@ -952,6 +1130,9 @@ internal class ClientInputBridge(
         // face/shoulder button disappear in X11's keyboard map.
         val deviceSources = event.device?.sources ?: 0
         val isGamepad = isGamepadSource(event.source, deviceSources, event.keyCode)
+        val deviceMode = event.device?.let { device ->
+            controllerDeviceMode(device.name, device.descriptor, device.vendorId, device.productId, device.sources)
+        } ?: ControllerDeviceMode.NONE
         val layout = gamepadLayout(event.device)
         if (keyTraceBudget.getAndDecrement() > 0) {
             AppLog.i(
@@ -961,7 +1142,16 @@ internal class ClientInputBridge(
                     "code=${event.keyCode} action=${event.action} gamepad=$isGamepad layout=$layout",
             )
         }
-        if (isGamepad && layout == InputContract.GamepadLayout.DISABLED) return false
+        if (shouldIgnoreControllerDevice(deviceMode, contract.activeProfile.controllerFamily)) return true
+        if (isGamepad && layout == InputContract.GamepadLayout.DISABLED) return true
+        if (shouldSuppressUnexpectedRp6Key(
+                deviceMode,
+                isGamepad,
+                contract.activeProfile.controllerFamily,
+            )) {
+            AppLog.w(INPUT_TAG, "suppressed unexpected RP6 keyboard code=${event.keyCode} mode=$deviceMode")
+            return true
+        }
         if (!isGamepad && contract.activeProfile.controllerFamily == ControllerFamily.TOUCH_ONLY) {
             return false
         }
@@ -1010,12 +1200,14 @@ internal class ClientInputBridge(
         contract.pointerAbsolute(event.deviceId, x, y, generation)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
-                    event.isFromSource(android.view.InputDevice.SOURCE_MOUSE) &&
-                    !view.hasPointerCapture()) {
-                    // Desktop-style physical-mouse behavior: clicking the game
-                    // claims relative input automatically. Controller camera
-                    // input does not depend on Android pointer capture.
+                if (shouldRequestPointerCapture(
+                        contract.isCameraLocked,
+                        event.isFromSource(android.view.InputDevice.SOURCE_MOUSE),
+                        view.hasPointerCapture(),
+                    )) {
+                    // Capture is explicit camera mode. An unlocked click must
+                    // remain an absolute desktop click rather than silently
+                    // re-locking the mouse immediately after the user toggles.
                     view.requestFocus()
                     view.requestPointerCapture()
                 }
@@ -1070,7 +1262,7 @@ internal class ClientInputBridge(
         val source = event.deviceId
         val device = event.device
         val layout = gamepadLayout(device)
-        if (layout == InputContract.GamepadLayout.DISABLED) return false
+        if (layout == InputContract.GamepadLayout.DISABLED) return true
         if (motionTraceBudget.getAndDecrement() > 0) {
             AppLog.i(
                 INPUT_TAG,
@@ -1216,16 +1408,19 @@ internal class ClientInputBridge(
     private fun gamepadLayout(device: android.view.InputDevice?): InputContract.GamepadLayout =
         gamepadLayoutFor(
             contract.activeProfile.controllerFamily,
-            device != null && isRetroidPocketController(
-                device.name, device.descriptor, device.vendorId, device.productId,
-            ),
+            device?.let {
+                controllerDeviceMode(it.name, it.descriptor, it.vendorId, it.productId, it.sources)
+            } ?: ControllerDeviceMode.NONE,
         )
 
     companion object {
         private const val RP6_CONTROLLER_NAME = "Retroid Pocket Controller"
         private const val RP6_CONTROLLER_DESCRIPTOR = "dc75afea56e3c3a269b97967aa26b8c93c0bd3fb"
+        private const val RP6_XBOX_CONTROLLER_DESCRIPTOR = "c575e892a6bb353df4b1327e81beedf84b540eb4"
+        private const val RP6_XBOX_CONTROLLER_DESCRIPTOR_V2 = "ee6d26f8ce1cc60310155713f3660225d7d89557"
         private const val RP6_VENDOR_ID = 0x2022
-        private const val RP6_PRODUCT_ID = 0x3001
+        private const val RP6_RETRO_PRODUCT_ID = 0x3001
+        private const val RP6_XBOX_PRODUCT_ID = 0x3002
         private const val INPUT_TAG = "ClientInput"
         private const val CURRENT_SAMPLE = -1
 
@@ -1236,6 +1431,14 @@ internal class ClientInputBridge(
                     hasSource(deviceSources, android.view.InputDevice.SOURCE_GAMEPAD) ||
                         hasSource(deviceSources, android.view.InputDevice.SOURCE_JOYSTICK)
                     ))
+
+        internal fun shouldRequestPointerCapture(
+            cameraLocked: Boolean,
+            physicalMouse: Boolean,
+            alreadyCaptured: Boolean,
+            sdkInt: Int = android.os.Build.VERSION.SDK_INT,
+        ): Boolean = sdkInt >= android.os.Build.VERSION_CODES.O && cameraLocked &&
+            physicalMouse && !alreadyCaptured
 
         private fun isControllerOwnedKey(keyCode: Int): Boolean =
             // Keep the explicit ranges for host-JVM policy tests and for
@@ -1261,9 +1464,48 @@ internal class ClientInputBridge(
             descriptor: String?,
             vendorId: Int,
             productId: Int,
-        ): Boolean = name == RP6_CONTROLLER_NAME &&
-            (descriptor == RP6_CONTROLLER_DESCRIPTOR ||
-                (vendorId == RP6_VENDOR_ID && productId == RP6_PRODUCT_ID))
+        ): Boolean = controllerDeviceMode(
+            name, descriptor, vendorId, productId,
+            android.view.InputDevice.SOURCE_GAMEPAD or android.view.InputDevice.SOURCE_JOYSTICK,
+        ) in setOf(ControllerDeviceMode.RP6_RETRO, ControllerDeviceMode.RP6_XBOX)
+
+        internal fun controllerDeviceMode(
+            name: String?,
+            descriptor: String?,
+            vendorId: Int,
+            productId: Int,
+            sources: Int,
+        ): ControllerDeviceMode {
+            val gameplay = hasSource(sources, android.view.InputDevice.SOURCE_GAMEPAD) ||
+                hasSource(sources, android.view.InputDevice.SOURCE_JOYSTICK)
+            if (!gameplay) return ControllerDeviceMode.NONE
+            if (descriptor in setOf(RP6_XBOX_CONTROLLER_DESCRIPTOR, RP6_XBOX_CONTROLLER_DESCRIPTOR_V2)) {
+                return ControllerDeviceMode.RP6_XBOX
+            }
+            if (name == RP6_CONTROLLER_NAME && descriptor == RP6_CONTROLLER_DESCRIPTOR) {
+                return ControllerDeviceMode.RP6_RETRO
+            }
+            if (vendorId == RP6_VENDOR_ID && productId == RP6_XBOX_PRODUCT_ID) {
+                return ControllerDeviceMode.RP6_XBOX
+            }
+            if (vendorId == RP6_VENDOR_ID && productId == RP6_RETRO_PRODUCT_ID) {
+                return ControllerDeviceMode.RP6_RETRO
+            }
+            return ControllerDeviceMode.OTHER_CONTROLLER
+        }
+
+        internal fun shouldSuppressUnexpectedRp6Key(
+            mode: ControllerDeviceMode,
+            classifiedAsGamepad: Boolean,
+            family: ControllerFamily,
+        ): Boolean = !classifiedAsGamepad &&
+            mode in setOf(ControllerDeviceMode.RP6_RETRO, ControllerDeviceMode.RP6_XBOX) &&
+            family != ControllerFamily.KEYBOARD_MOUSE
+
+        internal fun shouldIgnoreControllerDevice(
+            mode: ControllerDeviceMode,
+            family: ControllerFamily,
+        ): Boolean = family == ControllerFamily.KEYBOARD_MOUSE && mode != ControllerDeviceMode.NONE
 
         internal fun isAndroidSystemKey(keyCode: Int): Boolean = keyCode in setOf(
             KeyEvent.KEYCODE_HOME,
@@ -1296,18 +1538,30 @@ internal class ClientInputBridge(
 
         internal fun gamepadLayoutFor(
             family: ControllerFamily,
-            isRetroidPocketController: Boolean,
+            mode: ControllerDeviceMode,
         ): InputContract.GamepadLayout = when (family) {
             ControllerFamily.TOUCH_ONLY,
             ControllerFamily.KEYBOARD_MOUSE -> InputContract.GamepadLayout.DISABLED
             ControllerFamily.RETROID_POCKET_6 -> InputContract.GamepadLayout.RETROID_POCKET_6
-            ControllerFamily.AUTO -> if (isRetroidPocketController) {
-                InputContract.GamepadLayout.RETROID_POCKET_6
-            } else InputContract.GamepadLayout.PROFILED
+            ControllerFamily.AUTO -> when (mode) {
+                ControllerDeviceMode.RP6_RETRO -> InputContract.GamepadLayout.RETROID_POCKET_6
+                ControllerDeviceMode.RP6_XBOX -> InputContract.GamepadLayout.RETROID_POCKET_6_XBOX
+                ControllerDeviceMode.OTHER_CONTROLLER, ControllerDeviceMode.NONE -> InputContract.GamepadLayout.PROFILED
+            }
             ControllerFamily.XBOX,
             ControllerFamily.PLAYSTATION,
             ControllerFamily.GENERIC -> InputContract.GamepadLayout.PROFILED
         }
+
+        /** Compatibility overload for policy tests written before RP6 modes were split. */
+        internal fun gamepadLayoutFor(
+            family: ControllerFamily,
+            isRetroidPocketController: Boolean,
+        ): InputContract.GamepadLayout = gamepadLayoutFor(
+            family,
+            if (isRetroidPocketController) ControllerDeviceMode.RP6_RETRO
+            else ControllerDeviceMode.OTHER_CONTROLLER,
+        )
 
         internal fun shouldSuppressDigitalDpad(
             keyCode: Int,

@@ -1,0 +1,710 @@
+# Gladio Phase 2 — P2-T01 atomic client transport
+# Status: PRODUCTION CANDIDATE
+# Issue IDs: B02, B03, B06, B13, C04
+# Exact base: deployed client v5 source bundle, gl_calls.c SHA-256 614693d16ae2cc20c5d78c6ed4073172124b3d05580ac934d1ac9c93266296f9
+# Behavioral change: publish header+payload, texture metadata+pixels, and glEnd metadata+command stream with one ring tail release-store; repair client ring mapping lifecycle; detect peer socket death; validate reply sizes; remove unaligned wire-header accesses.
+# Protocol impact: NONE. Request codes, 6-byte header, payload fields, and raw trailing-byte order are unchanged.
+# Build/hash impact: CLIENT libGL.so.1 build ID and SHA-256 must change. Server need not change for this patch alone.
+# Rollback: reverse this patch and restore the previous client binary/hash.
+
+--- a/02_client_gladio.h
++++ b/02_client_gladio.h
+@@ -58,6 +58,8 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <stdbool.h>
++#include <stdint.h>
++#include <limits.h>
+ #include <unistd.h>
+ #include <pthread.h>
+ 
+@@ -108,36 +110,73 @@
+ #include "gl_dsa.h"
+ #endif
+ 
+-static inline bool gl_send(RingBuffer* ring, short requestCode, void* data, int size) {
+-    char header[HEADER_SIZE];
+-    *(short*)(header + 0) = requestCode;
+-    *(int*)(header + 2) = size;
+-
+-    bool result = RingBuffer_write(ring, header, HEADER_SIZE);
+-    if (!result) return false;
++static inline bool gl_send_with_trailing_data(
++        RingBuffer* ring,
++        short requestCode,
++        const void* data,
++        int size,
++        const void* trailingData,
++        int trailingSize) {
++    if (!ring || size < 0 || trailingSize < 0 ||
++            (size > 0 && !data) || (trailingSize > 0 && !trailingData)) {
++        return false;
++    }
+ 
+-    if (size > 0) {
+-        result = RingBuffer_write(ring, data, size);
+-        if (!result) return false;
++    char header[HEADER_SIZE];
++    int16_t wireRequestCode = requestCode;
++    int32_t wireSize = size;
++    memcpy(header, &wireRequestCode, sizeof(wireRequestCode));
++    memcpy(header + sizeof(wireRequestCode), &wireSize, sizeof(wireSize));
++
++    RingBufferSpan parts[3] = {
++        {.data = header, .size = HEADER_SIZE},
++        {.data = data, .size = (uint32_t)size},
++        {.data = trailingData, .size = (uint32_t)trailingSize},
++    };
++    bool result = RingBuffer_writeParts(ring, parts, 3);
++    if (!result) {
++        static atomic_bool logged = ATOMIC_VAR_INIT(false);
++        if (!atomic_exchange_explicit(&logged, true, memory_order_relaxed)) {
++            fprintf(stderr,
++                    "gladio: send failed code=%d payload=%d trailing=%d\n",
++                    requestCode, size, trailingSize);
++        }
+     }
+-    return true;
++    return result;
++}
++
++static inline bool gl_send(
++        RingBuffer* ring, short requestCode, const void* data, int size) {
++    return gl_send_with_trailing_data(
++            ring, requestCode, data, size, NULL, 0);
+ }
+ 
+ static inline bool gl_recv(RingBuffer* ring, short* outRequestCode, ArrayBuffer* data) {
++    if (!ring || !data) return false;
++
+     char header[HEADER_SIZE] = {0};
+     bool result = RingBuffer_read(ring, header, HEADER_SIZE);
+     if (!result) return false;
+ 
+-    if (outRequestCode != NULL) *outRequestCode = *(short*)(header + 0);
+-    int size = *(int*)(header + 2);
++    int16_t wireRequestCode;
++    int32_t wireSize;
++    memcpy(&wireRequestCode, header, sizeof(wireRequestCode));
++    memcpy(&wireSize, header + sizeof(wireRequestCode), sizeof(wireSize));
++    if (outRequestCode != NULL) *outRequestCode = wireRequestCode;
++
++    if (wireSize < 0 || (uint32_t)wireSize > ring->bufferSize) {
++        fprintf(stderr, "gladio: invalid ring payload size %d (ring=%u)\n",
++                wireSize, ring->bufferSize);
++        RingBuffer_setStatus(ring, RING_STATUS_EXIT);
++        return false;
++    }
+ 
+     ArrayBuffer_rewind(data);
+-
+-    if (size > 0) {
+-        ENSURE_ARRAY_CAPACITY(size, data->capacity, data->buffer, 1);
+-        result = RingBuffer_read(ring, data->buffer, size);
++    if (wireSize > 0) {
++        ENSURE_ARRAY_CAPACITY(wireSize, data->capacity, data->buffer, 1);
++        result = RingBuffer_read(ring, data->buffer, (uint32_t)wireSize);
+         if (!result) return false;
+-        data->size = size;
++        data->size = wireSize;
+     }
+     return true;
+ }
+@@ -146,7 +185,8 @@
+     char header[4];
+     header[0] = GLX_EXT_MAJOR_OPCODE;
+     header[1] = opcode;
+-    *(short*)(header + 2) = size / 4 + 1;
++    int16_t requestLength = (int16_t)(size / 4 + 1);
++    memcpy(header + 2, &requestLength, sizeof(requestLength));
+ 
+     bool result = sock_write(fd, header, 4) == 4;
+     if (!result) return false;
+@@ -162,7 +202,9 @@
+     char header[8] = {0};
+     bool result = sock_read(fd, header, sizeof(header)) == sizeof(header);
+     if (!result) return false;
+-    int replyLength = *(int*)(header + 4);
++    int32_t replyLength;
++    memcpy(&replyLength, header + 4, sizeof(replyLength));
++    if (replyLength < 0 || replyLength > (INT_MAX - 24) / 4) return false;
+ 
+     int size = 24 + replyLength * 4;
+     ArrayBuffer_rewind(data);
+@@ -230,15 +272,23 @@
+                     clientState->pixelStore.unpackSkipPixels, \
+                     clientState->pixelStore.unpackSkipRows, \
+                     clientState->pixelStore.unpackSkipImages) : 0; \
+-            ArrayBuffer_putInt(&outputBuffer, dataSize); \
+         } \
+-        else ArrayBuffer_putInt(&outputBuffer, compressedSize); \
+-        if (pixelUnpackBuffer) ArrayBuffer_putInt(&outputBuffer, (uint64_t)imageData); \
+-        GL_SEND_CHECKED(requestCode, outputBuffer.buffer, outputBuffer.size); \
++        if (dataSize < 0) { \
++            GL_CALL_UNLOCK(); \
++            return; \
++        } \
++        ArrayBuffer_putInt(&outputBuffer, dataSize); \
+         if (pixelUnpackBuffer) { \
++            ArrayBuffer_putInt(&outputBuffer, (uint64_t)imageData); \
++            GL_SEND_CHECKED(requestCode, outputBuffer.buffer, outputBuffer.size); \
+             GL_RECV_CHECKED(); \
+         } \
+-        else if (dataSize > 0) RingBuffer_write(currentGLContext->serverRing, imageData, dataSize); \
++        else if (!gl_send_with_trailing_data( \
++                currentGLContext->serverRing, requestCode, \
++                outputBuffer.buffer, outputBuffer.size, imageData, dataSize)) { \
++            GL_CALL_UNLOCK(); \
++            return; \
++        } \
+     } \
+     while (0)
+ 
+--- a/03_client_ring_buffer.c
++++ b/03_client_ring_buffer.c
+@@ -6,6 +6,9 @@
+ #include <string.h>
+ #include <stddef.h>
+ #include <pthread.h>
++#include <errno.h>
++#include <poll.h>
++#include <sched.h>
+ #include <sys/mman.h>
+ 
+ #include "ring_buffer.h"
+@@ -27,6 +30,71 @@
+ #define debug_printf(...) fprintf(stderr, __VA_ARGS__)
+ #endif
+ 
++#define RING_WAIT_YIELD_ITERATIONS 64u
++#define RING_WAIT_INITIAL_SLEEP_US 125u
++#define RING_WAIT_MAX_SLEEP_US 2000u
++
++static atomic_bool ringFailureLogged = ATOMIC_VAR_INIT(false);
++
++static void RingBuffer_logFailure(
++        const char* operation, RingBuffer* ring, uint32_t requested) {
++    if (atomic_exchange_explicit(&ringFailureLogged, true, memory_order_relaxed)) return;
++    debug_printf("ring: %s failed requested=%u size=%u head=%u tail=%u status=0x%x peerFd=%d\n",
++            operation, requested, ring ? ring->bufferSize : 0u,
++            ring ? RingBuffer_getHead(ring) : 0u,
++            ring ? RingBuffer_getTail(ring) : 0u,
++            ring && ring->status
++                    ? atomic_load_explicit(ring->status, memory_order_relaxed)
++                    : 0u,
++            ring ? ring->peerFd : -1);
++}
++
++/*
++ * The wire format has no cross-process wake event. Yield during the normal
++ * producer/consumer hand-off window, then sleep briefly on the transport fd.
++ * POLLHUP/POLLERR/POLLNVAL lets a blocked GL call terminate when the X11 peer
++ * is gone instead of waiting forever for shared-memory head/tail movement.
++ */
++static bool RingBuffer_backoff(RingBuffer* ring, uint32_t* iteration) {
++    if (ring->peerFd < 0) {
++        busyWait(iteration);
++        return true;
++    }
++
++    if (*iteration < UINT32_MAX) (*iteration)++;
++    if (*iteration <= RING_WAIT_YIELD_ITERATIONS) {
++        sched_yield();
++        return true;
++    }
++
++    uint32_t shift = *iteration - RING_WAIT_YIELD_ITERATIONS - 1u;
++    if (shift > 4u) shift = 4u;
++    uint32_t sleepUs = RING_WAIT_INITIAL_SLEEP_US << shift;
++    if (sleepUs > RING_WAIT_MAX_SLEEP_US) sleepUs = RING_WAIT_MAX_SLEEP_US;
++
++    short requestedEvents = 0;
++#ifdef POLLRDHUP
++    requestedEvents |= POLLRDHUP;
++#endif
++    struct pollfd peer = {
++        .fd = ring->peerFd,
++        .events = requestedEvents,
++        .revents = 0,
++    };
++    int result;
++    do {
++        result = poll(&peer, 1, (int)((sleepUs + 999u) / 1000u));
++    }
++    while (result < 0 && errno == EINTR);
++
++    if (result < 0) return false;
++    short terminal = POLLHUP | POLLERR | POLLNVAL;
++#ifdef POLLRDHUP
++    terminal |= POLLRDHUP;
++#endif
++    return result == 0 || !(peer.revents & terminal);
++}
++
+ void RingBuffer_setHead(RingBuffer* ring, uint32_t head) {
+     atomic_store_explicit(ring->head, head, memory_order_release);
+ }
+@@ -36,7 +104,7 @@
+ }
+ 
+ void RingBuffer_setTail(RingBuffer* ring, uint32_t tail) {
+-    return atomic_store_explicit(ring->tail, tail, memory_order_release);
++    atomic_store_explicit(ring->tail, tail, memory_order_release);
+ }
+ 
+ uint32_t RingBuffer_getTail(RingBuffer* ring) {
+@@ -52,86 +120,158 @@
+ }
+ 
+ bool RingBuffer_hasStatus(RingBuffer* ring, uint32_t status) {
+-    return (atomic_load_explicit(ring->status, memory_order_seq_cst) & status);
++    return ring && ring->status &&
++            (atomic_load_explicit(ring->status, memory_order_seq_cst) & status);
+ }
+ 
+ RingBuffer* RingBuffer_create(int shmFd, uint32_t bufferSize) {
+-    RingBuffer* ring = calloc(1, sizeof(RingBuffer));
+-
+     STRUCT_OFFSETS();
++    if (shmFd < 0 || bufferSize == 0 ||
++            (bufferSize & (bufferSize - 1u)) != 0 ||
++            bufferSize > UINT32_MAX - (uint32_t)offsetof(struct Offsets, buffer)) {
++        return NULL;
++    }
++
++    RingBuffer* ring = calloc(1, sizeof(RingBuffer));
++    if (!ring) return NULL;
+ 
+-    int shmSize = RingBuffer_getSHMemSize(bufferSize);
+-    void* sharedData = mmap(NULL, shmSize, PROT_READ | PROT_WRITE, MAP_SHARED, shmFd, 0);
+-    if (sharedData == MAP_FAILED) return NULL;
++    uint32_t shmSize = RingBuffer_getSHMemSize(bufferSize);
++    void* sharedData = mmap(NULL, shmSize, PROT_READ | PROT_WRITE,
++                            MAP_SHARED, shmFd, 0);
++    if (sharedData == MAP_FAILED) {
++        free(ring);
++        return NULL;
++    }
+     memset(sharedData, 0, shmSize);
+ 
++    ring->sharedData = sharedData;
+     ring->head = sharedData + offsetof(struct Offsets, head);
+     ring->tail = sharedData + offsetof(struct Offsets, tail);
+     ring->status = sharedData + offsetof(struct Offsets, status);
+     ring->buffer = sharedData + offsetof(struct Offsets, buffer);
+     ring->bufferSize = bufferSize;
++    ring->peerFd = -1;
+ 
+     RingBuffer_setStatus(ring, RING_STATUS_IDLE);
+     return ring;
+ }
+ 
++void RingBuffer_setPeerFd(RingBuffer* ring, int peerFd) {
++    if (ring) ring->peerFd = peerFd;
++}
++
+ uint32_t RingBuffer_size(RingBuffer* ring) {
++    if (!ring) return 0;
+     return RingBuffer_getTail(ring) - RingBuffer_getHead(ring);
+ }
+ 
+ uint32_t RingBuffer_freeSpace(RingBuffer* ring) {
+-    return ring->bufferSize - RingBuffer_size(ring);
++    if (!ring) return 0;
++    uint32_t used = RingBuffer_size(ring);
++    return used <= ring->bufferSize ? ring->bufferSize - used : 0;
+ }
+ 
+ bool RingBuffer_read(RingBuffer* ring, void* data, uint32_t size) {
+-    if (size > ring->bufferSize) {
+-        debug_printf("ring: buffer overflow on read (%d/%d)\n", size, ring->bufferSize);
++    if (!ring || !ring->buffer || (size != 0 && !data) ||
++            size > ring->bufferSize) {
++        RingBuffer_logFailure("invalid read", ring, size);
+         return false;
+     }
++    if (size == 0) return true;
+ 
+     if (!RingBuffer_waitForRead(ring, size)) return false;
+     uint32_t head = RingBuffer_getHead(ring);
+-    uint32_t offset = head & (ring->bufferSize - 1);
++    uint32_t offset = head & (ring->bufferSize - 1u);
++    uint8_t* destination = data;
++    uint8_t* source = ring->buffer;
+ 
+-    if ((offset + size) <= ring->bufferSize) {
+-        memcpy(data, ring->buffer + offset, size);
++    if (offset + size <= ring->bufferSize) {
++        memcpy(destination, source + offset, size);
+     }
+     else {
+-        uint32_t start = ring->bufferSize - offset;
+-        memcpy(data, ring->buffer + offset, start);
+-        memcpy(data + start, ring->buffer, size - start);
++        uint32_t first = ring->bufferSize - offset;
++        memcpy(destination, source + offset, first);
++        memcpy(destination + first, source, size - first);
+     }
+ 
+     RingBuffer_setHead(ring, head + size);
+     return true;
+ }
+ 
+-bool RingBuffer_write(RingBuffer* ring, const void* data, uint32_t size) {
+-    if (size > ring->bufferSize) {
+-        debug_printf("ring: buffer overflow on write (%d/%d)\n", size, ring->bufferSize);
+-        return false;
++static void RingBuffer_copyAt(
++        RingBuffer* ring, uint32_t position, const void* source, uint32_t size) {
++    if (size == 0) return;
++
++    uint32_t offset = position & (ring->bufferSize - 1u);
++    uint8_t* destination = ring->buffer;
++    const uint8_t* bytes = source;
++    if (offset + size <= ring->bufferSize) {
++        memcpy(destination + offset, bytes, size);
+     }
++    else {
++        uint32_t first = ring->bufferSize - offset;
++        memcpy(destination + offset, bytes, first);
++        memcpy(destination, bytes + first, size - first);
++    }
++}
+ 
+-    if (!RingBuffer_waitForWrite(ring, size)) return false;
+-    uint32_t tail = RingBuffer_getTail(ring);
+-    uint32_t offset = tail & (ring->bufferSize - 1);
++bool RingBuffer_writeParts(
++        RingBuffer* ring, const RingBufferSpan* parts, uint32_t partCount) {
++    if (!ring || !ring->buffer || !parts || partCount == 0) {
++        RingBuffer_logFailure("invalid multipart write", ring, 0);
++        return false;
++    }
+ 
+-    if ((offset + size) <= ring->bufferSize) {
+-        memcpy(ring->buffer + offset, data, size);
++    uint64_t total64 = 0;
++    for (uint32_t i = 0; i < partCount; i++) {
++        if (parts[i].size != 0 && !parts[i].data) {
++            RingBuffer_logFailure("null multipart span", ring, parts[i].size);
++            return false;
++        }
++        total64 += parts[i].size;
++        if (total64 > ring->bufferSize) {
++            RingBuffer_logFailure("oversized multipart write", ring,
++                    total64 > UINT32_MAX ? UINT32_MAX : (uint32_t)total64);
++            return false;
++        }
+     }
+-    else {
+-        uint32_t start = ring->bufferSize - offset;
+-        memcpy(ring->buffer + offset, data, start);
+-        memcpy(ring->buffer, data + start, size - start);
++
++    uint32_t total = (uint32_t)total64;
++    if (total == 0) return true;
++    if (!RingBuffer_waitForWrite(ring, total)) return false;
++
++    uint32_t tail = RingBuffer_getTail(ring);
++    uint32_t position = tail;
++    for (uint32_t i = 0; i < partCount; i++) {
++        RingBuffer_copyAt(ring, position, parts[i].data, parts[i].size);
++        position += parts[i].size;
+     }
+ 
+-    RingBuffer_setTail(ring, tail + size);
++    /* Publish the complete logical message exactly once. */
++    RingBuffer_setTail(ring, tail + total);
+     return true;
+ }
+ 
++bool RingBuffer_writeFrame(
++        RingBuffer* ring,
++        const void* header,
++        uint32_t headerSize,
++        const void* data,
++        uint32_t dataSize) {
++    RingBufferSpan parts[2] = {
++        {.data = header, .size = headerSize},
++        {.data = data, .size = dataSize},
++    };
++    return RingBuffer_writeParts(ring, parts, 2);
++}
++
++bool RingBuffer_write(RingBuffer* ring, const void* data, uint32_t size) {
++    RingBufferSpan part = {.data = data, .size = size};
++    return RingBuffer_writeParts(ring, &part, 1);
++}
++
+ uint32_t RingBuffer_getSHMemSize(uint32_t bufferSize) {
+     STRUCT_OFFSETS();
+-
+     return bufferSize + offsetof(struct Offsets, buffer);
+ }
+ 
+@@ -148,23 +288,55 @@
+ }
+ 
+ bool RingBuffer_waitForRead(RingBuffer* ring, uint32_t size) {
++    if (!ring || size > ring->bufferSize) {
++        RingBuffer_logFailure("invalid read wait", ring, size);
++        return false;
++    }
++
+     uint32_t busyWaitIter = 0;
+-    do {
+-        if (RingBuffer_size(ring) >= size) break;
+-        busyWait(&busyWaitIter);
+-        if (RingBuffer_hasStatus(ring, RING_STATUS_EXIT)) return false;
++    for (;;) {
++        uint32_t used = RingBuffer_size(ring);
++        if (used > ring->bufferSize) {
++            RingBuffer_setStatus(ring, RING_STATUS_EXIT);
++            RingBuffer_logFailure("corrupt read occupancy", ring, size);
++            return false;
++        }
++        if (used >= size) return true;
++        if (RingBuffer_hasStatus(ring, RING_STATUS_EXIT)) {
++            RingBuffer_logFailure("read wait observed exit", ring, size);
++            return false;
++        }
++        if (!RingBuffer_backoff(ring, &busyWaitIter)) {
++            RingBuffer_setStatus(ring, RING_STATUS_EXIT);
++            RingBuffer_logFailure("read wait lost peer", ring, size);
++            return false;
++        }
+     }
+-    while (1);
+-    return true;
+ }
+ 
+ bool RingBuffer_waitForWrite(RingBuffer* ring, uint32_t size) {
++    if (!ring || size > ring->bufferSize) {
++        RingBuffer_logFailure("invalid write wait", ring, size);
++        return false;
++    }
++
+     uint32_t busyWaitIter = 0;
+-    do {
+-        if (RingBuffer_freeSpace(ring) >= size) break;
+-        busyWait(&busyWaitIter);
+-        if (RingBuffer_hasStatus(ring, RING_STATUS_EXIT)) return false;
++    for (;;) {
++        uint32_t used = RingBuffer_size(ring);
++        if (used > ring->bufferSize) {
++            RingBuffer_setStatus(ring, RING_STATUS_EXIT);
++            RingBuffer_logFailure("corrupt write occupancy", ring, size);
++            return false;
++        }
++        if (ring->bufferSize - used >= size) return true;
++        if (RingBuffer_hasStatus(ring, RING_STATUS_EXIT)) {
++            RingBuffer_logFailure("write wait observed exit", ring, size);
++            return false;
++        }
++        if (!RingBuffer_backoff(ring, &busyWaitIter)) {
++            RingBuffer_setStatus(ring, RING_STATUS_EXIT);
++            RingBuffer_logFailure("write wait lost peer", ring, size);
++            return false;
++        }
+     }
+-    while (1);
+-    return true;
+-}
+\ No newline at end of file
++}
+--- a/04_client_ring_buffer.h
++++ b/04_client_ring_buffer.h
+@@ -2,7 +2,10 @@
+ #define WINLATOR_RING_BUFFER_H
+ 
+ #include <stdatomic.h>
++#include <stdbool.h>
+ #include <stdint.h>
++#include <stdlib.h>
++#include <string.h>
+ 
+ #include "events.h"
+ 
+@@ -13,8 +16,14 @@
+     void* buffer;
+     void* sharedData;
+     uint32_t bufferSize;
++    int peerFd;
+ } RingBuffer;
+ 
++typedef struct RingBufferSpan {
++    const void* data;
++    uint32_t size;
++} RingBufferSpan;
++
+ #define RING_STATUS_IDLE (1u<<0)
+ #define RING_STATUS_EXIT (1u<<1)
+ #define RING_STATUS_WAIT (1u<<2)
+@@ -27,10 +36,22 @@
+ extern void RingBuffer_unsetStatus(RingBuffer* ring, uint32_t status);
+ extern bool RingBuffer_hasStatus(RingBuffer* ring, uint32_t status);
+ extern RingBuffer* RingBuffer_create(int shmFd, uint32_t bufferSize);
++extern void RingBuffer_setPeerFd(RingBuffer* ring, int peerFd);
+ extern uint32_t RingBuffer_size(RingBuffer* ring);
+ extern uint32_t RingBuffer_freeSpace(RingBuffer* ring);
+ extern bool RingBuffer_read(RingBuffer* ring, void* data, uint32_t size);
+-extern bool RingBuffer_write(RingBuffer* ring, const void *data, uint32_t size);
++extern bool RingBuffer_write(RingBuffer* ring, const void* data, uint32_t size);
++extern bool RingBuffer_writeParts(
++    RingBuffer* ring,
++    const RingBufferSpan* parts,
++    uint32_t partCount);
++/* Publishes a complete header+payload frame with one release-store of tail. */
++extern bool RingBuffer_writeFrame(
++    RingBuffer* ring,
++    const void* header,
++    uint32_t headerSize,
++    const void* data,
++    uint32_t dataSize);
+ extern uint32_t RingBuffer_getSHMemSize(uint32_t bufferSize);
+ extern void RingBuffer_free(RingBuffer* ring);
+ extern bool RingBuffer_waitForRead(RingBuffer* ring, uint32_t size);
+@@ -39,21 +60,27 @@
+ #define RING_READ_BEGIN(ring, data, size) \
+     uint32_t ringHead = 0; \
+     void* ringData = NULL; \
++    bool ringReadReady = false; \
+     do { \
+         if (size == 0 || !RingBuffer_waitForRead(ring, size)) break; \
+         ringHead = RingBuffer_getHead(ring); \
+         uint32_t ringOffset = ringHead & (ring->bufferSize - 1); \
+         if ((ringOffset + size) <= ring->bufferSize) { \
+-            data = ring->buffer + ringOffset; \
++            data = (uint8_t*)ring->buffer + ringOffset; \
+         } \
+         else { \
+             data = malloc(size); \
++            if (!data) { \
++                RingBuffer_setStatus(ring, RING_STATUS_EXIT); \
++                break; \
++            } \
+             uint32_t start = ring->bufferSize - ringOffset; \
+-            memcpy(data, ring->buffer + ringOffset, start); \
+-            memcpy(data + start, ring->buffer, size - start);\
++            memcpy(data, (uint8_t*)ring->buffer + ringOffset, start); \
++            memcpy((uint8_t*)data + start, ring->buffer, size - start);\
+             ringData = data; \
+         } \
+         ringHead += size; \
++        ringReadReady = true; \
+     } \
+     while (0)
+ 
+@@ -63,7 +90,7 @@
+             free(ringData); \
+             ringData = NULL; \
+         } \
+-        if (ringHead > 0) RingBuffer_setHead(ring, ringHead); \
++        if (ringReadReady) RingBuffer_setHead(ring, ringHead); \
+     } \
+     while (0)
+ 
+@@ -72,18 +99,24 @@
+     void* ringData = NULL; \
+     uint32_t ringDataSize = 0; \
+     uint32_t ringOffset = 0; \
++    bool ringWriteReady = false; \
+     do { \
+         if (size == 0 || !RingBuffer_waitForWrite(ring, size)) break; \
+         ringTail = RingBuffer_getTail(ring); \
+         ringOffset = ringTail & (ring->bufferSize - 1); \
+         if ((ringOffset + size) <= ring->bufferSize) { \
+-            ringData = ring->buffer + ringOffset; \
++            ringData = (uint8_t*)ring->buffer + ringOffset; \
+         } \
+         else { \
+             ringData = malloc(size); \
++            if (!ringData) { \
++                RingBuffer_setStatus(ring, RING_STATUS_EXIT); \
++                break; \
++            } \
+             ringDataSize = size; \
+         } \
+         ringTail += size; \
++        ringWriteReady = true; \
+     } \
+     while (0)
+ 
+@@ -91,13 +124,13 @@
+     do { \
+         if (ringDataSize > 0) {  \
+             uint32_t ringStart = ring->bufferSize - ringOffset; \
+-            memcpy(ring->buffer + ringOffset, ringData, ringStart); \
+-            memcpy(ring->buffer, ringData + ringStart, ringDataSize - ringStart); \
++            memcpy((uint8_t*)ring->buffer + ringOffset, ringData, ringStart); \
++            memcpy(ring->buffer, (uint8_t*)ringData + ringStart, ringDataSize - ringStart); \
+             free(ringData); \
+             ringData = NULL; \
+         } \
+-        if (ringTail > 0) RingBuffer_setTail(ring, ringTail); \
++        if (ringWriteReady) RingBuffer_setTail(ring, ringTail); \
+     } \
+     while (0)
+ 
+-#endif
+\ No newline at end of file
++#endif
+--- a/05_client_gl_calls.c_DEPLOYED_V5
++++ b/05_client_gl_calls.c_DEPLOYED_V5
+@@ -1768,12 +1768,17 @@
+             }
+         }
+         
+-        gl_send(currentGLContext->serverRing, REQUEST_CODE_GL_END, outputBuffer.buffer, outputBuffer.size);
+-        if (commandBuffer->data.size > 0) {
+-            RingBuffer_write(currentGLContext->serverRing, commandBuffer->data.buffer, commandBuffer->data.size);
++        if (!gl_send_with_trailing_data(
++                currentGLContext->serverRing, REQUEST_CODE_GL_END,
++                outputBuffer.buffer, outputBuffer.size,
++                commandBuffer->data.buffer, commandBuffer->data.size)) {
++            GL_CALL_UNLOCK();
++            return;
+         }
+     }
+-    else gl_send(currentGLContext->serverRing, REQUEST_CODE_GL_END, NULL, 0);
++    else {
++        GL_SEND_CHECKED(REQUEST_CODE_GL_END, NULL, 0);
++    }
+     GL_CALL_UNLOCK();
+ }
+ 
+--- a/06_client_main.c
++++ b/06_client_main.c
+@@ -159,9 +159,11 @@
+     
+     context->serverRing = RingBuffer_create(shmFds[0], SERVER_RING_BUFFER_SIZE);
+     if (!context->serverRing) goto error;
++    RingBuffer_setPeerFd(context->serverRing, serverFd);
+     
+     context->clientRing = RingBuffer_create(shmFds[1], CLIENT_RING_BUFFER_SIZE);
+     if (!context->clientRing) goto error;
++    RingBuffer_setPeerFd(context->clientRing, serverFd);
+     
+     CLOSEFD(shmFds[0]);
+     CLOSEFD(shmFds[1]);
+@@ -214,7 +216,8 @@
+ 
+ static bool sendX11AuthRequest() {
+     char requestData[12] = {0};
+-    *(short*)(requestData + 2) = 11;
++    int16_t authNameLength = 11;
++    memcpy(requestData + 2, &authNameLength, sizeof(authNameLength));
+     
+     int result;
+     result = sock_write(serverFd, requestData, 12);
+@@ -224,7 +227,9 @@
+     result = sock_read(serverFd, replyData, 8);
+     if (result != 8) return false;
+     
+-    int additionalDataLength = *(short*)(replyData + 6) * 4;
++    uint16_t additionalLengthUnits;
++    memcpy(&additionalLengthUnits, replyData + 6, sizeof(additionalLengthUnits));
++    int additionalDataLength = additionalLengthUnits * 4;
+     char additionalData[additionalDataLength];
+     result = sock_read(serverFd, additionalData, additionalDataLength);
+     if (result != additionalDataLength) return false;

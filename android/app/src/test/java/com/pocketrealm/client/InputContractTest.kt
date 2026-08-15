@@ -231,6 +231,7 @@ class InputContractTest {
             overlayEnabled = false,
             overlayScale = 1.25f,
             cameraRegionWidth = 0.5f,
+            touchCameraSensitivity = 0.55f,
             invertCameraY = true,
             leftTriggerOnThreshold = 0.45f,
             leftTriggerOffThreshold = 0.24f,
@@ -253,25 +254,24 @@ class InputContractTest {
         assertEquals(InputProfile.CURRENT_VERSION, migrated.version)
         assertEquals(1.0f, migrated.cameraSensitivity)
         assertEquals(0.85f, migrated.overlayOpacity)
+        assertEquals(0.35f, migrated.touchCameraSensitivity)
         assertEquals(ControlScheme.CLASSIC_CAMERA, migrated.scheme)
-        assertEquals(ControllerAction.POINTER_RIGHT,
+        assertEquals(ControllerAction.DISABLED,
             InputProfile.actionFor(migrated, Rp6Control.REAR_RIGHT))
         assertEquals(ControllerAction.ESCAPE,
             InputProfile.actionFor(migrated, OverlayControl.MENU))
-        assertEquals(ControllerAction.KEY_9,
+        assertEquals(ControllerAction.TARGET_PULSE,
             InputProfile.actionFor(migrated, Rp6Control.R1))
+        assertEquals(ControllerAction.TARGET_PULSE,
+            InputProfile.actionFor(migrated, OverlayControl.TARGET))
+        assertEquals(ControllerAction.USE_LOOT_CLICK,
+            InputProfile.actionFor(migrated, OverlayControl.USE_LOOT))
 
-        val v5Bindings = org.json.JSONObject().also { stored ->
-            InputProfile.classicRp6Bindings(cameraLock = true).forEach { (control, action) ->
-                stored.put(control.name, action.name)
-            }
-        }
         val v5Classic = InputProfile.fromJson(org.json.JSONObject()
             .put("version", 5)
             .put("aspectIdentity", "16:9")
-            .put("scheme", ControlScheme.CLASSIC_CAMERA.name)
-            .put("rp6Bindings", v5Bindings))
-        assertEquals(ControllerAction.POINTER_RIGHT,
+            .put("scheme", ControlScheme.CLASSIC_CAMERA.name))
+        assertEquals(ControllerAction.DISABLED,
             InputProfile.actionFor(v5Classic, Rp6Control.REAR_RIGHT))
 
         val invalidBinding = InputProfile.fromJson(org.json.JSONObject()
@@ -280,12 +280,61 @@ class InputContractTest {
             .put("rp6Bindings", org.json.JSONObject()
                 .put(Rp6Control.R1.name, "NOT_AN_ACTION")
                 .put(Rp6Control.L1.name, ControllerAction.JUMP.name)))
-        assertEquals(ControllerAction.KEY_9,
+        assertEquals(ControllerAction.TARGET_PULSE,
             InputProfile.actionFor(invalidBinding, Rp6Control.R1))
         assertEquals(ControllerAction.JUMP,
             InputProfile.actionFor(invalidBinding, Rp6Control.L1))
         assertEquals(ControllerAction.KEY_1,
             InputProfile.actionFor(invalidBinding, OverlayControl.ACTION_1))
+    }
+
+    @Test fun `schema seven retires addon-era defaults but preserves customization`() {
+        val legacyMap = linkedMapOf(
+            Rp6Control.LEFT_STICK_UP to "MOVE_W",
+            Rp6Control.LEFT_STICK_DOWN to "MOVE_S",
+            Rp6Control.LEFT_STICK_LEFT to "STRAFE_Q",
+            Rp6Control.LEFT_STICK_RIGHT to "STRAFE_E",
+            Rp6Control.FACE_BOTTOM to "KEY_1",
+            Rp6Control.FACE_LEFT to "KEY_2",
+            Rp6Control.FACE_TOP to "KEY_3",
+            Rp6Control.FACE_RIGHT to "KEY_4",
+            Rp6Control.DPAD_DOWN to "KEY_5",
+            Rp6Control.DPAD_LEFT to "KEY_6",
+            Rp6Control.DPAD_UP to "KEY_7",
+            Rp6Control.DPAD_RIGHT to "KEY_8",
+            Rp6Control.R1 to "KEY_9",
+            Rp6Control.L1 to "KEY_0",
+            Rp6Control.L2 to "SHIFT",
+            Rp6Control.R2 to "CTRL",
+            Rp6Control.START to "RADIAL_MENU",
+            Rp6Control.SELECT to "MAP",
+            Rp6Control.L3 to "AUTO_RUN",
+            Rp6Control.R3 to "POINTER_LEFT",
+            Rp6Control.REAR_LEFT to "INTERACT",
+            Rp6Control.REAR_RIGHT to "POINTER_RIGHT",
+        )
+        fun decode(bindings: Map<Rp6Control, String>): InputProfile {
+            val stored = org.json.JSONObject()
+            bindings.forEach { (control, action) -> stored.put(control.name, action) }
+            return InputProfile.fromJson(org.json.JSONObject()
+                .put("version", 7)
+                .put("aspectIdentity", "16:9")
+                .put("scheme", ControlScheme.CLASSIC_CAMERA.name)
+                .put("rp6Bindings", stored))
+        }
+
+        val migrated = decode(legacyMap)
+        assertEquals(ControllerAction.USE_LOOT_CLICK, InputProfile.actionFor(migrated, Rp6Control.R2))
+        assertEquals(ControllerAction.ESCAPE, InputProfile.actionFor(migrated, Rp6Control.START))
+        assertEquals(ControllerAction.AUTO_RUN, InputProfile.actionFor(migrated, Rp6Control.L3))
+        assertEquals(ControllerAction.JUMP, InputProfile.actionFor(migrated, Rp6Control.R3))
+        assertEquals(ControllerAction.DISABLED, InputProfile.actionFor(migrated, Rp6Control.REAR_LEFT))
+        assertEquals(ControllerAction.DISABLED, InputProfile.actionFor(migrated, Rp6Control.REAR_RIGHT))
+
+        val custom = decode(legacyMap + (Rp6Control.R1 to ControllerAction.JUMP.name))
+        assertEquals(ControlScheme.CLASSIC_CAMERA, custom.scheme)
+        assertEquals(ControllerAction.JUMP, InputProfile.actionFor(custom, Rp6Control.R1))
+        assertEquals(ControllerAction.CTRL, InputProfile.actionFor(custom, Rp6Control.R2))
     }
 
     @Test fun `schema seven migrates only the exact former right stick default`() {
@@ -304,17 +353,19 @@ class InputContractTest {
         assertEquals(0.12f, decode(7, 0.12).rightStickDeadZone)
     }
 
-    @Test fun `classic overlay menu is escape while PocketRealmPad menu is F7`() {
+    @Test fun `retired PocketRealmPad scheme migrates to the built-in stock profile`() {
         val classic = InputProfile.profileForScheme(
             ControlScheme.CLASSIC_CAMERA,
             InputProfile.DEFAULT_ASPECT_IDENTITY,
         )
-        val pad = InputProfile.profileForScheme(
-            ControlScheme.POCKET_REALM_PAD_CAMERA,
-            InputProfile.DEFAULT_ASPECT_IDENTITY,
-        )
+        val retired = InputProfile.fromJson(org.json.JSONObject()
+            .put("version", 8)
+            .put("aspectIdentity", InputProfile.DEFAULT_ASPECT_IDENTITY)
+            .put("scheme", "POCKET_REALM_PAD_CAMERA"))
         assertEquals(ControllerAction.ESCAPE, InputProfile.actionFor(classic, OverlayControl.MENU))
-        assertEquals(ControllerAction.RADIAL_MENU, InputProfile.actionFor(pad, OverlayControl.MENU))
+        assertEquals(ControlScheme.CLASSIC_CAMERA, retired.scheme)
+        assertEquals(InputProfile.defaultRp6Bindings(), retired.rp6Bindings)
+        assertEquals(InputProfile.defaultOverlayBindings(), retired.overlayBindings)
     }
 
     @Test fun `digital dpad is suppressed only for the matching hat axis`() {
@@ -398,6 +449,19 @@ class InputContractTest {
         }
     }
 
+    private fun scheduledConsoleContract(): Triple<InputContract, RecordingSink, ManualImeScheduler> {
+        val sink = RecordingSink()
+        val scheduler = ManualImeScheduler()
+        val contract = InputContract(sink, scheduler)
+        contract.attach(null, 1)
+        contract.switchProfile(
+            InputProfile.profileForScheme(ControlScheme.VANILLA_CONSOLE_PORT, "16:9"),
+            "16:9",
+            1,
+        )
+        return Triple(contract, sink, scheduler)
+    }
+
     // ---- IME extension tests (increment 2) --------------------------------
 
     @Test fun `IME opening releases held keyboard and pointer state`() {
@@ -424,25 +488,19 @@ class InputContractTest {
             InputContract.logicalGamepadKey(android.view.KeyEvent.KEYCODE_BUTTON_A))
     }
 
-    @Test fun `gamepad right stick injects relative camera delta and stale input is rejected`() {
+    @Test fun `unlocked gamepad right stick moves free cursor and stale input is rejected`() {
         val (c, sink) = newContract()
         c.gamepadAxis(7, InputContract.GamepadAxis.RIGHT_X, 0.5f, 1)
         c.gamepadAxis(7, InputContract.GamepadAxis.RIGHT_Y, -0.25f, 1)
         c.pumpGamepadPointer(1_000_000_000L, 1)
         c.pumpGamepadPointer(1_016_666_667L, 1)
-        assertEquals(
-            listOf(
-                SinkEvent.PointerButton(SinkButton.RIGHT, true),
-                SinkEvent.PointerMoveDelta(3, -1),
-            ),
-            sink.events,
-        )
+        assertEquals(listOf(SinkEvent.PointerMoveDelta(3, -1)), sink.events)
         c.gamepadAxis(7, InputContract.GamepadAxis.RIGHT_X, 1f, 99)
-        assertEquals(2, sink.events.size)
+        assertEquals(1, sink.events.size)
         assertTrue(c.rejectedStaleEventCount >= 1)
     }
 
-    @Test fun `right stick owns camera only while displaced and never needs a lock button`() {
+    @Test fun `right stick never presses camera button while unlocked`() {
         val (contract, sink) = newContract()
         contract.gamepadAxis(7, InputContract.GamepadAxis.RIGHT_X, 0.8f, 1)
         contract.pumpGamepadPointer(1_000_000_000L, 1)
@@ -450,13 +508,7 @@ class InputContractTest {
         contract.gamepadAxis(7, InputContract.GamepadAxis.RIGHT_X, 0f, 1)
         contract.pumpGamepadPointer(1_033_333_334L, 1)
 
-        assertEquals(
-            listOf(
-                SinkEvent.PointerButton(SinkButton.RIGHT, true),
-                SinkEvent.PointerButton(SinkButton.RIGHT, false),
-            ),
-            sink.events.filterIsInstance<SinkEvent.PointerButton>(),
-        )
+        assertTrue(sink.events.filterIsInstance<SinkEvent.PointerButton>().isEmpty())
         assertTrue(sink.events.any { it is SinkEvent.PointerMoveDelta && it.dx > 0 })
     }
 
@@ -548,7 +600,7 @@ class InputContractTest {
 
         val justAbove = movementFor(0.051f, 180)
         assertTrue("a value immediately above the v7 dead zone must eventually move", justAbove.first > 0)
-        assertEquals(SinkEvent.PointerButton(SinkButton.RIGHT, true), justAbove.second.single())
+        assertTrue(justAbove.second.isEmpty())
 
         val liveSample = movementFor(0.094f, 12)
         assertTrue("the observed RP6 0.094 sample must produce smooth camera motion", liveSample.first > 0)
@@ -749,35 +801,558 @@ class InputContractTest {
             KeyEvent.KEYCODE_BUTTON_X to KeyEvent.KEYCODE_3,
             KeyEvent.KEYCODE_BUTTON_Y to KeyEvent.KEYCODE_2,
             KeyEvent.KEYCODE_BUTTON_B to KeyEvent.KEYCODE_1,
-            KeyEvent.KEYCODE_DPAD_DOWN to KeyEvent.KEYCODE_5,
-            KeyEvent.KEYCODE_DPAD_LEFT to KeyEvent.KEYCODE_6,
-            KeyEvent.KEYCODE_DPAD_UP to KeyEvent.KEYCODE_7,
-            KeyEvent.KEYCODE_DPAD_RIGHT to KeyEvent.KEYCODE_8,
-            KeyEvent.KEYCODE_BUTTON_R1 to KeyEvent.KEYCODE_9,
-            KeyEvent.KEYCODE_BUTTON_L1 to KeyEvent.KEYCODE_0,
-            KeyEvent.KEYCODE_BUTTON_L2 to KeyEvent.KEYCODE_SHIFT_LEFT,
-            KeyEvent.KEYCODE_BUTTON_R2 to KeyEvent.KEYCODE_CTRL_LEFT,
-            KeyEvent.KEYCODE_BUTTON_START to KeyEvent.KEYCODE_F7,
-            KeyEvent.KEYCODE_BUTTON_SELECT to KeyEvent.KEYCODE_M,
-            KeyEvent.KEYCODE_BUTTON_THUMBL to KeyEvent.KEYCODE_NUM_LOCK,
-            KeyEvent.KEYCODE_BUTTON_C to KeyEvent.KEYCODE_I,
+            KeyEvent.KEYCODE_DPAD_DOWN to KeyEvent.KEYCODE_F1,
+            KeyEvent.KEYCODE_DPAD_LEFT to KeyEvent.KEYCODE_B,
+            KeyEvent.KEYCODE_DPAD_UP to KeyEvent.KEYCODE_G,
+            KeyEvent.KEYCODE_DPAD_RIGHT to KeyEvent.KEYCODE_L,
+            KeyEvent.KEYCODE_BUTTON_START to KeyEvent.KEYCODE_ESCAPE,
+            KeyEvent.KEYCODE_BUTTON_THUMBL to KeyEvent.KEYCODE_F9,
+            KeyEvent.KEYCODE_BUTTON_THUMBR to KeyEvent.KEYCODE_SPACE,
         )
         expected.forEach { (physical, _) -> assertTrue(c.gamepadButton(22, physical, true, 1, rp6)) }
-        assertTrue(c.gamepadButton(22, KeyEvent.KEYCODE_BUTTON_THUMBR, true, 1, rp6))
-        assertTrue(c.gamepadButton(22, KeyEvent.KEYCODE_BUTTON_Z, true, 1, rp6))
+        assertTrue(c.gamepadButton(22, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, rp6))
+        assertTrue(c.gamepadButton(22, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, rp6))
+        assertTrue(c.gamepadButton(22, KeyEvent.KEYCODE_BUTTON_R2, true, 1, rp6))
+        assertFalse(c.gamepadButton(22, KeyEvent.KEYCODE_BUTTON_C, true, 1, rp6))
+        assertFalse(c.gamepadButton(22, KeyEvent.KEYCODE_BUTTON_Z, true, 1, rp6))
 
         val keys = sink.events.filterIsInstance<SinkEvent.Key>()
-        assertEquals(expected.map { it.second }, keys.map { it.logicalKeyCode })
+        assertEquals(
+            expected.flatMap { (physical, logical) ->
+                if (physical == KeyEvent.KEYCODE_BUTTON_THUMBL) {
+                    listOf(KeyEvent.KEYCODE_F9, KeyEvent.KEYCODE_F9)
+                } else listOf(logical)
+            } + listOf(KeyEvent.KEYCODE_M, KeyEvent.KEYCODE_M),
+            keys.map { it.logicalKeyCode })
+        assertTrue(sink.events.filterIsInstance<SinkEvent.PointerButton>().isNotEmpty())
+        val report = c.releaseSource(22)
+        assertEquals(expected.size - 1, report.keyCount)
+        assertEquals(0, report.buttonCount)
+    }
+
+    @Test fun `external Select tap defers then emits one balanced Map press`() {
+        val (c, sink) = newContract()
+        val layout = InputContract.GamepadLayout.PROFILED
+
+        assertTrue(c.gamepadButton(31, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout))
+        assertTrue("pending Select is contract state even though it emits nothing", !c.isNeutral(1))
+        assertTrue(sink.events.isEmpty())
+
+        assertTrue(c.gamepadButton(31, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout))
+        assertEquals(
+            listOf(KeyEvent.KEYCODE_M to true, KeyEvent.KEYCODE_M to false),
+            sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode to it.pressed },
+        )
+        assertTrue(c.isNeutral(1))
+    }
+
+    @Test fun `console port Select tap retains one balanced radial pulse`() {
+        val (c, sink) = newContract()
+        c.switchProfile(
+            InputProfile.profileForScheme(ControlScheme.VANILLA_CONSOLE_PORT, "16:9"),
+            "16:9",
+            1,
+        )
+        val layout = InputContract.GamepadLayout.RETROID_POCKET_6
+
+        assertTrue(c.gamepadButton(70, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout))
+        assertTrue(sink.events.isEmpty())
+        assertTrue(c.gamepadButton(70, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout))
+
+        assertEquals(
+            listOf(KeyEvent.KEYCODE_F12 to true, KeyEvent.KEYCODE_F12 to false),
+            sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode to it.pressed },
+        )
+        assertTrue(c.isNeutral(1))
+    }
+
+    @Test fun `console port radial tap unlocks camera and centres pointer before F12`() {
+        val (c, sink) = newContract()
+        c.switchProfile(
+            InputProfile.profileForScheme(ControlScheme.VANILLA_CONSOLE_PORT, "16:9"),
+            "16:9",
+            1,
+        )
+        c.setCameraAimPoint(960, 540, 1)
+        c.setCameraLock(true, 1)
+        sink.events.clear()
+
+        c.gamepadButton(
+            78, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1,
+            InputContract.GamepadLayout.RETROID_POCKET_6_XBOX,
+        )
+        c.gamepadButton(
+            78, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1,
+            InputContract.GamepadLayout.RETROID_POCKET_6_XBOX,
+        )
+
+        assertFalse(c.isCameraLocked)
+        assertEquals(
+            listOf(
+                SinkEvent.PointerButton(SinkButton.RIGHT, false),
+                SinkEvent.PointerMove(960, 540),
+            ),
+            sink.events.take(2),
+        )
+        assertEquals(
+            listOf(KeyEvent.KEYCODE_F12 to true, KeyEvent.KEYCODE_F12 to false),
+            sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode to it.pressed },
+        )
+        assertTrue(c.isNeutral(1))
+    }
+
+    @Test fun `console port frequent target nearby use and pointer buttons are direct buttons`() {
+        fun contract(): Pair<InputContract, RecordingSink> = newContract().also { (c, _) ->
+            c.switchProfile(
+                InputProfile.profileForScheme(ControlScheme.VANILLA_CONSOLE_PORT, "16:9"),
+                "16:9",
+                1,
+            )
+        }
+        val layout = InputContract.GamepadLayout.RETROID_POCKET_6
+
+        run {
+            val (c, sink) = contract()
+            c.gamepadButton(71, KeyEvent.KEYCODE_BUTTON_R1, true, 1, layout)
+            c.gamepadButton(71, KeyEvent.KEYCODE_BUTTON_R1, true, 1, layout)
+            c.gamepadButton(71, KeyEvent.KEYCODE_BUTTON_R1, false, 1, layout)
+            assertEquals(
+                listOf(KeyEvent.KEYCODE_F6 to true, KeyEvent.KEYCODE_F6 to false),
+                sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode to it.pressed },
+            )
+            assertTrue("consumed Select must not open radial", c.isNeutral(1))
+        }
+        run {
+            val (c, sink) = contract()
+            c.gamepadButton(72, KeyEvent.KEYCODE_BUTTON_L1, true, 1, layout)
+            c.gamepadButton(72, KeyEvent.KEYCODE_BUTTON_L1, true, 1, layout)
+            c.gamepadButton(72, KeyEvent.KEYCODE_BUTTON_L1, false, 1, layout)
+            assertEquals(
+                listOf(KeyEvent.KEYCODE_F7 to true, KeyEvent.KEYCODE_F7 to false),
+                sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode to it.pressed },
+            )
+            assertTrue(c.isNeutral(1))
+        }
+        run {
+            val (c, sink) = contract()
+            c.gamepadButton(72, KeyEvent.KEYCODE_BUTTON_THUMBL, true, 1, layout)
+            c.gamepadButton(72, KeyEvent.KEYCODE_BUTTON_THUMBL, false, 1, layout)
+            assertEquals(
+                listOf(
+                    SinkEvent.PointerButton(SinkButton.RIGHT, true),
+                    SinkEvent.PointerButton(SinkButton.RIGHT, false),
+                ),
+                sink.events.filterIsInstance<SinkEvent.PointerButton>(),
+            )
+            sink.events.clear()
+            c.gamepadButton(72, KeyEvent.KEYCODE_BUTTON_THUMBL, true, 1, layout)
+            c.gamepadButton(72, KeyEvent.KEYCODE_BUTTON_THUMBL, false, 1, layout)
+            assertEquals(
+                listOf(
+                    SinkEvent.PointerButton(SinkButton.RIGHT, true),
+                    SinkEvent.PointerButton(SinkButton.RIGHT, false),
+                ),
+                sink.events.filterIsInstance<SinkEvent.PointerButton>(),
+            )
+            assertTrue(c.isNeutral(1))
+        }
+        run {
+            val (c, sink) = contract()
+            c.gamepadButton(73, KeyEvent.KEYCODE_BUTTON_THUMBR, true, 1, layout)
+            c.gamepadButton(73, KeyEvent.KEYCODE_BUTTON_THUMBR, false, 1, layout)
+            assertEquals(
+                listOf(
+                    SinkEvent.PointerButton(SinkButton.LEFT, true),
+                    SinkEvent.PointerButton(SinkButton.LEFT, false),
+                ),
+                sink.events.filterIsInstance<SinkEvent.PointerButton>(),
+            )
+            assertTrue(c.isNeutral(1))
+        }
+    }
+
+    @Test fun `console port Select chords cover last hostile jump pointer and camera`() {
+        fun contract(): Pair<InputContract, RecordingSink> = newContract().also { (c, _) ->
+            c.switchProfile(
+                InputProfile.profileForScheme(ControlScheme.VANILLA_CONSOLE_PORT, "16:9"),
+                "16:9",
+                1,
+            )
+        }
+        val layout = InputContract.GamepadLayout.RETROID_POCKET_6
+
+        listOf(
+            KeyEvent.KEYCODE_BUTTON_R1 to KeyEvent.KEYCODE_G,
+            KeyEvent.KEYCODE_BUTTON_THUMBL to KeyEvent.KEYCODE_SPACE,
+        ).forEachIndexed { index, (button, key) ->
+            val (c, sink) = contract()
+            val source = 80 + index
+            c.gamepadButton(source, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+            c.gamepadButton(source, button, true, 1, layout)
+            c.gamepadButton(source, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+            c.gamepadButton(source, button, false, 1, layout)
+            assertEquals(
+                listOf(key to true, key to false),
+                sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode to it.pressed },
+            )
+            assertTrue(c.isNeutral(1))
+        }
+        run {
+            val (c, sink) = contract()
+            c.gamepadButton(82, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+            c.gamepadButton(82, KeyEvent.KEYCODE_BUTTON_R2, true, 1, layout)
+            c.gamepadButton(82, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+            c.gamepadButton(82, KeyEvent.KEYCODE_BUTTON_R2, false, 1, layout)
+            assertEquals(
+                listOf(
+                    SinkEvent.PointerButton(SinkButton.LEFT, true),
+                    SinkEvent.PointerButton(SinkButton.LEFT, false),
+                ),
+                sink.events.filterIsInstance<SinkEvent.PointerButton>(),
+            )
+            assertTrue(c.isNeutral(1))
+        }
+        run {
+            val (c, sink) = contract()
+            c.gamepadButton(83, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+            c.gamepadButton(83, KeyEvent.KEYCODE_BUTTON_THUMBR, true, 1, layout)
+            c.gamepadButton(83, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+            c.gamepadButton(83, KeyEvent.KEYCODE_BUTTON_THUMBR, false, 1, layout)
+            assertTrue(c.isCameraLocked)
+            assertEquals(
+                listOf(SinkEvent.PointerButton(SinkButton.RIGHT, true)),
+                sink.events.filterIsInstance<SinkEvent.PointerButton>(),
+            )
+            assertEquals(1, c.releaseSource(83).buttonCount)
+            assertTrue(c.isNeutral(1))
+        }
+    }
+
+    @Test fun `console port Select Start enters Move UI without changing R3`() {
+        val (c, sink) = newContract()
+        c.switchProfile(
+            InputProfile.profileForScheme(ControlScheme.VANILLA_CONSOLE_PORT, "16:9"),
+            "16:9",
+            1,
+        )
+        val layout = InputContract.GamepadLayout.RETROID_POCKET_6_XBOX
+        c.setCameraAimPoint(960, 540, 1)
+        c.setCameraLock(true, 1)
+        sink.events.clear()
+
+        c.gamepadButton(84, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+        c.gamepadButton(84, KeyEvent.KEYCODE_BUTTON_START, true, 1, layout)
+        c.gamepadButton(84, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+        c.gamepadButton(84, KeyEvent.KEYCODE_BUTTON_START, false, 1, layout)
+
+        assertFalse(c.isCameraLocked)
+        assertTrue(sink.events.none { it is SinkEvent.PointerMove })
+        assertEquals(
+            listOf(SinkEvent.PointerButton(SinkButton.RIGHT, false)),
+            sink.events.filterIsInstance<SinkEvent.PointerButton>(),
+        )
+        assertEquals(
+            listOf(KeyEvent.KEYCODE_F8 to true, KeyEvent.KEYCODE_F8 to false),
+            sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode to it.pressed },
+        )
+        assertFalse(sink.events.filterIsInstance<SinkEvent.Key>()
+            .any { it.logicalKeyCode == KeyEvent.KEYCODE_ESCAPE ||
+                it.logicalKeyCode == KeyEvent.KEYCODE_F12 })
+        assertTrue(c.isNeutral(1))
+
+        sink.events.clear()
+        c.gamepadButton(84, KeyEvent.KEYCODE_BUTTON_THUMBR, true, 1, layout)
+        c.gamepadButton(84, KeyEvent.KEYCODE_BUTTON_THUMBR, false, 1, layout)
         assertEquals(
             listOf(
                 SinkEvent.PointerButton(SinkButton.LEFT, true),
+                SinkEvent.PointerButton(SinkButton.LEFT, false),
+            ),
+            sink.events,
+        )
+    }
+
+    @Test fun `console port Select pointer chord supports analogue R2 and Select L1 aimed use`() {
+        val (c, sink) = newContract()
+        c.switchProfile(
+            InputProfile.profileForScheme(ControlScheme.VANILLA_CONSOLE_PORT, "16:9"),
+            "16:9",
+            1,
+        )
+        val layout = InputContract.GamepadLayout.RETROID_POCKET_6
+        c.gamepadButton(75, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+        c.gamepadAxis(75, InputContract.GamepadAxis.RIGHT_TRIGGER, 0.41f, 1, layout)
+        c.gamepadButton(75, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+        c.gamepadAxis(75, InputContract.GamepadAxis.RIGHT_TRIGGER, 0.19f, 1, layout)
+
+        assertEquals(listOf(true, false),
+            sink.events.filterIsInstance<SinkEvent.PointerButton>().map { it.pressed })
+        assertTrue(c.isNeutral(1))
+
+        c.setCameraLock(true, 1)
+        sink.events.clear()
+        c.gamepadButton(75, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+        c.gamepadButton(75, KeyEvent.KEYCODE_BUTTON_L1, true, 1, layout)
+        c.gamepadButton(75, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+        c.gamepadButton(75, KeyEvent.KEYCODE_BUTTON_L1, false, 1, layout)
+
+        assertEquals(
+            listOf(
+                SinkEvent.PointerButton(SinkButton.RIGHT, false),
                 SinkEvent.PointerButton(SinkButton.RIGHT, true),
             ),
             sink.events.filterIsInstance<SinkEvent.PointerButton>(),
         )
-        val report = c.releaseSource(22)
-        assertEquals(expected.size, report.keyCount)
-        assertEquals(2, report.buttonCount)
+        assertTrue(c.isCameraLocked)
+        assertFalse(sink.events.filterIsInstance<SinkEvent.Key>()
+            .any { it.logicalKeyCode == KeyEvent.KEYCODE_F12 })
+        assertFalse(c.setCameraLock(false, 1))
+        assertEquals(listOf(false, true, false),
+            sink.events.filterIsInstance<SinkEvent.PointerButton>().map { it.pressed })
+        assertTrue(c.isNeutral(1))
+    }
+
+    @Test fun `console port pending Select lifecycle release is neutral`() {
+        val (c, sink) = newContract()
+        c.switchProfile(
+            InputProfile.profileForScheme(ControlScheme.VANILLA_CONSOLE_PORT, "16:9"),
+            "16:9",
+            1,
+        )
+        c.gamepadButton(
+            76, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1,
+            InputContract.GamepadLayout.RETROID_POCKET_6,
+        )
+
+        val report = c.releaseSource(76)
+
+        assertEquals(0, report.keyCount)
+        assertEquals(0, report.buttonCount)
+        assertTrue(sink.events.isEmpty())
+        assertTrue(c.isNeutral(1))
+    }
+
+    @Test fun `custom non product Select binding does not enable utility chords`() {
+        val (c, sink) = newContract()
+        c.switchProfile(
+            InputProfile.DEFAULT.copy(
+                scheme = ControlScheme.CUSTOM,
+                rp6Bindings = InputProfile.defaultRp6Bindings() +
+                    (Rp6Control.SELECT to ControllerAction.KEY_P),
+            ),
+            "16:9",
+            1,
+        )
+        val layout = InputContract.GamepadLayout.PROFILED
+
+        c.gamepadButton(77, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+        c.gamepadButton(77, KeyEvent.KEYCODE_BUTTON_THUMBR, true, 1, layout)
+        c.gamepadButton(77, KeyEvent.KEYCODE_BUTTON_THUMBR, false, 1, layout)
+        c.gamepadButton(77, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+
+        assertFalse(c.isCameraLocked)
+        assertEquals(
+            listOf(
+                KeyEvent.KEYCODE_P to true,
+                KeyEvent.KEYCODE_SPACE to true,
+                KeyEvent.KEYCODE_SPACE to false,
+                KeyEvent.KEYCODE_P to false,
+            ),
+            sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode to it.pressed },
+        )
+        assertTrue(c.isNeutral(1))
+    }
+
+    @Test fun `external Select R3 toggles camera once and consumes Map`() {
+        val (c, sink) = newContract()
+        val layout = InputContract.GamepadLayout.PROFILED
+
+        c.gamepadButton(32, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+        c.gamepadButton(32, KeyEvent.KEYCODE_BUTTON_THUMBR, true, 1, layout)
+        c.gamepadButton(32, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+        c.gamepadButton(32, KeyEvent.KEYCODE_BUTTON_THUMBR, false, 1, layout)
+
+        assertTrue(c.isCameraLocked)
+        assertTrue("consumed Select must not open Map", sink.events.filterIsInstance<SinkEvent.Key>().isEmpty())
+        assertEquals(
+            listOf(SinkEvent.PointerButton(SinkButton.RIGHT, true)),
+            sink.events.filterIsInstance<SinkEvent.PointerButton>(),
+        )
+        assertEquals(1, c.releaseSource(32).buttonCount)
+        assertEquals(listOf(true, false),
+            sink.events.filterIsInstance<SinkEvent.PointerButton>().map { it.pressed })
+    }
+
+    @Test fun `external Select R2 holds left click until R2 release after Select release`() {
+        val (c, sink) = newContract()
+        val layout = InputContract.GamepadLayout.PROFILED
+
+        c.gamepadButton(33, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+        c.gamepadButton(33, KeyEvent.KEYCODE_BUTTON_R2, true, 1, layout)
+        c.gamepadButton(33, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+        assertEquals(listOf(true),
+            sink.events.filterIsInstance<SinkEvent.PointerButton>().map { it.pressed })
+        assertTrue(sink.events.filterIsInstance<SinkEvent.Key>().isEmpty())
+
+        c.gamepadButton(33, KeyEvent.KEYCODE_BUTTON_R2, false, 1, layout)
+        assertEquals(
+            listOf(
+                SinkEvent.PointerButton(SinkButton.LEFT, true),
+                SinkEvent.PointerButton(SinkButton.LEFT, false),
+            ),
+            sink.events.filterIsInstance<SinkEvent.PointerButton>(),
+        )
+        assertTrue(c.isNeutral(1))
+    }
+
+    @Test fun `external Select R2 chord works for analogue trigger reports`() {
+        val (c, sink) = newContract()
+        val layout = InputContract.GamepadLayout.PROFILED
+
+        c.gamepadButton(34, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+        c.gamepadAxis(34, InputContract.GamepadAxis.RIGHT_TRIGGER, 0.41f, 1, layout)
+        c.gamepadButton(34, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+        c.gamepadAxis(34, InputContract.GamepadAxis.RIGHT_TRIGGER, 0.19f, 1, layout)
+
+        assertEquals(
+            listOf(
+                SinkEvent.PointerButton(SinkButton.LEFT, true),
+                SinkEvent.PointerButton(SinkButton.LEFT, false),
+            ),
+            sink.events,
+        )
+        assertTrue(c.isNeutral(1))
+    }
+
+    @Test fun `external action already down keeps original meaning and cannot become a chord`() {
+        val layout = InputContract.GamepadLayout.PROFILED
+        run {
+            val (c, sink) = newContract()
+            c.gamepadButton(35, KeyEvent.KEYCODE_BUTTON_THUMBR, true, 1, layout)
+            c.gamepadButton(35, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+            c.gamepadButton(35, KeyEvent.KEYCODE_BUTTON_THUMBR, true, 1, layout) // repeat
+            c.gamepadButton(35, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+            c.gamepadButton(35, KeyEvent.KEYCODE_BUTTON_THUMBR, false, 1, layout)
+            assertEquals(
+                listOf(
+                    KeyEvent.KEYCODE_SPACE to true,
+                    KeyEvent.KEYCODE_M to true,
+                    KeyEvent.KEYCODE_M to false,
+                    KeyEvent.KEYCODE_SPACE to false,
+                ),
+                sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode to it.pressed },
+            )
+            assertTrue(sink.events.filterIsInstance<SinkEvent.PointerButton>().isEmpty())
+        }
+        run {
+            val (c, sink) = newContract()
+            c.gamepadButton(36, KeyEvent.KEYCODE_BUTTON_R2, true, 1, layout)
+            c.gamepadButton(36, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+            c.gamepadButton(36, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+            c.gamepadButton(36, KeyEvent.KEYCODE_BUTTON_R2, false, 1, layout)
+            assertEquals(
+                listOf(
+                    SinkEvent.PointerButton(SinkButton.RIGHT, true),
+                    SinkEvent.PointerButton(SinkButton.RIGHT, false),
+                ),
+                sink.events.filterIsInstance<SinkEvent.PointerButton>(),
+            )
+            assertEquals(listOf(KeyEvent.KEYCODE_M, KeyEvent.KEYCODE_M),
+                sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode })
+        }
+    }
+
+    @Test fun `external Select chord state is isolated per controller source`() {
+        val (c, sink) = newContract()
+        val layout = InputContract.GamepadLayout.PROFILED
+
+        c.gamepadButton(41, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+        c.gamepadButton(42, KeyEvent.KEYCODE_BUTTON_THUMBR, true, 1, layout)
+        c.gamepadButton(41, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+        c.gamepadButton(42, KeyEvent.KEYCODE_BUTTON_THUMBR, false, 1, layout)
+
+        assertEquals(
+            listOf(
+                KeyEvent.KEYCODE_SPACE to true,
+                KeyEvent.KEYCODE_M to true,
+                KeyEvent.KEYCODE_M to false,
+                KeyEvent.KEYCODE_SPACE to false,
+            ),
+            sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode to it.pressed },
+        )
+        assertFalse(c.isCameraLocked)
+        assertTrue(sink.events.filterIsInstance<SinkEvent.PointerButton>().isEmpty())
+    }
+
+    @Test fun `external pending chord state clears neutrally across every lifecycle release path`() {
+        fun assertExit(name: String, exit: (InputContract) -> Unit) {
+            val (c, sink) = newContract()
+            val layout = InputContract.GamepadLayout.PROFILED
+            c.gamepadButton(50, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+            c.gamepadButton(50, KeyEvent.KEYCODE_BUTTON_R2, true, 1, layout)
+
+            exit(c)
+
+            assertEquals("$name must release chord-owned left exactly once", listOf(true, false),
+                sink.events.filterIsInstance<SinkEvent.PointerButton>().map { it.pressed })
+            assertTrue("$name must not turn consumed Select into Map",
+                sink.events.filterIsInstance<SinkEvent.Key>().isEmpty())
+        }
+
+        assertExit("hot unplug") { it.releaseSource(50, InputContract.ReleaseReason.DEVICE_REMOVED) }
+        assertExit("focus loss") { it.releaseAll(InputContract.ReleaseReason.FOCUS_LOSS) }
+        assertExit("IME open") { it.imeOpened(1) }
+        assertExit("profile switch") { it.switchProfile(InputProfile.DEFAULT, "16:9", 1) }
+        assertExit("generation switch") { it.attach(null, 2, InputProfile.DEFAULT, "16:9") }
+    }
+
+    @Test fun `RP6 Select uses safe utility chords without rear buttons`() {
+        for (layout in listOf(
+            InputContract.GamepadLayout.RETROID_POCKET_6,
+            InputContract.GamepadLayout.RETROID_POCKET_6_XBOX,
+        )) {
+            val (c, sink) = newContract()
+            c.gamepadButton(60, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+            assertTrue(sink.events.isEmpty())
+            c.gamepadButton(60, KeyEvent.KEYCODE_BUTTON_THUMBR, true, 1, layout)
+            c.gamepadButton(60, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+            c.gamepadButton(60, KeyEvent.KEYCODE_BUTTON_THUMBR, false, 1, layout)
+            assertTrue(c.isCameraLocked)
+            assertTrue(sink.events.filterIsInstance<SinkEvent.Key>().isEmpty())
+            assertEquals(listOf(true),
+                sink.events.filterIsInstance<SinkEvent.PointerButton>().map { it.pressed })
+            c.setCameraLock(false, 1)
+            assertEquals(listOf(true, false),
+                sink.events.filterIsInstance<SinkEvent.PointerButton>().map { it.pressed })
+        }
+    }
+
+    @Test fun `RP6 Select tap emits Map and Select analogue R2 emits left click`() {
+        for (layout in listOf(
+            InputContract.GamepadLayout.RETROID_POCKET_6,
+            InputContract.GamepadLayout.RETROID_POCKET_6_XBOX,
+        )) {
+            val (c, sink) = newContract()
+            c.gamepadButton(62, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+            c.gamepadButton(62, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+            assertEquals(
+                listOf(KeyEvent.KEYCODE_M to true, KeyEvent.KEYCODE_M to false),
+                sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode to it.pressed },
+            )
+            sink.events.clear()
+            c.gamepadButton(62, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+            c.gamepadAxis(62, InputContract.GamepadAxis.RIGHT_TRIGGER, 0.41f, 1, layout)
+            c.gamepadButton(62, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+            c.gamepadAxis(62, InputContract.GamepadAxis.RIGHT_TRIGGER, 0.19f, 1, layout)
+            assertEquals(
+                listOf(
+                    SinkEvent.PointerButton(SinkButton.LEFT, true),
+                    SinkEvent.PointerButton(SinkButton.LEFT, false),
+                ),
+                sink.events,
+            )
+            assertTrue(c.isNeutral(1))
+        }
     }
 
     @Test fun `camera lock holds right mouse while stick moves without duplicate button transitions`() {
@@ -806,6 +1381,46 @@ class InputContractTest {
         assertTrue(sink.events.any { it is SinkEvent.PointerMoveDelta && it.dx > 0 })
     }
 
+    @Test fun `camera toggle selects locked look or unlocked cursor mode`() {
+        val (c, sink) = newContract()
+        c.gamepadAxis(
+            8, InputContract.GamepadAxis.RIGHT_X, 1f, 1,
+            InputContract.GamepadLayout.PROFILED,
+        )
+        c.pumpGamepadPointer(1_000_000_000L, 1)
+        c.pumpGamepadPointer(1_016_666_667L, 1)
+        assertTrue(sink.events.filterIsInstance<SinkEvent.PointerButton>().isEmpty())
+
+        assertTrue(c.toggleCameraLock(1, source = 42))
+        assertFalse(c.toggleCameraLock(1, source = 42))
+        assertEquals(
+            listOf(true, false),
+            sink.events.filterIsInstance<SinkEvent.PointerButton>().map { it.pressed },
+        )
+
+        c.gamepadAxis(
+            8, InputContract.GamepadAxis.RIGHT_X, 1f, 1,
+            InputContract.GamepadLayout.PROFILED,
+        )
+        c.pumpGamepadPointer(1_033_333_334L, 1)
+        assertEquals(
+            listOf(true, false),
+            sink.events.filterIsInstance<SinkEvent.PointerButton>().map { it.pressed },
+        )
+    }
+
+    @Test fun `unlocked physical mouse click never requests pointer capture`() {
+        assertFalse(ClientInputBridge.shouldRequestPointerCapture(
+            cameraLocked = false, physicalMouse = true, alreadyCaptured = false, sdkInt = 35,
+        ))
+        assertTrue(ClientInputBridge.shouldRequestPointerCapture(
+            cameraLocked = true, physicalMouse = true, alreadyCaptured = false, sdkInt = 35,
+        ))
+        assertFalse(ClientInputBridge.shouldRequestPointerCapture(
+            cameraLocked = true, physicalMouse = true, alreadyCaptured = true, sdkInt = 35,
+        ))
+    }
+
     @Test fun `camera-lock-only source release reports its final right-button edge`() {
         val (c, sink) = newContract()
         assertTrue(c.toggleCameraLock(1, source = 42))
@@ -820,7 +1435,7 @@ class InputContractTest {
         )
     }
 
-    @Test fun `right-stick source release reports automatic camera final edge`() {
+    @Test fun `right-stick source release has no camera button edge while unlocked`() {
         val (c, sink) = newContract()
         c.gamepadAxis(
             8, InputContract.GamepadAxis.RIGHT_X, 1f, 1,
@@ -831,11 +1446,8 @@ class InputContractTest {
         val report = c.releaseSource(8)
 
         assertEquals(listOf(8), report.sources)
-        assertEquals(1, report.buttonCount)
-        assertEquals(
-            listOf(true, false),
-            sink.events.filterIsInstance<SinkEvent.PointerButton>().map { it.pressed },
-        )
+        assertEquals(0, report.buttonCount)
+        assertTrue(sink.events.filterIsInstance<SinkEvent.PointerButton>().isEmpty())
     }
 
     @Test fun `shared right-button source release counts only the final logical edge`() {
@@ -851,7 +1463,7 @@ class InputContractTest {
         )
     }
 
-    @Test fun `camera-lock retirement hands right button to another displaced stick without churn`() {
+    @Test fun `camera-lock retirement frees mouse even when another stick is displaced`() {
         val (c, sink) = newContract()
         assertTrue(c.toggleCameraLock(1, source = 42))
         c.gamepadAxis(
@@ -861,14 +1473,14 @@ class InputContractTest {
 
         val lockRelease = c.releaseSource(42)
 
-        assertEquals(0, lockRelease.buttonCount)
+        assertEquals(1, lockRelease.buttonCount)
         assertEquals(
-            listOf(true),
+            listOf(true, false),
             sink.events.filterIsInstance<SinkEvent.PointerButton>().map { it.pressed },
         )
 
         val stickRelease = c.releaseSource(8)
-        assertEquals(1, stickRelease.buttonCount)
+        assertEquals(0, stickRelease.buttonCount)
         assertEquals(
             listOf(true, false),
             sink.events.filterIsInstance<SinkEvent.PointerButton>().map { it.pressed },
@@ -912,16 +1524,16 @@ class InputContractTest {
         c.gamepadAxis(77, InputContract.GamepadAxis.RIGHT_TRIGGER, 0.41f, 1, layout)
         val release = c.releaseSource(77)
 
+        assertTrue(sink.events.filterIsInstance<SinkEvent.Key>().isEmpty())
         assertEquals(
             listOf(
-                KeyEvent.KEYCODE_SHIFT_LEFT,
-                KeyEvent.KEYCODE_SHIFT_LEFT,
-                KeyEvent.KEYCODE_CTRL_LEFT,
-                KeyEvent.KEYCODE_CTRL_LEFT,
+                SinkEvent.PointerButton(SinkButton.RIGHT, true),
+                SinkEvent.PointerButton(SinkButton.RIGHT, false),
             ),
-            sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode },
+            sink.events.filterIsInstance<SinkEvent.PointerButton>(),
         )
-        assertEquals(1, release.keyCount)
+        assertEquals(0, release.keyCount)
+        assertEquals(0, release.buttonCount)
     }
 
     @Test fun `face layouts map physical positions and disabled gamepads inject nothing`() {
@@ -967,24 +1579,79 @@ class InputContractTest {
         }
     }
 
-    @Test fun `PocketRealmPad profile emits addon semantic keys and camera variant`() {
+    @Test fun `built-in profile emits stock target action and right-click loot`() {
         val sink = RecordingSink()
         val c = InputContract(sink)
         val profile = InputProfile.profileForScheme(
-            ControlScheme.POCKET_REALM_PAD_CAMERA,
+            ControlScheme.CLASSIC_CAMERA,
             InputProfile.DEFAULT_ASPECT_IDENTITY,
         ).copy(controllerFamily = ControllerFamily.RETROID_POCKET_6)
         c.attach(null, 1, profile, InputProfile.DEFAULT_ASPECT_IDENTITY)
         val rp6 = InputContract.GamepadLayout.RETROID_POCKET_6
         assertTrue(c.gamepadButton(2, KeyEvent.KEYCODE_BUTTON_R1, true, 1, rp6))
-        assertTrue(c.gamepadButton(2, KeyEvent.KEYCODE_DPAD_UP, true, 1, rp6))
-        assertTrue(c.gamepadButton(2, KeyEvent.KEYCODE_BUTTON_Z, true, 1, rp6))
+        assertTrue(c.gamepadButton(2, KeyEvent.KEYCODE_BUTTON_R2, true, 1, rp6))
         assertEquals(
-            listOf(KeyEvent.KEYCODE_F8, KeyEvent.KEYCODE_DPAD_UP),
+            listOf(KeyEvent.KEYCODE_F6, KeyEvent.KEYCODE_F6),
             sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode },
         )
-        assertTrue(c.isCameraLocked)
-        assertTrue(sink.events.contains(SinkEvent.PointerButton(SinkButton.RIGHT, true)))
+        assertEquals(listOf(true, false), sink.events.filterIsInstance<SinkEvent.PointerButton>().map { it.pressed })
+        assertFalse(c.isCameraLocked)
+    }
+
+    @Test fun `schema ten repairs exact persisted addon layout and preserves a genuine custom map`() {
+        fun legacyJson(r1: String = ControllerAction.KEY_9.name): org.json.JSONObject {
+            val bindings = org.json.JSONObject()
+            val legacy = linkedMapOf(
+                Rp6Control.LEFT_STICK_UP to ControllerAction.MOVE_W.name,
+                Rp6Control.LEFT_STICK_DOWN to ControllerAction.MOVE_S.name,
+                Rp6Control.LEFT_STICK_LEFT to ControllerAction.STRAFE_Q.name,
+                Rp6Control.LEFT_STICK_RIGHT to ControllerAction.STRAFE_E.name,
+                Rp6Control.FACE_BOTTOM to ControllerAction.KEY_1.name,
+                Rp6Control.FACE_LEFT to ControllerAction.KEY_2.name,
+                Rp6Control.FACE_TOP to ControllerAction.KEY_3.name,
+                Rp6Control.FACE_RIGHT to ControllerAction.KEY_4.name,
+                Rp6Control.DPAD_DOWN to ControllerAction.KEY_5.name,
+                Rp6Control.DPAD_LEFT to ControllerAction.KEY_6.name,
+                Rp6Control.DPAD_UP to ControllerAction.KEY_7.name,
+                Rp6Control.DPAD_RIGHT to ControllerAction.KEY_8.name,
+                Rp6Control.R1 to r1,
+                Rp6Control.L1 to ControllerAction.KEY_0.name,
+                Rp6Control.L2 to ControllerAction.SHIFT.name,
+                Rp6Control.R2 to ControllerAction.CTRL.name,
+                Rp6Control.START to ControllerAction.ESCAPE.name,
+                Rp6Control.SELECT to ControllerAction.MAP.name,
+                Rp6Control.L3 to ControllerAction.AUTO_RUN.name,
+                Rp6Control.R3 to ControllerAction.POINTER_LEFT.name,
+                Rp6Control.REAR_LEFT to ControllerAction.INTERACT.name,
+                Rp6Control.REAR_RIGHT to ControllerAction.POINTER_RIGHT.name,
+            )
+            legacy.forEach { (control, action) -> bindings.put(control.name, action) }
+            return org.json.JSONObject()
+                .put("version", 9)
+                .put("aspectIdentity", "16:9")
+                .put("scheme", ControlScheme.CUSTOM.name)
+                .put("controllerFamily", ControllerFamily.RETROID_POCKET_6.name)
+                .put("faceButtonLayout", FaceButtonLayout.RP6_PRINTED.name)
+                .put("rp6Bindings", bindings)
+        }
+
+        val repaired = InputProfile.fromJson(legacyJson())
+        assertEquals(InputProfile.CURRENT_VERSION, repaired.version)
+        assertEquals(ControlScheme.CLASSIC_CAMERA, repaired.scheme)
+        assertEquals(ControllerFamily.AUTO, repaired.controllerFamily)
+        assertEquals(FaceButtonLayout.ANDROID_STANDARD, repaired.faceButtonLayout)
+        assertEquals(ControllerAction.USE_LOOT_CLICK, InputProfile.actionFor(repaired, Rp6Control.R2))
+        assertEquals(ControllerAction.AUTO_RUN, InputProfile.actionFor(repaired, Rp6Control.L3))
+        assertEquals(ControllerAction.JUMP, InputProfile.actionFor(repaired, Rp6Control.R3))
+        assertEquals(ControllerAction.DISABLED, InputProfile.actionFor(repaired, Rp6Control.REAR_LEFT))
+        assertEquals(ControllerAction.DISABLED, InputProfile.actionFor(repaired, Rp6Control.REAR_RIGHT))
+
+        val custom = InputProfile.fromJson(legacyJson(r1 = ControllerAction.JUMP.name))
+        assertEquals(ControlScheme.CUSTOM, custom.scheme)
+        assertEquals(ControllerFamily.RETROID_POCKET_6, custom.controllerFamily)
+        assertEquals(FaceButtonLayout.RP6_PRINTED, custom.faceButtonLayout)
+        assertEquals(ControllerAction.JUMP, InputProfile.actionFor(custom, Rp6Control.R1))
+        assertEquals(ControllerAction.CTRL, InputProfile.actionFor(custom, Rp6Control.R2))
     }
 
     @Test fun `RP6 left stick strafes and hat produces utility numbers`() {
@@ -996,7 +1663,7 @@ class InputContractTest {
         c.gamepadAxis(3, InputContract.GamepadAxis.HAT_Y, 0f, 1, rp6)
         assertEquals(
             listOf(KeyEvent.KEYCODE_Q, KeyEvent.KEYCODE_Q, KeyEvent.KEYCODE_E,
-                KeyEvent.KEYCODE_7, KeyEvent.KEYCODE_7),
+                KeyEvent.KEYCODE_G, KeyEvent.KEYCODE_G),
             sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode },
         )
         assertEquals(1, c.releaseSource(3).keyCount) // E remains held.
@@ -1037,8 +1704,28 @@ class InputContractTest {
         assertTrue(ClientInputBridge.isRetroidPocketController(
             "Retroid Pocket Controller", null, 0x2022, 0x3001,
         ))
+        assertTrue(ClientInputBridge.isRetroidPocketController(
+            "Xbox Wireless Controller", "c575e892a6bb353df4b1327e81beedf84b540eb4",
+            0x2022, 0x3001,
+        ))
+        val xboxModeIsRetroid = ClientInputBridge.isRetroidPocketController(
+            "Xbox Wireless Controller", "ee6d26f8ce1cc60310155713f3660225d7d89557",
+            0x2022, 0x3002,
+        )
+        assertTrue(xboxModeIsRetroid)
+        assertEquals(
+            InputContract.GamepadLayout.RETROID_POCKET_6_XBOX,
+            ClientInputBridge.gamepadLayoutFor(ControllerFamily.AUTO, ControllerDeviceMode.RP6_XBOX),
+        )
+        assertEquals(
+            Rp6Control.FACE_BOTTOM,
+            InputContract.faceControlForKeyCode(
+                KeyEvent.KEYCODE_BUTTON_A,
+                FaceButtonLayout.ANDROID_STANDARD,
+            ),
+        )
         assertFalse(ClientInputBridge.isRetroidPocketController(
-            "Generic Controller", "dc75afea56e3c3a269b97967aa26b8c93c0bd3fb", 0x2022, 0x3001,
+            "Generic Controller", "unrelated", 0x045e, 0x02fd,
         ))
         assertTrue(ClientInputBridge.isAndroidSystemKey(KeyEvent.KEYCODE_HOME))
         assertTrue(ClientInputBridge.isAndroidSystemKey(KeyEvent.KEYCODE_BACK))
@@ -1058,6 +1745,164 @@ class InputContractTest {
         assertFalse(ClientInputBridge.isAndroidSystemKey(KeyEvent.KEYCODE_BUTTON_START))
     }
 
+    @Test fun `v11 target is one balanced pulse per physical press`() {
+        val (c, sink) = newContract()
+        val rp6 = InputContract.GamepadLayout.RETROID_POCKET_6
+        assertTrue(c.gamepadButton(61, KeyEvent.KEYCODE_BUTTON_R1, true, 1, rp6))
+        assertTrue(c.gamepadButton(61, KeyEvent.KEYCODE_BUTTON_R1, true, 1, rp6))
+        assertTrue(c.gamepadButton(61, KeyEvent.KEYCODE_BUTTON_R1, false, 1, rp6))
+        assertEquals(
+            listOf(true, false),
+            sink.events.filterIsInstance<SinkEvent.Key>()
+                .filter { it.logicalKeyCode == KeyEvent.KEYCODE_F6 }
+                .map { it.pressed },
+        )
+        val before = sink.events.size
+        assertFalse(c.gamepadButton(61, KeyEvent.KEYCODE_BUTTON_R1, true, 999, rp6))
+        assertEquals(before, sink.events.size)
+    }
+
+    @Test fun `v11 locked loot click uses one restore press and source release emits final up`() {
+        val (c, sink) = newContract()
+        assertTrue(c.setCameraAimPoint(640, 403, 1))
+        assertTrue(c.setCameraLock(true, 1, source = 70))
+        val rp6 = InputContract.GamepadLayout.RETROID_POCKET_6
+        assertTrue(c.gamepadButton(70, KeyEvent.KEYCODE_BUTTON_R2, true, 1, rp6))
+        assertTrue(c.gamepadButton(70, KeyEvent.KEYCODE_BUTTON_R2, false, 1, rp6))
+        assertEquals(
+            listOf(
+                SinkEvent.PointerMove(640, 403),
+                SinkEvent.PointerButton(SinkButton.RIGHT, true),
+                SinkEvent.PointerButton(SinkButton.RIGHT, false),
+                SinkEvent.PointerButton(SinkButton.RIGHT, true),
+            ),
+            sink.events,
+        )
+        assertTrue(c.isCameraLocked)
+        assertEquals(1, c.releaseSource(70).buttonCount)
+        assertFalse(c.isCameraLocked)
+        assertEquals(
+            listOf(true, false, true, false),
+            sink.events.filterIsInstance<SinkEvent.PointerButton>().map { it.pressed },
+        )
+    }
+
+    @Test fun `v11 unlocked loot click is one ordinary balanced secondary click`() {
+        val (c, sink) = newContract()
+        val rp6 = InputContract.GamepadLayout.RETROID_POCKET_6
+
+        assertTrue(c.gamepadButton(71, KeyEvent.KEYCODE_BUTTON_R2, true, 1, rp6))
+        assertTrue(c.gamepadButton(71, KeyEvent.KEYCODE_BUTTON_R2, false, 1, rp6))
+
+        assertEquals(
+            listOf(
+                SinkEvent.PointerButton(SinkButton.RIGHT, true),
+                SinkEvent.PointerButton(SinkButton.RIGHT, false),
+            ),
+            sink.events,
+        )
+        assertTrue(c.isNeutral(1))
+        assertEquals(0, c.releaseSource(71).buttonCount)
+        assertEquals(2, sink.events.size)
+    }
+
+    @Test fun `v11 locked analogue R2 samples pulse once and explicit unlock emits final up`() {
+        val (c, sink) = newContract()
+        val rp6 = InputContract.GamepadLayout.RETROID_POCKET_6
+        assertTrue(c.setCameraLock(true, 1, source = 72))
+
+        // Android can report the resting value and then repeat several
+        // historical high trigger samples. Only the threshold crossing pulses.
+        c.gamepadAxis(72, InputContract.GamepadAxis.RIGHT_TRIGGER, 0f, 1, rp6)
+        c.gamepadAxis(72, InputContract.GamepadAxis.RIGHT_TRIGGER, 0.41f, 1, rp6)
+        c.gamepadAxis(72, InputContract.GamepadAxis.RIGHT_TRIGGER, 0.76f, 1, rp6)
+        c.gamepadAxis(72, InputContract.GamepadAxis.RIGHT_TRIGGER, 0.41f, 1, rp6)
+        c.gamepadAxis(72, InputContract.GamepadAxis.RIGHT_TRIGGER, 0.19f, 1, rp6)
+        c.gamepadAxis(72, InputContract.GamepadAxis.RIGHT_TRIGGER, 0f, 1, rp6)
+
+        assertEquals(
+            listOf(true, false, true),
+            sink.events.filterIsInstance<SinkEvent.PointerButton>().map { it.pressed },
+        )
+        assertTrue(c.isCameraLocked)
+        assertFalse(c.setCameraLock(false, 1, source = 72))
+        assertEquals(
+            listOf(true, false, true, false),
+            sink.events.filterIsInstance<SinkEvent.PointerButton>().map { it.pressed },
+        )
+        assertTrue(c.isNeutral(1))
+    }
+
+    @Test fun `v11 face layers expose actions one through twelve and retain down binding until up`() {
+        val (c, sink) = newContract()
+        val rp6 = InputContract.GamepadLayout.RETROID_POCKET_6_XBOX
+        val faces = listOf(
+            KeyEvent.KEYCODE_BUTTON_A,
+            KeyEvent.KEYCODE_BUTTON_X,
+            KeyEvent.KEYCODE_BUTTON_Y,
+            KeyEvent.KEYCODE_BUTTON_B,
+        )
+        fun tap(key: Int) {
+            assertTrue(c.gamepadButton(81, key, true, 1, rp6))
+            assertTrue(c.gamepadButton(81, key, false, 1, rp6))
+        }
+        faces.forEach(::tap)
+        c.gamepadButton(81, KeyEvent.KEYCODE_BUTTON_L2, true, 1, rp6)
+        faces.forEach(::tap)
+        c.gamepadButton(81, KeyEvent.KEYCODE_BUTTON_L1, true, 1, rp6)
+        faces.forEach(::tap) // L1 deterministically wins over L2.
+        c.gamepadButton(81, KeyEvent.KEYCODE_BUTTON_L1, false, 1, rp6)
+        c.gamepadButton(81, KeyEvent.KEYCODE_BUTTON_L2, false, 1, rp6)
+        assertEquals(
+            listOf(
+                KeyEvent.KEYCODE_1, KeyEvent.KEYCODE_2, KeyEvent.KEYCODE_3, KeyEvent.KEYCODE_4,
+                KeyEvent.KEYCODE_5, KeyEvent.KEYCODE_6, KeyEvent.KEYCODE_7, KeyEvent.KEYCODE_8,
+                KeyEvent.KEYCODE_9, KeyEvent.KEYCODE_0, KeyEvent.KEYCODE_MINUS, KeyEvent.KEYCODE_EQUALS,
+            ).flatMap { listOf(it, it) },
+            sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode },
+        )
+
+        c.gamepadButton(81, KeyEvent.KEYCODE_BUTTON_L2, true, 1, rp6)
+        c.gamepadButton(81, KeyEvent.KEYCODE_BUTTON_A, true, 1, rp6)
+        c.gamepadButton(81, KeyEvent.KEYCODE_BUTTON_L2, false, 1, rp6)
+        c.gamepadButton(81, KeyEvent.KEYCODE_BUTTON_A, false, 1, rp6)
+        assertEquals(
+            listOf(KeyEvent.KEYCODE_5, KeyEvent.KEYCODE_5),
+            sink.events.filterIsInstance<SinkEvent.Key>().takeLast(2).map { it.logicalKeyCode },
+        )
+        assertTrue(c.isNeutral(1))
+    }
+
+    @Test fun `v11 overlay mode and action twelve persist while v10 enabled migrates to auto`() {
+        val profile = InputProfile.DEFAULT.copy(overlayMode = OverlayMode.FULL)
+        assertEquals(profile, InputProfile.fromJson(InputProfile.toJson(profile)))
+        val migrated = InputProfile.fromJson(org.json.JSONObject()
+            .put("version", 10)
+            .put("aspectIdentity", "16:9")
+            .put("overlayEnabled", false))
+        assertEquals(OverlayMode.OFF, migrated.overlayMode)
+        assertEquals(ControllerAction.KEY_EQUALS,
+            InputProfile.actionFor(migrated, OverlayControl.ACTION_12))
+    }
+
+    @Test fun `RP6 topology classifies retro xbox and unrelated controllers without name guessing`() {
+        val sources = android.view.InputDevice.SOURCE_GAMEPAD or android.view.InputDevice.SOURCE_JOYSTICK
+        assertEquals(ControllerDeviceMode.RP6_RETRO,
+            ClientInputBridge.controllerDeviceMode("anything", null, 0x2022, 0x3001, sources))
+        assertEquals(ControllerDeviceMode.RP6_XBOX,
+            ClientInputBridge.controllerDeviceMode("Xbox Wireless Controller",
+                "ee6d26f8ce1cc60310155713f3660225d7d89557", 0x2022, 0x3002, sources))
+        assertEquals(ControllerDeviceMode.OTHER_CONTROLLER,
+            ClientInputBridge.controllerDeviceMode("Xbox Wireless Controller", "other", 1, 2, sources))
+        assertEquals(ControllerDeviceMode.NONE,
+            ClientInputBridge.controllerDeviceMode("keyboard", "kbd", 1, 2,
+                android.view.InputDevice.SOURCE_KEYBOARD))
+        assertTrue(ClientInputBridge.shouldSuppressUnexpectedRp6Key(
+            ControllerDeviceMode.RP6_XBOX, false, ControllerFamily.AUTO))
+        assertFalse(ClientInputBridge.shouldSuppressUnexpectedRp6Key(
+            ControllerDeviceMode.RP6_XBOX, false, ControllerFamily.KEYBOARD_MOUSE))
+    }
+
     @Test fun `profile switch and gamepad dispatch share one neutral boundary`() {
         val sink = BlockingReleaseSink()
         val contract = InputContract(sink)
@@ -1068,7 +1913,7 @@ class InputContractTest {
         )
         val newProfile = InputProfile.DEFAULT.copy(
             rp6Bindings = InputProfile.defaultRp6Bindings() +
-                (Rp6Control.R1 to ControllerAction.RADIAL_MENU),
+                (Rp6Control.R1 to ControllerAction.MAP),
         )
         contract.switchProfile(oldProfile, "16:9", 1)
         assertTrue(contract.gamepadButton(
@@ -1103,7 +1948,7 @@ class InputContractTest {
         }
         assertTrue(releaseBoundary >= 0)
         assertEquals(
-            listOf(KeyEvent.KEYCODE_F7),
+            listOf(KeyEvent.KEYCODE_M),
             keys.drop(releaseBoundary + 1).filter { it.pressed }.map { it.logicalKeyCode },
         )
         contract.releaseAll(InputContract.ReleaseReason.EXPLICIT_RELEASE_INPUT)
@@ -1136,11 +1981,11 @@ class InputContractTest {
         ))
         c.pumpGamepadPointer(1_000_000_000L, 1)
         c.pumpGamepadPointer(1_016_666_667L, 1)
-        assertTrue(c.gamepadButton(
+        assertFalse(c.gamepadButton(
             9, KeyEvent.KEYCODE_BUTTON_THUMBR, true, 1,
             InputContract.GamepadLayout.RETROID_POCKET_6,
         ))
-        assertTrue(c.gamepadButton(
+        assertFalse(c.gamepadButton(
             9, KeyEvent.KEYCODE_BUTTON_THUMBR, false, 1,
             InputContract.GamepadLayout.RETROID_POCKET_6,
         ))
@@ -1528,5 +2373,445 @@ class InputContractTest {
         val before = sink.events.size
         assertFalse(c.queueSinglePlayerAutoLogin("ab", "cd", 1))
         assertEquals(before, sink.events.size)
+    }
+
+    @Test fun `HAT directions use semantic bindings and pulse once until neutral`() {
+        val (c, sink) = newContract()
+        val profile = InputProfile.DEFAULT.copy(
+            rp6Bindings = InputProfile.defaultRp6Bindings() + mapOf(
+                Rp6Control.DPAD_UP to ControllerAction.TARGET_PULSE,
+                Rp6Control.DPAD_DOWN to ControllerAction.USE_LOOT_CLICK,
+                Rp6Control.DPAD_LEFT to ControllerAction.CAMERA_LOCK,
+                Rp6Control.DPAD_RIGHT to ControllerAction.WHEEL_DOWN,
+            ),
+        )
+        c.switchProfile(profile, "16:9", 1)
+        val layout = InputContract.GamepadLayout.PROFILED
+        c.gamepadAxis(91, InputContract.GamepadAxis.HAT_Y, -1f, 1, layout)
+        c.gamepadAxis(91, InputContract.GamepadAxis.HAT_Y, -1f, 1, layout)
+        assertEquals(listOf(true, false), sink.events.filterIsInstance<SinkEvent.Key>().map { it.pressed })
+        c.gamepadAxis(91, InputContract.GamepadAxis.HAT_Y, 0f, 1, layout)
+        c.gamepadAxis(91, InputContract.GamepadAxis.HAT_Y, 1f, 1, layout)
+        c.gamepadAxis(91, InputContract.GamepadAxis.HAT_Y, 0f, 1, layout)
+        c.gamepadAxis(91, InputContract.GamepadAxis.HAT_X, -1f, 1, layout)
+        assertTrue(c.isCameraLocked)
+        c.gamepadAxis(91, InputContract.GamepadAxis.HAT_X, 0f, 1, layout)
+        c.gamepadAxis(91, InputContract.GamepadAxis.HAT_X, 1f, 1, layout)
+        c.gamepadAxis(91, InputContract.GamepadAxis.HAT_X, 0f, 1, layout)
+        assertTrue(c.isCameraLocked)
+        assertTrue(sink.events.contains(SinkEvent.PointerButton(SinkButton.SCROLL_DOWN, true)))
+        c.setCameraLock(false, 1)
+        assertTrue(c.isNeutral(1))
+    }
+
+    @Test fun `AUTO face convention follows live RP6 mode and explicit family honors override`() {
+        fun emitted(layout: InputContract.GamepadLayout, profile: InputProfile): Int {
+            val sink = RecordingSink()
+            val c = InputContract(sink)
+            c.attach(null, 1, profile, "16:9")
+            c.gamepadButton(1, KeyEvent.KEYCODE_BUTTON_A, true, 1, layout)
+            return sink.events.filterIsInstance<SinkEvent.Key>().single().logicalKeyCode
+        }
+        val staleAuto = InputProfile.DEFAULT.copy(
+            controllerFamily = ControllerFamily.AUTO,
+            faceButtonLayout = FaceButtonLayout.RP6_PRINTED,
+        )
+        assertEquals(KeyEvent.KEYCODE_4,
+            emitted(InputContract.GamepadLayout.RETROID_POCKET_6, staleAuto))
+        assertEquals(KeyEvent.KEYCODE_1,
+            emitted(InputContract.GamepadLayout.RETROID_POCKET_6_XBOX, staleAuto))
+        assertEquals(KeyEvent.KEYCODE_1,
+            emitted(InputContract.GamepadLayout.PROFILED, staleAuto))
+        val explicit = staleAuto.copy(
+            controllerFamily = ControllerFamily.RETROID_POCKET_6,
+            faceButtonLayout = FaceButtonLayout.ANDROID_STANDARD,
+        )
+        assertEquals(KeyEvent.KEYCODE_1,
+            emitted(InputContract.GamepadLayout.RETROID_POCKET_6, explicit))
+    }
+
+    @Test fun `mode transition releases old face output before applying new convention`() {
+        val (c, sink) = newContract()
+        c.gamepadButton(1, KeyEvent.KEYCODE_BUTTON_A, true, 1,
+            InputContract.GamepadLayout.RETROID_POCKET_6)
+        c.releaseSource(1)
+        c.gamepadButton(2, KeyEvent.KEYCODE_BUTTON_A, true, 1,
+            InputContract.GamepadLayout.RETROID_POCKET_6_XBOX)
+        assertEquals(
+            listOf(KeyEvent.KEYCODE_4, KeyEvent.KEYCODE_4, KeyEvent.KEYCODE_1),
+            sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode },
+        )
+    }
+
+    @Test fun `classic scheme resets layer maps while custom preserves them`() {
+        val customLayers = InputProfile.defaultLayerFaceBindings().mapValues { (_, value) -> value.toMutableMap() }
+            .toMutableMap().also {
+                it.getValue(FaceLayer.L2)[Rp6Control.FACE_BOTTOM] = ControllerAction.KEY_Z
+            }
+        val base = InputProfile.DEFAULT.copy(layerFaceBindings = customLayers)
+        assertEquals(ControllerAction.KEY_5, InputProfile.actionFor(
+            InputProfile.profileForScheme(ControlScheme.CLASSIC_CAMERA, "16:9", base),
+            FaceLayer.L2, Rp6Control.FACE_BOTTOM,
+        ))
+        assertEquals(ControllerAction.KEY_Z, InputProfile.actionFor(
+            InputProfile.profileForScheme(ControlScheme.CUSTOM, "16:9", base),
+            FaceLayer.L2, Rp6Control.FACE_BOTTOM,
+        ))
+    }
+
+    @Test fun `vanilla console port preset matches ConsoleExperience keyboard contract`() {
+        val profile = InputProfile.profileForScheme(
+            ControlScheme.VANILLA_CONSOLE_PORT,
+            "16:9",
+        )
+        val expected = linkedMapOf(
+            Rp6Control.FACE_BOTTOM to ControllerAction.KEY_1,
+            Rp6Control.FACE_LEFT to ControllerAction.KEY_2,
+            Rp6Control.FACE_TOP to ControllerAction.KEY_3,
+            Rp6Control.FACE_RIGHT to ControllerAction.KEY_4,
+            Rp6Control.DPAD_DOWN to ControllerAction.KEY_5,
+            Rp6Control.DPAD_LEFT to ControllerAction.KEY_6,
+            Rp6Control.DPAD_UP to ControllerAction.KEY_7,
+            Rp6Control.DPAD_RIGHT to ControllerAction.KEY_8,
+            Rp6Control.R1 to ControllerAction.TARGET_PULSE,
+            Rp6Control.L1 to ControllerAction.NEARBY_USE,
+            Rp6Control.L2 to ControllerAction.SHIFT,
+            Rp6Control.R2 to ControllerAction.CTRL,
+            Rp6Control.START to ControllerAction.ESCAPE,
+            Rp6Control.SELECT to ControllerAction.CONSOLE_RADIAL,
+            Rp6Control.L3 to ControllerAction.POINTER_RIGHT,
+            Rp6Control.REAR_LEFT to ControllerAction.DISABLED,
+            Rp6Control.REAR_RIGHT to ControllerAction.DISABLED,
+        )
+        expected.forEach { (control, action) ->
+            assertEquals(control.displayName, action, InputProfile.actionFor(profile, control))
+        }
+        assertEquals(ControlScheme.VANILLA_CONSOLE_PORT, profile.scheme)
+        assertEquals(
+            ControlScheme.VANILLA_CONSOLE_PORT,
+            InputProfile.fromJson(InputProfile.toJson(profile)).scheme,
+        )
+    }
+
+    @Test fun `exact old console preset migrates to direct shoulders while customization is preserved`() {
+        fun decode(
+            r1: ControllerAction,
+            l1: ControllerAction = ControllerAction.KEY_0,
+        ): InputProfile {
+            val stored = org.json.JSONObject()
+            linkedMapOf(
+                Rp6Control.LEFT_STICK_UP to ControllerAction.MOVE_W,
+                Rp6Control.LEFT_STICK_DOWN to ControllerAction.MOVE_S,
+                Rp6Control.LEFT_STICK_LEFT to ControllerAction.STRAFE_Q,
+                Rp6Control.LEFT_STICK_RIGHT to ControllerAction.STRAFE_E,
+                Rp6Control.FACE_BOTTOM to ControllerAction.KEY_1,
+                Rp6Control.FACE_LEFT to ControllerAction.KEY_2,
+                Rp6Control.FACE_TOP to ControllerAction.KEY_3,
+                Rp6Control.FACE_RIGHT to ControllerAction.KEY_4,
+                Rp6Control.DPAD_DOWN to ControllerAction.KEY_5,
+                Rp6Control.DPAD_LEFT to ControllerAction.KEY_6,
+                Rp6Control.DPAD_UP to ControllerAction.KEY_7,
+                Rp6Control.DPAD_RIGHT to ControllerAction.KEY_8,
+                Rp6Control.R1 to r1,
+                Rp6Control.L1 to l1,
+                Rp6Control.L2 to ControllerAction.SHIFT,
+                Rp6Control.R2 to ControllerAction.CTRL,
+                Rp6Control.START to ControllerAction.ESCAPE,
+                Rp6Control.SELECT to ControllerAction.CONSOLE_RADIAL,
+                Rp6Control.L3 to ControllerAction.AUTO_RUN,
+                Rp6Control.R3 to ControllerAction.POINTER_LEFT,
+                Rp6Control.REAR_LEFT to ControllerAction.DISABLED,
+                Rp6Control.REAR_RIGHT to ControllerAction.DISABLED,
+            ).forEach { (control, action) -> stored.put(control.name, action.name) }
+            return InputProfile.fromJson(org.json.JSONObject()
+                .put("version", 11)
+                .put("aspectIdentity", "16:9")
+                .put("scheme", ControlScheme.VANILLA_CONSOLE_PORT.name)
+                .put("rp6Bindings", stored))
+        }
+
+        val migrated = decode(ControllerAction.KEY_9)
+        assertEquals(ControllerAction.TARGET_PULSE,
+            InputProfile.actionFor(migrated, Rp6Control.R1))
+        assertEquals(ControllerAction.NEARBY_USE,
+            InputProfile.actionFor(migrated, Rp6Control.L1))
+
+        val migratedDirect = decode(ControllerAction.TARGET_PULSE, ControllerAction.USE_LOOT_CLICK)
+        assertEquals(ControllerAction.NEARBY_USE,
+            InputProfile.actionFor(migratedDirect, Rp6Control.L1))
+
+        val migratedNearbyUse = decode(ControllerAction.TARGET_PULSE, ControllerAction.NEARBY_USE)
+        assertEquals(ControllerAction.NEARBY_USE,
+            InputProfile.actionFor(migratedNearbyUse, Rp6Control.L1))
+        assertEquals(ControllerAction.POINTER_RIGHT,
+            InputProfile.actionFor(migratedNearbyUse, Rp6Control.L3))
+
+        val customized = decode(ControllerAction.KEY_Z)
+        assertEquals(ControllerAction.KEY_Z,
+            InputProfile.actionFor(customized, Rp6Control.R1))
+        assertEquals(ControllerAction.KEY_0,
+            InputProfile.actionFor(customized, Rp6Control.L1))
+    }
+
+    @Test fun `vanilla console radial action uses one ownership tracked F12 edge`() {
+        val (c, sink) = newContract()
+        assertTrue(c.virtualAction(4, ControllerAction.CONSOLE_RADIAL, true, 1))
+        assertTrue(c.virtualAction(4, ControllerAction.CONSOLE_RADIAL, true, 1))
+        assertTrue(c.virtualAction(4, ControllerAction.CONSOLE_RADIAL, false, 1))
+        assertEquals(
+            listOf(
+                KeyEvent.KEYCODE_F12 to true,
+                KeyEvent.KEYCODE_F12 to false,
+            ),
+            sink.events.filterIsInstance<SinkEvent.Key>()
+                .map { it.logicalKeyCode to it.pressed },
+        )
+        assertTrue(c.isNeutral(1))
+    }
+
+    @Test fun `vanilla console radial does not release an F12 key owned elsewhere`() {
+        val (c, sink) = newContract()
+        assertTrue(c.virtualAction(7, ControllerAction.F12, true, 1))
+        assertTrue(c.virtualAction(4, ControllerAction.CONSOLE_RADIAL, true, 1))
+        assertTrue(c.virtualAction(4, ControllerAction.CONSOLE_RADIAL, false, 1))
+        assertTrue(c.virtualAction(7, ControllerAction.F12, false, 1))
+        assertEquals(
+            listOf(KeyEvent.KEYCODE_F12 to true, KeyEvent.KEYCODE_F12 to false),
+            sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode to it.pressed },
+        )
+        assertTrue(c.isNeutral(1))
+    }
+
+    @Test fun `controller actions cover qualified runtime keys exactly once except unusable TAB`() {
+        assertEquals(25, ControllerAction.TARGET.ordinal)
+        assertEquals(33, ControllerAction.CAMERA_LOCK.ordinal)
+        assertTrue(ControllerAction.TARGET_PULSE.ordinal > ControllerAction.CAMERA_LOCK.ordinal)
+        val expected = buildSet {
+            addAll(listOf(
+                KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_ESCAPE,
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
+                KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
+                KeyEvent.KEYCODE_DEL, KeyEvent.KEYCODE_INSERT, KeyEvent.KEYCODE_FORWARD_DEL,
+                KeyEvent.KEYCODE_MOVE_HOME, KeyEvent.KEYCODE_MOVE_END,
+                KeyEvent.KEYCODE_PAGE_UP, KeyEvent.KEYCODE_PAGE_DOWN,
+                KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_SHIFT_RIGHT,
+                KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_CTRL_RIGHT,
+                KeyEvent.KEYCODE_ALT_LEFT, KeyEvent.KEYCODE_ALT_RIGHT,
+                KeyEvent.KEYCODE_SPACE,
+                KeyEvent.KEYCODE_NUM_LOCK, KeyEvent.KEYCODE_CAPS_LOCK,
+                KeyEvent.KEYCODE_COMMA, KeyEvent.KEYCODE_PERIOD, KeyEvent.KEYCODE_SEMICOLON,
+                KeyEvent.KEYCODE_APOSTROPHE, KeyEvent.KEYCODE_LEFT_BRACKET,
+                KeyEvent.KEYCODE_RIGHT_BRACKET, KeyEvent.KEYCODE_GRAVE,
+                KeyEvent.KEYCODE_MINUS, KeyEvent.KEYCODE_EQUALS,
+                KeyEvent.KEYCODE_SLASH, KeyEvent.KEYCODE_BACKSLASH,
+                KeyEvent.KEYCODE_NUMPAD_DIVIDE, KeyEvent.KEYCODE_NUMPAD_MULTIPLY,
+                KeyEvent.KEYCODE_NUMPAD_SUBTRACT, KeyEvent.KEYCODE_NUMPAD_ADD,
+                KeyEvent.KEYCODE_NUMPAD_DOT,
+            ))
+            addAll(KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z)
+            addAll(KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9)
+            addAll(KeyEvent.KEYCODE_NUMPAD_0..KeyEvent.KEYCODE_NUMPAD_9)
+            addAll(KeyEvent.KEYCODE_F1..KeyEvent.KEYCODE_F12)
+        }
+        val outputs = ControllerAction.values().mapNotNull { it.keyCode }
+        assertEquals(outputs.toSet().size, outputs.size)
+        assertEquals(expected, outputs.toSet())
+        assertEquals(ControllerAction.TARGET,
+            ControllerAction.values().single { it.keyCode == KeyEvent.KEYCODE_F6 })
+    }
+
+    @Test fun `middle mouse and wheel actions are balanced discrete or held outputs`() {
+        val (c, sink) = newContract()
+        c.virtualAction(1, ControllerAction.POINTER_MIDDLE, true, 1)
+        c.virtualAction(1, ControllerAction.POINTER_MIDDLE, false, 1)
+        c.virtualAction(2, ControllerAction.WHEEL_UP, true, 1)
+        c.virtualAction(2, ControllerAction.WHEEL_UP, true, 1)
+        c.virtualAction(2, ControllerAction.WHEEL_UP, false, 1)
+        assertEquals(
+            listOf(
+                SinkEvent.PointerButton(SinkButton.MIDDLE, true),
+                SinkEvent.PointerButton(SinkButton.MIDDLE, false),
+                SinkEvent.PointerButton(SinkButton.SCROLL_UP, true),
+                SinkEvent.PointerButton(SinkButton.SCROLL_UP, false),
+            ),
+            sink.events,
+        )
+        assertTrue(c.isNeutral(1))
+    }
+
+    @Test fun `keyboard mouse family consumes controller devices while external keyboard remains eligible`() {
+        assertTrue(ClientInputBridge.shouldIgnoreControllerDevice(
+            ControllerDeviceMode.RP6_XBOX, ControllerFamily.KEYBOARD_MOUSE))
+        assertTrue(ClientInputBridge.shouldIgnoreControllerDevice(
+            ControllerDeviceMode.OTHER_CONTROLLER, ControllerFamily.KEYBOARD_MOUSE))
+        assertFalse(ClientInputBridge.shouldIgnoreControllerDevice(
+            ControllerDeviceMode.NONE, ControllerFamily.KEYBOARD_MOUSE))
+        assertFalse(ClientInputBridge.shouldSuppressUnexpectedRp6Key(
+            ControllerDeviceMode.RP6_XBOX, false, ControllerFamily.KEYBOARD_MOUSE))
+    }
+
+    @Test fun `exact early v11 default migrates while one customized D-pad binding is preserved`() {
+        fun decode(up: ControllerAction): InputProfile {
+            val stored = org.json.JSONObject()
+            val early = InputProfile.defaultRp6Bindings().toMutableMap().apply {
+                this[Rp6Control.DPAD_DOWN] = ControllerAction.KEY_5
+                this[Rp6Control.DPAD_LEFT] = ControllerAction.KEY_6
+                this[Rp6Control.DPAD_UP] = up
+                this[Rp6Control.DPAD_RIGHT] = ControllerAction.KEY_8
+                this[Rp6Control.REAR_LEFT] = ControllerAction.CAMERA_LOCK
+                this[Rp6Control.REAR_RIGHT] = ControllerAction.POINTER_LEFT
+            }
+            early.forEach { (control, action) -> stored.put(control.name, action.name) }
+            return InputProfile.fromJson(org.json.JSONObject()
+                .put("version", 11)
+                .put("aspectIdentity", "16:9")
+                .put("scheme", ControlScheme.CLASSIC_CAMERA.name)
+                .put("rp6Bindings", stored))
+        }
+        val migrated = decode(ControllerAction.KEY_7)
+        assertEquals(ControllerAction.KEY_G, InputProfile.actionFor(migrated, Rp6Control.DPAD_UP))
+        assertEquals(ControllerAction.F1, InputProfile.actionFor(migrated, Rp6Control.DPAD_DOWN))
+        val custom = decode(ControllerAction.KEY_Z)
+        assertEquals(ControllerAction.KEY_Z, InputProfile.actionFor(custom, Rp6Control.DPAD_UP))
+        assertEquals(ControllerAction.KEY_5, InputProfile.actionFor(custom, Rp6Control.DPAD_DOWN))
+    }
+
+    @Test fun `Select held before Start keeps immediate Move UI chord semantics`() {
+        val (c, sink, scheduler) = scheduledConsoleContract()
+        val layout = InputContract.GamepadLayout.PROFILED
+        c.gamepadButton(201, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+        c.gamepadButton(201, KeyEvent.KEYCODE_BUTTON_START, true, 1, layout)
+        c.gamepadButton(201, KeyEvent.KEYCODE_BUTTON_START, false, 1, layout)
+        c.gamepadButton(201, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+        assertTrue(scheduler.delays.isEmpty())
+        assertEquals(
+            listOf(KeyEvent.KEYCODE_F8 to true, KeyEvent.KEYCODE_F8 to false),
+            sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode to it.pressed },
+        )
+        assertTrue(c.isNeutral(1))
+    }
+
+    @Test fun `Select release then Start inside grace consumes radial and Escape`() {
+        val (c, sink, scheduler) = scheduledConsoleContract()
+        val layout = InputContract.GamepadLayout.PROFILED
+        c.gamepadButton(202, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+        c.gamepadButton(202, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+        assertEquals(listOf(InputContract.EXTERNAL_SELECT_CHORD_GRACE_MS), scheduler.delays)
+        assertTrue(sink.events.isEmpty())
+        c.gamepadButton(202, KeyEvent.KEYCODE_BUTTON_START, true, 1, layout)
+        c.gamepadButton(202, KeyEvent.KEYCODE_BUTTON_START, false, 1, layout)
+        scheduler.drain() // canceled Select callback must be inert.
+        assertEquals(
+            listOf(KeyEvent.KEYCODE_F8 to true, KeyEvent.KEYCODE_F8 to false),
+            sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode to it.pressed },
+        )
+        assertTrue(c.isNeutral(1))
+    }
+
+    @Test fun `Select grace expiry emits radial once and next Start is default Escape`() {
+        val (c, sink, scheduler) = scheduledConsoleContract()
+        val layout = InputContract.GamepadLayout.PROFILED
+        c.gamepadButton(203, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+        c.gamepadButton(203, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+        scheduler.runNext()
+        c.gamepadButton(203, KeyEvent.KEYCODE_BUTTON_START, true, 1, layout)
+        c.gamepadButton(203, KeyEvent.KEYCODE_BUTTON_START, false, 1, layout)
+        assertEquals(
+            listOf(
+                KeyEvent.KEYCODE_F12 to true, KeyEvent.KEYCODE_F12 to false,
+                KeyEvent.KEYCODE_ESCAPE to true, KeyEvent.KEYCODE_ESCAPE to false,
+            ),
+            sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode to it.pressed },
+        )
+        assertTrue(c.isNeutral(1))
+    }
+
+    @Test fun `pending Select callback is canceled by every lifecycle boundary`() {
+        val layout = InputContract.GamepadLayout.PROFILED
+        val cases = listOf<Pair<String, (InputContract) -> Unit>>(
+            "release all" to { it.releaseAll(InputContract.ReleaseReason.ON_PAUSE) },
+            "device removal" to { it.releaseSource(204) },
+            "generation replacement" to { it.attach(null, 2) },
+            "profile switch" to {
+                it.switchProfile(InputProfile.DEFAULT, "16:9", 1)
+            },
+            "IME open" to { it.imeOpened(1) },
+        )
+        cases.forEach { (name, boundary) ->
+            val (c, sink, scheduler) = scheduledConsoleContract()
+            c.gamepadButton(204, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+            c.gamepadButton(204, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+            boundary(c)
+            scheduler.drain()
+            assertTrue("$name emitted a stale Select tap", sink.events.isEmpty())
+        }
+    }
+
+    @Test fun `pending Select grace is isolated by controller source`() {
+        val (c, sink, scheduler) = scheduledConsoleContract()
+        val layout = InputContract.GamepadLayout.PROFILED
+        c.gamepadButton(205, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+        c.gamepadButton(205, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+        // Another controller cannot consume source 205's pending modifier.
+        c.gamepadButton(206, KeyEvent.KEYCODE_BUTTON_START, true, 1, layout)
+        c.gamepadButton(206, KeyEvent.KEYCODE_BUTTON_START, false, 1, layout)
+        c.gamepadButton(205, KeyEvent.KEYCODE_BUTTON_START, true, 1, layout)
+        c.gamepadButton(205, KeyEvent.KEYCODE_BUTTON_START, false, 1, layout)
+        scheduler.drain()
+        assertEquals(
+            listOf(
+                KeyEvent.KEYCODE_ESCAPE to true, KeyEvent.KEYCODE_ESCAPE to false,
+                KeyEvent.KEYCODE_F8 to true, KeyEvent.KEYCODE_F8 to false,
+            ),
+            sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode to it.pressed },
+        )
+        assertTrue(c.isNeutral(1))
+    }
+
+    @Test fun `Select repeat and re-press replace pending tap without duplicate or stuck owner`() {
+        val (c, sink, scheduler) = scheduledConsoleContract()
+        val layout = InputContract.GamepadLayout.PROFILED
+        c.gamepadButton(207, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout)
+        c.gamepadButton(207, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout) // repeat
+        c.gamepadButton(207, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+        c.gamepadButton(207, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout) // cancels first
+        c.gamepadButton(207, KeyEvent.KEYCODE_BUTTON_SELECT, true, 1, layout) // repeat
+        c.gamepadButton(207, KeyEvent.KEYCODE_BUTTON_SELECT, false, 1, layout)
+        assertEquals(
+            listOf(
+                InputContract.EXTERNAL_SELECT_CHORD_GRACE_MS,
+                InputContract.EXTERNAL_SELECT_CHORD_GRACE_MS,
+            ),
+            scheduler.delays,
+        )
+        scheduler.drain()
+        assertEquals(
+            listOf(KeyEvent.KEYCODE_F12 to true, KeyEvent.KEYCODE_F12 to false),
+            sink.events.filterIsInstance<SinkEvent.Key>().map { it.logicalKeyCode to it.pressed },
+        )
+        assertTrue(c.isNeutral(1))
+    }
+
+    @Test fun `exact v11 rear-button default migrates but custom rear mapping is preserved`() {
+        fun decode(rearLeft: ControllerAction): InputProfile {
+            val stored = org.json.JSONObject()
+            InputProfile.defaultRp6Bindings().toMutableMap().apply {
+                this[Rp6Control.REAR_LEFT] = rearLeft
+                this[Rp6Control.REAR_RIGHT] = ControllerAction.POINTER_LEFT
+            }.forEach { (control, action) -> stored.put(control.name, action.name) }
+            return InputProfile.fromJson(org.json.JSONObject()
+                .put("version", 11)
+                .put("aspectIdentity", "16:9")
+                .put("scheme", ControlScheme.CLASSIC_CAMERA.name)
+                .put("rp6Bindings", stored))
+        }
+
+        val migrated = decode(ControllerAction.CAMERA_LOCK)
+        assertEquals(ControllerAction.DISABLED, InputProfile.actionFor(migrated, Rp6Control.REAR_LEFT))
+        assertEquals(ControllerAction.DISABLED, InputProfile.actionFor(migrated, Rp6Control.REAR_RIGHT))
+
+        val custom = decode(ControllerAction.JUMP)
+        assertEquals(ControllerAction.JUMP, InputProfile.actionFor(custom, Rp6Control.REAR_LEFT))
+        assertEquals(ControllerAction.POINTER_LEFT, InputProfile.actionFor(custom, Rp6Control.REAR_RIGHT))
     }
 }

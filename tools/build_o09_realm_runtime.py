@@ -50,6 +50,17 @@ def select_abi(abi: str) -> None:
                        else f"schemas/realm-runtime-lockfile-{abi}.json")
 CMANGOS_OVERLAYS = [
     {
+        "id": "authenticated-nearby-use-open",
+        "paths": [
+            "src/game/World/World.h",
+            "src/game/World/World.cpp",
+            "src/game/Server/WorldSession.h",
+            "src/game/Chat/ChatHandler.cpp",
+            "src/game/Chat/PocketRealmInteraction.cpp",
+        ],
+        "reason": "Let the managed Vanilla addon request one rate-limited nearby corpse/chest/ordinary-object interaction through the authenticated session and existing loot/use handlers.",
+    },
+    {
         "id": "mmap-disabled-load-guard",
         "path": "src/game/Maps/GridMap.cpp",
         "reason": "Do not enter MMapManager::loadMap when mmap.enabled=0; the disabled manager intentionally has no map instance.",
@@ -65,6 +76,86 @@ CMANGOS_OVERLAYS = [
         "reason": "Execute async result callbacks outside the result-queue mutex so callbacks may safely issue direct statements while the database worker publishes another result.",
     },
 ]
+POCKET_INTERACT_SOURCE = NATIVE / "patches" / "cmangos" / "PocketRealmInteraction.cpp"
+POCKET_WORLD_H_UPSTREAM = """    CONFIG_BOOL_ADDON_CHANNEL,
+    CONFIG_BOOL_CORPSE_EMPTY_LOOT_SHOW,
+"""
+POCKET_WORLD_H_ANDROID = """    CONFIG_BOOL_ADDON_CHANNEL,
+    CONFIG_BOOL_POCKET_REALM_NEARBY_INTERACT,
+    CONFIG_BOOL_CORPSE_EMPTY_LOOT_SHOW,
+"""
+POCKET_WORLD_UINT_UPSTREAM = """    CONFIG_UINT32_COMPRESSION = 0,
+    CONFIG_UINT32_INTERVAL_SAVE,
+"""
+POCKET_WORLD_UINT_ANDROID = """    CONFIG_UINT32_COMPRESSION = 0,
+    CONFIG_UINT32_POCKET_REALM_NEARBY_INTERACT_COOLDOWN_MS,
+    CONFIG_UINT32_INTERVAL_SAVE,
+"""
+POCKET_WORLD_CPP_UPSTREAM = """    setConfig(CONFIG_BOOL_ADDON_CHANNEL, "AddonChannel", true);
+    setConfig(CONFIG_BOOL_CLEAN_CHARACTER_DB, "CleanCharacterDB", true);
+"""
+POCKET_WORLD_CPP_ANDROID = """    setConfig(CONFIG_BOOL_ADDON_CHANNEL, "AddonChannel", true);
+    setConfig(CONFIG_BOOL_POCKET_REALM_NEARBY_INTERACT, "PocketRealm.NearbyInteract", false);
+    setConfigMinMax(CONFIG_UINT32_POCKET_REALM_NEARBY_INTERACT_COOLDOWN_MS,
+                    "PocketRealm.NearbyInteractCooldownMs", 250, 100, 2000);
+    setConfig(CONFIG_BOOL_CLEAN_CHARACTER_DB, "CleanCharacterDB", true);
+"""
+POCKET_SESSION_ENUM_UPSTREAM = """class SessionAnticheatInterface;
+
+struct OpcodeHandler;
+"""
+POCKET_SESSION_ENUM_ANDROID = """class SessionAnticheatInterface;
+
+enum PocketRealmInteractResult
+{
+    POCKET_REALM_INTERACT_OK_LOOT,
+    POCKET_REALM_INTERACT_OK_USE,
+    POCKET_REALM_INTERACT_NO_TARGET,
+    POCKET_REALM_INTERACT_BLOCKED,
+};
+
+struct OpcodeHandler;
+"""
+POCKET_SESSION_API_UPSTREAM = """        void HandleMessagechatOpcode(WorldPacket& recvPacket);
+        void HandleTextEmoteOpcode(WorldPacket& recvPacket);
+"""
+POCKET_SESSION_API_ANDROID = """        void HandleMessagechatOpcode(WorldPacket& recvPacket);
+        bool HandlePocketRealmChatTrigger(std::string const& to, std::string const& message);
+        PocketRealmInteractResult HandlePocketRealmNearbyInteract();
+        void HandleTextEmoteOpcode(WorldPacket& recvPacket);
+"""
+POCKET_SESSION_FIELD_UPSTREAM = """        uint32 m_clientTimeDelay;
+        uint32 m_Tutorials[8];
+"""
+POCKET_SESSION_FIELD_ANDROID = """        uint32 m_clientTimeDelay;
+        uint32 m_lastPocketRealmInteractTime = 0;
+        uint32 m_Tutorials[8];
+"""
+POCKET_CHAT_UPSTREAM = """        case CHAT_MSG_WHISPER:
+        {
+            std::string to, msg;
+            recv_data >> to;
+            recv_data >> msg;
+
+            if (msg.empty())
+                break;
+"""
+POCKET_CHAT_ANDROID = """        case CHAT_MSG_WHISPER:
+        {
+            std::string to, msg;
+            recv_data >> to;
+            recv_data >> msg;
+
+            // The Vanilla add-on trigger arrives as an ordinary self-whisper
+            // with a real language, so this must not be gated on LANG_ADDON.
+            // Consuming here suppresses both the recipient CHAT_MSG_WHISPER
+            // and the sender CHAT_MSG_WHISPER_INFORM echo.
+            if (HandlePocketRealmChatTrigger(to, msg))
+                break;
+
+            if (msg.empty())
+                break;
+"""
 PLAYERBOTS_OVERLAYS = [
     {
         "id": "bounded-resumable-mobile-generation",
@@ -687,6 +778,17 @@ def prepare_cmangos_source() -> None:
         RESULT_QUEUE_UPSTREAM,
         RESULT_QUEUE_ANDROID,
     )
+    replace_anchor(cmangos / "src" / "game" / "World" / "World.h", POCKET_WORLD_H_UPSTREAM, POCKET_WORLD_H_ANDROID)
+    replace_anchor(cmangos / "src" / "game" / "World" / "World.h", POCKET_WORLD_UINT_UPSTREAM, POCKET_WORLD_UINT_ANDROID)
+    replace_anchor(cmangos / "src" / "game" / "World" / "World.cpp", POCKET_WORLD_CPP_UPSTREAM, POCKET_WORLD_CPP_ANDROID)
+    replace_anchor(cmangos / "src" / "game" / "Server" / "WorldSession.h", POCKET_SESSION_ENUM_UPSTREAM, POCKET_SESSION_ENUM_ANDROID)
+    replace_anchor(cmangos / "src" / "game" / "Server" / "WorldSession.h", POCKET_SESSION_API_UPSTREAM, POCKET_SESSION_API_ANDROID)
+    replace_anchor(cmangos / "src" / "game" / "Server" / "WorldSession.h", POCKET_SESSION_FIELD_UPSTREAM, POCKET_SESSION_FIELD_ANDROID)
+    replace_anchor(cmangos / "src" / "game" / "Chat" / "ChatHandler.cpp", POCKET_CHAT_UPSTREAM, POCKET_CHAT_ANDROID)
+    interaction = cmangos / "src" / "game" / "Chat" / "PocketRealmInteraction.cpp"
+    if interaction.exists():
+        raise RuntimeError(f"source overlay target unexpectedly exists: {interaction}")
+    interaction.write_bytes(POCKET_INTERACT_SOURCE.read_bytes())
     bot_root = mirror / "playerbot"
     replace_anchor(bot_root / "PlayerbotAIConfig.h", PB_CONFIG_HEADER_UPSTREAM, PB_CONFIG_HEADER_ANDROID)
     replace_anchor(bot_root / "PlayerbotAIConfig.h", PB_CONFIG_SOURCE_DECL_UPSTREAM, PB_CONFIG_SOURCE_DECL_ANDROID)
@@ -719,6 +821,18 @@ def prepare_cmangos_source() -> None:
 
 def restore_cmangos_source() -> None:
     """Restore the pinned submodule byte-for-byte after the overlay build."""
+    interaction = NATIVE / "cmangos" / "src" / "game" / "Chat" / "PocketRealmInteraction.cpp"
+    if interaction.exists():
+        if interaction.read_bytes() != POCKET_INTERACT_SOURCE.read_bytes():
+            raise RuntimeError(f"source overlay cleanup content drift: {interaction}")
+        interaction.unlink()
+    restore_anchor(NATIVE / "cmangos" / "src" / "game" / "Chat" / "ChatHandler.cpp", POCKET_CHAT_ANDROID, POCKET_CHAT_UPSTREAM)
+    restore_anchor(NATIVE / "cmangos" / "src" / "game" / "Server" / "WorldSession.h", POCKET_SESSION_FIELD_ANDROID, POCKET_SESSION_FIELD_UPSTREAM)
+    restore_anchor(NATIVE / "cmangos" / "src" / "game" / "Server" / "WorldSession.h", POCKET_SESSION_API_ANDROID, POCKET_SESSION_API_UPSTREAM)
+    restore_anchor(NATIVE / "cmangos" / "src" / "game" / "Server" / "WorldSession.h", POCKET_SESSION_ENUM_ANDROID, POCKET_SESSION_ENUM_UPSTREAM)
+    restore_anchor(NATIVE / "cmangos" / "src" / "game" / "World" / "World.cpp", POCKET_WORLD_CPP_ANDROID, POCKET_WORLD_CPP_UPSTREAM)
+    restore_anchor(NATIVE / "cmangos" / "src" / "game" / "World" / "World.h", POCKET_WORLD_UINT_ANDROID, POCKET_WORLD_UINT_UPSTREAM)
+    restore_anchor(NATIVE / "cmangos" / "src" / "game" / "World" / "World.h", POCKET_WORLD_H_ANDROID, POCKET_WORLD_H_UPSTREAM)
     restore_anchor(
         NATIVE / "cmangos" / "src" / "game" / "Maps" / "GridMap.cpp",
         MMAP_GUARD_ANDROID,
@@ -739,13 +853,25 @@ def restore_cmangos_source() -> None:
 def restore_anchor(path: Path, applied: str, original: str) -> None:
     """Undo an overlay if present, while making cleanup idempotent."""
     data = path.read_bytes()
-    newline = b"\r\n" if b"\r\n" in data else b"\n"
-    line_endings = lambda value: value.replace("\n", newline.decode("ascii")).encode("utf-8")
-    applied_bytes = line_endings(applied)
-    original_bytes = line_endings(original)
-    if applied_bytes in data:
-        path.write_bytes(data.replace(applied_bytes, original_bytes, 1))
-    elif original_bytes not in data:
+    variants = (
+        (applied.encode("utf-8"), original.encode("utf-8")),
+        (
+            applied.replace("\n", "\r\n").encode("utf-8"),
+            original.replace("\n", "\r\n").encode("utf-8"),
+        ),
+    )
+    # replace_anchor deliberately follows the exact line ending used by its
+    # matched anchor.  Several pinned CMaNGOS files are mixed LF/CRLF, so a
+    # file-wide newline guess can strand an applied overlay during cleanup.
+    for applied_bytes, original_bytes in variants:
+        if applied_bytes in data:
+            path.write_bytes(data.replace(applied_bytes, original_bytes, 1))
+            return
+    original_variants = (
+        original.encode("utf-8"),
+        original.replace("\n", "\r\n").encode("utf-8"),
+    )
+    if not any(original_bytes in data for original_bytes in original_variants):
         raise RuntimeError(f"source overlay cleanup anchor drift: {path}")
 
 

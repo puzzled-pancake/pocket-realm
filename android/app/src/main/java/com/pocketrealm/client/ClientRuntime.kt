@@ -102,18 +102,36 @@ object ClientRuntimeContract {
         require(translator == ArmTranslationBackend.BOX64) {
             "Box64 is the only supported ARM translator"
         }
-        require(renderer == "dxvk") { "unsupported ARM renderer: $renderer" }
-        val dxvk = requireNotNull(RendererPackageCatalog.requireForRequest(
-            translator, renderer, rendererPackageId,
-        ))
-        val driver = VulkanDriverCatalog.requireForRequest(vulkanDriverId)
-        return "${driver.buildId}-${dxvk.buildId}"
+        return when (renderer) {
+            "dxvk" -> {
+                val dxvk = requireNotNull(RendererPackageCatalog.requireForRequest(
+                    translator, renderer, rendererPackageId,
+                ))
+                val driver = VulkanDriverCatalog.requireForRequest(vulkanDriverId)
+                "${driver.buildId}-${dxvk.buildId}"
+            }
+            "opengl" -> {
+                require(rendererPackageId == null) { "Legacy OpenGL does not accept a DXVK package" }
+                require(vulkanDriverId == null) { "Legacy OpenGL does not accept a Vulkan driver" }
+                ArmClientRendererCatalog.GLADIO_BUILD_ID
+            }
+            "virgl" -> {
+                require(rendererPackageId == null) { "Mesa VirGL does not accept a DXVK package" }
+                require(vulkanDriverId == null) { "Mesa VirGL does not accept a Vulkan driver" }
+                ArmClientRendererCatalog.VIRGL_BUILD_ID
+            }
+            else -> error("unsupported ARM renderer: $renderer")
+        }
     }
 
-    /** Arguments passed after Wine for the fixed Box64 + DXVK route. */
+    /** Arguments passed after Wine for an exact ARM renderer route. */
     fun armClientArguments(executable: String, renderer: String): List<String> {
-        require(renderer == "dxvk") { "unsupported ARM renderer: $renderer" }
-        return listOf(executable)
+        return when (renderer) {
+            "dxvk" -> listOf(executable)
+            "opengl" -> listOf(executable, "-opengl")
+            "virgl" -> listOf(executable)
+            else -> error("unsupported ARM renderer: $renderer")
+        }
     }
 
     /** Wine DLL policy for the fixed ARM D3D9 route.
@@ -122,24 +140,63 @@ object ClientRuntimeContract {
      * Runtime readiness separately requires a fresh, version-matched DXVK log,
      * so a builtin fallback can never be reported as a successful ARM client.
      */
-    fun armWineDllOverrides(audioOn: Boolean): String = buildList {
-        add("d3d9=n,b")
-        add("dxgi=n,b")
+    fun armWineDllOverrides(renderer: String, audioOn: Boolean): String = buildList {
+        when (renderer) {
+            "dxvk" -> {
+                add("d3d9=n,b")
+                add("dxgi=n,b")
+            }
+            "opengl" -> {
+                add("d3d9=b")
+                add("dxgi=b")
+            }
+            "virgl" -> {
+                add("d3d9=b")
+                add("dxgi=b")
+            }
+            else -> error("unsupported ARM renderer: $renderer")
+        }
         if (!audioOn) add("winealsa.drv=d")
         add("winepulse.drv=d")
     }.joinToString(";")
+
+    fun armWineDllOverrides(audioOn: Boolean): String = armWineDllOverrides("dxvk", audioOn)
 
     fun isArmDxvkLogAttested(
         text: String,
         dxvkVersion: String,
         driver: VulkanDriverPackage,
-    ): Boolean =
-        text.contains("Game: WoW.exe") &&
-            text.contains("DXVK: v$dxvkVersion") &&
+        executableName: String = "WoW.exe",
+    ): Boolean {
+        if (executableName.isBlank() || executableName.any {
+                it == '/' || it == '\\' || it == '\r' || it == '\n'
+            }) return false
+        fun hasInfoLine(expected: String): Boolean = text.lineSequence().any { line ->
+            val normalized = line.trim()
+            normalized.startsWith("info:") &&
+                normalized.removePrefix("info:").trim() == expected
+        }
+        return hasInfoLine("Game: $executableName") &&
+            hasInfoLine("DXVK: v$dxvkVersion") &&
             when (driver.kind) {
                 VulkanDriverKind.SYSTEM -> text.contains("Vortek (")
                 VulkanDriverKind.TURNIP -> text.contains("Turnip Adreno")
             }
+    }
+
+    /** DXVK strips a terminal .exe suffix when deriving its per-module log name. */
+    fun armDxvkLogFileName(executableName: String): String {
+        require(executableName.isNotBlank() &&
+            executableName.none { it == '/' || it == '\\' }) {
+            "DXVK executable name must be a simple file name"
+        }
+        val stem = if (executableName.endsWith(".exe", ignoreCase = true)) {
+            executableName.dropLast(4)
+        } else {
+            executableName
+        }
+        return "${stem}_d3d9.log"
+    }
 
     /** Exact app-owned limiter used in addition to the legacy WoW cvar. */
     fun dxvkFrameCapConfig(frameCap: Int): String {

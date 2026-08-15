@@ -39,6 +39,9 @@ import com.pocketrealm.bots.BotBehaviorPreset
 import com.pocketrealm.bots.matchesBehaviorPreset
 import com.pocketrealm.bots.withBehaviorPreset
 import com.pocketrealm.client.ArmTranslationBackend
+import com.pocketrealm.client.ArmClientRenderer
+import com.pocketrealm.client.ArmClientRendererCatalog
+import com.pocketrealm.client.AndroidGladioCapabilityProbe
 import com.pocketrealm.client.AndroidSystemVulkanProbe
 import com.pocketrealm.client.ClientAudioPolicy
 import com.pocketrealm.client.ClientDisplayCapabilities
@@ -48,7 +51,9 @@ import com.pocketrealm.client.ClientRuntimeSelector
 import com.pocketrealm.client.ClientTweaksConfig
 import com.pocketrealm.client.RendererPackageCatalog
 import com.pocketrealm.client.SystemVulkanCapabilities
+import com.pocketrealm.client.GladioCapability
 import com.pocketrealm.client.VulkanDriverCatalog
+import com.pocketrealm.server.NearbyInteractPolicy
 import com.pocketrealm.storage.Settings
 import com.pocketrealm.supervisor.UserAccountStore
 import kotlinx.coroutines.Dispatchers
@@ -75,6 +80,11 @@ fun SettingsScreen(
     val systemVulkanProbe by produceState<Result<SystemVulkanCapabilities>?>(initialValue = null) {
         value = withContext(Dispatchers.IO) { runCatching { AndroidSystemVulkanProbe.probe() } }
     }
+    val gladioProbe by produceState<Result<GladioCapability>?>(initialValue = null) {
+        value = withContext(Dispatchers.IO) {
+            runCatching { AndroidGladioCapabilityProbe.probe(context) }
+        }
+    }
     val physicalDisplay = remember(context) {
         runCatching { ClientDisplayCapabilities.physicalLandscapeBounds(context) }
             .getOrElse {
@@ -97,16 +107,43 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         SettingCard("ARM client runtime") {
-            Text("Box64 + DXVK (Vulkan)", style = MaterialTheme.typography.titleSmall)
-            Text("This is the only supported ARM client route. Runtime and renderer fallback are disabled.",
+            Text("Renderer", style = MaterialTheme.typography.titleSmall)
+            Text("DXVK remains the default. Experimental renderers are exact selections and never silently fall back.",
                 style = MaterialTheme.typography.bodySmall)
+            ArmClientRendererCatalog.entries().forEach { renderer ->
+                val availability = ArmClientRendererCatalog.availability(
+                    renderer,
+                    gladioProbe,
+                    Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
+                )
+                FilterChip(
+                    selected = snap.armRendererId == renderer.id,
+                    enabled = availability.available,
+                    onClick = {
+                        scope.launch {
+                            settings.update { it.copy(armRendererId = renderer.id) }
+                        }
+                    },
+                    label = { Text(renderer.label) },
+                    modifier = Modifier.fillMaxWidth().testTag("arm-renderer-${renderer.id}"),
+                )
+                Text(renderer.summary, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    availability.reason,
+                    color = if (availability.available) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
+            if (snap.selectedArmRenderer() == ArmClientRenderer.DXVK) {
             HorizontalDivider()
             Text("Vulkan driver", style = MaterialTheme.typography.titleSmall)
             Text(
-                "Choose how DXVK reaches the device GPU. Unavailable drivers stay visible with their reason and are never substituted at launch.",
+                "Pocket Realm shows only Vulkan drivers qualified for normal use on this device. Drivers are never substituted at launch.",
                 style = MaterialTheme.typography.bodySmall,
             )
-            VulkanDriverCatalog.all().forEach { driver ->
+            VulkanDriverCatalog.userSelectable(Build.MODEL).forEach { driver ->
                 val availability = VulkanDriverCatalog.availabilityForPair(
                     driver.id,
                     snap.selectedDxvkPackageId(),
@@ -135,6 +172,11 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.labelMedium,
                 )
             }
+            Text(
+                "System Vortek remains packaged for developer qualification, but it is experimental and is not selectable in production settings.",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             HorizontalDivider()
             Text("DXVK version", style = MaterialTheme.typography.titleSmall)
             Text(
@@ -185,6 +227,18 @@ fun SettingsScreen(
             }
             Text("The exact driver and DXVK package receive an isolated prefix and shader cache on the next launch.",
                 style = MaterialTheme.typography.labelMedium)
+            } else if (snap.selectedArmRenderer() == ArmClientRenderer.LEGACY_GLADIO) {
+                Text(
+                    "The exact source-matched Gladio client is installed only inside its own generation. " +
+                        "WoW launches with -opengl and GLX enabled; Vulkan and DXVK are not loaded.",
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            } else {
+                Text(
+                    "The exact Mesa 23.1.9 virpipe client and source-matched Android VirGL server use their own generation and V0 socket. GLX is advertised only for Mesa's Fake-GLX negotiation; rendering does not use Gladio. Vulkan and DXVK are not loaded.",
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
         }
 
         SettingCard("Display") {
@@ -201,10 +255,16 @@ fun SettingsScreen(
                             settings.update { it.copy(displayProfileId = profile.id) }
                         }
                     },
-                    label = { Text(when (profile) {
-                        ClientDisplayProfile.BALANCED -> "1280 × 720 · Performance"
-                        ClientDisplayProfile.QUALITY -> "1920 × 1080 · Sharp"
-                    }) },
+                    label = {
+                        val suffix = when (profile) {
+                            ClientDisplayProfile.BALANCED -> "Performance"
+                            ClientDisplayProfile.QUALITY -> "Sharp"
+                        }
+                        Text(
+                            profile.resolveFor(physicalDisplay.first, physicalDisplay.second)
+                                .resolution.replace("x", " × ") + " · $suffix",
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth().testTag("display-profile-${profile.id}"),
                 )
             }
@@ -218,7 +278,11 @@ fun SettingsScreen(
             HorizontalDivider()
             Text("Frame-rate limit", style = MaterialTheme.typography.titleSmall)
             Text(
-                "Sets both WoW's maxFPS and DXVK's D3D9 limiter. It is a maximum, not a promise that translation can sustain it.",
+                if (snap.selectedArmRenderer() == ArmClientRenderer.DXVK) {
+                    "Sets both WoW's maxFPS and DXVK's D3D9 limiter. It is a maximum, not a performance promise."
+                } else {
+                    "Sets WoW's maxFPS. The experimental OpenGL route does not load DXVK's limiter."
+                },
                 style = MaterialTheme.typography.bodySmall,
             )
             Row(
@@ -379,6 +443,38 @@ fun SettingsScreen(
             }
             Text("Realm and character data are not changed.",
                 style = MaterialTheme.typography.bodySmall)
+        }
+
+        SettingCard("Nearby use / open") {
+            Text(
+                "L1 chooses the nearest eligible corpse, chest, or ordinary usable loot object and opens it as one realm action. " +
+                    "Select+L1 remains the precise pointer-based fallback.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            LabeledSlider(
+                label = "Repeated-press guard",
+                valueText = "${snap.nearbyInteractTriggerGuardMs} ms",
+                value = snap.nearbyInteractTriggerGuardMs.toFloat(),
+                range = NearbyInteractPolicy.MIN_TRIGGER_GUARD_MS.toFloat()..
+                    NearbyInteractPolicy.MAX_TRIGGER_GUARD_MS.toFloat(),
+                steps = (NearbyInteractPolicy.MAX_TRIGGER_GUARD_MS -
+                    NearbyInteractPolicy.MIN_TRIGGER_GUARD_MS) /
+                    NearbyInteractPolicy.TRIGGER_GUARD_STEP_MS - 1,
+                tag = "nearby-interact-trigger-guard",
+            ) { raw ->
+                val stepped = (raw / NearbyInteractPolicy.TRIGGER_GUARD_STEP_MS)
+                    .roundToInt() * NearbyInteractPolicy.TRIGGER_GUARD_STEP_MS
+                scope.launch {
+                    settings.update {
+                        it.copy(nearbyInteractTriggerGuardMs =
+                            NearbyInteractPolicy.normalizeTriggerGuardMs(stepped))
+                    }
+                }
+            }
+            Text(
+                "Filters accidental duplicate presses; it does not split selection and opening into two actions. Applies when the realm next starts.",
+                style = MaterialTheme.typography.labelMedium,
+            )
         }
 
         HorizontalDivider()
@@ -802,7 +898,7 @@ private fun ClientTweakControls(
     TweakSwitch("Sound channel count (64)", tweaks.soundChannelsEnabled, "tweak-sound-channels") { on ->
         onTweaks { it.copy(soundChannelsEnabled = on) }
     }
-    TweakSwitch("Quickloot reverse (shift = manual)", tweaks.quicklootEnabled, "tweak-quickloot") { on ->
+    TweakSwitch("Auto-loot opened corpses", tweaks.quicklootEnabled, "tweak-quickloot") { on ->
         onTweaks { it.copy(quicklootEnabled = on) }
     }
     TweakSwitch("Nameplate distance (41 yd)", tweaks.nameplateEnabled, "tweak-nameplate") { on ->
@@ -873,6 +969,7 @@ private fun SettingCard(title: String, content: @Composable () -> Unit) {
 }
 
 internal val advancedSettingExplanations: Map<String, String> = mapOf(
+    "Repeated-press guard" to "Raise this on slower or high-latency realms if one physical press is reported more than once.",
     "Population target" to "Sets the long-run bot population requested after the realm finishes ramping up.",
     "Nearby density" to "Caps how many bots are favored around active players; Off disables nearby promotion.",
     "Nearby radius" to "Defines the distance used to count bots as nearby for player-focused population.",
@@ -903,12 +1000,12 @@ internal val advancedSettingExplanations: Map<String, String> = mapOf(
     "Farclip cap raise" to "Allows the game to draw terrain farther away when the setting requests it.",
     "Frill distance raise" to "Allows decorative ground objects to remain visible at greater distances.",
     "Sound in background" to "Keeps game audio active when the gameplay activity temporarily loses focus.",
-    "Sound channel count (64)" to "Raises the available sound channels to reduce effects cutting each other off.",
-    "Quickloot reverse (shift = manual)" to "Makes quick loot the default and uses Shift for the original manual behavior.",
+    "Sound channel count (64)" to "Raises simultaneous sounds from 12 to 64. This can cost more CPU, so it is opt-in.",
+    "Auto-loot opened corpses" to "Takes every available slot after you right-click a corpse; hold Shift for the original manual loot window.",
     "Nameplate distance (41 yd)" to "Extends the maximum range at which unit nameplates can appear.",
     "Large address aware" to "Lets the 32-bit client use a larger address space under the translated runtime.",
     "Camera skip glitch fix" to "Applies the known camera update fix that prevents sudden skipped movement.",
-    "Max camera distance raise" to "Allows a farther third-person camera when the in-game distance setting is increased.",
+    "Max camera distance raise" to "Raises the third-person camera limit from the vanilla 50 to 100.",
 )
 
 internal fun advancedExplanation(label: String): String =

@@ -38,12 +38,29 @@ class WineRuntimeGenerationIdentityTest {
 
     @Test
     fun physicalGenerationChangesForEveryCompatibilityComponent() {
+        val gladio = base.copy(
+            rendererBuildId = ArmClientRendererCatalog.GLADIO_BUILD_ID,
+            rendererId = "opengl",
+            rendererPackageId = null,
+            rendererPackageBuildId = null,
+            rendererPackageDxvkVersion = null,
+            rendererPackageSystem32Sha256 = null,
+            rendererPackageSyswow64Sha256 = null,
+            vulkanDriverId = null,
+            vulkanDriverBuildId = null,
+            vulkanDriverLibrarySha256 = null,
+            vulkanDriverIcdSha256 = null,
+            gladioPackageId = ArmClientRendererCatalog.GLADIO_PACKAGE_ID,
+            gladioPackageBuildId = ArmClientRendererCatalog.GLADIO_BUILD_ID,
+            gladioClientSha256 = ArmClientRendererCatalog.GLADIO_CLIENT_SHA256,
+            gladioServerBuildId = ArmClientRendererCatalog.GLADIO_SERVER_BUILD_ID,
+        )
         val variants = listOf(
             base.copy(runtimeBuildId = "runtime-b"),
             base.copy(rendererBuildId = "renderer-b"),
             base.copy(prefixSchema = 2),
             base.copy(translatorId = "box64-next"),
-            base.copy(rendererId = "dxvk-next"),
+            gladio,
             base.copy(managedClientId = "client-b"),
             base.copy(managedClientGeneration = "22222222-2222-2222-2222-222222222222"),
             base.copy(managedClientManifestSha256 = "5".repeat(64)),
@@ -85,6 +102,72 @@ class WineRuntimeGenerationIdentityTest {
         val extended = JSONObject(manifest.toString())
         extended.getJSONObject("compatibility").put("unattested_field", true)
         assertFalse(base.matchesManifest(extended))
+    }
+
+    @Test
+    fun gladioManifestIsExactAndContainsNoDxvkOrVulkanIdentity() {
+        val gladio = base.copy(
+            rendererBuildId = ArmClientRendererCatalog.GLADIO_BUILD_ID,
+            rendererId = "opengl",
+            rendererPackageId = null,
+            rendererPackageBuildId = null,
+            rendererPackageDxvkVersion = null,
+            rendererPackageSystem32Sha256 = null,
+            rendererPackageSyswow64Sha256 = null,
+            vulkanDriverId = null,
+            vulkanDriverBuildId = null,
+            vulkanDriverLibrarySha256 = null,
+            vulkanDriverIcdSha256 = null,
+            gladioPackageId = ArmClientRendererCatalog.GLADIO_PACKAGE_ID,
+            gladioPackageBuildId = ArmClientRendererCatalog.GLADIO_BUILD_ID,
+            gladioClientSha256 = ArmClientRendererCatalog.GLADIO_CLIENT_SHA256,
+            gladioServerBuildId = ArmClientRendererCatalog.GLADIO_SERVER_BUILD_ID,
+        )
+        val json = gladio.toJson()
+        assertFalse(json.has("renderer_package_id"))
+        assertFalse(json.has("vulkan_driver_id"))
+        assertEquals(ArmClientRendererCatalog.GLADIO_CLIENT_SHA256,
+            json.getString("gladio_client_sha256"))
+        assertTrue(gladio.matchesManifest(JSONObject().put("compatibility", json)))
+
+        val changed = JSONObject().put("compatibility", JSONObject(json.toString()))
+        changed.getJSONObject("compatibility").put("gladio_server_build_id", "other")
+        assertFalse(gladio.matchesManifest(changed))
+    }
+
+    @Test
+    fun virglManifestIsExactAndCannotCrossUseGladioOrDxvk() {
+        val virgl = base.copy(
+            rendererBuildId = ArmClientRendererCatalog.VIRGL_BUILD_ID,
+            rendererId = "virgl",
+            rendererPackageId = null,
+            rendererPackageBuildId = null,
+            rendererPackageDxvkVersion = null,
+            rendererPackageSystem32Sha256 = null,
+            rendererPackageSyswow64Sha256 = null,
+            vulkanDriverId = null,
+            vulkanDriverBuildId = null,
+            vulkanDriverLibrarySha256 = null,
+            vulkanDriverIcdSha256 = null,
+            virglPackageId = ArmClientRendererCatalog.VIRGL_PACKAGE_ID,
+            virglPackageBuildId = ArmClientRendererCatalog.VIRGL_BUILD_ID,
+            virglClientSha256 = ArmClientRendererCatalog.VIRGL_CLIENT_SHA256,
+            virglServerBuildId = ArmClientRendererCatalog.VIRGL_SERVER_BUILD_ID,
+        )
+        val json = virgl.toJson()
+        assertFalse(json.has("renderer_package_id"))
+        assertFalse(json.has("vulkan_driver_id"))
+        assertFalse(json.has("gladio_package_id"))
+        assertEquals(
+            ArmClientRendererCatalog.VIRGL_CLIENT_SHA256,
+            json.getString("virgl_client_sha256"),
+        )
+        assertTrue(virgl.matchesManifest(JSONObject().put("compatibility", json)))
+        assertNotEquals(base.generationName, virgl.generationName)
+
+        val changed = JSONObject().put("compatibility", JSONObject(json.toString()))
+        changed.getJSONObject("compatibility").put("virgl_server_build_id", "other")
+        assertFalse(virgl.matchesManifest(changed))
     }
 
     @Test

@@ -2016,7 +2016,12 @@ void gd_handle_glLightModelf(GLContext* context) {
 }
 
 void gd_handle_glLightModelfv(GLContext* context) {
-    println(MSG_DEBUG_UNIMPLEMENTED_FUNC, "glLightModelfv");
+    GLenum pname = ArrayBuffer_getInt(&context->inputBuffer);
+    int paramCount = pname == GL_LIGHT_MODEL_AMBIENT ? 4 : 1;
+    GLfloat params[4];
+    for (int i = 0; i < paramCount; i++)
+        params[i] = ArrayBuffer_getFloat(&context->inputBuffer);
+    GLRenderer_setLightModelParam(currentRenderer, pname, params);
 }
 
 void gd_handle_glLightModeli(GLContext* context) {
@@ -2028,7 +2033,12 @@ void gd_handle_glLightModeli(GLContext* context) {
 }
 
 void gd_handle_glLightModeliv(GLContext* context) {
-    println(MSG_DEBUG_UNIMPLEMENTED_FUNC, "glLightModeliv");
+    GLenum pname = ArrayBuffer_getInt(&context->inputBuffer);
+    int paramCount = pname == GL_LIGHT_MODEL_AMBIENT ? 4 : 1;
+    GLfloat params[4];
+    for (int i = 0; i < paramCount; i++)
+        params[i] = (GLfloat)ArrayBuffer_getInt(&context->inputBuffer);
+    GLRenderer_setLightModelParam(currentRenderer, pname, params);
 }
 
 void gd_handle_glLightf(GLContext* context) {
@@ -2733,7 +2743,13 @@ void gd_handle_glTexGend(GLContext* context) {
 }
 
 void gd_handle_glTexGendv(GLContext* context) {
-    println(MSG_DEBUG_UNIMPLEMENTED_FUNC, "glTexGendv");
+    GLenum coord = ArrayBuffer_getInt(&context->inputBuffer);
+    GLenum pname = ArrayBuffer_getInt(&context->inputBuffer);
+    int paramCount = (pname == GL_OBJECT_PLANE || pname == GL_EYE_PLANE) ? 4 : 1;
+    GLfloat params[4];
+    for (int i = 0; i < paramCount; i++)
+        params[i] = (GLfloat)ArrayBuffer_getDouble(&context->inputBuffer);
+    GLRenderer_setTexGenParams(currentRenderer, coord, pname, params);
 }
 
 void gd_handle_glTexGenf(GLContext* context) {
@@ -2745,7 +2761,13 @@ void gd_handle_glTexGenf(GLContext* context) {
 }
 
 void gd_handle_glTexGenfv(GLContext* context) {
-    println(MSG_DEBUG_UNIMPLEMENTED_FUNC, "glTexGenfv");
+    GLenum coord = ArrayBuffer_getInt(&context->inputBuffer);
+    GLenum pname = ArrayBuffer_getInt(&context->inputBuffer);
+    int paramCount = (pname == GL_OBJECT_PLANE || pname == GL_EYE_PLANE) ? 4 : 1;
+    GLfloat params[4];
+    for (int i = 0; i < paramCount; i++)
+        params[i] = ArrayBuffer_getFloat(&context->inputBuffer);
+    GLRenderer_setTexGenParams(currentRenderer, coord, pname, params);
 }
 
 void gd_handle_glTexGeni(GLContext* context) {
@@ -2758,7 +2780,13 @@ void gd_handle_glTexGeni(GLContext* context) {
 }
 
 void gd_handle_glTexGeniv(GLContext* context) {
-    println(MSG_DEBUG_UNIMPLEMENTED_FUNC, "glTexGeniv");
+    GLenum coord = ArrayBuffer_getInt(&context->inputBuffer);
+    GLenum pname = ArrayBuffer_getInt(&context->inputBuffer);
+    int paramCount = (pname == GL_OBJECT_PLANE || pname == GL_EYE_PLANE) ? 4 : 1;
+    GLfloat params[4];
+    for (int i = 0; i < paramCount; i++)
+        params[i] = (GLfloat)ArrayBuffer_getInt(&context->inputBuffer);
+    GLRenderer_setTexGenParams(currentRenderer, coord, pname, params);
 }
 
 void gd_handle_glTexImage2D(GLContext* context) {

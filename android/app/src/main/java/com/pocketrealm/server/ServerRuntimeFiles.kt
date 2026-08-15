@@ -52,29 +52,46 @@ internal class ServerRuntimeFiles(context: Context) {
         """.trimIndent() + "\n")
     }
 
-    fun worldConfig(bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS): File {
+    fun worldConfig(
+        bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS,
+        nearbyInteractTriggerGuardMs: Int = NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
+    ): File {
         require(baselineData.isDirectory) {
             "Prepared server world data is missing. Open Game files and finish preparing it."
         }
         require(File(baselineData, "BUILD_PROVENANCE.json").isFile) {
             "Prepared server world data did not pass its integrity check. Prepare it again from Game files."
         }
-        return worldConfig(baselineData, normalPlay = false, bindAddress = bindAddress)
+        return worldConfig(
+            baselineData,
+            normalPlay = false,
+            bindAddress = bindAddress,
+            nearbyInteractTriggerGuardMs = nearbyInteractTriggerGuardMs,
+        )
     }
 
     /** O12+ production entry point; refuses normal play unless every O11 artifact verifies. */
-    fun worldConfigNormal(bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS): File =
-        worldConfig(normalData.requireActive().root, normalPlay = true, bindAddress = bindAddress)
+    fun worldConfigNormal(
+        bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS,
+        nearbyInteractTriggerGuardMs: Int = NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
+    ): File = worldConfig(
+        normalData.requireActive().root,
+        normalPlay = true,
+        bindAddress = bindAddress,
+        nearbyInteractTriggerGuardMs = nearbyInteractTriggerGuardMs,
+    )
 
     /** O13 measured profile entry point. Auction-house automation remains disabled. */
     fun worldConfigBot(
         profile: BotProfile,
         bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS,
+        nearbyInteractTriggerGuardMs: Int = NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
     ): File = worldConfig(
         normalData.requireActive().root,
         normalPlay = true,
         botProfile = profile,
         bindAddress = bindAddress,
+        nearbyInteractTriggerGuardMs = nearbyInteractTriggerGuardMs,
     )
 
     private fun worldConfig(
@@ -82,6 +99,7 @@ internal class ServerRuntimeFiles(context: Context) {
         normalPlay: Boolean,
         botProfile: BotProfile? = null,
         bindAddress: String,
+        nearbyInteractTriggerGuardMs: Int,
     ): File {
         val endpoint = RealmEndpoint.parseStored(bindAddress)
         val secret = coreSecret()
@@ -117,7 +135,7 @@ internal class ServerRuntimeFiles(context: Context) {
             mmap.enabled = ${if (normalPlay) 1 else 0}
             LogLevel = 1
             LogFile = "${logs.resolve("world.log").absolutePath}"
-            LogFileLevel = 1
+            LogFileLevel = 3
             DBErrorLogFile = "${logs.resolve("database-errors.log").absolutePath}"
             PlayerLimit = 10
             # The production realm is app-private and loopback-only. Wine's
@@ -125,6 +143,21 @@ internal class ServerRuntimeFiles(context: Context) {
             # slow emulated frame; CMaNGOS documents 0 as disabling this kick.
             MaxOverspeedPings = 0
             MaxCoreStuckTime = 0
+            # Handheld play can make returning to a corpse and aiming the
+            # pointer take longer. These timers apply only to creatures that
+            # spawned loot and have not yet been fully looted or skinned.
+            Corpse.Decay.NORMAL = 1800
+            Corpse.Decay.RARE = 3600
+            Corpse.Decay.ELITE = 3600
+            Corpse.Decay.RAREELITE = 7200
+            Corpse.Decay.WORLDBOSS = 14400
+            # Vanilla 1.12 has no Interact Target key. The managed controller
+            # add-on may request one normal nearby loot/use action through its
+            # authenticated session. The realm still applies five-yard range,
+            # line-of-sight, lock, ownership and ordinary loot rules. This
+            # bounded debounce can be raised for slower realm configurations.
+            PocketRealm.NearbyInteract = 1
+            PocketRealm.NearbyInteractCooldownMs = ${NearbyInteractPolicy.normalizeTriggerGuardMs(nearbyInteractTriggerGuardMs)}
             PocketRealm.PlayerbotConfig = "${botConfig.absolutePath}"
             PocketRealm.BotTarget = ${botProfile?.initialTarget ?: 0}
         """.trimIndent() + "\n")

@@ -24,9 +24,32 @@ DRIVER_STAGE = (
     ROOT / "native" / ".build-arm64" / "wine-staging" / "assets" /
     "arm-translated" / "vulkan-drivers"
 )
+DRIVER_CATALOG_SOURCE = ROOT / "schemas" / "vulkan-driver-catalog.json"
+DRIVER_CATALOG = json.loads(DRIVER_CATALOG_SOURCE.read_text(encoding="utf-8"))
+
+
+def driver_record(driver_id: str) -> dict[str, object]:
+    return next(driver for driver in DRIVER_CATALOG["drivers"] if driver["id"] == driver_id)
+
+
+def driver_file(driver_id: str, role: str) -> dict[str, object]:
+    return next(entry for entry in driver_record(driver_id)["files"] if entry["role"] == role)
+
+
 SOURCE_COMMIT = "ca3d735a60d653a787daf16d14fafef28d9c2c23"
-TURNIP_ARCHIVE_SHA256 = "9b4a10975456197e403c2b6a8a9781a8fd42ccf5048262a8cdea6538bb68d288"
-VORTEK_ARCHIVE_SHA256 = "f2cce15552bc6ff195823bf066ad1a421cb1f453bf80afa3ccd925ff0b1a5713"
+TURNIP_ARCHIVE_SHA256 = driver_record("turnip-26.1.0")["source"]["archive_sha256"]
+VORTEK_ARCHIVE_SHA256 = driver_record("system-vulkan-vortek-2.1")["source"][
+    "compatibility_archive_sha256"
+]
+VORTEK_GUEST = ROOT / "native" / ".build-arm64" / "vortek-guest" / "libvulkan_vortek.so"
+VORTEK_GUEST_PROVENANCE = (
+    ROOT / "native" / ".build-arm64" / "vortek-guest" / "BUILD_PROVENANCE.json"
+)
+VORTEK_GUEST_RECORD = driver_file(
+    "system-vulkan-vortek-2.1", "guest-vulkan-bridge-library"
+)
+VORTEK_GUEST_SIZE = VORTEK_GUEST_RECORD["size"]
+VORTEK_GUEST_SHA256 = VORTEK_GUEST_RECORD["sha256"]
 OLD_ROOT = b"/data/data/com.winlator/files/rootfs"
 NEW_ROOT = b"/data/data/com.pocketrealm/files/rfs"
 
@@ -115,13 +138,36 @@ def write_atomic(target: Path, data: bytes) -> None:
     os.replace(temporary, target)
 
 
+def validate_staged_driver_assets() -> None:
+    asset_root = DRIVER_STAGE.parents[1]
+    seen: set[str] = set()
+    for driver in DRIVER_CATALOG["drivers"]:
+        driver_id = driver["id"]
+        for entry in driver["files"]:
+            asset = entry["asset"]
+            if asset in seen:
+                raise RuntimeError(f"duplicate Vulkan driver asset in reviewed catalog: {asset}")
+            seen.add(asset)
+            path = asset_root / PurePosixPath(asset)
+            if not path.is_file() or (
+                path.stat().st_size != entry["size"] or sha256(path) != entry["sha256"]
+            ):
+                raise RuntimeError(f"staged Vulkan driver differs from reviewed catalog: {asset}")
+            if path.suffix == ".so":
+                if entry.get("elf_machine") != 0xB7 or elf_machine(path) != 0xB7:
+                    raise RuntimeError(f"Vulkan driver is not reviewed AArch64 ELF: {asset}")
+            expected_parent = PurePosixPath(
+                f"arm-translated/vulkan-drivers/{driver_id}"
+            )
+            if PurePosixPath(asset).parent != expected_parent:
+                raise RuntimeError(f"Vulkan driver asset escapes its reviewed package: {asset}")
+
+
 def stage_vulkan_drivers() -> dict[str, object]:
     if len(OLD_ROOT) != len(NEW_ROOT):
         raise RuntimeError("Vortek package-root adaptation is not length preserving")
     if DRIVER_STAGE.exists():
         shutil.rmtree(DRIVER_STAGE)
-
-    records: list[dict[str, object]] = []
 
     turnip_archive = SOURCE / "graphics_driver" / "turnip-26.1.0.tzst"
     if not turnip_archive.is_file() or sha256(turnip_archive) != TURNIP_ARCHIVE_SHA256:
@@ -150,40 +196,6 @@ def stage_vulkan_drivers() -> dict[str, object]:
     write_atomic(turnip_icd, turnip_icd_data)
     if elf_machine(turnip_lib) != 0xB7:
         raise RuntimeError("Turnip guest driver is not AArch64 ELF")
-    records.append({
-        "id": turnip_id,
-        "kind": "turnip",
-        "version": "26.1.0",
-        "qualification": "explicit-rp6-adreno-740",
-        "release": {
-            "enabled": True,
-            "default": False,
-            "qualified_device_models": ["Retroid Pocket 6"],
-        },
-        "source": {
-            "upstream": "https://github.com/brunodev85/winlator-app",
-            "commit": SOURCE_COMMIT,
-            "archive": "graphics_driver/turnip-26.1.0.tzst",
-            "archive_sha256": TURNIP_ARCHIVE_SHA256,
-            "license": "Mesa MIT",
-        },
-        "files": [
-            {
-                "role": "guest-vulkan-icd-library",
-                "asset": f"arm-translated/vulkan-drivers/{turnip_id}/{turnip_lib.name}",
-                "size": turnip_lib.stat().st_size,
-                "sha256": sha256(turnip_lib),
-                "elf_machine": elf_machine(turnip_lib),
-            },
-            {
-                "role": "guest-vulkan-icd-manifest",
-                "asset": f"arm-translated/vulkan-drivers/{turnip_id}/{turnip_icd.name}",
-                "size": turnip_icd.stat().st_size,
-                "sha256": sha256(turnip_icd),
-            },
-        ],
-    })
-
     vortek_archive = SOURCE / "graphics_driver" / "vortek-2.1.tzst"
     if not vortek_archive.is_file() or sha256(vortek_archive) != VORTEK_ARCHIVE_SHA256:
         raise RuntimeError("pinned Vortek 2.1 archive is missing or changed")
@@ -194,13 +206,34 @@ def stage_vulkan_drivers() -> dict[str, object]:
     vortek_manifest_member = "./usr/share/vulkan/icd.d/vortek_icd.aarch64.json"
     if vortek_library_member not in vortek_members or vortek_manifest_member not in vortek_members:
         raise RuntimeError("pinned Vortek archive lacks its library or ICD manifest")
+    if not VORTEK_GUEST.is_file() or (
+        VORTEK_GUEST.stat().st_size,
+        sha256(VORTEK_GUEST),
+    ) != (VORTEK_GUEST_SIZE, VORTEK_GUEST_SHA256):
+        raise RuntimeError(
+            "reviewed Vortek guest build is missing or changed; "
+            "run tools/build_vortek_guest.py"
+        )
+    if not VORTEK_GUEST_PROVENANCE.is_file():
+        raise RuntimeError("Vortek guest build provenance is missing")
+    guest_provenance = json.loads(VORTEK_GUEST_PROVENANCE.read_text(encoding="utf-8"))
+    guest_output = guest_provenance.get("output", {})
+    if (
+        guest_provenance.get("source", {}).get("commit")
+        != driver_record(vortek_id)["source"]["commit"]
+        or guest_provenance.get("builder_image")
+        != driver_record(vortek_id)["source"]["builder_image"]
+        or guest_output.get("size") != VORTEK_GUEST_SIZE
+        or guest_output.get("sha256") != VORTEK_GUEST_SHA256
+    ):
+        raise RuntimeError("Vortek guest build provenance differs from its reviewed identity")
+
     vortek_lib = vortek_dir / "libvulkan_vortek.so"
     vortek_icd = vortek_dir / "vortek_icd.aarch64.json"
-    extract_member(vortek_archive, vortek_library_member, vortek_lib)
-    library_data = vortek_lib.read_bytes()
-    if library_data.count(OLD_ROOT) != 2:
-        raise RuntimeError("unexpected Vortek package-root count in guest library")
-    write_atomic(vortek_lib, library_data.replace(OLD_ROOT, NEW_ROOT))
+    library_data = VORTEK_GUEST.read_bytes()
+    if library_data.count(NEW_ROOT) != 2 or OLD_ROOT in library_data:
+        raise RuntimeError("Vortek guest does not use the exact Pocket Realm package root")
+    write_atomic(vortek_lib, library_data)
     vortek_icd_data = (
         "{\n"
         "  \"ICD\": {\n"
@@ -215,72 +248,20 @@ def stage_vulkan_drivers() -> dict[str, object]:
     if elf_machine(vortek_lib) != 0xB7:
         raise RuntimeError("Vortek guest driver is not AArch64 ELF")
     if (vortek_lib.stat().st_size, sha256(vortek_lib)) != (
-        422_624,
-        "894665b2df007b3dafcf987a56ddd0e67475ab6d7ef91224c395fffda3301c25",
+        VORTEK_GUEST_SIZE,
+        VORTEK_GUEST_SHA256,
     ):
         raise RuntimeError("adapted Vortek guest library differs from its pinned identity")
+    vortek_icd_record = driver_file(vortek_id, "guest-vulkan-icd-manifest")
     if (vortek_icd.stat().st_size, sha256(vortek_icd)) != (
-        192,
-        "9e80133ca51ef57dac0cdc29ff8614d1fdffc5335fcf4e8ce38066da43f3c262",
+        vortek_icd_record["size"],
+        vortek_icd_record["sha256"],
     ):
         raise RuntimeError("adapted Vortek ICD differs from its pinned identity")
-    records.insert(0, {
-        "id": vortek_id,
-        "kind": "system-vortek",
-        "version": "2.1",
-        "qualification": "hardened-capability-gated-system-vulkan",
-        "release": {
-            "enabled": True,
-            "default": True,
-            "request_handle_authority_complete": True,
-            "minimum_vulkan_by_renderer": {
-                "box64-dxvk-2.4.1": "1.3",
-                "box64-dxvk-1.10.3": "1.1",
-            },
-            "required_device_extensions": [
-                "VK_KHR_swapchain",
-                "VK_ANDROID_external_memory_android_hardware_buffer",
-                "VK_KHR_external_memory",
-                "VK_KHR_external_memory_fd",
-                "VK_KHR_external_semaphore",
-                "VK_KHR_external_semaphore_fd",
-                "VK_KHR_external_fence",
-                "VK_KHR_external_fence_fd",
-            ],
-            "requires_native_texture_compression_bc": True,
-        },
-        "source": {
-            "upstream": "https://github.com/brunodev85/winlator-app",
-            "commit": SOURCE_COMMIT,
-            "archive": "graphics_driver/vortek-2.1.tzst",
-            "archive_sha256": VORTEK_ARCHIVE_SHA256,
-            "license": "LGPL-2.1",
-        },
-        "files": [
-            {
-                "role": "guest-vulkan-bridge-library",
-                "asset": f"arm-translated/vulkan-drivers/{vortek_id}/{vortek_lib.name}",
-                "size": vortek_lib.stat().st_size,
-                "sha256": sha256(vortek_lib),
-                "elf_machine": elf_machine(vortek_lib),
-            },
-            {
-                "role": "guest-vulkan-icd-manifest",
-                "asset": f"arm-translated/vulkan-drivers/{vortek_id}/{vortek_icd.name}",
-                "size": vortek_icd.stat().st_size,
-                "sha256": sha256(vortek_icd),
-            },
-        ],
-    })
-    manifest: dict[str, object] = {
-        "schema": 2,
-        "default": vortek_id,
-        "selection_policy": "exact-request-fail-closed",
-        "drivers": records,
-    }
+    validate_staged_driver_assets()
     target = DRIVER_STAGE / "catalog.json"
-    write_atomic(target, (json.dumps(manifest, indent=2) + "\n").encode("utf-8"))
-    return manifest
+    write_atomic(target, DRIVER_CATALOG_SOURCE.read_bytes())
+    return DRIVER_CATALOG
 
 
 def main() -> int:

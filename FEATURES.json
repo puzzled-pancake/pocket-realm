@@ -336,7 +336,7 @@
       "track": "offline",
       "priority": 120,
       "title": "G4 measured playerbot tiers, admission control, and world metrics",
-      "status": "pending",
+      "status": "active",
       "depends": [
         "O12"
       ],

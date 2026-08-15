@@ -1,0 +1,12 @@
+## Interface: 11200
+## Title: Android Port |cff7fff7fPocket Realm|r
+## Notes: Project-owned controller interface for Vanilla WoW 1.12.1.
+## Author: Pocket Realm contributors
+## Version: 0.4.0
+## SavedVariables: VanillaConsolePortDB
+## SavedVariablesPerCharacter: VanillaConsolePortCharacterDB
+
+Core.lua
+ActionBars.lua
+Radial.lua
+FrameMover.lua

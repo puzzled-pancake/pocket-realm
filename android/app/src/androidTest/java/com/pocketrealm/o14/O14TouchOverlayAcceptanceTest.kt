@@ -124,27 +124,104 @@ class O14TouchOverlayAcceptanceTest {
         compose.onNodeWithTag("touch-camera-region").performTouchInput {
             swipe(center, center + androidx.compose.ui.geometry.Offset(48f, 24f), 300)
         }
+        // Camera/pointer mode is directly reachable without opening More.
+        compose.onNodeWithTag("touch-camera-lock").assertTextEquals("Camera").performClick()
+        compose.waitUntil(5_000) { host!!.inputContract.isCameraLocked }
+        compose.onNodeWithTag("touch-camera-reticle").assertDoesNotExist()
+        compose.onNodeWithTag("touch-camera-lock").assertTextEquals("Pointer").performClick()
+        compose.waitUntil(5_000) { !host!!.inputContract.isCameraLocked }
+        compose.onNodeWithTag("touch-camera-zoom-in").assertDoesNotExist()
+        compose.onNodeWithTag("touch-camera-zoom-out").assertDoesNotExist()
+        compose.onNodeWithTag("touch-chat").assertDoesNotExist()
+        compose.onNodeWithTag("touch-utility-drawer").assertTextEquals("More").performClick()
+        compose.onNodeWithTag("touch-utility-drawer").assertTextEquals("Close")
+        compose.onNodeWithTag("touch-camera-zoom-in").assertExists()
+        compose.onNodeWithTag("touch-camera-zoom-out").assertExists()
+        compose.onNodeWithTag("touch-chat").assertExists()
+        compose.onNodeWithTag("touch-map").assertExists()
+        compose.onNodeWithTag("touch-bags").assertExists()
+        compose.onNodeWithTag("touch-settings").assertExists()
+        // Camera state recomposition must not close or break the drawer.
+        compose.onNodeWithTag("touch-camera-lock").performClick()
+        compose.waitUntil(5_000) { host!!.inputContract.isCameraLocked }
+        compose.onNodeWithTag("touch-camera-reticle").assertDoesNotExist()
+        compose.onNodeWithTag("touch-utility-drawer").assertTextEquals("Close")
+        compose.onNodeWithTag("touch-camera-zoom-in").assertExists()
+        compose.onNodeWithTag("touch-camera-lock").performClick()
+        compose.waitUntil(5_000) { !host!!.inputContract.isCameraLocked }
+        compose.onNodeWithTag("touch-utility-drawer").performClick()
+        compose.onNodeWithTag("touch-utility-drawer").assertTextEquals("More")
+        compose.onNodeWithTag("touch-camera-zoom-in").assertDoesNotExist()
+        compose.onNodeWithTag("touch-chat").assertDoesNotExist()
+        // Reopening remains one tap and provides the utilities used below.
+        compose.onNodeWithTag("touch-utility-drawer").performClick()
+        compose.onNodeWithTag("touch-utility-drawer").assertTextEquals("Close")
+        compose.onNodeWithTag("touch-camera-zoom-in").assertExists().performClick()
+        compose.onNodeWithTag("touch-camera-zoom-out").assertExists().performClick()
+        compose.onNodeWithTag("touch-control-TARGET").assertExists().performTouchInput {
+            down(center); up()
+        }
+        compose.onNodeWithTag("touch-control-USE_LOOT").assertExists().performTouchInput {
+            down(center); up()
+        }
+        compose.onNodeWithTag("touch-control-AUTO_RUN").assertExists().performTouchInput {
+            down(center); up()
+        }
         runBlocking { delay(500) }
 
         compose.onNodeWithTag("touch-overlay-toggle").performClick()
         compose.onNodeWithTag("touch-control-MOVE_UP").assertDoesNotExist()
         compose.onNodeWithTag("touch-camera-region").assertDoesNotExist()
         compose.onNodeWithTag("touch-camera-lock").assertDoesNotExist()
+        compose.onNodeWithTag("touch-utility-drawer").assertDoesNotExist()
+        compose.onNodeWithTag("touch-camera-reticle").assertDoesNotExist()
+        compose.onNodeWithTag("touch-camera-zoom-in").assertDoesNotExist()
+        compose.onNodeWithTag("touch-camera-zoom-out").assertDoesNotExist()
+        compose.onNodeWithTag("touch-control-TARGET").assertDoesNotExist()
+        compose.onNodeWithTag("touch-control-USE_LOOT").assertDoesNotExist()
+        compose.onNodeWithTag("touch-control-AUTO_RUN").assertDoesNotExist()
         compose.onNodeWithTag("touch-chat").assertDoesNotExist()
         // The sole translucent restore tab remains reachable.
         compose.onNodeWithTag("touch-overlay-toggle").assertExists()
         compose.onNodeWithTag("touch-overlay-toggle").performClick()
         compose.onNodeWithTag("touch-control-MOVE_UP").assertExists()
+        compose.onNodeWithTag("touch-camera-zoom-in").assertExists()
+        compose.onNodeWithTag("touch-camera-zoom-out").assertExists()
+        compose.onNodeWithTag("touch-control-TARGET").assertExists()
+        compose.onNodeWithTag("touch-control-USE_LOOT").assertExists()
+        compose.onNodeWithTag("touch-control-AUTO_RUN").assertExists()
 
         val enabledProfile = host!!.activeProfile
-        compose.runOnIdle { host!!.switchInputProfile(enabledProfile.copy(overlayEnabled = false)) }
+        compose.runOnIdle {
+            host!!.switchInputProfile(enabledProfile.copy(overlayMode = com.pocketrealm.client.OverlayMode.OFF))
+        }
         compose.onNodeWithTag("touch-overlay-toggle").assertDoesNotExist()
         compose.onNodeWithTag("touch-camera-lock").assertDoesNotExist()
+        compose.onNodeWithTag("touch-utility-drawer").assertDoesNotExist()
+        compose.onNodeWithTag("touch-camera-reticle").assertDoesNotExist()
+        compose.onNodeWithTag("touch-camera-zoom-in").assertDoesNotExist()
+        compose.onNodeWithTag("touch-camera-zoom-out").assertDoesNotExist()
+        compose.onNodeWithTag("touch-control-TARGET").assertDoesNotExist()
+        compose.onNodeWithTag("touch-control-USE_LOOT").assertDoesNotExist()
+        compose.onNodeWithTag("touch-control-AUTO_RUN").assertDoesNotExist()
         compose.onNodeWithTag("touch-chat").assertDoesNotExist()
         compose.onNodeWithTag("touch-control-MOVE_UP").assertDoesNotExist()
-        compose.runOnIdle { host!!.switchInputProfile(enabledProfile.copy(overlayEnabled = true)) }
+        compose.runOnIdle {
+            host!!.switchInputProfile(enabledProfile.copy(overlayMode = com.pocketrealm.client.OverlayMode.MINIMAL))
+        }
+        compose.onNodeWithTag("touch-camera-lock").assertTextEquals("Camera").assertExists()
+        compose.onNodeWithTag("touch-utility-drawer").assertTextEquals("More").assertExists()
+        compose.onNodeWithTag("touch-camera-reticle").assertDoesNotExist()
+        compose.onNodeWithTag("touch-control-MOVE_UP").assertDoesNotExist()
+        compose.onNodeWithTag("touch-camera-region").assertDoesNotExist()
+        compose.runOnIdle {
+            host!!.switchInputProfile(enabledProfile.copy(overlayMode = com.pocketrealm.client.OverlayMode.FULL))
+        }
         compose.onNodeWithTag("touch-control-MOVE_UP").assertExists()
+        compose.onNodeWithTag("touch-camera-reticle").assertDoesNotExist()
 
+        compose.onNodeWithTag("touch-utility-drawer").assertTextEquals("More").performClick()
+        compose.onNodeWithTag("touch-utility-drawer").assertTextEquals("Close")
         compose.onNodeWithTag("touch-chat").performClick()
         compose.waitUntil(5_000) { host!!.inputContract.isImeActive }
         compose.runOnIdle { host!!.onPause() }
@@ -158,11 +235,11 @@ class O14TouchOverlayAcceptanceTest {
         assertTrue(host!!.inputContract.isImeInputIdle)
         compose.runOnIdle { host!!.onResume() }
 
-        compose.onNodeWithTag("touch-camera-lock").assertTextEquals("Lock camera").performClick()
+        compose.onNodeWithTag("touch-camera-lock").assertTextEquals("Camera").performClick()
         compose.waitUntil(5_000) { host!!.inputContract.isCameraLocked }
-        compose.onNodeWithTag("touch-camera-lock").assertTextEquals("Unlock camera").performClick()
+        compose.onNodeWithTag("touch-camera-lock").assertTextEquals("Pointer").performClick()
         compose.waitUntil(5_000) { !host!!.inputContract.isCameraLocked }
-        compose.onNodeWithTag("touch-camera-lock").assertTextEquals("Lock camera")
+        compose.onNodeWithTag("touch-camera-lock").assertTextEquals("Camera")
 
         // Android owns framework system keys even when the combined RP6 input
         // device also advertises keyboard/gamepad sources.

@@ -38,8 +38,50 @@ int main(void) {
     changed[3] = 0;
     failures += expect(!VortekSafeLane_validateSpirvEnvelope(changed, sizeof(changed)), "zero id bound");
     memcpy(changed, valid, sizeof(changed));
+    changed[3] = 0x00400000U;
+    failures += expect(!VortekSafeLane_validateSpirvEnvelope(changed, sizeof(changed)), "oversized id bound");
+    memcpy(changed, valid, sizeof(changed));
     changed[4] = 1;
     failures += expect(!VortekSafeLane_validateSpirvEnvelope(changed, sizeof(changed)), "nonzero schema");
+
+    uint32_t validInstruction[] = {
+        0x07230203U, 0x00010600U, 0U, 1U, 0U,
+        (1U << 16U), /* OpNop */
+    };
+    failures += expect(
+            VortekSafeLane_validateSpirvEnvelope(
+                    validInstruction, sizeof(validInstruction)),
+            "bounded instruction stream");
+    validInstruction[5] = 0U;
+    failures += expect(
+            !VortekSafeLane_validateSpirvEnvelope(
+                    validInstruction, sizeof(validInstruction)),
+            "zero instruction word count");
+    validInstruction[5] = (2U << 16U);
+    failures += expect(
+            !VortekSafeLane_validateSpirvEnvelope(
+                    validInstruction, sizeof(validInstruction)),
+            "truncated instruction");
+    validInstruction[5] = (1U << 16U) | 71U; /* OpDecorate needs operands. */
+    failures += expect(
+            !VortekSafeLane_validateSpirvEnvelope(
+                    validInstruction, sizeof(validInstruction)),
+            "short inspected instruction");
+
+    uint32_t inspectable[] = {
+        0x07230203U, 0x00010600U, 0U, 4U, 0U,
+        (4U << 16U) | 15U, 0U, 1U, 0U, /* OpEntryPoint */
+        (5U << 16U) | 54U, 2U, 3U, 0U, 1U, /* OpFunction */
+    };
+    failures += expect(
+            VortekSafeLane_validateSpirvForInspector(
+                    inspectable, sizeof(inspectable)),
+            "inspector requires entry point and function");
+    inspectable[9] = (5U << 16U); /* Replace OpFunction with OpNop. */
+    failures += expect(
+            !VortekSafeLane_validateSpirvForInspector(
+                    inspectable, sizeof(inspectable)),
+            "inspector rejects module without function");
 
     if (failures == 0) puts("vortek_safe_lane_test: PASS");
     return failures == 0 ? 0 : 1;

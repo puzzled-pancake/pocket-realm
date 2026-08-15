@@ -40,6 +40,8 @@ ResourceMemory* ResourceMemory_allocate(VkContext* context, VkDevice device, VkM
         bool hasExternalMemoryDMABuf = context->hasExternalMemoryDMABuf;
 
         switch (context->resourceMemoryType) {
+            case RESOURCE_MEMORY_TYPE_AUTO:
+                break;
             case RESOURCE_MEMORY_TYPE_OPAQUE_FD:
                 hasExternalMemoryFd = true;
                 hasExternalMemoryDMABuf = false;

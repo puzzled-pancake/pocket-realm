@@ -116,7 +116,12 @@ class RuntimeSupervisorClient(context: Context) {
                     else RealmState.Failed(lastError ?: "Previous runtime needs recovery before it can start.")
                 }
                 RuntimePhase.PREPARING, RuntimePhase.DB_STARTING, RuntimePhase.REALM_STARTING,
-                RuntimePhase.WORLD_STARTING, RuntimePhase.CLIENT_STARTING -> RealmState.Starting(1)
+                RuntimePhase.WORLD_STARTING, RuntimePhase.CLIENT_STARTING -> {
+                    if (generationActive) RealmState.Starting(1)
+                    else RealmState.Failed(
+                        "The previous start was interrupted. Tap Start to recover safely and try again.",
+                    )
+                }
                 RuntimePhase.WORLD_READY, RuntimePhase.RUNNING, RuntimePhase.CLIENT_FAILED -> {
                     if (generationActive) RealmState.Running(
                         value.optLong("updatedAtWallMs", System.currentTimeMillis()),
