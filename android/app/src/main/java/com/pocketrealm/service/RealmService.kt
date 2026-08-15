@@ -10,6 +10,7 @@ import android.content.Intent
 import android.os.IBinder
 import android.os.PowerManager
 import android.os.Process
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import com.pocketrealm.R
 import com.pocketrealm.log.AppLog
@@ -19,6 +20,7 @@ import com.pocketrealm.supervisor.ComponentLifecycle
 import com.pocketrealm.supervisor.ComponentOwner
 import com.pocketrealm.supervisor.DurableRuntimeSupervisor
 import com.pocketrealm.supervisor.IRuntimeSupervisorControl
+import com.pocketrealm.supervisor.RealmEndpoint
 import com.pocketrealm.supervisor.RuntimeComponent
 import com.pocketrealm.supervisor.RuntimeOperation
 import com.pocketrealm.supervisor.RuntimeLaunchSpec
@@ -424,9 +426,22 @@ class RealmService : Service() {
     }
 
     private suspend fun monitorComponents() {
+        // Handheld Wi-Fi drivers routinely tear down and rebuild wlan0 for a
+        // few seconds. A single missing-interface sample must not end the
+        // session; only loss sustained past the grace window does. The
+        // session identity anchors the window so a later generation never
+        // inherits elapsed loss time from an earlier one, even when monitor
+        // ticks are skipped across the generation boundary.
+        var lanLossSessionId: String? = null
+        var lanLossEndpoint: RealmEndpoint? = null
+        var lanLossSinceMs = 0L
         while (scope.isActive) {
             delay(1_000)
-            if (!activeGeneration) continue
+            if (!activeGeneration) {
+                lanLossSessionId = null
+                lanLossEndpoint = null
+                continue
+            }
             // A health transition is a lifecycle operation too. If user work
             // owns the gate, leave it untouched and retry from fresh state.
             val reservation = operationCoordinator.tryReserve() ?: continue
@@ -438,13 +453,37 @@ class RealmService : Service() {
                 try {
                     val snapshot = supervisor.state.value
                     if (!activeGeneration || snapshot.phase !in MONITORED_PHASES) {
+                        lanLossSessionId = null
+                        lanLossEndpoint = null
                         return@runReserved null
                     }
-                    val lanHostInterfaceLost = snapshot.runtimeMode == RuntimeMode.LAN_HOST &&
-                        !LanInterfacePolicy.isCurrentPrivateInterface(snapshot.realmEndpoint)
-                    if (lanHostInterfaceLost) {
-                        AppLog.w(TAG, "LAN host interface changed; generation will save and stop")
-                        return@runReserved supervisor.stop(StopMode.GRACEFUL)
+                    if (snapshot.runtimeMode == RuntimeMode.LAN_HOST) {
+                        val endpoint = snapshot.realmEndpoint
+                        if (LanInterfacePolicy.isCurrentPrivateInterface(endpoint)) {
+                            lanLossSessionId = null
+                            lanLossEndpoint = null
+                        } else {
+                            if (lanLossEndpoint != endpoint || lanLossSessionId != snapshot.sessionId) {
+                                lanLossSessionId = snapshot.sessionId
+                                lanLossEndpoint = endpoint
+                                lanLossSinceMs = SystemClock.elapsedRealtime()
+                                AppLog.w(TAG,
+                                    "LAN host interface $endpoint absent; loss grace window of " +
+                                        "${LAN_HOST_INTERFACE_LOSS_GRACE_MS / 1000}s starts")
+                            }
+                            val lostForMs = SystemClock.elapsedRealtime() - lanLossSinceMs
+                            if (lostForMs >= LAN_HOST_INTERFACE_LOSS_GRACE_MS) {
+                                lanLossSessionId = null
+                                lanLossEndpoint = null
+                                AppLog.w(TAG,
+                                    "LAN host interface lost for ${lostForMs / 1000}s; " +
+                                        "generation will save and stop")
+                                return@runReserved supervisor.stop(StopMode.GRACEFUL)
+                            }
+                        }
+                    } else {
+                        lanLossSessionId = null
+                        lanLossEndpoint = null
                     }
                     val monitored = RuntimeComponent.entries.filter {
                         snapshot.components.getValue(it).state == ComponentLifecycle.READY
@@ -544,6 +583,7 @@ class RealmService : Service() {
         private const val EXTRA_INCLUDE_CLIENT = "com.pocketrealm.extra.INCLUDE_CLIENT"
         private const val EXTRA_LAN_ADDRESS = "com.pocketrealm.extra.LAN_ADDRESS"
         private const val TAG = "RuntimeSupervisor"
+        private const val LAN_HOST_INTERFACE_LOSS_GRACE_MS = 10_000L
         private val MONITORED_PHASES = setOf(RuntimePhase.WORLD_READY, RuntimePhase.RUNNING, RuntimePhase.CLIENT_FAILED)
 
         fun ensureChannel(context: Context) {
