@@ -41,6 +41,7 @@ import com.pocketrealm.client.InputProfile
 import com.pocketrealm.client.OverlayControl
 import com.pocketrealm.client.OverlayMode
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.drop
 
 internal enum class OverlayPresentation { OFF, MINIMAL, FULL }
 
@@ -86,15 +87,20 @@ fun TouchOverlay(host: ClientDisplayHost, modifier: Modifier = Modifier) {
     var drawerExpanded by remember(host.generation) { mutableStateOf(false) }
     var showModeHud by remember(host.generation) { mutableStateOf(false) }
 
-    LaunchedEffect(presentation) {
-        if (presentation == OverlayPresentation.OFF) visible = false
-        else if (!visible && profile.overlayMode != OverlayMode.OFF) visible = true
+    // Only an explicit mode change re-shows controls the user hid. AUTO
+    // presentation flips on controller connect/disconnect must not override
+    // the user's Hide.
+    LaunchedEffect(profile.overlayMode) {
+        visible = profile.overlayMode != OverlayMode.OFF
         drawerExpanded = false
     }
-    LaunchedEffect(cameraLocked) {
-        showModeHud = true
-        delay(MODE_HUD_DURATION_MS)
-        showModeHud = false
+    // Skip the initial value so opening the client does not flash the HUD.
+    LaunchedEffect(host.generation) {
+        host.cameraLocked.drop(1).collect {
+            showModeHud = true
+            delay(MODE_HUD_DURATION_MS)
+            showModeHud = false
+        }
     }
     if (presentation == OverlayPresentation.OFF) return
 

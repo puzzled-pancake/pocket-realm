@@ -21,6 +21,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.viewinterop.AndroidView
@@ -29,6 +30,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.pocketrealm.client.IntegratedClientDisplay
+import com.pocketrealm.log.AppLog
 import com.pocketrealm.storage.Settings
 import com.pocketrealm.ui.theme.PocketRealmTheme
 
@@ -38,7 +40,12 @@ import com.pocketrealm.ui.theme.PocketRealmTheme
  * named by its private intent.
  */
 class ClientActivity : ComponentActivity() {
-    private var expectedGeneration = NO_GENERATION
+    // Observable so a singleTask instance retained for its EGL context adopts
+    // a new launch intent's generation and recomposes against it.
+    private val expectedGenerationState = mutableLongStateOf(NO_GENERATION)
+    private var expectedGeneration: Long
+        get() = expectedGenerationState.longValue
+        set(value) { expectedGenerationState.longValue = value }
     private var imeWasVisible = false
 
     @Suppress("DEPRECATION") // Bar colors remain required on the API 26-34 compatibility path.
@@ -48,6 +55,9 @@ class ClientActivity : ComponentActivity() {
         if (expectedGeneration == NO_GENERATION ||
             IntegratedClientDisplay.currentHost(expectedGeneration) == null
         ) {
+            // This activity lives in its own task affinity, so a bare finish()
+            // can strand the user on the launcher instead of the shell.
+            returnToShell("stale launch intent")
             finish()
             return
         }
@@ -84,12 +94,17 @@ class ClientActivity : ComponentActivity() {
         val settings = Settings(applicationContext)
         setContent {
             val host by IntegratedClientDisplay.host.collectAsState()
+            val expected by expectedGenerationState
             val settingsSnapshot by settings.flow.collectAsState(initial = Settings.Snapshot())
-            val current = host?.takeIf { it.generation == expectedGeneration }
+            val current = host?.takeIf { it.generation == expected }
 
             LaunchedEffect(current, host) {
                 if (current == null) {
                     window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    // The display generation is gone (save & exit, crash
+                    // teardown). Returning to the shell explicitly avoids the
+                    // separate task affinity dumping the user on the launcher.
+                    returnToShell("display generation gone")
                     finish()
                 }
             }
@@ -132,6 +147,36 @@ class ClientActivity : ComponentActivity() {
         if (IntegratedClientDisplay.currentHost(expectedGeneration) != null) {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val requested = intent.getLongExtra(EXTRA_GENERATION, NO_GENERATION)
+        if (requested != NO_GENERATION &&
+            IntegratedClientDisplay.currentHost(requested) != null
+        ) {
+            // A retained singleTask instance pinned to a superseded generation
+            // must adopt the generation named by the new launch intent instead
+            // of eating the reorder and failing closed on the stale value.
+            AppLog.i(TAG, "adopting launch generation $requested (was $expectedGeneration)")
+            expectedGeneration = requested
+        } else {
+            AppLog.w(TAG, "rejected launch generation $requested; keeping $expectedGeneration")
+        }
+    }
+
+    /**
+     * This activity sits in its own task affinity, so finishing after a stale
+     * launch or a released display can leave the system on the launcher task
+     * instead of the shell. Always hand the user back to MainActivity.
+     */
+    private fun returnToShell(reason: String) {
+        AppLog.i(TAG, "returning to shell: $reason")
+        startActivity(
+            Intent(this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+        )
     }
 
     override fun onResume() {
@@ -225,6 +270,7 @@ class ClientActivity : ComponentActivity() {
     }
 
     companion object {
+        private const val TAG = "ClientActivity"
         private const val EXTRA_GENERATION = "com.pocketrealm.extra.CLIENT_GENERATION"
         private const val NO_GENERATION = -1L
 

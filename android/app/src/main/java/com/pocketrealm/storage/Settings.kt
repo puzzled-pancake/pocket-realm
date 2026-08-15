@@ -244,10 +244,12 @@ class Settings(private val context: Context) {
         val armVulkanDriverId: String = VulkanDriverCatalog.RELEASE_DEFAULT,
         val rendererSelectionNotice: String? = null,
         val displaySelectionNotice: String? = null,
-        val botProfileId: String = BotProfiles.BALANCED_100.id,
-        val botPopulationTarget: Int = 100,
+        val botProfileId: String = BotProfiles.defaultProfile.id,
+        val botPopulationTarget: Int = BotProfiles.defaultProfile.selectedTarget,
+        val botSavedPresetId: String? = null,
+        val botPresetsImported: Boolean = false,
         val botAdvancedEnabled: Boolean = false,
-        val botAdvanced: BotAdvancedSettings = BotAdvancedSettings(),
+        val botAdvanced: BotAdvancedSettings = BotAdvancedSettings.fromProfile(BotProfiles.defaultProfile),
         val setupComplete: Boolean = false,
         val lastActiveGeneration: Int = 0,
         val inputSafeMode: Boolean = false,
@@ -307,6 +309,12 @@ class Settings(private val context: Context) {
             prefs.remove(Keys.DXVK_FEX)
             prefs[Keys.BOTS] = next.botPopulationTarget
             prefs[Keys.BOT_PROFILE_ID] = next.botProfileId
+            if (next.botSavedPresetId == null) {
+                prefs.remove(Keys.BOT_SAVED_PRESET)
+            } else {
+                prefs[Keys.BOT_SAVED_PRESET] = next.botSavedPresetId
+            }
+            prefs[Keys.BOT_PRESETS_IMPORTED] = if (next.botPresetsImported) 1 else 0
             prefs[Keys.BOTS_ADVANCED] = if (next.botAdvancedEnabled) 1 else 0
             prefs[Keys.BOTS_NEARBY] = next.botAdvanced.nearbyBotLimit
             prefs[Keys.BOTS_RADIUS] = next.botAdvanced.nearbyRadius
@@ -367,6 +375,8 @@ class Settings(private val context: Context) {
         val DXVK_FEX = stringPreferencesKey("dxvk_fex_package")
         val BOTS = intPreferencesKey("bot_population_target")
         val BOT_PROFILE_ID = stringPreferencesKey("bot_profile_id")
+        val BOT_SAVED_PRESET = stringPreferencesKey("bot_saved_preset_id")
+        val BOT_PRESETS_IMPORTED = intPreferencesKey("bot_presets_imported")
         val BOTS_ADVANCED = intPreferencesKey("bot_advanced_enabled")
         val BOTS_NEARBY = intPreferencesKey("bot_nearby_limit")
         val BOTS_RADIUS = intPreferencesKey("bot_nearby_radius")
@@ -441,10 +451,22 @@ class Settings(private val context: Context) {
                 ClientFrameCap.requireFps(this[Keys.FRAME_CAP] ?: 0)
             }.getOrDefault(defaultDisplay.frameCap)
         } else defaultDisplay.frameCap
-        val legacyTarget = ((((this[Keys.BOTS] ?: 100) + 12) / 25) * 25).coerceIn(25, 700)
+        // Legacy flat target key still stores the adv4-era population. New
+        // installs resolve to the recommended default (Alive Realm 320).
+        val storedTarget = this[Keys.BOTS]
+        val legacyTarget = storedTarget?.let { ((((it + 12) / 25) * 25).coerceIn(25, 700)) }
+            ?: BotProfiles.defaultProfile.selectedTarget
         val storedProfile = this[Keys.BOT_PROFILE_ID]?.let(BotProfiles::find)
-        val selectedProfile = storedProfile?.takeIf { it.userSelectable }
-            ?: BotProfiles.migrateLegacyTarget(storedProfile?.selectedTarget ?: legacyTarget)
+        val selectedProfile = when {
+            storedProfile?.userSelectable == true -> storedProfile
+            // Legacy ladder ids remain resolvable; migration keeps their id.
+            storedProfile != null -> BotProfiles.migrateLegacyTarget(storedProfile.selectedTarget)
+            storedTarget != null -> BotProfiles.migrateLegacyTarget(legacyTarget)
+            else -> BotProfiles.defaultProfile
+        }
+        val savedPresetId = this[Keys.BOT_SAVED_PRESET]?.takeIf {
+            it.matches(Regex("[0-9a-f]{32}"))
+        }
         val target = if ((this[Keys.BOTS_ADVANCED] ?: 0) == 1) {
             legacyTarget
         } else {
@@ -549,6 +571,8 @@ class Settings(private val context: Context) {
         displaySelectionNotice = displaySelectionNotice,
         botProfileId = selectedProfile.id,
         botPopulationTarget = target,
+        botSavedPresetId = savedPresetId,
+        botPresetsImported = (this[Keys.BOT_PRESETS_IMPORTED] ?: 0) == 1,
         botAdvancedEnabled = (this[Keys.BOTS_ADVANCED] ?: 0) == 1,
         botAdvanced = advanced,
         setupComplete = (this[Keys.SETUP_DONE] ?: 0) == 1,

@@ -174,7 +174,7 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
                     "D-pad Down/Up focuses a frame, D-pad Left/Right scales it, and Select + Start or Escape saves. " +
                     "M1/M2 stay disabled because they can latch on some units."
             } else {
-                "RP6 defaults put Target on R1, Use / open at pointer on R2, and Jump on R3. " +
+                "The default layout puts Target on R1, Use / open at pointer on R2, and Jump on R3. " +
                     "Hold Select + R3 for camera/pointer mode or Select + R2 for left-click. " +
                     "M1/M2 stay disabled because they can latch on some units."
             },
@@ -350,7 +350,7 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
                 )
             } else if (profile.controllerFamily == ControllerFamily.AUTO) {
                 SupportingText(
-                    "Automatic recognizes the built-in RP6 controller; other pads use Android-standard positions.",
+                    "Automatic recognizes this device’s built-in controller; other pads use Android-standard positions.",
                 )
             }
         }

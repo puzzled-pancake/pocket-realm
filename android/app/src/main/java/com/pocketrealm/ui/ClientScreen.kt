@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -73,6 +75,7 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 
 /** O06 user-facing, redistributable self-test surface. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValues) {
     val context = LocalContext.current
@@ -89,6 +92,7 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
     var observer by remember { mutableStateOf<Job?>(null) }
     var importProgress by remember { mutableStateOf(ImportProgressPresentation.idle()) }
     var importNotice by remember { mutableStateOf<String?>(null) }
+    var importBusyNotice by remember { mutableStateOf<String?>(null) }
     var importComplete by remember { mutableStateOf(false) }
     var dataPreparationEnabled by remember { mutableStateOf(true) }
     var persistedTree by remember {
@@ -98,6 +102,15 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             runCatching {
+                val workerBusy = ImportProgressPresentation.fromJson(
+                    ImportWorkerService.readStatus(context),
+                ).phase !in setOf("IDLE", "PAUSED")
+                if (workerBusy) {
+                    // The worker ignores new starts mid-import; do not claim
+                    // one started or silently swap the folder under it.
+                    importBusyNotice = "An import is already running. Choose the folder again after it finishes."
+                    return@runCatching
+                }
                 context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 persistedTree = uri
                 ImportWorkerService.start(context, uri)
@@ -113,6 +126,7 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
                 importComplete = importProgress.phase == "COMPLETE"
                 dataPreparationEnabled = value.optBoolean("dataPreparationEnabled", true)
                 if (importProgress.phase !in setOf("IDLE", "PAUSED")) importNotice = null
+                if (importProgress.phase in setOf("IDLE", "PAUSED", "COMPLETE")) importBusyNotice = null
             }
             delay(1_000)
         }
@@ -192,7 +206,7 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
         Text("Redistributable lifecycle self-test • WineD3D • audio off")
         ImportProgressCard(
             progress = importProgress,
-            notice = importNotice,
+            notice = importNotice ?: importBusyNotice,
             dataPreparationEnabled = dataPreparationEnabled,
             canResume = persistedTree != null && !importComplete,
             onSelect = { folderPicker.launch(null) },
@@ -217,7 +231,7 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
                 if (!settingsSnapshot.inputSafeMode) TouchOverlay(current)
             } ?: Text("The Windows surface is created before launch", color = Color.White, modifier = Modifier.padding(16.dp))
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = ::start, enabled = !busy, modifier = Modifier.testTag("client-start")) {
                 Text(if (busy) "Working…" else "Start self-test")
             }

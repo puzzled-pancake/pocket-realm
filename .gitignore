@@ -107,7 +107,7 @@ tmp/
 logs/
 *.log
 support_bundle/
-diagnostics/
+/diagnostics/
 
 # Exception: checked-in AVD experiment evidence (PKG-01/02/06 logcat captures,
 # per tests/avd/*/pkg-experiments.md and ADR-013). These .log/.logcat files are

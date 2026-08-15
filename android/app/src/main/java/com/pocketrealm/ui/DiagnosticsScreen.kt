@@ -47,8 +47,18 @@ fun DiagnosticsScreen(contentPadding: PaddingValues = PaddingValues()) {
     val supervisor = remember(context) { RuntimeSupervisorClient(context) }
     val scope = rememberCoroutineScope()
     var maintenance by remember { mutableStateOf("No backup operation running") }
+    var maintenanceBusy by remember { mutableStateOf(false) }
     var newestBackup by remember { mutableStateOf<String?>(null) }
     var supportStatus by remember { mutableStateOf("No support bundle created") }
+
+    // The restore target must come from the realm's own backup list, not from
+    // a backup created in this screen — otherwise restore can only ever
+    // round-trip the current (possibly broken) state.
+    LaunchedEffect(supervisor) {
+        newestBackup = runCatching { supervisor.listBackups() }.getOrNull()
+            ?.optJSONArray("backups")?.takeIf { it.length() > 0 }
+            ?.getJSONObject(0)?.getString("snapshotId")
+    }
 
     var logLines by remember { mutableStateOf(AppLog.snapshot()) }
     LaunchedEffect(Unit) {
@@ -86,36 +96,56 @@ fun DiagnosticsScreen(contentPadding: PaddingValues = PaddingValues()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Backup and restore", style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold)
-                    Button(onClick = {
-                        scope.launch {
-                            val name = "backup-${System.currentTimeMillis()}"
-                            val accepted = runCatching { supervisor.createBackup(name) }
-                            maintenance = accepted.fold(
-                                { if (it.optBoolean("ok")) "Backup accepted" else it.optString("error") },
-                                { "Backup failed: ${it.javaClass.simpleName}" },
-                            )
-                            while (accepted.getOrNull()?.optBoolean("ok") == true) {
-                                delay(500)
-                                val status = runCatching { supervisor.backupStatus() }.getOrNull() ?: break
-                                maintenance = "${status.optString("kind")}: ${status.optString("phase")}"
-                                if (status.optString("phase") in setOf("COMPLETE", "FAILED")) break
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                maintenanceBusy = true
+                                try {
+                                    val name = "backup-${System.currentTimeMillis()}"
+                                    val accepted = runCatching { supervisor.createBackup(name) }
+                                    maintenance = accepted.fold(
+                                        { if (it.optBoolean("ok")) "Backup accepted" else it.optString("error") },
+                                        { "Backup failed: ${it.javaClass.simpleName}" },
+                                    )
+                                    while (accepted.getOrNull()?.optBoolean("ok") == true) {
+                                        delay(500)
+                                        val status = runCatching { supervisor.backupStatus() }.getOrNull() ?: break
+                                        maintenance = "${status.optString("kind")}: ${status.optString("phase")}"
+                                        if (status.optString("phase") in setOf("COMPLETE", "FAILED")) break
+                                    }
+                                    newestBackup = runCatching { supervisor.listBackups() }.getOrNull()
+                                        ?.optJSONArray("backups")?.takeIf { it.length() > 0 }
+                                        ?.getJSONObject(0)?.getString("snapshotId")
+                                } finally {
+                                    maintenanceBusy = false
+                                }
                             }
-                            newestBackup = runCatching { supervisor.listBackups() }.getOrNull()
-                                ?.optJSONArray("backups")?.takeIf { it.length() > 0 }
-                                ?.getJSONObject(0)?.getString("snapshotId")
-                        }
-                    }, modifier = Modifier.fillMaxWidth()) { Text("Create named backup") }
+                        },
+                        enabled = !maintenanceBusy,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(if (maintenanceBusy) "Working…" else "Create named backup") }
                     OutlinedButton(onClick = {
                         newestBackup?.let { id ->
                             scope.launch {
-                                val accepted = runCatching { supervisor.restoreBackup(id) }
-                                maintenance = accepted.fold(
-                                    { if (it.optBoolean("ok")) "Restore verification accepted" else it.optString("error") },
-                                    { "Restore failed: ${it.javaClass.simpleName}" },
-                                )
+                                maintenanceBusy = true
+                                try {
+                                    val accepted = runCatching { supervisor.restoreBackup(id) }
+                                    maintenance = accepted.fold(
+                                        { if (it.optBoolean("ok")) "Restore verification accepted" else it.optString("error") },
+                                        { "Restore failed: ${it.javaClass.simpleName}" },
+                                    )
+                                    while (accepted.getOrNull()?.optBoolean("ok") == true) {
+                                        delay(500)
+                                        val status = runCatching { supervisor.backupStatus() }.getOrNull() ?: break
+                                        maintenance = "${status.optString("kind")}: ${status.optString("phase")}"
+                                        if (status.optString("phase") in setOf("COMPLETE", "FAILED")) break
+                                    }
+                                } finally {
+                                    maintenanceBusy = false
+                                }
                             }
                         }
-                    }, enabled = newestBackup != null, modifier = Modifier.fillMaxWidth()) {
+                    }, enabled = newestBackup != null && !maintenanceBusy, modifier = Modifier.fillMaxWidth()) {
                         Text("Restore newest backup")
                     }
                     Text(maintenance, style = MaterialTheme.typography.bodySmall)

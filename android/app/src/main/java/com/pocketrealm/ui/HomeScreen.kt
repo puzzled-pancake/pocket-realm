@@ -5,17 +5,17 @@ import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -32,6 +32,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,40 +42,51 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.pocketrealm.bots.BotProfile
-import com.pocketrealm.bots.BotProfiles
+import com.pocketrealm.bots.BotSelection
+import com.pocketrealm.log.AppLog
 import com.pocketrealm.client.IntegratedClientDisplay
 import com.pocketrealm.client.ArmClientRenderer
 import com.pocketrealm.client.ArmClientRendererCatalog
 import com.pocketrealm.client.AndroidGladioCapabilityProbe
 import com.pocketrealm.client.AndroidSystemVulkanProbe
-import com.pocketrealm.client.ClientAudioPolicy
-import com.pocketrealm.client.ClientDisplayProfile
-import com.pocketrealm.client.ClientRuntimeSelector
-import com.pocketrealm.client.RendererPackageCatalog
 import com.pocketrealm.client.SystemVulkanCapabilities
 import com.pocketrealm.client.GladioCapability
+import com.pocketrealm.client.ClientAudioPolicy
+import com.pocketrealm.client.ClientRuntimeSelector
+import com.pocketrealm.client.RendererPackageCatalog
 import com.pocketrealm.client.VulkanDriverCatalog
 import com.pocketrealm.realm.RealmState
 import com.pocketrealm.realm.ClientLaunchState
 import com.pocketrealm.service.RealmService
 import com.pocketrealm.storage.Settings
 import com.pocketrealm.supervisor.RuntimeSupervisorClient
-import com.pocketrealm.supervisor.RealmEndpoint
 import com.pocketrealm.supervisor.RuntimeMode
 import com.pocketrealm.supervisor.UserAccountStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Landscape-first launch dashboard for the dedicated handheld. */
+/**
+ * Landscape-first launch dashboard (brief §58): Home answers what will start,
+ * whether it is running, and which account is used. Bot configuration lives
+ * in the Bots destination; LAN host/join lives in the LAN destination.
+ */
 @Composable
-fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
+fun HomeScreen(
+    contentPadding: PaddingValues = PaddingValues(),
+    onOpenBots: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
+) {
     val context = LocalContext.current
     val supervisorClient = remember(context) { RuntimeSupervisorClient(context) }
     val stateUpdates = remember(supervisorClient) { supervisorClient.observeRealmState() }
     val state by stateUpdates.collectAsState(initial = RealmState.Idle)
     val settings = remember(context) { Settings(context) }
-    val settingsSnapshot by settings.flow.collectAsState(initial = Settings.Snapshot())
+    // Null until DataStore's first emission: launching with the all-default
+    // snapshot in that cold-start window would ignore the saved preset and
+    // LAN preference, so realm start actions gate on the real snapshot.
+    val settingsSnapshotState: Settings.Snapshot? by settings.flow.collectAsState(initial = null)
+    val settingsSnapshot = settingsSnapshotState ?: Settings.Snapshot()
     val systemVulkanProbe by produceState<Result<SystemVulkanCapabilities>?>(initialValue = null) {
         value = withContext(Dispatchers.IO) { runCatching { AndroidSystemVulkanProbe.probe() } }
     }
@@ -101,29 +113,35 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
             ).takeUnless { it.available }?.reason
         }
     } else null
-    val botProfile = remember(settingsSnapshot) {
-        if (settingsSnapshot.botAdvancedEnabled) {
-            BotProfiles.advanced(
-                settingsSnapshot.botPopulationTarget,
-                settingsSnapshot.botAdvanced,
+    // Re-resolve when a saved preset gains a revision so Home shows and
+    // launches the latest applied configuration, not a stale one.
+    val savedPresets by remember {
+        com.pocketrealm.bots.BotCustomPresets.store()?.presets
+            ?: kotlinx.coroutines.flow.MutableStateFlow(
+                emptyList<com.pocketrealm.bots.BotPresetStore.SavedPreset>(),
             )
-        } else {
-            BotProfiles.find(settingsSnapshot.botProfileId)
-                ?.takeIf { it.userSelectable }
-                ?: BotProfiles.migrateLegacyTarget(settingsSnapshot.botPopulationTarget)
-        }
+    }.collectAsState()
+    val selection = remember(settingsSnapshot, savedPresets) {
+        BotSelection.resolve(
+            savedPresetId = settingsSnapshot.botSavedPresetId,
+            advancedEnabled = settingsSnapshot.botAdvancedEnabled,
+            advancedTarget = settingsSnapshot.botPopulationTarget,
+            advanced = settingsSnapshot.botAdvanced,
+            profileId = settingsSnapshot.botProfileId,
+        )
     }
+    val botProfile = selection.profile
     val displayHost by IntegratedClientDisplay.host.collectAsState()
+    // Accounts are provisioned by the local world; hide the card while
+    // joined to a remote host as a client-only session.
     val lanJoinActive = (state as? RealmState.Running)?.mode == RuntimeMode.LAN_JOIN
     val scope = rememberCoroutineScope()
     val accountStore = remember(context) { UserAccountStore(context) }
-    var username by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var gmAccount by remember { mutableStateOf(false) }
-    var accountStatus by remember { mutableStateOf("Create a local account after the world is ready") }
+    var username by rememberSaveable { mutableStateOf("") }
+    var password by rememberSaveable { mutableStateOf("") }
+    var gmAccount by rememberSaveable { mutableStateOf(false) }
+    var accountStatus by rememberSaveable { mutableStateOf("Create a local account after the world is ready") }
     var storedAccount by remember { mutableStateOf(accountStore.loadOrQuarantine()?.username) }
-    var lanAddress by remember { mutableStateOf("") }
-    var lanError by remember { mutableStateOf<String?>(null) }
     var clientRetryPending by remember { mutableStateOf(false) }
     var accountOperationPending by remember { mutableStateOf(false) }
 
@@ -133,9 +151,22 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
         accountOperationPending = accountOperationPending,
     )
 
-    LaunchedEffect(displayHost?.generation) {
-        displayHost?.let { host ->
-            context.startActivity(ClientActivity.intent(context, host.generation))
+    // Auto-enter follows only an explicit client-start tap on this screen,
+    // and only once the client publishes a generation other than the one
+    // published at tap time. Generations are process-local counters that
+    // restart at zero whenever the app process is recreated, so reacting to
+    // generation changes alone re-entered the fullscreen client after a
+    // crash-relaunch and trapped the user out of Home; and a retry tapped
+    // while a failed host is still published must wait for the fresh
+    // generation instead of entering the dead display.
+    var pendingAutoEnterBase by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(pendingAutoEnterBase, displayHost?.generation) {
+        val base = pendingAutoEnterBase ?: return@LaunchedEffect
+        val generation = displayHost?.generation ?: return@LaunchedEffect
+        if (generation != base) {
+            AppLog.i("Home", "auto-enter generation $generation (base $base)")
+            pendingAutoEnterBase = null
+            context.startActivity(ClientActivity.intent(context, generation))
         }
     }
 
@@ -149,28 +180,24 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
         }
     }
 
-    val startRealmOnly = {
+    val startRealmOnly = startRealmOnly@{
+        if (settingsSnapshotState == null) return@startRealmOnly
         if (settingsSnapshot.allowLanPlayers) {
             RealmService.hostLan(context, botProfile.id, includeClient = false)
         } else RealmService.start(context, botProfile.id, includeClient = false)
     }
-    val startRealmAndGame = {
+    val startRealmAndGame = startRealmAndGame@{
+        if (settingsSnapshotState == null) return@startRealmAndGame
+        pendingAutoEnterBase = displayHost?.generation ?: -1L
         if (settingsSnapshot.allowLanPlayers) {
             RealmService.hostLan(context, botProfile.id, includeClient = true)
         } else RealmService.start(context, botProfile.id, includeClient = true)
-    }
-    val joinLan = {
-        runCatching {
-            val canonical = RealmEndpoint.parseLan(lanAddress).address
-            RealmService.joinLan(context, canonical)
-        }.onSuccess { lanError = null }
-            .onFailure { lanError = it.message ?: "Enter a private IPv4 address" }
-        Unit
     }
     val saveAndExit = { RealmService.saveExit(context) }
     val retryGame: () -> Unit = {
         if (!clientRetryPending) {
             clientRetryPending = true
+            pendingAutoEnterBase = displayHost?.generation ?: -1L
             scope.launch {
                 runCatching { supervisorClient.relaunchClient() }
                 clientRetryPending = false
@@ -255,9 +282,8 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
             .fillMaxSize()
             .padding(contentPadding),
     ) {
-        // The navigation rail has already consumed part of the logical width.
         // Orientation, not a second tablet-width threshold, is authoritative
-        // for the RP6 landscape home layout.
+        // for the landscape home layout.
         val landscape = maxWidth > maxHeight
         if (landscape) {
             Column(
@@ -267,6 +293,7 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
                 RealmControlCard(
                     state = state,
                     botProfile = botProfile,
+                    botPresetName = selection.savedPreset?.name,
                     onStartRealm = startRealmOnly,
                     onStartAll = startRealmAndGame,
                     onSaveExit = saveAndExit,
@@ -274,14 +301,11 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
                     onRetryGame = retryGame,
                     clientRetryPending = clientRetryPending,
                     canLaunchGame = canLaunchGame,
+                    settingsReady = settingsSnapshotState != null,
                     allowLanPlayers = settingsSnapshot.allowLanPlayers,
-                    lanAddress = lanAddress,
-                    onLanAddress = { lanAddress = it; lanError = null },
-                    onJoinLan = joinLan,
-                    lanError = lanError,
                     clientUnavailableReason = clientUnavailableReason,
-                    compact = true,
-                    modifier = Modifier.fillMaxWidth(),
+                    landscape = true,
+                    modifier = Modifier.fillMaxWidth().testTag("home-realm-card"),
                 )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -292,7 +316,9 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
                         profile = botProfile,
                         settings = settingsSnapshot,
                         storedAccount = storedAccount,
-                        modifier = Modifier.weight(0.82f),
+                        onOpenBots = onOpenBots,
+                        onOpenSettings = onOpenSettings,
+                        modifier = Modifier.weight(1f),
                     )
                     if (!lanJoinActive) AccountCard(
                         username = username,
@@ -306,7 +332,8 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
                         onCreate = createAccount,
                         onClear = clearAccount,
                         landscape = true,
-                        creationEnabled = state is RealmState.Running && !accountOperationPending,
+                        creationEnabled = state is RealmState.Running &&
+                            !lanJoinActive && !accountOperationPending,
                         operationPending = accountOperationPending,
                         modifier = Modifier.weight(1.18f),
                     )
@@ -323,6 +350,7 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
                 RealmControlCard(
                     state = state,
                     botProfile = botProfile,
+                    botPresetName = selection.savedPreset?.name,
                     onStartRealm = startRealmOnly,
                     onStartAll = startRealmAndGame,
                     onSaveExit = saveAndExit,
@@ -330,19 +358,18 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
                     onRetryGame = retryGame,
                     clientRetryPending = clientRetryPending,
                     canLaunchGame = canLaunchGame,
+                    settingsReady = settingsSnapshotState != null,
                     allowLanPlayers = settingsSnapshot.allowLanPlayers,
-                    lanAddress = lanAddress,
-                    onLanAddress = { lanAddress = it; lanError = null },
-                    onJoinLan = joinLan,
-                    lanError = lanError,
                     clientUnavailableReason = clientUnavailableReason,
-                    compact = false,
-                    modifier = Modifier.fillMaxWidth(),
+                    landscape = false,
+                    modifier = Modifier.fillMaxWidth().testTag("home-realm-card"),
                 )
                 CurrentSetupCard(
                     profile = botProfile,
                     settings = settingsSnapshot,
                     storedAccount = storedAccount,
+                    onOpenBots = onOpenBots,
+                    onOpenSettings = onOpenSettings,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (state is RealmState.Running && !lanJoinActive) {
@@ -368,10 +395,12 @@ fun HomeScreen(contentPadding: PaddingValues = PaddingValues()) {
     }
 }
 
+/** Compact realm card (brief §3): identity, status, and start actions only. */
 @Composable
 private fun RealmControlCard(
     state: RealmState,
     botProfile: BotProfile,
+    botPresetName: String?,
     onStartRealm: () -> Unit,
     onStartAll: () -> Unit,
     onSaveExit: () -> Unit,
@@ -379,216 +408,149 @@ private fun RealmControlCard(
     onRetryGame: () -> Unit,
     clientRetryPending: Boolean,
     canLaunchGame: Boolean,
+    settingsReady: Boolean,
     allowLanPlayers: Boolean,
-    lanAddress: String,
-    onLanAddress: (String) -> Unit,
-    onJoinLan: () -> Unit,
-    lanError: String?,
     clientUnavailableReason: String?,
-    compact: Boolean,
+    landscape: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val (statusText, detailText) = realmStatus(state)
     val actions = homeActionAvailability(
+        settingsReady = settingsReady,
         clientUnavailableReason = clientUnavailableReason,
         canLaunchGame = canLaunchGame,
         clientRetryPending = clientRetryPending,
     )
+    val presetLabel = botPresetName?.let { "Custom · $it" } ?: botProfile.displayName
     Card(
-        modifier = modifier.testTag("realm-control-card"),
+        modifier = modifier,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
     ) {
-        if (compact) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        val textArea: @Composable (Modifier) -> Unit = { m ->
+            Column(m, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Realm", style = MaterialTheme.typography.labelMedium)
-                    Text(statusText, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text(detailText, style = MaterialTheme.typography.bodySmall)
+                    Text(statusText, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+                // Preset display names already carry their bot count.
+                Text(presetLabel, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "Starts at ${botProfile.initialTarget} → target ${botProfile.selectedTarget} · " +
+                        "Adaptive AI on",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(detailText, style = MaterialTheme.typography.labelSmall)
+                clientUnavailableReason?.let {
                     Text(
-                        "${botProfile.displayName} | starts at ${botProfile.initialTarget}, target ${botProfile.selectedTarget}",
-                        style = MaterialTheme.typography.labelMedium,
+                        it,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.labelSmall,
                     )
-                    clientUnavailableReason?.let {
-                        Text(
-                            it,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall,
+                }
+            }
+        }
+        // Portrait stacks the actions under the status so the fixed button
+        // widths can never starve the text column to zero.
+        val actionArea: @Composable (fillRow: Boolean) -> Unit = { fillRow ->
+            when (state) {
+                is RealmState.Idle, is RealmState.Failed, is RealmState.Recovering -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Button(
+                                onClick = onStartRealm,
+                                enabled = actions.startRealm,
+                                modifier = (if (fillRow) Modifier.weight(1f) else Modifier)
+                                    .testTag("realm-primary-action"),
+                            ) { Text(if (allowLanPlayers) "Host realm" else "Start realm") }
+                            OutlinedButton(
+                                onClick = onStartAll,
+                                enabled = actions.startRealmAndGame,
+                                modifier = (if (fillRow) Modifier.weight(1f) else Modifier)
+                                    .testTag("realm-start-all"),
+                            ) { Text("Realm + game") }
+                        }
+                        if (!canLaunchGame) Text(
+                            "Start the realm, create your account, then start the game.",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.widthIn(max = 260.dp),
                         )
                     }
                 }
-                when (state) {
-                    is RealmState.Idle, is RealmState.Failed, is RealmState.Recovering -> {
-                        Column(
-                            modifier = Modifier.width(350.dp),
-                            verticalArrangement = Arrangement.spacedBy(5.dp),
-                        ) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                OutlinedTextField(
-                                    value = lanAddress,
-                                    onValueChange = onLanAddress,
-                                    label = { Text("LAN host IPv4") },
-                                    singleLine = true,
-                                    isError = lanError != null,
-                                    modifier = Modifier.width(160.dp).testTag("lan-join-address"),
-                                )
-                                OutlinedButton(
-                                    onClick = onJoinLan,
-                                    enabled = actions.joinLan,
-                                    modifier = Modifier.testTag("lan-join"),
-                                ) { Text("Join LAN") }
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Button(
-                                    onClick = onStartRealm,
-                                    enabled = actions.startRealm,
-                                    modifier = Modifier.weight(1f).testTag("realm-primary-action"),
-                                ) { Text(if (allowLanPlayers) "Host realm" else "Start realm") }
-                                OutlinedButton(
-                                    onClick = onStartAll,
-                                    enabled = actions.startRealmAndGame,
-                                    modifier = Modifier.weight(1f).testTag("realm-start-all"),
-                                ) { Text("Realm + game") }
-                            }
-                            if (!canLaunchGame) Text(
-                                "Start the realm, create your account, then start the game.",
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-                        }
-                    }
-                    is RealmState.Running -> {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (state.clientState == ClientLaunchState.FAILED) {
-                                Button(
-                                    onClick = onRetryGame,
-                                    enabled = actions.launchClient,
-                                    modifier = Modifier.testTag("retry-client"),
-                                ) { Text(if (clientRetryPending) "Retrying game..." else "Retry game") }
-                            } else if (state.clientState == ClientLaunchState.NOT_STARTED) {
-                                Button(
-                                    onClick = onRetryGame,
-                                    enabled = actions.launchClient,
-                                    modifier = Modifier.testTag("start-client"),
-                                ) { Text(if (clientRetryPending) "Starting game..." else "Start game") }
-                            } else {
-                                Button(
-                                    onClick = { onEnterGame?.invoke() },
-                                    enabled = onEnterGame != null,
-                                    modifier = Modifier.testTag("enter-fullscreen-client"),
-                                ) { Text(if (onEnterGame == null) "Preparing game..." else "Enter game") }
-                            }
-                            OutlinedButton(onClick = onSaveExit, modifier = Modifier.testTag("save-exit")) {
-                                Text(if (state.mode == RuntimeMode.LAN_JOIN) "Exit client" else "Save & exit")
-                            }
-                        }
-                    }
-                    is RealmState.Starting, is RealmState.Saving, is RealmState.Stopping -> {
-                        Button(onClick = {}, enabled = false, modifier = Modifier.testTag("realm-primary-action")) {
-                            Text(contextualWorkingLabel(state))
-                        }
-                    }
-                }
-            }
-        } else {
-        Column(
-            modifier = Modifier.fillMaxSize().padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("REALM STATUS", style = MaterialTheme.typography.labelMedium)
-            Text(statusText, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-            Text(detailText, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                "${botProfile.displayName} · starts at ${botProfile.initialTarget}, target ${botProfile.selectedTarget}",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            clientUnavailableReason?.let {
-                Text(
-                    it,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-            Spacer(Modifier.weight(1f))
-            when (state) {
-                is RealmState.Idle, is RealmState.Failed, is RealmState.Recovering -> {
-                    Button(
-                        onClick = onStartRealm,
-                        enabled = actions.startRealm,
-                        modifier = Modifier.fillMaxWidth().height(56.dp).testTag("realm-primary-action"),
-                    ) { Text(if (allowLanPlayers) "Host realm (server only)" else "Start realm (server only)") }
-                    OutlinedButton(
-                        onClick = onStartAll,
-                        enabled = actions.startRealmAndGame,
-                        modifier = Modifier.fillMaxWidth().testTag("realm-start-all"),
-                    ) { Text("Start realm & game") }
-                    if (!canLaunchGame) Text(
-                        "Start the realm first, create and save an account, then start the game.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    OutlinedTextField(
-                        value = lanAddress,
-                        onValueChange = onLanAddress,
-                        label = { Text("LAN host IPv4") },
-                        supportingText = { Text(lanError ?: "Private/link-local IPv4; ports 3724 and 8085 are fixed") },
-                        isError = lanError != null,
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth().testTag("lan-join-address"),
-                    )
-                    OutlinedButton(
-                        onClick = onJoinLan,
-                        enabled = actions.joinLan,
-                        modifier = Modifier.fillMaxWidth().testTag("lan-join"),
-                    ) { Text("Join LAN") }
-                }
                 is RealmState.Running -> {
-                    if (state.clientState == ClientLaunchState.FAILED) {
-                        Button(
-                            onClick = onRetryGame,
-                            enabled = actions.launchClient,
-                            modifier = Modifier.fillMaxWidth().height(56.dp).testTag("retry-client"),
-                        ) { Text(if (clientRetryPending) "Retrying game..." else "Retry game") }
-                    } else if (state.clientState == ClientLaunchState.NOT_STARTED) {
-                        Button(
-                            onClick = onRetryGame,
-                            enabled = actions.launchClient,
-                            modifier = Modifier.fillMaxWidth().height(56.dp).testTag("start-client"),
-                        ) { Text(if (clientRetryPending) "Starting game..." else "Start game") }
-                    } else {
-                        Button(
-                            onClick = { onEnterGame?.invoke() },
-                            enabled = onEnterGame != null,
-                            modifier = Modifier.fillMaxWidth().height(56.dp).testTag("enter-fullscreen-client"),
-                        ) { Text(if (onEnterGame == null) "Preparing game..." else "Enter game") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (state.clientState == ClientLaunchState.FAILED) {
+                            Button(
+                                onClick = onRetryGame,
+                                enabled = actions.launchClient,
+                                modifier = (if (fillRow) Modifier.weight(1f) else Modifier)
+                                    .testTag("retry-client"),
+                            ) { Text(if (clientRetryPending) "Retrying game..." else "Retry game") }
+                        } else if (state.clientState == ClientLaunchState.NOT_STARTED) {
+                            Button(
+                                onClick = onRetryGame,
+                                enabled = actions.launchClient,
+                                modifier = (if (fillRow) Modifier.weight(1f) else Modifier)
+                                    .testTag("start-client"),
+                            ) { Text(if (clientRetryPending) "Starting game..." else "Start game") }
+                        } else {
+                            Button(
+                                onClick = { onEnterGame?.invoke() },
+                                enabled = onEnterGame != null,
+                                modifier = (if (fillRow) Modifier.weight(1f) else Modifier)
+                                    .testTag("enter-fullscreen-client"),
+                            ) { Text(if (onEnterGame == null) "Preparing game..." else "Enter game") }
+                        }
+                        OutlinedButton(
+                            onClick = onSaveExit,
+                            modifier = (if (fillRow) Modifier.weight(1f) else Modifier)
+                                .testTag("save-exit"),
+                        ) {
+                            Text(if (state.mode == RuntimeMode.LAN_JOIN) "Exit client" else "Save & exit")
+                        }
                     }
-                    OutlinedButton(
-                        onClick = onSaveExit,
-                        modifier = Modifier.fillMaxWidth().testTag("save-exit"),
-                    ) { Text(if (state.mode == RuntimeMode.LAN_JOIN) "Exit client" else "Save & exit") }
                 }
                 is RealmState.Starting, is RealmState.Saving, is RealmState.Stopping -> {
                     Button(
                         onClick = {},
                         enabled = false,
-                        modifier = Modifier.fillMaxWidth().height(56.dp).testTag("realm-primary-action"),
-                    ) { Text(contextualWorkingLabel(state)) }
+                        modifier = (if (fillRow) Modifier.fillMaxWidth() else Modifier)
+                            .testTag("realm-primary-action"),
+                    ) {
+                        Text(contextualWorkingLabel(state))
+                    }
                 }
             }
         }
+        if (landscape) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                textArea(Modifier.weight(1f))
+                actionArea(false)
+            }
+        } else {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                textArea(Modifier.fillMaxWidth())
+                actionArea(true)
+            }
         }
     }
 }
 
+/** Dense active-setup summary (brief §4): compact chips, not one line per value. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CurrentSetupCard(
     profile: BotProfile,
     settings: Settings.Snapshot,
     storedAccount: String?,
+    onOpenBots: () -> Unit,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -610,10 +572,11 @@ private fun CurrentSetupCard(
         ArmClientRenderer.LEGACY_GLADIO -> "Legacy OpenGL / Gladio (experimental)"
         ArmClientRenderer.MESA_VIRGL -> "Mesa VirGL / virpipe (experimental)"
     }
-    val behavior = when {
-        profile.allowBotChat || profile.allowPlayerInvites -> "Social"
-        profile.autoDoQuests || profile.groupNearby || profile.wanderWhenIdle -> "Natural"
-        else -> "Efficient"
+    val activity = when {
+        profile.iterationsPerTick >= 18 && profile.activeBotPercent >= 15 -> "Very active AI"
+        profile.activeBotPercent >= 10 -> "Active AI"
+        profile.activeBotPercent >= 6 -> "Balanced AI"
+        else -> "Light AI"
     }
     val audioSupported = remember {
         ClientAudioPolicy.isSupported(
@@ -621,8 +584,8 @@ private fun CurrentSetupCard(
         )
     }
     val sound = when {
-        !audioSupported -> "Audio unavailable on this validation provider"
-        settings.audioMode == Settings.AudioMode.ON -> "Speakers on"
+        !audioSupported -> "Audio unavailable on this device"
+        settings.audioMode == Settings.AudioMode.ON -> "Sound on"
         else -> "Muted"
     }
     val login = when {
@@ -630,27 +593,43 @@ private fun CurrentSetupCard(
         storedAccount == null -> "Auto-login waiting for account"
         else -> "Auto-login: $storedAccount"
     }
-    val tweaks = if (settings.tweaks.hasAnyPatch()) "Client tweaks requested" else "Vanilla client"
 
     Card(modifier = modifier.testTag("active-setup-card")) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), Arrangement.spacedBy(3.dp)) {
-            Text("Active setup", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), Arrangement.spacedBy(6.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Active setup",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedButton(
+                    onClick = onOpenBots,
+                    modifier = Modifier.testTag("setup-open-bots"),
+                ) { Text("Bots") }
+                OutlinedButton(
+                    onClick = onOpenSettings,
+                    modifier = Modifier.testTag("setup-open-graphics"),
+                ) { Text("Graphics") }
+            }
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                AssistChip(onClick = onOpenBots, label = { Text("${profile.selectedTarget} bots") })
+                AssistChip(onClick = onOpenBots, label = { Text(activity) })
+                AssistChip(onClick = onOpenSettings, label = {
+                    Text("${display.resolution} · ${display.frameCap.fps} FPS")
+                })
+                AssistChip(onClick = onOpenSettings, label = { Text(graphics) })
+            }
             Text(
-                "${profile.displayName} · $behavior behavior · ${profile.nearPlayerTeleportMaxAmount} nearby",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Text(
-                "Ramp ${profile.initialTarget} → ${profile.selectedTarget} · " +
-                    "${profile.loginBatchSize} logins per ${profile.randomBotUpdateIntervalMs / 1_000f}s",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Text(
-                "${display.resolution} · ${display.frameCap.fps} FPS · $graphics · $sound",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Text(login, style = MaterialTheme.typography.bodySmall)
-            Text(
-                "$tweaks · ${if (settings.botAdvancedEnabled) "Advanced bot tuning" else "Preset bot tuning"}",
+                login + " · $sound" +
+                    if (settings.tweaks.hasAnyPatch()) " · Client tweaks on" else " · Vanilla client",
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -684,7 +663,7 @@ private fun AccountCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("Local account", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                Text("Local account", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                 storedAccount?.let {
                     Text("Saved: $it", style = MaterialTheme.typography.labelMedium)
                     OutlinedButton(onClick = onClear, enabled = !operationPending) { Text("Clear") }
@@ -780,9 +759,9 @@ private fun realmStatus(state: RealmState): Pair<String, String> = when (state) 
     } else when (state.mode) {
         RuntimeMode.LOCAL -> "Realm online" to "The world and loopback-only services are ready."
         RuntimeMode.LAN_HOST -> "LAN realm online" to
-            "Experimental host bound to ${state.endpointAddress}; ports 3724 and 8085 only."
+            "Hosting on ${state.endpointAddress}; manage LAN in the LAN destination."
         RuntimeMode.LAN_JOIN -> "LAN client online" to
-            "Client-only session for ${state.endpointAddress}; log in with an account from that host."
+            "Client-only session for ${state.endpointAddress}; manage it in the LAN destination."
     }
     is RealmState.Saving -> "Saving" to "Draining durable writes (${state.reason.name.lowercase()})."
     is RealmState.Stopping -> "Stopping" to "Closing the client and local services safely."
@@ -816,14 +795,18 @@ internal data class HomeActionAvailability(
 
 /** Graphics/client failures never block the independent DB/realm/world action. */
 internal fun homeActionAvailability(
+    settingsReady: Boolean,
     clientUnavailableReason: String?,
     canLaunchGame: Boolean,
     clientRetryPending: Boolean,
 ): HomeActionAvailability {
     val clientAvailable = clientUnavailableReason == null
     return HomeActionAvailability(
-        startRealm = true,
-        startRealmAndGame = clientAvailable && canLaunchGame,
+        // Before the first real settings emission the saved preset and LAN
+        // preference are unknown; the buttons must look unavailable, not
+        // enabled-but-silent.
+        startRealm = settingsReady,
+        startRealmAndGame = settingsReady && clientAvailable && canLaunchGame,
         joinLan = clientAvailable,
         launchClient = clientAvailable && canLaunchGame && !clientRetryPending,
     )

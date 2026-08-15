@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import com.pocketrealm.bots.BotCustomPresets
 import com.pocketrealm.log.AppLog
 import com.pocketrealm.service.RealmService
 import com.pocketrealm.ui.theme.PocketRealmTheme
@@ -27,6 +28,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Saved bot presets must resolve in this process (UI selection).
+        BotCustomPresets.install(java.io.File(filesDir, "bots"))
         // Foreground service + notification need POST_NOTIFICATIONS on 33+.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {

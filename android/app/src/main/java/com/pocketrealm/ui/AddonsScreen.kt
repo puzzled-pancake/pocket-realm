@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -151,6 +153,7 @@ fun RecommendedAddonsScreen(onOpenAddon: (String) -> Unit) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun InstalledAddonsScreen(
     onOpenCatalogAddon: (String) -> Unit,
@@ -163,15 +166,14 @@ fun InstalledAddonsScreen(
     val busy = state.operation != null
 
     AddonPage(repository, state) {
-        Row(
+        FlowRow(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 if (state.installed.isEmpty()) "No add-ons installed."
                 else "${state.installed.size} installed · changes apply next launch.",
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxWidth(),
             )
             OutlinedButton(
                 onClick = repository::checkForUpdates,
@@ -437,7 +439,13 @@ private fun AddonHubRow(
                 Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Text(summary, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text(status, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            Text(
+                status,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             Text("›", style = MaterialTheme.typography.headlineMedium)
         }
     }
