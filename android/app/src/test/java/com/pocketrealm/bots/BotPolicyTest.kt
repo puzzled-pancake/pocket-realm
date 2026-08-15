@@ -82,25 +82,29 @@ class BotPolicyTest {
         }
     }
 
-    @Test fun settingsExposeGradualEverydayProfilesAndPreserveLegacyIdentities() {
-        assertEquals(BotProfiles.QUIET_25, BotProfiles.forRequestedTarget(25))
-        assertEquals(BotProfiles.TYPICAL_50, BotProfiles.forRequestedTarget(50))
-        assertEquals(BotProfiles.BALANCED_100, BotProfiles.forRequestedTarget(100))
-        assertEquals(BotProfiles.POPULATED_250, BotProfiles.forRequestedTarget(250))
-        assertEquals(BotProfiles.CROWDED_400, BotProfiles.forRequestedTarget(400))
-        assertEquals(BotProfiles.BUSY_600, BotProfiles.forRequestedTarget(600))
+    @Test fun settingsExposeTheExperienceLadderAndPreserveLegacyIdentities() {
+        assertEquals(BotProfiles.LOW_POWER_80, BotProfiles.forRequestedTarget(80))
+        assertEquals(BotProfiles.BUSY_WORLD_240, BotProfiles.forRequestedTarget(250))
+        assertEquals(BotProfiles.ALIVE_REALM_320, BotProfiles.forRequestedTarget(320))
+        assertEquals(BotProfiles.FULL_REALM_500, BotProfiles.forRequestedTarget(500))
         assertEquals(BotProfiles.LAUNCH_DAY_700, BotProfiles.forRequestedTarget(700))
         assertEquals(
-            listOf(25, 50, 100, 250, 400, 600, 700),
+            listOf(80, 160, 240, 320, 400, 500, 600, 700),
             BotProfiles.userSelectable().map { it.selectedTarget },
         )
 
         assertEquals(BotProfiles.LOW_CPU_160, BotProfiles.find(BotProfiles.LOW_CPU_160.id))
         assertEquals(BotProfiles.FRESH_REALM_240, BotProfiles.find(BotProfiles.FRESH_REALM_240.id))
         assertEquals(BotProfiles.LIVELY_700, BotProfiles.find(BotProfiles.LIVELY_700.id))
+        assertEquals(BotProfiles.QUIET_25, BotProfiles.find(BotProfiles.QUIET_25.id))
+        assertEquals(BotProfiles.BALANCED_100, BotProfiles.find(BotProfiles.BALANCED_100.id))
         assertFalse(BotProfiles.LOW_CPU_160.userSelectable)
         assertFalse(BotProfiles.FRESH_REALM_240.userSelectable)
         assertFalse(BotProfiles.LIVELY_700.userSelectable)
+        // Legacy ladder members are still resolvable for stored selections.
+        assertFalse(BotProfiles.QUIET_25.userSelectable)
+        assertFalse(BotProfiles.BALANCED_100.userSelectable)
+        assertTrue(BotProfiles.LAUNCH_DAY_700.userSelectable)
     }
 
     @Test fun intermediateHighPopulationProfilesRampConservativelyAndReduceLocalCrowding() {

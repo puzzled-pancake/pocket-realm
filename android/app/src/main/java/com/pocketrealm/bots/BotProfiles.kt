@@ -54,15 +54,17 @@ data class BotProfile(
         require(startupIncreaseStep in 1..maximumOnline)
         require(startupRampIntervalMs in 0..30 * 60_000L)
         require(activationBatchSize in 1..64)
-        // The ordinary mobile tier remains deliberately small. Higher values
-        // are reserved for named, explicitly selected stress profiles and are
-        // still bounded by the Settings population contract.
-        require(maximumOnline <= 1_500)
+        // The ceiling is the documented device bound from the pinned engine
+        // study, not a historical UI number: upstream parses these counts as
+        // uint32 with no explicit maximum (see BotPopulationPolicy).
+        require(maximumOnline <= BotPopulationPolicy.MAX_SUPPORTED_TARGET)
         require(maximumAltBots in 0..8)
         require(generationBatchSize in 1..10 && generationYieldMs in 0..5_000)
         require(accountPrefix.matches(Regex("[A-Z][A-Z0-9]{2,7}")))
-        require(accountCount in 1..200 && loginBatchSize in 1..10)
-        require(accountCount * 9 >= maximumOnline) { "account pool cannot supply maximum bot target" }
+        require(accountCount in 1..BotPopulationPolicy.MAX_ACCOUNTS && loginBatchSize in 1..10)
+        require(accountCount * BotPopulationPolicy.CHARACTERS_PER_BOT_ACCOUNT >= maximumOnline) {
+            "account pool cannot supply maximum bot target"
+        }
         require(maintenanceBatchSize in 1..64)
         require(randomBotUpdateIntervalMs in 500..60_000)
         require(iterationsPerTick in 1..20)
@@ -458,6 +460,7 @@ object BotProfiles {
         id = "mobile-typical-b50-v1",
         displayName = "Typical · 50 bots",
         summary = "A quiet everyday realm that fills gradually around the player.",
+        userSelectable = false,
         selectedTarget = 50,
         minimumOnline = 25,
         maximumOnline = 50,
@@ -492,6 +495,7 @@ object BotProfiles {
         id = "mobile-quiet-b25-v1",
         displayName = "Quiet · 25 bots",
         summary = "The lightest everyday world for battery life and solo play.",
+        userSelectable = false,
         selectedTarget = 25,
         minimumOnline = 25,
         maximumOnline = 25,
@@ -526,6 +530,7 @@ object BotProfiles {
         id = "mobile-balanced-b100-v1",
         displayName = "Balanced · 100 bots",
         summary = "A busier everyday realm with conservative background scheduling.",
+        userSelectable = false,
         selectedTarget = 100,
         minimumOnline = 25,
         maximumOnline = 100,
@@ -597,6 +602,7 @@ object BotProfiles {
         id = "mobile-populated-b250-v1",
         displayName = "Populated · 250 bots",
         summary = "A fuller leveling world that still ramps in measured steps.",
+        userSelectable = false,
         selectedTarget = 250,
         minimumOnline = 25,
         maximumOnline = 250,
@@ -631,6 +637,7 @@ object BotProfiles {
         id = "mobile-crowded-b400-v1",
         displayName = "Crowded · 400 bots",
         summary = "A high-population world with a restrained local crowd and gradual startup.",
+        userSelectable = false,
         selectedTarget = 400,
         minimumOnline = 25,
         maximumOnline = 400,
@@ -666,6 +673,7 @@ object BotProfiles {
         id = "mobile-busy-b600-v1",
         displayName = "Busy · 600 bots",
         summary = "A very busy realm that limits nearby activity and ramps in conservative batches.",
+        userSelectable = false,
         selectedTarget = 600,
         minimumOnline = 25,
         maximumOnline = 600,
@@ -697,10 +705,301 @@ object BotProfiles {
             5 * 60_000L, 10_000L),
     )
 
+    // ------------------------------------------------------------------
+    // Experience presets (UI-landscape brief, sections 7-9). Built-ins are
+    // curated combinations of population, AI responsiveness, activity share,
+    // locality and behavior; the built-in range peaks at 600 by design while
+    // custom populations are validated by BotPopulationPolicy instead.
+    // ------------------------------------------------------------------
+
+    /** Passive cooling / weaker devices. Light AI everywhere. */
+    val LOW_POWER_80 = BotProfile(
+        id = "preset-low-power-b80-v1",
+        displayName = "Low Power · 80 bots",
+        summary = "Light AI load for passive cooling and weaker devices.",
+        selectedTarget = 80,
+        minimumOnline = 40,
+        maximumOnline = 80,
+        initialTarget = 40,
+        startupIncreaseStep = 20,
+        startupRampIntervalMs = 45_000,
+        activationBatchSize = 4,
+        maximumAltBots = 2,
+        generationBatchSize = 5,
+        generationYieldMs = 500,
+        accountPrefix = "PRLP80",
+        accountCount = 11,
+        loginBatchSize = 2,
+        maintenanceBatchSize = 8,
+        randomBotUpdateIntervalMs = 2_500,
+        iterationsPerTick = 8,
+        forceActiveWhenNearPlayer = true,
+        nearPlayerTeleportMaxAmount = 8,
+        nearPlayerTeleportRadius = 200,
+        teleportMinIntervalSeconds = 3_600,
+        teleportMaxIntervalSeconds = 14_400,
+        limitCombatActivity = true,
+        activeBotPercent = 3,
+        autoDoQuests = false,
+        allowBotChat = false,
+        allowPlayerInvites = false,
+        groupNearby = false,
+        wanderWhenIdle = true,
+        enableOffSpecStrategies = false,
+        admission = BotAdmissionLimits(250, 768, 2_048, 3 * 60_000L, 10, 10,
+            5 * 60_000L, 10_000L),
+    )
+
+    /** Smarter/faster bots over population. Very high foreground priority. */
+    val LIVELY_160 = BotProfile(
+        id = "preset-lively-b160-v1",
+        displayName = "Lively · 160 bots",
+        summary = "Fast, very active bots in a smaller realm.",
+        selectedTarget = 160,
+        minimumOnline = 100,
+        maximumOnline = 160,
+        initialTarget = 100,
+        startupIncreaseStep = 40,
+        startupRampIntervalMs = 30_000,
+        activationBatchSize = 8,
+        maximumAltBots = 2,
+        generationBatchSize = 10,
+        generationYieldMs = 150,
+        accountPrefix = "PRLV160",
+        accountCount = 22,
+        loginBatchSize = 4,
+        maintenanceBatchSize = 16,
+        randomBotUpdateIntervalMs = 1_000,
+        iterationsPerTick = 20,
+        forceActiveWhenNearPlayer = true,
+        nearPlayerTeleportMaxAmount = 16,
+        nearPlayerTeleportRadius = 250,
+        teleportMinIntervalSeconds = 1_800,
+        teleportMaxIntervalSeconds = 7_200,
+        limitCombatActivity = false,
+        activeBotPercent = 18,
+        autoDoQuests = true,
+        allowBotChat = false,
+        allowPlayerInvites = false,
+        groupNearby = true,
+        wanderWhenIdle = true,
+        enableOffSpecStrategies = true,
+        admission = BotAdmissionLimits(250, 1_024, 2_048, 3 * 60_000L, 20, 20,
+            5 * 60_000L, 10_000L),
+    )
+
+    /** Responsive, populated realm. Strong quest/group behaviour. */
+    val BUSY_WORLD_240 = BotProfile(
+        id = "preset-busy-world-b240-v1",
+        displayName = "Busy World · 240 bots",
+        summary = "Responsive bots with strong quest and group behaviour.",
+        selectedTarget = 240,
+        minimumOnline = 120,
+        maximumOnline = 240,
+        initialTarget = 120,
+        startupIncreaseStep = 40,
+        startupRampIntervalMs = 30_000,
+        activationBatchSize = 8,
+        maximumAltBots = 2,
+        generationBatchSize = 10,
+        generationYieldMs = 125,
+        accountPrefix = "PRBW240",
+        accountCount = 33,
+        loginBatchSize = 4,
+        maintenanceBatchSize = 16,
+        randomBotUpdateIntervalMs = 1_250,
+        iterationsPerTick = 16,
+        forceActiveWhenNearPlayer = true,
+        nearPlayerTeleportMaxAmount = 16,
+        nearPlayerTeleportRadius = 250,
+        teleportMinIntervalSeconds = 1_800,
+        teleportMaxIntervalSeconds = 7_200,
+        limitCombatActivity = true,
+        activeBotPercent = 15,
+        autoDoQuests = true,
+        allowBotChat = false,
+        allowPlayerInvites = false,
+        groupNearby = true,
+        wanderWhenIdle = true,
+        enableOffSpecStrategies = true,
+        admission = BotAdmissionLimits(250, 1_536, 2_048, 4 * 60_000L, 25, 25,
+            5 * 60_000L, 10_000L),
+    )
+
+    /**
+     * Recommended default. A populated Vanilla realm where bots around humans
+     * and group content receive substantially more AI attention than distant
+     * characters: ~12% active (~38 bots), 2 s base AI pass, fast nearby
+     * promotion, quests/groups/wandering on, level matching off for Classic.
+     */
+    val ALIVE_REALM_320 = BotProfile(
+        id = "preset-alive-realm-b320-v1",
+        displayName = "Alive Realm · 320 bots",
+        summary = "Recommended populated realm with fast AI around players and groups.",
+        selectedTarget = 320,
+        minimumOnline = 50,
+        maximumOnline = 320,
+        initialTarget = 50,
+        startupIncreaseStep = 50,
+        startupRampIntervalMs = 30_000,
+        activationBatchSize = 8,
+        maximumAltBots = 2,
+        generationBatchSize = 10,
+        generationYieldMs = 125,
+        accountPrefix = "PRAR320",
+        accountCount = 44,
+        loginBatchSize = 3,
+        maintenanceBatchSize = 16,
+        randomBotUpdateIntervalMs = 2_000,
+        iterationsPerTick = 15,
+        forceActiveWhenNearPlayer = true,
+        nearPlayerTeleportMaxAmount = 16,
+        nearPlayerTeleportRadius = 250,
+        teleportMinIntervalSeconds = 3_600,
+        teleportMaxIntervalSeconds = 14_400,
+        syncLevelWithPlayers = false,
+        limitCombatActivity = true,
+        activeBotPercent = 12,
+        autoDoQuests = true,
+        allowBotChat = false,
+        allowPlayerInvites = false,
+        groupNearby = true,
+        wanderWhenIdle = true,
+        enableOffSpecStrategies = true,
+        admission = BotAdmissionLimits(250, 2_048, 2_048, 4 * 60_000L, 25, 25,
+            5 * 60_000L, 10_000L),
+    )
+
+    /** Larger persistent population; nearby fast, remote background. */
+    val CROWDED_REALM_400 = BotProfile(
+        id = "preset-crowded-realm-b400-v1",
+        displayName = "Crowded Realm · 400 bots",
+        summary = "Larger persistent population with fast nearby bots.",
+        selectedTarget = 400,
+        minimumOnline = 100,
+        maximumOnline = 400,
+        initialTarget = 100,
+        startupIncreaseStep = 50,
+        startupRampIntervalMs = 40_000,
+        activationBatchSize = 6,
+        maximumAltBots = 2,
+        generationBatchSize = 10,
+        generationYieldMs = 125,
+        accountPrefix = "PRCR400",
+        accountCount = 54,
+        loginBatchSize = 3,
+        maintenanceBatchSize = 12,
+        randomBotUpdateIntervalMs = 2_500,
+        iterationsPerTick = 12,
+        forceActiveWhenNearPlayer = true,
+        nearPlayerTeleportMaxAmount = 12,
+        nearPlayerTeleportRadius = 250,
+        teleportMinIntervalSeconds = 3_600,
+        teleportMaxIntervalSeconds = 14_400,
+        syncLevelWithPlayers = true,
+        randomBotMaxLevelChance = 0.25f,
+        limitCombatActivity = true,
+        activeBotPercent = 10,
+        autoDoQuests = true,
+        allowBotChat = false,
+        allowPlayerInvites = false,
+        groupNearby = true,
+        wanderWhenIdle = true,
+        enableOffSpecStrategies = true,
+        admission = BotAdmissionLimits(250, 1_792, 2_048, 4 * 60_000L, 25, 25,
+            5 * 60_000L, 10_000L),
+    )
+
+    /** High population; foreground fast, background reduced. */
+    val FULL_REALM_500 = BotProfile(
+        id = "preset-full-realm-b500-v1",
+        displayName = "Full Realm · 500 bots",
+        summary = "High population with responsive foreground and light background AI.",
+        selectedTarget = 500,
+        minimumOnline = 100,
+        maximumOnline = 500,
+        initialTarget = 100,
+        startupIncreaseStep = 50,
+        startupRampIntervalMs = 45_000,
+        activationBatchSize = 5,
+        maximumAltBots = 2,
+        generationBatchSize = 5,
+        generationYieldMs = 250,
+        accountPrefix = "PRFR500",
+        accountCount = 68,
+        loginBatchSize = 2,
+        maintenanceBatchSize = 8,
+        randomBotUpdateIntervalMs = 2_500,
+        iterationsPerTick = 10,
+        forceActiveWhenNearPlayer = true,
+        nearPlayerTeleportMaxAmount = 12,
+        nearPlayerTeleportRadius = 250,
+        teleportMinIntervalSeconds = 3_600,
+        teleportMaxIntervalSeconds = 10_800,
+        syncLevelWithPlayers = true,
+        randomBotMaxLevelChance = 0.30f,
+        limitCombatActivity = true,
+        activeBotPercent = 8,
+        autoDoQuests = true,
+        allowBotChat = false,
+        allowPlayerInvites = false,
+        groupNearby = true,
+        wanderWhenIdle = true,
+        enableOffSpecStrategies = false,
+        admission = BotAdmissionLimits(250, 2_048, 2_048, 5 * 60_000L, 50, 25,
+            5 * 60_000L, 10_000L),
+    )
+
+    /**
+     * Largest curated built-in. Population/locality focused: humans and their
+     * groups keep maximum attention while the remote world is simulated at
+     * low frequency. 600 is the built-in ceiling, not the custom ceiling.
+     */
+    val MASSIVE_REALM_600 = BotProfile(
+        id = "preset-massive-realm-b600-v1",
+        displayName = "Massive Realm · 600 bots",
+        summary = "Largest built-in realm; human and nearby bots get priority AI.",
+        selectedTarget = 600,
+        minimumOnline = 100,
+        maximumOnline = 600,
+        initialTarget = 100,
+        startupIncreaseStep = 50,
+        startupRampIntervalMs = 45_000,
+        activationBatchSize = 4,
+        maximumAltBots = 2,
+        generationBatchSize = 5,
+        generationYieldMs = 250,
+        accountPrefix = "PRMR600",
+        accountCount = 81,
+        loginBatchSize = 2,
+        maintenanceBatchSize = 8,
+        randomBotUpdateIntervalMs = 3_000,
+        iterationsPerTick = 8,
+        forceActiveWhenNearPlayer = true,
+        nearPlayerTeleportMaxAmount = 10,
+        nearPlayerTeleportRadius = 250,
+        teleportMinIntervalSeconds = 3_600,
+        teleportMaxIntervalSeconds = 14_400,
+        syncLevelWithPlayers = true,
+        randomBotMaxLevelChance = 0.30f,
+        limitCombatActivity = true,
+        activeBotPercent = 6,
+        autoDoQuests = true,
+        allowBotChat = false,
+        allowPlayerInvites = false,
+        groupNearby = true,
+        wanderWhenIdle = true,
+        enableOffSpecStrategies = false,
+        admission = BotAdmissionLimits(250, 2_048, 2_048, 5 * 60_000L, 50, 25,
+            5 * 60_000L, 10_000L),
+    )
+
     private val profiles = listOf(
         LOW_25, LOW_CPU_160, FRESH_REALM_240, LIVELY_700,
         QUIET_25, TYPICAL_50, BALANCED_100, POPULATED_250,
         CROWDED_400, BUSY_600, LAUNCH_DAY_700,
+        LOW_POWER_80, LIVELY_160, BUSY_WORLD_240, ALIVE_REALM_320,
+        CROWDED_REALM_400, FULL_REALM_500, MASSIVE_REALM_600,
     )
         .associateBy(BotProfile::id)
 
@@ -709,7 +1008,27 @@ object BotProfiles {
         QUIET_25, TYPICAL_50, BALANCED_100, POPULATED_250, LAUNCH_DAY_700,
     )
 
-    fun find(id: String): BotProfile? = profiles[id] ?: decodeAdvanced(id)
+    /** Catalog that adv4 identities minted against (the pre-experience selectable ladder). */
+    private val adv4Catalog = listOf(
+        QUIET_25, TYPICAL_50, BALANCED_100, POPULATED_250,
+        CROWDED_400, BUSY_600, LAUNCH_DAY_700,
+    )
+
+    /** Experience presets shown by the Bots destination, in display order. */
+    val experiencePresets = listOf(
+        LOW_POWER_80, LIVELY_160, BUSY_WORLD_240, ALIVE_REALM_320,
+        CROWDED_REALM_400, FULL_REALM_500, MASSIVE_REALM_600,
+    )
+
+    /** Retained legacy built-ins that remain launchable but are no longer featured. */
+    val legacySelectablePresets = listOf(LAUNCH_DAY_700)
+
+    /** Fresh-install default per the landscape UI brief: a genuinely populated realm. */
+    val defaultProfile: BotProfile get() = ALIVE_REALM_320
+
+    fun find(id: String): BotProfile? = profiles[id]
+        ?: BotCustomPresets.lookupProfile(id)
+        ?: decodeAdvanced(id)
     fun require(id: String): BotProfile = requireNotNull(find(id)) { "unknown bot profile: $id" }
     fun ids(): Set<String> = profiles.keys
     fun userSelectable(): List<BotProfile> = profiles.values.filter { it.userSelectable }
@@ -729,7 +1048,14 @@ object BotProfiles {
     }
 
     fun advanced(target: Int, settings: BotAdvancedSettings): BotProfile {
-        return advancedFromBase(ADVANCED_V4, target, settings, forRequestedTarget(target))
+        // adv4 identities are frozen against the catalog they were minted on;
+        // new named custom presets use usr5 identities via BotCustomPresets.
+        return advancedFromBase(ADVANCED_V4, target, settings, adv4Base(target))
+    }
+
+    /** Base profile resolver for adv4 identities. Frozen; never reorder adv4Catalog. */
+    private fun adv4Base(target: Int): BotProfile = adv4Catalog.minBy {
+        kotlin.math.abs(it.selectedTarget - target)
     }
 
     private fun advancedFromBase(
@@ -811,7 +1137,7 @@ object BotProfiles {
     }
 
     private fun decodeAdvanced(id: String): BotProfile? {
-        return decodeCompactAdvanced(id, ADVANCED_V4, ::forRequestedTarget)
+        return decodeCompactAdvanced(id, ADVANCED_V4, ::adv4Base)
             ?: decodeCompactAdvanced(id, ADVANCED_V3, ::legacyAdvancedBase)
             ?: decodeAdvanced(id, ADVANCED_V2) { legacyAdvancedBase(it) }
             ?: decodeAdvanced(id, ADVANCED_V1) { target ->
