@@ -24,6 +24,7 @@ import com.winlator.xserver.errors.GLXBadFBConfig;
 import com.winlator.xserver.errors.XRequestError;
 
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class GLXExtension extends Extension {
     public static final byte MAJOR_VERSION = 1;
@@ -31,6 +32,7 @@ public class GLXExtension extends Extension {
     private static final byte DEFAULT_FBCONFIG_ID = 1;
     private final SparseArray<SparseLongArray> clientGLXContexts = new SparseArray<>();
     private final SparseArray<SparseLongArray> clientGLContexts = new SparseArray<>();
+    private final AtomicLong successfulPresentCount = new AtomicLong();
     private final String glxExtensions = "GLX_ARB_create_context GLX_ARB_get_proc_address";
     private final Callback<XClient> onDestroyClientListener = (client) -> {
         destroyAllGLContexts(client.fd);
@@ -70,25 +72,29 @@ public class GLXExtension extends Extension {
     private void createGLContext(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
         int contextId = inputStream.readInt();
 
-        SparseLongArray contexts = clientGLContexts.get(client.fd);
-        if (contexts == null) {
-            clientGLContexts.put(client.fd, contexts = new SparseLongArray());
-            client.addOnDestroyListener(onDestroyClientListener);
-        }
+        synchronized (clientGLContexts) {
+            SparseLongArray contexts = clientGLContexts.get(client.fd);
+            if (contexts == null) {
+                clientGLContexts.put(client.fd, contexts = new SparseLongArray());
+                client.addOnDestroyListener(onDestroyClientListener);
+            }
 
-        long context = createGLContext(client.fd);
-        if (context != 0) contexts.put(contextId, context);
+            long context = createGLContext(client.fd);
+            if (context != 0) contexts.put(contextId, context);
+        }
     }
 
     private void destroyGLContext(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
         int contextId = inputStream.readInt();
 
-        SparseLongArray contexts = clientGLContexts.get(client.fd);
-        if (contexts == null) throw new GLXBadContext();
+        synchronized (clientGLContexts) {
+            SparseLongArray contexts = clientGLContexts.get(client.fd);
+            if (contexts == null) throw new GLXBadContext();
 
-        long context = contexts.get(contextId, 0L);
-        if (context != 0) destroyGLContext(context);
-        contexts.delete(contextId);
+            long context = contexts.get(contextId, 0L);
+            if (context != 0) destroyGLContext(context);
+            contexts.delete(contextId);
+        }
 
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
@@ -337,6 +343,32 @@ public class GLXExtension extends Extension {
         }
     }
 
+    public int getLiveTransportContextCount() {
+        synchronized (clientGLContexts) {
+            int count = 0;
+            for (int i = 0; i < clientGLContexts.size(); i++) {
+                SparseLongArray contexts = clientGLContexts.valueAt(i);
+                if (contexts != null) count += contexts.size();
+            }
+            return count;
+        }
+    }
+
+    public int getLiveGLXContextCount() {
+        synchronized (clientGLXContexts) {
+            int count = 0;
+            for (int i = 0; i < clientGLXContexts.size(); i++) {
+                SparseLongArray contexts = clientGLXContexts.valueAt(i);
+                if (contexts != null) count += contexts.size();
+            }
+            return count;
+        }
+    }
+
+    public long getSuccessfulPresentCount() {
+        return successfulPresentCount.get();
+    }
+
     @Keep
     private int updateWindowContent(int drawableId, short width, short height, boolean flipY, boolean validateContent) {
         Drawable drawable = xServer.drawableManager.getDrawable(drawableId);
@@ -360,6 +392,7 @@ public class GLXExtension extends Extension {
             boolean hasContent = texture.copyFromReadBuffer(width, height, validateContent);
             Runnable onDrawListener = drawable.getOnDrawListener();
             if (onDrawListener != null) onDrawListener.run();
+            if (hasContent) successfulPresentCount.incrementAndGet();
             return hasContent ? 2 : 1;
         }
     }

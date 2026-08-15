@@ -1,5 +1,7 @@
 package com.pocketrealm.ui
 
+import android.content.Context
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +20,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -38,12 +41,16 @@ import com.pocketrealm.client.ControllerAction
 import com.pocketrealm.client.ControllerFamily
 import com.pocketrealm.client.ControlScheme
 import com.pocketrealm.client.FaceButtonLayout
+import com.pocketrealm.client.FaceLayer
 import com.pocketrealm.client.InputProfile
 import com.pocketrealm.client.InputProfileStore
 import com.pocketrealm.client.IntegratedClientDisplay
 import com.pocketrealm.client.OverlayControl
+import com.pocketrealm.client.OverlayMode
 import com.pocketrealm.client.Rp6Control
+import com.pocketrealm.client.WowVanillaBindingCatalog
 import kotlinx.coroutines.flow.collectLatest
+import org.json.JSONObject
 
 /** Durable editor shared by physical pads, keyboard/mouse, and touch input. */
 @Composable
@@ -52,10 +59,17 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
     val store = remember(context) { InputProfileStore(context) }
     var host by remember { mutableStateOf(IntegratedClientDisplay.host.value) }
     var profile by remember {
-        mutableStateOf(store.load(InputProfile.DEFAULT_ASPECT_IDENTITY).profile)
+        // Controls must not manufacture a 16:9 aspect reset while no gameplay
+        // host exists. The screen has no authority to validate a virtual
+        // desktop; load the stored profile without normalization and defer
+        // aspect validation to ClientDisplayHost at launch.
+        mutableStateOf(loadProfileForControls(context))
     }
     val configuration = LocalConfiguration.current
     val wide = configuration.screenWidthDp > configuration.screenHeightDp
+    var showAdvanced by remember { mutableStateOf(false) }
+    var showBindings by remember { mutableStateOf(false) }
+    var bindingSearch by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         IntegratedClientDisplay.host.collectLatest { next ->
@@ -65,89 +79,130 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
     }
 
     fun apply(updated: InputProfile) {
-        store.save(updated)
-        profile = updated
-        host?.switchInputProfile(updated)
+        val activeHost = host
+        if (activeHost == null) {
+            store.save(updated)
+            profile = updated
+        } else {
+            // The live contract validates aspect/topology and performs a safe
+            // held-input release before it publishes the effective profile.
+            // Persist only that accepted result, never the unvalidated draft.
+            activeHost.switchInputProfile(updated)
+            val effective = activeHost.profile.value
+            store.save(effective)
+            profile = effective
+        }
     }
 
     val touchControls: @Composable () -> Unit = {
-        ToggleRow(
-            label = "Show the on-screen controls",
-            explanation = "Keeps touch movement, actions, camera drag, and the keyboard available over the game.",
-            checked = profile.overlayEnabled,
-        ) { apply(profile.copy(overlayEnabled = it)) }
-        ValueSlider(
-            "Control size", profile.overlayScale, 0.75f..1.5f,
-            "%.0f%%".format(profile.overlayScale * 100),
-            "Scales touch buttons without changing the game resolution.",
-            onValueChange = { profile = profile.copy(overlayScale = it) },
-            onValueChangeFinished = { apply(profile) },
-        )
-        ValueSlider(
-            "Opacity", profile.overlayOpacity, 0.35f..1f,
-            "%.0f%%".format(profile.overlayOpacity * 100),
-            "Lower values reveal more of the world behind the controls.",
-            onValueChange = { profile = profile.copy(overlayOpacity = it) },
-            onValueChangeFinished = { apply(profile) },
-        )
-        ValueSlider(
-            "Camera-drag area", profile.cameraRegionWidth, 0.25f..0.7f,
-            "%.0f%%".format(profile.cameraRegionWidth * 100),
-            "Controls how much of the centre screen can be dragged to turn the camera.",
-            onValueChange = { profile = profile.copy(cameraRegionWidth = it) },
-            onValueChangeFinished = { apply(profile) },
-        )
-        ToggleRow(
-            "Invert horizontal look", "Reverses left and right camera movement.",
-            profile.invertCameraX,
-        ) { apply(profile.copy(invertCameraX = it)) }
-        ToggleRow(
-            "Invert vertical look", "Reverses up and down camera movement.",
-            profile.invertCameraY,
-        ) { apply(profile.copy(invertCameraY = it)) }
-        HorizontalDivider()
-        Text("Touch button assignments", fontWeight = FontWeight.SemiBold)
-        SupportingText("Each button sends one allowlisted keyboard, pointer, or camera action to WoW.")
-        OverlayControl.values().forEach { control ->
-            BindingRow(
-                label = control.displayName,
-                tag = "overlay-binding-${control.name}",
-                action = InputProfile.actionFor(profile, control),
-                choices = ControllerAction.values().toList(),
-            ) { action ->
-                apply(profile.copy(
-                    scheme = ControlScheme.CUSTOM,
-                    overlayBindings = profile.overlayBindings + (control to action),
-                ))
+        ChoiceRow(
+            label = "Gameplay overlay",
+            value = profile.overlayMode,
+            choices = OverlayMode.values().toList(),
+            display = { it.friendlyName() },
+            tag = "overlay-mode",
+        ) { apply(profile.copy(overlayMode = it)) }
+        SupportingText(profile.overlayMode.explanation())
+        if (showAdvanced) {
+            ValueSlider(
+                "Control size", profile.overlayScale, 0.75f..1.5f,
+                "%.0f%%".format(profile.overlayScale * 100),
+                "Scales touch buttons without changing the game resolution; hit areas never shrink below 48 dp.",
+                onValueChange = { profile = profile.copy(overlayScale = it) },
+                onValueChangeFinished = { apply(profile) },
+            )
+            ValueSlider(
+                "Opacity", profile.overlayOpacity, 0.35f..1f,
+                "%.0f%%".format(profile.overlayOpacity * 100),
+                "Lower values reveal more of the world behind the controls.",
+                onValueChange = { profile = profile.copy(overlayOpacity = it) },
+                onValueChangeFinished = { apply(profile) },
+            )
+            ValueSlider(
+                "Camera-drag area", profile.cameraRegionWidth, 0.25f..0.7f,
+                "%.0f%%".format(profile.cameraRegionWidth * 100),
+                "Sets how much of the right side can be dragged to turn the camera in Full mode.",
+                onValueChange = { profile = profile.copy(cameraRegionWidth = it) },
+                onValueChangeFinished = { apply(profile) },
+            )
+            ValueSlider(
+                "Touch camera speed", profile.touchCameraSensitivity, 0.15f..1.0f,
+                "%.0f%%".format(profile.touchCameraSensitivity * 100),
+                "Controls touch-drag look speed only; 100% is the old maximum speed.",
+                onValueChange = { profile = profile.copy(touchCameraSensitivity = it) },
+                onValueChangeFinished = { apply(profile) },
+            )
+            ToggleRow(
+                "Invert horizontal look", "Reverses left and right camera movement.",
+                profile.invertCameraX,
+            ) { apply(profile.copy(invertCameraX = it)) }
+            ToggleRow(
+                "Invert vertical look", "Reverses up and down camera movement.",
+                profile.invertCameraY,
+            ) { apply(profile.copy(invertCameraY = it)) }
+        }
+        if (showBindings) {
+            HorizontalDivider()
+            Text("Touch button assignments", fontWeight = FontWeight.SemiBold)
+            SupportingText("Each visible button sends one keyboard, pointer, or camera action to WoW.")
+            val actions = filteredActions(bindingSearch)
+            OverlayControl.values().forEach { control ->
+                BindingRow(
+                    label = control.displayName,
+                    tag = "overlay-binding-${control.name}",
+                    action = InputProfile.actionFor(profile, control),
+                    choices = actions.withCurrent(InputProfile.actionFor(profile, control)),
+                ) { action ->
+                    apply(profile.copy(
+                        scheme = ControlScheme.CUSTOM,
+                        overlayBindings = profile.overlayBindings + (control to action),
+                    ))
+                }
             }
         }
     }
 
     val physicalControls: @Composable () -> Unit = {
-        ValueSlider(
+        SupportingText(
+            if (profile.scheme == ControlScheme.VANILLA_CONSOLE_PORT) {
+                "Android Port combat keeps frequent actions direct: R1 targets the nearest enemy " +
+                    "and L1 selects and uses the nearest eligible corpse, chest, or ordinary object. " +
+                    "Select + L1 is the precise use-at-pointer fallback. L2/R2 are Shift/Ctrl action-page modifiers. " +
+                    "Tap Select for the radial menu; its eight entries use face buttons 1-4 and D-pad 5-8. " +
+                    "Select + R3 toggles camera/pointer, Select + R1 sends stock G / last hostile, " +
+                    "and Select + L3 jumps. Select + Start opens Move UI: drag a green handle with the pointer, " +
+                    "D-pad Down/Up focuses a frame, D-pad Left/Right scales it, and Select + Start or Escape saves. " +
+                    "M1/M2 stay disabled because they can latch on some units."
+            } else {
+                "RP6 defaults put Target on R1, Use / open at pointer on R2, and Jump on R3. " +
+                    "Hold Select + R3 for camera/pointer mode or Select + R2 for left-click. " +
+                    "M1/M2 stay disabled because they can latch on some units."
+            },
+        )
+        if (showAdvanced) ValueSlider(
             "Movement-stick dead zone", profile.deadZone, 0.05f..0.35f,
             "%.0f%%".format(profile.deadZone * 100),
             "Ignores small movement near the centre so the character does not drift.",
             onValueChange = { profile = profile.copy(deadZone = it) },
             onValueChangeFinished = { apply(profile) },
         )
-        ValueSlider(
+        if (showAdvanced) ValueSlider(
             "Camera-stick dead zone", profile.rightStickDeadZone, 0.05f..0.35f,
             "%.0f%%".format(profile.rightStickDeadZone * 100),
             "Use a smaller value for precision, or a larger one to prevent camera drift.",
             onValueChange = { profile = profile.copy(rightStickDeadZone = it) },
             onValueChangeFinished = { apply(profile) },
         )
-        ValueSlider(
-            "Pointer and camera speed", profile.cameraSensitivity, 0.25f..4f,
+        if (showAdvanced) ValueSlider(
+            "Right-stick pointer/camera speed", profile.cameraSensitivity, 0.25f..4f,
             "%.2fx".format(profile.cameraSensitivity),
-            "Changes how far the pointer or camera moves for the same stick movement.",
+            "Changes how far the free pointer or locked camera moves for the same right-stick movement.",
             onValueChange = { profile = profile.copy(cameraSensitivity = it) },
             onValueChangeFinished = { apply(profile) },
         )
-        Text("Analogue trigger timing", fontWeight = FontWeight.SemiBold)
-        SupportingText("Separate press and release points prevent trigger flicker near the threshold.")
-        ValueSlider(
+        if (showAdvanced) Text("Analogue trigger timing", fontWeight = FontWeight.SemiBold)
+        if (showAdvanced) SupportingText("Separate press and release points prevent trigger flicker near the threshold.")
+        if (showAdvanced) ValueSlider(
             "L2 press point", profile.leftTriggerOnThreshold, 0.1f..0.9f,
             "%.0f%%".format(profile.leftTriggerOnThreshold * 100),
             "How far L2 must travel before its mapped action is pressed.",
@@ -159,7 +214,7 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
             },
             onValueChangeFinished = { apply(profile) },
         )
-        ValueSlider(
+        if (showAdvanced) ValueSlider(
             "L2 release point", profile.leftTriggerOffThreshold,
             0f..profile.leftTriggerOnThreshold,
             "%.0f%%".format(profile.leftTriggerOffThreshold * 100),
@@ -167,7 +222,7 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
             onValueChange = { profile = profile.copy(leftTriggerOffThreshold = it) },
             onValueChangeFinished = { apply(profile) },
         )
-        ValueSlider(
+        if (showAdvanced) ValueSlider(
             "R2 press point", profile.rightTriggerOnThreshold, 0.1f..0.9f,
             "%.0f%%".format(profile.rightTriggerOnThreshold * 100),
             "How far R2 must travel before its mapped action is pressed.",
@@ -179,7 +234,7 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
             },
             onValueChangeFinished = { apply(profile) },
         )
-        ValueSlider(
+        if (showAdvanced) ValueSlider(
             "R2 release point", profile.rightTriggerOffThreshold,
             0f..profile.rightTriggerOnThreshold,
             "%.0f%%".format(profile.rightTriggerOffThreshold * 100),
@@ -187,23 +242,49 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
             onValueChange = { profile = profile.copy(rightTriggerOffThreshold = it) },
             onValueChangeFinished = { apply(profile) },
         )
-        HorizontalDivider()
-        Text("Physical button assignments", fontWeight = FontWeight.SemiBold)
-        SupportingText("Editing any assignment changes the named layout to Custom while preserving every other setting.")
-        Rp6Control.values().forEach { control ->
-            val choices = ControllerAction.values().filter {
-                !control.axisDirection || it == ControllerAction.DISABLED || it.keyCode != null
+        if (showBindings) {
+            HorizontalDivider()
+            Text("Physical button assignments", fontWeight = FontWeight.SemiBold)
+            SupportingText("Editing an assignment changes the named layout to Custom and preserves everything else.")
+            Rp6Control.values().forEach { control ->
+                val current = InputProfile.actionFor(profile, control)
+                val choices = filteredActions(bindingSearch).filter {
+                    !control.axisDirection || it == ControllerAction.DISABLED || it.keyCode != null
+                }.withCurrent(current)
+                BindingRow(
+                    label = control.displayName,
+                    tag = "control-${control.name}",
+                    action = current,
+                    choices = choices,
+                ) { action ->
+                    apply(profile.copy(
+                        scheme = ControlScheme.CUSTOM,
+                        rp6Bindings = profile.rp6Bindings + (control to action),
+                    ))
+                }
             }
-            BindingRow(
-                label = control.displayName,
-                tag = "control-${control.name}",
-                action = InputProfile.actionFor(profile, control),
-                choices = choices,
-            ) { action ->
-                apply(profile.copy(
-                    scheme = ControlScheme.CUSTOM,
-                    rp6Bindings = profile.rp6Bindings + (control to action),
-                ))
+            LayerBindings(
+                title = "L2 + face buttons (actions 5-8)",
+                layer = FaceLayer.L2,
+                profile = profile,
+                choices = filteredActions(bindingSearch),
+                apply = ::apply,
+            )
+            LayerBindings(
+                title = "L1 + face buttons (actions 9-12)",
+                layer = FaceLayer.L1,
+                profile = profile,
+                choices = filteredActions(bindingSearch),
+                apply = ::apply,
+            )
+
+            val duplicates = duplicateOutputWarnings(profile)
+            if (duplicates.isNotEmpty()) {
+                Text("Duplicate outputs", fontWeight = FontWeight.SemiBold)
+                SupportingText(
+                    "Duplicates are allowed, but these controls currently send the same output: " +
+                        duplicates.joinToString("; "),
+                )
             }
         }
     }
@@ -223,7 +304,7 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        ControlSection("Control profile") {
+        ControlSection("Device and recommended layout") {
             ChoiceRow(
                 label = "Layout",
                 value = profile.scheme,
@@ -234,9 +315,7 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
                 apply(InputProfile.profileForScheme(scheme, profile.aspectIdentity, profile))
             }
             SupportingText(profile.scheme.description)
-            SupportingText(
-                "PocketRealmPad is optional on the RP6. Choose Built-in WoW controls for a complete add-on-free layout.",
-            )
+            SupportingText("The built-in layout uses only stock WoW keyboard and pointer actions.")
             ChoiceRow(
                 label = "Input device",
                 value = profile.controllerFamily,
@@ -274,11 +353,46 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
                     "Automatic recognizes the built-in RP6 controller; other pads use Android-standard positions.",
                 )
             }
-            if (profile.scheme == ControlScheme.POCKET_REALM_PAD ||
-                profile.scheme == ControlScheme.POCKET_REALM_PAD_CAMERA) {
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedButton(
+                onClick = { showAdvanced = !showAdvanced },
+                modifier = Modifier.testTag("controls-show-advanced"),
+            ) { Text(if (showAdvanced) "Hide advanced tuning" else "Advanced tuning") }
+            OutlinedButton(
+                onClick = { showBindings = !showBindings },
+                modifier = Modifier.testTag("controls-customize-bindings"),
+            ) { Text(if (showBindings) "Close bindings" else "Customize bindings") }
+        }
+        if (showBindings) {
+            OutlinedTextField(
+                value = bindingSearch,
+                onValueChange = { bindingSearch = it },
+                label = { Text("Find an action") },
+                supportingText = { Text("Search the complete available WoW key and pointer action list.") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().testTag("binding-search"),
+            )
+            val catalogMatches = WowVanillaBindingCatalog.search(bindingSearch)
+            ControlSection("WoW 1.12.1 action reference") {
                 SupportingText(
-                    "PocketRealmPad 0.5 uses matching action, layer, navigation, target, bags, and jump commands in WoW.",
+                    "${WowVanillaBindingCatalog.userFacing.size} stock actions are documented, alongside every " +
+                        "keyboard and mouse output supported by this app. This action list is reference-only: " +
+                        "assign a supported output above, " +
+                        "then bind that key to the action in WoW's Key Bindings screen.",
                 )
+                catalogMatches.take(CATALOG_PREVIEW_LIMIT).forEach { binding ->
+                    Column {
+                        Text("${binding.label} - ${binding.category.displayName}")
+                        SupportingText("${binding.id}: ${binding.description}")
+                    }
+                }
+                if (catalogMatches.size > CATALOG_PREVIEW_LIMIT) {
+                    SupportingText(
+                        "${catalogMatches.size - CATALOG_PREVIEW_LIMIT} more match. Add words to the search to narrow the list.",
+                    )
+                }
             }
         }
 
@@ -299,8 +413,30 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "The right stick controls WoW's camera directly. A connected USB/Bluetooth mouse is captured " +
-                    "automatically when you click inside the game; Back releases it before leaving the game screen.",
+                "Unlocked mode makes the right stick a free cursor. Lock camera holds WoW's right mouse button " +
+                    "so the same stick turns the view; unlocking releases every right-mouse owner and Android capture.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                if (profile.scheme == ControlScheme.VANILLA_CONSOLE_PORT) {
+                    "The leveling loop does not use Select: R1 directly targets the nearest living enemy and L1 " +
+                        "selects and uses the nearest eligible corpse, chest, or ordinary object. Select + L1 sends " +
+                        "the precise use-at-pointer fallback. Face buttons send actions 1-4 and D-pad sends 5-8; " +
+                        "L2/R2 select the Shift/Ctrl pages. Select opens the eight-item radial menu, where those same " +
+                        "face and D-pad inputs activate the shown item. Select + R3 toggles camera/pointer; in Pointer " +
+                        "mode, hold R3 and move the right stick to drag movable add-on frames. Select + R1 sends stock " +
+                        "G for last hostile and Select + L3 jumps. " +
+                        "Automatic item collection remains an optional client tweak or add-on behavior."
+                } else {
+                    "For normal leveling: R1 or Target selects one nearest living enemy. " +
+                        "Aim the pointer at a container, NPC, object, or lootable corpse, then press R2 or Use / open; " +
+                        "this sends a normal right-click. Loot collection is intentionally not a controller action: " +
+                        "enable the optional client tweak or an add-on if you want opened loot collected automatically. R3 jumps, " +
+                        "face buttons use actions 1-4, L2 + face uses 5-8, and L1 + face uses 9-12. " +
+                        "D-pad Up sends stock G for last hostile (not guaranteed to be a corpse), Down sends F1 for " +
+                        "self or pet, Left sends B for the backpack, and Right sends L for the quest log. " +
+                        "Hold Select + R3 to toggle camera or pointer mode."
+                },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
@@ -314,6 +450,33 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
             modifier = Modifier.testTag("input-reset-defaults"),
         ) { Text("Restore recommended defaults") }
         Spacer(Modifier.width(1.dp))
+    }
+}
+
+@Composable
+private fun LayerBindings(
+    title: String,
+    layer: FaceLayer,
+    profile: InputProfile,
+    choices: List<ControllerAction>,
+    apply: (InputProfile) -> Unit,
+) {
+    HorizontalDivider()
+    Text(title, fontWeight = FontWeight.SemiBold)
+    FACE_CONTROLS.forEach { control ->
+        val current = checkNotNull(InputProfile.actionFor(profile, layer, control))
+        BindingRow(
+            label = control.displayName,
+            tag = "layer-${layer.name}-${control.name}",
+            action = current,
+            choices = choices.withCurrent(current),
+        ) { action ->
+            val updatedLayer = profile.layerFaceBindings.getValue(layer) + (control to action)
+            apply(profile.copy(
+                scheme = ControlScheme.CUSTOM,
+                layerFaceBindings = profile.layerFaceBindings + (layer to updatedLayer),
+            ))
+        }
     }
 }
 
@@ -437,3 +600,70 @@ private fun BindingRow(
         }
     }
 }
+
+private fun OverlayMode.friendlyName(): String = when (this) {
+    OverlayMode.AUTO -> "Automatic"
+    OverlayMode.MINIMAL -> "Controller utilities"
+    OverlayMode.FULL -> "Full touch controls"
+    OverlayMode.OFF -> "Off"
+}
+
+private fun OverlayMode.explanation(): String = when (this) {
+    OverlayMode.AUTO -> "Shows only a compact utility drawer when a controller is active, and full controls for touch-only play."
+    OverlayMode.MINIMAL -> "Shows camera or pointer mode, zoom, keyboard and app access without covering gameplay."
+    OverlayMode.FULL -> "Shows movement, Target, Use / loot at pointer, Menu and paged action buttons for touch play."
+    OverlayMode.OFF -> "Removes every overlay hit area; change this setting here to restore on-screen controls."
+}
+
+private fun filteredActions(search: String): List<ControllerAction> {
+    val query = search.trim()
+    return ControllerAction.values().filter { query.isEmpty() || it.displayName.contains(query, ignoreCase = true) }
+}
+
+private fun List<ControllerAction>.withCurrent(current: ControllerAction): List<ControllerAction> =
+    if (current in this) this else listOf(current) + this
+
+internal fun duplicateOutputWarnings(profile: InputProfile): List<String> {
+    val assignments = buildList {
+        Rp6Control.values().forEach { add(it.displayName to InputProfile.actionFor(profile, it)) }
+        FaceLayer.values().forEach { layer ->
+            FACE_CONTROLS.forEach { control ->
+                InputProfile.actionFor(profile, layer, control)?.let { action ->
+                    add("${layer.name} + ${control.displayName}" to action)
+                }
+            }
+        }
+    }.filterNot { it.second == ControllerAction.DISABLED }
+    return assignments.groupBy(Pair<String, ControllerAction>::second)
+        .filterValues { it.size > 1 }
+        .map { (action, controls) -> "${action.displayName}: ${controls.joinToString { it.first }}" }
+        .sorted()
+}
+
+private val FACE_CONTROLS = listOf(
+    Rp6Control.FACE_BOTTOM,
+    Rp6Control.FACE_LEFT,
+    Rp6Control.FACE_TOP,
+    Rp6Control.FACE_RIGHT,
+)
+
+private const val CATALOG_PREVIEW_LIMIT = 24
+
+/**
+ * Hostless Controls reads the durable record without applying aspect policy.
+ * ClientDisplayHost remains the sole authority that may reset for a different
+ * launched virtual desktop.
+ */
+internal fun loadProfileForControls(context: Context): InputProfile {
+    val preferences = context.getSharedPreferences("pocket_input_profile", Context.MODE_PRIVATE)
+    return CONTROL_PROFILE_KEYS.asSequence()
+        .mapNotNull { preferences.getString(it, null) }
+        .mapNotNull { raw -> runCatching { InputProfile.fromJson(JSONObject(raw)) }.getOrNull() }
+        .firstOrNull()
+        ?: InputProfile.DEFAULT
+}
+
+private val CONTROL_PROFILE_KEYS = listOf(
+    "profile_v11", "profile_v10", "profile_v9", "profile_v8", "profile_v7", "profile_v6",
+    "profile_v5", "profile_v4", "profile_v3", "profile_v2",
+)

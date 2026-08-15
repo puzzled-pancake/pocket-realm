@@ -1,6 +1,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <limits.h>
 
 #include "texture_decoder.h"
 #include "vulkan_helper.h"
@@ -10,6 +11,32 @@
 
 #define CACHE_DIR APP_CACHE_DIR "/vortek"
 #define CACHE_MIN_IMAGE_WIDTH 1024
+#define VORTEK_MAX_DECODED_IMAGE_DIMENSION 16384U
+
+static bool getDecodedImageSize(
+        uint32_t width, uint32_t height, size_t* decodedSize) {
+    if (!decodedSize || width == 0 || height == 0 ||
+            width > VORTEK_MAX_DECODED_IMAGE_DIMENSION ||
+            height > VORTEK_MAX_DECODED_IMAGE_DIMENSION) {
+        return false;
+    }
+    const uint64_t size = (uint64_t)width * (uint64_t)height * 4U;
+    if (size > (uint64_t)INT_MAX || size > (uint64_t)SIZE_MAX) return false;
+    *decodedSize = (size_t)size;
+    return true;
+}
+
+static bool getCompressedImageSize(
+        const TextureDecoder_Image* image, int blockSize,
+        size_t* compressedSize) {
+    if (!image || !compressedSize || blockSize <= 0) return false;
+    const uint64_t blockWidth = ((uint64_t)image->width + 3U) / 4U;
+    const uint64_t blockHeight = ((uint64_t)image->height + 3U) / 4U;
+    const uint64_t size = blockWidth * blockHeight * (uint64_t)blockSize;
+    if (size > (uint64_t)SIZE_MAX) return false;
+    *compressedSize = (size_t)size;
+    return true;
+}
 
 static bool isCanDecompressFormat(VkFormat format) {
     switch (format) {
@@ -179,20 +206,31 @@ void TextureDecoder_decodeAll(TextureDecoder* textureDecoder) {
 
         if (!srcBuffer || !dstImage) continue;
 
-        void* data = mmap(NULL, srcBuffer->memory->allocationSize, PROT_WRITE | PROT_READ, MAP_SHARED, srcBuffer->memory->fd, 0);
-        if (data == MAP_FAILED) continue;
-        void* imageData = data + (srcBuffer->memoryOffset + bufferOffset);
-
         int blockSize;
         int bcN;
         bool isNoAlphaU;
         getBCInfo(dstImage->format, &bcN, &blockSize, &isNoAlphaU);
 
+        size_t compressedSize = 0;
+        const VkDeviceSize sourceOffset = srcBuffer->memoryOffset + bufferOffset;
+        if (sourceOffset < srcBuffer->memoryOffset ||
+                !getCompressedImageSize(dstImage, blockSize, &compressedSize) ||
+                sourceOffset > srcBuffer->memory->allocationSize ||
+                compressedSize >
+                        srcBuffer->memory->allocationSize - sourceOffset) {
+            continue;
+        }
+
+        void* data = mmap(NULL, srcBuffer->memory->allocationSize, PROT_WRITE | PROT_READ, MAP_SHARED, srcBuffer->memory->fd, 0);
+        if (data == MAP_FAILED) continue;
+        uint8_t* imageData = (uint8_t*)data + (size_t)sourceOffset;
+
         uint64_t hash = 0;
         bool isCachedImage = false;
         if (dstImage->width >= CACHE_MIN_IMAGE_WIDTH && dstImage->height >= CACHE_MIN_IMAGE_WIDTH) {
-            int memorySize = (dstImage->width / 4) * (dstImage->height / 4) * blockSize;
-            hash = murmurHash64(imageData, memorySize, dstImage->format);
+            hash = murmurHash64(
+                    (const char*)imageData, compressedSize,
+                    dstImage->format);
             isCachedImage = readCachedImage(dstImage, hash);
         }
 
@@ -238,6 +276,14 @@ VkResult TextureDecoder_createImage(TextureDecoder* textureDecoder, VkDevice dev
     VkResult result;
     if (!isCanDecompressFormat(imageInfo->format)) return VK_ERROR_FORMAT_NOT_SUPPORTED;
 
+    size_t decodedImageSize = 0;
+    if (imageInfo->extent.depth != 1 || imageInfo->arrayLayers != 1 ||
+            !getDecodedImageSize(
+                    imageInfo->extent.width, imageInfo->extent.height,
+                    &decodedImageSize)) {
+        return VK_ERROR_FORMAT_NOT_SUPPORTED;
+    }
+
     TextureDecoder_Image* newImage = calloc(1, sizeof(TextureDecoder_Image));
     newImage->format = imageInfo->format;
     newImage->width = imageInfo->extent.width;
@@ -257,15 +303,17 @@ VkResult TextureDecoder_createImage(TextureDecoder* textureDecoder, VkDevice dev
     VkImage image;
     result = vulkanWrapper.vkCreateImage(device, imageInfo, NULL, &image);
     if (result != VK_SUCCESS) goto error;;
+    newImage->image = image;
 
     VkBufferCreateInfo imageBufferInfo = {0};
     imageBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    imageBufferInfo.size = imageInfo->extent.width * imageInfo->extent.height * 4;
+    imageBufferInfo.size = (VkDeviceSize)decodedImageSize;
     imageBufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 
     VkBuffer buffer;
     result = vulkanWrapper.vkCreateBuffer(device, &imageBufferInfo, NULL, &buffer);
     if (result != VK_SUCCESS) goto error;
+    newImage->buffer = buffer;
 
     VkMemoryRequirements memReqs = {0};
     vulkanWrapper.vkGetBufferMemoryRequirements(device, buffer, &memReqs);
@@ -278,18 +326,17 @@ VkResult TextureDecoder_createImage(TextureDecoder* textureDecoder, VkDevice dev
     VkDeviceMemory memory;
     result = vulkanWrapper.vkAllocateMemory(device, &allocateInfo, NULL, &memory);
     if (result != VK_SUCCESS) goto error;
+    newImage->memory = memory;
 
     result = vulkanWrapper.vkBindBufferMemory(device, buffer, memory, 0);
     if (result != VK_SUCCESS) goto error;
 
-    int imageSize = newImage->width * newImage->height * 4;
-    result = vulkanWrapper.vkMapMemory(device, memory, 0, imageSize, 0, &newImage->decompressedData);
+    result = vulkanWrapper.vkMapMemory(
+            device, memory, 0, (VkDeviceSize)decodedImageSize, 0,
+            &newImage->decompressedData);
     if (result != VK_SUCCESS) goto error;
-    memset(newImage->decompressedData, 0, imageSize);
+    memset(newImage->decompressedData, 0, decodedImageSize);
 
-    newImage->image = image;
-    newImage->buffer = buffer;
-    newImage->memory = memory;
     ArrayList_add(&textureDecoder->images, newImage);
 
     *pImage = image;

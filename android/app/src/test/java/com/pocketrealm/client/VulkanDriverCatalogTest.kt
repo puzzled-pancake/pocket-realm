@@ -17,31 +17,39 @@ class VulkanDriverCatalogTest {
     )
 
     @Test
-    fun releaseDefaultIsExactSystemAndNeverSilentlySelectsTurnip() {
-        assertEquals(VulkanDriverCatalog.SYSTEM_DEFAULT, VulkanDriverCatalog.default().id)
-        assertEquals(
-            VulkanDriverCatalog.SYSTEM_DEFAULT,
-            VulkanDriverCatalog.normalize(null, "Retroid Pocket 6"),
-        )
-        val nonRp6Default = VulkanDriverCatalog.normalize(null, "Pixel 10")
-        assertEquals(VulkanDriverCatalog.SYSTEM_DEFAULT, nonRp6Default)
-        assertTrue(VulkanDriverCatalog.availability(nonRp6Default, "Pixel 10").available)
+    fun runtimeCatalogIsTheGeneratedClosedReviewedCatalog() {
+        assertEquals(VulkanDriverCatalog.RELEASE_DEFAULT, GeneratedVulkanDriverCatalog.DEFAULT_ID)
+        assertEquals("exact-request-fail-closed", GeneratedVulkanDriverCatalog.SELECTION_POLICY)
+        assertEquals(GeneratedVulkanDriverCatalog.packages, VulkanDriverCatalog.all())
     }
 
     @Test
-    fun systemVortekIsSelectableButPairFailsClosedWithoutCapabilities() {
+    fun releaseDefaultIsQualifiedTurnipAndSystemIsNotInNormalRp6Choices() {
+        assertEquals(VulkanDriverCatalog.TURNIP_26_1, VulkanDriverCatalog.default().id)
+        assertEquals(
+            VulkanDriverCatalog.TURNIP_26_1,
+            VulkanDriverCatalog.normalize(null, "Retroid Pocket 6"),
+        )
+        assertEquals(
+            listOf(VulkanDriverCatalog.TURNIP_26_1),
+            VulkanDriverCatalog.userSelectable("Retroid Pocket 6").map { it.id },
+        )
+    }
+
+    @Test
+    fun systemVortekIsRetainedButExperimentalAndFailsTheReleaseGate() {
         val availability = VulkanDriverCatalog.availability(
             VulkanDriverCatalog.SYSTEM_DEFAULT,
             "Pixel 10",
         )
-        assertTrue(availability.available)
-        assertEquals(
-            VulkanDriverCatalog.SYSTEM_DEFAULT,
+        assertFalse(availability.available)
+        assertEquals(VulkanDriverCatalog.SYSTEM_EXPERIMENTAL_REASON, availability.reason)
+        assertTrue(runCatching {
             VulkanDriverCatalog.requireAvailableForRequest(
                 VulkanDriverCatalog.SYSTEM_DEFAULT,
                 "Pixel 10",
-            ).id,
-        )
+            )
+        }.isFailure)
         assertTrue(runCatching {
             VulkanDriverCatalog.requireAvailableCompatiblePair(
                 VulkanDriverCatalog.SYSTEM_DEFAULT,
@@ -88,22 +96,22 @@ class VulkanDriverCatalogTest {
             VulkanDriverCatalog.normalize("future-driver", "Retroid Pocket 6"),
         )
         assertEquals(
-            VulkanDriverCatalog.SYSTEM_DEFAULT,
+            VulkanDriverCatalog.TURNIP_26_1,
             VulkanDriverCatalog.normalize(null, "Retroid Pocket 6"),
         )
     }
 
     @Test
-    fun preSchemaImplicitSystemStaysPortableDefaultAndIsStamped() {
+    fun preSchemaRp6SystemMigratesOnceToQualifiedTurnipWithNotice() {
         for (legacy in listOf(null, VulkanDriverCatalog.SYSTEM_DEFAULT)) {
             val resolved = VulkanDriverCatalog.resolvePersistedSelection(
                 requestedId = legacy,
                 selectionSchema = 0,
                 deviceModel = "Retroid Pocket 6",
             )
-            assertEquals(VulkanDriverCatalog.SYSTEM_DEFAULT, resolved.driverId)
+            assertEquals(VulkanDriverCatalog.TURNIP_26_1, resolved.driverId)
             assertTrue(resolved.migrated)
-            assertEquals(null, resolved.notice)
+            assertEquals(VulkanDriverCatalog.RP6_SYSTEM_MIGRATION_NOTICE, resolved.notice)
         }
     }
 
@@ -120,7 +128,28 @@ class VulkanDriverCatalogTest {
     }
 
     @Test
-    fun schemaStampedExplicitSystemRemainsExactAndNeedsPairProof() {
+    fun migrationPreservesUnknownAndNonRp6IdentitiesExactly() {
+        val unknown = VulkanDriverCatalog.resolvePersistedSelection(
+            requestedId = "future-custom-driver",
+            selectionSchema = 2,
+            deviceModel = "Retroid Pocket 6",
+        )
+        assertEquals("future-custom-driver", unknown.driverId)
+        assertTrue(unknown.migrated)
+        assertEquals(null, unknown.notice)
+
+        val nonRp6System = VulkanDriverCatalog.resolvePersistedSelection(
+            requestedId = VulkanDriverCatalog.SYSTEM_DEFAULT,
+            selectionSchema = 2,
+            deviceModel = "Pixel 10",
+        )
+        assertEquals(VulkanDriverCatalog.SYSTEM_DEFAULT, nonRp6System.driverId)
+        assertTrue(nonRp6System.migrated)
+        assertEquals(null, nonRp6System.notice)
+    }
+
+    @Test
+    fun schemaStampedExplicitSystemRemainsExactButFailsProductionAvailability() {
         val resolved = VulkanDriverCatalog.resolvePersistedSelection(
             requestedId = VulkanDriverCatalog.SYSTEM_DEFAULT,
             selectionSchema = VulkanDriverCatalog.SELECTION_SCHEMA,
@@ -216,26 +245,16 @@ class VulkanDriverCatalogTest {
     }
 
     @Test
-    fun pairAvailabilityUsesExactDxvkFloorAndNeverSubstitutes() {
+    fun experimentalCompatibilityModelKeepsExactDxvkFloorForQualification() {
         val vulkan11 = SystemVulkanCapabilities(
             vulkanVersion(1, 1),
             true,
             VulkanDriverCatalog.VORTEK_REQUIRED_DEVICE_EXTENSIONS,
         )
-        val modern = VulkanDriverCatalog.availabilityForPair(
-            VulkanDriverCatalog.SYSTEM_DEFAULT,
-            modernDxvk.id,
-            "Pixel 10",
-            vulkan11,
-        )
-        val legacy = VulkanDriverCatalog.availabilityForPair(
-            VulkanDriverCatalog.SYSTEM_DEFAULT,
-            legacyDxvk.id,
-            "Pixel 10",
-            vulkan11,
-        )
-        assertFalse(modern.available)
-        assertTrue(legacy.available)
+        val modern = VulkanDriverCatalog.compatibility(systemDriver, modernDxvk, vulkan11)
+        val legacy = VulkanDriverCatalog.compatibility(systemDriver, legacyDxvk, vulkan11)
+        assertFalse(modern.compatible)
+        assertTrue(legacy.compatible)
         assertTrue(modern.reason.contains("1.3"))
     }
 }

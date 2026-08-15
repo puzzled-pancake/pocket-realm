@@ -155,6 +155,37 @@ Final paired-runtime qualification is recorded in:
    shuts down wineserver + the X-server. A `getMappedClientWindows()` accessor
    was added to WindowManager (clearly marked as a Pocket Realm spike addition).
 
+## Experimental ARM64 OpenGL renderer pairs
+
+DXVK remains the default ARM renderer. The following routes are separately
+selected, capability-gated, generation-local, and fail without fallback.
+
+- **Legacy OpenGL (Gladio):** recovered from Pocket Realm commit
+  `22410a53db50561a9784a23c715e4fb6855db6a8`. The AArch64 glibc client is built
+  from `brunodev85/gladio@eaa2a8d6eda3a1a6af755370ea9fac6cf7792ac3` by
+  `tools/build_gladio_client.py`. The reviewed client is 530400 bytes, SHA-256
+  `1d9663bb23ffe6083cf94925e6ffde4523888d52051c9bf934c87aad4bae4680`.
+  It launches WoW with `-opengl` and is considered running only after a live
+  transport context, live GLX context, and a validated presented frame.
+
+- **Mesa VirGL:** the provider is Winlator
+  `ca3d735a60d653a787daf16d14fafef28d9c2c23`, paired with the custom Mesa
+  23.1.9 source commit `71c57a2def7db3eb45cde5ee520f112de0fa6ec0`.
+  The provider archive SHA-256 is
+  `614b1edc8e47c57b2cbb2d96f9c7ab5f5b1a89038de618a58b2faf9c64380e09`;
+  its sole `libGL.so.1.7.0` payload is 14379544 bytes, SHA-256
+  `531e3dc809281feadcc2120abc6d9f88025d92d567ac32eed9c376bd9e4e04f6`.
+  `tools/stage_virgl_renderer.py` verifies that payload, and the matching
+  retained native server builds only for ARM64. GLX remains advertised for the
+  pinned Mesa Fake-GLX negotiation, while rendering and presentation travel
+  through the private `virpipe` V0 socket. Readiness requires an initialized,
+  caps-ready connection and a validated non-black flush; Gladio native context
+  counters must remain zero.
+
+Both routes require EGL 1.4+, a verified OpenGL ES 3 shared surfaceless context,
+and an exact live-root sharing probe after Android publishes its EGL generation.
+Compilation and closure checks alone are not claims of broad device support.
+
 ## Trim list (couplings to Winlator's app shell — stubbed/replaced)
 
 1. **`com.winlator.XServerDisplayActivity`** — the Android Activity host. The

@@ -16,6 +16,8 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.pocketrealm.bots.BotAdvancedSettings
 import com.pocketrealm.bots.BotProfiles
 import com.pocketrealm.client.ArmTranslationBackend
+import com.pocketrealm.client.ArmClientRenderer
+import com.pocketrealm.client.ArmClientRendererCatalog
 import com.pocketrealm.client.ClientTweaksConfig
 import com.pocketrealm.client.ClientDisplayCapabilities
 import com.pocketrealm.client.ClientDisplayProfile
@@ -23,6 +25,7 @@ import com.pocketrealm.client.ClientDisplaySelection
 import com.pocketrealm.client.ClientFrameCap
 import com.pocketrealm.client.RendererPackageCatalog
 import com.pocketrealm.client.VulkanDriverCatalog
+import com.pocketrealm.server.NearbyInteractPolicy
 import com.pocketrealm.supervisor.RuntimeMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -39,6 +42,9 @@ private val vulkanSelectionSchemaPreference =
     intPreferencesKey("arm_vulkan_driver_selection_schema")
 private val vulkanMigrationNoticePreference =
     intPreferencesKey("arm_vulkan_driver_migration_notice")
+private val rendererPreference = stringPreferencesKey("renderer")
+private val rendererSelectionSchemaPreference =
+    intPreferencesKey("arm_renderer_selection_schema")
 
 internal const val POCKET_SETTINGS_STORE_NAME = "pocket_settings"
 internal const val POCKET_SETTINGS_FILE_NAME = "$POCKET_SETTINGS_STORE_NAME.preferences_pb"
@@ -57,7 +63,11 @@ internal fun vulkanSelectionMigration(deviceModel: String): DataMigration<Prefer
             return currentData.toMutablePreferences().apply {
                 this[vulkanDriverPreference] = resolved.driverId
                 this[vulkanSelectionSchemaPreference] = VulkanDriverCatalog.SELECTION_SCHEMA
-                remove(vulkanMigrationNoticePreference)
+                if (resolved.notice != null) {
+                    this[vulkanMigrationNoticePreference] = 1
+                } else {
+                    remove(vulkanMigrationNoticePreference)
+                }
             }
         }
 
@@ -69,6 +79,26 @@ internal fun vulkanSelectionMigration(deviceModel: String): DataMigration<Prefer
                 selectionSchema = currentData[vulkanSelectionSchemaPreference] ?: 0,
                 deviceModel = deviceModel,
             )
+    }
+
+/** Complete-schema migration: partial/older renderer choices must not reactivate. */
+internal fun rendererSelectionMigration(): DataMigration<Preferences> =
+    object : DataMigration<Preferences> {
+        override suspend fun shouldMigrate(currentData: Preferences): Boolean =
+            currentData[rendererSelectionSchemaPreference] !=
+                ArmClientRendererCatalog.SELECTION_SCHEMA ||
+                ArmClientRendererCatalog.find(currentData[rendererPreference]) == null
+
+        override suspend fun migrate(currentData: Preferences): Preferences {
+            if (!shouldMigrate(currentData)) return currentData
+            return currentData.toMutablePreferences().apply {
+                this[rendererPreference] = ArmClientRenderer.DXVK.id
+                this[rendererSelectionSchemaPreference] =
+                    ArmClientRendererCatalog.SELECTION_SCHEMA
+            }
+        }
+
+        override suspend fun cleanUp() = Unit
     }
 
 /** One instance in each Android process, coordinated through the shared settings file. */
@@ -94,7 +124,10 @@ private object PocketSettingsStore {
         )
         return MultiProcessDataStoreFactory.create(
             storage = storage,
-            migrations = listOf(vulkanSelectionMigration(Build.MODEL)),
+            migrations = listOf(
+                vulkanSelectionMigration(Build.MODEL),
+                rendererSelectionMigration(),
+            ),
             scope = scope,
         )
     }
@@ -206,8 +239,9 @@ class Settings(private val context: Context) {
     data class Snapshot(
         val displayProfileId: String = ClientDisplayProfile.BALANCED.id,
         val clientFrameCap: Int = ClientFrameCap.FPS_30.fps,
+        val armRendererId: String = ArmClientRendererCatalog.DEFAULT_ID,
         val box64DxvkPackageId: String = RendererPackageCatalog.BOX64_DEFAULT,
-        val armVulkanDriverId: String = VulkanDriverCatalog.SYSTEM_DEFAULT,
+        val armVulkanDriverId: String = VulkanDriverCatalog.RELEASE_DEFAULT,
         val rendererSelectionNotice: String? = null,
         val displaySelectionNotice: String? = null,
         val botProfileId: String = BotProfiles.defaultProfile.id,
@@ -224,15 +258,19 @@ class Settings(private val context: Context) {
         val autoLoginTimings: AutoLoginTimings = AutoLoginTimings(),
         val tweaks: ClientTweaksConfig = ClientTweaksConfig(),
         val audioMode: AudioMode = AudioMode.ON,
+        val nearbyInteractTriggerGuardMs: Int = NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
         /** Missing legacy values migrate to LOCAL; LAN hosting remains opt-in. */
         val runtimeMode: RuntimeMode = RuntimeMode.LOCAL,
         val allowLanPlayers: Boolean = false,
     ) {
+        fun selectedArmRenderer(): ArmClientRenderer =
+            ArmClientRendererCatalog.requireSelection(armRendererId)
+
         fun selectedDxvkPackageId(): String = box64DxvkPackageId
 
         fun selectedVulkanDriverId(): String = armVulkanDriverId
 
-        fun displaySelection(): ClientDisplaySelection = ClientDisplaySelection(
+        fun displaySelection(): ClientDisplaySelection = ClientDisplaySelection.nominal(
             ClientDisplayProfile.requireId(displayProfileId),
             ClientFrameCap.requireFps(clientFrameCap),
         )
@@ -263,10 +301,10 @@ class Settings(private val context: Context) {
             prefs[Keys.VULKAN_DRIVER] = next.armVulkanDriverId
             prefs[Keys.VULKAN_SELECTION_SCHEMA] = VulkanDriverCatalog.SELECTION_SCHEMA
             prefs.remove(Keys.VULKAN_MIGRATION_NOTICE)
-            // Removed runtime choices are not written back. Any settings write
-            // completes the on-disk migration after reads have already resolved
-            // them to the fixed Box64 + DXVK route.
-            prefs.remove(Keys.RENDERER)
+            prefs[Keys.RENDERER] = next.selectedArmRenderer().id
+            prefs[Keys.RENDERER_SCHEMA] = ArmClientRendererCatalog.SELECTION_SCHEMA
+            // Removed provider choices are not written back. Any settings write
+            // completes their migration after reads have resolved Box64.
             prefs.remove(Keys.PROVIDER)
             prefs.remove(Keys.DXVK_FEX)
             prefs[Keys.BOTS] = next.botPopulationTarget
@@ -315,6 +353,8 @@ class Settings(private val context: Context) {
             prefs[Keys.TWEAKS] = next.tweaks.toJson()
             prefs[Keys.TWEAKS_SCHEMA] = 1
             prefs[Keys.AUDIO_MODE] = next.audioMode.name
+            prefs[Keys.NEARBY_INTERACT_TRIGGER_GUARD_MS] =
+                NearbyInteractPolicy.normalizeTriggerGuardMs(next.nearbyInteractTriggerGuardMs)
             prefs[Keys.RUNTIME_MODE] = next.runtimeMode.name
             prefs[Keys.ALLOW_LAN_PLAYERS] = if (next.allowLanPlayers) 1 else 0
         }
@@ -325,7 +365,8 @@ class Settings(private val context: Context) {
         val DISPLAY_PROFILE = stringPreferencesKey("client_display_profile")
         val FRAME_CAP = intPreferencesKey("client_frame_cap")
         val DISPLAY_SCHEMA = intPreferencesKey("client_display_schema")
-        val RENDERER = stringPreferencesKey("renderer")
+        val RENDERER = rendererPreference
+        val RENDERER_SCHEMA = rendererSelectionSchemaPreference
         val PROVIDER = stringPreferencesKey("provider")
         val DXVK_BOX64 = stringPreferencesKey("dxvk_box64_package")
         val VULKAN_DRIVER = vulkanDriverPreference
@@ -373,6 +414,8 @@ class Settings(private val context: Context) {
         val TWEAKS = stringPreferencesKey("client_tweaks")
         val TWEAKS_SCHEMA = intPreferencesKey("client_tweaks_schema")
         val AUDIO_MODE = stringPreferencesKey("audio_mode")
+        val NEARBY_INTERACT_TRIGGER_GUARD_MS =
+            intPreferencesKey("nearby_interact_trigger_guard_ms")
         val RUNTIME_MODE = stringPreferencesKey("runtime_mode")
         val ALLOW_LAN_PLAYERS = intPreferencesKey("allow_lan_players")
     }
@@ -399,7 +442,9 @@ class Settings(private val context: Context) {
         }
         val displayProfile = normalizedDisplay.profile
         val displaySelectionNotice = if (normalizedDisplay.changed) {
-            "The saved display resolution does not fit this screen; using ${displayProfile.resolution}."
+            val (width, height) = ClientDisplayCapabilities.physicalLandscapeBounds(context)
+            "The saved display resolution does not fit this screen; using " +
+                "${displayProfile.resolveFor(width, height).resolution}."
         } else null
         val frameCap = if (displaySchema >= 1) {
             runCatching {
@@ -475,18 +520,33 @@ class Settings(private val context: Context) {
         )
         val vulkanDriver = persistedVulkan.driverId
         val vulkanAvailability = VulkanDriverCatalog.availability(vulkanDriver, Build.MODEL)
+        val rendererSchema = this[Keys.RENDERER_SCHEMA] ?: 0
+        val persistedRenderer = ArmClientRendererCatalog.resolvePersisted(
+            this[Keys.RENDERER], rendererSchema,
+        )
+        val renderer = persistedRenderer.takeIf {
+            Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a" || it == ArmClientRenderer.DXVK
+        } ?: ArmClientRenderer.DXVK
         val removedProvider = this[Keys.PROVIDER]?.takeIf { it != "BOX64" }
-        val removedRenderer = this[Keys.RENDERER]?.takeIf { it != "DXVK" }
+        val removedRenderer = this[Keys.RENDERER]?.takeIf {
+            rendererSchema != ArmClientRendererCatalog.SELECTION_SCHEMA &&
+                !it.equals("DXVK", ignoreCase = true)
+        }
         val packageChanged = requestedBox64?.takeIf { it != box64Package }
+        val persistedVulkanNotice = VulkanDriverCatalog.RP6_SYSTEM_MIGRATION_NOTICE.takeIf {
+            this[Keys.VULKAN_MIGRATION_NOTICE] == 1
+        }
         val selectionNotice = when {
+            persistedVulkanNotice != null -> persistedVulkanNotice
             persistedVulkan.migrated -> persistedVulkan.notice
             removedProvider != null || removedRenderer != null ->
                 "A removed client runtime selection was migrated to Box64 + DXVK ($box64Package)."
             packageChanged != null ->
                 "The saved DXVK package is unavailable; using $box64Package."
-            VulkanDriverCatalog.find(vulkanDriver) == null ->
+            renderer == ArmClientRenderer.DXVK && VulkanDriverCatalog.find(vulkanDriver) == null ->
                 "The saved Vulkan driver is unknown. Choose an available packaged driver before launch."
-            !vulkanAvailability.available -> vulkanAvailability.reason
+            renderer == ArmClientRenderer.DXVK && !vulkanAvailability.available ->
+                vulkanAvailability.reason
             else -> null
         }
         val timings = AutoLoginTimings(
@@ -504,6 +564,7 @@ class Settings(private val context: Context) {
         return Snapshot(
         displayProfileId = displayProfile.id,
         clientFrameCap = frameCap.fps,
+        armRendererId = renderer.id,
         box64DxvkPackageId = box64Package,
         armVulkanDriverId = vulkanDriver,
         rendererSelectionNotice = selectionNotice,
@@ -528,6 +589,10 @@ class Settings(private val context: Context) {
         } else ClientTweaksConfig(),
         audioMode = runCatching { AudioMode.valueOf(this[Keys.AUDIO_MODE] ?: "") }
             .getOrDefault(AudioMode.ON),
+        nearbyInteractTriggerGuardMs = NearbyInteractPolicy.normalizeTriggerGuardMs(
+            this[Keys.NEARBY_INTERACT_TRIGGER_GUARD_MS]
+                ?: NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
+        ),
         runtimeMode = runCatching { RuntimeMode.valueOf(this[Keys.RUNTIME_MODE] ?: "") }
             .getOrDefault(RuntimeMode.LOCAL),
         allowLanPlayers = (this[Keys.ALLOW_LAN_PLAYERS] ?: 0) == 1,

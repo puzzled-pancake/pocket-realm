@@ -7,7 +7,8 @@ interface IClientDisplayControl {
     String claim(String sessionId, String instanceToken, IBinder ownerLease);
     String prepare(String runtimeRoot, String instanceToken, String autoLoginUsername,
         String autoLoginPassword, String autoLoginTimingJson, String audioMode, String clientId,
-        String vulkanDriverId, String rendererPackageId, String displayProfileId, int frameCap);
+        String renderer, String vulkanDriverId, String rendererPackageId,
+        String displayProfileId, int frameCap);
     String attachSession(String instanceToken, String sessionId);
     String status();
     String requestClose(String instanceToken);

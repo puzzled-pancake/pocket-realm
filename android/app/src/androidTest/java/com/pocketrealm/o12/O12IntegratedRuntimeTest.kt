@@ -23,6 +23,7 @@ import com.pocketrealm.diagnostics.SupportBundleExporter
 import com.pocketrealm.service.RealmService
 import com.pocketrealm.server.IWorldControl
 import com.pocketrealm.server.WorldRuntimeService
+import com.pocketrealm.storage.Settings
 import com.pocketrealm.ui.MainActivity
 import com.pocketrealm.supervisor.AndroidRuntimeBackend
 import com.pocketrealm.supervisor.IRuntimeSupervisorControl
@@ -39,6 +40,8 @@ import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 
 /** Device acceptance for the O12 one-tap server + real client integration. */
 @RunWith(AndroidJUnit4::class)
@@ -79,6 +82,21 @@ class O12IntegratedRuntimeTest {
             val worldConfig = File(context.noBackupFilesDir, "server/run/mangosd.conf").readText()
             assertTrue("loopback realm must not kick Wine for burst-delivered pings",
                 Regex("(?m)^MaxOverspeedPings\\s*=\\s*0$").containsMatchIn(worldConfig))
+            assertTrue("normal loot-bearing corpses remain for handheld interaction",
+                Regex("(?m)^Corpse\\.Decay\\.NORMAL\\s*=\\s*1800$").containsMatchIn(worldConfig))
+            assertTrue(Regex("(?m)^Corpse\\.Decay\\.RARE\\s*=\\s*3600$").containsMatchIn(worldConfig))
+            assertTrue(Regex("(?m)^Corpse\\.Decay\\.ELITE\\s*=\\s*3600$").containsMatchIn(worldConfig))
+            assertTrue(Regex("(?m)^Corpse\\.Decay\\.RAREELITE\\s*=\\s*7200$").containsMatchIn(worldConfig))
+            assertTrue(Regex("(?m)^Corpse\\.Decay\\.WORLDBOSS\\s*=\\s*14400$").containsMatchIn(worldConfig))
+            assertTrue("nearby controller use must be explicitly enabled",
+                Regex("(?m)^PocketRealm\\.NearbyInteract\\s*=\\s*1$").containsMatchIn(worldConfig))
+            val expectedNearbyInteractTriggerGuardMs = runBlocking {
+                Settings(context).flow.first().nearbyInteractTriggerGuardMs
+            }
+            assertTrue("persisted nearby-use guard must reach the native realm config",
+                Regex("(?m)^PocketRealm\\.NearbyInteractCooldownMs\\s*=\\s*" +
+                    "$expectedNearbyInteractTriggerGuardMs$")
+                    .containsMatchIn(worldConfig))
             val displayStatus = JSONObject(display.api.status())
             assertTrue(displayStatus.toString(), displayStatus.getBoolean("windowVisible"))
 

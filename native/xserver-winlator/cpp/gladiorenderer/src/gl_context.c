@@ -426,9 +426,31 @@ static void* requestHandlerThread(void* param) {
     GLContext* context = param;
     loadJMethods(&context->jmethods);
     short requestCode;
+    // RP6 wedge diagnostics: the request loop never logs in release mode, so
+    // a driver-level hang inside one handler left no trace. Heartbeat and
+    // swap/current events make logcat show the last consumed request and its
+    // cadence before any future stall.
+    uint64_t totalRequests = 0;
+    uint64_t lastHeartbeat = 0;
+    short tailCodes[64] = {0};
+    int tailCount = 0;
 
     while (context->running) {
         if (!gl_recv(context->serverRing, &requestCode, &context->inputBuffer)) break;
+        totalRequests++;
+        tailCodes[tailCount++ & 63] = requestCode;
+        if (totalRequests - lastHeartbeat >= 4096) {
+            lastHeartbeat = totalRequests;
+            char tail[512];
+            int position = 0;
+            for (int i = 0; i < 64 && position < (int)sizeof(tail) - 8; i++) {
+                short code = tailCodes[(tailCount + i) & 63];
+                position += snprintf(tail + position, sizeof(tail) - position, "%d,", code);
+            }
+            __android_log_print(ANDROID_LOG_INFO, "PR/Gladio",
+                                "heartbeat requests=%llu tail=[%s]",
+                                (unsigned long long)totalRequests, tail);
+        }
 
         if (isCanDrawImmediate(requestCode)) GLRenderer_drawImmediate(currentRenderer);
 
@@ -458,6 +480,12 @@ static void* requestHandlerThread(void* param) {
                 int drawableId = ArrayBuffer_getInt(&context->inputBuffer);
                 currentRenderer->frameCount++;
                 swapDisplayBuffers(context, drawableId);
+                if ((currentRenderer->frameCount & 63) == 0) {
+                    __android_log_print(ANDROID_LOG_INFO, "PR/Gladio",
+                                        "swap frame=%llu requests=%llu drawable=%d",
+                        (unsigned long long)currentRenderer->frameCount,
+                        (unsigned long long)totalRequests, drawableId);
+                }
                 gl_send(context->clientRing, REQUEST_CODE_SWAP_DISPLAY_BUFFERS, NULL, 0);
                 break;
             }

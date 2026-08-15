@@ -91,17 +91,23 @@ static VkFormat getFallbackFormat(VkFormat format) {
     }
 }
 
-static void getSpvLiteralString(uint32_t* words, int instLength, char* outString) {
+static void getSpvLiteralString(
+        uint32_t* words, int instLength, char* outString,
+        size_t outCapacity) {
+    if (!outString || outCapacity == 0) return;
     int numBit = 0;
-    for (int i = 0; i < instLength * 4; i++) {
-        outString[i] = (*words >> numBit) & 0xff;
-        if (outString[i] == '\0') break;
+    size_t outputIndex = 0;
+    const size_t byteCount = instLength > 0 ? (size_t)instLength * 4U : 0U;
+    for (; outputIndex < byteCount && outputIndex + 1U < outCapacity; outputIndex++) {
+        outString[outputIndex] = (char)((*words >> numBit) & 0xffU);
+        if (outString[outputIndex] == '\0') return;
 
         if ((numBit += 8) == 32) {
             words++;
             numBit = 0;
         }
     }
+    outString[outputIndex] = '\0';
 }
 
 static uint32_t fetchSpvInstIndex(uint32_t* code, uint32_t sizeInBytes, int start, SpvOp targetOpcode, int field, uint32_t value, bool stopOnOpFunction) {
@@ -148,12 +154,15 @@ static uint32_t fetchSpvInstIndex2(uint32_t* code, uint32_t sizeInBytes, int sta
     return -1;
 }
 
-static void getSpvVariableName(uint32_t* code, uint32_t sizeInBytes, int varId, char* outName) {
+static void getSpvVariableName(
+        uint32_t* code, uint32_t sizeInBytes, int varId,
+        char* outName, size_t outCapacity) {
+    if (!outName || outCapacity == 0) return;
     int index = fetchSpvInstIndex(code, sizeInBytes, CODE_START, SpvOpName, 1, varId, true);
     outName[0] = '\0';
     if (index != -1) {
         int strLen = SPV_INST_LENGTH(code[index]) - 2;
-        getSpvLiteralString(&code[index+2], strLen, outName);
+        getSpvLiteralString(&code[index+2], strLen, outName, outCapacity);
     }
 }
 
@@ -195,9 +204,11 @@ static void fetchSpvVariableOffsets(ShaderModule* module, SpvStorageClass storag
                     l = fetchSpvInstIndex(module->code, module->codeSize, i, SpvOpTypeVector, 1, module->code[k+3], true);
                     if (l == -1) l = fetchSpvInstIndex(module->code, module->codeSize, i, SpvOpTypeFloat, 1, module->code[k+3], true);
                     if (l != -1) {
-                        getSpvVariableName(module->code, module->codeSize, module->code[j+2], varname);
+                        getSpvVariableName(
+                                module->code, module->codeSize,
+                                module->code[j+2], varname, sizeof(varname));
                         if ((varname[0] == 'o' || varname[0] == 'v')) {
-                            sprintf(location, "%d", module->code[i+3]);
+                            snprintf(location, sizeof(location), "%u", module->code[i+3]);
                             if (strcmp(varname + 1, location) == 0) {
                                 SpvVariableOffsets* variableOffsets = calloc(1, sizeof(SpvVariableOffsets));
                                 variableOffsets->decorate = i;
@@ -229,7 +240,10 @@ static uint32_t mergeSpvInst(MergeSpvInstOptions* options, uint32_t instLength, 
             MergeCode* mergeCode = options->mergeCodes->elements[i];
             int oldEndIndex = options->fetchFilter.endIndex;
             options->fetchFilter.endIndex = 0;
-            index = fetchSpvInstIndex2(mergeCode->code.values, mergeCode->code.size * sizeof(int), 0, opcode, &options->fetchFilter, false);
+            index = fetchSpvInstIndex2(
+                    (uint32_t*)mergeCode->code.values,
+                    mergeCode->code.size * sizeof(int), 0, opcode,
+                    &options->fetchFilter, false);
             options->fetchFilter.endIndex = oldEndIndex;
             if (index != -1) {
                 resultId = mergeCode->code.values[index+1];
@@ -590,16 +604,16 @@ ShaderInspector* ShaderInspector_create(VkContext* context, VkPhysicalDevice phy
     ShaderInspector* shaderInspector = calloc(1, sizeof(ShaderInspector));
     if (!shaderInspector) return NULL;
 
-    /*
-     * The first hardened System Vulkan lane intentionally avoids the legacy
-     * SPIR-V rewriting parser.  The Android driver validates the module while
-     * Vortek retains only the wrapper required by the 2.1 wire protocol.
-     */
-    shaderInspector->passthrough = context->hardenedSafeLane;
-    shaderInspector->checkClipDistance = supportedFeatures->shaderClipDistance == VK_FALSE;
+    /* Winlator's D3D9 compatibility depends on its scaled-vertex rewrite.
+     * The hardened lane keeps that narrow transform, but only after
+     * VortekSafeLane_validateSpirvEnvelope has bounded the instruction walk. */
+    shaderInspector->passthrough = false;
+    shaderInspector->checkClipDistance =
+            supportedFeatures->shaderClipDistance == VK_FALSE;
 
     bool isMaliDevice = context->driverID == VK_DRIVER_ID_ARM_PROPRIETARY;
-    bool isDXVKEngine = context->engineName ? strcmp(context->engineName, "DXVK") == 0 : false;
+    bool isDXVKEngine = context->engineName ?
+            strcmp(context->engineName, "DXVK") == 0 : false;
 
     if (isMaliDevice) {
         VkFormatProperties formatProperties = {0};
@@ -609,7 +623,8 @@ ShaderInspector* ShaderInspector_create(VkContext* context, VkPhysicalDevice phy
     else shaderInspector->convertFormatScaled = true;
 
     shaderInspector->removeImageBoundCheck = isMaliDevice && isDXVKEngine;
-    if (isDXVKEngine && context->engineVersion > MAKE_ENGINE_VERSION(2, 3, 1)) {
+    if (isDXVKEngine &&
+            context->engineVersion > MAKE_ENGINE_VERSION(2, 3, 1)) {
         shaderInspector->removePointSizeExport = true;
         shaderInspector->checkInOutVariablesSize = true;
     }
@@ -618,7 +633,7 @@ ShaderInspector* ShaderInspector_create(VkContext* context, VkPhysicalDevice phy
 }
 
 bool ShaderInspector_validateSpirvEnvelope(const uint32_t* code, size_t codeSize) {
-    return VortekSafeLane_validateSpirvEnvelope(code, codeSize);
+    return VortekSafeLane_validateSpirvForInspector(code, codeSize);
 }
 
 VkResult ShaderInspector_createModule(ShaderInspector* shaderInspector, VkDevice device, const uint32_t* code, size_t codeSize, ShaderModule** ppModule) {
@@ -700,7 +715,19 @@ VkResult ShaderInspector_inspectShaderStages(ShaderInspector* shaderInspector, V
         if (!shaderModule->module) {
             if (stageInfo->stage == VK_SHADER_STAGE_VERTEX_BIT) {
                 if (vertexInputState) {
-                    VertexAnnotation vertexAnnotations[vertexInputState->vertexAttributeDescriptionCount];
+                    /* D3D9 uses at most 16 vertex declarations.  Leave room
+                     * for translated declarations without permitting a guest
+                     * to amplify one shader into an unbounded rewrite. */
+                    if (vertexInputState->vertexAttributeDescriptionCount > 32U) {
+                        return VK_ERROR_VALIDATION_FAILED_EXT;
+                    }
+                    VertexAnnotation* vertexAnnotations = calloc(
+                            vertexInputState->vertexAttributeDescriptionCount,
+                            sizeof(*vertexAnnotations));
+                    if (vertexInputState->vertexAttributeDescriptionCount > 0 &&
+                            !vertexAnnotations) {
+                        return VK_ERROR_OUT_OF_HOST_MEMORY;
+                    }
                     int vertexAnnotationCount = 0;
 
                     for (j = 0; j < vertexInputState->vertexAttributeDescriptionCount; j++) {
@@ -717,7 +744,12 @@ VkResult ShaderInspector_inspectShaderStages(ShaderInspector* shaderInspector, V
                         }
                     }
 
-                    inspectVertexShaderCode(shaderInspector, shaderModule, vertexAnnotations, vertexAnnotationCount);
+                    if (vertexAnnotationCount > 0) {
+                        inspectVertexShaderCode(
+                                shaderInspector, shaderModule,
+                                vertexAnnotations, vertexAnnotationCount);
+                    }
+                    free(vertexAnnotations);
                 }
 
                 vertexShaderModule = shaderModule;

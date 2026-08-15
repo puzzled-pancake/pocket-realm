@@ -197,7 +197,10 @@ class ClientActivity : ComponentActivity() {
         }
         ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { view, insets ->
             val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
-            if (imeWasVisible && !imeVisible) view.post(::hideSystemUi)
+            if (imeWasVisible && !imeVisible) {
+                IntegratedClientDisplay.currentHost(expectedGeneration)?.onSoftImeDismissed()
+                view.post(::hideSystemUi)
+            }
             imeWasVisible = imeVisible
             insets
         }

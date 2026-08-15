@@ -7,49 +7,6 @@
 
 DeviceMemoryInfo deviceMemoryInfo = {0};
 
-static bool supportsHardenedVortekExtensions(VkPhysicalDevice physicalDevice) {
-    static const char* required[] = {
-        "VK_KHR_swapchain",
-        "VK_ANDROID_external_memory_android_hardware_buffer",
-        "VK_KHR_external_memory",
-        "VK_KHR_external_memory_fd",
-        "VK_KHR_external_semaphore",
-        "VK_KHR_external_semaphore_fd",
-        "VK_KHR_external_fence",
-        "VK_KHR_external_fence_fd",
-    };
-    uint32_t count = 0;
-    VkResult result = vulkanWrapper.vkEnumerateDeviceExtensionProperties(
-            physicalDevice, NULL, &count, NULL);
-    if (result != VK_SUCCESS || count == 0 || count > 4096u) return false;
-
-    VkExtensionProperties* properties = calloc(count, sizeof(*properties));
-    if (!properties) return false;
-    result = vulkanWrapper.vkEnumerateDeviceExtensionProperties(
-            physicalDevice, NULL, &count, properties);
-    if (result != VK_SUCCESS && result != VK_INCOMPLETE) {
-        free(properties);
-        return false;
-    }
-
-    bool supported = true;
-    for (size_t requiredIndex = 0; requiredIndex < ARRAY_SIZE(required); requiredIndex++) {
-        bool found = false;
-        for (uint32_t propertyIndex = 0; propertyIndex < count; propertyIndex++) {
-            if (strcmp(required[requiredIndex], properties[propertyIndex].extensionName) == 0) {
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            supported = false;
-            break;
-        }
-    }
-    free(properties);
-    return supported;
-}
-
 #if ENABLE_VALIDATION_LAYER
 static VkBool32 debugReportCallback(VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT type, uint64_t object, size_t location, int32_t messageCode, const char *pLayerPrefix, const char *pMessage, void *pUserData) {
     println("Vulkan (%s): %s", pLayerPrefix, pMessage);
@@ -180,40 +137,12 @@ VkResult initVulkanDevice(VkContext* context, VkPhysicalDevice physicalDevice, V
     free(queueFamilies);
     if (!foundGraphicsQueue) return VK_ERROR_FEATURE_NOT_PRESENT;
 
-    /*
-     * Defense in depth: repeat the Java capability gate in the native trust
-     * boundary. Compatibility is capability-based, never device-name based:
-     * Vulkan 1.1 is the floor for DXVK 1.10.3, while newer DXVK selections set
-     * a higher vkMaxVersion before this context is created.
-     */
-    VkPhysicalDeviceProperties properties = {0};
-    vulkanWrapper.vkGetPhysicalDeviceProperties(physicalDevice, &properties);
-    if (!context->hardenedSafeLane ||
-            context->vkMaxVersion < VK_MAKE_VERSION(1, 1, 0) ||
-            properties.apiVersion < (uint32_t)context->vkMaxVersion ||
-            !context->hasExternalMemoryFd ||
-            !supportsHardenedVortekExtensions(physicalDevice)) {
-        return VK_ERROR_INCOMPATIBLE_DRIVER;
-    }
-
     VkPhysicalDeviceFeatures supportedFeatures = {0};
     vulkanWrapper.vkGetPhysicalDeviceFeatures(physicalDevice, &supportedFeatures);
-    if (supportedFeatures.textureCompressionBC != VK_TRUE) {
-        return VK_ERROR_FEATURE_NOT_PRESENT;
-    }
 
     if (!context->textureDecoder) context->textureDecoder = TextureDecoder_create(context, &supportedFeatures);
     if (!context->shaderInspector) context->shaderInspector = ShaderInspector_create(context, physicalDevice, &supportedFeatures);
-    if (context->textureDecoder || !context->shaderInspector ||
-            !context->shaderInspector->passthrough) {
-        if (context->textureDecoder) {
-            TextureDecoder_destroy(context->textureDecoder);
-            context->textureDecoder = NULL;
-        }
-        free(context->shaderInspector);
-        context->shaderInspector = NULL;
-        return VK_ERROR_FEATURE_NOT_PRESENT;
-    }
+    if (!context->shaderInspector) return VK_ERROR_OUT_OF_HOST_MEMORY;
     return VK_SUCCESS;
 }
 
@@ -475,6 +404,11 @@ void checkFormatProperties(VkPhysicalDevice physicalDevice, VkFormat format, VkF
     if (isCompressedFormat(format) && formatProperties->linearTilingFeatures == 0 && formatProperties->optimalTilingFeatures == 0) {
         vulkanWrapper.vkGetPhysicalDeviceFormatProperties(physicalDevice, DECOMPRESSED_FORMAT, formatProperties);
     }
+    else if (isFormatScaled(format)) {
+        /* Match the source Winlator bridge: the shader inspector converts
+         * scaled D3D9 vertex inputs to integer formats before host creation. */
+        formatProperties->bufferFeatures |= VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT;
+    }
 }
 
 void checkImageFormatProperties(VkFormat format, VkImageType type, VkImageTiling tiling, VkImageUsageFlags usage, VkImageCreateFlags flags, VkImageFormatProperties* imageFormatProperties, VkResult* result) {
@@ -524,13 +458,37 @@ void checkDeviceProperties(VkContext* context, VkPhysicalDeviceProperties* prope
 }
 
 void checkDeviceFeatures(VkPhysicalDeviceFeatures* features, void* pNext) {
-    /*
-     * Feature queries are a capability boundary.  Never advertise a feature
-     * the Android Vulkan driver did not report unless Vortek fully emulates it.
-     * The hardened RP6 lane uses only native features and has no such emulation.
-     */
-    (void)features;
-    (void)pNext;
+    features->textureCompressionBC = VK_TRUE;
+    features->depthClamp = VK_TRUE;
+    features->depthBiasClamp = VK_TRUE;
+    features->fillModeNonSolid = VK_TRUE;
+    features->sampleRateShading = VK_TRUE;
+    features->samplerAnisotropy = VK_TRUE;
+    features->shaderClipDistance = VK_TRUE;
+    features->shaderCullDistance = VK_TRUE;
+    features->occlusionQueryPrecise = VK_TRUE;
+    features->independentBlend = VK_TRUE;
+    features->multiViewport = VK_TRUE;
+    features->fullDrawIndexUint32 = VK_TRUE;
+    features->logicOp = VK_TRUE;
+    features->shaderImageGatherExtended = VK_TRUE;
+    features->variableMultisampleRate = VK_TRUE;
+    features->dualSrcBlend = VK_TRUE;
+    features->imageCubeArray = VK_TRUE;
+    features->drawIndirectFirstInstance = VK_TRUE;
+    features->fragmentStoresAndAtomics = VK_TRUE;
+    features->multiDrawIndirect = VK_TRUE;
+    features->tessellationShader = VK_TRUE;
+
+    VkPhysicalDeviceMapMemoryPlacedFeaturesEXT* mapMemoryPlacedFeatures =
+            findNextVkStructure(
+                    pNext,
+                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAP_MEMORY_PLACED_FEATURES_EXT);
+    if (mapMemoryPlacedFeatures) {
+        mapMemoryPlacedFeatures->memoryMapPlaced = VK_TRUE;
+        mapMemoryPlacedFeatures->memoryMapRangePlaced = VK_FALSE;
+        mapMemoryPlacedFeatures->memoryUnmapReserve = VK_TRUE;
+    }
 }
 
 void destroyVkObject(VkObjectType type, VkDevice device, void* handle) {

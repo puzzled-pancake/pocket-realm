@@ -266,13 +266,14 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
                 add(File(nativeBuildRoot, "packaging-build/libpocket_pkg_launcher.so"))
                 add(File(nativeBuildRoot, "wine-spike-build/libwine_trampoline.so"))
                 add(File(nativeBuildRoot, "xserver-winlator-build/libwinlator.so"))
-                // The GLX bridge is retained only for the historical x86
-                // WineD3D validation lane. ARM production is DXVK-only.
-                if (abi == "x86_64") {
+                // Source-matched GLX is used by x86 WineD3D and the explicit,
+                // capability-gated ARM Legacy OpenGL (Gladio) lane.
+                if (abi == "x86_64" || abi == "arm64-v8a") {
                     add(File(nativeBuildRoot, "xserver-winlator-build/libgladiorenderer.so"))
                 }
                 if (abi == "arm64-v8a") {
                     add(File(nativeBuildRoot, "xserver-winlator-build/libvortekrenderer.so"))
+                    add(File(nativeBuildRoot, "xserver-winlator-build/libvirglrenderer.so"))
                 }
             }
             // The glibc access(2) shim belongs only to the x86_64 direct-Wine
@@ -308,6 +309,7 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
         // provider and its memory budget are available.
         val laneSpecific = if (selectedLane == "full") serverLibraries + extractors else emptyList()
         val armGraphicsData = if (abi == "arm64-v8a" && selectedLane == "full") listOf(
+            File(nativeBuildRoot, "xserver-winlator-build/VIRGL_BUILD_PROVENANCE.json"),
             File(nativeBuildRoot, "wine-staging/assets/arm-translated/vulkan-drivers/catalog.json"),
             File(nativeBuildRoot, "wine-staging/assets/arm-translated/vulkan-drivers/system-vulkan-vortek-2.1/libvulkan_vortek.so"),
             File(nativeBuildRoot, "wine-staging/assets/arm-translated/vulkan-drivers/system-vulkan-vortek-2.1/vortek_icd.aarch64.json"),
@@ -318,6 +320,9 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
             File(nativeBuildRoot, "wine-staging/assets/arm-translated/renderer-packages/box64-dxvk-2.4.1/syswow64/d3d9.dll"),
             File(nativeBuildRoot, "wine-staging/assets/arm-translated/renderer-packages/box64-dxvk-1.10.3/system32/d3d9.dll"),
             File(nativeBuildRoot, "wine-staging/assets/arm-translated/renderer-packages/box64-dxvk-1.10.3/syswow64/d3d9.dll"),
+            File(nativeBuildRoot, "wine-staging/assets/arm-translated/renderer-packages/box64-gladio-eaa2a8d/libGL.so.1"),
+            File(nativeBuildRoot, "wine-staging/assets/arm-translated/renderer-packages/box64-virgl-23.1.9/libGL.so.1"),
+            File(nativeBuildRoot, "wine-staging/assets/arm-translated/renderer-packages/box64-virgl-23.1.9/BUILD_PROVENANCE.json"),
         ) else emptyList()
         val armRuntimeData = if (abi == "arm64-v8a" && selectedLane == "full") listOf(
             File(nativeBuildRoot, "wine-staging/assets/arm-translated-wine/rootfs.tzst"),
@@ -352,6 +357,32 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
             }
         }
         if (abi == "arm64-v8a" && selectedLane == "full") {
+            val gladioServer = File(nativeBuildRoot,
+                "xserver-winlator-build/libgladiorenderer.so")
+            check(gladioServer.length() == 1_309_312L && sha256(gladioServer) ==
+                "1ffa75ce4f2dd45b85feb83c5f5db5208a496d5a89ef7a434833cfb8a9d76a28") {
+                "ARM Gladio server differs from the reviewed source build"
+            }
+            val virglServer = File(nativeBuildRoot,
+                "xserver-winlator-build/libvirglrenderer.so")
+            check(virglServer.length() == 1_959_112L && sha256(virglServer) ==
+                "c6895de1a5407fc60f3098e4d650689fb6c45e89126560cce8867d98e56286ae") {
+                "ARM VirGL server differs from the reviewed source build"
+            }
+            val virglServerProvenance = JsonSlurper().parse(File(nativeBuildRoot,
+                "xserver-winlator-build/VIRGL_BUILD_PROVENANCE.json")) as Map<*, *>
+            check(virglServerProvenance["winlator_commit"] ==
+                "ca3d735a60d653a787daf16d14fafef28d9c2c23" &&
+                virglServerProvenance["upstream_virgl_source_tree_id"] ==
+                    "44f73c34d4a2cf4e21fcdbcfc4fc37a44837e1b9" &&
+                virglServerProvenance["adapted_source_sha256"] ==
+                    "d0e74286cade7dd9da18c39d1fed34a37b08648209e0bbf422c01a060908da21" &&
+                virglServerProvenance["ndk_version"] == "30.0.15729638" &&
+                (virglServerProvenance["size"] as Number).toLong() == virglServer.length() &&
+                virglServerProvenance["sha256"] == sha256(virglServer) &&
+                virglServerProvenance["max_page_size"] == "0x4000") {
+                "ARM VirGL server provenance does not match the adapted binary"
+            }
             val rootfsArchive = armRuntimeData[0]
             check(rootfsArchive.length() == 65_251_198L &&
                 sha256(rootfsArchive) ==
@@ -372,9 +403,13 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
             }
             val driverCatalogFile = File(nativeBuildRoot,
                 "wine-staging/assets/arm-translated/vulkan-drivers/catalog.json")
+            val reviewedDriverCatalogFile = File(repoRoot, "schemas/vulkan-driver-catalog.json")
+            check(driverCatalogFile.readBytes().contentEquals(reviewedDriverCatalogFile.readBytes())) {
+                "Packaged Vulkan driver catalog differs from the reviewed source catalog"
+            }
             val driverCatalog = JsonSlurper().parse(driverCatalogFile) as Map<*, *>
             check((driverCatalog["schema"] as Number).toInt() == 2 &&
-                driverCatalog["default"] == "system-vulkan-vortek-2.1" &&
+                driverCatalog["default"] == "turnip-26.1.0" &&
                 driverCatalog["selection_policy"] == "exact-request-fail-closed") {
                 "Unsupported Vulkan driver catalog schema/default"
             }
@@ -401,55 +436,57 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
                 "VK_KHR_external_fence",
                 "VK_KHR_external_fence_fd",
             )
-            check(systemRelease["enabled"] == true && systemRelease["default"] == true &&
-                systemRelease["request_handle_authority_complete"] == true &&
+            check(systemRelease["enabled"] == false && systemRelease["default"] == false &&
+                systemRelease["experimental"] == true &&
+                systemRelease["protocol_profile"] == "winlator-2.1-source-matched" &&
                 systemFloors == mapOf(
                     "box64-dxvk-2.4.1" to "1.3",
                     "box64-dxvk-1.10.3" to "1.1",
                 ) && systemExtensions == requiredSystemExtensions &&
                 systemRelease["requires_native_texture_compression_bc"] == true) {
-                "System/Vortek must declare the exact hardened capability gate"
+                "System/Vortek must remain experimental with the exact capability gate"
             }
             val turnipRelease = driverRecordsById.getValue("turnip-26.1.0")["release"]
                 as Map<*, *>
-            check(turnipRelease["enabled"] == true && turnipRelease["default"] == false &&
+            check(turnipRelease["enabled"] == true && turnipRelease["default"] == true &&
                 turnipRelease["qualified_device_models"] == listOf("Retroid Pocket 6")) {
-                "exact RP6 Turnip must remain an explicit qualified option"
+                "exact RP6 Turnip must remain the qualified production default"
             }
-            val expectedDriverFiles = mapOf(
-                "arm-translated/vulkan-drivers/system-vulkan-vortek-2.1/libvulkan_vortek.so" to
-                    Pair(422_624L,
-                        "894665b2df007b3dafcf987a56ddd0e67475ab6d7ef91224c395fffda3301c25"),
-                "arm-translated/vulkan-drivers/system-vulkan-vortek-2.1/vortek_icd.aarch64.json" to
-                    Pair(192L,
-                        "9e80133ca51ef57dac0cdc29ff8614d1fdffc5335fcf4e8ce38066da43f3c262"),
-                "arm-translated/vulkan-drivers/turnip-26.1.0/libvulkan_freedreno.so" to
-                    Pair(16_101_536L,
-                        "f4d09b00d5d7e463f1af76a9974bdd4f2d8298951de9ae2bfc7678a3631e7ab0"),
-                "arm-translated/vulkan-drivers/turnip-26.1.0/freedreno_icd.aarch64.json" to
-                    Pair(195L,
-                        "8ab797c2c31441271acee4b2423106683eb9e500de6e168ceb035f02c30aeb92"),
+            val expectedRolesByDriver = mapOf(
+                "system-vulkan-vortek-2.1" to setOf(
+                    "guest-vulkan-bridge-library", "guest-vulkan-icd-manifest",
+                ),
+                "turnip-26.1.0" to setOf(
+                    "guest-vulkan-icd-library", "guest-vulkan-icd-manifest",
+                ),
             )
-            val driverFiles = driverRecords
-                .flatMap { (it["files"] as List<*>).map { file -> file as Map<*, *> } }
-                .associateBy { it["asset"] as String }
-            check(driverFiles.keys == expectedDriverFiles.keys) {
-                "Vulkan driver file catalog changed: ${driverFiles.keys}"
-            }
             val assetRoot = File(nativeBuildRoot, "wine-staging/assets")
-            expectedDriverFiles.forEach { (assetPath, expected) ->
-                val record = checkNotNull(driverFiles[assetPath])
-                val file = File(assetRoot, assetPath)
-                check((record["size"] as Number).toLong() == expected.first &&
-                    file.length() == expected.first && record["sha256"] == expected.second &&
-                    sha256(file) == expected.second) {
-                    "Vulkan driver asset identity mismatch: $assetPath"
+            val canonicalAssetRoot = assetRoot.canonicalFile.toPath()
+            driverRecords.forEach { driver ->
+                val driverId = driver["id"] as String
+                val files = (driver["files"] as List<*>).map { it as Map<*, *> }
+                check(files.map { it["role"] as String }.toSet() ==
+                    expectedRolesByDriver.getValue(driverId)) {
+                    "Vulkan driver file roles changed for $driverId"
                 }
-                if (file.name.endsWith(".so")) {
-                    check((record["elf_machine"] as Number).toInt() == 0xB7) {
-                        "Vulkan driver catalog ELF machine mismatch: $assetPath"
+                files.forEach { record ->
+                    val assetPath = record["asset"] as String
+                    val file = File(assetRoot, assetPath).canonicalFile
+                    check(file.toPath().startsWith(canonicalAssetRoot) && file.isFile) {
+                        "Vulkan driver asset path is absent or escapes the asset root: $assetPath"
                     }
-                    requireAbi(file)
+                    val expectedSize = (record["size"] as Number).toLong()
+                    val expectedSha256 = record["sha256"] as String
+                    check(expectedSha256.matches(Regex("[0-9a-f]{64}")) &&
+                        file.length() == expectedSize && sha256(file) == expectedSha256) {
+                        "Vulkan driver asset differs from reviewed catalog: $assetPath"
+                    }
+                    if (file.name.endsWith(".so")) {
+                        check((record["elf_machine"] as Number).toInt() == 0xB7) {
+                            "Vulkan driver catalog ELF machine mismatch: $assetPath"
+                        }
+                        requireAbi(file)
+                    }
                 }
             }
             val vortekIcd = JsonSlurper().parse(
@@ -526,6 +563,30 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
                     "Renderer catalog PE machine mismatch: $assetPath"
                 }
                 requirePeMachine(file, expected.third)
+            }
+            val gladioClient = File(assetRoot,
+                "arm-translated/renderer-packages/box64-gladio-eaa2a8d/libGL.so.1")
+            check(gladioClient.length() == 497_808L && sha256(gladioClient) ==
+                "1a634a5d9259a87188979a29d93b098edf09e8ee1639b7fb05e446e31327e865") {
+                "Gladio client differs from its source-matched reviewed artifact"
+            }
+            requireAbi(gladioClient)
+            val virglClient = File(assetRoot,
+                "arm-translated/renderer-packages/box64-virgl-23.1.9/libGL.so.1")
+            check(virglClient.length() == 14_379_544L && sha256(virglClient) ==
+                "531e3dc809281feadcc2120abc6d9f88025d92d567ac32eed9c376bd9e4e04f6") {
+                "Mesa virpipe client differs from the pinned ca3d735 artifact"
+            }
+            requireAbi(virglClient)
+            val virglProvenance = JsonSlurper().parse(File(assetRoot,
+                "arm-translated/renderer-packages/box64-virgl-23.1.9/BUILD_PROVENANCE.json")) as Map<*, *>
+            check(virglProvenance["source_commit"] ==
+                "ca3d735a60d653a787daf16d14fafef28d9c2c23" &&
+                virglProvenance["mesa_source_commit"] ==
+                    "71c57a2def7db3eb45cde5ee520f112de0fa6ec0" &&
+                virglProvenance["sha256"] ==
+                    "531e3dc809281feadcc2120abc6d9f88025d92d567ac32eed9c376bd9e4e04f6") {
+                "Mesa VirGL provenance does not identify the exact paired source"
             }
         }
         if (selectedLane == "full") {
@@ -860,6 +921,55 @@ val ndkRootProvider = provider {
     error("NDK not found under ANDROID_SDK_ROOT/ndk[-link]. Run scripts/build_native.py first.")
 }
 
+val verifyGeneratedVulkanDriverCatalog = tasks.register<Exec>(
+    "verifyGeneratedVulkanDriverCatalog",
+) {
+    group = "verification"
+    description = "Verify Kotlin Vulkan identities are generated from the reviewed catalog."
+    val repoRoot = layout.projectDirectory.dir("../..").asFile
+    workingDir(repoRoot)
+    commandLine("python", "tools/generate_vulkan_driver_catalog.py", "--check")
+    inputs.files(
+        File(repoRoot, "schemas/vulkan-driver-catalog.json"),
+        File(repoRoot, "tools/generate_vulkan_driver_catalog.py"),
+        File(repoRoot,
+            "android/app/src/main/java/com/pocketrealm/client/GeneratedVulkanDriverCatalog.kt"),
+    )
+}
+
+tasks.matching { task ->
+    task.name.startsWith("compile") &&
+        (task.name.endsWith("Kotlin") || task.name.endsWith("JavaWithJavac"))
+}.configureEach {
+    dependsOn(verifyGeneratedVulkanDriverCatalog)
+}
+
+val buildVortekGuest = if (pocketAbi == "arm64-v8a" && pocketLane == "full") {
+    tasks.register<Exec>("buildVortekGuest") {
+        group = "pocket realm"
+        description = "Build the pinned Vortek 2.1 glibc guest with bounded map diagnostics."
+        val repoRoot = layout.projectDirectory.dir("../..").asFile
+        workingDir(repoRoot)
+        commandLine("python", "tools/build_vortek_guest.py")
+        inputs.files(
+            File(repoRoot, "tools/build_vortek_guest.py"),
+            File(repoRoot, "schemas/vulkan-driver-catalog.json"),
+        )
+        inputs.files(
+            File(repoRoot,
+                "native/xserver-winlator/cpp/vortekrenderer-winlator-2.1/include/vulkan/vulkan.h"),
+            File(repoRoot,
+                "native/xserver-winlator/cpp/vortekrenderer-winlator-2.1/include/vulkan/vulkan_core.h"),
+            File(repoRoot,
+                "native/xserver-winlator/cpp/vortekrenderer-winlator-2.1/include/vulkan/vk_platform.h"),
+        )
+        outputs.files(
+            File(repoRoot, "native/.build-arm64/vortek-guest/libvulkan_vortek.so"),
+            File(repoRoot, "native/.build-arm64/vortek-guest/BUILD_PROVENANCE.json"),
+        )
+    }
+} else null
+
 val stageRendererPackages = if (pocketAbi == "arm64-v8a" && pocketLane == "full") {
     tasks.register<Exec>("stageRendererPackages") {
         group = "pocket realm"
@@ -867,24 +977,80 @@ val stageRendererPackages = if (pocketAbi == "arm64-v8a" && pocketLane == "full"
         val repoRoot = layout.projectDirectory.dir("../..").asFile
         workingDir(repoRoot)
         commandLine("python", "tools/stage_renderer_packages.py")
-        inputs.file(File(repoRoot, "tools/stage_renderer_packages.py"))
+        inputs.files(
+            File(repoRoot, "tools/stage_renderer_packages.py"),
+            File(repoRoot, "schemas/vulkan-driver-catalog.json"),
+        )
         inputs.files(
             File(repoRoot, "native/.providers-extracted/winlator-app-ca3d735/app/src/main/assets/dxwrapper/dxvk-2.4.1.tzst"),
             File(repoRoot, "native/.providers-extracted/winlator-app-ca3d735/app/src/main/assets/dxwrapper/dxvk-1.10.3.tzst"),
             File(repoRoot, "native/.providers-extracted/winlator-app-ca3d735/app/src/main/assets/graphics_driver/turnip-26.1.0.tzst"),
             File(repoRoot, "native/.providers-extracted/winlator-app-ca3d735/app/src/main/assets/graphics_driver/vortek-2.1.tzst"),
+            File(repoRoot, "native/.build-arm64/vortek-guest/libvulkan_vortek.so"),
+            File(repoRoot, "native/.build-arm64/vortek-guest/BUILD_PROVENANCE.json"),
         )
         outputs.dir(File(repoRoot,
             "native/.build-arm64/wine-staging/assets/arm-translated/renderer-packages"))
         outputs.dir(File(repoRoot,
             "native/.build-arm64/wine-staging/assets/arm-translated/vulkan-drivers"))
+        buildVortekGuest?.let { dependsOn(it) }
+    }
+} else null
+
+val buildGladioClientArm = if (pocketAbi == "arm64-v8a" && pocketLane == "full") {
+    tasks.register<Exec>("buildGladioClientArm") {
+        group = "pocket realm"
+        description = "Build and stage the pinned Box64/glibc Gladio client."
+        val repoRoot = layout.projectDirectory.dir("../..").asFile
+        workingDir(repoRoot)
+        commandLine("python", "tools/build_gladio_client.py", "--abi", "arm64-v8a")
+        inputs.files(
+            File(repoRoot, "tools/build_gladio_client.py"),
+            File(repoRoot, "native/xserver-winlator/cpp/gladiorenderer"),
+        )
+        outputs.files(
+            File(repoRoot, "native/.build-arm64/gladio-client/libGL.so.1"),
+            File(repoRoot, "native/.build-arm64/gladio-client/BUILD_PROVENANCE.json"),
+            File(repoRoot,
+                "native/.build-arm64/wine-staging/assets/arm-translated/renderer-packages/" +
+                    "box64-gladio-eaa2a8d/libGL.so.1"),
+        )
+        // The DXVK catalog producer replaces renderer-packages atomically.
+        // Re-publish Gladio afterwards so neither task can erase the other.
+        stageRendererPackages?.let { dependsOn(it) }
+    }
+} else null
+
+val stageVirglRendererArm = if (pocketAbi == "arm64-v8a" && pocketLane == "full") {
+    tasks.register<Exec>("stageVirglRendererArm") {
+        group = "pocket realm"
+        description = "Stage the pinned ca3d735 Mesa virpipe guest client."
+        val repoRoot = layout.projectDirectory.dir("../..").asFile
+        workingDir(repoRoot)
+        commandLine("python", "tools/stage_virgl_renderer.py")
+        inputs.files(
+            File(repoRoot, "tools/stage_virgl_renderer.py"),
+            File(repoRoot,
+                "native/.providers-extracted/winlator-app-ca3d735/app/src/main/assets/" +
+                    "graphics_driver/virgl-23.1.9.tzst"),
+        )
+        outputs.files(
+            File(repoRoot,
+                "native/.build-arm64/wine-staging/assets/arm-translated/renderer-packages/" +
+                    "box64-virgl-23.1.9/BUILD_PROVENANCE.json"),
+            File(repoRoot,
+                "native/.build-arm64/wine-staging/assets/arm-translated/renderer-packages/" +
+                    "box64-virgl-23.1.9/libGL.so.1"),
+        )
+        // The DXVK catalog producer replaces renderer-packages atomically.
+        stageRendererPackages?.let { dependsOn(it) }
     }
 } else null
 
 val removeRetiredArmClientAssets = if (pocketAbi == "arm64-v8a" && pocketLane == "full") {
     tasks.register("removeRetiredArmClientAssets") {
         group = "pocket realm"
-        description = "Remove retired ARM FEX/OpenGL provider assets before APK merge."
+        description = "Remove retired ARM FEX and legacy unscoped graphics assets before APK merge."
         val repoRoot = layout.projectDirectory.dir("../..").asFile
         doLast {
             val nativeRoot = File(repoRoot, "native").canonicalFile
@@ -899,7 +1065,6 @@ val removeRetiredArmClientAssets = if (pocketAbi == "arm64-v8a" && pocketLane ==
                 File(nativeRoot, ".providers-extracted/fexcore-arm64ec"),
                 File(nativeRoot, ".fex-inspect"),
                 File(nativeRoot, ".obsolete-standalone-fex"),
-                File(nativeRoot, ".build-arm64/gladio-client"),
                 File(nativeRoot, ".build-arm64-bionic/gladio-client"),
             )
             retired.forEach { target ->
@@ -930,7 +1095,10 @@ val validateSelectedNativeClosure = tasks.register<ValidateSelectedNativeClosure
     expectedMachine.set(pocketElfMachine)
     compat32Machine.set(pocketCompat32ElfMachine)
     lane.set(pocketLane)
+    dependsOn(verifyGeneratedVulkanDriverCatalog)
     stageRendererPackages?.let { dependsOn(it) }
+    buildGladioClientArm?.let { dependsOn(it) }
+    stageVirglRendererArm?.let { dependsOn(it) }
     removeRetiredArmClientAssets?.let { dependsOn(it) }
 }
 
@@ -1014,11 +1182,13 @@ val stageNativeLibs by tasks.registering(Sync::class) {
     // (com.winlator.xconnector.* + com.winlator.xserver.Drawable), so it is a
     // drop-in for System.loadLibrary("winlator").
     from(File(xserverBuild, "libwinlator.so"))
-    // O07 GLX is retained solely for the x86 WineD3D validation lane.
-    if (pocketAbi == "x86_64") {
+    // Source-matched GLX is loaded only when the selected display lane enables it.
+    if (pocketAbi == "x86_64" || pocketAbi == "arm64-v8a") {
         from(File(xserverBuild, "libgladiorenderer.so"))
-    } else if (pocketAbi == "arm64-v8a") {
+    }
+    if (pocketAbi == "arm64-v8a") {
         from(File(xserverBuild, "libvortekrenderer.so"))
+        from(File(xserverBuild, "libvirglrenderer.so"))
     }
     }
     // libc++_shared.so — the realm facade links ANDROID_STL=c++_shared, so its

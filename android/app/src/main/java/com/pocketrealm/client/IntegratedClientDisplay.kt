@@ -64,6 +64,7 @@ class ClientDisplayService : Service() {
             autoLoginTimingJson: String,
             audioMode: String,
             clientId: String,
+            renderer: String,
             vulkanDriverId: String,
             rendererPackageId: String,
             displayProfileId: String,
@@ -84,15 +85,32 @@ class ClientDisplayService : Service() {
             )
             val arm = Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a"
             val driverId = vulkanDriverId.takeIf(String::isNotEmpty)
-            val rendererId = rendererPackageId.takeIf(String::isNotEmpty)
-            val driver = if (arm) VulkanDriverCatalog.requireForRequest(driverId) else {
-                require(driverId == null) { "x86 display does not accept an ARM Vulkan driver" }
+            val rendererPackageIdOrNull = rendererPackageId.takeIf(String::isNotEmpty)
+            val rendererSelection = if (arm) {
+                ArmClientRendererCatalog.requireRuntimeRenderer(
+                    renderer,
+                    if (renderer != "dxvk") runCatching {
+                        AndroidGladioCapabilityProbe.probe(applicationContext)
+                    } else null,
+                )
+            } else {
+                require(renderer == "wined3d") { "x86 display requires WineD3D" }
                 null
             }
-            val rendererPackage = if (arm) RendererPackageCatalog.requireForRequest(
-                ArmTranslationBackend.BOX64, "dxvk", rendererId,
-            ) else {
-                require(rendererId == null) { "x86 display does not accept an ARM renderer package" }
+            val driver = if (rendererSelection == ArmClientRenderer.DXVK) {
+                VulkanDriverCatalog.requireForRequest(driverId)
+            } else {
+                require(driverId == null) { "$renderer display does not accept a Vulkan driver" }
+                null
+            }
+            val rendererPackage = if (rendererSelection == ArmClientRenderer.DXVK) {
+                RendererPackageCatalog.requireForRequest(
+                    ArmTranslationBackend.BOX64, renderer, rendererPackageIdOrNull,
+                )
+            } else {
+                require(rendererPackageIdOrNull == null) {
+                    "$renderer display does not accept a DXVK package"
+                }
                 null
             }
             if (driver != null && rendererPackage != null) {
@@ -131,9 +149,11 @@ class ClientDisplayService : Service() {
                     else scope.launch { reportVisible(id) }
                 },
                 displayProfile = displaySelection.profile,
+                virtualDisplay = displaySelection.virtual,
                 frameCap = displaySelection.frameCap.fps,
+                renderer = renderer,
                 vulkanDriverId = driverId,
-                rendererPackageId = rendererId,
+                rendererPackageId = rendererPackageIdOrNull,
                 autoLoginCredentials = autoLoginCredentials,
                 timings = timings,
                 audioEnabled = audioMode == "on",
@@ -152,12 +172,14 @@ class ClientDisplayService : Service() {
             }
             AppLog.i(TAG, "renderer EGL share context ready before Wine launch")
             JSONObject().put("ok", true).put("display", ":0")
+                .put("renderer", renderer)
+                .put("glxEnabled", display.glxEnabled)
                 .put("displayProfile", display.displayProfile.id)
-                .put("virtualWidth", display.displayProfile.virtualWidth)
-                .put("virtualHeight", display.displayProfile.virtualHeight)
+                .put("virtualWidth", display.virtualWidth)
+                .put("virtualHeight", display.virtualHeight)
                 .put("frameCap", display.frameCap)
                 .put("vulkanDriverId", driverId ?: JSONObject.NULL)
-                .put("rendererPackageId", rendererId ?: JSONObject.NULL)
+                .put("rendererPackageId", rendererPackageIdOrNull ?: JSONObject.NULL)
                 .put("vulkanBridgeReady", display.vulkanBridgeReady)
                 .put("audioMode", audioMode)
                 .put("transportReady", true).put("rendererReady", true)
@@ -177,9 +199,19 @@ class ClientDisplayService : Service() {
                 .put("windowVisible", host?.windowVisible == true)
                 .put("rendererReady", host?.rendererReady == true)
                 .put("rendererSurfaceGeneration", host?.rendererSurfaceGeneration ?: 0L)
+                .put("renderer", host?.renderer ?: "")
+                .put("glxEnabled", host?.glxEnabled == true)
+                .put("glxTransportContexts", host?.glxTransportContextCount ?: 0)
+                .put("glxContexts", host?.glxContextCount ?: 0)
+                .put("glxPresentedFrames", host?.glxPresentedFrameCount ?: 0L)
+                .put("virglServerStarted", host?.virglServerStarted == true)
+                .put("virglActiveConnections", host?.virglActiveConnectionCount ?: 0)
+                .put("virglInitializedConnections", host?.virglInitializedConnectionCount ?: 0)
+                .put("virglCapsReadyConnections", host?.virglCapsReadyConnectionCount ?: 0)
+                .put("virglSuccessfulFlushes", host?.virglSuccessfulFlushCount ?: 0L)
                 .put("displayProfile", host?.displayProfile?.id ?: "")
-                .put("virtualWidth", host?.displayProfile?.virtualWidth ?: 0)
-                .put("virtualHeight", host?.displayProfile?.virtualHeight ?: 0)
+                .put("virtualWidth", host?.virtualWidth ?: 0)
+                .put("virtualHeight", host?.virtualHeight ?: 0)
                 .put("frameCap", host?.frameCap ?: 0)
                 .put("vulkanDriverId", host?.vulkanDriverId ?: "")
                 .put("rendererPackageId", host?.rendererPackageId ?: "")

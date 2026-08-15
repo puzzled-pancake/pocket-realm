@@ -64,38 +64,57 @@ class WorldRuntimeService : Service() {
                     .put("onlinePlayers", WorldNative.onlinePlayersNative())
                     .also(::addBotStatus))
         } }
-        override fun start() = startAt(RealmEndpoint.LOOPBACK_ADDRESS)
-        override fun startAt(bindAddress: String) = guarded { transitionGate.run {
+        override fun start() = startAt(
+            RealmEndpoint.LOOPBACK_ADDRESS,
+            NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
+        )
+        override fun startAt(bindAddress: String, nearbyInteractTriggerGuardMs: Int) =
+            guarded { transitionGate.run {
             val endpoint = RealmEndpoint.parseStored(bindAddress)
             check(stopAdmissionMonitor()) { "previous bot admission monitor did not stop" }
             files.prepareWorldLogsForStart(currentNativeState())
             files.writeLifecycle("world", false, "start", endpoint.address)
             activeBindAddress = endpoint.address
-            val rc = WorldNative.startNative(files.worldConfig(endpoint.address).absolutePath)
+            val rc = WorldNative.startNative(files.worldConfig(
+                endpoint.address, nearbyInteractTriggerGuardMs).absolutePath)
             if (rc != 0) activeBindAddress = RealmEndpoint.LOOPBACK_ADDRESS
             ServerStatusJson.operation("world", "start", rc)
         } }
-        override fun startNormal() = startNormalAt(RealmEndpoint.LOOPBACK_ADDRESS)
-        override fun startNormalAt(bindAddress: String) = guarded { transitionGate.run {
+        override fun startNormal() = startNormalAt(
+            RealmEndpoint.LOOPBACK_ADDRESS,
+            NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
+        )
+        override fun startNormalAt(bindAddress: String, nearbyInteractTriggerGuardMs: Int) =
+            guarded { transitionGate.run {
             val endpoint = RealmEndpoint.parseStored(bindAddress)
             check(stopAdmissionMonitor()) { "previous bot admission monitor did not stop" }
             files.prepareWorldLogsForStart(currentNativeState())
             files.writeLifecycle("world", false, "start-normal", endpoint.address)
             activeBindAddress = endpoint.address
-            val rc = startWithNormalData { files.worldConfigNormal(endpoint.address) }
+            val rc = startWithNormalData { files.worldConfigNormal(
+                endpoint.address, nearbyInteractTriggerGuardMs) }
             if (rc != 0) activeBindAddress = RealmEndpoint.LOOPBACK_ADDRESS
             ServerStatusJson.operation("world", "start-normal", rc)
         } }
         override fun startBotProfile(profileId: String) =
-            startBotProfileAt(profileId, RealmEndpoint.LOOPBACK_ADDRESS)
-        override fun startBotProfileAt(profileId: String, bindAddress: String) = guarded { transitionGate.run {
+            startBotProfileAt(
+                profileId,
+                RealmEndpoint.LOOPBACK_ADDRESS,
+                NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
+            )
+        override fun startBotProfileAt(
+            profileId: String,
+            bindAddress: String,
+            nearbyInteractTriggerGuardMs: Int,
+        ) = guarded { transitionGate.run {
             val endpoint = RealmEndpoint.parseStored(bindAddress)
             check(stopAdmissionMonitor()) { "previous bot admission monitor did not stop" }
             files.prepareWorldLogsForStart(currentNativeState())
             val profile = BotProfiles.require(profileId)
             files.writeLifecycle("world", false, "start-bot-profile", "${profile.id}@${endpoint.address}")
             activeBindAddress = endpoint.address
-            val rc = startWithNormalData { files.worldConfigBot(profile, endpoint.address) }
+            val rc = startWithNormalData { files.worldConfigBot(
+                profile, endpoint.address, nearbyInteractTriggerGuardMs) }
             if (rc != 0) activeBindAddress = RealmEndpoint.LOOPBACK_ADDRESS
             if (rc == 0) startAdmissionMonitor(profile)
             ServerStatusJson.operation("world", "start-bot-profile", rc).put("profileId", profile.id)
@@ -532,6 +551,7 @@ class WorldRuntimeService : Service() {
         }
         return stopped
     }
+
     companion object {
         private const val TAG = "WorldRuntimeService"
         private const val ADMISSION_INTERVAL_MS = 10_000L

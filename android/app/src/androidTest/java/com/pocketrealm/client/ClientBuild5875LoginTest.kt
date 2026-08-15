@@ -116,9 +116,23 @@ class ClientBuild5875LoginTest {
             "SET gxMaximize \"${if (expectedProfile.gameMaximized) 1 else 0}\"",
         ))
         assertTrue(config.contains("SET maxFPS \"${displaySelection.frameCap.fps}\""))
+        // Vanilla's default 48 MiB script ceiling is too small for database
+        // add-ons such as pfQuest. Zero is the client-supported unlimited
+        // setting exposed by the character-select AddOns screen.
+        assertTrue(config.contains("SET scriptMemory \"0\""))
         assertTrue(config.contains(
             "SET Sound_EnableAllSound \"${if (audioMode == "on") 1 else 0}\"",
         ))
+        if (audioMode == "on") {
+            assertTrue(config.contains("SET SoundMixRate \"48000\""))
+            assertTrue(config.contains("SET SoundBufferSize \"100\""))
+        } else {
+            assertTrue(!config.contains("SET SoundMixRate"))
+            assertTrue(!config.contains("SET SoundBufferSize"))
+        }
+        // This request uses the default all-off tweak set. Do not silently
+        // spend CPU on the optional 64-channel executable/config tweak.
+        assertTrue(!config.contains("SET SoundSoftwareChannels"))
 
         val evidence = JSONObject()
             .put("schema", 1)

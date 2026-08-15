@@ -371,6 +371,11 @@ class RealmService : Service() {
         reservation: ServiceOperationCoordinator.Reservation,
         block: suspend () -> RuntimeOperation,
     ) {
+        // A freshly recreated service deliberately starts with no ownership of
+        // the dirty journal it loaded. Claim this process generation before
+        // publishing any asynchronous recovery/start progress so observers can
+        // distinguish live work from an interrupted persisted STARTING phase.
+        activeGeneration = true
         scope.launch {
             val execution = operationCoordinator.runReserved(
                 reservation = reservation,

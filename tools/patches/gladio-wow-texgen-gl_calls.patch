@@ -1,0 +1,1080 @@
+--- a/src/gl_calls.c
++++ b/src/gl_calls.c
+@@ -5,6 +5,22 @@
+ 
+ pthread_mutex_t gl_call_mutex = PTHREAD_MUTEX_INITIALIZER;
+ 
++static void gladio_unimplemented(const char* name) {
++    static const char* logged[256];
++    static int loggedCount = 0;
++    static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
++    pthread_mutex_lock(&mutex);
++    for (int i = 0; i < loggedCount; i++) {
++        if (logged[i] == name) {
++            pthread_mutex_unlock(&mutex);
++            return;
++        }
++    }
++    if (loggedCount < 256) logged[loggedCount++] = name;
++    pthread_mutex_unlock(&mutex);
++    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, name);
++}
++
+ /*
+  * OpenGL 2.1, table 2.9: signed integer color/normal components map as
+  * (2*c + 1) / (2^b - 1); unsigned components map as c / (2^b - 1).
+@@ -305,7 +321,7 @@
+ }
+ 
+ void glBitmap(GLsizei width, GLsizei height, GLfloat xorig, GLfloat yorig, GLfloat xmove, GLfloat ymove, const GLubyte* bitmap) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glBitmap");
++    gladio_unimplemented("glBitmap");
+ }
+ 
+ void glBlendColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
+@@ -564,7 +580,7 @@
+ }
+ 
+ void glCallLists(GLsizei n, GLenum type, const void* lists) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glCallLists");
++    gladio_unimplemented("glCallLists");
+ }
+ 
+ GLenum glCheckFramebufferStatus(GLenum target) {
+@@ -629,15 +645,15 @@
+ }
+ 
+ void glClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat* value) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glClearBufferfv");
++    gladio_unimplemented("glClearBufferfv");
+ }
+ 
+ void glClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint* value) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glClearBufferiv");
++    gladio_unimplemented("glClearBufferiv");
+ }
+ 
+ void glClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint* value) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glClearBufferuiv");
++    gladio_unimplemented("glClearBufferuiv");
+ }
+ 
+ void glClearColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
+@@ -685,7 +701,7 @@
+ }
+ 
+ void glClientAttribDefaultEXT(GLbitfield mask) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glClientAttribDefaultEXT");
++    gladio_unimplemented("glClientAttribDefaultEXT");
+ }
+ 
+ GLenum glClientWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout) {
+@@ -1429,11 +1445,11 @@
+ }
+ 
+ void glDisableVertexArrayAttribEXT(GLuint vaobj, GLuint index) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glDisableVertexArrayAttribEXT");
++    gladio_unimplemented("glDisableVertexArrayAttribEXT");
+ }
+ 
+ void glDisableVertexArrayEXT(GLuint vaobj, GLenum array) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glDisableVertexArrayEXT");
++    gladio_unimplemented("glDisableVertexArrayEXT");
+ }
+ 
+ void glDisableVertexAttribArray(GLuint index) {
+@@ -1659,7 +1675,7 @@
+ }
+ 
+ void glEdgeFlagPointer(GLsizei stride, const void* pointer) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glEdgeFlagPointer");
++    gladio_unimplemented("glEdgeFlagPointer");
+ }
+ 
+ void glEdgeFlagPointerEXT(GLsizei stride, GLsizei count, const GLboolean* pointer) {
+@@ -1667,7 +1683,7 @@
+ }
+ 
+ void glEdgeFlagv(const GLboolean* flag) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glEdgeFlagv");
++    gladio_unimplemented("glEdgeFlagv");
+ }
+ 
+ void glEnable(GLenum cap) {
+@@ -1698,11 +1714,11 @@
+ }
+ 
+ void glEnableVertexArrayAttribEXT(GLuint vaobj, GLuint index) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glEnableVertexArrayAttribEXT");
++    gladio_unimplemented("glEnableVertexArrayAttribEXT");
+ }
+ 
+ void glEnableVertexArrayEXT(GLuint vaobj, GLenum array) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glEnableVertexArrayEXT");
++    gladio_unimplemented("glEnableVertexArrayEXT");
+ }
+ 
+ void glEnableVertexAttribArray(GLuint index) {
+@@ -1934,7 +1950,7 @@
+ }
+ 
+ void glFogCoordPointer(GLenum type, GLsizei stride, const void* pointer) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glFogCoordPointer");
++    gladio_unimplemented("glFogCoordPointer");
+ }
+ 
+ void glFogCoordPointerEXT(GLenum type, GLsizei stride, const void* pointer) {
+@@ -2004,15 +2020,15 @@
+ }
+ 
+ void glFramebufferDrawBufferEXT(GLuint framebuffer, GLenum mode) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glFramebufferDrawBufferEXT");
++    gladio_unimplemented("glFramebufferDrawBufferEXT");
+ }
+ 
+ void glFramebufferDrawBuffersEXT(GLuint framebuffer, GLsizei n, const GLenum* bufs) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glFramebufferDrawBuffersEXT");
++    gladio_unimplemented("glFramebufferDrawBuffersEXT");
+ }
+ 
+ void glFramebufferReadBufferEXT(GLuint framebuffer, GLenum mode) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glFramebufferReadBufferEXT");
++    gladio_unimplemented("glFramebufferReadBufferEXT");
+ }
+ 
+ void glFramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer) {
+@@ -2284,19 +2300,19 @@
+ }
+ 
+ void glGetActiveUniformBlockName(GLuint program, GLuint uniformBlockIndex, GLsizei bufSize, GLsizei* length, GLchar* uniformBlockName) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetActiveUniformBlockName");
++    gladio_unimplemented("glGetActiveUniformBlockName");
+ }
+ 
+ void glGetActiveUniformBlockiv(GLuint program, GLuint uniformBlockIndex, GLenum pname, GLint* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetActiveUniformBlockiv");
++    gladio_unimplemented("glGetActiveUniformBlockiv");
+ }
+ 
+ void glGetActiveUniformName(GLuint program, GLuint uniformIndex, GLsizei bufSize, GLsizei* length, GLchar* uniformName) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetActiveUniformName");
++    gladio_unimplemented("glGetActiveUniformName");
+ }
+ 
+ void glGetActiveUniformsiv(GLuint program, GLsizei uniformCount, const GLuint* uniformIndices, GLenum pname, GLint* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetActiveUniformsiv");
++    gladio_unimplemented("glGetActiveUniformsiv");
+ }
+ 
+ void glGetAttachedObjectsARB(GLhandleARB containerObj, GLsizei maxCount, GLsizei* count, GLhandleARB* obj) {
+@@ -2304,7 +2320,7 @@
+ }
+ 
+ void glGetAttachedShaders(GLuint program, GLsizei maxCount, GLsizei* count, GLuint* shaders) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetAttachedShaders");
++    gladio_unimplemented("glGetAttachedShaders");
+ }
+ 
+ GLint glGetAttribLocation(GLuint program, const GLchar* name) {
+@@ -2324,7 +2340,7 @@
+ }
+ 
+ void glGetBooleani_v(GLenum target, GLuint index, GLboolean* data) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetBooleani_v");
++    gladio_unimplemented("glGetBooleani_v");
+ }
+ 
+ void glGetBooleanv(GLenum pname, GLboolean* data) {
+@@ -2374,7 +2390,7 @@
+ }
+ 
+ void glGetClipPlane(GLenum plane, GLdouble* equation) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetClipPlane");
++    gladio_unimplemented("glGetClipPlane");
+ }
+ 
+ void glGetCompressedMultiTexImageEXT(GLenum texunit, GLenum target, GLint lod, void* img) {
+@@ -2406,11 +2422,11 @@
+ }
+ 
+ void glGetDoubleIndexedvEXT(GLenum target, GLuint index, GLdouble* data) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetDoubleIndexedvEXT");
++    gladio_unimplemented("glGetDoubleIndexedvEXT");
+ }
+ 
+ void glGetDoublei_vEXT(GLenum pname, GLuint index, GLdouble* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetDoublei_vEXT");
++    gladio_unimplemented("glGetDoublei_vEXT");
+ }
+ 
+ void glGetDoublev(GLenum pname, GLdouble* data) {
+@@ -2433,11 +2449,11 @@
+ }
+ 
+ void glGetFloatIndexedvEXT(GLenum target, GLuint index, GLfloat* data) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetFloatIndexedvEXT");
++    gladio_unimplemented("glGetFloatIndexedvEXT");
+ }
+ 
+ void glGetFloati_vEXT(GLenum pname, GLuint index, GLfloat* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetFloati_vEXT");
++    gladio_unimplemented("glGetFloati_vEXT");
+ }
+ 
+ void glGetFloatv(GLenum pname, GLfloat* data) {
+@@ -2449,7 +2465,7 @@
+ }
+ 
+ GLint glGetFragDataIndex(GLuint program, const GLchar* name) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetFragDataIndex");
++    gladio_unimplemented("glGetFragDataIndex");
+     return 0;
+ }
+ 
+@@ -2458,7 +2474,7 @@
+ }
+ 
+ GLint glGetFragDataLocation(GLuint program, const GLchar* name) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetFragDataLocation");
++    gladio_unimplemented("glGetFragDataLocation");
+     return 0;
+ }
+ 
+@@ -2483,24 +2499,24 @@
+ }
+ 
+ void glGetFramebufferParameterivEXT(GLuint framebuffer, GLenum pname, GLint* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetFramebufferParameterivEXT");
++    gladio_unimplemented("glGetFramebufferParameterivEXT");
+ }
+ 
+ GLhandleARB glGetHandleARB(GLenum pname) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetHandleARB");
++    gladio_unimplemented("glGetHandleARB");
+     return 0;
+ }
+ 
+ void glGetInfoLogARB(GLhandleARB obj, GLsizei maxLength, GLsizei* length, GLcharARB* infoLog) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetInfoLogARB");
++    gladio_unimplemented("glGetInfoLogARB");
+ }
+ 
+ void glGetInteger64i_v(GLenum target, GLuint index, GLint64* data) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetInteger64i_v");
++    gladio_unimplemented("glGetInteger64i_v");
+ }
+ 
+ void glGetInteger64v(GLenum pname, GLint64* data) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetInteger64v");
++    gladio_unimplemented("glGetInteger64v");
+ }
+ 
+ void glGetInteger64vEXT(GLenum pname, GLint64* data) {
+@@ -2508,7 +2524,7 @@
+ }
+ 
+ void glGetIntegeri_v(GLenum target, GLuint index, GLint* data) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetIntegeri_v");
++    gladio_unimplemented("glGetIntegeri_v");
+ }
+ 
+ void glGetIntegeri_vEXT(GLenum target, GLuint index, GLint* data) {
+@@ -2543,31 +2559,31 @@
+ }
+ 
+ void glGetLightfv(GLenum light, GLenum pname, GLfloat* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetLightfv");
++    gladio_unimplemented("glGetLightfv");
+ }
+ 
+ void glGetLightiv(GLenum light, GLenum pname, GLint* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetLightiv");
++    gladio_unimplemented("glGetLightiv");
+ }
+ 
+ void glGetMapdv(GLenum target, GLenum query, GLdouble* v) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetMapdv");
++    gladio_unimplemented("glGetMapdv");
+ }
+ 
+ void glGetMapfv(GLenum target, GLenum query, GLfloat* v) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetMapfv");
++    gladio_unimplemented("glGetMapfv");
+ }
+ 
+ void glGetMapiv(GLenum target, GLenum query, GLint* v) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetMapiv");
++    gladio_unimplemented("glGetMapiv");
+ }
+ 
+ void glGetMaterialfv(GLenum face, GLenum pname, GLfloat* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetMaterialfv");
++    gladio_unimplemented("glGetMaterialfv");
+ }
+ 
+ void glGetMaterialiv(GLenum face, GLenum pname, GLint* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetMaterialiv");
++    gladio_unimplemented("glGetMaterialiv");
+ }
+ 
+ void glGetMultiTexEnvfvEXT(GLenum texunit, GLenum target, GLenum pname, GLfloat* params) {
+@@ -2631,7 +2647,7 @@
+ }
+ 
+ void glGetMultisamplefv(GLenum pname, GLuint index, GLfloat* val) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetMultisamplefv");
++    gladio_unimplemented("glGetMultisamplefv");
+ }
+ 
+ void glGetNamedBufferParameterivEXT(GLuint buffer, GLenum pname, GLint* params) {
+@@ -2689,35 +2705,35 @@
+ }
+ 
+ void glGetObjectParameterfvARB(GLhandleARB obj, GLenum pname, GLfloat* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetObjectParameterfvARB");
++    gladio_unimplemented("glGetObjectParameterfvARB");
+ }
+ 
+ void glGetObjectParameterivARB(GLhandleARB obj, GLenum pname, GLint* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetObjectParameterivARB");
++    gladio_unimplemented("glGetObjectParameterivARB");
+ }
+ 
+ void glGetPixelMapfv(GLenum map, GLfloat* values) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetPixelMapfv");
++    gladio_unimplemented("glGetPixelMapfv");
+ }
+ 
+ void glGetPixelMapuiv(GLenum map, GLuint* values) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetPixelMapuiv");
++    gladio_unimplemented("glGetPixelMapuiv");
+ }
+ 
+ void glGetPixelMapusv(GLenum map, GLushort* values) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetPixelMapusv");
++    gladio_unimplemented("glGetPixelMapusv");
+ }
+ 
+ void glGetPointerIndexedvEXT(GLenum target, GLuint index, void** data) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetPointerIndexedvEXT");
++    gladio_unimplemented("glGetPointerIndexedvEXT");
+ }
+ 
+ void glGetPointeri_vEXT(GLenum pname, GLuint index, void** params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetPointeri_vEXT");
++    gladio_unimplemented("glGetPointeri_vEXT");
+ }
+ 
+ void glGetPointerv(GLenum pname, void** params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetPointerv");
++    gladio_unimplemented("glGetPointerv");
+ }
+ 
+ void glGetPointervEXT(GLenum pname, void** params) {
+@@ -2725,15 +2741,15 @@
+ }
+ 
+ void glGetPolygonStipple(GLubyte* mask) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetPolygonStipple");
++    gladio_unimplemented("glGetPolygonStipple");
+ }
+ 
+ void glGetProgramEnvParameterdvARB(GLenum target, GLuint index, GLdouble* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetProgramEnvParameterdvARB");
++    gladio_unimplemented("glGetProgramEnvParameterdvARB");
+ }
+ 
+ void glGetProgramEnvParameterfvARB(GLenum target, GLuint index, GLfloat* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetProgramEnvParameterfvARB");
++    gladio_unimplemented("glGetProgramEnvParameterfvARB");
+ }
+ 
+ void glGetProgramInfoLog(GLuint program, GLsizei bufSize, GLsizei* length, GLchar* infoLog) {
+@@ -2759,15 +2775,15 @@
+ }
+ 
+ void glGetProgramLocalParameterdvARB(GLenum target, GLuint index, GLdouble* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetProgramLocalParameterdvARB");
++    gladio_unimplemented("glGetProgramLocalParameterdvARB");
+ }
+ 
+ void glGetProgramLocalParameterfvARB(GLenum target, GLuint index, GLfloat* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetProgramLocalParameterfvARB");
++    gladio_unimplemented("glGetProgramLocalParameterfvARB");
+ }
+ 
+ void glGetProgramStringARB(GLenum target, GLenum pname, void* string) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetProgramStringARB");
++    gladio_unimplemented("glGetProgramStringARB");
+ }
+ 
+ void glGetProgramiv(GLuint program, GLenum pname, GLint* params) {
+@@ -2856,7 +2872,7 @@
+ }
+ 
+ void glGetRenderbufferParameteriv(GLenum target, GLenum pname, GLint* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetRenderbufferParameteriv");
++    gladio_unimplemented("glGetRenderbufferParameteriv");
+ }
+ 
+ void glGetRenderbufferParameterivEXT(GLenum target, GLenum pname, GLint* params) {
+@@ -2919,11 +2935,11 @@
+ }
+ 
+ void glGetShaderPrecisionFormat(GLenum shadertype, GLenum precisiontype, GLint* range, GLint* precision) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetShaderPrecisionFormat");
++    gladio_unimplemented("glGetShaderPrecisionFormat");
+ }
+ 
+ void glGetShaderSource(GLuint shader, GLsizei bufSize, GLsizei* length, GLchar* source) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetShaderSource");
++    gladio_unimplemented("glGetShaderSource");
+ }
+ 
+ void glGetShaderSourceARB(GLhandleARB obj, GLsizei maxLength, GLsizei* length, GLcharARB* source) {
+@@ -2963,27 +2979,27 @@
+ }
+ 
+ void glGetSynciv(GLsync sync, GLenum pname, GLsizei count, GLsizei* length, GLint* values) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetSynciv");
++    gladio_unimplemented("glGetSynciv");
+ }
+ 
+ void glGetTexEnvfv(GLenum target, GLenum pname, GLfloat* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetTexEnvfv");
++    gladio_unimplemented("glGetTexEnvfv");
+ }
+ 
+ void glGetTexEnviv(GLenum target, GLenum pname, GLint* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetTexEnviv");
++    gladio_unimplemented("glGetTexEnviv");
+ }
+ 
+ void glGetTexGendv(GLenum coord, GLenum pname, GLdouble* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetTexGendv");
++    gladio_unimplemented("glGetTexGendv");
+ }
+ 
+ void glGetTexGenfv(GLenum coord, GLenum pname, GLfloat* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetTexGenfv");
++    gladio_unimplemented("glGetTexGenfv");
+ }
+ 
+ void glGetTexGeniv(GLenum coord, GLenum pname, GLint* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetTexGeniv");
++    gladio_unimplemented("glGetTexGeniv");
+ }
+ 
+ void glGetTexImage(GLenum target, GLint level, GLenum format, GLenum type, void* pixels) {
+@@ -3082,7 +3098,7 @@
+ }
+ 
+ void glGetTransformFeedbackVarying(GLuint program, GLuint index, GLsizei bufSize, GLsizei* length, GLsizei* size, GLenum* type, GLchar* name) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetTransformFeedbackVarying");
++    gladio_unimplemented("glGetTransformFeedbackVarying");
+ }
+ 
+ void glGetTransformFeedbackVaryingEXT(GLuint program, GLuint index, GLsizei bufSize, GLsizei* length, GLsizei* size, GLenum* type, GLchar* name) {
+@@ -3102,7 +3118,7 @@
+ }
+ 
+ void glGetUniformIndices(GLuint program, GLsizei uniformCount, const GLchar* const* uniformNames, GLuint* uniformIndices) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetUniformIndices");
++    gladio_unimplemented("glGetUniformIndices");
+ }
+ 
+ GLint glGetUniformLocation(GLuint program, const GLchar* name) {
+@@ -3122,7 +3138,7 @@
+ }
+ 
+ void glGetUniformfv(GLuint program, GLint location, GLfloat* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetUniformfv");
++    gladio_unimplemented("glGetUniformfv");
+ }
+ 
+ void glGetUniformfvARB(GLhandleARB programObj, GLint location, GLfloat* params) {
+@@ -3130,7 +3146,7 @@
+ }
+ 
+ void glGetUniformiv(GLuint program, GLint location, GLint* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetUniformiv");
++    gladio_unimplemented("glGetUniformiv");
+ }
+ 
+ void glGetUniformivARB(GLhandleARB programObj, GLint location, GLint* params) {
+@@ -3138,7 +3154,7 @@
+ }
+ 
+ void glGetUniformuiv(GLuint program, GLint location, GLuint* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetUniformuiv");
++    gladio_unimplemented("glGetUniformuiv");
+ }
+ 
+ void glGetUniformuivEXT(GLuint program, GLint location, GLuint* params) {
+@@ -3146,23 +3162,23 @@
+ }
+ 
+ void glGetVertexArrayIntegeri_vEXT(GLuint vaobj, GLuint index, GLenum pname, GLint* param) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetVertexArrayIntegeri_vEXT");
++    gladio_unimplemented("glGetVertexArrayIntegeri_vEXT");
+ }
+ 
+ void glGetVertexArrayIntegervEXT(GLuint vaobj, GLenum pname, GLint* param) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetVertexArrayIntegervEXT");
++    gladio_unimplemented("glGetVertexArrayIntegervEXT");
+ }
+ 
+ void glGetVertexArrayPointeri_vEXT(GLuint vaobj, GLuint index, GLenum pname, void** param) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetVertexArrayPointeri_vEXT");
++    gladio_unimplemented("glGetVertexArrayPointeri_vEXT");
+ }
+ 
+ void glGetVertexArrayPointervEXT(GLuint vaobj, GLenum pname, void** param) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetVertexArrayPointervEXT");
++    gladio_unimplemented("glGetVertexArrayPointervEXT");
+ }
+ 
+ void glGetVertexAttribIiv(GLuint index, GLenum pname, GLint* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetVertexAttribIiv");
++    gladio_unimplemented("glGetVertexAttribIiv");
+ }
+ 
+ void glGetVertexAttribIivEXT(GLuint index, GLenum pname, GLint* params) {
+@@ -3170,7 +3186,7 @@
+ }
+ 
+ void glGetVertexAttribIuiv(GLuint index, GLenum pname, GLuint* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetVertexAttribIuiv");
++    gladio_unimplemented("glGetVertexAttribIuiv");
+ }
+ 
+ void glGetVertexAttribIuivEXT(GLuint index, GLenum pname, GLuint* params) {
+@@ -3178,7 +3194,7 @@
+ }
+ 
+ void glGetVertexAttribPointerv(GLuint index, GLenum pname, void** pointer) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetVertexAttribPointerv");
++    gladio_unimplemented("glGetVertexAttribPointerv");
+ }
+ 
+ void glGetVertexAttribPointervARB(GLuint index, GLenum pname, void** pointer) {
+@@ -3186,7 +3202,7 @@
+ }
+ 
+ void glGetVertexAttribdv(GLuint index, GLenum pname, GLdouble* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetVertexAttribdv");
++    gladio_unimplemented("glGetVertexAttribdv");
+ }
+ 
+ void glGetVertexAttribdvARB(GLuint index, GLenum pname, GLdouble* params) {
+@@ -3194,7 +3210,7 @@
+ }
+ 
+ void glGetVertexAttribfv(GLuint index, GLenum pname, GLfloat* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetVertexAttribfv");
++    gladio_unimplemented("glGetVertexAttribfv");
+ }
+ 
+ void glGetVertexAttribfvARB(GLuint index, GLenum pname, GLfloat* params) {
+@@ -3202,7 +3218,7 @@
+ }
+ 
+ void glGetVertexAttribiv(GLuint index, GLenum pname, GLint* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glGetVertexAttribiv");
++    gladio_unimplemented("glGetVertexAttribiv");
+ }
+ 
+ void glGetVertexAttribivARB(GLuint index, GLenum pname, GLint* params) {
+@@ -3225,7 +3241,7 @@
+ }
+ 
+ void glIndexPointer(GLenum type, GLsizei stride, const void* pointer) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glIndexPointer");
++    gladio_unimplemented("glIndexPointer");
+ }
+ 
+ void glIndexPointerEXT(GLenum type, GLsizei stride, GLsizei count, const void* pointer) {
+@@ -3281,7 +3297,7 @@
+ }
+ 
+ void glInterleavedArrays(GLenum format, GLsizei stride, const void* pointer) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glInterleavedArrays");
++    gladio_unimplemented("glInterleavedArrays");
+ }
+ 
+ GLboolean glIsBuffer(GLuint buffer) {
+@@ -3447,7 +3463,13 @@
+ }
+ 
+ void glLightModelfv(GLenum pname, const GLfloat* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glLightModelfv");
++    int paramCount = pname == GL_LIGHT_MODEL_AMBIENT ? 4 : 1;
++    GL_CALL_LOCK();
++    ArrayBuffer_rewind(&outputBuffer);
++    ArrayBuffer_putInt(&outputBuffer, pname);
++    ArrayBuffer_putBytes(&outputBuffer, params, paramCount * sizeof(GLfloat));
++    gl_send(currentGLContext->serverRing, REQUEST_CODE_GL_LIGHT_MODELFV, outputBuffer.buffer, outputBuffer.size);
++    GL_CALL_UNLOCK();
+ }
+ 
+ void glLightModeli(GLenum pname, GLint param) {
+@@ -3460,7 +3482,13 @@
+ }
+ 
+ void glLightModeliv(GLenum pname, const GLint* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glLightModeliv");
++    int paramCount = pname == GL_LIGHT_MODEL_AMBIENT ? 4 : 1;
++    GL_CALL_LOCK();
++    ArrayBuffer_rewind(&outputBuffer);
++    ArrayBuffer_putInt(&outputBuffer, pname);
++    ArrayBuffer_putBytes(&outputBuffer, params, paramCount * sizeof(GLint));
++    gl_send(currentGLContext->serverRing, REQUEST_CODE_GL_LIGHT_MODELIV, outputBuffer.buffer, outputBuffer.size);
++    GL_CALL_UNLOCK();
+ }
+ 
+ void glLightf(GLenum light, GLenum pname, GLfloat param) {
+@@ -3573,19 +3601,19 @@
+ }
+ 
+ void glMap1d(GLenum target, GLdouble u1, GLdouble u2, GLint stride, GLint order, const GLdouble* points) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMap1d");
++    gladio_unimplemented("glMap1d");
+ }
+ 
+ void glMap1f(GLenum target, GLfloat u1, GLfloat u2, GLint stride, GLint order, const GLfloat* points) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMap1f");
++    gladio_unimplemented("glMap1f");
+ }
+ 
+ void glMap2d(GLenum target, GLdouble u1, GLdouble u2, GLint ustride, GLint uorder, GLdouble v1, GLdouble v2, GLint vstride, GLint vorder, const GLdouble* points) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMap2d");
++    gladio_unimplemented("glMap2d");
+ }
+ 
+ void glMap2f(GLenum target, GLfloat u1, GLfloat u2, GLint ustride, GLint uorder, GLfloat v1, GLfloat v2, GLint vstride, GLint vorder, const GLfloat* points) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMap2f");
++    gladio_unimplemented("glMap2f");
+ }
+ 
+ void* glMapBuffer(GLenum target, GLenum access) {
+@@ -3709,27 +3737,27 @@
+ }
+ 
+ void glMatrixFrustumEXT(GLenum mode, GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble zNear, GLdouble zFar) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMatrixFrustumEXT");
++    gladio_unimplemented("glMatrixFrustumEXT");
+ }
+ 
+ void glMatrixLoadIdentityEXT(GLenum mode) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMatrixLoadIdentityEXT");
++    gladio_unimplemented("glMatrixLoadIdentityEXT");
+ }
+ 
+ void glMatrixLoadTransposedEXT(GLenum mode, const GLdouble* m) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMatrixLoadTransposedEXT");
++    gladio_unimplemented("glMatrixLoadTransposedEXT");
+ }
+ 
+ void glMatrixLoadTransposefEXT(GLenum mode, const GLfloat* m) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMatrixLoadTransposefEXT");
++    gladio_unimplemented("glMatrixLoadTransposefEXT");
+ }
+ 
+ void glMatrixLoaddEXT(GLenum mode, const GLdouble* m) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMatrixLoaddEXT");
++    gladio_unimplemented("glMatrixLoaddEXT");
+ }
+ 
+ void glMatrixLoadfEXT(GLenum mode, const GLfloat* m) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMatrixLoadfEXT");
++    gladio_unimplemented("glMatrixLoadfEXT");
+ }
+ 
+ void glMatrixMode(GLenum mode) {
+@@ -3739,55 +3767,55 @@
+ }
+ 
+ void glMatrixMultTransposedEXT(GLenum mode, const GLdouble* m) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMatrixMultTransposedEXT");
++    gladio_unimplemented("glMatrixMultTransposedEXT");
+ }
+ 
+ void glMatrixMultTransposefEXT(GLenum mode, const GLfloat* m) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMatrixMultTransposefEXT");
++    gladio_unimplemented("glMatrixMultTransposefEXT");
+ }
+ 
+ void glMatrixMultdEXT(GLenum mode, const GLdouble* m) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMatrixMultdEXT");
++    gladio_unimplemented("glMatrixMultdEXT");
+ }
+ 
+ void glMatrixMultfEXT(GLenum mode, const GLfloat* m) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMatrixMultfEXT");
++    gladio_unimplemented("glMatrixMultfEXT");
+ }
+ 
+ void glMatrixOrthoEXT(GLenum mode, GLdouble left, GLdouble right, GLdouble bottom, GLdouble top, GLdouble zNear, GLdouble zFar) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMatrixOrthoEXT");
++    gladio_unimplemented("glMatrixOrthoEXT");
+ }
+ 
+ void glMatrixPopEXT(GLenum mode) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMatrixPopEXT");
++    gladio_unimplemented("glMatrixPopEXT");
+ }
+ 
+ void glMatrixPushEXT(GLenum mode) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMatrixPushEXT");
++    gladio_unimplemented("glMatrixPushEXT");
+ }
+ 
+ void glMatrixRotatedEXT(GLenum mode, GLdouble angle, GLdouble x, GLdouble y, GLdouble z) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMatrixRotatedEXT");
++    gladio_unimplemented("glMatrixRotatedEXT");
+ }
+ 
+ void glMatrixRotatefEXT(GLenum mode, GLfloat angle, GLfloat x, GLfloat y, GLfloat z) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMatrixRotatefEXT");
++    gladio_unimplemented("glMatrixRotatefEXT");
+ }
+ 
+ void glMatrixScaledEXT(GLenum mode, GLdouble x, GLdouble y, GLdouble z) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMatrixScaledEXT");
++    gladio_unimplemented("glMatrixScaledEXT");
+ }
+ 
+ void glMatrixScalefEXT(GLenum mode, GLfloat x, GLfloat y, GLfloat z) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMatrixScalefEXT");
++    gladio_unimplemented("glMatrixScalefEXT");
+ }
+ 
+ void glMatrixTranslatedEXT(GLenum mode, GLdouble x, GLdouble y, GLdouble z) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMatrixTranslatedEXT");
++    gladio_unimplemented("glMatrixTranslatedEXT");
+ }
+ 
+ void glMatrixTranslatefEXT(GLenum mode, GLfloat x, GLfloat y, GLfloat z) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMatrixTranslatefEXT");
++    gladio_unimplemented("glMatrixTranslatefEXT");
+ }
+ 
+ void glMinSampleShading(GLfloat value) {
+@@ -3847,7 +3875,7 @@
+ }
+ 
+ void glMultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, const void* const* indices, GLsizei drawcount, const GLint* basevertex) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glMultiDrawElementsBaseVertex");
++    gladio_unimplemented("glMultiDrawElementsBaseVertex");
+ }
+ 
+ void glMultiDrawElementsBaseVertexEXT(GLenum mode, const GLsizei* count, GLenum type, const void* const* indices, GLsizei drawcount, const GLint* basevertex) {
+@@ -4270,7 +4298,7 @@
+ }
+ 
+ void glNamedCopyBufferSubDataEXT(GLuint readBuffer, GLuint writeBuffer, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glNamedCopyBufferSubDataEXT");
++    gladio_unimplemented("glNamedCopyBufferSubDataEXT");
+ }
+ 
+ void glNamedFramebufferRenderbufferEXT(GLuint framebuffer, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer) {
+@@ -4585,7 +4613,7 @@
+ }
+ 
+ void glPointParameteriv(GLenum pname, const GLint* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glPointParameteriv");
++    gladio_unimplemented("glPointParameteriv");
+ }
+ 
+ void glPointSize(GLfloat size) {
+@@ -4617,7 +4645,7 @@
+ }
+ 
+ void glPolygonStipple(const GLubyte* mask) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glPolygonStipple");
++    gladio_unimplemented("glPolygonStipple");
+ }
+ 
+ void glPopAttrib() {
+@@ -4726,103 +4754,103 @@
+ }
+ 
+ void glProgramUniform1fEXT(GLuint program, GLint location, GLfloat v0) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniform1fEXT");
++    gladio_unimplemented("glProgramUniform1fEXT");
+ }
+ 
+ void glProgramUniform1fvEXT(GLuint program, GLint location, GLsizei count, const GLfloat* value) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniform1fvEXT");
++    gladio_unimplemented("glProgramUniform1fvEXT");
+ }
+ 
+ void glProgramUniform1iEXT(GLuint program, GLint location, GLint v0) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniform1iEXT");
++    gladio_unimplemented("glProgramUniform1iEXT");
+ }
+ 
+ void glProgramUniform1ivEXT(GLuint program, GLint location, GLsizei count, const GLint* value) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniform1ivEXT");
++    gladio_unimplemented("glProgramUniform1ivEXT");
+ }
+ 
+ void glProgramUniform2fEXT(GLuint program, GLint location, GLfloat v0, GLfloat v1) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniform2fEXT");
++    gladio_unimplemented("glProgramUniform2fEXT");
+ }
+ 
+ void glProgramUniform2fvEXT(GLuint program, GLint location, GLsizei count, const GLfloat* value) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniform2fvEXT");
++    gladio_unimplemented("glProgramUniform2fvEXT");
+ }
+ 
+ void glProgramUniform2iEXT(GLuint program, GLint location, GLint v0, GLint v1) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniform2iEXT");
++    gladio_unimplemented("glProgramUniform2iEXT");
+ }
+ 
+ void glProgramUniform2ivEXT(GLuint program, GLint location, GLsizei count, const GLint* value) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniform2ivEXT");
++    gladio_unimplemented("glProgramUniform2ivEXT");
+ }
+ 
+ void glProgramUniform3fEXT(GLuint program, GLint location, GLfloat v0, GLfloat v1, GLfloat v2) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniform3fEXT");
++    gladio_unimplemented("glProgramUniform3fEXT");
+ }
+ 
+ void glProgramUniform3fvEXT(GLuint program, GLint location, GLsizei count, const GLfloat* value) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniform3fvEXT");
++    gladio_unimplemented("glProgramUniform3fvEXT");
+ }
+ 
+ void glProgramUniform3iEXT(GLuint program, GLint location, GLint v0, GLint v1, GLint v2) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniform3iEXT");
++    gladio_unimplemented("glProgramUniform3iEXT");
+ }
+ 
+ void glProgramUniform3ivEXT(GLuint program, GLint location, GLsizei count, const GLint* value) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniform3ivEXT");
++    gladio_unimplemented("glProgramUniform3ivEXT");
+ }
+ 
+ void glProgramUniform4fEXT(GLuint program, GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniform4fEXT");
++    gladio_unimplemented("glProgramUniform4fEXT");
+ }
+ 
+ void glProgramUniform4fvEXT(GLuint program, GLint location, GLsizei count, const GLfloat* value) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniform4fvEXT");
++    gladio_unimplemented("glProgramUniform4fvEXT");
+ }
+ 
+ void glProgramUniform4iEXT(GLuint program, GLint location, GLint v0, GLint v1, GLint v2, GLint v3) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniform4iEXT");
++    gladio_unimplemented("glProgramUniform4iEXT");
+ }
+ 
+ void glProgramUniform4ivEXT(GLuint program, GLint location, GLsizei count, const GLint* value) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniform4ivEXT");
++    gladio_unimplemented("glProgramUniform4ivEXT");
+ }
+ 
+ void glProgramUniformMatrix2fvEXT(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniformMatrix2fvEXT");
++    gladio_unimplemented("glProgramUniformMatrix2fvEXT");
+ }
+ 
+ void glProgramUniformMatrix2x3fvEXT(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniformMatrix2x3fvEXT");
++    gladio_unimplemented("glProgramUniformMatrix2x3fvEXT");
+ }
+ 
+ void glProgramUniformMatrix2x4fvEXT(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniformMatrix2x4fvEXT");
++    gladio_unimplemented("glProgramUniformMatrix2x4fvEXT");
+ }
+ 
+ void glProgramUniformMatrix3fvEXT(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniformMatrix3fvEXT");
++    gladio_unimplemented("glProgramUniformMatrix3fvEXT");
+ }
+ 
+ void glProgramUniformMatrix3x2fvEXT(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniformMatrix3x2fvEXT");
++    gladio_unimplemented("glProgramUniformMatrix3x2fvEXT");
+ }
+ 
+ void glProgramUniformMatrix3x4fvEXT(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniformMatrix3x4fvEXT");
++    gladio_unimplemented("glProgramUniformMatrix3x4fvEXT");
+ }
+ 
+ void glProgramUniformMatrix4fvEXT(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniformMatrix4fvEXT");
++    gladio_unimplemented("glProgramUniformMatrix4fvEXT");
+ }
+ 
+ void glProgramUniformMatrix4x2fvEXT(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniformMatrix4x2fvEXT");
++    gladio_unimplemented("glProgramUniformMatrix4x2fvEXT");
+ }
+ 
+ void glProgramUniformMatrix4x3fvEXT(GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glProgramUniformMatrix4x3fvEXT");
++    gladio_unimplemented("glProgramUniformMatrix4x3fvEXT");
+ }
+ 
+ void glProvokingVertex(GLenum mode) {
+@@ -4848,7 +4876,7 @@
+ }
+ 
+ void glPushClientAttribDefaultEXT(GLbitfield mask) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glPushClientAttribDefaultEXT");
++    gladio_unimplemented("glPushClientAttribDefaultEXT");
+ }
+ 
+ void glPushMatrix() {
+@@ -5337,7 +5365,7 @@
+ }
+ 
+ void glSecondaryColorPointer(GLint size, GLenum type, GLsizei stride, const void* pointer) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glSecondaryColorPointer");
++    gladio_unimplemented("glSecondaryColorPointer");
+ }
+ 
+ void glSecondaryColorPointerEXT(GLint size, GLenum type, GLsizei stride, const void* pointer) {
+@@ -5653,7 +5681,14 @@
+ }
+ 
+ void glTexGendv(GLenum coord, GLenum pname, const GLdouble* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glTexGendv");
++    int paramCount = (pname == GL_OBJECT_PLANE || pname == GL_EYE_PLANE) ? 4 : 1;
++    GL_CALL_LOCK();
++    ArrayBuffer_rewind(&outputBuffer);
++    ArrayBuffer_putInt(&outputBuffer, coord);
++    ArrayBuffer_putInt(&outputBuffer, pname);
++    ArrayBuffer_putBytes(&outputBuffer, params, paramCount * sizeof(GLdouble));
++    gl_send(currentGLContext->serverRing, REQUEST_CODE_GL_TEX_GENDV, outputBuffer.buffer, outputBuffer.size);
++    GL_CALL_UNLOCK();
+ }
+ 
+ void glTexGenf(GLenum coord, GLenum pname, GLfloat param) {
+@@ -5667,7 +5702,14 @@
+ }
+ 
+ void glTexGenfv(GLenum coord, GLenum pname, const GLfloat* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glTexGenfv");
++    int paramCount = (pname == GL_OBJECT_PLANE || pname == GL_EYE_PLANE) ? 4 : 1;
++    GL_CALL_LOCK();
++    ArrayBuffer_rewind(&outputBuffer);
++    ArrayBuffer_putInt(&outputBuffer, coord);
++    ArrayBuffer_putInt(&outputBuffer, pname);
++    ArrayBuffer_putBytes(&outputBuffer, params, paramCount * sizeof(GLfloat));
++    gl_send(currentGLContext->serverRing, REQUEST_CODE_GL_TEX_GENFV, outputBuffer.buffer, outputBuffer.size);
++    GL_CALL_UNLOCK();
+ }
+ 
+ void glTexGeni(GLenum coord, GLenum pname, GLint param) {
+@@ -5681,7 +5723,14 @@
+ }
+ 
+ void glTexGeniv(GLenum coord, GLenum pname, const GLint* params) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glTexGeniv");
++    int paramCount = (pname == GL_OBJECT_PLANE || pname == GL_EYE_PLANE) ? 4 : 1;
++    GL_CALL_LOCK();
++    ArrayBuffer_rewind(&outputBuffer);
++    ArrayBuffer_putInt(&outputBuffer, coord);
++    ArrayBuffer_putInt(&outputBuffer, pname);
++    ArrayBuffer_putBytes(&outputBuffer, params, paramCount * sizeof(GLint));
++    gl_send(currentGLContext->serverRing, REQUEST_CODE_GL_TEX_GENIV, outputBuffer.buffer, outputBuffer.size);
++    GL_CALL_UNLOCK();
+ }
+ 
+ void glTexImage1D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLint border, GLenum format, GLenum type, const void* pixels) {
+@@ -5907,7 +5956,7 @@
+ }
+ 
+ void glTransformFeedbackVaryings(GLuint program, GLsizei count, const GLchar* const* varyings, GLenum bufferMode) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glTransformFeedbackVaryings");
++    gladio_unimplemented("glTransformFeedbackVaryings");
+ }
+ 
+ void glTransformFeedbackVaryingsEXT(GLuint program, GLsizei count, const GLchar* const* varyings, GLenum bufferMode) {
+@@ -6553,55 +6602,55 @@
+ }
+ 
+ void glVertexArrayColorOffsetEXT(GLuint vaobj, GLuint buffer, GLint size, GLenum type, GLsizei stride, GLintptr offset) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glVertexArrayColorOffsetEXT");
++    gladio_unimplemented("glVertexArrayColorOffsetEXT");
+ }
+ 
+ void glVertexArrayEdgeFlagOffsetEXT(GLuint vaobj, GLuint buffer, GLsizei stride, GLintptr offset) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glVertexArrayEdgeFlagOffsetEXT");
++    gladio_unimplemented("glVertexArrayEdgeFlagOffsetEXT");
+ }
+ 
+ void glVertexArrayFogCoordOffsetEXT(GLuint vaobj, GLuint buffer, GLenum type, GLsizei stride, GLintptr offset) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glVertexArrayFogCoordOffsetEXT");
++    gladio_unimplemented("glVertexArrayFogCoordOffsetEXT");
+ }
+ 
+ void glVertexArrayIndexOffsetEXT(GLuint vaobj, GLuint buffer, GLenum type, GLsizei stride, GLintptr offset) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glVertexArrayIndexOffsetEXT");
++    gladio_unimplemented("glVertexArrayIndexOffsetEXT");
+ }
+ 
+ void glVertexArrayMultiTexCoordOffsetEXT(GLuint vaobj, GLuint buffer, GLenum texunit, GLint size, GLenum type, GLsizei stride, GLintptr offset) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glVertexArrayMultiTexCoordOffsetEXT");
++    gladio_unimplemented("glVertexArrayMultiTexCoordOffsetEXT");
+ }
+ 
+ void glVertexArrayNormalOffsetEXT(GLuint vaobj, GLuint buffer, GLenum type, GLsizei stride, GLintptr offset) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glVertexArrayNormalOffsetEXT");
++    gladio_unimplemented("glVertexArrayNormalOffsetEXT");
+ }
+ 
+ void glVertexArraySecondaryColorOffsetEXT(GLuint vaobj, GLuint buffer, GLint size, GLenum type, GLsizei stride, GLintptr offset) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glVertexArraySecondaryColorOffsetEXT");
++    gladio_unimplemented("glVertexArraySecondaryColorOffsetEXT");
+ }
+ 
+ void glVertexArrayTexCoordOffsetEXT(GLuint vaobj, GLuint buffer, GLint size, GLenum type, GLsizei stride, GLintptr offset) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glVertexArrayTexCoordOffsetEXT");
++    gladio_unimplemented("glVertexArrayTexCoordOffsetEXT");
+ }
+ 
+ void glVertexArrayVertexAttribDivisorEXT(GLuint vaobj, GLuint index, GLuint divisor) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glVertexArrayVertexAttribDivisorEXT");
++    gladio_unimplemented("glVertexArrayVertexAttribDivisorEXT");
+ }
+ 
+ void glVertexArrayVertexAttribIOffsetEXT(GLuint vaobj, GLuint buffer, GLuint index, GLint size, GLenum type, GLsizei stride, GLintptr offset) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glVertexArrayVertexAttribIOffsetEXT");
++    gladio_unimplemented("glVertexArrayVertexAttribIOffsetEXT");
+ }
+ 
+ void glVertexArrayVertexAttribLOffsetEXT(GLuint vaobj, GLuint buffer, GLuint index, GLint size, GLenum type, GLsizei stride, GLintptr offset) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glVertexArrayVertexAttribLOffsetEXT");
++    gladio_unimplemented("glVertexArrayVertexAttribLOffsetEXT");
+ }
+ 
+ void glVertexArrayVertexAttribOffsetEXT(GLuint vaobj, GLuint buffer, GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, GLintptr offset) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glVertexArrayVertexAttribOffsetEXT");
++    gladio_unimplemented("glVertexArrayVertexAttribOffsetEXT");
+ }
+ 
+ void glVertexArrayVertexOffsetEXT(GLuint vaobj, GLuint buffer, GLint size, GLenum type, GLsizei stride, GLintptr offset) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glVertexArrayVertexOffsetEXT");
++    gladio_unimplemented("glVertexArrayVertexOffsetEXT");
+ }
+ 
+ void glVertexAttrib1d(GLuint index, GLdouble x) {
+@@ -7246,7 +7295,7 @@
+ }
+ 
+ void glVertexAttribIPointer(GLuint index, GLint size, GLenum type, GLsizei stride, const void* pointer) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glVertexAttribIPointer");
++    gladio_unimplemented("glVertexAttribIPointer");
+ }
+ 
+ void glVertexAttribIPointerEXT(GLuint index, GLint size, GLenum type, GLsizei stride, const void* pointer) {

@@ -5,7 +5,35 @@ import android.hardware.display.DisplayManager
 import android.view.Display
 
 /**
+ * Concrete virtual-desktop geometry for one profile on one physical panel.
+ * The presentation renderer scales this uniformly onto the Android surface.
+ */
+data class ClientVirtualDisplay(
+    val width: Int,
+    val height: Int,
+) {
+    init {
+        require(width > 0 && height > 0) { "virtual desktop must be non-empty" }
+    }
+
+    val resolution: String
+        get() = "${width}x$height"
+
+    /** Uniform presentation scale onto a same-aspect physical surface. */
+    fun uniformScaleTo(physicalWidth: Int, physicalHeight: Int): Float {
+        require(physicalWidth > 0 && physicalHeight > 0) { "physical surface must be non-empty" }
+        return physicalHeight.toFloat() / height
+    }
+}
+
+/**
  * Explicit virtual-desktop profiles for the dedicated gameplay surface.
+ *
+ * A profile fixes the virtual desktop's height class (and its 16:9 reference
+ * geometry); [resolveFor] adopts the physical panel's landscape aspect for the
+ * width so a uniformly scaled desktop always fills the screen. On an exactly
+ * 16:9 panel such as the RP6's 1920x1080 the resolved desktop is exactly the
+ * reference geometry (1280x720 / 1920x1080).
  *
  * The current x86 provider remains pinned to [BALANCED]. [QUALITY] is a hook
  * for a separately qualified runtime/profile selection; declaring it here does
@@ -13,11 +41,13 @@ import android.view.Display
  */
 enum class ClientDisplayProfile(
     val id: String,
+    /** 16:9 reference width; the runtime width comes from [resolveFor]. */
     val virtualWidth: Int,
+    /** 16:9 reference height; this is the profile's fixed height class. */
     val virtualHeight: Int,
     val gameMaximized: Boolean,
 ) {
-    BALANCED("balanced", 1280, 720, gameMaximized = false),
+    BALANCED("balanced", 1280, 720, gameMaximized = true),
     QUALITY("quality", 1920, 1080, gameMaximized = true),
     ;
 
@@ -25,16 +55,29 @@ enum class ClientDisplayProfile(
         require(virtualWidth * 9 == virtualHeight * 16) { "client display profile must be 16:9" }
     }
 
+    /** 16:9 reference geometry, for labels and panel-query failure fallbacks. */
     val resolution: String
         get() = "${virtualWidth}x$virtualHeight"
 
-    /** Exact uniform scale to an actual laid-out 16:9 physical surface. */
-    fun exactScaleTo(physicalWidth: Int, physicalHeight: Int): Float {
-        require(physicalWidth > 0 && physicalHeight > 0) { "physical surface must be non-empty" }
-        require(physicalWidth * virtualHeight == physicalHeight * virtualWidth) {
-            "physical surface must match the virtual desktop aspect"
+    /** 16:9 reference geometry as a [ClientVirtualDisplay]. */
+    fun nominalDisplay(): ClientVirtualDisplay = ClientVirtualDisplay(virtualWidth, virtualHeight)
+
+    /**
+     * Resolve this profile onto a physical landscape panel. The height class
+     * is kept; the width adopts the panel's aspect (even-rounded down) so
+     * uniform presentation scaling fills the panel without stretch or crop.
+     * The profile's height class must fit the panel.
+     */
+    fun resolveFor(landscapeWidth: Int, landscapeHeight: Int): ClientVirtualDisplay {
+        require(landscapeWidth > 0 && landscapeHeight > 0) {
+            "physical display bounds must be non-empty"
         }
-        return physicalWidth.toFloat() / virtualWidth
+        require(virtualHeight <= landscapeHeight) {
+            "client display profile $id exceeds the physical display"
+        }
+        val adapted = (landscapeWidth.toLong() * virtualHeight / landscapeHeight).toInt()
+        val width = if (adapted % 2 == 0) adapted else adapted - 1
+        return ClientVirtualDisplay(width, virtualHeight)
     }
 
     companion object {
@@ -53,7 +96,9 @@ enum class ClientDisplayProfile(
             }
             val width = maxOf(landscapeWidth, landscapeHeight)
             val height = minOf(landscapeWidth, landscapeHeight)
-            return entries.filter { it.virtualWidth <= width && it.virtualHeight <= height }
+            // Widths adapt to the panel aspect in [resolveFor], so only the
+            // fixed height class has to fit the panel.
+            return entries.filter { it.virtualHeight <= height }
         }
 
         fun requireForPhysical(
@@ -116,17 +161,39 @@ enum class ClientFrameCap(val fps: Int) {
 data class ClientDisplaySelection(
     val profile: ClientDisplayProfile,
     val frameCap: ClientFrameCap,
+    /** Panel-resolved desktop; launch paths must resolve, never assume 16:9. */
+    val virtual: ClientVirtualDisplay,
 ) {
-    val resolution: String get() = profile.resolution
-    val virtualWidth: Int get() = profile.virtualWidth
-    val virtualHeight: Int get() = profile.virtualHeight
+    val resolution: String get() = virtual.resolution
+    val virtualWidth: Int get() = virtual.width
+    val virtualHeight: Int get() = virtual.height
 
     companion object {
         fun defaultForDevice(supportedAbis: Iterable<String>, model: String) =
             ClientDisplaySelection(
                 ClientDisplayProfile.forDevice(supportedAbis, model),
                 ClientFrameCap.FPS_30,
+                ClientDisplayProfile.forDevice(supportedAbis, model).nominalDisplay(),
             )
+
+        /**
+         * Context-free selection carrying only the 16:9 reference geometry.
+         * Used for display labels; runtime launch resolves the panel through
+         * [ClientDisplayCapabilities.requireSelection] instead.
+         */
+        fun nominal(profile: ClientDisplayProfile, frameCap: ClientFrameCap) =
+            ClientDisplaySelection(profile, frameCap, profile.nominalDisplay())
+
+        fun forPhysical(
+            profile: ClientDisplayProfile,
+            frameCap: ClientFrameCap,
+            landscapeWidth: Int,
+            landscapeHeight: Int,
+        ) = ClientDisplaySelection(
+            profile,
+            frameCap,
+            profile.resolveFor(landscapeWidth, landscapeHeight),
+        )
     }
 }
 
@@ -154,9 +221,11 @@ object ClientDisplayCapabilities {
         frameCap: Int,
     ): ClientDisplaySelection {
         val (width, height) = physicalLandscapeBounds(context)
-        return ClientDisplaySelection(
+        return ClientDisplaySelection.forPhysical(
             ClientDisplayProfile.requireForPhysical(profileId, width, height),
             ClientFrameCap.requireFps(frameCap),
+            width,
+            height,
         )
     }
 

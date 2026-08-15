@@ -62,6 +62,34 @@ class RuntimeSupervisorClientTest {
         assertEquals(ClientLaunchState.NOT_STARTED, (decoded as RealmState.Running).clientState)
     }
 
+    @Test fun interruptedStartingJournalDoesNotRemainAnEndlessSpinner() {
+        val interrupted = RuntimeSnapshot(
+            phase = RuntimePhase.WORLD_STARTING,
+            clean = false,
+            recoverability = Recoverability.RETRY,
+        )
+
+        val decoded = RuntimeSupervisorClient.decodeRealmState(
+            encoded(interrupted, generationActive = false),
+        )
+
+        assertTrue(decoded is RealmState.Failed)
+        assertEquals(
+            "The previous start was interrupted. Tap Start to recover safely and try again.",
+            (decoded as RealmState.Failed).message,
+        )
+    }
+
+    @Test fun liveStartingGenerationStillShowsProgress() {
+        val decoded = RuntimeSupervisorClient.decodeRealmState(encoded(RuntimeSnapshot(
+            phase = RuntimePhase.WORLD_STARTING,
+            clean = false,
+            recoverability = Recoverability.RETRY,
+        ), generationActive = true))
+
+        assertTrue(decoded is RealmState.Starting)
+    }
+
     private fun encoded(snapshot: RuntimeSnapshot, generationActive: Boolean = false): String =
         RuntimeSnapshotJson.encode(snapshot)
             .put("supervisorGenerationActive", generationActive)

@@ -1,8 +1,8 @@
 package com.pocketrealm.addons
 
 import java.io.File
-import java.security.MessageDigest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -18,39 +18,41 @@ class AddonCatalogTest {
     @Test fun `integrated workbook catalog is complete and searchable`() {
         val catalog = AddonCatalog.parse(File(assetRoot, "addons/catalog-v1.json").readText())
 
-        assertEquals(155, catalog.addons.size)
-        assertEquals(311, catalog.compatibilityPairs.size)
+        assertEquals(154, catalog.addons.size)
+        assertEquals(266, catalog.compatibilityPairs.size)
         assertEquals("2026-08-11", catalog.researchedAt)
-        assertEquals("PocketRealmPad", requireNotNull(catalog.addon("155")).name)
+        assertNull(catalog.addon("155"))
         assertTrue(catalog.filter("quest", null).any { it.name == "pfQuest" })
-        assertTrue(catalog.filter("", "Controller UI").isNotEmpty())
+        assertTrue(catalog.filter("", "Questing").isNotEmpty())
     }
 
     @Test fun `recommended collection is small stable and entirely optional`() {
         val catalog = AddonCatalog.parse(File(assetRoot, "addons/catalog-v1.json").readText())
 
         assertEquals(
-            listOf("PocketRealmPad", "Roid-Macros", "ModifiedPowerAuras", "VanillaGuide-Enhanced", "WoW VoiceOver"),
+            listOf(
+                "Android Port", "pfQuest", "ShaguTweaks", "Bagnon", "Flyout", "MinimapButtonFrame",
+                "Roid-Macros", "ModifiedPowerAuras", "VanillaGuide-Enhanced", "WoW VoiceOver",
+            ),
             catalog.recommended.map { it.name },
         )
         assertTrue(catalog.recommended.all { it.installable })
         assertTrue(catalog.recommended.all { catalog.recommendationReason(it.matrixId).orEmpty().endsWith('.') })
-        assertTrue(catalog.addon("155")!!.installSource == AddonInstallSource.BUNDLED)
         val ids = catalog.recommended.map { it.matrixId }.toSet()
         assertTrue(catalog.compatibilityPairs.filter {
             it.addonA in ids && it.addonB in ids
-        }.all { it.meaning.contains("Complementary", ignoreCase = true) })
+        }.none { it.meaning.contains("Avoid", ignoreCase = true) })
     }
 
-    @Test fun `bundled PocketRealmPad archive matches catalog and validates as Vanilla`() {
-        val catalog = AddonCatalog.parse(File(assetRoot, "addons/catalog-v1.json").readText())
-        val archive = File(assetRoot, catalog.bundledAssetPath)
-        val digest = MessageDigest.getInstance("SHA-256").digest(archive.readBytes())
-            .joinToString("") { "%02x".format(it) }
-
-        assertEquals(catalog.bundledSha256, digest)
-        val validated = AddonArchiveValidator().validate(archive, "PocketRealmPad")
-        assertEquals(listOf("PocketRealmPad"), validated.addonFolders)
+    @Test fun `vanilla console port is a project owned built in identity`() {
+        val addon = requireNotNull(AddonCatalog.parse(File(assetRoot, "addons/catalog-v1.json").readText()).addon("151"))
+        assertEquals(AddonInstallSource.BUILTIN, addon.installSource)
+        assertEquals(VanillaConsolePortPackage.INSTALL_ID, addon.installId)
+        assertEquals("0.4.0 Pocket Realm", addon.version)
+        assertEquals("0.4.0", VanillaConsolePortPackage.VERSION)
+        assertNull(addon.githubUrl)
+        assertTrue(addon.communitySignal.contains("not externally rated"))
+        assertEquals(listOf("builtin:addons/vanilla-console-port"), addon.researchSources)
     }
 
     @Test fun `catalog exposes installed compatibility exceptions`() {

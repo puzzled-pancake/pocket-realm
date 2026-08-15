@@ -32,14 +32,17 @@ public class ALSARequestHandler implements RequestHandler {
                 break;
             case RequestCodes.START:
                 requireEmpty(requestLength);
+                alsaClient.noteControlForDiagnostics(requestCode);
                 alsaClient.start();
                 break;
             case RequestCodes.STOP:
                 requireEmpty(requestLength);
+                alsaClient.noteControlForDiagnostics(requestCode);
                 alsaClient.stop();
                 break;
             case RequestCodes.PAUSE:
                 requireEmpty(requestLength);
+                alsaClient.noteControlForDiagnostics(requestCode);
                 alsaClient.pause();
                 break;
             case RequestCodes.PREPARE:
@@ -53,19 +56,36 @@ public class ALSARequestHandler implements RequestHandler {
                     throw new IOException("Invalid ALSA PREPARE format");
                 }
 
-                alsaClient.setChannels(prepareChannels);
-                alsaClient.setDataType(ALSAClient.DataType.values()[dataTypeOrdinal]);
-                alsaClient.setSampleRate(inputStream.readInt());
-                alsaClient.setBufferSize(inputStream.readInt());
-                alsaClient.prepare();
+                int prepareSampleRate = inputStream.readInt();
+                int prepareRingFrames = inputStream.readInt();
+                if (!alsaClient.prepare(
+                    prepareChannels,
+                    ALSAClient.DataType.values()[dataTypeOrdinal],
+                    prepareSampleRate,
+                    prepareRingFrames
+                )) {
+                    throw new IOException("ALSA PREPARE could not create a valid audio stream");
+                }
 
-                if (ALSAClient.USE_SHARED_MEMORY) createSharedMemory(alsaClient, outputStream);
+                if (ALSAClient.USE_SHARED_MEMORY) {
+                    try {
+                        createSharedMemory(alsaClient, outputStream);
+                    }
+                    catch (IOException | RuntimeException error) {
+                        alsaClient.release();
+                        throw error;
+                    }
+                }
                 break;
             case RequestCodes.WRITE:
+                if (!alsaClient.isValidWriteLength(requestLength)) {
+                    throw new IOException("ALSA WRITE is outside the negotiated frame ring");
+                }
                 ByteBuffer sharedBuffer = alsaClient.getSharedBuffer();
                 if (sharedBuffer != null) {
-                    if (requestLength > alsaClient.getBufferSizeInBytes()) {
-                        throw new IOException("ALSA WRITE exceeds negotiated buffer");
+                    if (requestLength > sharedBuffer.capacity() - ALSAClient.BUFFER_OFFSET ||
+                        requestLength > alsaClient.getAuxBuffer().capacity()) {
+                        throw new IOException("ALSA WRITE exceeds allocated shared memory");
                     }
                     copySharedBuffer(alsaClient, requestLength, outputStream);
                     alsaClient.writeDataToTrack(alsaClient.getAuxBuffer());
@@ -97,7 +117,13 @@ public class ALSARequestHandler implements RequestHandler {
                 }
                 ALSAClient.DataType dataType = ALSAClient.DataType.values()[minDataTypeOrdinal];
                 int sampleRate = inputStream.readInt();
+                if (!ALSAClient.isSupportedSampleRate(sampleRate)) {
+                    throw new IOException("Invalid ALSA MIN_BUFFER_SIZE sample rate");
+                }
                 int minBufferSize = ALSAClient.latencyMillisToBufferSize(alsaClient.options.latencyMillis, minChannels, dataType, sampleRate);
+                if (minBufferSize <= 0) {
+                    throw new IOException("ALSA MIN_BUFFER_SIZE overflowed or is unsupported");
+                }
 
                 try (XStreamLock lock = outputStream.lock()) {
                     outputStream.writeInt(minBufferSize);
@@ -128,20 +154,32 @@ public class ALSARequestHandler implements RequestHandler {
     }
 
     private void createSharedMemory(ALSAClient alsaClient, XOutputStream outputStream) throws IOException {
-        int shmSize = alsaClient.getBufferSizeInBytes() + ALSAClient.BUFFER_OFFSET;
-        int fd = SysVSharedMemory.createMemoryFd("alsa-shm"+(++maxSHMemoryId), shmSize);
-
-        if (fd >= 0) {
-            ByteBuffer buffer = SysVSharedMemory.mapSHMSegment(fd, shmSize, 0, false);
-            if (buffer != null) alsaClient.setSharedBuffer(buffer);
+        int shmSize = alsaClient.getSharedMemorySizeInBytes();
+        if (shmSize <= ALSAClient.BUFFER_OFFSET) {
+            throw new IOException("Invalid ALSA shared-memory size");
         }
+        int fd = SysVSharedMemory.createMemoryFd("alsa-shm"+(++maxSHMemoryId), shmSize);
+        if (fd < 0) throw new IOException("ALSA shared-memory fd creation failed");
 
-        try (XStreamLock lock = outputStream.lock()) {
-            outputStream.writeByte((byte)0);
-            outputStream.setAncillaryFd(fd);
+        try {
+            ByteBuffer buffer = SysVSharedMemory.mapSHMSegment(fd, shmSize, 0, false);
+            if (buffer == null) throw new IOException("ALSA shared-memory mapping failed");
+            boolean attached = false;
+            try {
+                alsaClient.setSharedBuffer(buffer);
+                attached = true;
+            }
+            finally {
+                if (!attached) SysVSharedMemory.unmapSHMSegment(buffer, shmSize);
+            }
+
+            try (XStreamLock lock = outputStream.lock()) {
+                outputStream.writeByte((byte)0);
+                outputStream.setAncillaryFd(fd);
+            }
         }
         finally {
-            if (fd >= 0) XConnectorEpoll.closeFd(fd);
+            XConnectorEpoll.closeFd(fd);
         }
     }
 }

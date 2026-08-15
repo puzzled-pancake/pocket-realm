@@ -1,10 +1,13 @@
 package com.pocketrealm.ui
 
+import android.content.Intent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -12,133 +15,314 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.pocketrealm.client.ClientDisplayHost
 import com.pocketrealm.client.ControllerAction
+import com.pocketrealm.client.ControllerFamily
 import com.pocketrealm.client.InputProfile
 import com.pocketrealm.client.OverlayControl
-import kotlin.math.roundToInt
+import com.pocketrealm.client.OverlayMode
+import kotlinx.coroutines.delay
 
-/** User-configurable touch controls layered over the real client surface. */
+internal enum class OverlayPresentation { OFF, MINIMAL, FULL }
+
+internal val fullOverlayActionPages: List<List<OverlayControl>> = listOf(
+    listOf(OverlayControl.ACTION_1, OverlayControl.ACTION_2, OverlayControl.ACTION_3, OverlayControl.ACTION_4),
+    listOf(OverlayControl.ACTION_5, OverlayControl.ACTION_6, OverlayControl.ACTION_7, OverlayControl.ACTION_8),
+    listOf(OverlayControl.ACTION_9, OverlayControl.ACTION_10, OverlayControl.ACTION_11, OverlayControl.ACTION_12),
+)
+
+/** Touch geometry remains accessible at every persisted visual-scale value. */
+internal fun effectiveTouchTargetDp(requestedScale: Float): Float =
+    BASE_TOUCH_TARGET_DP * requestedScale.coerceAtLeast(MIN_TOUCH_SCALE)
+
+/** Resolves AUTO without conflating an ignored controller with an active controller. */
+internal fun overlayPresentation(
+    mode: OverlayMode,
+    controllerFamily: ControllerFamily,
+    physicalControllerConnected: Boolean,
+): OverlayPresentation = when (mode) {
+    OverlayMode.OFF -> OverlayPresentation.OFF
+    OverlayMode.MINIMAL -> OverlayPresentation.MINIMAL
+    OverlayMode.FULL -> OverlayPresentation.FULL
+    OverlayMode.AUTO -> if (
+        physicalControllerConnected && controllerFamily !in setOf(
+            ControllerFamily.TOUCH_ONLY,
+            ControllerFamily.KEYBOARD_MOUSE,
+        )
+    ) OverlayPresentation.MINIMAL else OverlayPresentation.FULL
+}
+
+/** Landscape-first controls layered over the real client surface. */
 @Composable
 fun TouchOverlay(host: ClientDisplayHost, modifier: Modifier = Modifier) {
     val profile by host.profile.collectAsState()
     val cameraLocked by host.cameraLocked.collectAsState()
-    var visible by remember(host.generation) { mutableStateOf(profile.overlayEnabled) }
-    LaunchedEffect(profile.overlayEnabled) { visible = profile.overlayEnabled }
+    val controllerConnected by host.physicalControllerConnected.collectAsState()
+    val presentation = overlayPresentation(
+        profile.overlayMode,
+        profile.controllerFamily,
+        controllerConnected,
+    )
+    var visible by remember(host.generation) { mutableStateOf(true) }
+    var drawerExpanded by remember(host.generation) { mutableStateOf(false) }
+    var showModeHud by remember(host.generation) { mutableStateOf(false) }
 
-    // A persisted disabled overlay must be genuinely absent. Users re-enable
-    // it from Controls; the transient Hide button below is only for an enabled
-    // overlay during gameplay.
-    if (!profile.overlayEnabled) return
+    LaunchedEffect(presentation) {
+        if (presentation == OverlayPresentation.OFF) visible = false
+        else if (!visible && profile.overlayMode != OverlayMode.OFF) visible = true
+        drawerExpanded = false
+    }
+    LaunchedEffect(cameraLocked) {
+        showModeHud = true
+        delay(MODE_HUD_DURATION_MS)
+        showModeHud = false
+    }
+    if (presentation == OverlayPresentation.OFF) return
 
     val opacity = profile.overlayOpacity
-    val scale = profile.overlayScale
     Box(modifier.fillMaxSize()) {
         if (!visible) {
-            // Transient hide means genuinely clear gameplay: movement, actions,
-            // camera, USB-mouse capture, and keyboard controls all disappear.
-            // Keep one deliberately quiet restore tab so the user is never
-            // trapped without a way to bring the overlay back.
+            // Hiding controls must also remove camera/keyboard hit regions. This
+            // is the sole remaining touch target and is deliberately subdued.
             OverlayButton(
                 label = "Controls",
                 tag = "touch-overlay-toggle",
                 opacity = opacity.coerceAtMost(HIDDEN_RESTORE_OPACITY),
-                compact = true,
                 modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
             ) { visible = true }
-        } else {
-            Box(
-                Modifier
-                    .align(Alignment.Center)
-                    .fillMaxHeight()
-                    .fillMaxWidth(profile.cameraRegionWidth)
-                    .pointerInput(host.generation, profile.invertCameraX, profile.invertCameraY) {
-                        detectDragGestures(
-                            onDragStart = { host.dispatchRightButton(true) },
-                            onDragEnd = { host.dispatchRightButton(false) },
-                            onDragCancel = { host.dispatchRightButton(false) },
-                            onDrag = { _, drag ->
-                                val x = if (profile.invertCameraX) -drag.x else drag.x
-                                val y = if (profile.invertCameraY) -drag.y else drag.y
-                                host.dispatchRelativePointer(x.roundToInt(), y.roundToInt())
-                            },
-                        )
-                    }
-                    // Keep the drag surface fully invisible. The former shaded
-                    // camera rectangle looked like a rendering fault and
-                    // obscured the game even though it was only an input zone.
-                    .testTag("touch-camera-region"),
+            return@Box
+        }
+
+        if (presentation == OverlayPresentation.FULL) {
+            FullTouchControls(host, profile, opacity)
+        }
+
+        if (showModeHud) {
+            Text(
+                if (cameraLocked) "Camera locked - right stick looks" else "Pointer free - right stick moves cursor",
+                color = Color.White,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 12.dp)
+                    .background(Color.Black.copy(alpha = 0.58f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                    .testTag("touch-camera-mode-hud"),
             )
+        }
 
-            Column(
-                Modifier.align(Alignment.BottomStart).padding(12.dp).scale(scale),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+        UtilityDrawer(
+            host = host,
+            cameraLocked = cameraLocked,
+            opacity = opacity,
+            expanded = drawerExpanded,
+            onExpandedChange = { drawerExpanded = it },
+            onHide = { visible = false },
+            modifier = Modifier.align(Alignment.TopEnd).padding(10.dp).zIndex(2f),
+        )
+    }
+}
+
+@Composable
+private fun BoxScope.FullTouchControls(
+    host: ClientDisplayHost,
+    profile: InputProfile,
+    opacity: Float,
+) {
+    var actionPage by remember(host.generation) { mutableIntStateOf(0) }
+    val targetSize = effectiveTouchTargetDp(profile.overlayScale).dp
+
+    // Invisible right-side look area. Utility and action controls are composed
+    // after it, so their 48dp+ hit targets win pointer dispatch.
+    Box(
+        Modifier
+            .align(Alignment.CenterEnd)
+            .fillMaxHeight()
+            .fillMaxWidth(profile.cameraRegionWidth)
+            .pointerInput(
+                host.generation,
+                profile.invertCameraX,
+                profile.invertCameraY,
+                profile.touchCameraSensitivity,
             ) {
-                Text("Move", color = Color.White, modifier = Modifier.testTag("touch-move-label"))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    ActionKey(host, profile, OverlayControl.MOVE_LEFT, "←", opacity)
-                    ActionKey(host, profile, OverlayControl.MOVE_UP, "↑", opacity)
-                    ActionKey(host, profile, OverlayControl.MOVE_RIGHT, "→", opacity)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    ActionKey(host, profile, OverlayControl.MOVE_DOWN, "↓", opacity)
-                    ActionKey(host, profile, OverlayControl.JUMP, "Jump", opacity)
-                    ActionKey(host, profile, OverlayControl.MENU, "Menu", opacity)
-                }
+                val scaler = TouchCameraScaler(profile.touchCameraSensitivity)
+                detectDragGestures(
+                    onDragStart = {
+                        scaler.reset()
+                        host.dispatchRightButton(true)
+                    },
+                    onDragEnd = {
+                        scaler.reset()
+                        host.dispatchRightButton(false)
+                    },
+                    onDragCancel = {
+                        scaler.reset()
+                        host.dispatchRightButton(false)
+                    },
+                    onDrag = { _, drag ->
+                        val dx = if (profile.invertCameraX) -drag.x else drag.x
+                        val dy = if (profile.invertCameraY) -drag.y else drag.y
+                        val scaled = scaler.scale(dx, dy)
+                        if (scaled.first != 0 || scaled.second != 0) {
+                            host.dispatchRelativePointer(scaled.first, scaled.second)
+                        }
+                    },
+                )
             }
+            .testTag("touch-camera-region"),
+    )
 
-            Row(
-                Modifier.align(Alignment.BottomEnd).padding(12.dp).scale(scale),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                listOf(
-                    OverlayControl.ACTION_1,
-                    OverlayControl.ACTION_2,
-                    OverlayControl.ACTION_3,
-                    OverlayControl.ACTION_4,
-                    OverlayControl.ACTION_5,
-                    OverlayControl.ACTION_6,
-                    OverlayControl.ACTION_7,
-                    OverlayControl.ACTION_8,
-                ).forEachIndexed { index, control ->
-                    ActionKey(host, profile, control, (index + 1).toString(), opacity)
-                }
-            }
+    Row(
+        Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        ActionKey(host, profile, OverlayControl.TARGET, "Target", opacity, targetSize, wide = true)
+        ActionKey(host, profile, OverlayControl.USE_LOOT, "Use / Open", opacity, targetSize, wide = true)
+        ActionKey(host, profile, OverlayControl.MENU, "Menu", opacity, targetSize, wide = true)
+    }
 
-            Row(
-                Modifier.align(Alignment.TopEnd).padding(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                OverlayButton(
-                    label = if (cameraLocked) "Unlock camera" else "Lock camera",
-                    tag = "touch-camera-lock",
-                    opacity = opacity,
-                ) { host.toggleCameraLock() }
-                OverlayButton(
-                    label = "Hide",
-                    tag = "touch-overlay-toggle",
-                    opacity = opacity,
-                ) { visible = false }
-                OverlayButton("Keyboard", "touch-chat", opacity) { host.showIme() }
+    Column(
+        Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(Modifier.padding(start = 56.dp)) {
+            ActionKey(host, profile, OverlayControl.MOVE_UP, "W", opacity, targetSize)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            ActionKey(host, profile, OverlayControl.MOVE_LEFT, "A", opacity, targetSize)
+            ActionKey(host, profile, OverlayControl.MOVE_DOWN, "S", opacity, targetSize)
+            ActionKey(host, profile, OverlayControl.MOVE_RIGHT, "D", opacity, targetSize)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            ActionKey(host, profile, OverlayControl.AUTO_RUN, "Auto", opacity, targetSize, wide = true)
+            ActionKey(host, profile, OverlayControl.JUMP, "Jump", opacity, targetSize, wide = true)
+        }
+    }
+
+    Column(
+        Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp),
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OverlayButton(
+                label = when (actionPage) {
+                    0 -> "Actions 1-4"
+                    1 -> "Actions 5-8"
+                    else -> "Actions 9-12"
+                },
+                tag = "touch-action-page-label",
+                opacity = opacity,
+            ) { actionPage = (actionPage + 1) % fullOverlayActionPages.size }
+            OverlayButton(
+                label = if (actionPage == fullOverlayActionPages.lastIndex) "< First" else "Next >",
+                tag = "touch-action-page",
+                opacity = opacity,
+            ) { actionPage = (actionPage + 1) % fullOverlayActionPages.size }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            fullOverlayActionPages[actionPage].forEach { control ->
+                val label = (control.ordinal - OverlayControl.ACTION_1.ordinal + 1).toString()
+                ActionKey(host, profile, control, label, opacity, targetSize)
             }
         }
     }
+}
+
+@Composable
+private fun UtilityDrawer(
+    host: ClientDisplayHost,
+    cameraLocked: Boolean,
+    opacity: Float,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onHide: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    Column(
+        modifier
+            .background(Color(0xFF081019).copy(alpha = if (expanded) 0.82f else 0f), RoundedCornerShape(16.dp))
+            .padding(if (expanded) 8.dp else 0.dp),
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Camera mode is intentionally one tap from gameplay in both the
+            // controller-minimal and full-touch presentations.
+            OverlayButton(
+                label = cameraModeButtonLabel(cameraLocked),
+                tag = "touch-camera-lock",
+                opacity = opacity.coerceAtMost(0.72f),
+            ) { host.toggleCameraLock() }
+            OverlayButton(
+                label = if (expanded) "Close" else "More",
+                tag = "touch-utility-drawer",
+                opacity = opacity.coerceAtMost(0.72f),
+            ) { onExpandedChange(!expanded) }
+        }
+        if (expanded) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OverlayButton("Zoom +", "touch-camera-zoom-in", opacity) {
+                    host.dispatchWheel(cameraZoomWheelTicks(zoomIn = true))
+                }
+                OverlayButton("Zoom -", "touch-camera-zoom-out", opacity) {
+                    host.dispatchWheel(cameraZoomWheelTicks(zoomIn = false))
+                }
+                OverlayButton("Keyboard", "touch-chat", opacity) { host.showIme() }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DirectActionKey(host, ControllerAction.MAP, "Map", "touch-map", opacity)
+                DirectActionKey(host, ControllerAction.INVENTORY, "Bags", "touch-bags", opacity)
+                OverlayButton("Settings", "touch-settings", opacity) {
+                    context.startActivity(
+                        Intent(context, MainActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                    )
+                }
+                OverlayButton("Hide", "touch-overlay-toggle", opacity, onClick = onHide)
+            }
+        }
+    }
+}
+
+internal fun cameraModeButtonLabel(cameraLocked: Boolean): String =
+    if (cameraLocked) "Pointer" else "Camera"
+
+@Composable
+private fun DirectActionKey(
+    host: ClientDisplayHost,
+    action: ControllerAction,
+    label: String,
+    tag: String,
+    opacity: Float,
+) {
+    Box(
+        Modifier
+            .sizeIn(minWidth = 52.dp, minHeight = 48.dp)
+            .background(Color(0xFF101720).copy(alpha = opacity), RoundedCornerShape(14.dp))
+            .virtualAction(host, action, VIRTUAL_SOURCE_DIRECT_BASE + action.ordinal)
+            .testTag(tag),
+        contentAlignment = Alignment.Center,
+    ) { Text(label, color = Color.White, modifier = Modifier.padding(horizontal = 10.dp)) }
 }
 
 @Composable
@@ -148,13 +332,15 @@ private fun ActionKey(
     control: OverlayControl,
     fallbackLabel: String,
     opacity: Float,
+    targetSize: androidx.compose.ui.unit.Dp,
+    wide: Boolean = false,
 ) {
     val action = InputProfile.actionFor(profile, control)
     val label = action.shortLabel(fallbackLabel)
     Box(
         Modifier
-            .size(if (label.length > 2) 68.dp else 48.dp, 48.dp)
-            .background(Color(0xFF101720).copy(alpha = opacity), RoundedCornerShape(14.dp))
+            .size(if (wide || label.length > 3) targetSize * WIDE_TARGET_RATIO else targetSize, targetSize)
+            .background(Color(0xFF101720).copy(alpha = opacity), RoundedCornerShape(15.dp))
             .virtualAction(host, action, VIRTUAL_SOURCE_BASE + control.ordinal)
             .testTag("touch-control-${control.name}"),
         contentAlignment = Alignment.Center,
@@ -166,21 +352,20 @@ private fun OverlayButton(
     label: String,
     tag: String,
     opacity: Float,
-    compact: Boolean = false,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     Box(
         modifier
+            .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
             .background(Color(0xFF101720).copy(alpha = opacity), RoundedCornerShape(14.dp))
-            .padding(
-                horizontal = if (compact) 10.dp else 14.dp,
-                vertical = if (compact) 6.dp else 10.dp,
-            )
             .testTag(tag)
-            .pointerInput(tag) { detectTapGestures(onTap = { onClick() }) },
+            // clickable keeps the latest callback across camera/profile
+            // recompositions. The old pointerInput(tag) captured the first
+            // expanded=false lambda, so later More/Close taps could be stale.
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { Text(label, color = Color.White) }
+    ) { Text(label, color = Color.White, modifier = Modifier.padding(horizontal = 12.dp)) }
 }
 
 private fun Modifier.virtualAction(
@@ -202,27 +387,57 @@ private fun Modifier.virtualAction(
 
 private fun ControllerAction.shortLabel(fallback: String): String = when (this) {
     ControllerAction.DISABLED -> "Off"
-    ControllerAction.POINTER_LEFT -> "LMB"
-    ControllerAction.POINTER_RIGHT -> "RMB"
-    ControllerAction.CAMERA_LOCK -> "Cam"
+    ControllerAction.POINTER_LEFT -> "Select"
+    ControllerAction.POINTER_RIGHT, ControllerAction.USE_LOOT_CLICK -> "Use / open\nat pointer"
+    ControllerAction.CAMERA_LOCK -> "Camera"
     ControllerAction.JUMP -> "Jump"
     ControllerAction.ESCAPE -> "Menu"
-    ControllerAction.RADIAL_MENU -> "F7"
     ControllerAction.AUTO_RUN -> "Auto"
-    ControllerAction.INTERACT -> "Use"
+    ControllerAction.INTERACT -> "I key"
     ControllerAction.MAP -> "Map"
     ControllerAction.INVENTORY -> "Bags"
-    ControllerAction.PRP_BANK -> "Bank"
-    ControllerAction.PRP_LAYER_2 -> "L2"
-    ControllerAction.PRP_LAYER_3 -> "L3"
     ControllerAction.NAV_UP -> "Up"
     ControllerAction.NAV_DOWN -> "Down"
     ControllerAction.NAV_LEFT -> "Left"
     ControllerAction.NAV_RIGHT -> "Right"
-    ControllerAction.TARGET -> "Tab"
+    ControllerAction.TARGET, ControllerAction.TARGET_PULSE -> "Target"
     else -> keyCode?.let { displayName.removePrefix("Key ").removePrefix("Move ").removePrefix("Strafe ") }
         ?: fallback
 }
 
+/** WoW's default wheel binding is up = zoom in, down = zoom out. */
+internal fun cameraZoomWheelTicks(zoomIn: Boolean): Int = if (zoomIn) -1 else 1
+
+/** Fraction-preserving touch scaler so a lower speed stays smooth for one-pixel drags. */
+internal class TouchCameraScaler(private val sensitivity: Float) {
+    private var remainderX = 0f
+    private var remainderY = 0f
+
+    init {
+        require(sensitivity in 0.15f..1f) { "touch camera sensitivity is out of range" }
+    }
+
+    fun scale(dx: Float, dy: Float): Pair<Int, Int> {
+        val x = dx * sensitivity + remainderX
+        val y = dy * sensitivity + remainderY
+        val wholeX = x.toInt()
+        val wholeY = y.toInt()
+        remainderX = x - wholeX
+        remainderY = y - wholeY
+        return wholeX to wholeY
+    }
+
+    fun reset() {
+        remainderX = 0f
+        remainderY = 0f
+    }
+}
+
 private const val VIRTUAL_SOURCE_BASE = 0x7400
-private const val HIDDEN_RESTORE_OPACITY = 0.38f
+private const val VIRTUAL_SOURCE_DIRECT_BASE = 0x7500
+private const val HIDDEN_RESTORE_OPACITY = 0.28f
+private const val MODE_HUD_DURATION_MS = 1_200L
+private const val BASE_TOUCH_TARGET_DP = 52f
+private const val MIN_TOUCH_TARGET_DP = 48f
+private const val MIN_TOUCH_SCALE = MIN_TOUCH_TARGET_DP / BASE_TOUCH_TARGET_DP
+private const val WIDE_TARGET_RATIO = 92f / BASE_TOUCH_TARGET_DP

@@ -13,6 +13,8 @@ interface IClientRuntimeControl {
     String status(String sessionId);
     String collectDiagnostics(String sessionId);
     String reportWindowVisible(String sessionId);
+    String reportGraphicsProof(String sessionId, String renderer, int transportContexts,
+        int rendererContexts, long presentedFrames);
     String statusCurrent();
     String closeOwned(String instanceToken);
     String releaseOwned(String instanceToken);

@@ -27,6 +27,44 @@
 #define debug_printf(...) fprintf(stderr, __VA_ARGS__)
 #endif
 
+#define RING_WAIT_YIELD_ITERATIONS 64u
+#define RING_WAIT_INITIAL_SLEEP_US 125u
+#define RING_WAIT_MAX_SLEEP_US 2000u
+
+/*
+ * The Winlator wire format has no cross-process wake fd. Preserve its shared
+ * ring protocol, but stop the old permanent 100 us poll once the short
+ * producer/consumer hand-off window has passed. This bounds an idle context at
+ * roughly 500 timed wakes/second instead of ~5,000 while keeping active bursts
+ * on the yield path.
+ */
+static bool RingBuffer_backoff(RingBuffer* ring, uint32_t* iteration) {
+    if (ring->peerFd < 0) {
+        busyWait(iteration);
+        return true;
+    }
+    if (*iteration < UINT32_MAX) (*iteration)++;
+    if (*iteration <= RING_WAIT_YIELD_ITERATIONS) {
+        thrd_yield();
+        return true;
+    }
+    uint32_t shift = *iteration - RING_WAIT_YIELD_ITERATIONS - 1u;
+    if (shift > 4u) shift = 4u;
+    uint32_t sleepUs = RING_WAIT_INITIAL_SLEEP_US << shift;
+    if (sleepUs > RING_WAIT_MAX_SLEEP_US) sleepUs = RING_WAIT_MAX_SLEEP_US;
+    struct pollfd peer = {.fd = ring->peerFd, .events = 0, .revents = 0};
+    int result;
+    do {
+        result = poll(&peer, 1, (int)((sleepUs + 999u) / 1000u));
+    } while (result < 0 && errno == EINTR);
+    if (result < 0) return false;
+    short terminal = POLLHUP | POLLERR | POLLNVAL;
+#ifdef POLLRDHUP
+    terminal |= POLLRDHUP;
+#endif
+    return result == 0 || !(peer.revents & terminal);
+}
+
 void RingBuffer_setHead(RingBuffer* ring, uint32_t head) {
     atomic_store_explicit(ring->head, head, memory_order_release);
 }
@@ -62,6 +100,7 @@ RingBuffer* RingBuffer_create(int shmFd, uint32_t bufferSize) {
             bufferSize > UINT32_MAX - (uint32_t)offsetof(struct Offsets, buffer)) {
         return NULL;
     }
+
     RingBuffer* ring = calloc(1, sizeof(RingBuffer));
     if (!ring) return NULL;
 
@@ -79,9 +118,14 @@ RingBuffer* RingBuffer_create(int shmFd, uint32_t bufferSize) {
     ring->status = sharedData + offsetof(struct Offsets, status);
     ring->buffer = sharedData + offsetof(struct Offsets, buffer);
     ring->bufferSize = bufferSize;
+    ring->peerFd = -1;
 
     RingBuffer_setStatus(ring, RING_STATUS_IDLE);
     return ring;
+}
+
+void RingBuffer_setPeerFd(RingBuffer* ring, int peerFd) {
+    if (ring) ring->peerFd = peerFd;
 }
 
 uint32_t RingBuffer_size(RingBuffer* ring) {
@@ -205,8 +249,8 @@ bool RingBuffer_waitForRead(RingBuffer* ring, uint32_t size) {
     uint32_t busyWaitIter = 0;
     do {
         if (RingBuffer_size(ring) >= size) break;
-        busyWait(&busyWaitIter);
         if (RingBuffer_hasStatus(ring, RING_STATUS_EXIT)) return false;
+        if (!RingBuffer_backoff(ring, &busyWaitIter)) return false;
     }
     while (1);
     return true;
@@ -217,8 +261,8 @@ bool RingBuffer_waitForWrite(RingBuffer* ring, uint32_t size) {
     uint32_t busyWaitIter = 0;
     do {
         if (RingBuffer_freeSpace(ring) >= size) break;
-        busyWait(&busyWaitIter);
         if (RingBuffer_hasStatus(ring, RING_STATUS_EXIT)) return false;
+        if (!RingBuffer_backoff(ring, &busyWaitIter)) return false;
     }
     while (1);
     return true;

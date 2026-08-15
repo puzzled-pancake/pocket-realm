@@ -226,12 +226,28 @@
       }
     },
     {
+      "id": "vortek-guest-ab7329c",
+      "kind": "source-built-archive",
+      "upstream_url": "https://github.com/brunodev85/Vortek.git",
+      "commit": "ab7329c4b445a4abd9b9af91b8148e1ca41464fa",
+      "commit_date": "2026-04-15",
+      "role": "Source-matched AArch64 glibc Vulkan guest for the System/Vortek route. It preserves Winlator 2.1 wire behavior, uses Pocket Realm's app-private socket and RUNPATH, and emits at most 32 process-scoped recvmsg/fstat/mmap records so map-memory failures identify the exact guest errno without sustained hot-path logging.",
+      "build_script": "tools/build_vortek_guest.py",
+      "builder_image": "ubuntu@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea",
+      "generated_build_provenance": "native/.build-arm64/vortek-guest/BUILD_PROVENANCE.json",
+      "license": "LGPL-2.1",
+      "redistribution": {
+        "verdict": "source-redistributable-under-LGPL-2.1",
+        "notes": "The public commit, signature-locked source adaptations, exact Ubuntu cross-toolchain inputs, 16 KB ELF alignment, and reviewed output size/SHA-256 are recorded by the checked-in builder."
+      }
+    },
+    {
       "id": "xserver-winlator-ca3d735",
       "kind": "vendored-source",
       "upstream_url": "https://github.com/brunodev85/winlator-app",
       "commit": "ca3d735a60d653a787daf16d14fafef28d9c2c23",
       "commit_date": "2026-07-27 (author) / 2026-07-28 (committer)",
-      "role": "In-app X server, display, and input transport. The pinned Java X11 layer and native epoll/SCM_RIGHTS transport are vendored, NDK-built, 16 KB-aligned, and packaged. ARM advertises the source-matched DRI3/Present path required by the fixed DXVK route and does not load or advertise GLX. The source-matched GLX/Gladio server remains packaged and advertised only on the historical x86 WineD3D validation lane.",
+      "role": "In-app X server, display, and input transport. The pinned Java X11 layer and native epoll/SCM_RIGHTS transport are vendored, NDK-built, 16 KB-aligned, and packaged. DXVK keeps the DRI3/Present route with GLX disabled. The explicit ARM Legacy OpenGL lane enables the source-matched GLX/Gladio lifecycle, while the explicit Mesa VirGL lane advertises the pinned Fake-GLX negotiation bases and renders through the generation-local virpipe V0 server. Neither experimental lane is a silent fallback.",
       "license": "LGPL-2.1 (verified from root LICENSE at this commit; NOT MIT)",
       "redistribution": {
         "verdict": "source-redistributable-under-LGPL-2.1",
@@ -244,16 +260,31 @@
       "upstream_url": "https://github.com/brunodev85/gladio",
       "commit": "eaa2a8d6eda3a1a6af755370ea9fac6cf7792ac3",
       "commit_date": "2026-04-15",
-      "role": "O07 x86_64 glibc libGL.so.1 client paired with the Winlator-derived Android/GLES Gladio server. Built by tools/build_gladio_client.py in the pinned CGCT image with 16 KB ELF alignment. Adaptations are signature-locked: app-private X11 socket selection through POCKET_GLADIO_X11_SOCKET, explicit bounded transient vertex-attribute records shared with the server, bound-BGRA offset preservation, bounded unmapped X drawables for GLX pbuffers, and the qualified OpenGL 3.0 / GLSL 1.30 profile. Output: 544456 bytes; SHA-256: 7b60dafa5e071e11187c0936840201920e141160f0897609ce530cb6f69b60b6; DT_NEEDED is limited to the pinned glibc loader, libc, and libX11 closure.",
+      "role": "Source-matched glibc libGL client paired with the Winlator-derived Android/GLES Gladio server. The recovered ARM64 experimental lane is built by tools/build_gladio_client.py in the pinned CGCT image with 16 KB ELF alignment and staged generation-locally; its output is 530400 bytes with SHA-256 1d9663bb23ffe6083cf94925e6ffde4523888d52051c9bf934c87aad4bae4680. Adaptations are signature-locked: app-private X11 socket selection, explicit bounded transient vertex attributes, bound-BGRA offset preservation, GLX pbuffer lifetime, and the qualified OpenGL/GLSL profile.",
       "build_script": "tools/build_gladio_client.py",
       "builder_image": "ghcr.io/termux/package-builder-cgct@sha256:69ffa5cfe02ca569e7d03d1c99e3c9a0f79390ad6bf11a3629d048c29c6ccb61",
-      "generated_build_provenance": "native/.build-x86_64/gladio-client/BUILD_PROVENANCE.json",
+      "generated_build_provenance": "native/.build-arm64/gladio-client/BUILD_PROVENANCE.json",
       "license": "LGPL-2.1",
       "redistribution": {
         "verdict": "source-redistributable-under-LGPL-2.1",
         "notes": "The exact public source commit, deterministic build recipe, paired server adaptations, and output hash are recorded. The APK distributes the resulting library with the complete corresponding adapted source and build scripts retained in-tree."
       },
-      "qualification": "O07 visible build-5875 login screen and clean relaunch pass on API-35 x86_64 4 KB; strict GLES-thread framebuffer capture rejects black surfaces."
+      "qualification": "Experimental ARM64 route; compile, closure, and exact live-context/frame proof are required, and build success alone is not a device-compatibility claim."
+    },
+    {
+      "id": "mesa-custom-virpipe-23-1-9-ca3d735",
+      "kind": "vendored-prebuilt-from-source",
+      "upstream_url": "https://github.com/brunodev85/mesa3d-custom",
+      "commit": "71c57a2def7db3eb45cde5ee520f112de0fa6ec0",
+      "version": "23.1.9",
+      "role": "Exact AArch64 glibc Mesa virpipe client paired with Winlator ca3d735's source-matched Android VirGL GLES server. The pinned ca3d735 archive SHA-256 is 614b1edc8e47c57b2cbb2d96f9c7ab5f5b1a89038de618a58b2faf9c64380e09; its sole libGL.so.1.7.0 payload is 14379544 bytes with SHA-256 531e3dc809281feadcc2120abc6d9f88025d92d567ac32eed9c376bd9e4e04f6. tools/stage_virgl_renderer.py verifies and stages it generation-locally with loader aliases; the ARM-only native server is built from the retained ca3d735 source.",
+      "build_script": "tools/stage_virgl_renderer.py",
+      "generated_build_provenance": "native/.build-arm64/wine-staging/assets/arm-translated/renderer-packages/box64-virgl-23.1.9/BUILD_PROVENANCE.json",
+      "license": "MIT and component licenses recorded by Mesa upstream",
+      "redistribution": {
+        "verdict": "binary-redistributable-with-source-traceability",
+        "notes": "The exact public source commit, provider commit, archive/member hashes, retained VirGL server source, and deterministic staging recipe identify the distributed experimental pair. Device compatibility still requires the live shared-context and validated-flush proof."
+      }
     },
     {
       "id": "proot-termux-v5-1-107-89",

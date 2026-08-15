@@ -1,6 +1,7 @@
 package com.winlator.xenvironment.components;
 
 import android.content.Context;
+import android.util.Log;
 
 import androidx.annotation.Keep;
 
@@ -14,10 +15,10 @@ import com.winlator.xconnector.XConnectorEpoll;
 import com.winlator.xconnector.XInputStream;
 import com.winlator.xserver.Drawable;
 import com.winlator.xserver.Window;
-import com.winlator.xserver.XLock;
 import com.winlator.xserver.XServer;
 
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Android side of Winlator's pinned Vortek Vulkan bridge.
@@ -27,19 +28,24 @@ import java.io.IOException;
  * server, which keeps the two selectable driver identities independent.
  */
 public final class VortekRendererComponent implements ConnectionHandler, RequestHandler, AutoCloseable {
+    private static final String TAG = "PocketVortek";
     private static final int REQUEST_CODE_CREATE_CONTEXT = 1;
     private static final int REQUEST_CODE_SEND_EXTRA_DATA = 2;
     private static final short DEFAULT_IMAGE_CACHE_SIZE = 256;
     private static final int DEFAULT_VK_MAX_VERSION = (1 << 22) | (3 << 12) | 128;
     private static final int MAX_EXTRA_DATA_SIZE = 64 * 1024 * 1024;
+    private static final VortekContextRegistry LIVE_CONTEXTS =
+            new VortekContextRegistry(VortekRendererComponent::destroyVkContext);
 
     private final XServer xServer;
     private final UnixSocketConfig socketConfig;
     private final Options options;
-    private final WindowAuthorityBindings windowAuthority =
-            new WindowAuthorityBindings();
-    private XConnectorEpoll connector;
-    private volatile boolean ready;
+    private final AtomicInteger connectedGuests = new AtomicInteger();
+    private volatile XConnectorEpoll connector;
+    private volatile boolean loaderReady;
+    private volatile boolean acceptingContexts;
+    private volatile boolean firstHardwareBuffer;
+    private volatile boolean firstPresent;
 
     static {
         System.loadLibrary("vortekrenderer");
@@ -47,12 +53,15 @@ public final class VortekRendererComponent implements ConnectionHandler, Request
 
     /** Fields are read by the source-matched native protocol via JNI names. */
     public static final class Options {
+        public static final byte RESOURCE_MEMORY_TYPE_AUTO = 0;
+        public static final byte RESOURCE_MEMORY_TYPE_OPAQUE_FD = 1;
+        public static final byte RESOURCE_MEMORY_TYPE_DMA_BUF = 2;
+        public static final byte RESOURCE_MEMORY_TYPE_AHARDWAREBUFFER = 3;
+
         public int vkMaxVersion = DEFAULT_VK_MAX_VERSION;
         public short maxDeviceMemory = 0;
         public short imageCacheSize = DEFAULT_IMAGE_CACHE_SIZE;
-        public byte resourceMemoryType = 0;
-        /** Native refuses contexts unless the audited System-only safe lane is explicit. */
-        public boolean hardenedSafeLane = true;
+        public byte resourceMemoryType = RESOURCE_MEMORY_TYPE_AUTO;
         public String[] exposedDeviceExtensions = null;
     }
 
@@ -67,156 +76,139 @@ public final class VortekRendererComponent implements ConnectionHandler, Request
         this.xServer = xServer;
         this.socketConfig = socketConfig;
         this.options = options;
-        if (!initVulkanWrapper()) {
+        loaderReady = initVulkanWrapper();
+        if (!loaderReady) {
             throw new IllegalStateException("Android system Vulkan loader is unavailable");
         }
-        ready = true;
+        Log.i(TAG, "milestone=SYSTEM_LOADER_OPEN");
     }
 
     public synchronized void start() {
         if (connector != null) return;
-        if (!ready) throw new IllegalStateException("Vortek component is closed");
+        if (!loaderReady) throw new IllegalStateException("Vortek component is closed");
         XConnectorEpoll value = new XConnectorEpoll(socketConfig, this, this);
         value.setInitialInputBufferCapacity(8);
         value.setInitialOutputBufferCapacity(0);
-        value.start();
-        connector = value;
+        acceptingContexts = true;
+        try {
+            value.start();
+            connector = value;
+        }
+        catch (Throwable error) {
+            acceptingContexts = false;
+            value.destroy();
+            throw error;
+        }
+        Log.i(TAG, "milestone=SOCKET_LISTENING path=" + socketConfig.path);
     }
 
-    public synchronized void stop() {
-        XConnectorEpoll value = connector;
-        connector = null;
+    public void stop() {
+        XConnectorEpoll value;
+        synchronized (this) {
+            acceptingContexts = false;
+            value = connector;
+            connector = null;
+        }
         if (value != null) value.destroy();
+        drainTrackedContexts("component-stop");
     }
 
     public synchronized boolean isReady() {
-        return ready && connector != null;
+        return loaderReady && connector != null;
     }
 
     @Override
-    public synchronized void close() {
-        stop();
-        ready = false;
-        windowAuthority.close();
+    public void close() {
+        XConnectorEpoll value;
+        synchronized (this) {
+            acceptingContexts = false;
+            loaderReady = false;
+            value = connector;
+            connector = null;
+        }
+        if (value != null) value.destroy();
+        drainTrackedContexts("component-close");
     }
 
-    @Keep
-    private boolean registerWindowAuthorityGeneration(long generation) {
-        return ready && windowAuthority.registerGeneration(generation);
+    /**
+     * Reclaims contexts left by an interrupted prior display generation before
+     * any ARM route (including Turnip) starts. Normal connector shutdown owns
+     * the first attempt; this process-wide registry is the fail-safe owner.
+     */
+    public static int reclaimLeakedContexts() {
+        return drainTrackedContexts("next-display-generation");
     }
 
-    @Keep
-    private boolean unregisterWindowAuthorityGeneration(long generation) {
-        return windowAuthority.unregisterGeneration(generation);
-    }
-
-    @Keep
-    private boolean releaseWindowAuthorityInstance(long generation, long instanceToken) {
-        return windowAuthority.releaseInstance(generation, instanceToken);
-    }
-
-    @Keep
-    private long validateWindowAuthority(long generation, long instanceToken, int windowId) {
-        try (XLock ignored = xServer.lock(XServer.Lockable.WINDOW_MANAGER)) {
-            Window window = findEligibleWindowLocked(windowId);
-            return bindWindowAuthorityLocked(generation, instanceToken, window);
+    private int registerContext(long contextPtr) throws IOException {
+        if (!acceptingContexts) {
+            destroyVkContext(contextPtr);
+            throw new IOException("Vortek component is closing");
+        }
+        try {
+            return LIVE_CONTEXTS.register(contextPtr);
+        }
+        catch (IllegalStateException error) {
+            throw new IOException("Duplicate Vortek context pointer", error);
         }
     }
 
-    @Keep
-    private long getWindowExtentAuthority(long generation, long instanceToken, int windowId) {
-        try (XLock ignored = xServer.lock(XServer.Lockable.WINDOW_MANAGER)) {
-            Window window = findEligibleWindowLocked(windowId);
-            if (bindWindowAuthorityLocked(generation, instanceToken, window) == 0L) return 0L;
-            return ((long)window.getWidth() << 32) |
-                    ((long)window.getHeight() & 0xffffffffL);
-        }
+    private static boolean destroyTrackedContext(long contextPtr) {
+        return LIVE_CONTEXTS.destroy(contextPtr);
+    }
+
+    private static int drainTrackedContexts(String reason) {
+        int count = LIVE_CONTEXTS.drain();
+        if (count > 0) Log.w(TAG, "reclaimed Vortek contexts=" + count + " reason=" + reason);
+        return count;
     }
 
     @Keep
-    private long getWindowHardwareBufferAuthority(
-            long generation,
-            long instanceToken,
-            int windowId,
-            boolean useHALPixelFormatBGRA8888) {
-        try (XLock ignored = xServer.lock(XServer.Lockable.WINDOW_MANAGER)) {
-            Window window = findEligibleWindowLocked(windowId);
-            long lifetime = bindWindowAuthorityLocked(generation, instanceToken, window);
-            if (lifetime == 0L) return 0L;
-            Drawable drawable = window.getContent();
-            synchronized (drawable.renderLock) {
-                if (!isSameEligibleWindowLocked(windowId, window, lifetime) ||
-                        bindWindowAuthorityLocked(generation, instanceToken, window) == 0L) {
-                    return 0L;
-                }
-                Texture texture = drawable.getTexture();
-                if (!(texture instanceof GPUImage)) {
-                    if (texture != null) {
-                        xServer.getRenderer().xServerView.queueEvent(texture::destroy);
-                    }
-                    drawable.setTexture(new GPUImage(
-                            drawable, false, useHALPixelFormatBGRA8888));
-                }
-                return ((GPUImage)drawable.getTexture()).acquireHardwareBufferPtr();
-            }
-        }
-    }
-
-    @Keep
-    private boolean updateWindowContentAuthority(
-            long generation, long instanceToken, int windowId) {
-        try (XLock ignored = xServer.lock(XServer.Lockable.WINDOW_MANAGER)) {
-            Window window = findEligibleWindowLocked(windowId);
-            long lifetime = bindWindowAuthorityLocked(generation, instanceToken, window);
-            if (lifetime == 0L) return false;
-            Drawable drawable = window.getContent();
-            synchronized (drawable.renderLock) {
-                if (!isSameEligibleWindowLocked(windowId, window, lifetime) ||
-                        bindWindowAuthorityLocked(generation, instanceToken, window) == 0L ||
-                        drawable.getTexture() == null ||
-                        drawable.getTexture().getOwner() == null) {
-                    return false;
-                }
-                drawable.forceUpdate();
-                return true;
-            }
-        }
-    }
-
-    /** Must be called with WINDOW_MANAGER held. */
-    private Window findEligibleWindowLocked(int windowId) {
-        if (windowId <= 0) return null;
+    private int getWindowWidth(int windowId) {
         Window window = xServer.windowManager.getWindow(windowId);
-        if (!WindowAuthorityEligibility.isEligible(
-                window != null,
-                window == xServer.windowManager.rootWindow,
-                window != null && window.getMapState() == Window.MapState.VIEWABLE,
-                window != null && window.originClient != null,
-                window != null && window.isInputOutput(),
-                window != null && window.getContent() != null,
-                window != null ? window.getWidth() : 0,
-                window != null ? window.getHeight() : 0,
-                window != null ? window.authorityLifetime : 0L)) {
-            return null;
+        return window != null ? window.getWidth() : 0;
+    }
+
+    @Keep
+    private int getWindowHeight(int windowId) {
+        Window window = xServer.windowManager.getWindow(windowId);
+        return window != null ? window.getHeight() : 0;
+    }
+
+    @Keep
+    private long getWindowHardwareBuffer(int windowId, boolean useHALPixelFormatBGRA8888) {
+        Window window = xServer.windowManager.getWindow(windowId);
+        if (window == null || window.getContent() == null) return 0;
+        Drawable drawable = window.getContent();
+        synchronized (drawable.renderLock) {
+            Texture texture = drawable.getTexture();
+            if (!(texture instanceof GPUImage)) {
+                if (texture != null) {
+                    xServer.getRenderer().xServerView.queueEvent(texture::destroy);
+                }
+                drawable.setTexture(new GPUImage(
+                        drawable, false, useHALPixelFormatBGRA8888));
+            }
+            long hardwareBuffer = ((GPUImage)drawable.getTexture()).getHardwareBufferPtr();
+            if (hardwareBuffer != 0 && !firstHardwareBuffer) {
+                firstHardwareBuffer = true;
+                Log.i(TAG, "milestone=FIRST_HARDWARE_BUFFER windowId=" + windowId);
+            }
+            return hardwareBuffer;
         }
-        return window;
     }
 
-    /** Must be called with WINDOW_MANAGER and then the Drawable render lock. */
-    private boolean isSameEligibleWindowLocked(
-            int windowId, Window expected, long expectedLifetime) {
-        Window current = findEligibleWindowLocked(windowId);
-        return current == expected && current != null &&
-                current.authorityLifetime == expectedLifetime &&
-                current.getContent() == expected.getContent();
-    }
-
-    /** Lock order is WINDOW_MANAGER -> component authority map. */
-    private long bindWindowAuthorityLocked(
-            long generation, long instanceToken, Window window) {
-        if (generation == 0L || instanceToken == 0L || window == null) return 0L;
-        return ready ? windowAuthority.bind(generation, instanceToken,
-                window.id, window.authorityLifetime) : 0L;
+    @Keep
+    private void updateWindowContent(int windowId) {
+        Window window = xServer.windowManager.getWindow(windowId);
+        if (window == null || window.getContent() == null) return;
+        Drawable drawable = window.getContent();
+        synchronized (drawable.renderLock) {
+            drawable.forceUpdate();
+        }
+        if (!firstPresent) {
+            firstPresent = true;
+            Log.i(TAG, "milestone=FIRST_PRESENT windowId=" + windowId);
+        }
     }
 
     @Override
@@ -228,11 +220,18 @@ public final class VortekRendererComponent implements ConnectionHandler, Request
             // repeated shutdown callback from destroying the same pointer.
             client.setTag(null);
         }
-        if (tag instanceof Long) destroyVkContext((Long)tag);
+        if (tag instanceof Long) {
+            destroyTrackedContext((Long)tag);
+        }
+        int count = connectedGuests.updateAndGet(value -> Math.max(0, value - 1));
+        Log.i(TAG, "milestone=GUEST_DISCONNECTED guests=" + count);
     }
 
     @Override
-    public void handleNewConnection(ConnectedClient client) {}
+    public void handleNewConnection(ConnectedClient client) {
+        int count = connectedGuests.incrementAndGet();
+        Log.i(TAG, "milestone=GUEST_CONNECTED guests=" + count);
+    }
 
     @Override
     public boolean handleRequest(ConnectedClient client) throws IOException {
@@ -261,7 +260,9 @@ public final class VortekRendererComponent implements ConnectionHandler, Request
                     destroyVkContext(contextPtr);
                     throw new IOException("Vortek context ownership changed");
                 }
+                int count = registerContext(contextPtr);
                 client.setTag(contextPtr);
+                Log.i(TAG, "milestone=CONTEXT_CREATED contexts=" + count);
             }
         }
         else if (requestCode > Short.MAX_VALUE &&
@@ -282,7 +283,7 @@ public final class VortekRendererComponent implements ConnectionHandler, Request
     }
 
     private native long createVkContext(int clientFd, Options options);
-    private native void destroyVkContext(long contextPtr);
+    private static native void destroyVkContext(long contextPtr);
     private native boolean initVulkanWrapper();
     private native boolean handleExtraDataRequest(long contextPtr, int requestCode, int requestLength);
 }

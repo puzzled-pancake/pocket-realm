@@ -17,6 +17,9 @@ import com.pocketrealm.client.ClientDisplayCapabilities
 import com.pocketrealm.client.ClientRuntimeSelector
 import com.pocketrealm.client.ClientRuntimeService
 import com.pocketrealm.client.ArmTranslationBackend
+import com.pocketrealm.client.ArmClientRenderer
+import com.pocketrealm.client.ArmClientRendererCatalog
+import com.pocketrealm.client.AndroidGladioCapabilityProbe
 import com.pocketrealm.client.AndroidSystemVulkanProbe
 import com.pocketrealm.client.IClientDisplayControl
 import com.pocketrealm.client.IClientRuntimeControl
@@ -82,21 +85,30 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
             if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
                 val runtimeSettings = Settings(appContext).flow.first()
                 runCatching {
-                    val renderer = RendererPackageCatalog.requireForRequest(
-                        ArmTranslationBackend.BOX64,
-                        "dxvk",
-                        runtimeSettings.selectedDxvkPackageId(),
-                    )
-                    val driverId = runtimeSettings.selectedVulkanDriverId()
-                    val driver = VulkanDriverCatalog.requireForRequest(driverId)
-                    VulkanDriverCatalog.requireAvailableCompatiblePair(
-                        driverId,
-                        renderer,
-                        Build.MODEL,
-                        if (driver.kind == VulkanDriverKind.SYSTEM) {
-                            AndroidSystemVulkanProbe.probe()
-                        } else null,
-                    )
+                    when (val selected = runtimeSettings.selectedArmRenderer()) {
+                        ArmClientRenderer.DXVK -> {
+                            val renderer = RendererPackageCatalog.requireForRequest(
+                                ArmTranslationBackend.BOX64,
+                                selected.runtimeRenderer,
+                                runtimeSettings.selectedDxvkPackageId(),
+                            )
+                            val driverId = runtimeSettings.selectedVulkanDriverId()
+                            val driver = VulkanDriverCatalog.requireForRequest(driverId)
+                            VulkanDriverCatalog.requireAvailableCompatiblePair(
+                                driverId,
+                                renderer,
+                                Build.MODEL,
+                                if (driver.kind == VulkanDriverKind.SYSTEM) {
+                                    AndroidSystemVulkanProbe.probe()
+                                } else null,
+                            )
+                        }
+                        else -> ArmClientRendererCatalog.requireRuntimeRenderer(
+                            selected.runtimeRenderer,
+                            runCatching { AndroidGladioCapabilityProbe.probe(appContext) },
+                            Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
+                        )
+                    }
                 }.getOrElse {
                     return@withContext RuntimeActionResult(
                         false,
@@ -182,11 +194,16 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                     "LAN host interface disappeared before world start"
                 }
                 json(world.api().claim(owner.sessionId, owner.instanceToken, ownerLease))
+                val nearbyInteractTriggerGuardMs = Settings(appContext).flow.first()
+                    .nearbyInteractTriggerGuardMs
                 when {
                     BotProfiles.find(profileId) != null ->
-                        json(world.api().startBotProfileAt(profileId, spec.endpoint.address))
-                    profileId == INTEGRATED_PROFILE -> json(world.api().startNormalAt(spec.endpoint.address))
-                    else -> json(world.api().startAt(spec.endpoint.address))
+                        json(world.api().startBotProfileAt(
+                            profileId, spec.endpoint.address, nearbyInteractTriggerGuardMs))
+                    profileId == INTEGRATED_PROFILE -> json(world.api().startNormalAt(
+                        spec.endpoint.address, nearbyInteractTriggerGuardMs))
+                    else -> json(world.api().startAt(
+                        spec.endpoint.address, nearbyInteractTriggerGuardMs))
                 }
                 waitReady(component) { json(world.api().status()) }
             }
@@ -371,10 +388,23 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         )
         val requestedTweaksJson = runtimeSettings.tweaks.toJson()
         val armClient = Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a"
-        val renderer = if (armClient) "dxvk" else "wined3d"
-        val rendererPackageId = runtimeSettings.selectedDxvkPackageId().takeIf { armClient }
-        val vulkanDriverId = runtimeSettings.selectedVulkanDriverId().takeIf { armClient }
-        if (armClient) {
+        val armRenderer = runtimeSettings.selectedArmRenderer().takeIf { armClient }
+        val renderer = armRenderer?.runtimeRenderer ?: "wined3d"
+        if (armRenderer != null) {
+            ArmClientRendererCatalog.requireRuntimeRenderer(
+                renderer,
+                if (armRenderer != ArmClientRenderer.DXVK) runCatching {
+                    AndroidGladioCapabilityProbe.probe(appContext)
+                } else null,
+            )
+        }
+        val rendererPackageId = runtimeSettings.selectedDxvkPackageId().takeIf {
+            armRenderer == ArmClientRenderer.DXVK
+        }
+        val vulkanDriverId = runtimeSettings.selectedVulkanDriverId().takeIf {
+            armRenderer == ArmClientRenderer.DXVK
+        }
+        if (armRenderer == ArmClientRenderer.DXVK) {
             val rendererPackage = RendererPackageCatalog.requireForRequest(
                 translator,
                 renderer,
@@ -494,6 +524,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                 runtimeSettings.effectiveAutoLoginTimings().toControlJson(),
                 audioModeLiteral,
                 CLIENT_BUILD_ID,
+                renderer,
                 vulkanDriverId.orEmpty(),
                 rendererPackageId.orEmpty(),
                 displaySelection.profile.id,
@@ -505,6 +536,14 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                 prepared.getInt("virtualHeight") == displayPrepared.getInt("virtualHeight") &&
                 prepared.getInt("frameCap") == displayPrepared.getInt("frameCap")) {
                 "client runtime and Android display selected different display identities"
+            }
+            check(prepared.getString("renderer") == renderer &&
+                displayPrepared.getString("renderer") == renderer) {
+                "client runtime and Android display selected different renderer lanes"
+            }
+            check(displayPrepared.getBoolean("glxEnabled") ==
+                (renderer == "opengl" || renderer == "virgl" || renderer == "wined3d")) {
+                "Android display GLX lifecycle does not match the selected renderer"
             }
             if (vulkanDriverId != null) {
                 check(prepared.getString("vulkanDriverId") == vulkanDriverId &&
@@ -520,6 +559,13 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                     displayPrepared.getBoolean("vulkanBridgeReady")) {
                     "Android system Vulkan bridge is not ready"
                 }
+            } else if (armClient) {
+                check(prepared.isNull("vulkanDriverId") &&
+                    displayPrepared.isNull("vulkanDriverId") &&
+                    prepared.isNull("rendererPackageId") &&
+                    displayPrepared.isNull("rendererPackageId")) {
+                    "non-DXVK ARM renderer carried Vulkan/DXVK identities"
+                }
             }
             val launchRequest = JSONObject()
                 .put("protocol", ClientRuntimeContract.PROTOCOL_VERSION)
@@ -532,8 +578,17 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
             rendererPackageId?.let { launchRequest.put("rendererPackageId", it) }
             vulkanDriverId?.let { launchRequest.put("vulkanDriverId", it) }
             val launched = json(client.api().launch(launchRequest.toString()))
-            json(display.api().attachSession(owner.instanceToken, launched.getString("sessionId")))
+            val launchedSessionId = launched.getString("sessionId")
+            json(display.api().attachSession(owner.instanceToken, launchedSessionId))
             while (true) {
+                if (renderer == "opengl" || renderer == "virgl") {
+                    val graphics = json(display.api().status())
+                    check(graphics.optString("renderer") == renderer &&
+                        graphics.optBoolean("glxEnabled")) {
+                        "$renderer display identity changed while starting"
+                    }
+                    submitExperimentalGraphicsProof(launchedSessionId, renderer, graphics)
+                }
                 val observed = observeClientComposite()
                 if (observed.ready) {
                     clientReady = true
@@ -606,9 +661,32 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
     }
 
     private suspend fun observeClientComposite(): ComponentObservation {
-        val runtime = clientObservation(json(client.api().statusCurrent()))
+        var runtimeValue = json(client.api().statusCurrent())
+        val displayValue = runCatching { json(display.api().status()) }.getOrElse { failure ->
+            return compositeClientObservation(
+                clientObservation(runtimeValue),
+                display = null,
+                displayUnavailableDetail = "client display unavailable: ${failure.javaClass.simpleName}",
+            )
+        }
+        if (runtimeValue.optString("state") == "RUNNING") {
+            val renderer = runtimeValue.optString("renderer")
+            if (renderer == "opengl" || renderer == "virgl") {
+                check(displayValue.optString("renderer") == renderer &&
+                    displayValue.optBoolean("glxEnabled")) {
+                    "$renderer live display identity changed"
+                }
+                submitExperimentalGraphicsProof(
+                    runtimeValue.getString("sessionId"), renderer, displayValue,
+                )
+                // reportGraphicsProof can revoke RUNNING synchronously. Observe
+                // the updated state in this same health-monitor pass.
+                runtimeValue = json(client.api().statusCurrent())
+            }
+        }
+        val runtime = clientObservation(runtimeValue)
         val displayHealth = runCatching {
-            displayHealth(json(display.api().status()))
+            displayHealth(displayValue)
         }.getOrElse { failure ->
             return compositeClientObservation(
                 runtime,
@@ -617,6 +695,21 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
             )
         }
         return compositeClientObservation(runtime, displayHealth)
+    }
+
+    private suspend fun submitExperimentalGraphicsProof(
+        sessionId: String,
+        renderer: String,
+        graphics: JSONObject,
+    ) {
+        val proof = experimentalGraphicsProof(renderer, graphics)
+        json(client.api().reportGraphicsProof(
+            sessionId,
+            renderer,
+            proof.transportContexts,
+            proof.rendererContexts,
+            proof.presentedFrames,
+        ))
     }
 
     private fun displayHealth(value: JSONObject): ClientDisplayHealth = ClientDisplayHealth(
@@ -757,6 +850,46 @@ internal fun clientGracefulReleaseReady(
 internal fun clientTerminalLifecycle(state: String, hasOwner: Boolean): ComponentLifecycle {
     require(state == "EXITED" || state == "FORCE_STOPPED") { "not a terminal client state" }
     return if (hasOwner) ComponentLifecycle.STOPPING else ComponentLifecycle.STOPPED
+}
+
+internal data class ExperimentalGraphicsProof(
+    val transportContexts: Int,
+    val rendererContexts: Int,
+    val presentedFrames: Long,
+)
+
+/**
+ * Convert live display statistics to the renderer service's generic proof.
+ * A VirGL server stop or any real Gladio context in a VirGL session revokes
+ * the proof immediately by reporting zero live milestones.
+ */
+internal fun experimentalGraphicsProof(
+    renderer: String,
+    graphics: JSONObject,
+): ExperimentalGraphicsProof = when (renderer) {
+    "opengl" -> ExperimentalGraphicsProof(
+        graphics.optInt("glxTransportContexts").coerceAtLeast(0),
+        graphics.optInt("glxContexts").coerceAtLeast(0),
+        graphics.optLong("glxPresentedFrames").coerceAtLeast(0),
+    )
+    "virgl" -> {
+        val invalidRoute = !graphics.optBoolean("virglServerStarted") ||
+            graphics.optInt("glxTransportContexts") != 0 ||
+            graphics.optInt("glxContexts") != 0
+        if (invalidRoute) {
+            ExperimentalGraphicsProof(0, 0, 0)
+        } else {
+            ExperimentalGraphicsProof(
+                graphics.optInt("virglActiveConnections").coerceAtLeast(0),
+                minOf(
+                    graphics.optInt("virglInitializedConnections").coerceAtLeast(0),
+                    graphics.optInt("virglCapsReadyConnections").coerceAtLeast(0),
+                ),
+                graphics.optLong("virglSuccessfulFlushes").coerceAtLeast(0),
+            )
+        }
+    }
+    else -> error("unsupported experimental renderer proof: $renderer")
 }
 
 internal data class ClientDisplayHealth(
