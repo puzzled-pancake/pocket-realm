@@ -359,8 +359,8 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
         if (abi == "arm64-v8a" && selectedLane == "full") {
             val gladioServer = File(nativeBuildRoot,
                 "xserver-winlator-build/libgladiorenderer.so")
-            check(gladioServer.length() == 1_309_312L && sha256(gladioServer) ==
-                "1ffa75ce4f2dd45b85feb83c5f5db5208a496d5a89ef7a434833cfb8a9d76a28") {
+            check(gladioServer.length() == 1_313_096L && sha256(gladioServer) ==
+                "f6f6a5db3ab2169d6ce4157f46be25d7fb06c42daf535861244f2ff4d1c687d7") {
                 "ARM Gladio server differs from the reviewed source build"
             }
             val virglServer = File(nativeBuildRoot,
