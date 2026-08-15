@@ -63,6 +63,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.pocketrealm.bots.BotActivityPreset
+import com.pocketrealm.bots.BotBehaviorPreset
 import com.pocketrealm.bots.BotAdvancedSettings
 import com.pocketrealm.bots.BotCustomConfiguration
 import com.pocketrealm.bots.BotCustomPresets
@@ -75,6 +76,7 @@ import com.pocketrealm.realm.RealmState
 import com.pocketrealm.storage.Settings
 import com.pocketrealm.supervisor.RuntimeSupervisorClient
 import java.io.File
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -260,30 +262,6 @@ fun BotsScreen() {
         advancedOpen = false
     }
 
-    fun applySelection() {
-        scope.launch {
-            when (val t = target) {
-                is EditorTarget.BuiltIn -> {
-                    val profile = BotProfiles.find(t.profileId) ?: return@launch
-                    settings.update {
-                        it.copy(
-                            botProfileId = profile.id,
-                            botPopulationTarget = profile.selectedTarget,
-                            botSavedPresetId = null,
-                            botAdvancedEnabled = false,
-                            botAdvanced = BotAdvancedSettings.fromProfile(profile),
-                        )
-                    }
-                }
-                is EditorTarget.Saved -> {
-                    settings.update {
-                        it.copy(botSavedPresetId = t.presetId, botAdvancedEnabled = false)
-                    }
-                }
-                EditorTarget.NewDraft, null -> Unit
-            }
-        }
-    }
     fun saveWorkingAsPreset(name: String) {
         val trimmed = name.trim()
         if (!BotPresetStore.isValidName(trimmed)) return
@@ -294,6 +272,51 @@ fun BotsScreen() {
                 settings.update { it.copy(botSavedPresetId = created.id) }
                 target = EditorTarget.Saved(created.id)
             }.onFailure { actionError = it.message ?: "The preset could not be saved" }
+        }
+    }
+
+    // Apply always lands exactly what the editor shows: modified saved
+    // presets are saved first, modified built-ins are named once and become
+    // a custom preset (the previous version's edit-anything flow).
+    fun applySelection() {
+        scope.launch {
+            when (val t = target) {
+                is EditorTarget.BuiltIn -> {
+                    val profile = BotProfiles.find(t.profileId) ?: return@launch
+                    if (dirty) {
+                        nameRequest = NameRequest(
+                            title = "Save modified “${profile.displayName}” as preset",
+                            initial = "",
+                        ) { name -> presetNameDraft = name; saveWorkingAsPreset(name) }
+                    } else {
+                        settings.update {
+                            it.copy(
+                                botProfileId = profile.id,
+                                botPopulationTarget = profile.selectedTarget,
+                                botSavedPresetId = null,
+                                botAdvancedEnabled = false,
+                                botAdvanced = BotAdvancedSettings.fromProfile(profile),
+                            )
+                        }
+                    }
+                }
+                is EditorTarget.Saved -> {
+                    if (dirty) {
+                        val saved = runCatching { store.save(t.presetId, working) }
+                        if (saved.isFailure) {
+                            actionError = saved.exceptionOrNull()?.message
+                                ?: "The preset could not be saved"
+                            return@launch
+                        }
+                    }
+                    settings.update { it.copy(botSavedPresetId = t.presetId, botAdvancedEnabled = false) }
+                }
+                EditorTarget.NewDraft -> nameRequest = NameRequest(
+                    title = "New preset name",
+                    initial = presetNameDraft,
+                ) { name -> presetNameDraft = name; saveWorkingAsPreset(name) }
+                null -> Unit
+            }
         }
     }
 
@@ -930,12 +953,19 @@ private fun CustomPopulationEditor(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AdvancedSections(
     working: BotCustomConfiguration,
     onWorking: (BotCustomConfiguration) -> Unit,
 ) {
     HorizontalDivider()
+    Text("POPULATION - AMOUNT OF BOTS", style = MaterialTheme.typography.labelSmall)
+    Text(
+        "Starts at ${working.initialTarget} -> ${working.selectedTarget} bots - " +
+            "${working.nearPlayerTeleportMaxAmount} favored near players",
+        style = MaterialTheme.typography.bodySmall,
+    )
     Stepper("Minimum online", working.minimumOnline, 0..working.selectedTarget) { value ->
         onWorking(
             working.copy(
@@ -950,7 +980,7 @@ private fun AdvancedSections(
     Stepper("Startup increase step", working.startupIncreaseStep, 1..working.selectedTarget) { value ->
         onWorking(working.copy(startupIncreaseStep = value))
     }
-    Stepper("Startup ramp interval (s)", (working.startupRampIntervalMs / 1000).toInt(), 0..300) { value ->
+    Stepper("Startup ramp interval (s)", (working.startupRampIntervalMs / 1000).toInt(), 0..1_800, step = 30) { value ->
         onWorking(working.copy(startupRampIntervalMs = value * 1_000L))
     }
     Stepper("Activation batch", working.activationBatchSize, 1..64) { value ->
@@ -969,26 +999,7 @@ private fun AdvancedSections(
     }
 
     HorizontalDivider()
-    Text("AI & SCHEDULING", style = MaterialTheme.typography.labelSmall)
-    SteppedSlider(
-        "AI update interval", working.randomBotUpdateIntervalMs, 500..5_000, 250,
-        "bots-ai-update",
-    ) { value -> onWorking(working.copy(randomBotUpdateIntervalMs = value)) }
-    SteppedSlider(
-        "Iterations per tick", working.iterationsPerTick, 1..20, 1,
-        "bots-iterations",
-    ) { value -> onWorking(working.copy(iterationsPerTick = value)) }
-    SteppedSlider(
-        "Active percentage", working.activeBotPercent, 1..20, 1,
-        "bots-active-percent",
-    ) { value -> onWorking(working.copy(activeBotPercent = value)) }
-    Text(
-        "Nearby and human-group bots are promoted regardless of the active percentage.",
-        style = MaterialTheme.typography.bodySmall,
-    )
-
-    HorizontalDivider()
-    Text("NEARBY ACTIVITY", style = MaterialTheme.typography.labelSmall)
+    Text("NEARBY SPAWNS - CLOSE TO PLAYERS", style = MaterialTheme.typography.labelSmall)
     SteppedSlider(
         "Nearby bots per human", working.nearPlayerTeleportMaxAmount, 0..50, 1,
         "bots-nearby-limit",
@@ -997,7 +1008,7 @@ private fun AdvancedSections(
             working.copy(
                 nearPlayerTeleportMaxAmount = value,
                 nearPlayerTeleportRadius = if (value == 0) 0
-                    else working.nearPlayerTeleportRadius.coerceAtLeast(100),
+                else working.nearPlayerTeleportRadius.coerceAtLeast(100),
             ),
         )
     }
@@ -1010,9 +1021,81 @@ private fun AdvancedSections(
     SwitchRow(
         "Fast promotion near players", working.forceActiveWhenNearPlayer, "bots-force-active",
     ) { value -> onWorking(working.copy(forceActiveWhenNearPlayer = value)) }
+    Text("Nearby teleport cadence", style = MaterialTheme.typography.labelLarge)
+    Text(
+        "Controls how often distant bots may be moved near active players.",
+        style = MaterialTheme.typography.bodySmall,
+    )
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        listOf(30 to 120, 60 to 240, 120 to 480, 240 to 720).forEach { (min, max) ->
+            FilterChip(
+                selected = working.teleportMinIntervalSeconds == min * 60 &&
+                    working.teleportMaxIntervalSeconds == max * 60,
+                onClick = {
+                    onWorking(
+                        working.copy(
+                            teleportMinIntervalSeconds = min * 60,
+                            teleportMaxIntervalSeconds = max * 60,
+                        ),
+                    )
+                },
+                label = { Text(cadenceLabel(min, max)) },
+                modifier = Modifier.testTag("bots-cadence-$min-$max"),
+            )
+        }
+    }
+    Stepper("Teleport min (min)", working.teleportMinIntervalSeconds / 60, 1..2_880, step = 30) { value ->
+        val min = value * 60
+        onWorking(
+            working.copy(
+                teleportMinIntervalSeconds = min,
+                teleportMaxIntervalSeconds = maxOf(min, working.teleportMaxIntervalSeconds),
+            ),
+        )
+    }
+    Stepper("Teleport max (min)", working.teleportMaxIntervalSeconds / 60, 1..2_880, step = 30) { value ->
+        onWorking(
+            working.copy(
+                teleportMaxIntervalSeconds = maxOf(value * 60, working.teleportMinIntervalSeconds),
+            ),
+        )
+    }
 
     HorizontalDivider()
-    Text("BEHAVIOUR", style = MaterialTheme.typography.labelSmall)
+    Text("AI & SCHEDULING", style = MaterialTheme.typography.labelSmall)
+    SteppedSlider(
+        "AI update interval", working.randomBotUpdateIntervalMs, 500..5_000, 250,
+        "bots-ai-update",
+    ) { value -> onWorking(working.copy(randomBotUpdateIntervalMs = value)) }
+    SteppedSlider(
+        "Bot work per tick (iterations)", working.iterationsPerTick, 1..20, 1,
+        "bots-iterations",
+    ) { value -> onWorking(working.copy(iterationsPerTick = value)) }
+    SteppedSlider(
+        "Fully active background bots (%)", working.activeBotPercent, 1..20, 1,
+        "bots-active-percent",
+    ) { value -> onWorking(working.copy(activeBotPercent = value)) }
+    Text(
+        "Nearby and human-group bots are promoted regardless of the active percentage.",
+        style = MaterialTheme.typography.bodySmall,
+    )
+
+    HorizontalDivider()
+    Text("TEMPERAMENT", style = MaterialTheme.typography.labelSmall)
+    Text(
+        "Choose a starting style, then change any individual behaviour below.",
+        style = MaterialTheme.typography.bodySmall,
+    )
+    BotBehaviorPreset.entries.forEach { preset ->
+        FilterChip(
+            selected = working.matchesBehaviorPreset(preset),
+            onClick = { onWorking(working.withBehaviorPreset(preset)) },
+            label = { Text(preset.label) },
+            modifier = Modifier.fillMaxWidth()
+                .testTag("bots-behavior-" + preset.name.lowercase()),
+        )
+        Text(preset.summary, style = MaterialTheme.typography.bodySmall)
+    }
     SwitchRow("Quest and level autonomously", working.autoDoQuests, "bots-quests") { value ->
         onWorking(working.copy(autoDoQuests = value))
     }
@@ -1034,25 +1117,15 @@ private fun AdvancedSections(
     SwitchRow("Limit background combat work", working.limitCombatActivity, "bots-limit-combat") { value ->
         onWorking(working.copy(limitCombatActivity = value))
     }
+    SwitchRow("Bots log in at realm start", working.loginAtStartup, "bots-login-startup") { value ->
+        onWorking(working.copy(loginAtStartup = value))
+    }
+    SwitchRow("Bot joins with its player", working.loginWithPlayer, "bots-login-with-player") { value ->
+        onWorking(working.copy(loginWithPlayer = value))
+    }
 
     HorizontalDivider()
-    Text("TELEPORTING & LEVELING", style = MaterialTheme.typography.labelSmall)
-    Stepper("Teleport min (min)", working.teleportMinIntervalSeconds / 60, 1..2_880) { value ->
-        val min = value * 60
-        onWorking(
-            working.copy(
-                teleportMinIntervalSeconds = min,
-                teleportMaxIntervalSeconds = maxOf(min, working.teleportMaxIntervalSeconds),
-            ),
-        )
-    }
-    Stepper("Teleport max (min)", working.teleportMaxIntervalSeconds / 60, 1..2_880) { value ->
-        onWorking(
-            working.copy(
-                teleportMaxIntervalSeconds = maxOf(value * 60, working.teleportMinIntervalSeconds),
-            ),
-        )
-    }
+    Text("LEVELING", style = MaterialTheme.typography.labelSmall)
     SwitchRow("Match bot levels to players", working.syncLevelWithPlayers, "bots-sync-level") { value ->
         onWorking(working.copy(syncLevelWithPlayers = value))
     }
@@ -1061,7 +1134,10 @@ private fun AdvancedSections(
             onWorking(working.copy(syncLevelMaxAbove = value))
         }
     }
-    Stepper("Max-level bot chance (%)", (working.randomBotMaxLevelChance * 100).toInt(), 0..100) { value ->
+    Stepper("Level when no players online", working.syncLevelNoPlayer, 1..60) { value ->
+        onWorking(working.copy(syncLevelNoPlayer = value))
+    }
+    Stepper("Max-level bot chance (%)", (working.randomBotMaxLevelChance * 100).roundToInt(), 0..100, step = 5) { value ->
         onWorking(working.copy(randomBotMaxLevelChance = value / 100f))
     }
     Stepper("Rerandomize min (h)", working.randomizeMinIntervalSeconds / 3600, 1..336) { value ->
@@ -1082,10 +1158,11 @@ private fun AdvancedSections(
     }
 
     HorizontalDivider()
-    Text("ACCOUNTS & BATCHING", style = MaterialTheme.typography.labelSmall)
+    Text("LOGIN & ACCOUNTS", style = MaterialTheme.typography.labelSmall)
     Text(
-        "Account pool: Automatic · ${working.accountCount} accounts · " +
-            "capacity ${working.accountCount * BotPopulationPolicy.CHARACTERS_PER_BOT_ACCOUNT} characters",
+        "Account pool: Automatic - prefix " + working.accountPrefix + " - " +
+            working.accountCount + " accounts - " +
+            "capacity " + working.accountCount * BotPopulationPolicy.CHARACTERS_PER_BOT_ACCOUNT + " characters",
         style = MaterialTheme.typography.bodySmall,
         modifier = Modifier.testTag("bots-account-pool"),
     )
@@ -1095,10 +1172,13 @@ private fun AdvancedSections(
     Stepper("Maintenance batch", working.maintenanceBatchSize, 1..64) { value ->
         onWorking(working.copy(maintenanceBatchSize = value))
     }
+    Stepper("Alternate bots per account", working.maximumAltBots, 0..8) { value ->
+        onWorking(working.copy(maximumAltBots = value))
+    }
     Stepper("Generation batch", working.generationBatchSize, 1..10) { value ->
         onWorking(working.copy(generationBatchSize = value))
     }
-    Stepper("Generation yield (ms)", working.generationYieldMs.toInt(), 0..5_000) { value ->
+    Stepper("Generation yield (ms)", working.generationYieldMs.toInt(), 0..5_000, step = 50) { value ->
         onWorking(working.copy(generationYieldMs = value.toLong()))
     }
 
@@ -1119,12 +1199,81 @@ private fun AdvancedSections(
             working.copy(admission = working.admission.copy(performanceWarmupMs = value * 60_000L)),
         )
     }
-    Stepper("Reduce step", working.admission.reduceStep, 1..100) { value ->
+    Stepper("Healthy ramp (min)", (working.admission.healthyRampMs / 60_000).toInt(), 1..120) { value ->
+        onWorking(
+            working.copy(
+                admission = working.admission.copy(
+                    healthyRampMs = maxOf(value * 60_000L, working.admission.changeCooldownMs),
+                ),
+            ),
+        )
+    }
+    Stepper("Change cooldown (s)", (working.admission.changeCooldownMs / 1000).toInt(), 10..300, step = 5) { value ->
+        val cooldown = value * 1_000L
+        onWorking(
+            working.copy(
+                admission = working.admission.copy(
+                    changeCooldownMs = cooldown,
+                    healthyRampMs = maxOf(working.admission.healthyRampMs, cooldown),
+                ),
+            ),
+        )
+    }
+    Stepper("Reduce step", working.admission.reduceStep, 1..100, step = 5) { value ->
         onWorking(working.copy(admission = working.admission.copy(reduceStep = value)))
     }
-    Stepper("Increase step", working.admission.increaseStep, 1..100) { value ->
+    Stepper("Increase step", working.admission.increaseStep, 1..100, step = 5) { value ->
         onWorking(working.copy(admission = working.admission.copy(increaseStep = value)))
     }
+}
+
+private fun cadenceLabel(min: Int, max: Int): String =
+    (if (min < 60) "0.5" else (min / 60).toString()) + "-" + (max / 60) + " h"
+
+private fun BotCustomConfiguration.withBehaviorPreset(preset: BotBehaviorPreset): BotCustomConfiguration =
+    when (preset) {
+        BotBehaviorPreset.EFFICIENT -> copy(
+            limitCombatActivity = true,
+            activeBotPercent = 3,
+            autoDoQuests = false,
+            allowBotChat = false,
+            allowPlayerInvites = false,
+            groupNearby = false,
+            wanderWhenIdle = false,
+            enableOffSpecStrategies = false,
+        )
+        BotBehaviorPreset.NATURAL -> copy(
+            limitCombatActivity = true,
+            activeBotPercent = 5,
+            autoDoQuests = true,
+            allowBotChat = false,
+            allowPlayerInvites = false,
+            groupNearby = true,
+            wanderWhenIdle = true,
+            enableOffSpecStrategies = true,
+        )
+        BotBehaviorPreset.SOCIAL -> copy(
+            limitCombatActivity = false,
+            activeBotPercent = 8,
+            autoDoQuests = true,
+            allowBotChat = true,
+            allowPlayerInvites = true,
+            groupNearby = true,
+            wanderWhenIdle = true,
+            enableOffSpecStrategies = true,
+        )
+    }
+
+private fun BotCustomConfiguration.matchesBehaviorPreset(preset: BotBehaviorPreset): Boolean {
+    val expected = withBehaviorPreset(preset)
+    return limitCombatActivity == expected.limitCombatActivity &&
+        activeBotPercent == expected.activeBotPercent &&
+        autoDoQuests == expected.autoDoQuests &&
+        allowBotChat == expected.allowBotChat &&
+        allowPlayerInvites == expected.allowPlayerInvites &&
+        groupNearby == expected.groupNearby &&
+        wanderWhenIdle == expected.wanderWhenIdle &&
+        enableOffSpecStrategies == expected.enableOffSpecStrategies
 }
 
 @Composable
@@ -1177,7 +1326,9 @@ private fun SteppedSlider(
         Slider(
             value = value.toFloat(),
             onValueChange = { raw ->
-                val snapped = ((raw + step / 2) / step).toInt() * step
+                // coerceIn must bind to the snapped product, not to step;
+                // binding to step multiplied every value by range.first.
+                val snapped = (((raw + step / 2) / step).toInt() * step)
                     .coerceIn(range.first, range.last)
                 if (snapped != value) onChange(snapped)
             },
@@ -1273,10 +1424,13 @@ private fun ResultPane(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = onApply,
-                    enabled = !dirty &&
-                        (target is EditorTarget.BuiltIn || target is EditorTarget.Saved),
+                    enabled = target != null,
                     modifier = Modifier.weight(1f).testTag("result-apply"),
-                ) { Text("Apply") }
+                ) {
+                    // Modified presets are saved by Apply itself, so the
+                    // primary action is never greyed out mid-edit.
+                    Text(if (dirty && target is EditorTarget.Saved) "Save & apply" else "Apply")
+                }
                 Button(
                     onClick = onSave,
                     enabled = target is EditorTarget.Saved || dirty || target is EditorTarget.NewDraft,
