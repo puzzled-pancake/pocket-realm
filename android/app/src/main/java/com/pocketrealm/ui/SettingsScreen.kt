@@ -168,7 +168,7 @@ fun SettingsScreen(
                 )
             }
             Text(
-                "System Vortek remains packaged for developer qualification, but it is experimental and is not selectable in production settings.",
+                "System Vortek is experimental and cannot be selected here.",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -485,7 +485,7 @@ fun SettingsScreen(
             Text(if (audioSupported) {
                 "On by default for ARM64 devices. Changes take effect on the next client launch through the provider-matched Android ALSA backend."
             } else {
-                "Audio is unavailable on this retained x86 validation provider. Your preference is kept for supported ARM64 devices."
+                "Audio is unavailable on this device. Your preference is kept for supported devices."
             },
                 style = MaterialTheme.typography.bodySmall)
         }

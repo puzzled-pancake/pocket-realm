@@ -107,13 +107,13 @@ fun CapabilityScreen(contentPadding: PaddingValues = PaddingValues()) {
         }
 
         item {
-            Text("Packaging experiments (report §8.4)", style = MaterialTheme.typography.titleMedium)
+            Text("System checks", style = MaterialTheme.typography.titleMedium)
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { launch { runner.runPkg01() } }, enabled = !busy) { Text("PKG-01") }
-                Button(onClick = { launch { runner.runPkg02() } }, enabled = !busy) { Text("PKG-02") }
-                Button(onClick = { launch { runner.runPkg06(durationSeconds = 10) } }, enabled = !busy) { Text("PKG-06 (10s)") }
+                Button(onClick = { launch { runner.runPkg01() } }, enabled = !busy) { Text("Native runtime") }
+                Button(onClick = { launch { runner.runPkg02() } }, enabled = !busy) { Text("Services") }
+                Button(onClick = { launch { runner.runPkg06(durationSeconds = 10) } }, enabled = !busy) { Text("Client session (10s)") }
             }
         }
         if (busy) {

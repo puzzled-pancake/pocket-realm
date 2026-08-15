@@ -132,11 +132,13 @@ class BotPolicyTest {
         val profile = BotProfiles.LAUNCH_DAY_700
         val config = profile.playerbotConfig()
 
+        assertEquals("mobile-launchday-b700-v1", profile.id)
         assertEquals(25, profile.initialTarget)
         assertEquals(25, profile.startupIncreaseStep)
         assertEquals(30_000, profile.startupRampIntervalMs)
         assertEquals(5, profile.activationBatchSize)
-        assertTrue(profile.displayName.contains("experimental", ignoreCase = true))
+        // Consumer-facing rename: no "experimental"/"Launch day" wording, ID stable.
+        assertEquals("Legacy Realm · 700 bots", profile.displayName)
         assertTrue(config.contains("AiPlayerbot.LimitCombatActivity = 1"))
         assertTrue(config.contains("AiPlayerbot.botActiveAlone = 3"))
         assertTrue(config.contains("AiPlayerbot.AutoDoQuests = 1"))

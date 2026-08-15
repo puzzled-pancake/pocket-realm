@@ -87,11 +87,11 @@ object VulkanDriverCatalog {
     const val TURNIP_26_1 = "turnip-26.1.0"
     const val RELEASE_DEFAULT = TURNIP_26_1
     const val TURNIP_UNQUALIFIED_REASON =
-        "Packaged Turnip is currently qualified only on Retroid Pocket 6 / Adreno 740."
+        "Packaged Turnip is not yet supported on this device's graphics hardware."
     const val SYSTEM_EXPERIMENTAL_REASON =
-        "System Vortek is experimental and retained only for developer qualification."
+        "System Vortek is experimental and cannot be selected."
     const val RP6_SYSTEM_MIGRATION_NOTICE =
-        "Experimental System Vortek was replaced with the qualified Turnip 26.1.0 driver on this Retroid Pocket 6."
+        "An experimental driver was replaced with the supported Turnip 26.1.0 driver on this device."
     const val SELECTION_SCHEMA = 3
     const val VORTEK_BRIDGE_MAX_API_VERSION: Int = (1 shl 22) or (3 shl 12) or 128
 

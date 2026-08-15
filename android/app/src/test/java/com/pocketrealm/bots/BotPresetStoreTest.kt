@@ -4,6 +4,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -174,4 +175,70 @@ class BotPresetStoreTest {
             imported.configuration.teleportMaxIntervalSeconds,
         )
     }
+
+    @Test fun exportImportRoundTripsAConfigurationWithANewStableIdentity() = runTest {
+        val store = newStore()
+        val preset = store.create("725 Experiment", base = BotProfiles.ALIVE_REALM_320)
+            .let { store.save(it.id, it.configuration.withTarget(725)) }
+        val json = store.exportJson(preset)
+
+        val imported = store.importJson(json)
+        assertEquals("725 Experiment", imported.name)
+        assertEquals(preset.configuration, imported.configuration)
+        assertTrue(imported.favorite == preset.favorite)
+        // New stable identity: import never collides with the source preset.
+        assertNotSame(preset.id, imported.id)
+        val identity = imported.identity()
+        assertEquals(725, BotProfiles.find(identity)?.selectedTarget)
+    }
+
+    @Test fun tamperedPresetFilesAreRejected() = runTest {
+        val store = newStore()
+        val preset = store.create("Guarded export", base = BotProfiles.LOW_POWER_80)
+        val json = org.json.JSONObject(store.exportJson(preset))
+
+        // Edited value without updating the checksum.
+        val edited = org.json.JSONObject(json.toString())
+        edited.getJSONObject("configuration").put("selectedTarget", 600)
+        assertRejects { store.importJson(edited.toString()) }
+
+        // Wrong checksum.
+        val badSum = org.json.JSONObject(json.toString())
+        badSum.put("checksum", "00000000")
+        assertRejects { store.importJson(badSum.toString()) }
+
+        // Not a preset file at all.
+        assertRejects { store.importJson("{\"kind\":\"other\",\"schema\":1}") }
+        assertRejects { store.importJson("not json") }
+
+        // Future schema.
+        val future = org.json.JSONObject(json.toString())
+        future.put("schema", 99)
+        assertRejects { store.importJson(future.toString()) }
+
+        // Original still imports.
+        assertEquals("Guarded export", store.importJson(json.toString()).name)
+    }
+
+    @Test fun importedOutOfRangePopulationsAreRejectedByValidation() = runTest {
+        val store = newStore()
+        val preset = store.create("Range guard", base = BotProfiles.LIVELY_160)
+        val json = org.json.JSONObject(store.exportJson(preset))
+        json.getJSONObject("configuration").put("selectedTarget", 99_999_999)
+        // The checksum now mismatches the edited configuration, and even a
+        // recomputed checksum would fail BotCustomConfiguration validation.
+        assertRejects { store.importJson(json.toString()) }
+    }
+}
+
+private inline fun assertRejects(block: () -> Unit) {
+    try {
+        block()
+        error("expected rejection")
+    } catch (expected: IllegalArgumentException) {
+        // The expected validation rejection.
+    } catch (expected: org.json.JSONException) {
+        // The expected malformed-document rejection.
+    }
+    // Any AssertionError (including our own error()) propagates and fails the test.
 }

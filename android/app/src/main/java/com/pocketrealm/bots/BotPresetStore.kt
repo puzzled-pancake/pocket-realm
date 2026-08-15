@@ -28,6 +28,8 @@ class BotPresetStore(private val directory: File) {
         const val SCHEMA_VERSION = 1
         const val FILE_NAME = "bot_presets.json"
         const val MAX_REVISIONS_PER_PRESET = 32
+        const val EXPORT_KIND = "pocketrealm.bot-preset"
+        const val EXPORT_SCHEMA = 1
 
         /** Highest revision retained per preset; bounds file growth. */
         private val ALLOWED_NAME = Regex("[\\p{L}\\p{N}\\p{P}\\p{Zs}'’-]{1,48}")
@@ -182,6 +184,66 @@ class BotPresetStore(private val directory: File) {
         return runCatching {
             kotlinx.coroutines.runBlocking { reload() }
         }.getOrNull()?.let { resolve() }
+    }
+
+    // -----------------------------------------------------------------
+    // Interchange (export/import) — §37 optional actions, consumer-ready.
+    // -----------------------------------------------------------------
+
+    /** Shareable preset document. The checksum covers the canonical configuration. */
+    fun exportJson(preset: SavedPreset): String {
+        val envelope = JSONObject()
+            .put("kind", EXPORT_KIND)
+            .put("schema", EXPORT_SCHEMA)
+            .put("name", preset.name)
+            .put("basePresetId", preset.basePresetId ?: JSONObject.NULL)
+            .put("favorite", preset.favorite)
+            .put("configuration", writeConfiguration(preset.configuration))
+            .put("checksum", configurationChecksum(writeConfiguration(preset.configuration)))
+        return envelope.toString(2)
+    }
+
+    /**
+     * Import a preset document. The configuration is re-validated through
+     * [BotCustomConfiguration] construction and the checksum is recomputed
+     * from the canonical form, so edited values, unknown keys and tampered
+     * checksums are rejected.
+     */
+    suspend fun importJson(raw: String): SavedPreset {
+        val trimmed = raw.trim()
+        require(trimmed.toByteArray(StandardCharsets.UTF_8).size <= 256 * 1_024) {
+            "preset file is too large"
+        }
+        val document = JSONObject(trimmed)
+        require(document.optString("kind") == EXPORT_KIND) { "not a bot preset file" }
+        val schema = document.getInt("schema")
+        require(schema in 1..EXPORT_SCHEMA) { "unsupported preset file schema $schema" }
+        val configurationJson = document.getJSONObject("configuration")
+        val canonical = writeConfiguration(readConfiguration(configurationJson))
+        require(configurationChecksum(canonical) == document.getString("checksum")) {
+            "preset file failed its integrity check"
+        }
+        val name = document.getString("name")
+        require(name.matches(ALLOWED_NAME)) { "invalid preset name" }
+        val preset = SavedPreset(
+            id = BotPresetIdentities.newPresetId(),
+            schemaVersion = SCHEMA_VERSION,
+            name = name,
+            basePresetId = if (document.isNull("basePresetId")) null
+                else document.getString("basePresetId"),
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis(),
+            favorite = document.optBoolean("favorite", false),
+            revisions = listOf(Revision(1, System.currentTimeMillis(), readConfiguration(canonical))),
+        )
+        preset.identity() // validates eagerly
+        return mutate { current -> (current + preset) to preset }
+    }
+
+    private fun configurationChecksum(configuration: JSONObject): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(configuration.toString().toByteArray(StandardCharsets.UTF_8))
+        return digest.take(4).joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 
     private suspend fun <T> mutate(transform: (List<SavedPreset>) -> Pair<List<SavedPreset>, T>): T =

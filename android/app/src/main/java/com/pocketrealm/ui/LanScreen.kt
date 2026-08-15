@@ -106,13 +106,25 @@ fun LanScreen() {
                 modifier = modifier,
             )
         }
-        if (twoPane) {
-            Row(
-                Modifier.fillMaxSize().padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+        if (twoPane || maxWidth > 720.dp) {
+            Column(
+                Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                hostPane(Modifier.weight(1f).fillMaxSize())
-                joinPane(Modifier.weight(1f).fillMaxSize())
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    hostPane(Modifier.weight(1f))
+                    joinPane(Modifier.weight(1f))
+                }
+                if (hosting || joined) {
+                    Text(
+                        "Connected players: no remote player tracking yet; this section appears when the realm reports sessions.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                PlannedLanSection(Modifier.fillMaxWidth())
             }
         } else {
             Column(
@@ -127,7 +139,66 @@ fun LanScreen() {
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
+                PlannedLanSection(Modifier.fillMaxWidth())
             }
+        }
+    }
+}
+
+/**
+ * Planned LAN capabilities (brief §45): designed, honestly labeled, and
+ * deliberately not interactive until a real implementation ships. Nothing
+ * here pretends to work today.
+ */
+@Composable
+private fun PlannedLanSection(modifier: Modifier = Modifier) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Coming to LAN", style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold, modifier = Modifier.testTag("lan-planned-section"))
+        PlannedCard(
+            title = "Move a character to another realm",
+            tag = "lan-planned-transfer",
+            body = "Export your character — with inventory, skills and quest log — from this " +
+                "realm into a signed transfer file. The receiving realm imports it with fresh " +
+                "identifiers and a name-conflict check, so a character built here can move to a " +
+                "friend's hosted world (and back) without overwriting anyone.",
+        )
+        PlannedCard(
+            title = "Sync your realm between devices",
+            tag = "lan-planned-sync",
+            body = "Versioned save bundles that move your whole realm — accounts, characters " +
+                "and world state — between your own devices. The newest save wins by default, " +
+                "with a side-by-side choice whenever two devices changed the same character.",
+        )
+        PlannedCard(
+            title = "Play over the internet",
+            tag = "lan-planned-tunnel",
+            body = "A host can publish their realm through an encrypted tunnel so friends " +
+                "connect from anywhere — no port forwarding — and travellers can connect to a " +
+                "tunnel address the same way they enter a LAN address today. Connections stay " +
+                "authenticated end to end; nothing is routed until you explicitly start a tunnel.",
+        )
+    }
+}
+
+@Composable
+private fun PlannedCard(title: String, tag: String, body: String) {
+    Card(modifier = Modifier.fillMaxWidth().testTag(tag)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "Coming soon",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+            }
+            Text(body, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

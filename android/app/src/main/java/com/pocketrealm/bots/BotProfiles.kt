@@ -312,7 +312,7 @@ object BotProfiles {
     /** Report section 13 B1 / SOAK-25 candidate. It is not a default until its soak passes. */
     val LOW_25 = BotProfile(
         id = "mobile-low-b1-25-v1",
-        displayName = "Qualification · 25 bots",
+        displayName = "Validation · 25 bots",
         summary = "Small deterministic validation tier.",
         userSelectable = false,
         selectedTarget = 25,
@@ -420,7 +420,7 @@ object BotProfiles {
     val LIVELY_700 = BotProfile(
         id = "mobile-lively-b700-v2",
         displayName = "High density · 700 bots",
-        summary = "RP6 stress profile with low-CPU scheduling and fresh-realm locality bias.",
+        summary = "High-density world with low-CPU scheduling and fresh-realm locality bias.",
         userSelectable = false,
         selectedTarget = 700,
         minimumOnline = 25,
@@ -560,11 +560,15 @@ object BotProfiles {
             5 * 60_000L, 10_000L),
     )
 
-    /** High-density launch-day candidate. Experimental until an ARM world soak passes. */
+    /**
+     * Retained high-population profile from earlier versions. Resolvable for
+     * every existing selection; new installs are guided to the curated
+     * experience presets (which peak at 600) or custom populations.
+     */
     val LAUNCH_DAY_700 = BotProfile(
         id = "mobile-launchday-b700-v1",
-        displayName = "Launch day · 700 bots (experimental)",
-        summary = "Builds a crowded world slowly, with automatic load shedding.",
+        displayName = "Legacy Realm · 700 bots",
+        summary = "Retained high-population profile from earlier versions.",
         selectedTarget = 700,
         minimumOnline = 25,
         maximumOnline = 700,

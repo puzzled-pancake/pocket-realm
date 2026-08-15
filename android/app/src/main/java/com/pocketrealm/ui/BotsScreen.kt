@@ -1,6 +1,9 @@
 package com.pocketrealm.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,11 +23,14 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -33,6 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -115,6 +122,40 @@ fun BotsScreen() {
     var nameRequest by remember { mutableStateOf<NameRequest?>(null) }
     var deleteRequest by remember { mutableStateOf<String?>(null) }
     var advancedOpen by remember { mutableStateOf(false) }
+    var pendingExport by remember { mutableStateOf<BotPresetStore.SavedPreset?>(null) }
+    var actionError by remember { mutableStateOf<String?>(null) }
+
+    // Preset interchange: export writes a checked JSON document through the
+    // system file picker; import re-validates it through the store.
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        val preset = pendingExport
+        pendingExport = null
+        if (uri != null && preset != null) {
+            runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { output ->
+                    output.write(store.exportJson(preset).toByteArray(Charsets.UTF_8))
+                } ?: error("could not open the selected location")
+            }.onFailure { actionError = "Export failed: ${it.message}" }
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                runCatching {
+                    val text = context.contentResolver.openInputStream(uri)?.use { input ->
+                        input.readBytes().toString(Charsets.UTF_8)
+                    } ?: error("could not read the selected file")
+                    store.importJson(text)
+                }.onFailure {
+                    actionError = it.message ?: "The preset file could not be imported"
+                }
+            }
+        }
+    }
 
     // Sync editor with the persisted selection when the user has not started
     // editing something else yet (or after apply/reset navigates it).
@@ -212,6 +253,11 @@ fun BotsScreen() {
                 onSelectBuiltIn = ::selectBuiltIn,
                 onSelectSaved = ::selectSaved,
                 onNew = ::startNewDraft,
+                onImport = { importLauncher.launch(arrayOf("application/json", "text/*")) },
+                onExport = { preset ->
+                    pendingExport = preset
+                    exportLauncher.launch("${preset.name}.botpreset.json")
+                },
                 onToggleFavorite = { id, favorite ->
                     scope.launch { store.setFavorite(id, favorite) }
                 },
@@ -366,6 +412,16 @@ fun BotsScreen() {
             },
         )
     }
+    actionError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { actionError = null },
+            title = { Text("Preset transfer") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { actionError = null }) { Text("OK") }
+            },
+        )
+    }
 }
 
 private data class NameRequest(
@@ -400,6 +456,8 @@ private fun PresetsPane(
     onSelectBuiltIn: (com.pocketrealm.bots.BotProfile) -> Unit,
     onSelectSaved: (BotPresetStore.SavedPreset) -> Unit,
     onNew: () -> Unit,
+    onImport: () -> Unit,
+    onExport: (BotPresetStore.SavedPreset) -> Unit,
     onToggleFavorite: (String, Boolean) -> Unit,
     onDuplicate: (String) -> Unit,
     onRename: (String) -> Unit,
@@ -461,43 +519,33 @@ private fun PresetsPane(
                     .filter { search.isBlank() || it.name.contains(search, ignoreCase = true) }
                     .sortedWith(compareByDescending<BotPresetStore.SavedPreset> { it.favorite }.thenBy { it.name.lowercase() })
                 items(visible, key = { it.id }) { preset ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            PresetChip(
-                                label = preset.name,
-                                summary = summaryFor(preset.configuration),
-                                selected = selectedSavedId == preset.id,
-                                tag = "preset-saved",
-                                onClick = { onSelectSaved(preset) },
-                            )
-                        }
-                        IconButton(
-                            onClick = { onToggleFavorite(preset.id, !preset.favorite) },
-                            modifier = Modifier.testTag("preset-favorite"),
-                        ) {
-                            Icon(
-                                if (preset.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
-                                contentDescription = if (preset.favorite) "Unfavorite" else "Favorite",
-                            )
-                        }
-                        IconButton(onClick = { onRename(preset.id) }, modifier = Modifier.width(40.dp)) {
-                            Icon(Icons.Filled.DriveFileRenameOutline, contentDescription = "Rename")
-                        }
-                        IconButton(onClick = { onDuplicate(preset.id) }, modifier = Modifier.width(40.dp)) {
-                            Icon(Icons.Filled.ContentCopy, contentDescription = "Duplicate")
-                        }
-                        IconButton(onClick = { onDelete(preset.id) }, modifier = Modifier.width(40.dp).testTag("preset-delete")) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Delete")
-                        }
-                    }
+                    SavedPresetRow(
+                        preset = preset,
+                        selected = selectedSavedId == preset.id,
+                        onSelect = { onSelectSaved(preset) },
+                        onToggleFavorite = { onToggleFavorite(preset.id, it) },
+                        onRename = { onRename(preset.id) },
+                        onDuplicate = { onDuplicate(preset.id) },
+                        onExport = { onExport(preset) },
+                        onDelete = { onDelete(preset.id) },
+                    )
                 }
                 item {
-                    OutlinedButton(
-                        onClick = onNew,
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp).testTag("preset-new"),
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Icon(Icons.Filled.Add, contentDescription = null)
-                        Text("  New preset")
+                        OutlinedButton(
+                            onClick = onNew,
+                            modifier = Modifier.weight(1f).testTag("preset-new"),
+                        ) {
+                            Icon(Icons.Filled.Add, contentDescription = null)
+                            Text("  New")
+                        }
+                        OutlinedButton(
+                            onClick = onImport,
+                            modifier = Modifier.weight(1f).testTag("preset-import"),
+                        ) { Text("Import") }
                     }
                 }
             }
@@ -505,9 +553,86 @@ private fun PresetsPane(
     }
 }
 
-private fun summaryFor(configuration: BotCustomConfiguration): String =
-    "${configuration.selectedTarget} bots · ${configuration.iterationsPerTick} it/tick · " +
-        "${configuration.activeBotPercent}% active"
+@Composable
+private fun SavedPresetRow(
+    preset: BotPresetStore.SavedPreset,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    onToggleFavorite: (Boolean) -> Unit,
+    onRename: () -> Unit,
+    onDuplicate: () -> Unit,
+    onExport: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    Surface(
+        onClick = onSelect,
+        shape = MaterialTheme.shapes.medium,
+        color = if (selected) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            MaterialTheme.colorScheme.surface
+        },
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp).testTag("preset-saved"),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(
+                onClick = { onToggleFavorite(!preset.favorite) },
+                modifier = Modifier.testTag("preset-favorite"),
+            ) {
+                Icon(
+                    if (preset.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                    contentDescription = if (preset.favorite) "Remove favorite" else "Mark favorite",
+                )
+            }
+            Column(
+                Modifier.weight(1f).padding(vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(1.dp),
+            ) {
+                Text(
+                    preset.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                )
+                Text(
+                    "${preset.configuration.selectedTarget} bots · " +
+                        "revision ${preset.revision.revision} · " +
+                        "${preset.configuration.activeBotPercent}% active",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+            Box {
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.testTag("preset-menu")) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "Preset actions")
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Rename") },
+                        onClick = { menuOpen = false; onRename() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Duplicate") },
+                        onClick = { menuOpen = false; onDuplicate() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Export to file") },
+                        onClick = { menuOpen = false; onExport() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete") },
+                        onClick = { menuOpen = false; onDelete() },
+                    )
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun PresetChip(
