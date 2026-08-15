@@ -404,25 +404,29 @@ function VCP:ShowAddonIconHandle(candidate)
         -- flagged movable first; the flag lives on the handle only.
         handle:SetMovable(1)
         handle:EnableMouseWheel(1)
-    handle:SetScript("OnMouseWheel", function()
-        if not VCP.moveUiActive then return end
-        VCP:ScaleMoveCandidate(candidate, arg1)
-    end)
-    handle:SetScript("OnMouseDown", function()
-        if not VCP.moveUiActive then return end
-        if candidate.scaleOnly then return end
-        local target = VCP:ResolveCandidate(candidate)
-        if not target then return end
-        candidate.grabLeft = handle:GetLeft()
-        candidate.grabTop = handle:GetTop()
-        candidate.grabTargetLeft = target.GetLeft and target:GetLeft() or nil
-        candidate.grabTargetTop = target.GetTop and target:GetTop() or nil
-        if not candidate.grabTargetLeft or not candidate.grabTargetTop then return end
-        handle:ClearAllPoints()
-        handle:StartMoving()
-        candidate.moving = true
-    end)
-        handle:SetScript("OnMouseUp", function()
+        handle:RegisterForDrag("LeftButton", "RightButton")
+        handle:SetScript("OnMouseWheel", function()
+            if not VCP.moveUiActive then return end
+            VCP:ScaleMoveCandidate(candidate, arg1)
+        end)
+        -- Drag delivery is the stock chat-tab pattern: OnDragStop arrives even
+        -- when the button is released off the handle, so a touch drop outside
+        -- the handle still completes instead of stranding the drag.
+        handle:SetScript("OnDragStart", function()
+            if not VCP.moveUiActive then return end
+            if candidate.scaleOnly then return end
+            local target = VCP:ResolveCandidate(candidate)
+            if not target then return end
+            candidate.grabLeft = handle:GetLeft()
+            candidate.grabTop = handle:GetTop()
+            candidate.grabTargetLeft = target.GetLeft and target:GetLeft() or nil
+            candidate.grabTargetTop = target.GetTop and target:GetTop() or nil
+            if not candidate.grabTargetLeft or not candidate.grabTargetTop then return end
+            handle:ClearAllPoints()
+            handle:StartMoving()
+            candidate.moving = true
+        end)
+        handle:SetScript("OnDragStop", function()
             if not candidate.moving then return end
             handle:StopMovingOrSizing()
             candidate.moving = nil
@@ -443,12 +447,23 @@ function VCP:FinishMoveUI(silent)
     self.moveFocused = nil
     for _, candidate in pairs(self.addonIconCandidates) do
         local handle = candidate.handle
-        if candidate.moving and handle then handle:StopMovingOrSizing() end
+        if candidate.moving and handle then
+            -- Exiting mid-drag still completes the in-flight move.
+            handle:StopMovingOrSizing()
+            candidate.moving = nil
+            self:ApplyHandleDrop(candidate, handle)
+        end
         candidate.moving = nil
         -- Only candidates actually dragged or scaled this session are
         -- journaled; saving untouched stock panels would de-register them
-        -- from the stock panel manager without the player asking.
-        if candidate.moved then self:SaveAddonIcon(candidate) end
+        -- from the stock panel manager without the player asking. A pure
+        -- scale change journals scale only so the panel stays managed.
+        if candidate.moved then
+            self:SaveAddonIcon(candidate)
+        elseif candidate.scaled then
+            local frame = self:ResolveCandidate(candidate)
+            if frame and self.FrameMover then self.FrameMover:SaveScaleOnly(frame) end
+        end
         if handle then
             -- Detach before hiding: a shown mouse-enabled handle anchored
             -- into freed memory can fault the client without any Lua call.
@@ -473,12 +488,28 @@ function VCP:ApplyHandleDrop(candidate, handle)
         not candidate.grabTargetLeft or not candidate.grabTargetTop then
         return false
     end
-    local x = candidate.grabTargetLeft + (left - candidate.grabLeft)
-    -- GetTop measures from the screen floor, but the anchor offset below is
-    -- up-positive from UIParent's top edge, so convert origins here.
-    local y = candidate.grabTargetTop + (top - candidate.grabTop) - UIParent:GetTop()
+    -- GetTop measures from the screen floor and GetLeft/GetTop readouts are
+    -- divided by the target's own scale, while SetPoint offsets render
+    -- multiplied by it: convert the drag delta and the top-origin term into
+    -- the target's coordinate space so scaled targets land under the finger.
+    local scale = target.GetScale and target:GetScale() or 1
+    if type(scale) ~= "number" or scale <= 0 then scale = 1 end
+    local x = candidate.grabTargetLeft + (left - candidate.grabLeft) / scale
+    local y = candidate.grabTargetTop + (top - candidate.grabTop - UIParent:GetTop()) / scale
+    -- Clamp so at least 40 units of the target stay reachable on screen; a
+    -- cluster released at the edge must never strand itself off-screen.
+    local parentWidth = UIParent:GetWidth()
+    local parentTop = UIParent:GetTop()
+    local width = (target.GetWidth and target:GetWidth() or 0) * scale
+    local height = (target.GetHeight and target:GetHeight() or 0) * scale
+    local screenLeft = x * scale
+    local screenTop = parentTop + y * scale
+    if screenLeft < 40 - width then screenLeft = 40 - width end
+    if screenLeft > parentWidth - 40 then screenLeft = parentWidth - 40 end
+    if screenTop < 40 + height then screenTop = 40 + height end
+    if screenTop > parentTop - 40 then screenTop = parentTop - 40 end
     target:ClearAllPoints()
-    target:SetPoint("TOPLEFT", "UIParent", "TOPLEFT", x, y)
+    target:SetPoint("TOPLEFT", "UIParent", "TOPLEFT", screenLeft / scale, (screenTop - parentTop) / scale)
     candidate.moved = true
     return self:SaveAddonIcon(candidate)
 end
@@ -489,14 +520,6 @@ end
 function VCP:RefreshMoveHandles()
     for key, candidate in pairs(self.addonIconCandidates) do
         local handle = candidate.handle
-        if candidate.moving and handle and
-            type(IsMouseButtonDown) == "function" and not IsMouseButtonDown() then
-            -- A touch release off the handle never delivers OnMouseUp there;
-            -- finish the drop once no button is held anymore.
-            handle:StopMovingOrSizing()
-            candidate.moving = nil
-            self:ApplyHandleDrop(candidate, handle)
-        end
         local frame = self:ResolveCandidate(candidate)
         local shown = frame and frame.IsShown and frame:IsShown()
         if shown then
@@ -504,6 +527,9 @@ function VCP:RefreshMoveHandles()
             self:ShowAddonIconHandle(candidate)
         else
             if handle then
+                -- A mid-drag vanish must also end the engine move state, or
+                -- the hidden handle keeps fighting its next rebind.
+                if candidate.moving then handle:StopMovingOrSizing() end
                 handle:ClearAllPoints()
                 handle:Hide()
             end
@@ -560,7 +586,9 @@ function VCP:ScaleMoveCandidate(candidate, direction)
     if scale < MOVE_SCALE_MIN then scale = MOVE_SCALE_MIN end
     if scale > MOVE_SCALE_MAX then scale = MOVE_SCALE_MAX end
     frame:SetScale(scale)
-    candidate.moved = true
+    -- Scale alone must not de-register a stock panel; FinishMoveUI routes
+    -- this flag to the scale-only journal.
+    candidate.scaled = true
     return true
 end
 
@@ -594,6 +622,7 @@ function VCP:ToggleMoveUI()
     self.moveUiActive = true
     for _, candidate in pairs(self.addonIconCandidates) do
         candidate.moved = nil
+        candidate.scaled = nil
     end
     local visible = 0
     for _, candidate in pairs(self.addonIconCandidates) do
@@ -785,6 +814,12 @@ SlashCmdList["VANILLACONSOLEPORT"] = function(message)
         VCP:RestoreBindings()
     elseif message == "resetui" then
         if VCP.FrameMover then VCP.FrameMover:ResetUI() end
+        -- resetui reverts the chat treatment too, matching the documented
+        -- "back to exactly stock" contract.
+        if VCP.Hud and type(VanillaConsolePortDB) == "table" then
+            VanillaConsolePortDB.chatMinimal = false
+            VCP.Hud:RestoreChatFrame()
+        end
     elseif message == "chat" then
         if VCP.Hud then VCP.Hud:ToggleChat() end
     elseif message == "radial" then

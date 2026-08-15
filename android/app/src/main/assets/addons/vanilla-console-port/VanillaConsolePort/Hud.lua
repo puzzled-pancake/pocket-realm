@@ -108,6 +108,9 @@ function Hud:RestoreChatFrame()
     if combat and type(FCF_SetWindowAlpha) == "function" then
         FCF_SetWindowAlpha(combat, 0.25, 1)
     end
+    -- Let the stock dock update carry the docked combat log back with the
+    -- frame; calling the captured original skips our minimal re-assert.
+    if Hud.stockDockUpdate then Hud.stockDockUpdate() end
     self:ShowChatChrome()
     return true
 end

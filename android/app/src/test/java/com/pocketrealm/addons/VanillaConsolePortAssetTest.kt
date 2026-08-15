@@ -266,11 +266,19 @@ class VanillaConsolePortAssetTest {
         assertTrue(core.contains("events:RegisterEvent(\"PLAYER_LOGOUT\")"))
         assertFalse(core.contains("PointerButton"))
         // Exit journals only what the player actually dragged or scaled, so
-        // untouched stock panels stay under the stock panel manager, and a
-        // touch release off the handle still completes the drop.
-        assertTrue(core.contains("if candidate.moved then self:SaveAddonIcon(candidate) end"))
+        // untouched stock panels stay under the stock panel manager; a pure
+        // scale change journals scale only. Drag delivery follows the stock
+        // chat-tab pattern (OnDragStop fires wherever the button is released;
+        // a 11200 client has no IsMouseButtonDown), and drops clamp so at
+        // least 40 units of the target stay reachable on screen.
+        assertTrue(core.contains("if candidate.moved then"))
         assertTrue(core.contains("candidate.moved = true"))
-        assertTrue(core.contains("not IsMouseButtonDown()"))
+        assertTrue(core.contains("elseif candidate.scaled then"))
+        assertTrue(core.contains("handle:RegisterForDrag(\"LeftButton\", \"RightButton\")"))
+        assertTrue(core.contains("handle:SetScript(\"OnDragStart\", function()"))
+        assertTrue(core.contains("handle:SetScript(\"OnDragStop\", function()"))
+        assertFalse(core.contains("IsMouseButtonDown"))
+        assertTrue(core.contains("if screenLeft < 40 - width then screenLeft = 40 - width end"))
     }
 
     @Test fun `frame mover curates stock frames journals layout and resets cleanly`() {
@@ -314,6 +322,7 @@ class VanillaConsolePortAssetTest {
         assertTrue(core.contains("if saved.scale and candidate.frame.SetScale then candidate.frame:SetScale(saved.scale) end"))
         assertTrue(core.contains("if self.FrameMover then self.FrameMover:Initialize() end"))
         assertTrue(core.contains("elseif message == \"resetui\" then"))
+        assertTrue(core.contains("VCP.Hud:RestoreChatFrame()"))
 
         // Stock re-anchor resistance: the bag sweep runs on both open and
         // close and also resets scale, so the chokepoint itself is wrapped;
