@@ -3,6 +3,7 @@ package com.pocketrealm.bots
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -189,6 +190,19 @@ class BotExperiencePresetTest {
         val odd = massiveSmart.copy(iterationsPerTick = 13)
         assertTrue(BotActivityPreset.CUSTOM.matches(odd))
         assertFalse(BotActivityPreset.SMART.matches(odd))
+    }
+
+    @Test fun freshInstallSnapshotSelectsAliveRealm() {
+        val snapshot = com.pocketrealm.storage.Settings.Snapshot()
+        assertEquals(BotProfiles.ALIVE_REALM_320.id, snapshot.botProfileId)
+        assertEquals(320, snapshot.botPopulationTarget)
+        assertNull(snapshot.botSavedPresetId)
+        // Legacy advanced defaults mirror the recommended preset exactly, so
+        // opening the old advanced editor can never shift a value (§53).
+        assertEquals(
+            BotAdvancedSettings.fromProfile(BotProfiles.ALIVE_REALM_320),
+            snapshot.botAdvanced,
+        )
     }
 }
 
