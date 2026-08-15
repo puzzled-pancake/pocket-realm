@@ -257,7 +257,8 @@ private fun PocketRealmTopBar(
 internal fun realmStatusBadge(state: RealmState): String = when (state) {
     is RealmState.Idle -> "Realm stopped"
     is RealmState.Starting -> "Starting…"
-    is RealmState.Running -> "Realm online"
+    is RealmState.Running ->
+        if (state.mode == com.pocketrealm.supervisor.RuntimeMode.LAN_JOIN) "LAN client" else "Realm online"
     is RealmState.Saving -> "Saving…"
     is RealmState.Stopping -> "Stopping…"
     is RealmState.Recovering -> "Recovering…"
@@ -265,15 +266,20 @@ internal fun realmStatusBadge(state: RealmState): String = when (state) {
 }
 
 /**
- * Top-level selection must always land on the destination. Reveal an existing
- * back-stack entry directly (anything above it pops, saving state) and only
- * fall back to a navigate push when the destination has no entry yet. This
+ * Top-level selection must always land on the destination. Re-tapping the
+ * current destination is a no-op; otherwise reveal an existing back-stack
+ * entry directly (anything above it pops, saving state) and only fall back
+ * to pop-to-Home + a plain singleTop push when no entry exists yet. This
  * deliberately avoids navigate()+restoreState, which on androidx.navigation
  * 2.8.x can silently do nothing when saved state exists for the target.
  */
 private fun navigateTop(navController: androidx.navigation.NavHostController, route: String) {
+    if (navController.currentDestination?.hierarchy?.any { it.route == route } == true) return
     AppLog.i("Nav", "top: $route (from=${navController.currentDestination?.route})")
-    if (navController.popBackStack(route, inclusive = false, saveState = true)) return
+    // Graph routes never appear as back-stack entries; reveal via the
+    // Add-ons hub instead so an existing hub entry is reused, not rebuilt.
+    val revealRoute = if (route == Screen.Addons.route) AddonRoutes.HUB else route
+    if (navController.popBackStack(revealRoute, inclusive = false, saveState = true)) return
     if (route != Screen.Home.route) {
         // Keep top-level destinations siblings of Home, not a growing stack.
         navController.popBackStack(Screen.Home.route, inclusive = false, saveState = true)

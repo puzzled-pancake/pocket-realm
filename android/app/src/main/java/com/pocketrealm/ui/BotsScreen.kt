@@ -52,6 +52,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -134,13 +135,38 @@ fun BotsScreen() {
         }
     }
 
-    var target by remember { mutableStateOf<EditorTarget?>(null) }
-    var working by remember { mutableStateOf(BotCustomConfiguration.fromProfile(BotProfiles.defaultProfile)) }
-    var presetNameDraft by remember { mutableStateOf("") }
-    var search by remember { mutableStateOf("") }
+    // Editor state survives rail navigation and process death: unsaved
+    // advanced edits must not vanish because the user checked another tab.
+    val targetSaver = Saver<EditorTarget?, String>(
+        save = { target ->
+            when (target) {
+                is EditorTarget.BuiltIn -> "b:${target.profileId}"
+                is EditorTarget.Saved -> "s:${target.presetId}"
+                EditorTarget.NewDraft -> "n"
+                null -> null
+            }
+        },
+        restore = { value ->
+            when {
+                value == "n" -> EditorTarget.NewDraft
+                value.startsWith("b:") -> EditorTarget.BuiltIn(value.removePrefix("b:"))
+                value.startsWith("s:") -> EditorTarget.Saved(value.removePrefix("s:"))
+                else -> null
+            }
+        },
+    )
+    var target by rememberSaveable(stateSaver = targetSaver) { mutableStateOf<EditorTarget?>(null) }
+    var working by rememberSaveable(
+        stateSaver = Saver(
+            save = { BotPresetStore.encodeConfiguration(it) },
+            restore = { BotPresetStore.decodeConfiguration(it) },
+        ),
+    ) { mutableStateOf(BotCustomConfiguration.fromProfile(BotProfiles.defaultProfile)) }
+    var presetNameDraft by rememberSaveable { mutableStateOf("") }
+    var search by rememberSaveable { mutableStateOf("") }
     var nameRequest by remember { mutableStateOf<NameRequest?>(null) }
     var deleteRequest by remember { mutableStateOf<String?>(null) }
-    var advancedOpen by remember { mutableStateOf(false) }
+    var advancedOpen by rememberSaveable { mutableStateOf(false) }
     // The preset id, not the object, survives process death while the system
     // file picker is open; the callback re-resolves it against the store.
     var pendingExportId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -337,12 +363,19 @@ fun BotsScreen() {
             )
         }
         val resultPane: @Composable (Modifier) -> Unit = { modifier ->
+            val applied = when (val t = target) {
+                is EditorTarget.Saved -> snapshot.botSavedPresetId == t.presetId
+                is EditorTarget.BuiltIn ->
+                    snapshot.botSavedPresetId == null && snapshot.botProfileId == t.profileId
+                EditorTarget.NewDraft, null -> false
+            }
             ResultPane(
                 target = target,
                 working = working,
                 dirty = dirty,
                 running = running,
                 savedPreset = currentSavedPreset,
+                applied = applied,
                 onApply = ::applySelection,
                 onSave = {
                     when (val t = target) {
@@ -397,12 +430,15 @@ fun BotsScreen() {
                 }
             }
             else -> Column(
-                Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState()),
+                // No outer verticalScroll: the panes scroll internally, and a
+                // scrollable parent would hand the preset LazyColumn an
+                // infinite height constraint (crash on narrow screens).
+                Modifier.fillMaxSize().padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 resultPane(Modifier.fillMaxWidth())
-                configPane(Modifier.fillMaxWidth())
-                presetsPane(Modifier.fillMaxWidth())
+                configPane(Modifier.weight(1.3f).fillMaxWidth())
+                presetsPane(Modifier.weight(1f).fillMaxWidth())
             }
         }
     }
@@ -763,7 +799,8 @@ private fun ConfigPane(
                 }
                 FilterChip(
                     selected = working.selectedTarget !in
-                        BotProfiles.experiencePresets.map { it.selectedTarget },
+                        BotProfiles.experiencePresets.map { it.selectedTarget } ||
+                        working.maximumOnline != working.selectedTarget,
                     onClick = {
                         onWorking(working.withTarget(725))
                     },
@@ -1170,6 +1207,7 @@ private fun ResultPane(
     dirty: Boolean,
     running: Boolean,
     savedPreset: BotPresetStore.SavedPreset?,
+    applied: Boolean,
     onApply: () -> Unit,
     onSave: () -> Unit,
     onReset: () -> Unit,
@@ -1187,6 +1225,14 @@ private fun ResultPane(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.testTag("result-target"),
             )
+            if (target != null && !applied) {
+                Text(
+                    "Preview — press Apply before starting the realm to use this configuration",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.testTag("result-not-applied"),
+                )
+            }
             Text(
                 "~${working.estimatedActiveBots()} normally active · human groups highest priority",
                 style = MaterialTheme.typography.bodySmall,

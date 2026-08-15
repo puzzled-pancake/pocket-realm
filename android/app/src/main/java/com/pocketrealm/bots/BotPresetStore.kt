@@ -38,6 +38,118 @@ class BotPresetStore(private val directory: File) {
 
         /** Shared with the editor so dialogs reject names the store would refuse. */
         fun isValidName(name: String): Boolean = name.matches(ALLOWED_NAME)
+
+        /** Editor draft persistence across navigation/process death. */
+        fun encodeConfiguration(configuration: BotCustomConfiguration): String =
+            writeConfiguration(configuration).toString()
+
+        fun decodeConfiguration(encoded: String): BotCustomConfiguration? =
+            runCatching { readConfiguration(JSONObject(encoded)) }.getOrNull()
+        internal fun writeConfiguration(configuration: BotCustomConfiguration): JSONObject {
+            val admission = configuration.admission
+            return JSONObject()
+                .put("selectedTarget", configuration.selectedTarget)
+                .put("minimumOnline", configuration.minimumOnline)
+                .put("maximumOnline", configuration.maximumOnline)
+                .put("initialTarget", configuration.initialTarget)
+                .put("startupIncreaseStep", configuration.startupIncreaseStep)
+                .put("startupRampIntervalMs", configuration.startupRampIntervalMs)
+                .put("activationBatchSize", configuration.activationBatchSize)
+                .put("maximumAltBots", configuration.maximumAltBots)
+                .put("generationBatchSize", configuration.generationBatchSize)
+                .put("generationYieldMs", configuration.generationYieldMs)
+                .put("accountPrefix", configuration.accountPrefix)
+                .put("accountCount", configuration.accountCount)
+                .put("loginBatchSize", configuration.loginBatchSize)
+                .put("maintenanceBatchSize", configuration.maintenanceBatchSize)
+                .put("randomBotUpdateIntervalMs", configuration.randomBotUpdateIntervalMs)
+                .put("iterationsPerTick", configuration.iterationsPerTick)
+                .put("loginAtStartup", configuration.loginAtStartup)
+                .put("loginWithPlayer", configuration.loginWithPlayer)
+                .put("forceActiveWhenNearPlayer", configuration.forceActiveWhenNearPlayer)
+                .put("nearPlayerTeleportMaxAmount", configuration.nearPlayerTeleportMaxAmount)
+                .put("nearPlayerTeleportRadius", configuration.nearPlayerTeleportRadius)
+                .put("teleportMinIntervalSeconds", configuration.teleportMinIntervalSeconds)
+                .put("teleportMaxIntervalSeconds", configuration.teleportMaxIntervalSeconds)
+                .put("syncLevelWithPlayers", configuration.syncLevelWithPlayers)
+                .put("syncLevelMaxAbove", configuration.syncLevelMaxAbove)
+                .put("syncLevelNoPlayer", configuration.syncLevelNoPlayer)
+                .put("randomBotMaxLevelChance", configuration.randomBotMaxLevelChance.toDouble())
+                .put("randomizeMinIntervalSeconds", configuration.randomizeMinIntervalSeconds)
+                .put("randomizeMaxIntervalSeconds", configuration.randomizeMaxIntervalSeconds)
+                .put("limitCombatActivity", configuration.limitCombatActivity)
+                .put("activeBotPercent", configuration.activeBotPercent)
+                .put("autoDoQuests", configuration.autoDoQuests)
+                .put("allowBotChat", configuration.allowBotChat)
+                .put("allowPlayerInvites", configuration.allowPlayerInvites)
+                .put("groupNearby", configuration.groupNearby)
+                .put("wanderWhenIdle", configuration.wanderWhenIdle)
+                .put("enableOffSpecStrategies", configuration.enableOffSpecStrategies)
+                .put(
+                    "admission", JSONObject()
+                        .put("maxWorldP99Ms", admission.maxWorldP99Ms)
+                        .put("minFreeMemoryMiB", admission.minFreeMemoryMiB)
+                        .put("minFreeStorageMiB", admission.minFreeStorageMiB)
+                        .put("performanceWarmupMs", admission.performanceWarmupMs)
+                        .put("reduceStep", admission.reduceStep)
+                        .put("increaseStep", admission.increaseStep)
+                        .put("healthyRampMs", admission.healthyRampMs)
+                        .put("changeCooldownMs", admission.changeCooldownMs),
+                )
+        }
+
+        internal fun readConfiguration(json: JSONObject): BotCustomConfiguration {
+            val admission = json.getJSONObject("admission")
+            return BotCustomConfiguration(
+                selectedTarget = json.getInt("selectedTarget"),
+                minimumOnline = json.getInt("minimumOnline"),
+                maximumOnline = json.getInt("maximumOnline"),
+                initialTarget = json.getInt("initialTarget"),
+                startupIncreaseStep = json.getInt("startupIncreaseStep"),
+                startupRampIntervalMs = json.getLong("startupRampIntervalMs"),
+                activationBatchSize = json.getInt("activationBatchSize"),
+                maximumAltBots = json.getInt("maximumAltBots"),
+                generationBatchSize = json.getInt("generationBatchSize"),
+                generationYieldMs = json.getLong("generationYieldMs"),
+                accountPrefix = json.getString("accountPrefix"),
+                accountCount = json.getInt("accountCount"),
+                loginBatchSize = json.getInt("loginBatchSize"),
+                maintenanceBatchSize = json.getInt("maintenanceBatchSize"),
+                randomBotUpdateIntervalMs = json.getInt("randomBotUpdateIntervalMs"),
+                iterationsPerTick = json.getInt("iterationsPerTick"),
+                loginAtStartup = json.getBoolean("loginAtStartup"),
+                loginWithPlayer = json.getBoolean("loginWithPlayer"),
+                forceActiveWhenNearPlayer = json.getBoolean("forceActiveWhenNearPlayer"),
+                nearPlayerTeleportMaxAmount = json.getInt("nearPlayerTeleportMaxAmount"),
+                nearPlayerTeleportRadius = json.getInt("nearPlayerTeleportRadius"),
+                teleportMinIntervalSeconds = json.getInt("teleportMinIntervalSeconds"),
+                teleportMaxIntervalSeconds = json.getInt("teleportMaxIntervalSeconds"),
+                syncLevelWithPlayers = json.getBoolean("syncLevelWithPlayers"),
+                syncLevelMaxAbove = json.getInt("syncLevelMaxAbove"),
+                syncLevelNoPlayer = json.getInt("syncLevelNoPlayer"),
+                randomBotMaxLevelChance = json.getDouble("randomBotMaxLevelChance").toFloat(),
+                randomizeMinIntervalSeconds = json.getInt("randomizeMinIntervalSeconds"),
+                randomizeMaxIntervalSeconds = json.getInt("randomizeMaxIntervalSeconds"),
+                limitCombatActivity = json.getBoolean("limitCombatActivity"),
+                activeBotPercent = json.getInt("activeBotPercent"),
+                autoDoQuests = json.getBoolean("autoDoQuests"),
+                allowBotChat = json.getBoolean("allowBotChat"),
+                allowPlayerInvites = json.getBoolean("allowPlayerInvites"),
+                groupNearby = json.getBoolean("groupNearby"),
+                wanderWhenIdle = json.getBoolean("wanderWhenIdle"),
+                enableOffSpecStrategies = json.getBoolean("enableOffSpecStrategies"),
+                admission = BotAdmissionLimits(
+                    maxWorldP99Ms = admission.getInt("maxWorldP99Ms"),
+                    minFreeMemoryMiB = admission.getLong("minFreeMemoryMiB"),
+                    minFreeStorageMiB = admission.getLong("minFreeStorageMiB"),
+                    performanceWarmupMs = admission.getLong("performanceWarmupMs"),
+                    reduceStep = admission.getInt("reduceStep"),
+                    increaseStep = admission.getInt("increaseStep"),
+                    healthyRampMs = admission.getLong("healthyRampMs"),
+                    changeCooldownMs = admission.getLong("changeCooldownMs"),
+                ),
+            )
+        }
     }
 
     data class Revision(
@@ -347,109 +459,4 @@ class BotPresetStore(private val directory: File) {
         )
     }
 
-    private fun writeConfiguration(configuration: BotCustomConfiguration): JSONObject {
-        val admission = configuration.admission
-        return JSONObject()
-            .put("selectedTarget", configuration.selectedTarget)
-            .put("minimumOnline", configuration.minimumOnline)
-            .put("maximumOnline", configuration.maximumOnline)
-            .put("initialTarget", configuration.initialTarget)
-            .put("startupIncreaseStep", configuration.startupIncreaseStep)
-            .put("startupRampIntervalMs", configuration.startupRampIntervalMs)
-            .put("activationBatchSize", configuration.activationBatchSize)
-            .put("maximumAltBots", configuration.maximumAltBots)
-            .put("generationBatchSize", configuration.generationBatchSize)
-            .put("generationYieldMs", configuration.generationYieldMs)
-            .put("accountPrefix", configuration.accountPrefix)
-            .put("accountCount", configuration.accountCount)
-            .put("loginBatchSize", configuration.loginBatchSize)
-            .put("maintenanceBatchSize", configuration.maintenanceBatchSize)
-            .put("randomBotUpdateIntervalMs", configuration.randomBotUpdateIntervalMs)
-            .put("iterationsPerTick", configuration.iterationsPerTick)
-            .put("loginAtStartup", configuration.loginAtStartup)
-            .put("loginWithPlayer", configuration.loginWithPlayer)
-            .put("forceActiveWhenNearPlayer", configuration.forceActiveWhenNearPlayer)
-            .put("nearPlayerTeleportMaxAmount", configuration.nearPlayerTeleportMaxAmount)
-            .put("nearPlayerTeleportRadius", configuration.nearPlayerTeleportRadius)
-            .put("teleportMinIntervalSeconds", configuration.teleportMinIntervalSeconds)
-            .put("teleportMaxIntervalSeconds", configuration.teleportMaxIntervalSeconds)
-            .put("syncLevelWithPlayers", configuration.syncLevelWithPlayers)
-            .put("syncLevelMaxAbove", configuration.syncLevelMaxAbove)
-            .put("syncLevelNoPlayer", configuration.syncLevelNoPlayer)
-            .put("randomBotMaxLevelChance", configuration.randomBotMaxLevelChance.toDouble())
-            .put("randomizeMinIntervalSeconds", configuration.randomizeMinIntervalSeconds)
-            .put("randomizeMaxIntervalSeconds", configuration.randomizeMaxIntervalSeconds)
-            .put("limitCombatActivity", configuration.limitCombatActivity)
-            .put("activeBotPercent", configuration.activeBotPercent)
-            .put("autoDoQuests", configuration.autoDoQuests)
-            .put("allowBotChat", configuration.allowBotChat)
-            .put("allowPlayerInvites", configuration.allowPlayerInvites)
-            .put("groupNearby", configuration.groupNearby)
-            .put("wanderWhenIdle", configuration.wanderWhenIdle)
-            .put("enableOffSpecStrategies", configuration.enableOffSpecStrategies)
-            .put(
-                "admission", JSONObject()
-                    .put("maxWorldP99Ms", admission.maxWorldP99Ms)
-                    .put("minFreeMemoryMiB", admission.minFreeMemoryMiB)
-                    .put("minFreeStorageMiB", admission.minFreeStorageMiB)
-                    .put("performanceWarmupMs", admission.performanceWarmupMs)
-                    .put("reduceStep", admission.reduceStep)
-                    .put("increaseStep", admission.increaseStep)
-                    .put("healthyRampMs", admission.healthyRampMs)
-                    .put("changeCooldownMs", admission.changeCooldownMs),
-            )
-    }
-
-    private fun readConfiguration(json: JSONObject): BotCustomConfiguration {
-        val admission = json.getJSONObject("admission")
-        return BotCustomConfiguration(
-            selectedTarget = json.getInt("selectedTarget"),
-            minimumOnline = json.getInt("minimumOnline"),
-            maximumOnline = json.getInt("maximumOnline"),
-            initialTarget = json.getInt("initialTarget"),
-            startupIncreaseStep = json.getInt("startupIncreaseStep"),
-            startupRampIntervalMs = json.getLong("startupRampIntervalMs"),
-            activationBatchSize = json.getInt("activationBatchSize"),
-            maximumAltBots = json.getInt("maximumAltBots"),
-            generationBatchSize = json.getInt("generationBatchSize"),
-            generationYieldMs = json.getLong("generationYieldMs"),
-            accountPrefix = json.getString("accountPrefix"),
-            accountCount = json.getInt("accountCount"),
-            loginBatchSize = json.getInt("loginBatchSize"),
-            maintenanceBatchSize = json.getInt("maintenanceBatchSize"),
-            randomBotUpdateIntervalMs = json.getInt("randomBotUpdateIntervalMs"),
-            iterationsPerTick = json.getInt("iterationsPerTick"),
-            loginAtStartup = json.getBoolean("loginAtStartup"),
-            loginWithPlayer = json.getBoolean("loginWithPlayer"),
-            forceActiveWhenNearPlayer = json.getBoolean("forceActiveWhenNearPlayer"),
-            nearPlayerTeleportMaxAmount = json.getInt("nearPlayerTeleportMaxAmount"),
-            nearPlayerTeleportRadius = json.getInt("nearPlayerTeleportRadius"),
-            teleportMinIntervalSeconds = json.getInt("teleportMinIntervalSeconds"),
-            teleportMaxIntervalSeconds = json.getInt("teleportMaxIntervalSeconds"),
-            syncLevelWithPlayers = json.getBoolean("syncLevelWithPlayers"),
-            syncLevelMaxAbove = json.getInt("syncLevelMaxAbove"),
-            syncLevelNoPlayer = json.getInt("syncLevelNoPlayer"),
-            randomBotMaxLevelChance = json.getDouble("randomBotMaxLevelChance").toFloat(),
-            randomizeMinIntervalSeconds = json.getInt("randomizeMinIntervalSeconds"),
-            randomizeMaxIntervalSeconds = json.getInt("randomizeMaxIntervalSeconds"),
-            limitCombatActivity = json.getBoolean("limitCombatActivity"),
-            activeBotPercent = json.getInt("activeBotPercent"),
-            autoDoQuests = json.getBoolean("autoDoQuests"),
-            allowBotChat = json.getBoolean("allowBotChat"),
-            allowPlayerInvites = json.getBoolean("allowPlayerInvites"),
-            groupNearby = json.getBoolean("groupNearby"),
-            wanderWhenIdle = json.getBoolean("wanderWhenIdle"),
-            enableOffSpecStrategies = json.getBoolean("enableOffSpecStrategies"),
-            admission = BotAdmissionLimits(
-                maxWorldP99Ms = admission.getInt("maxWorldP99Ms"),
-                minFreeMemoryMiB = admission.getLong("minFreeMemoryMiB"),
-                minFreeStorageMiB = admission.getLong("minFreeStorageMiB"),
-                performanceWarmupMs = admission.getLong("performanceWarmupMs"),
-                reduceStep = admission.getInt("reduceStep"),
-                increaseStep = admission.getInt("increaseStep"),
-                healthyRampMs = admission.getLong("healthyRampMs"),
-                changeCooldownMs = admission.getLong("changeCooldownMs"),
-            ),
-        )
-    }
 }

@@ -32,7 +32,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import android.os.Build
 import com.pocketrealm.bots.BotSelection
+import com.pocketrealm.client.AndroidGladioCapabilityProbe
 import com.pocketrealm.client.AndroidSystemVulkanProbe
+import com.pocketrealm.client.ArmClientRenderer
+import com.pocketrealm.client.ArmClientRendererCatalog
+import com.pocketrealm.client.GladioCapability
 import com.pocketrealm.client.SystemVulkanCapabilities
 import com.pocketrealm.client.VulkanDriverCatalog
 import com.pocketrealm.realm.RealmState
@@ -59,20 +63,40 @@ fun LanScreen() {
         supervisorClient.observeRealmState()
     }.collectAsState(initial = RealmState.Idle)
     val settings = remember(context) { Settings(context) }
-    val snapshot by settings.flow.collectAsState(initial = Settings.Snapshot())
+    // Null until DataStore's first emission: hosting with the all-default
+    // snapshot in that cold-start window would ignore the saved bot preset,
+    // so host actions gate on the real snapshot (HomeScreen pattern).
+    val snapshotState: Settings.Snapshot? by settings.flow.collectAsState(initial = null)
+    val snapshot = snapshotState ?: Settings.Snapshot()
     val scope = rememberCoroutineScope()
     val systemVulkanProbe by produceState<Result<SystemVulkanCapabilities>?>(initialValue = null) {
         value = withContext(Dispatchers.IO) { runCatching { AndroidSystemVulkanProbe.probe() } }
     }
-    // LAN join is a client-only session; it cannot start when the
-    // translated client stack is unavailable on this device.
+    val gladioProbe by produceState<Result<GladioCapability>?>(initialValue = null) {
+        value = withContext(Dispatchers.IO) {
+            runCatching { AndroidGladioCapabilityProbe.probe(context) }
+        }
+    }
+    // LAN join is a client-only session; it cannot start when the selected
+    // renderer stack is unavailable on this device. The Vulkan/DXVK pair only
+    // applies to DXVK — the OpenGL renderers never load it.
     val clientUnavailableReason = if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
-        VulkanDriverCatalog.availabilityForPair(
-            snapshot.selectedVulkanDriverId(),
-            snapshot.selectedDxvkPackageId(),
-            Build.MODEL,
-            systemVulkanProbe?.getOrNull(),
-        ).takeUnless { it.available }?.reason
+        when (snapshot.selectedArmRenderer()) {
+            ArmClientRenderer.DXVK -> VulkanDriverCatalog.availabilityForPair(
+                snapshot.selectedVulkanDriverId(),
+                snapshot.selectedDxvkPackageId(),
+                Build.MODEL,
+                systemVulkanProbe?.getOrNull(),
+            ).takeUnless { it.available }?.reason
+            ArmClientRenderer.LEGACY_GLADIO -> ArmClientRendererCatalog.availability(
+                ArmClientRenderer.LEGACY_GLADIO, gladioProbe,
+                Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
+            ).takeUnless { it.available }?.reason
+            ArmClientRenderer.MESA_VIRGL -> ArmClientRendererCatalog.availability(
+                ArmClientRenderer.MESA_VIRGL, gladioProbe,
+                Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
+            ).takeUnless { it.available }?.reason
+        }
     } else null
     val realmBusy = !(state is RealmState.Idle || state is RealmState.Failed ||
         state is RealmState.Recovering)
@@ -91,13 +115,14 @@ fun LanScreen() {
             .onFailure { lanError = it.message ?: "Enter a private IPv4 address" }
         Unit
     }
-    val startHost = {
+    val startHost = startHost@{
+        val snap = snapshotState ?: return@startHost
         val selection = BotSelection.resolve(
-            savedPresetId = snapshot.botSavedPresetId,
-            advancedEnabled = snapshot.botAdvancedEnabled,
-            advancedTarget = snapshot.botPopulationTarget,
-            advanced = snapshot.botAdvanced,
-            profileId = snapshot.botProfileId,
+            savedPresetId = snap.botSavedPresetId,
+            advancedEnabled = snap.botAdvancedEnabled,
+            advancedTarget = snap.botPopulationTarget,
+            advanced = snap.botAdvanced,
+            profileId = snap.botProfileId,
         )
         RealmService.hostLan(context, selection.profile.id, includeClient = false)
     }
@@ -107,6 +132,7 @@ fun LanScreen() {
         val hostPane: @Composable (Modifier) -> Unit = { modifier ->
             LanHostPane(
                 state = state,
+                settingsReady = snapshotState != null,
                 allowLanPlayers = snapshot.allowLanPlayers,
                 onAllowLanPlayers = { enabled ->
                     scope.launch { settings.update { it.copy(allowLanPlayers = enabled) } }
@@ -229,6 +255,7 @@ private fun PlannedCard(title: String, tag: String, body: String) {
 @Composable
 private fun LanHostPane(
     state: RealmState,
+    settingsReady: Boolean,
     allowLanPlayers: Boolean,
     onAllowLanPlayers: (Boolean) -> Unit,
     onStartHost: () -> Unit,
@@ -237,12 +264,14 @@ private fun LanHostPane(
 ) {
     val running = state as? RealmState.Running
     val hosting = running?.mode == RuntimeMode.LAN_HOST
+    val joined = running?.mode == RuntimeMode.LAN_JOIN
     Card(modifier = modifier.testTag("lan-host-pane")) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Host", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
                 when {
                     hosting -> "Hosting on ${running.endpointAddress}"
+                    joined -> "Joined to ${running.endpointAddress}; stop the client session before hosting"
                     running != null -> "Local realm already online"
                     state is RealmState.Starting -> "Realm starting…"
                     state is RealmState.Saving || state is RealmState.Stopping -> "Realm busy…"
@@ -274,9 +303,10 @@ private fun LanHostPane(
             } else {
                 Button(
                     onClick = onStartHost,
-                    enabled = state is RealmState.Idle ||
-                        state is RealmState.Failed ||
-                        state is RealmState.Recovering,
+                    enabled = settingsReady &&
+                        (state is RealmState.Idle ||
+                            state is RealmState.Failed ||
+                            state is RealmState.Recovering),
                     modifier = Modifier.fillMaxWidth().testTag("lan-host-start"),
                 ) { Text("Start host") }
             }

@@ -32,6 +32,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -136,10 +137,10 @@ fun HomeScreen(
     val lanJoinActive = (state as? RealmState.Running)?.mode == RuntimeMode.LAN_JOIN
     val scope = rememberCoroutineScope()
     val accountStore = remember(context) { UserAccountStore(context) }
-    var username by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var gmAccount by remember { mutableStateOf(false) }
-    var accountStatus by remember { mutableStateOf("Create a local account after the world is ready") }
+    var username by rememberSaveable { mutableStateOf("") }
+    var password by rememberSaveable { mutableStateOf("") }
+    var gmAccount by rememberSaveable { mutableStateOf(false) }
+    var accountStatus by rememberSaveable { mutableStateOf("Create a local account after the world is ready") }
     var storedAccount by remember { mutableStateOf(accountStore.loadOrQuarantine()?.username) }
     var clientRetryPending by remember { mutableStateOf(false) }
     var accountOperationPending by remember { mutableStateOf(false) }
@@ -300,6 +301,7 @@ fun HomeScreen(
                     onRetryGame = retryGame,
                     clientRetryPending = clientRetryPending,
                     canLaunchGame = canLaunchGame,
+                    settingsReady = settingsSnapshotState != null,
                     allowLanPlayers = settingsSnapshot.allowLanPlayers,
                     clientUnavailableReason = clientUnavailableReason,
                     landscape = true,
@@ -356,6 +358,7 @@ fun HomeScreen(
                     onRetryGame = retryGame,
                     clientRetryPending = clientRetryPending,
                     canLaunchGame = canLaunchGame,
+                    settingsReady = settingsSnapshotState != null,
                     allowLanPlayers = settingsSnapshot.allowLanPlayers,
                     clientUnavailableReason = clientUnavailableReason,
                     landscape = false,
@@ -405,6 +408,7 @@ private fun RealmControlCard(
     onRetryGame: () -> Unit,
     clientRetryPending: Boolean,
     canLaunchGame: Boolean,
+    settingsReady: Boolean,
     allowLanPlayers: Boolean,
     clientUnavailableReason: String?,
     landscape: Boolean,
@@ -412,6 +416,7 @@ private fun RealmControlCard(
 ) {
     val (statusText, detailText) = realmStatus(state)
     val actions = homeActionAvailability(
+        settingsReady = settingsReady,
         clientUnavailableReason = clientUnavailableReason,
         canLaunchGame = canLaunchGame,
         clientRetryPending = clientRetryPending,
@@ -790,14 +795,18 @@ internal data class HomeActionAvailability(
 
 /** Graphics/client failures never block the independent DB/realm/world action. */
 internal fun homeActionAvailability(
+    settingsReady: Boolean,
     clientUnavailableReason: String?,
     canLaunchGame: Boolean,
     clientRetryPending: Boolean,
 ): HomeActionAvailability {
     val clientAvailable = clientUnavailableReason == null
     return HomeActionAvailability(
-        startRealm = true,
-        startRealmAndGame = clientAvailable && canLaunchGame,
+        // Before the first real settings emission the saved preset and LAN
+        // preference are unknown; the buttons must look unavailable, not
+        // enabled-but-silent.
+        startRealm = settingsReady,
+        startRealmAndGame = settingsReady && clientAvailable && canLaunchGame,
         joinLan = clientAvailable,
         launchClient = clientAvailable && canLaunchGame && !clientRetryPending,
     )
