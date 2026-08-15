@@ -432,24 +432,15 @@ static void* requestHandlerThread(void* param) {
     // cadence before any future stall.
     uint64_t totalRequests = 0;
     uint64_t lastHeartbeat = 0;
-    short tailCodes[64] = {0};
-    int tailCount = 0;
 
     while (context->running) {
         if (!gl_recv(context->serverRing, &requestCode, &context->inputBuffer)) break;
         totalRequests++;
-        tailCodes[tailCount++ & 63] = requestCode;
         if (totalRequests - lastHeartbeat >= 4096) {
             lastHeartbeat = totalRequests;
-            char tail[512];
-            int position = 0;
-            for (int i = 0; i < 64 && position < (int)sizeof(tail) - 8; i++) {
-                short code = tailCodes[(tailCount + i) & 63];
-                position += snprintf(tail + position, sizeof(tail) - position, "%d,", code);
-            }
             __android_log_print(ANDROID_LOG_INFO, "PR/Gladio",
-                                "heartbeat requests=%llu tail=[%s]",
-                                (unsigned long long)totalRequests, tail);
+                                "heartbeat requests=%llu last=%d",
+                                (unsigned long long)totalRequests, requestCode);
         }
 
         if (isCanDrawImmediate(requestCode)) GLRenderer_drawImmediate(currentRenderer);
@@ -532,9 +523,11 @@ GLContext* createGLContext(JNIEnv* env, jobject obj, int clientFd) {
 
     context->serverRing = RingBuffer_create(shmFds[0], SERVER_RING_BUFFER_SIZE);
     if (!context->serverRing) goto error;
+    RingBuffer_setPeerFd(context->serverRing, clientFd);
 
     context->clientRing = RingBuffer_create(shmFds[1], CLIENT_RING_BUFFER_SIZE);
     if (!context->clientRing) goto error;
+    RingBuffer_setPeerFd(context->clientRing, clientFd);
 
     int result = send_fds(clientFd, shmFds, 2, NULL, 0);
     if (result < 0) goto error;

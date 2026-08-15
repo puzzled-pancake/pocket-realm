@@ -69,6 +69,30 @@ PHASE2_GL_CALLS_SHA256 = "7e1f99d3f1ed98086cd679aba216e8694e197b9502a29d9af89411
 # calls at most once per name.
 PHASE3_PATCH = ROOT / "tools" / "patches" / "gladio-wow-texgen-gl_calls.patch"
 PHASE3_GL_CALLS_SHA256 = "614693d16ae2cc20c5d78c6ed4073172124b3d05580ac934d1ac9c93266296f9"
+# Phase-4 production transport corrections from the external Phase-2
+# engineering pass (validated against the exact deployed v5 sources):
+# atomic three-part client publication (header/payload/trailing bytes) via
+# RingBuffer_writeParts so a request is never partially visible, client ring
+# hardening (RingBuffer_create now stores the sharedData mapping, power-of-two
+# capacity and reply-length validation, peer-socket death detection, first
+# send failure reporting, unaligned wire-header loads fixed), uint32 wrap-safe
+# head/tail commits, glDisableVertexAttribArray-style mirroring for
+# glEnableVertexAttribArray, and all-or-nothing texture/immediate-mode writes.
+# No request code or payload layout changes.  Applied last against the fully
+# mutated tree; every touched file is sha-locked to the reviewed content.
+PHASE4_PATCH = ROOT / "tools" / "patches" / "gladio-phase4-transport.patch"
+PHASE4_FILE_SHA256 = {
+    "include/gladio.h":
+        "e4f63db1b52850950b9a0a1bc0862c1059a84aee94397a0170aa860fb49ad729",
+    "include/ring_buffer.h":
+        "49e298c6d638e1be4db913d452e95bb6b6a61f1b42b447bc1f18b11dc661a40b",
+    "src/ring_buffer.c":
+        "7c9c61a6bddbaf29c6af92f6979e1609de83e1b2aa6f6f8bef06062fda6400b4",
+    "src/gl_calls.c":
+        "0524588dd61c28cdae80859f49769e11e5b848ecd7cf1bb9fba3ea5edffe4935",
+    "src/main.c":
+        "9088a6fb743687092cdf536994c63415a5c8dec5ef8fde4cd1bc35269150e706",
+}
 ARM_CROSS_PACKAGES = (
     "gcc-aarch64-linux-gnu=4:15.2.0-5ubuntu1",
     "libc6-dev-arm64-cross=2.43-2ubuntu2cross1",
@@ -94,7 +118,7 @@ def select_target(abi: str) -> None:
         machine = 183
         compiler = "aarch64-linux-gnu-gcc"
         loader = "ld-linux-aarch64.so.1"
-        expected_sha256 = "1a634a5d9259a87188979a29d93b098edf09e8ee1639b7fb05e446e31327e865"
+        expected_sha256 = "85af99dcd3320197537e35ea0eeece24cb3fdbb4279a763def534286cb21a866"
     else:
         raise ValueError(f"unsupported Gladio target ABI: {abi}")
 
@@ -625,6 +649,21 @@ void writeUnboundVertexArrays(GLint first, GLsizei count, const void* indices,
 
 """
     source.write_text(text[:start] + new + text[end:], encoding="utf-8", newline="\n")
+
+    # Phase-4 production transport corrections (see PHASE4_PATCH): applied
+    # after every anchored text edit above so the unified diff context matches
+    # the generated tree exactly; fail closed on drift in any touched file.
+    if TARGET_ABI != "x86_64":
+        subprocess.run(
+            ["git", "apply", "--whitespace=nowarn", str(PHASE4_PATCH)],
+            cwd=SOURCE_TREE, check=True,
+        )
+        for rel, expected in PHASE4_FILE_SHA256.items():
+            got = sha256(SOURCE_TREE / rel)
+            if got != expected:
+                raise RuntimeError(
+                    f"Gladio phase-4 drift in {rel}: {got} != {expected}"
+                )
 
 
 def build() -> None:

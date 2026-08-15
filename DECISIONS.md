@@ -283,3 +283,36 @@ Two orthogonal features shipped together on the O14 continuation branch.
 
 The coordinated plan and verification notes live in
 `fixed/PLAN-vanilla-tweaks-autologin.md`.
+
+## Gladio phase-4 production transport (2026-08-15, matched pair v6)
+
+- **What shipped:** the external Phase-2 engineering pass's production patch
+  set (P2-T01 atomic client transport, P2-T02 server ring hardening including
+  the uint32-zero commit-skip fix, P2-R01 vertex-attrib enable mirror,
+  P2-R02 luminance-alpha `GL_RG8/GL_RG` conversion), translated into the two
+  repo pipelines: client hunks as `tools/patches/gladio-phase4-transport.patch`
+  (plain unified diff, no git-format headers — git 2.49 subdirectory apply
+  skips git-header patches) chained last in `tools/build_gladio_client.py`
+  with per-file sha locks; server hunks applied directly to
+  `gladiorenderer/src/gl_context.c`, `gladiorenderer/include/texture_utils.h`,
+  and the shared `cpp/include/ring_buffer.h`. All eight patched outputs were
+  byte-verified against the agent's `phase2_corrected_sources.zip` before
+  building.
+- **One source adjustment:** the agent's `ATOMIC_VAR_INIT(false)` uses were
+  translated to direct `= false` initializers (C23 removed the macro; our
+  client builds `-std=gnu2x`; C11 defines them as equivalent). No other
+  content changes. The undeployed server tail-ring heartbeat edit was
+  reverted to the deployed heartbeat-only form before patching.
+- **Matched pair pins:** client `gladio-eaa2a8d-arm64-glibc-gles-v6`,
+  498616 bytes, sha256 `85af99dcd3320197537e35ea0eeece24cb3fdbb4279a763def534286cb21a866`;
+  server `gladio-eaa2a8d-android-gles-server-f6f6a5db`, 1313096 bytes,
+  sha256 `f6f6a5db3ab2169d6ce4157f46be25d7fb06c42daf535861244f2ff4d1c687d7`.
+  Pins updated in `ArmClientRendererCatalog.kt` and both `build.gradle.kts`
+  checks; the x86_64 validation lane stays byte-pinned to its old output.
+- **Test platform:** first deployment on Pixel 6a (`bluejay`, Tensor G1,
+  Mali-G78 / GLES 3.2, Android 17 / API 37, fresh install) alongside the
+  Retroid Pocket 6 — a stall reproducing on both Adreno and Mali strongly
+  favors the driver-agnostic ring-wrap mechanism over GPU-driver behavior.
+  Acceptance per the agent's thresholds: 10 minutes / ≥18,000 presented
+  frames with zero send-failed / corrupt-occupancy / EXIT messages; D1 and
+  D2 diagnostics only as separate follow-up A/B runs.

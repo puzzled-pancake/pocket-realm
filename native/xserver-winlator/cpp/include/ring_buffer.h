@@ -2,6 +2,7 @@
 #define WINLATOR_RING_BUFFER_H
 
 #include <stdatomic.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "events.h"
@@ -49,6 +50,7 @@ extern bool RingBuffer_waitForWrite(RingBuffer* ring, uint32_t size);
 #define RING_READ_BEGIN(ring, data, size) \
     uint32_t ringHead = 0; \
     void* ringData = NULL; \
+    bool ringReadReady = false; \
     do { \
         if (size == 0 || !RingBuffer_waitForRead(ring, size)) break; \
         ringHead = RingBuffer_getHead(ring); \
@@ -58,12 +60,17 @@ extern bool RingBuffer_waitForWrite(RingBuffer* ring, uint32_t size);
         } \
         else { \
             data = malloc(size); \
+            if (!data) { \
+                RingBuffer_setStatus(ring, RING_STATUS_EXIT); \
+                break; \
+            } \
             uint32_t start = ring->bufferSize - ringOffset; \
             memcpy(data, ring->buffer + ringOffset, start); \
             memcpy(data + start, ring->buffer, size - start);\
             ringData = data; \
         } \
         ringHead += size; \
+        ringReadReady = true; \
     } \
     while (0)
 
@@ -73,7 +80,7 @@ extern bool RingBuffer_waitForWrite(RingBuffer* ring, uint32_t size);
             free(ringData); \
             ringData = NULL; \
         } \
-        if (ringHead > 0) RingBuffer_setHead(ring, ringHead); \
+        if (ringReadReady) RingBuffer_setHead(ring, ringHead); \
     } \
     while (0)
 
@@ -82,6 +89,7 @@ extern bool RingBuffer_waitForWrite(RingBuffer* ring, uint32_t size);
     void* ringData = NULL; \
     uint32_t ringDataSize = 0; \
     uint32_t ringOffset = 0; \
+    bool ringWriteReady = false; \
     do { \
         if (size == 0 || !RingBuffer_waitForWrite(ring, size)) break; \
         ringTail = RingBuffer_getTail(ring); \
@@ -91,9 +99,14 @@ extern bool RingBuffer_waitForWrite(RingBuffer* ring, uint32_t size);
         } \
         else { \
             ringData = malloc(size); \
+            if (!ringData) { \
+                RingBuffer_setStatus(ring, RING_STATUS_EXIT); \
+                break; \
+            } \
             ringDataSize = size; \
         } \
         ringTail += size; \
+        ringWriteReady = true; \
     } \
     while (0)
 
@@ -106,7 +119,7 @@ extern bool RingBuffer_waitForWrite(RingBuffer* ring, uint32_t size);
             free(ringData); \
             ringData = NULL; \
         } \
-        if (ringTail > 0) RingBuffer_setTail(ring, ringTail); \
+        if (ringWriteReady) RingBuffer_setTail(ring, ringTail); \
     } \
     while (0)
 

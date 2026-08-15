@@ -67,14 +67,14 @@ object ArmClientRendererCatalog {
     const val SELECTION_SCHEMA = 2
     const val DEFAULT_ID = "dxvk"
     const val GLADIO_PACKAGE_ID = "box64-gladio-eaa2a8d"
-    const val GLADIO_BUILD_ID = "gladio-eaa2a8d-arm64-glibc-gles-v5"
+    const val GLADIO_BUILD_ID = "gladio-eaa2a8d-arm64-glibc-gles-v6"
     const val GLADIO_CLIENT_ASSET =
         "arm-translated/renderer-packages/$GLADIO_PACKAGE_ID/libGL.so.1"
     const val GLADIO_CLIENT_SHA256 =
-        "1a634a5d9259a87188979a29d93b098edf09e8ee1639b7fb05e446e31327e865"
-    const val GLADIO_SERVER_BUILD_ID = "gladio-eaa2a8d-android-gles-server-1ffa75ce"
+        "85af99dcd3320197537e35ea0eeece24cb3fdbb4279a763def534286cb21a866"
+    const val GLADIO_SERVER_BUILD_ID = "gladio-eaa2a8d-android-gles-server-f6f6a5db"
     const val GLADIO_SERVER_SHA256 =
-        "1ffa75ce4f2dd45b85feb83c5f5db5208a496d5a89ef7a434833cfb8a9d76a28"
+        "f6f6a5db3ab2169d6ce4157f46be25d7fb06c42daf535861244f2ff4d1c687d7"
     const val VIRGL_PACKAGE_ID = "box64-virgl-23.1.9"
     const val VIRGL_ENVIRONMENT_ID = "virpipe-v0-gl31-noerror-ext-v1"
     const val VIRGL_BUILD_ID =

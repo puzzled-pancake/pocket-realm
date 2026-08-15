@@ -255,6 +255,14 @@ static inline void convertTexImageFormat(uint32_t target, int* internalformat, u
             *format = GL_RED;
             break;
         }
+        case GL_LUMINANCE_ALPHA:
+            glTexParameteri(target, GL_TEXTURE_SWIZZLE_R, GL_RED);
+            glTexParameteri(target, GL_TEXTURE_SWIZZLE_G, GL_RED);
+            glTexParameteri(target, GL_TEXTURE_SWIZZLE_B, GL_RED);
+            glTexParameteri(target, GL_TEXTURE_SWIZZLE_A, GL_GREEN);
+            *internalformat = GL_RG8;
+            *format = GL_RG;
+            break;
         case GL_INTENSITY:
             glTexParameteri(target, GL_TEXTURE_SWIZZLE_R, GL_RED);
             glTexParameteri(target, GL_TEXTURE_SWIZZLE_G, GL_RED);

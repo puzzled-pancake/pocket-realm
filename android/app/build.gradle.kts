@@ -359,8 +359,8 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
         if (abi == "arm64-v8a" && selectedLane == "full") {
             val gladioServer = File(nativeBuildRoot,
                 "xserver-winlator-build/libgladiorenderer.so")
-            check(gladioServer.length() == 1_309_312L && sha256(gladioServer) ==
-                "1ffa75ce4f2dd45b85feb83c5f5db5208a496d5a89ef7a434833cfb8a9d76a28") {
+            check(gladioServer.length() == 1_313_096L && sha256(gladioServer) ==
+                "f6f6a5db3ab2169d6ce4157f46be25d7fb06c42daf535861244f2ff4d1c687d7") {
                 "ARM Gladio server differs from the reviewed source build"
             }
             val virglServer = File(nativeBuildRoot,
@@ -566,8 +566,8 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
             }
             val gladioClient = File(assetRoot,
                 "arm-translated/renderer-packages/box64-gladio-eaa2a8d/libGL.so.1")
-            check(gladioClient.length() == 497_808L && sha256(gladioClient) ==
-                "1a634a5d9259a87188979a29d93b098edf09e8ee1639b7fb05e446e31327e865") {
+            check(gladioClient.length() == 498_616L && sha256(gladioClient) ==
+                "85af99dcd3320197537e35ea0eeece24cb3fdbb4279a763def534286cb21a866") {
                 "Gladio client differs from its source-matched reviewed artifact"
             }
             requireAbi(gladioClient)

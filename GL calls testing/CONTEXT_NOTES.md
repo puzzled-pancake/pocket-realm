@@ -212,3 +212,30 @@ The patches are written against attachment filenames. Translation:
 - installed.apk, ui/screen dumps, eglprobe.* — earlier diagnostics (eglprobe binary
   + source proves clean-process EGL passes on device).
 - CONTEXT_NOTES.md — this file.
+
+---
+
+## ADDENDUM 2026-08-15 (~20:20): §8 item 1 EXECUTED — phase-4 deployed
+
+The production patch set is now built, pinned, and installed on the new test
+device. §8 item 1 through item 4 (build/deploy parts) are done:
+
+- Client: `tools/patches/gladio-phase4-transport.patch` chained last in
+  `build_gladio_client.py` (per-file sha locks). Built green:
+  `gladio-eaa2a8d-arm64-glibc-gles-v6`, 498616 B,
+  sha256 `85af99dcd3320197537e35ea0eeece24cb3fdbb4279a763def534286cb21a866`.
+- Server: agent hunks applied directly (gl_context.c, texture_utils.h, shared
+  ring_buffer.h), byte-verified vs `phase2_corrected_sources.zip` first.
+  Built: `gladio-eaa2a8d-android-gles-server-f6f6a5db`, 1313096 B,
+  sha256 `f6f6a5db3ab2169d6ce4157f46be25d7fb06c42daf535861244f2ff4d1c687d7`.
+- Translation notes: git-header patches get silently skipped by git 2.49
+  subdirectory apply — the patch is a plain unified diff (like phase2/3).
+  `ATOMIC_VAR_INIT(false)` → `= false` (C23 removed the macro; agent validated
+  under gnu11, we build gnu2x). Undeployed tail-ring server edit was reverted
+  first; tail-ring instrumentation remains NOT re-applied (see §7).
+- New test device: Pixel 6a "bluejay" (Tensor G1, Mali-G78, GLES 3.2,
+  Android 17/API 37), paired over wireless adb at 192.168.1.x — fresh
+  install of com.pocketrealm 0.1.0 on 2026-08-15 20:21. A stall reproducing
+  on both Mali and Adreno favors the ring-wrap mechanism over driver behavior.
+- Next: acceptance run (10 min / ≥18,000 frames, zero send-failed/EXIT),
+  tail-ring re-application if the stall persists, D1/D2 only as separate A/B.
