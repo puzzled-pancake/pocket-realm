@@ -808,6 +808,21 @@ private fun ConfigPane(
                 }
             }
 
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = advancedOpen,
+                    onCheckedChange = onAdvancedOpen,
+                    modifier = Modifier.testTag("bots-advanced-toggle"),
+                )
+                Text("  Advanced bot settings", style = MaterialTheme.typography.titleSmall)
+            }
+            Text(
+                "Shows every tunable: population, nearby spawns, temperament, leveling, " +
+                    "login, accounts, and adaptation. Opening it never changes values; " +
+                    "every field starts exactly from the selection below.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+
             Text("WORLD SIZE", style = MaterialTheme.typography.labelSmall)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 BotProfiles.experiencePresets.map { it.selectedTarget }.forEach { size ->
@@ -876,18 +891,6 @@ private fun ConfigPane(
                 )
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(
-                    checked = advancedOpen,
-                    onCheckedChange = onAdvancedOpen,
-                    modifier = Modifier.testTag("bots-advanced-toggle"),
-                )
-                Text("  Advanced configuration", style = MaterialTheme.typography.titleSmall)
-            }
-            Text(
-                "Opening Advanced never changes values; every field starts exactly from the selection above.",
-                style = MaterialTheme.typography.bodySmall,
-            )
             if (advancedOpen) {
                 AdvancedSections(working = working, onWorking = onWorking)
             }
