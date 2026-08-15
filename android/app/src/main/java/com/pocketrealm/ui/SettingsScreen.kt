@@ -26,6 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
@@ -34,6 +35,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pocketrealm.client.ArmTranslationBackend
+import com.pocketrealm.client.ArmRendererAuto
 import com.pocketrealm.client.ArmClientRenderer
 import com.pocketrealm.client.ArmClientRendererCatalog
 import com.pocketrealm.client.AndroidGladioCapabilityProbe
@@ -102,52 +104,131 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         SettingCard("ARM client runtime") {
+            var showExperimentalRenderers by rememberSaveable { mutableStateOf(false) }
+            val experimentalSelected =
+                snap.armRendererId == ArmClientRenderer.LEGACY_GLADIO.id ||
+                snap.armRendererId == ArmClientRenderer.MESA_VIRGL.id
             Text("Renderer", style = MaterialTheme.typography.titleSmall)
-            Text("DXVK remains the default. Experimental renderers are exact selections and never silently fall back.",
+            Text("Auto follows the GPU like the wow-mobile Winlator build: Adreno uses DXVK with the packaged Turnip driver, every other GPU uses DXVK over the system Vortek bridge. Manual choices stay exact.",
                 style = MaterialTheme.typography.bodySmall)
-            ArmClientRendererCatalog.entries().forEach { renderer ->
-                val availability = ArmClientRendererCatalog.availability(
-                    renderer,
-                    gladioProbe,
-                    Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
+            FilterChip(
+                selected = snap.armRendererId == ArmClientRendererCatalog.AUTO_ID,
+                onClick = {
+                    scope.launch {
+                        settings.update { it.copy(armRendererId = ArmClientRendererCatalog.AUTO_ID) }
+                    }
+                },
+                label = { Text("Auto (recommended)") },
+                modifier = Modifier.fillMaxWidth().testTag("arm-renderer-auto"),
+            )
+            Text(
+                "Adreno: Turnip/DXVK. Other GPUs: system Vortek/DXVK, stepping down to " +
+                    "DXVK 1.10.3 when the device Vulkan version is older than DXVK 2.4.1 needs.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            val dxvkAvailability = ArmClientRendererCatalog.availability(
+                ArmClientRenderer.DXVK,
+                gladioProbe,
+                Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
+            )
+            FilterChip(
+                selected = snap.armRendererId == ArmClientRenderer.DXVK.id,
+                enabled = dxvkAvailability.available,
+                onClick = {
+                    scope.launch {
+                        settings.update { it.copy(armRendererId = ArmClientRenderer.DXVK.id) }
+                    }
+                },
+                label = { Text(ArmClientRenderer.DXVK.label) },
+                modifier = Modifier.fillMaxWidth().testTag("arm-renderer-${ArmClientRenderer.DXVK.id}"),
+            )
+            Text(ArmClientRenderer.DXVK.summary, style = MaterialTheme.typography.bodySmall)
+            Text(
+                dxvkAvailability.reason,
+                color = if (dxvkAvailability.available) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.labelMedium,
+            )
+            HorizontalDivider()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = showExperimentalRenderers || experimentalSelected,
+                    onCheckedChange = { showExperimentalRenderers = it },
+                    modifier = Modifier.testTag("experimental-renderers"),
                 )
-                FilterChip(
-                    selected = snap.armRendererId == renderer.id,
-                    enabled = availability.available,
-                    onClick = {
-                        scope.launch {
-                            settings.update { it.copy(armRendererId = renderer.id) }
-                        }
-                    },
-                    label = { Text(renderer.label) },
-                    modifier = Modifier.fillMaxWidth().testTag("arm-renderer-${renderer.id}"),
-                )
-                Text(renderer.summary, style = MaterialTheme.typography.bodySmall)
-                Text(
-                    availability.reason,
-                    color = if (availability.available) {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    } else MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.labelMedium,
-                )
+                Text("  Experimental renderers", style = MaterialTheme.typography.titleSmall)
             }
-            if (snap.selectedArmRenderer() == ArmClientRenderer.DXVK) {
+            Text(
+                "Legacy OpenGL and Mesa VirGL are very experimental, unqualified lanes kept " +
+                    "only for device testing. They are never chosen automatically; selecting " +
+                    "one is an exact manual choice with no fallback.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (showExperimentalRenderers || experimentalSelected) {
+                listOf(
+                    ArmClientRenderer.LEGACY_GLADIO,
+                    ArmClientRenderer.MESA_VIRGL,
+                ).forEach { renderer ->
+                    val availability = ArmClientRendererCatalog.availability(
+                        renderer,
+                        gladioProbe,
+                        Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
+                    )
+                    FilterChip(
+                        selected = snap.armRendererId == renderer.id,
+                        enabled = availability.available,
+                        onClick = {
+                            scope.launch {
+                                settings.update { it.copy(armRendererId = renderer.id) }
+                            }
+                        },
+                        label = { Text(renderer.label) },
+                        modifier = Modifier.fillMaxWidth().testTag("arm-renderer-${renderer.id}"),
+                    )
+                    Text(renderer.summary, style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        availability.reason,
+                        color = if (availability.available) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+            }
+            if (snap.selectedArmRendererId() == "dxvk" ||
+                snap.selectedArmRendererId() == ArmClientRendererCatalog.AUTO_ID) {
             HorizontalDivider()
             Text("Vulkan driver", style = MaterialTheme.typography.titleSmall)
             Text(
-                "Pocket Realm shows only Vulkan drivers qualified for normal use on this device. Drivers are never substituted at launch.",
+                "Auto follows the GPU vendor like Winlator. Manual drivers stay exact; nothing is substituted at launch.",
                 style = MaterialTheme.typography.bodySmall,
             )
-            VulkanDriverCatalog.userSelectable(Build.MODEL).forEach { driver ->
+            FilterChip(
+                selected = snap.selectedVulkanDriverId() == VulkanDriverCatalog.AUTO_ID,
+                onClick = {
+                    scope.launch {
+                        settings.update { current ->
+                            current.copy(armVulkanDriverId = VulkanDriverCatalog.AUTO_ID)
+                        }
+                    }
+                },
+                label = {
+                    val resolved = VulkanDriverCatalog.resolveId(
+                        VulkanDriverCatalog.AUTO_ID, ArmRendererAuto.isAdrenoGpu())
+                    Text("Auto (currently ${resolved?.label ?: "Turnip"})")
+                },
+                modifier = Modifier.fillMaxWidth().testTag("vulkan-driver-auto"),
+            )
+            VulkanDriverCatalog.userSelectable().forEach { driver ->
                 val availability = VulkanDriverCatalog.availabilityForPair(
                     driver.id,
                     snap.selectedDxvkPackageId(),
-                    Build.MODEL,
+                    ArmRendererAuto.isAdrenoGpu(),
                     systemVulkanProbe?.getOrNull(),
                 )
                 FilterChip(
                     selected = snap.selectedVulkanDriverId() == driver.id,
-                    enabled = availability.available,
                     onClick = {
                         scope.launch {
                             settings.update { current -> current.copy(armVulkanDriverId = driver.id) }
@@ -167,11 +248,6 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.labelMedium,
                 )
             }
-            Text(
-                "System Vortek is experimental and cannot be selected here.",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             HorizontalDivider()
             Text("DXVK version", style = MaterialTheme.typography.titleSmall)
             Text(
@@ -180,9 +256,9 @@ fun SettingsScreen(
             )
             RendererPackageCatalog.compatible(ArmTranslationBackend.BOX64).forEach { pkg ->
                 val availability = VulkanDriverCatalog.availabilityForPair(
-                    snap.selectedVulkanDriverId(),
+                    snap.effectiveVulkanDriverId(),
                     pkg.id,
-                    Build.MODEL,
+                    ArmRendererAuto.isAdrenoGpu(),
                     systemVulkanProbe?.getOrNull(),
                 )
                 FilterChip(
@@ -222,7 +298,7 @@ fun SettingsScreen(
             }
             Text("The exact driver and DXVK package receive an isolated prefix and shader cache on the next launch.",
                 style = MaterialTheme.typography.labelMedium)
-            } else if (snap.selectedArmRenderer() == ArmClientRenderer.LEGACY_GLADIO) {
+            } else if (snap.selectedArmRendererId() == "legacy-gladio") {
                 Text(
                     "The exact source-matched Gladio client is installed only inside its own generation. " +
                         "WoW launches with -opengl and GLX enabled; Vulkan and DXVK are not loaded.",
@@ -273,7 +349,8 @@ fun SettingsScreen(
             HorizontalDivider()
             Text("Frame-rate limit", style = MaterialTheme.typography.titleSmall)
             Text(
-                if (snap.selectedArmRenderer() == ArmClientRenderer.DXVK) {
+                if (snap.selectedArmRendererId() == "dxvk" ||
+                    snap.selectedArmRendererId() == ArmClientRendererCatalog.AUTO_ID) {
                     "Sets both WoW's maxFPS and DXVK's D3D9 limiter. It is a maximum, not a performance promise."
                 } else {
                     "Sets WoW's maxFPS. The experimental OpenGL route does not load DXVK's limiter."

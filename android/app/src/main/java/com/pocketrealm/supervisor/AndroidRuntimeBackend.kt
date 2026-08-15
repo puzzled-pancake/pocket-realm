@@ -9,6 +9,7 @@ import android.os.Binder
 import android.os.IBinder
 import com.pocketrealm.bots.BotProfiles
 import com.pocketrealm.client.ClientRuntimeContract
+import com.pocketrealm.client.ArmRendererAuto
 import com.pocketrealm.client.ClientTweaksConfig
 import com.pocketrealm.client.ClientTeardownGate
 import com.pocketrealm.client.ClientAudioPolicy
@@ -85,26 +86,50 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
             if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
                 val runtimeSettings = Settings(appContext).flow.first()
                 runCatching {
-                    when (val selected = runtimeSettings.selectedArmRenderer()) {
+                    // The selection the user made: auto resolves per GPU like
+                    // Winlator; manual ids stay exact so their gates check the
+                    // renderer the user actually chose.
+                    val selectedId = runtimeSettings.selectedArmRendererId()
+                    val autoSelection = ArmClientRendererCatalog.isAutoSelection(selectedId)
+                    val effective = if (autoSelection) {
+                        ArmRendererAuto.resolve()
+                    } else {
+                        ArmClientRendererCatalog.requireSelection(selectedId)
+                    }
+                    val resolvedDriverId = requireNotNull(
+                        ArmRendererAuto.resolveVulkanDriverId(
+                            runtimeSettings.selectedVulkanDriverId()
+                        ),
+                    ) { "The saved Vulkan driver is unknown. Choose a packaged driver." }
+                    when (effective) {
                         ArmClientRenderer.DXVK -> {
+                            // Auto degrades the DXVK package to the 1.10.3
+                            // fallback when the device Vulkan version is below
+                            // the selected package's floor; manual stays exact.
+                            val requestedPackageId = if (autoSelection) {
+                                ArmRendererAuto.resolveAutoDxvkPackageId(
+                                    runtimeSettings.selectedDxvkPackageId()
+                                )
+                            } else {
+                                runtimeSettings.selectedDxvkPackageId()
+                            }
                             val renderer = RendererPackageCatalog.requireForRequest(
                                 ArmTranslationBackend.BOX64,
-                                selected.runtimeRenderer,
-                                runtimeSettings.selectedDxvkPackageId(),
+                                effective.runtimeRenderer,
+                                requestedPackageId,
                             )
-                            val driverId = runtimeSettings.selectedVulkanDriverId()
-                            val driver = VulkanDriverCatalog.requireForRequest(driverId)
+                            val driver = VulkanDriverCatalog.requireForRequest(resolvedDriverId)
                             VulkanDriverCatalog.requireAvailableCompatiblePair(
-                                driverId,
+                                resolvedDriverId,
                                 renderer,
-                                Build.MODEL,
+                                ArmRendererAuto.isAdrenoGpu(),
                                 if (driver.kind == VulkanDriverKind.SYSTEM) {
                                     AndroidSystemVulkanProbe.probe()
                                 } else null,
                             )
                         }
                         else -> ArmClientRendererCatalog.requireRuntimeRenderer(
-                            selected.runtimeRenderer,
+                            effective.runtimeRenderer,
                             runCatching { AndroidGladioCapabilityProbe.probe(appContext) },
                             Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
                         )
@@ -388,7 +413,8 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         )
         val requestedTweaksJson = runtimeSettings.tweaks.toJson()
         val armClient = Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a"
-        val armRenderer = runtimeSettings.selectedArmRenderer().takeIf { armClient }
+        val autoRendererSelection = armClient && runtimeSettings.isAutoRenderer()
+        val armRenderer = if (armClient) runtimeSettings.effectiveRenderer() else null
         val renderer = armRenderer?.runtimeRenderer ?: "wined3d"
         if (armRenderer != null) {
             ArmClientRendererCatalog.requireRuntimeRenderer(
@@ -398,12 +424,26 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                 } else null,
             )
         }
-        val rendererPackageId = runtimeSettings.selectedDxvkPackageId().takeIf {
+        val requestedPackageId = if (autoRendererSelection) {
+            ArmRendererAuto.resolveAutoDxvkPackageId(runtimeSettings.selectedDxvkPackageId())
+        } else {
+            runtimeSettings.selectedDxvkPackageId()
+        }
+        val rendererPackageId = requestedPackageId.takeIf {
             armRenderer == ArmClientRenderer.DXVK
         }
-        val vulkanDriverId = runtimeSettings.selectedVulkanDriverId().takeIf {
-            armRenderer == ArmClientRenderer.DXVK
+        if (autoRendererSelection && rendererPackageId != null &&
+            rendererPackageId != runtimeSettings.selectedDxvkPackageId()
+        ) {
+            AppLog.w(
+                TAG,
+                "auto renderer: DXVK ${runtimeSettings.selectedDxvkPackageId()} exceeds this " +
+                    "device's Vulkan version; launching with $rendererPackageId instead",
+            )
         }
+        val vulkanDriverId = ArmRendererAuto.resolveVulkanDriverId(
+            runtimeSettings.selectedVulkanDriverId()
+        ).takeIf { armRenderer == ArmClientRenderer.DXVK }
         if (armRenderer == ArmClientRenderer.DXVK) {
             val rendererPackage = RendererPackageCatalog.requireForRequest(
                 translator,
@@ -414,7 +454,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
             VulkanDriverCatalog.requireAvailableCompatiblePair(
                 vulkanDriverId,
                 rendererPackage,
-                Build.MODEL,
+                ArmRendererAuto.isAdrenoGpu(),
                 if (requestedDriver.kind == VulkanDriverKind.SYSTEM) {
                     AndroidSystemVulkanProbe.probe()
                 } else null,

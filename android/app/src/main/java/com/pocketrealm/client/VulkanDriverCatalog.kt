@@ -82,32 +82,17 @@ data class PersistedVulkanDriverSelection(
 )
 
 object VulkanDriverCatalog {
-    /** Experimental Vortek bridge retained for developer qualification only. */
+    /** Winlator-style system Vortek bridge over the device's own Vulkan driver. */
     const val SYSTEM_DEFAULT = "system-vulkan-vortek-2.1"
     const val TURNIP_26_1 = "turnip-26.1.0"
-    const val RELEASE_DEFAULT = TURNIP_26_1
-    const val TURNIP_UNQUALIFIED_REASON =
-        "Packaged Turnip is currently qualified only on Retroid Pocket 6 / Adreno 740."
-    const val SYSTEM_EXPERIMENTAL_REASON =
-        "System Vortek is experimental and retained only for developer qualification."
-    const val RP6_SYSTEM_MIGRATION_NOTICE =
-        "Experimental System Vortek was replaced with the qualified Turnip 26.1.0 driver on this Retroid Pocket 6."
-    const val SELECTION_SCHEMA = 3
+
+    /** Resolved at read time from the device GPU vendor (see [resolveDefault]). */
+    const val AUTO_ID = "auto"
+    const val SELECTION_SCHEMA = 4
     const val VORTEK_BRIDGE_MAX_API_VERSION: Int = (1 shl 22) or (3 shl 12) or 128
 
-    val VORTEK_REQUIRED_DEVICE_EXTENSIONS: Set<String> = setOf(
-        "VK_KHR_swapchain",
-        "VK_ANDROID_external_memory_android_hardware_buffer",
-        "VK_KHR_external_memory",
-        "VK_KHR_external_memory_fd",
-        "VK_KHR_external_semaphore",
-        "VK_KHR_external_semaphore_fd",
-        "VK_KHR_external_fence",
-        "VK_KHR_external_fence_fd",
-    )
-
     private val packages = GeneratedVulkanDriverCatalog.packages.also { generated ->
-        check(GeneratedVulkanDriverCatalog.DEFAULT_ID == RELEASE_DEFAULT)
+        check(GeneratedVulkanDriverCatalog.DEFAULT_ID == TURNIP_26_1)
         check(GeneratedVulkanDriverCatalog.SELECTION_POLICY == "exact-request-fail-closed")
         check(generated.map(VulkanDriverPackage::id).toSet() == setOf(SYSTEM_DEFAULT, TURNIP_26_1))
     }
@@ -115,59 +100,86 @@ object VulkanDriverCatalog {
 
     fun all(): List<VulkanDriverPackage> = packages
 
-    /** Normal Settings UI: experimental packages never appear as selectable choices. */
-    fun userSelectable(deviceModel: String): List<VulkanDriverPackage> =
-        packages.filter { availability(it, deviceModel).available }
+    /** Every catalog entry is offered; availability text explains the GPU match. */
+    fun userSelectable(): List<VulkanDriverPackage> = packages
 
-    fun default(): VulkanDriverPackage = checkNotNull(byId[RELEASE_DEFAULT])
+    fun default(): VulkanDriverPackage = checkNotNull(byId[TURNIP_26_1])
 
     fun find(id: String?): VulkanDriverPackage? = id?.let(byId::get)
 
-    fun availability(driver: VulkanDriverPackage, deviceModel: String): VulkanDriverAvailability =
+    /**
+     * Winlator auto-selection: Adreno GPUs get the packaged Turnip ICD, every
+     * other vendor (Mali, PowerVR, Xclipse...) gets the system Vortek bridge.
+     */
+    fun resolveDefault(adrenoGpu: Boolean): VulkanDriverPackage =
+        checkNotNull(byId[if (adrenoGpu) TURNIP_26_1 else SYSTEM_DEFAULT])
+
+    fun autoDriverId(adrenoGpu: Boolean): String = resolveDefault(adrenoGpu).id
+
+    fun availability(driver: VulkanDriverPackage, adrenoGpu: Boolean): VulkanDriverAvailability =
         when (driver.kind) {
-            VulkanDriverKind.SYSTEM -> VulkanDriverAvailability(
-                available = false,
-                reason = SYSTEM_EXPERIMENTAL_REASON,
-            )
-            VulkanDriverKind.TURNIP -> if (isQualifiedRp6(deviceModel)) {
-                VulkanDriverAvailability(available = true, reason = driver.qualification)
+            VulkanDriverKind.TURNIP -> if (adrenoGpu) {
+                VulkanDriverAvailability(
+                    true,
+                    "Packaged Turnip ICD matches this device's Adreno GPU.",
+                )
             } else {
-                VulkanDriverAvailability(available = false, reason = TURNIP_UNQUALIFIED_REASON)
+                VulkanDriverAvailability(
+                    false,
+                    "Packaged Turnip is an Adreno driver and cannot run on this GPU; " +
+                        "the system Vortek bridge is the automatic choice here.",
+                )
             }
+            VulkanDriverKind.SYSTEM -> VulkanDriverAvailability(
+                true,
+                "System Vortek bridge over this device's own Vulkan driver; " +
+                    "capability-checked against DXVK at launch.",
+            )
         }
 
-    fun availability(requestedId: String?, deviceModel: String): VulkanDriverAvailability {
-        val driver = find(requestedId) ?: return VulkanDriverAvailability(
-            available = false,
-            reason = "Unknown Vulkan driver package: ${requestedId ?: "none"}.",
-        )
-        return availability(driver, deviceModel)
+    fun availability(requestedId: String?, adrenoGpu: Boolean): VulkanDriverAvailability {
+        val driver = resolveId(requestedId, adrenoGpu)
+            ?: return VulkanDriverAvailability(
+                available = false,
+                reason = "Unknown Vulkan driver package: ${requestedId ?: "none"}.",
+            )
+        return availability(driver, adrenoGpu)
     }
 
-    /** Initial release selection. Pair compatibility is checked separately and never substituted. */
-    fun normalize(requestedId: String?, deviceModel: String = ""): String =
-        requestedId ?: RELEASE_DEFAULT
+    /** "auto" resolves to the vendor default; explicit ids stay exact. */
+    fun resolveId(requestedId: String?, adrenoGpu: Boolean): VulkanDriverPackage? =
+        when (requestedId) {
+            null, AUTO_ID -> resolveDefault(adrenoGpu)
+            else -> find(requestedId)
+        }
+
+    fun normalize(requestedId: String?, adrenoGpu: Boolean): String =
+        if (requestedId == null || requestedId == AUTO_ID) {
+            resolveDefault(adrenoGpu).id
+        } else {
+            requestedId
+        }
 
     /**
-     * Schema 3 removes experimental System/Vortek from the normal RP6 path.
-     * Existing schema-0/1/2 RP6 System selections are migrated once to the
-     * qualified pinned Turnip package. Post-schema explicit identities remain
-     * exact, but an experimental System request still fails the release gate.
+     * Schema 4 adopts Winlator-style auto-selection. Schema-0/1/2 RP6 System
+     * selections keep migrating to the pinned Turnip package; schema-3
+     * selections pass through unchanged; "auto" resolves at read time.
      */
     fun resolvePersistedSelection(
         requestedId: String?,
         selectionSchema: Int,
-        deviceModel: String,
+        adrenoGpu: Boolean,
     ): PersistedVulkanDriverSelection {
-        val migrateRp6System = selectionSchema < SELECTION_SCHEMA &&
-            isQualifiedRp6(deviceModel) &&
-            (requestedId == null || requestedId == SYSTEM_DEFAULT)
-        val resolvedId = if (migrateRp6System) TURNIP_26_1 else normalize(requestedId, deviceModel)
-        val needsSchemaStamp = selectionSchema < SELECTION_SCHEMA
+        val legacyAdrenoSystem = selectionSchema < SELECTION_SCHEMA && adrenoGpu &&
+            requestedId == SYSTEM_DEFAULT
+        val resolvedId = when {
+            legacyAdrenoSystem -> TURNIP_26_1
+            requestedId == null -> resolveDefault(adrenoGpu).id
+            else -> requestedId
+        }
         return PersistedVulkanDriverSelection(
             driverId = resolvedId,
-            migrated = needsSchemaStamp,
-            notice = RP6_SYSTEM_MIGRATION_NOTICE.takeIf { migrateRp6System },
+            migrated = selectionSchema < SELECTION_SCHEMA,
         )
     }
 
@@ -180,10 +192,10 @@ object VulkanDriverCatalog {
     /** Exact release request gate. It never substitutes another driver. */
     fun requireAvailableForRequest(
         requestedId: String?,
-        deviceModel: String,
+        adrenoGpu: Boolean,
     ): VulkanDriverPackage {
         val driver = requireForRequest(requestedId)
-        val availability = availability(driver, deviceModel)
+        val availability = availability(driver, adrenoGpu)
         require(availability.available) { availability.reason }
         return driver
     }
@@ -192,19 +204,20 @@ object VulkanDriverCatalog {
     fun availabilityForPair(
         requestedDriverId: String?,
         requestedRendererId: String?,
-        deviceModel: String,
+        adrenoGpu: Boolean,
         system: SystemVulkanCapabilities? = null,
     ): VulkanDriverAvailability {
-        val driver = find(requestedDriverId) ?: return VulkanDriverAvailability(
-            false,
-            "Unknown Vulkan driver package: ${requestedDriverId ?: "none"}.",
-        )
+        val driver = resolveId(requestedDriverId, adrenoGpu)
+            ?: return VulkanDriverAvailability(
+                false,
+                "Unknown Vulkan driver package: ${requestedDriverId ?: "none"}.",
+            )
         val renderer = RendererPackageCatalog.find(requestedRendererId)
             ?: return VulkanDriverAvailability(
                 false,
                 "Unknown DXVK package: ${requestedRendererId ?: "none"}.",
             )
-        val release = availability(driver, deviceModel)
+        val release = availability(driver, adrenoGpu)
         if (!release.available) return release
         val compatibility = compatibility(driver, renderer, system)
         return VulkanDriverAvailability(compatibility.compatible, compatibility.reason)
@@ -214,10 +227,10 @@ object VulkanDriverCatalog {
     fun requireAvailableCompatiblePair(
         requestedDriverId: String?,
         renderer: RendererPackage,
-        deviceModel: String,
+        adrenoGpu: Boolean,
         system: SystemVulkanCapabilities? = null,
     ): Pair<VulkanDriverPackage, VulkanRendererCompatibility> {
-        val driver = requireAvailableForRequest(requestedDriverId, deviceModel)
+        val driver = requireAvailableForRequest(requestedDriverId, adrenoGpu)
         return driver to requireCompatiblePair(driver, renderer, system)
     }
 
@@ -230,9 +243,12 @@ object VulkanDriverCatalog {
     }
 
     /**
-     * Evaluate an exact immutable driver/renderer pair without changing the
-     * production release gate. This keeps the experimental portability matrix
-     * testable by developer qualification tools while normal launch stays off.
+     * Evaluate an exact immutable driver/renderer pair with wow-mobile
+     * semantics: the only gate on the system Vortek bridge is the Vulkan
+     * API-version floor of the selected DXVK package. There is deliberately
+     * no BC-texture or device-extension capability profile — mobile GPUs
+     * (Mali reports textureCompressionBC = VK_FALSE) run Vortek fine.
+     * Packaged Turnip does not use Vortek at all.
      */
     fun compatibility(
         driver: VulkanDriverPackage,
@@ -251,19 +267,10 @@ object VulkanDriverCatalog {
                 "${renderer.label} requires System Vulkan ${formatVulkan(renderer.minimumSystemVulkanApi)} or newer.",
             )
         }
-        if (!capabilities.nativeTextureCompressionBC) {
-            return VulkanRendererCompatibility(false, "System Vortek requires native BC texture compression.")
-        }
-        val missing = VORTEK_REQUIRED_DEVICE_EXTENSIONS - capabilities.deviceExtensions
-        if (missing.isNotEmpty()) {
-            return VulkanRendererCompatibility(
-                false,
-                "System Vortek is missing required device capabilities: ${missing.sorted().joinToString()}.",
-            )
-        }
         return VulkanRendererCompatibility(
             true,
-            "System Vulkan and ${renderer.label} meet the hardened Vortek capability profile.",
+            "System Vulkan meets ${renderer.label}'s minimum " +
+                "(Vulkan ${formatVulkan(renderer.minimumSystemVulkanApi)}).",
             minOf(capabilities.apiVersion, VORTEK_BRIDGE_MAX_API_VERSION),
         )
     }
@@ -278,7 +285,4 @@ object VulkanDriverCatalog {
 
     private fun formatVulkan(version: Int): String =
         "${version ushr 22}.${(version ushr 12) and 0x3ff}"
-
-    private fun isQualifiedRp6(deviceModel: String): Boolean =
-        deviceModel.trim().equals("Retroid Pocket 6", ignoreCase = true)
 }

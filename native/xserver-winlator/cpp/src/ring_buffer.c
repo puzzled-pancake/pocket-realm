@@ -27,17 +27,17 @@
 #define debug_printf(...) fprintf(stderr, __VA_ARGS__)
 #endif
 
-#define RING_WAIT_YIELD_ITERATIONS 64u
-#define RING_WAIT_INITIAL_SLEEP_US 125u
-#define RING_WAIT_MAX_SLEEP_US 2000u
-
 /*
  * The Winlator wire format has no cross-process wake fd. Preserve its shared
- * ring protocol, but stop the old permanent 100 us poll once the short
- * producer/consumer hand-off window has passed. This bounds an idle context at
- * roughly 500 timed wakes/second instead of ~5,000 while keeping active bursts
- * on the yield path.
+ * ring protocol. The producer/consumer hand-off window stays on the yield
+ * path; beyond that, poll at the upstream ca3d735 100 us cadence. The phase-2
+ * 2 ms cap throttled the request-handler thread to ~500 wakes/second and
+ * collapsed GL throughput to ~4k requests/second on both Adreno and Mali
+ * (measured 2026-08-16); 100 us restores the ~36k requests/second pipeline.
  */
+#define RING_WAIT_YIELD_ITERATIONS 64u
+#define RING_WAIT_INITIAL_SLEEP_US 100u
+#define RING_WAIT_MAX_SLEEP_US 100u
 static bool RingBuffer_backoff(RingBuffer* ring, uint32_t* iteration) {
     if (ring->peerFd < 0) {
         busyWait(iteration);

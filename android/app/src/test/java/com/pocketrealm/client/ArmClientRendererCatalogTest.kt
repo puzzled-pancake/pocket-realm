@@ -17,33 +17,47 @@ class ArmClientRendererCatalogTest {
     )
 
     @Test
-    fun defaultAndLegacyPreferencesStayOnDxvk() {
-        assertEquals(ArmClientRenderer.DXVK,
+    fun defaultAndLegacyPreferencesResolveToAuto() {
+        assertEquals(ArmClientRendererCatalog.AUTO_ID,
             ArmClientRendererCatalog.resolvePersisted(null, 0))
-        assertEquals(ArmClientRenderer.DXVK,
+        assertEquals(ArmClientRendererCatalog.AUTO_ID,
             ArmClientRendererCatalog.resolvePersisted("OPENGL", 0))
-        assertEquals(ArmClientRenderer.DXVK,
+        assertEquals(ArmClientRendererCatalog.AUTO_ID,
             ArmClientRendererCatalog.resolvePersisted("legacy-gladio", 0))
     }
 
     @Test
     fun completedSchemaActivatesOnlyExactKnownSelection() {
-        assertEquals(ArmClientRenderer.DXVK,
+        assertEquals(ArmClientRendererCatalog.AUTO_ID,
             ArmClientRendererCatalog.resolvePersisted("legacy-gladio", 1))
-        assertEquals(ArmClientRenderer.DXVK,
+        assertEquals(ArmClientRendererCatalog.AUTO_ID,
             ArmClientRendererCatalog.resolvePersisted("mesa-virgl", 1))
-        assertEquals(ArmClientRenderer.LEGACY_GLADIO,
+        assertEquals("legacy-gladio",
             ArmClientRendererCatalog.resolvePersisted(
                 "legacy-gladio", ArmClientRendererCatalog.SELECTION_SCHEMA,
             ))
-        assertEquals(ArmClientRenderer.MESA_VIRGL,
+        assertEquals("mesa-virgl",
             ArmClientRendererCatalog.resolvePersisted(
                 "mesa-virgl", ArmClientRendererCatalog.SELECTION_SCHEMA,
             ))
-        assertEquals(ArmClientRenderer.DXVK,
+        assertEquals(ArmClientRendererCatalog.AUTO_ID,
             ArmClientRendererCatalog.resolvePersisted(
                 "unknown", ArmClientRendererCatalog.SELECTION_SCHEMA,
             ))
+    }
+
+    @Test
+    fun resolveVulkanDriverIdFailsClosedForUnknownManualIds() {
+        // Host JVM has no ro.hardware.egl, so the detected vendor decides the
+        // auto default; both branches must resolve, never fail open.
+        val vendorDefault = VulkanDriverCatalog.autoDriverId(ArmRendererAuto.isAdrenoGpu())
+        assertEquals(vendorDefault, ArmRendererAuto.resolveVulkanDriverId("auto"))
+        assertEquals(vendorDefault, ArmRendererAuto.resolveVulkanDriverId(null))
+        assertEquals(
+            VulkanDriverCatalog.TURNIP_26_1,
+            ArmRendererAuto.resolveVulkanDriverId(VulkanDriverCatalog.TURNIP_26_1),
+        )
+        assertEquals(null, ArmRendererAuto.resolveVulkanDriverId("future-driver"))
     }
 
     @Test

@@ -566,8 +566,8 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
             }
             val gladioClient = File(assetRoot,
                 "arm-translated/renderer-packages/box64-gladio-eaa2a8d/libGL.so.1")
-            check(gladioClient.length() == 498_616L && sha256(gladioClient) ==
-                "85af99dcd3320197537e35ea0eeece24cb3fdbb4279a763def534286cb21a866") {
+            check(gladioClient.length() == 498_656L && sha256(gladioClient) ==
+                "c02fb7275463bebcc3aa3fcf3e8e6de668bd2e6f39bda57052d3352801636d08") {
                 "Gladio client differs from its source-matched reviewed artifact"
             }
             requireAbi(gladioClient)
@@ -702,7 +702,16 @@ android {
     defaultConfig {
         applicationId = "com.pocketrealm"
         minSdk = 26
-        targetSdk = 35
+        // Legacy target on purpose: targetSdk >= 29 places the app in the
+        // strict untrusted_app SELinux domain, whose policy denies execmod on
+        // app_data_file. Wine's PE loader maps x86_64-windows DLLs privately,
+        // applies relocations, then mprotects .text to PROT_EXEC - the
+        // modify-then-execute pattern SELinux gates with execmod. Verified on
+        // Pixel 6a / Android 17 (avc denied { execmod } ntdll.dll, wine exits
+        // 1 in ~4s); Android 13 (Retroid) policy allows it. targetSdk 27 runs
+        // the app in the legacy permissive domain, matching how Winlator and
+        // other on-device emulators ship.
+        targetSdk = (project.findProperty("pocketTargetSdk") as String?)?.toInt() ?: 27
         versionCode = 1
         versionName = "0.1.0"
         buildConfigField(

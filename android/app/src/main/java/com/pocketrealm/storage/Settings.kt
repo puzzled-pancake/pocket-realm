@@ -16,6 +16,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.pocketrealm.bots.BotAdvancedSettings
 import com.pocketrealm.bots.BotProfiles
 import com.pocketrealm.client.ArmTranslationBackend
+import com.pocketrealm.client.ArmRendererAuto
 import com.pocketrealm.client.ArmClientRenderer
 import com.pocketrealm.client.ArmClientRendererCatalog
 import com.pocketrealm.client.ClientTweaksConfig
@@ -52,7 +53,9 @@ internal const val POCKET_SETTINGS_FILE_NAME = "$POCKET_SETTINGS_STORE_NAME.pref
 internal fun pocketSettingsDataFile(context: Context): File =
     context.applicationContext.preferencesDataStoreFile(POCKET_SETTINGS_STORE_NAME)
 
-internal fun vulkanSelectionMigration(deviceModel: String): DataMigration<Preferences> =
+internal fun vulkanSelectionMigration(
+    adrenoGpu: Boolean = ArmRendererAuto.isAdrenoGpu(),
+): DataMigration<Preferences> =
     object : DataMigration<Preferences> {
         override suspend fun shouldMigrate(currentData: Preferences): Boolean =
             resolve(currentData).migrated
@@ -77,22 +80,34 @@ internal fun vulkanSelectionMigration(deviceModel: String): DataMigration<Prefer
             VulkanDriverCatalog.resolvePersistedSelection(
                 requestedId = currentData[vulkanDriverPreference],
                 selectionSchema = currentData[vulkanSelectionSchemaPreference] ?: 0,
-                deviceModel = deviceModel,
+                adrenoGpu = adrenoGpu,
             )
     }
 
 /** Complete-schema migration: partial/older renderer choices must not reactivate. */
 internal fun rendererSelectionMigration(): DataMigration<Preferences> =
     object : DataMigration<Preferences> {
-        override suspend fun shouldMigrate(currentData: Preferences): Boolean =
-            currentData[rendererSelectionSchemaPreference] !=
-                ArmClientRendererCatalog.SELECTION_SCHEMA ||
-                ArmClientRendererCatalog.find(currentData[rendererPreference]) == null
+        override suspend fun shouldMigrate(currentData: Preferences): Boolean {
+            if (currentData[rendererSelectionSchemaPreference] !=
+                ArmClientRendererCatalog.SELECTION_SCHEMA
+            ) return true
+            val stored = currentData[rendererPreference]
+            return !ArmClientRendererCatalog.isAutoSelection(stored) &&
+                ArmClientRendererCatalog.find(stored) == null
+        }
 
         override suspend fun migrate(currentData: Preferences): Preferences {
             if (!shouldMigrate(currentData)) return currentData
+            val stored = currentData[rendererPreference]
+            val resolved = if (ArmClientRendererCatalog.isAutoSelection(stored)) {
+                ArmClientRendererCatalog.AUTO_ID
+            } else {
+                ArmClientRendererCatalog.resolvePersisted(
+                    stored, currentData[rendererSelectionSchemaPreference] ?: 0,
+                )
+            }
             return currentData.toMutablePreferences().apply {
-                this[rendererPreference] = ArmClientRenderer.DXVK.id
+                this[rendererPreference] = resolved
                 this[rendererSelectionSchemaPreference] =
                     ArmClientRendererCatalog.SELECTION_SCHEMA
             }
@@ -125,7 +140,7 @@ private object PocketSettingsStore {
         return MultiProcessDataStoreFactory.create(
             storage = storage,
             migrations = listOf(
-                vulkanSelectionMigration(Build.MODEL),
+                vulkanSelectionMigration(),
                 rendererSelectionMigration(),
             ),
             scope = scope,
@@ -241,7 +256,7 @@ class Settings(private val context: Context) {
         val clientFrameCap: Int = ClientFrameCap.FPS_30.fps,
         val armRendererId: String = ArmClientRendererCatalog.DEFAULT_ID,
         val box64DxvkPackageId: String = RendererPackageCatalog.BOX64_DEFAULT,
-        val armVulkanDriverId: String = VulkanDriverCatalog.RELEASE_DEFAULT,
+        val armVulkanDriverId: String = VulkanDriverCatalog.AUTO_ID,
         val rendererSelectionNotice: String? = null,
         val displaySelectionNotice: String? = null,
         val botProfileId: String = BotProfiles.defaultProfile.id,
@@ -263,12 +278,22 @@ class Settings(private val context: Context) {
         val runtimeMode: RuntimeMode = RuntimeMode.LOCAL,
         val allowLanPlayers: Boolean = false,
     ) {
-        fun selectedArmRenderer(): ArmClientRenderer =
-            ArmClientRendererCatalog.requireSelection(armRendererId)
+        /** Persisted selection; [ArmClientRendererCatalog.AUTO_ID] is allowed. */
+        fun selectedArmRendererId(): String = armRendererId
+
+        fun isAutoRenderer(): Boolean =
+            ArmClientRendererCatalog.isAutoSelection(armRendererId)
+
+        fun effectiveRenderer(): ArmClientRenderer =
+            if (isAutoRenderer()) ArmRendererAuto.resolve()
+            else ArmClientRendererCatalog.requireSelection(armRendererId)
 
         fun selectedDxvkPackageId(): String = box64DxvkPackageId
 
         fun selectedVulkanDriverId(): String = armVulkanDriverId
+
+        fun effectiveVulkanDriverId(): String =
+            ArmRendererAuto.resolveVulkanDriverId(armVulkanDriverId) ?: armVulkanDriverId
 
         fun displaySelection(): ClientDisplaySelection = ClientDisplaySelection.nominal(
             ClientDisplayProfile.requireId(displayProfileId),
@@ -301,7 +326,7 @@ class Settings(private val context: Context) {
             prefs[Keys.VULKAN_DRIVER] = next.armVulkanDriverId
             prefs[Keys.VULKAN_SELECTION_SCHEMA] = VulkanDriverCatalog.SELECTION_SCHEMA
             prefs.remove(Keys.VULKAN_MIGRATION_NOTICE)
-            prefs[Keys.RENDERER] = next.selectedArmRenderer().id
+            prefs[Keys.RENDERER] = next.armRendererId
             prefs[Keys.RENDERER_SCHEMA] = ArmClientRendererCatalog.SELECTION_SCHEMA
             // Removed provider choices are not written back. Any settings write
             // completes their migration after reads have resolved Box64.
@@ -513,39 +538,40 @@ class Settings(private val context: Context) {
             ArmTranslationBackend.BOX64, requestedBox64,
         )
         val requestedVulkanDriver = this[Keys.VULKAN_DRIVER]
+        val adrenoGpu = ArmRendererAuto.isAdrenoGpu()
         val persistedVulkan = VulkanDriverCatalog.resolvePersistedSelection(
             requestedId = requestedVulkanDriver,
             selectionSchema = this[Keys.VULKAN_SELECTION_SCHEMA] ?: 0,
-            deviceModel = Build.MODEL,
+            adrenoGpu = adrenoGpu,
         )
         val vulkanDriver = persistedVulkan.driverId
-        val vulkanAvailability = VulkanDriverCatalog.availability(vulkanDriver, Build.MODEL)
+        val vulkanAvailability = VulkanDriverCatalog.availability(vulkanDriver, adrenoGpu)
         val rendererSchema = this[Keys.RENDERER_SCHEMA] ?: 0
-        val persistedRenderer = ArmClientRendererCatalog.resolvePersisted(
+        val persistedRendererId = ArmClientRendererCatalog.resolvePersisted(
             this[Keys.RENDERER], rendererSchema,
         )
-        val renderer = persistedRenderer.takeIf {
-            Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a" || it == ArmClientRenderer.DXVK
-        } ?: ArmClientRenderer.DXVK
+        // Non-ARM64 builds cannot package the GL bridges; they keep DXVK.
+        val rendererId = persistedRendererId.takeIf {
+            Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a" ||
+                it == ArmClientRendererCatalog.AUTO_ID ||
+                it == ArmClientRenderer.DXVK.id
+        } ?: ArmClientRenderer.DXVK.id
         val removedProvider = this[Keys.PROVIDER]?.takeIf { it != "BOX64" }
         val removedRenderer = this[Keys.RENDERER]?.takeIf {
-            rendererSchema != ArmClientRendererCatalog.SELECTION_SCHEMA &&
+            rendererSchema < 2 &&
                 !it.equals("DXVK", ignoreCase = true)
         }
         val packageChanged = requestedBox64?.takeIf { it != box64Package }
-        val persistedVulkanNotice = VulkanDriverCatalog.RP6_SYSTEM_MIGRATION_NOTICE.takeIf {
-            this[Keys.VULKAN_MIGRATION_NOTICE] == 1
-        }
         val selectionNotice = when {
-            persistedVulkanNotice != null -> persistedVulkanNotice
-            persistedVulkan.migrated -> persistedVulkan.notice
             removedProvider != null || removedRenderer != null ->
                 "A removed client runtime selection was migrated to Box64 + DXVK ($box64Package)."
             packageChanged != null ->
                 "The saved DXVK package is unavailable; using $box64Package."
-            renderer == ArmClientRenderer.DXVK && VulkanDriverCatalog.find(vulkanDriver) == null ->
+            rendererId == ArmClientRenderer.DXVK.id &&
+                vulkanDriver != VulkanDriverCatalog.AUTO_ID &&
+                VulkanDriverCatalog.find(vulkanDriver) == null ->
                 "The saved Vulkan driver is unknown. Choose an available packaged driver before launch."
-            renderer == ArmClientRenderer.DXVK && !vulkanAvailability.available ->
+            rendererId == ArmClientRenderer.DXVK.id && !vulkanAvailability.available ->
                 vulkanAvailability.reason
             else -> null
         }
@@ -564,7 +590,7 @@ class Settings(private val context: Context) {
         return Snapshot(
         displayProfileId = displayProfile.id,
         clientFrameCap = frameCap.fps,
-        armRendererId = renderer.id,
+        armRendererId = rendererId,
         box64DxvkPackageId = box64Package,
         armVulkanDriverId = vulkanDriver,
         rendererSelectionNotice = selectionNotice,

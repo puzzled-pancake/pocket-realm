@@ -224,13 +224,13 @@ class ClientBuild5875LoginTest {
     private fun requestedVulkanDriver(): String? {
         if (Build.SUPPORTED_ABIS.firstOrNull() != "arm64-v8a") return null
         val requested = InstrumentationRegistry.getArguments().getString("pocketVulkanDriver")
-            ?: VulkanDriverCatalog.normalize(null, Build.MODEL)
+            ?: VulkanDriverCatalog.normalize(null, ArmRendererAuto.isAdrenoGpu())
         val driver = VulkanDriverCatalog.requireForRequest(requested)
         val renderer = requireNotNull(RendererPackageCatalog.find(rendererPackageId))
         return VulkanDriverCatalog.requireAvailableCompatiblePair(
             requested,
             renderer,
-            Build.MODEL,
+            ArmRendererAuto.isAdrenoGpu(),
             if (driver.kind == VulkanDriverKind.SYSTEM) {
                 AndroidSystemVulkanProbe.probe()
             } else null,

@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import android.os.Build
 import com.pocketrealm.bots.BotSelection
 import com.pocketrealm.client.AndroidGladioCapabilityProbe
+import com.pocketrealm.client.ArmRendererAuto
 import com.pocketrealm.client.AndroidSystemVulkanProbe
 import com.pocketrealm.client.ArmClientRenderer
 import com.pocketrealm.client.ArmClientRendererCatalog
@@ -81,21 +82,23 @@ fun LanScreen() {
     // renderer stack is unavailable on this device. The Vulkan/DXVK pair only
     // applies to DXVK — the OpenGL renderers never load it.
     val clientUnavailableReason = if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
-        when (snapshot.selectedArmRenderer()) {
-            ArmClientRenderer.DXVK -> VulkanDriverCatalog.availabilityForPair(
-                snapshot.selectedVulkanDriverId(),
+        when (snapshot.selectedArmRendererId()) {
+            ArmClientRendererCatalog.AUTO_ID -> null
+            "dxvk" -> VulkanDriverCatalog.availabilityForPair(
+                snapshot.effectiveVulkanDriverId(),
                 snapshot.selectedDxvkPackageId(),
-                Build.MODEL,
+                ArmRendererAuto.isAdrenoGpu(),
                 systemVulkanProbe?.getOrNull(),
             ).takeUnless { it.available }?.reason
-            ArmClientRenderer.LEGACY_GLADIO -> ArmClientRendererCatalog.availability(
+            "legacy-gladio" -> ArmClientRendererCatalog.availability(
                 ArmClientRenderer.LEGACY_GLADIO, gladioProbe,
                 Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
             ).takeUnless { it.available }?.reason
-            ArmClientRenderer.MESA_VIRGL -> ArmClientRendererCatalog.availability(
+            "mesa-virgl" -> ArmClientRendererCatalog.availability(
                 ArmClientRenderer.MESA_VIRGL, gladioProbe,
                 Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
             ).takeUnless { it.available }?.reason
+            else -> null
         }
     } else null
     val realmBusy = !(state is RealmState.Idle || state is RealmState.Failed ||

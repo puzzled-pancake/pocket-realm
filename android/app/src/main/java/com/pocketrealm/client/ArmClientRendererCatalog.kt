@@ -27,7 +27,7 @@ enum class ArmClientRenderer(
         id = "legacy-gladio",
         runtimeRenderer = "opengl",
         label = "Legacy OpenGL (Gladio)",
-        summary = "Experimental desktop OpenGL-to-Android GLES bridge for devices where Vulkan is unsuitable.",
+        summary = "Very experimental desktop OpenGL-to-Android GLES bridge; manual-only, never selected automatically.",
         experimental = true,
         packaged = true,
     ),
@@ -35,7 +35,7 @@ enum class ArmClientRenderer(
         id = "mesa-virgl",
         runtimeRenderer = "virgl",
         label = "Mesa VirGL",
-        summary = "Experimental Mesa virpipe client with the source-matched Android VirGL GLES server.",
+        summary = "Very experimental Mesa virpipe client with the source-matched Android VirGL GLES server; manual-only.",
         experimental = true,
         packaged = true,
     ),
@@ -64,14 +64,17 @@ data class GladioCapability(
 
 /** Closed ARM renderer catalog. No arbitrary path, URL, or binary can be selected. */
 object ArmClientRendererCatalog {
-    const val SELECTION_SCHEMA = 2
-    const val DEFAULT_ID = "dxvk"
+    const val SELECTION_SCHEMA = 3
+
+    /** Winlator-style automatic selection; see [ArmRendererAuto]. */
+    const val AUTO_ID = "auto"
+    const val DEFAULT_ID = AUTO_ID
     const val GLADIO_PACKAGE_ID = "box64-gladio-eaa2a8d"
-    const val GLADIO_BUILD_ID = "gladio-eaa2a8d-arm64-glibc-gles-v6"
+    const val GLADIO_BUILD_ID = "gladio-eaa2a8d-arm64-glibc-gles-v7"
     const val GLADIO_CLIENT_ASSET =
         "arm-translated/renderer-packages/$GLADIO_PACKAGE_ID/libGL.so.1"
     const val GLADIO_CLIENT_SHA256 =
-        "85af99dcd3320197537e35ea0eeece24cb3fdbb4279a763def534286cb21a866"
+        "c02fb7275463bebcc3aa3fcf3e8e6de668bd2e6f39bda57052d3352801636d08"
     const val GLADIO_SERVER_BUILD_ID = "gladio-eaa2a8d-android-gles-server-f6f6a5db"
     const val GLADIO_SERVER_SHA256 =
         "f6f6a5db3ab2169d6ce4157f46be25d7fb06c42daf535861244f2ff4d1c687d7"
@@ -96,10 +99,20 @@ object ArmClientRendererCatalog {
         it.id == id
     }
 
-    /** Old renderer values never reactivate an experimental lane automatically. */
-    fun resolvePersisted(id: String?, schema: Int): ArmClientRenderer =
-        if (schema == SELECTION_SCHEMA) find(id) ?: ArmClientRenderer.DXVK
-        else ArmClientRenderer.DXVK
+    fun isAutoSelection(id: String?): Boolean = id == null || id == AUTO_ID
+
+    /**
+     * Schema 3 adds the Winlator-style "auto" selection. Older schemas keep
+     * their exact renderer when one is stored; missing values become "auto".
+     */
+    fun resolvePersisted(id: String?, schema: Int): String =
+        if (schema == SELECTION_SCHEMA || schema == 2) {
+            when {
+                isAutoSelection(id) -> AUTO_ID
+                find(id) != null -> id!!
+                else -> AUTO_ID
+            }
+        } else AUTO_ID
 
     fun requireSelection(id: String): ArmClientRenderer = requireNotNull(find(id)) {
         "unknown ARM client renderer: $id"

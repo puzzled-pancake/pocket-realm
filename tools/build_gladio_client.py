@@ -87,7 +87,7 @@ PHASE4_FILE_SHA256 = {
     "include/ring_buffer.h":
         "49e298c6d638e1be4db913d452e95bb6b6a61f1b42b447bc1f18b11dc661a40b",
     "src/ring_buffer.c":
-        "7c9c61a6bddbaf29c6af92f6979e1609de83e1b2aa6f6f8bef06062fda6400b4",
+        "89c01bce630ff67c9a1663ac74fc6bd704b89f162c5367a96f7740d43ada5646",
     "src/gl_calls.c":
         "0524588dd61c28cdae80859f49769e11e5b848ecd7cf1bb9fba3ea5edffe4935",
     "src/main.c":
@@ -118,7 +118,7 @@ def select_target(abi: str) -> None:
         machine = 183
         compiler = "aarch64-linux-gnu-gcc"
         loader = "ld-linux-aarch64.so.1"
-        expected_sha256 = "85af99dcd3320197537e35ea0eeece24cb3fdbb4279a763def534286cb21a866"
+        expected_sha256 = "c02fb7275463bebcc3aa3fcf3e8e6de668bd2e6f39bda57052d3352801636d08"
     else:
         raise ValueError(f"unsupported Gladio target ABI: {abi}")
 

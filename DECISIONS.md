@@ -316,3 +316,51 @@ The coordinated plan and verification notes live in
   Acceptance per the agent's thresholds: 10 minutes / ≥18,000 presented
   frames with zero send-failed / corrupt-occupancy / EXIT messages; D1 and
   D2 diagnostics only as separate follow-up A/B runs.
+
+## Winlator-style graphics auto-selection (2026-08-16, schema 4 / renderer schema 3)
+
+- **What shipped:** replaced the RP6-model-gated Vulkan driver qualification with
+  wow-mobile/Winlator's auto-selection. New `ArmRendererAuto`: Adreno (via the
+  `ro.hardware.egl` system property, no EGL needed) resolves auto→DXVK with the
+  packaged Turnip ICD; other GPUs resolve auto→DXVK over the system Vortek
+  bridge when the `AndroidSystemVulkanProbe` capability check passes (3s
+  watchdog, cached per process), else fall back to Legacy OpenGL (Gladio).
+  "Auto" is the new default for both the renderer and the Vulkan driver
+  selections; every renderer and both drivers (Turnip, System Vortek) are
+  selectable in Settings with no grey-outs or device-model error strings.
+  Manual selections remain exact and fail closed (unknown persisted driver ids
+  are reported, never substituted).
+- **Migrations:** VulkanDriverCatalog schema 3→4 (pre-4 Adreno System
+  selections still migrate to Turnip; "auto" persists as "auto");
+  ArmClientRendererCatalog schema 2→3 (unknown/missing renderers resolve to
+  "auto"). `vulkanSelectionMigration` now derives the GPU vendor itself.
+- **Also in this build:** gladio client v7 (498656 B, sha256
+  `c02fb7275463bebcc3aa3fcf3e8e6de668bd2e6f39bda57052d3352801636d08`) and the
+  ring backoff fix restoring the upstream 100 us wait cadence on both ends
+  (the phase-2 2 ms cap throttled the request pipeline to ~4k req/s); the
+  server-side fix rides in libwinlator.so. Graphics-work backup lives at
+  `C:\pocket_realm_graphics_backup\`.
+- **Review:** three independent reviewer passes; 5 findings fixed (probe
+  package id, preflight validated the wrong renderer, dead main-thread probe
+  call, unknown-driver substitution, x86_64 wasted probe); final pass reported
+  no findings. Unit suite green, androidTest compilation green.
+
+## wow-mobile default without capability gates; OpenGL manual-only (2026-08-16)
+
+- **Trigger:** auto on the Pixel 6a (Mali-G78) resolved to Legacy OpenGL and
+  crashed the client. Root cause was our own hardening gate, not the hardware:
+  `VulkanDriverCatalog.compatibility()` required `textureCompressionBC` (Mali
+  reports VK_FALSE) plus 8 mandatory device extensions, so auto fell back to
+  Gladio. wow-mobile (the reference Winlator fork) runs the system Vortek
+  bridge on Mali with no such gate.
+- **Change:** `compatibility()` now gates only on the DXVK package's Vulkan
+  API-version floor (2.4.1 → 1.3, 1.10.3 → 1.1); the BC check, extension-set
+  check, and `VORTEK_REQUIRED_DEVICE_EXTENSIONS` are deleted. Auto resolution
+  is always DXVK — Legacy OpenGL (Gladio) and Mesa VirGL are manual-only
+  "Experimental renderers" behind a Settings disclosure and are never chosen
+  automatically. Auto degrades the DXVK package 2.4.1→1.10.3 when the device
+  Vulkan is older than 2.4.1's floor (logged via AppLog.w); manual selections
+  keep exact fail-closed semantics. A broken/absent Vulkan probe keeps the
+  selection unchanged so launch fails closed on the real probe error.
+- **Review:** fresh code-reviewer pass reported NO FINDINGS; unit suite
+  green; APK installed on the Pixel 6a 2026-08-16.

@@ -31,7 +31,7 @@ class SettingsDataStoreTest {
 
     @Test
     fun schemaOneMarkedTurnipIsPreservedAndMigrationIsIdempotent() = runTest {
-        val migration = vulkanSelectionMigration("Retroid Pocket 6")
+        val migration = vulkanSelectionMigration(adrenoGpu = true)
         val legacy = mutablePreferencesOf(
             driverKey to VulkanDriverCatalog.TURNIP_26_1,
             schemaKey to 1,
@@ -50,7 +50,7 @@ class SettingsDataStoreTest {
 
     @Test
     fun schemaOneExplicitTurnipIsPreservedWhileSchemaIsStamped() = runTest {
-        val migration = vulkanSelectionMigration("Retroid Pocket 6")
+        val migration = vulkanSelectionMigration(adrenoGpu = true)
         val explicit = mutablePreferencesOf(
             driverKey to VulkanDriverCatalog.TURNIP_26_1,
             schemaKey to 1,
@@ -64,7 +64,7 @@ class SettingsDataStoreTest {
 
     @Test
     fun schemaTwoRp6SystemMigratesOnceToTurnipAndPreservesOtherSettings() = runTest {
-        val migration = vulkanSelectionMigration("Retroid Pocket 6")
+        val migration = vulkanSelectionMigration(adrenoGpu = true)
         val prior = mutablePreferencesOf(
             driverKey to VulkanDriverCatalog.SYSTEM_DEFAULT,
             schemaKey to 2,
@@ -75,26 +75,25 @@ class SettingsDataStoreTest {
         val migrated = migration.migrate(prior)
         assertEquals(VulkanDriverCatalog.TURNIP_26_1, migrated[driverKey])
         assertEquals(VulkanDriverCatalog.SELECTION_SCHEMA, migrated[schemaKey])
-        assertEquals(1, migrated[noticeKey])
+        assertEquals(null, migrated[noticeKey])
         assertEquals("kept-account", migrated[unrelatedKey])
         assertFalse(migration.shouldMigrate(migrated))
         assertEquals(migrated, migration.migrate(migrated))
     }
 
     @Test
-    fun missingRp6SelectionMigratesToTurnipWithVisibleNoticeMarker() = runTest {
-        val migration = vulkanSelectionMigration("Retroid Pocket 6")
+    fun missingSelectionMigratesToVendorDefault() = runTest {
+        val migration = vulkanSelectionMigration(adrenoGpu = true)
         val empty = mutablePreferencesOf(unrelatedKey to "kept-account")
 
         val migrated = migration.migrate(empty)
         assertEquals(VulkanDriverCatalog.TURNIP_26_1, migrated[driverKey])
         assertEquals(VulkanDriverCatalog.SELECTION_SCHEMA, migrated[schemaKey])
-        assertEquals(1, migrated[noticeKey])
         assertEquals("kept-account", migrated[unrelatedKey])
     }
 
     @Test
-    fun partialRendererSchemasResetToDxvkOnceAndPreserveOtherSettings() = runTest {
+    fun partialRendererSchemasResetToAutoOnceAndPreserveOtherSettings() = runTest {
         val migration = rendererSelectionMigration()
         for (legacy in listOf("legacy-gladio", "mesa-virgl", "unknown")) {
             val prior = mutablePreferencesOf(
@@ -104,7 +103,7 @@ class SettingsDataStoreTest {
             )
             assertTrue(migration.shouldMigrate(prior))
             val migrated = migration.migrate(prior)
-            assertEquals(ArmClientRenderer.DXVK.id, migrated[rendererKey])
+            assertEquals(ArmClientRendererCatalog.AUTO_ID, migrated[rendererKey])
             assertEquals(ArmClientRendererCatalog.SELECTION_SCHEMA, migrated[rendererSchemaKey])
             assertEquals("kept-account", migrated[unrelatedKey])
             assertFalse(migration.shouldMigrate(migrated))
@@ -112,7 +111,7 @@ class SettingsDataStoreTest {
         }
         val missing = mutablePreferencesOf(unrelatedKey to "kept-account")
         val migratedMissing = migration.migrate(missing)
-        assertEquals(ArmClientRenderer.DXVK.id, migratedMissing[rendererKey])
+        assertEquals(ArmClientRendererCatalog.AUTO_ID, migratedMissing[rendererKey])
         assertEquals(
             ArmClientRendererCatalog.SELECTION_SCHEMA,
             migratedMissing[rendererSchemaKey],

@@ -367,13 +367,13 @@
  #include <sys/mman.h>
  
  #include "ring_buffer.h"
-@@ -27,6 +30,71 @@
+@@ -27,6 +30,73 @@
  #define debug_printf(...) fprintf(stderr, __VA_ARGS__)
  #endif
  
 +#define RING_WAIT_YIELD_ITERATIONS 64u
-+#define RING_WAIT_INITIAL_SLEEP_US 125u
-+#define RING_WAIT_MAX_SLEEP_US 2000u
++#define RING_WAIT_INITIAL_SLEEP_US 100u
++#define RING_WAIT_MAX_SLEEP_US 100u
 +
 +static atomic_bool ringFailureLogged = false;
 +
@@ -392,9 +392,11 @@
 +
 +/*
 + * The wire format has no cross-process wake event. Yield during the normal
-+ * producer/consumer hand-off window, then sleep briefly on the transport fd.
-+ * POLLHUP/POLLERR/POLLNVAL lets a blocked GL call terminate when the X11 peer
-+ * is gone instead of waiting forever for shared-memory head/tail movement.
++ * producer/consumer hand-off window, then poll the transport fd at the
++ * upstream 100 us cadence (the phase-2 2 ms cap throttled the pipeline to
++ * ~4k requests/second; 100 us restores ~36k). POLLHUP/POLLERR/POLLNVAL lets
++ * a blocked GL call terminate when the X11 peer is gone instead of waiting
++ * forever for shared-memory head/tail movement.
 + */
 +static bool RingBuffer_backoff(RingBuffer* ring, uint32_t* iteration) {
 +    if (ring->peerFd < 0) {
@@ -439,7 +441,7 @@
  void RingBuffer_setHead(RingBuffer* ring, uint32_t head) {
      atomic_store_explicit(ring->head, head, memory_order_release);
  }
-@@ -36,7 +104,7 @@ uint32_t RingBuffer_getHead(RingBuffer* ring) {
+@@ -36,7 +106,7 @@ uint32_t RingBuffer_getHead(RingBuffer* ring) {
  }
  
  void RingBuffer_setTail(RingBuffer* ring, uint32_t tail) {
@@ -448,7 +450,7 @@
  }
  
  uint32_t RingBuffer_getTail(RingBuffer* ring) {
-@@ -52,86 +120,158 @@ void RingBuffer_unsetStatus(RingBuffer* ring, uint32_t status) {
+@@ -52,86 +122,158 @@ void RingBuffer_unsetStatus(RingBuffer* ring, uint32_t status) {
  }
  
  bool RingBuffer_hasStatus(RingBuffer* ring, uint32_t status) {
@@ -637,7 +639,7 @@
      return bufferSize + offsetof(struct Offsets, buffer);
  }
  
-@@ -148,23 +288,55 @@ void RingBuffer_free(RingBuffer* ring) {
+@@ -148,23 +290,55 @@ void RingBuffer_free(RingBuffer* ring) {
  }
  
  bool RingBuffer_waitForRead(RingBuffer* ring, uint32_t size) {

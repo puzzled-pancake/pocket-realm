@@ -156,7 +156,7 @@ class ClientRuntimeService : Service() {
                     VulkanDriverCatalog.requireAvailableCompatiblePair(
                         vulkanDriverId,
                         rendererPackage,
-                        Build.MODEL,
+                        ArmRendererAuto.isAdrenoGpu(),
                         if (requestedDriver.kind == VulkanDriverKind.SYSTEM) {
                             AndroidSystemVulkanProbe.probe()
                         } else null,

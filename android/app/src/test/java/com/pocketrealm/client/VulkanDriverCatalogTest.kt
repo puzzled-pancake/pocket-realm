@@ -18,66 +18,62 @@ class VulkanDriverCatalogTest {
 
     @Test
     fun runtimeCatalogIsTheGeneratedClosedReviewedCatalog() {
-        assertEquals(VulkanDriverCatalog.RELEASE_DEFAULT, GeneratedVulkanDriverCatalog.DEFAULT_ID)
+        assertEquals(VulkanDriverCatalog.TURNIP_26_1, GeneratedVulkanDriverCatalog.DEFAULT_ID)
         assertEquals("exact-request-fail-closed", GeneratedVulkanDriverCatalog.SELECTION_POLICY)
         assertEquals(GeneratedVulkanDriverCatalog.packages, VulkanDriverCatalog.all())
     }
 
     @Test
-    fun releaseDefaultIsQualifiedTurnipAndSystemIsNotInNormalRp6Choices() {
+    fun winlatorAutoDefaultFollowsTheGpuVendor() {
         assertEquals(VulkanDriverCatalog.TURNIP_26_1, VulkanDriverCatalog.default().id)
         assertEquals(
             VulkanDriverCatalog.TURNIP_26_1,
-            VulkanDriverCatalog.normalize(null, "Retroid Pocket 6"),
+            VulkanDriverCatalog.normalize(null, adrenoGpu = true),
         )
         assertEquals(
-            listOf(VulkanDriverCatalog.TURNIP_26_1),
-            VulkanDriverCatalog.userSelectable("Retroid Pocket 6").map { it.id },
+            VulkanDriverCatalog.SYSTEM_DEFAULT,
+            VulkanDriverCatalog.normalize(null, adrenoGpu = false),
+        )
+        assertEquals(
+            listOf(VulkanDriverCatalog.SYSTEM_DEFAULT, VulkanDriverCatalog.TURNIP_26_1),
+            VulkanDriverCatalog.userSelectable().map { it.id }.sorted(),
         )
     }
 
     @Test
-    fun systemVortekIsRetainedButExperimentalAndFailsTheReleaseGate() {
+    fun systemVortekIsSelectableAndAvailabilityNeverGatesOnDeviceModel() {
         val availability = VulkanDriverCatalog.availability(
             VulkanDriverCatalog.SYSTEM_DEFAULT,
-            "Pixel 10",
+            adrenoGpu = false,
         )
-        assertFalse(availability.available)
-        assertEquals(VulkanDriverCatalog.SYSTEM_EXPERIMENTAL_REASON, availability.reason)
-        assertTrue(runCatching {
+        assertTrue(availability.available)
+        assertEquals(
+            VulkanDriverCatalog.SYSTEM_DEFAULT,
             VulkanDriverCatalog.requireAvailableForRequest(
                 VulkanDriverCatalog.SYSTEM_DEFAULT,
-                "Pixel 10",
-            )
-        }.isFailure)
-        assertTrue(runCatching {
-            VulkanDriverCatalog.requireAvailableCompatiblePair(
-                VulkanDriverCatalog.SYSTEM_DEFAULT,
-                modernDxvk,
-                "Pixel 10",
-            )
-        }.isFailure)
+                adrenoGpu = false,
+            ).id,
+        )
     }
 
     @Test
-    fun turnipIsAcceptedOnlyOnQualifiedRp6Lane() {
+    fun turnipRunsOnAdrenoGpusOnly() {
         assertEquals(
             VulkanDriverCatalog.TURNIP_26_1,
             VulkanDriverCatalog.requireAvailableForRequest(
                 VulkanDriverCatalog.TURNIP_26_1,
-                "Retroid Pocket 6",
+                adrenoGpu = true,
             ).id,
         )
         val other = VulkanDriverCatalog.availability(
             VulkanDriverCatalog.TURNIP_26_1,
-            "Pixel 10",
+            adrenoGpu = false,
         )
         assertFalse(other.available)
-        assertEquals(VulkanDriverCatalog.TURNIP_UNQUALIFIED_REASON, other.reason)
         assertTrue(runCatching {
             VulkanDriverCatalog.requireAvailableForRequest(
                 VulkanDriverCatalog.TURNIP_26_1,
-                "Pixel 10",
+                adrenoGpu = false,
             )
         }.isFailure)
     }
@@ -88,30 +84,36 @@ class VulkanDriverCatalogTest {
             VulkanDriverCatalog.SYSTEM_DEFAULT,
             VulkanDriverCatalog.normalize(
                 VulkanDriverCatalog.SYSTEM_DEFAULT,
-                "Retroid Pocket 6",
+                adrenoGpu = true,
             ),
         )
         assertEquals(
             "future-driver",
-            VulkanDriverCatalog.normalize("future-driver", "Retroid Pocket 6"),
+            VulkanDriverCatalog.normalize("future-driver", adrenoGpu = true),
         )
         assertEquals(
             VulkanDriverCatalog.TURNIP_26_1,
-            VulkanDriverCatalog.normalize(null, "Retroid Pocket 6"),
+            VulkanDriverCatalog.normalize(null, adrenoGpu = true),
+        )
+        assertEquals(
+            VulkanDriverCatalog.TURNIP_26_1,
+            VulkanDriverCatalog.normalize(
+                VulkanDriverCatalog.AUTO_ID,
+                adrenoGpu = true,
+            ),
         )
     }
 
     @Test
-    fun preSchemaRp6SystemMigratesOnceToQualifiedTurnipWithNotice() {
+    fun preSchemaAdrenoSystemMigratesOnceToTurnip() {
         for (legacy in listOf(null, VulkanDriverCatalog.SYSTEM_DEFAULT)) {
             val resolved = VulkanDriverCatalog.resolvePersistedSelection(
                 requestedId = legacy,
                 selectionSchema = 0,
-                deviceModel = "Retroid Pocket 6",
+                adrenoGpu = true,
             )
             assertEquals(VulkanDriverCatalog.TURNIP_26_1, resolved.driverId)
             assertTrue(resolved.migrated)
-            assertEquals(VulkanDriverCatalog.RP6_SYSTEM_MIGRATION_NOTICE, resolved.notice)
         }
     }
 
@@ -120,67 +122,71 @@ class VulkanDriverCatalogTest {
         val marked = VulkanDriverCatalog.resolvePersistedSelection(
             requestedId = VulkanDriverCatalog.TURNIP_26_1,
             selectionSchema = 1,
-            deviceModel = "Retroid Pocket 6",
+            adrenoGpu = true,
         )
         assertEquals(VulkanDriverCatalog.TURNIP_26_1, marked.driverId)
         assertTrue(marked.migrated)
-        assertEquals(null, marked.notice)
     }
 
     @Test
-    fun migrationPreservesUnknownAndNonRp6IdentitiesExactly() {
+    fun migrationPreservesUnknownIdentitiesExactly() {
         val unknown = VulkanDriverCatalog.resolvePersistedSelection(
             requestedId = "future-custom-driver",
             selectionSchema = 2,
-            deviceModel = "Retroid Pocket 6",
+            adrenoGpu = true,
         )
         assertEquals("future-custom-driver", unknown.driverId)
         assertTrue(unknown.migrated)
-        assertEquals(null, unknown.notice)
 
-        val nonRp6System = VulkanDriverCatalog.resolvePersistedSelection(
+        val nonAdrenoSystem = VulkanDriverCatalog.resolvePersistedSelection(
             requestedId = VulkanDriverCatalog.SYSTEM_DEFAULT,
             selectionSchema = 2,
-            deviceModel = "Pixel 10",
+            adrenoGpu = false,
         )
-        assertEquals(VulkanDriverCatalog.SYSTEM_DEFAULT, nonRp6System.driverId)
-        assertTrue(nonRp6System.migrated)
-        assertEquals(null, nonRp6System.notice)
+        assertEquals(VulkanDriverCatalog.SYSTEM_DEFAULT, nonAdrenoSystem.driverId)
+        assertTrue(nonAdrenoSystem.migrated)
     }
 
     @Test
-    fun schemaStampedExplicitSystemRemainsExactButFailsProductionAvailability() {
+    fun schemaStampedAutoStaysAutoAndExplicitSystemStaysExact() {
+        val auto = VulkanDriverCatalog.resolvePersistedSelection(
+            requestedId = VulkanDriverCatalog.AUTO_ID,
+            selectionSchema = VulkanDriverCatalog.SELECTION_SCHEMA,
+            adrenoGpu = false,
+        )
+        assertEquals(VulkanDriverCatalog.AUTO_ID, auto.driverId)
+        assertFalse(auto.migrated)
+
         val resolved = VulkanDriverCatalog.resolvePersistedSelection(
             requestedId = VulkanDriverCatalog.SYSTEM_DEFAULT,
             selectionSchema = VulkanDriverCatalog.SELECTION_SCHEMA,
-            deviceModel = "Retroid Pocket 6",
+            adrenoGpu = false,
         )
         assertEquals(VulkanDriverCatalog.SYSTEM_DEFAULT, resolved.driverId)
         assertFalse(resolved.migrated)
-        assertTrue(runCatching {
+        assertEquals(
+            VulkanDriverCatalog.SYSTEM_DEFAULT,
             VulkanDriverCatalog.requireAvailableCompatiblePair(
                 resolved.driverId,
                 modernDxvk,
-                "Retroid Pocket 6",
-            )
-        }.isFailure)
+                adrenoGpu = false,
+                system = SystemVulkanCapabilities(vulkanVersion(1, 3), true, emptySet()),
+            ).first.id,
+        )
     }
 
     @Test
     fun systemCompatibilityIsVendorNeutralAndSelectsDxvkByHostApi() {
-        val completeCapabilities = SystemVulkanCapabilities(
+        val maliCapabilities = SystemVulkanCapabilities(
             apiVersion = vulkanVersion(1, 3),
-            nativeTextureCompressionBC = true,
-            deviceExtensions = VulkanDriverCatalog.VORTEK_REQUIRED_DEVICE_EXTENSIONS,
+            nativeTextureCompressionBC = false,
+            deviceExtensions = emptySet(),
         )
         assertTrue(VulkanDriverCatalog.compatibility(
-            systemDriver, modernDxvk, completeCapabilities,
+            systemDriver, modernDxvk, maliCapabilities,
         ).compatible)
 
-        val olderSystemVulkan = completeCapabilities.copy(apiVersion = vulkanVersion(1, 1))
-        assertFalse(
-            olderSystemVulkan.deviceExtensions.contains("VK_KHR_timeline_semaphore"),
-        )
+        val olderSystemVulkan = maliCapabilities.copy(apiVersion = vulkanVersion(1, 1))
         assertFalse(VulkanDriverCatalog.compatibility(
             systemDriver, modernDxvk, olderSystemVulkan,
         ).compatible)
@@ -190,35 +196,21 @@ class VulkanDriverCatalogTest {
     }
 
     @Test
-    fun systemCompatibilityRequiresNativeBcAndEveryBridgeCapability() {
-        val completeCapabilities = SystemVulkanCapabilities(
+    fun systemCompatibilityIgnoresBcAndDeviceExtensionInventory() {
+        // wow-mobile semantics: Mali GPUs report textureCompressionBC =
+        // VK_FALSE and still run the Vortek bridge; only the API floor gates.
+        val noBcNoExtensions = SystemVulkanCapabilities(
             apiVersion = vulkanVersion(1, 3),
-            nativeTextureCompressionBC = true,
-            deviceExtensions = VulkanDriverCatalog.VORTEK_REQUIRED_DEVICE_EXTENSIONS,
+            nativeTextureCompressionBC = false,
+            deviceExtensions = emptySet(),
         )
-        assertFalse(VulkanDriverCatalog.compatibility(
-            systemDriver,
-            modernDxvk,
-            completeCapabilities.copy(nativeTextureCompressionBC = false),
-        ).compatible)
-
-        VulkanDriverCatalog.VORTEK_REQUIRED_DEVICE_EXTENSIONS.forEach { missing ->
-            val result = VulkanDriverCatalog.compatibility(
-                systemDriver,
-                modernDxvk,
-                completeCapabilities.copy(
-                    deviceExtensions = completeCapabilities.deviceExtensions - missing,
-                ),
-            )
-            assertFalse("missing $missing must fail closed", result.compatible)
-            assertTrue(result.reason.contains(missing))
-        }
+        val result = VulkanDriverCatalog.compatibility(systemDriver, modernDxvk, noBcNoExtensions)
+        assertTrue(result.compatible)
     }
 
     @Test
     fun systemCompatibilityCapsVortekAtMinimumOfHostAndBridge() {
-        val extensions = VulkanDriverCatalog.VORTEK_REQUIRED_DEVICE_EXTENSIONS
-        val newerHost = SystemVulkanCapabilities(vulkanVersion(1, 4), true, extensions)
+        val newerHost = SystemVulkanCapabilities(vulkanVersion(1, 4), false, emptySet())
         assertEquals(
             VulkanDriverCatalog.VORTEK_BRIDGE_MAX_API_VERSION,
             VulkanDriverCatalog.requireCompatiblePair(
@@ -226,7 +218,7 @@ class VulkanDriverCatalogTest {
             ).vkMaxVersion,
         )
 
-        val olderHost = SystemVulkanCapabilities(vulkanVersion(1, 3), true, extensions)
+        val olderHost = SystemVulkanCapabilities(vulkanVersion(1, 3), false, emptySet())
         assertEquals(
             olderHost.apiVersion,
             VulkanDriverCatalog.requireCompatiblePair(
@@ -246,11 +238,7 @@ class VulkanDriverCatalogTest {
 
     @Test
     fun experimentalCompatibilityModelKeepsExactDxvkFloorForQualification() {
-        val vulkan11 = SystemVulkanCapabilities(
-            vulkanVersion(1, 1),
-            true,
-            VulkanDriverCatalog.VORTEK_REQUIRED_DEVICE_EXTENSIONS,
-        )
+        val vulkan11 = SystemVulkanCapabilities(vulkanVersion(1, 1), false, emptySet())
         val modern = VulkanDriverCatalog.compatibility(systemDriver, modernDxvk, vulkan11)
         val legacy = VulkanDriverCatalog.compatibility(systemDriver, legacyDxvk, vulkan11)
         assertFalse(modern.compatible)

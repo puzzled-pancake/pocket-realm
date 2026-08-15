@@ -45,6 +45,7 @@ import com.pocketrealm.bots.BotProfile
 import com.pocketrealm.bots.BotSelection
 import com.pocketrealm.log.AppLog
 import com.pocketrealm.client.IntegratedClientDisplay
+import com.pocketrealm.client.ArmRendererAuto
 import com.pocketrealm.client.ArmClientRenderer
 import com.pocketrealm.client.ArmClientRendererCatalog
 import com.pocketrealm.client.AndroidGladioCapabilityProbe
@@ -96,21 +97,23 @@ fun HomeScreen(
         }
     }
     val clientUnavailableReason = if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
-        when (settingsSnapshot.selectedArmRenderer()) {
-            ArmClientRenderer.DXVK -> VulkanDriverCatalog.availabilityForPair(
-                settingsSnapshot.selectedVulkanDriverId(),
+        when (settingsSnapshot.selectedArmRendererId()) {
+            ArmClientRendererCatalog.AUTO_ID -> null
+            "dxvk" -> VulkanDriverCatalog.availabilityForPair(
+                settingsSnapshot.effectiveVulkanDriverId(),
                 settingsSnapshot.selectedDxvkPackageId(),
-                Build.MODEL,
+                ArmRendererAuto.isAdrenoGpu(),
                 systemVulkanProbe?.getOrNull(),
             ).takeUnless { it.available }?.reason
-            ArmClientRenderer.LEGACY_GLADIO -> ArmClientRendererCatalog.availability(
+            "legacy-gladio" -> ArmClientRendererCatalog.availability(
                 ArmClientRenderer.LEGACY_GLADIO, gladioProbe,
                 Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
             ).takeUnless { it.available }?.reason
-            ArmClientRenderer.MESA_VIRGL -> ArmClientRendererCatalog.availability(
+            "mesa-virgl" -> ArmClientRendererCatalog.availability(
                 ArmClientRenderer.MESA_VIRGL, gladioProbe,
                 Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
             ).takeUnless { it.available }?.reason
+            else -> null
         }
     } else null
     // Re-resolve when a saved preset gains a revision so Home shows and
@@ -561,16 +564,19 @@ private fun CurrentSetupCard(
             )
         }.getOrElse { settings.displaySelection() }
     }
-    val graphics = when (settings.selectedArmRenderer()) {
-        ArmClientRenderer.DXVK -> {
+    val graphics = when (settings.selectedArmRendererId()) {
+        ArmClientRendererCatalog.AUTO_ID ->
+            "Auto (${if (ArmRendererAuto.isAdrenoGpu()) "Turnip" else "System Vortek"} / DXVK)"
+        "dxvk" -> {
             val dxvk = RendererPackageCatalog.find(settings.selectedDxvkPackageId())?.dxvkVersion
                 ?: "pinned"
-            val vulkan = VulkanDriverCatalog.find(settings.selectedVulkanDriverId())?.label
+            val vulkan = VulkanDriverCatalog.find(settings.effectiveVulkanDriverId())?.label
                 ?: "Vulkan"
             "$vulkan / DXVK $dxvk"
         }
-        ArmClientRenderer.LEGACY_GLADIO -> "Legacy OpenGL / Gladio (experimental)"
-        ArmClientRenderer.MESA_VIRGL -> "Mesa VirGL / virpipe (experimental)"
+        "legacy-gladio" -> "Legacy OpenGL / Gladio (experimental)"
+        "mesa-virgl" -> "Mesa VirGL / virpipe (experimental)"
+        else -> "Auto"
     }
     val activity = when {
         profile.iterationsPerTick >= 18 && profile.activeBotPercent >= 15 -> "Very active AI"
