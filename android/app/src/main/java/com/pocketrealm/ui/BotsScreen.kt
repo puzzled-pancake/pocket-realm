@@ -447,9 +447,12 @@ fun BotsScreen() {
             ) {
                 presetsPane(Modifier.weight(1f).fillMaxHeight())
                 Column(Modifier.weight(1.6f).fillMaxHeight()) {
-                    resultPane(Modifier.fillMaxWidth())
+                    // Both panes need weights: the result pane's inner
+                    // fillMaxSize otherwise consumes the whole column and
+                    // the configuration pane measured at zero height.
+                    resultPane(Modifier.weight(0.9f).fillMaxWidth())
                     Spacer(Modifier.height(8.dp))
-                    configPane(Modifier.weight(1f).fillMaxWidth())
+                    configPane(Modifier.weight(1.1f).fillMaxWidth())
                 }
             }
             else -> Column(
@@ -459,7 +462,7 @@ fun BotsScreen() {
                 Modifier.fillMaxSize().padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                resultPane(Modifier.fillMaxWidth())
+                resultPane(Modifier.weight(0.9f).fillMaxWidth())
                 configPane(Modifier.weight(1.3f).fillMaxWidth())
                 presetsPane(Modifier.weight(1f).fillMaxWidth())
             }
