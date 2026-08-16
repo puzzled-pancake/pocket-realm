@@ -41,15 +41,23 @@ completion, benchmarks table; one-way migration covered by tests). Settings
 gained a database-only "Realm data" card exporting/importing a SAF zip
 (hash-verified snapshot + paired account + manifest), validated by the
 operational uninstall → fresh-install → restore drill that preserved
-generation 137054e3 without re-initialization. Known open issue from that
-drill: the settings wipe resets the renderer to AUTO (DXVK + turnip on
-Adreno), and on the RP6 `wow.exe` page-faults under DXVK 2.4.1 and 1.10.3
-with zero presented frames (wine `last-session.json`), so the pre-wipe
-qualified Legacy Gladio renderer must be re-selected manually until the DXVK
-fault is investigated. The world process has produced no tombstones on the
-current build; the 15:10/16:50 NZST SIGABRTs in the crash buffer predate it
-(old install, pre-full-mmaps data). The remaining acceptance steps are the
-Uldaman bot-teleport check and a rendered client session.
+generation 137054e3 without re-initialization. Correction (2026-08-17, user
+verified): an earlier revision of this entry claimed that on the RP6
+`wow.exe` page-faults under DXVK 2.4.1/1.10.3 with zero presented frames and
+that a "pre-wipe qualified Legacy Gladio renderer" had to be re-selected
+manually — that claim was an agent error recorded as fact (there was never a
+manually-qualified Gladio selection; both pre- and post-wipe installs ran
+the AUTO renderer, and Wine `last-session.json` from the 2026-08-17 fresh
+install shows a healthy DXVK 2.4.1 + turnip session: 43 state-cache entries,
+a working 1920x1080 swapchain, clean exit). The actual fresh-install defect
+from that drill is the first world-entry WoW.exe crash (ERROR #132,
+identical null-object call at EIP 0x0070211C both times, addon-loading
+residue on the stack; evidence in `.tmp/devibe/rp6_firstboot_crash/`),
+tracked as F1 in docs/devibe/FIRSTBOOT_FIXES_PLAN.md. The world process has
+produced no tombstones on the current build; the 15:10/16:50 NZST SIGABRTs
+in the crash buffer predate it (old install, pre-full-mmaps data). The
+remaining acceptance steps are the Uldaman bot-teleport check and a rendered
+client session.
 
 > Note: an earlier O05 commit (27eb1ad) was reopened after a review found the
 > evidence pipeline had blocking gaps (variant-mistaken host driver, PKG-01 not
