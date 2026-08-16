@@ -20,12 +20,18 @@ class AddonRuntimeProjector(
     private val registry = File(root, "registry.json")
 
     fun project(clientRoot: File, safeMode: Boolean): List<String> {
+        // 0.6.0 renamed the built-in addon. Normalize the persisted device
+        // data before any installed or journal state is read below: reading
+        // first would mistake an unmigrated device for a removal and retire
+        // the player's saved variables. Runs in safe mode too; every step is
+        // best-effort so a corrupt file cannot block a launch.
+        runCatching { AndroidPortMigrator.migrate(root, clientRoot) }
         val addons = File(clientRoot, "Interface/AddOns").apply { mkdirs() }
         val ownership = File(addons, OWNERSHIP_FILE)
         val previous = readOwned(ownership)
             .distinctBy { it.lowercase(Locale.ROOT) }
-        val vanillaConsolePortWasManaged = previous.any {
-            it.equals(VanillaConsolePortPackage.ADDON_FOLDER, ignoreCase = true)
+        val androidPortWasManaged = previous.any {
+            it.equals(AndroidPortPackage.ADDON_FOLDER, ignoreCase = true)
         }
         val previousKeys = previous.map { it.lowercase(Locale.ROOT) }.toSet()
         // A null source denotes the APK-owned built-in tree. It is copied
@@ -45,8 +51,8 @@ class AddonRuntimeProjector(
         if (!safeMode) {
             installed.filterNot(::isRetiredProduct).forEach { addon ->
                 addon.folders.forEach { folder ->
-                    val source = if (addon.id == VanillaConsolePortPackage.INSTALL_ID) {
-                        require(folder == VanillaConsolePortPackage.ADDON_FOLDER) {
+                    val source = if (addon.id == AndroidPortPackage.INSTALL_ID) {
+                        require(folder == AndroidPortPackage.ADDON_FOLDER) {
                             "Built-in Android Port registry has an unexpected folder"
                         }
                         null
@@ -63,7 +69,7 @@ class AddonRuntimeProjector(
                 }
             }
         }
-        val vanillaConsolePortInstalled = installed.any { it.id == VanillaConsolePortPackage.INSTALL_ID }
+        val androidPortInstalled = installed.any { it.id == AndroidPortPackage.INSTALL_ID }
         val desiredFolders = requested.values.map { it.first }
 
         desiredFolders.forEach { folder ->
@@ -83,7 +89,7 @@ class AddonRuntimeProjector(
             requested.values.forEach { (folder, source) ->
                 val target = safeChild(stagingRoot, folder)
                 if (source == null) {
-                    copyBuiltInAssetTree("${VanillaConsolePortPackage.ASSET_PATH}/$folder", target)
+                    copyBuiltInAssetTree("${AndroidPortPackage.ASSET_PATH}/$folder", target)
                 } else {
                     copyTree(source, target)
                 }
@@ -129,11 +135,11 @@ class AddonRuntimeProjector(
         // still before Wine launches. A collision or staging failure therefore
         // cannot leave stale binding provenance behind. If this step fails,
         // launch fails closed and retries against the committed folder state.
-        if (!safeMode && vanillaConsolePortInstalled) {
-            VanillaConsolePortBindingRepair.captureBeforeLaunch(clientRoot, File(root, VCP_BINDING_JOURNAL))
-        } else if (!vanillaConsolePortInstalled &&
-            (vanillaConsolePortWasManaged || File(root, VCP_BINDING_JOURNAL).isFile)) {
-            VanillaConsolePortBindingRepair.restoreAfterRemoval(clientRoot, File(root, VCP_BINDING_JOURNAL))
+        if (!safeMode && androidPortInstalled) {
+            AndroidPortBindingRepair.captureBeforeLaunch(clientRoot, File(root, AP_BINDING_JOURNAL))
+        } else if (!androidPortInstalled &&
+            (androidPortWasManaged || File(root, AP_BINDING_JOURNAL).isFile)) {
+            AndroidPortBindingRepair.restoreAfterRemoval(clientRoot, File(root, AP_BINDING_JOURNAL))
         }
         return desiredFolders
     }
@@ -236,7 +242,7 @@ class AddonRuntimeProjector(
         }
         copy(assetRoot, destination)
         require(files > 0) { "Built-in Android Port assets are missing" }
-        val toc = File(destination, "${VanillaConsolePortPackage.ADDON_FOLDER}.toc")
+        val toc = File(destination, "${AndroidPortPackage.ADDON_FOLDER}.toc")
         require(toc.isFile && Regex("""(?m)^## Interface:\s*11200\s*$""").containsMatchIn(toc.readText())) {
             "Built-in Android Port is not an Interface 11200 add-on"
         }
@@ -271,6 +277,6 @@ class AddonRuntimeProjector(
         const val MAX_BUILTIN_FILES = 512
         const val MAX_BUILTIN_BYTES = 8L * 1024 * 1024
         val BUILTIN_ALLOWED_EXTENSIONS = setOf("lua", "toc", "xml", "md", "txt", "tga", "blp")
-        const val VCP_BINDING_JOURNAL = "vanilla-console-port-bindings.json"
+        const val AP_BINDING_JOURNAL = "android-port-bindings.json"
     }
 }

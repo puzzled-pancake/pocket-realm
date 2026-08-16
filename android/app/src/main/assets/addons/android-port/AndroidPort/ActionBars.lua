@@ -1,5 +1,5 @@
-VanillaConsolePort.ActionBars = VanillaConsolePort.ActionBars or {}
-local Bars = VanillaConsolePort.ActionBars
+AndroidPort.ActionBars = AndroidPort.ActionBars or {}
+local Bars = AndroidPort.ActionBars
 
 Bars.buttons = Bars.buttons or {}
 Bars.page = Bars.page or 1
@@ -30,13 +30,13 @@ local layoutMap = {
 -- the frame mover's curated registry can adopt them, the buttons anchor to
 -- them, and one journaled move or scale carries the whole cluster.
 local clusterNames = {
-    [1] = "VanillaConsolePortRightCluster",
-    [-1] = "VanillaConsolePortLeftCluster",
+    [1] = "AndroidPortRightCluster",
+    [-1] = "AndroidPortLeftCluster",
 }
 Bars.clusterFrames = Bars.clusterFrames or {}
 
 local function EnsureCluster(side)
-    local layout = VanillaConsolePort:GetLayout()
+    local layout = AndroidPort:GetLayout()
     local name = clusterNames[side]
     local cluster = getglobal(name)
     if not cluster then
@@ -89,7 +89,7 @@ local function CursorCarriesPickup()
 end
 
 function Bars:CreateButton(index)
-    local name = "VanillaConsolePortButton" .. index
+    local name = "AndroidPortButton" .. index
     local button = getglobal(name)
     local cluster = self.clusterFrames[layoutMap[index].side]
     if not button then
@@ -228,7 +228,7 @@ function Bars:ValidateButtons(buttons)
 end
 
 function Bars:ApplyLayout(buttons)
-    local layout = VanillaConsolePort:GetLayout()
+    local layout = AndroidPort:GetLayout()
     local halfGap = layout.star / 2
     for index = 1, 8 do
         local button = buttons[index]
@@ -284,7 +284,7 @@ function Bars:UpdateButton(index, buttons)
 end
 
 function Bars:DeactivateWatcher()
-    local watcher = self.watcher or getglobal("VanillaConsolePortBarWatcher")
+    local watcher = self.watcher or getglobal("AndroidPortBarWatcher")
     if not watcher then return end
     for _, eventName in ipairs(watcherEvents) do watcher:UnregisterEvent(eventName) end
     watcher:SetScript("OnEvent", nil)
@@ -306,7 +306,7 @@ function Bars:FailSafe(buttons)
     self:DeactivateWatcher()
     local candidates = buttons or self.buttons or {}
     for index = 1, 8 do
-        local button = candidates[index] or getglobal("VanillaConsolePortButton" .. index)
+        local button = candidates[index] or getglobal("AndroidPortButton" .. index)
         if button then button:Hide() end
     end
     self.buttons = {}
@@ -370,8 +370,8 @@ function Bars:Initialize()
         self:ApplyLayout(staged)
         for index = 1, 8 do self:UpdateButton(index, staged) end
 
-        watcher = getglobal("VanillaConsolePortBarWatcher")
-        if not watcher then watcher = CreateFrame("Frame", "VanillaConsolePortBarWatcher", UIParent) end
+        watcher = getglobal("AndroidPortBarWatcher")
+        if not watcher then watcher = CreateFrame("Frame", "AndroidPortBarWatcher", UIParent) end
         watcher.elapsed = 0
         watcher:SetScript("OnEvent", function()
             if Bars.ready then Bars:Refresh() end

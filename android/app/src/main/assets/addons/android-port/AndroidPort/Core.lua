@@ -1,30 +1,30 @@
--- Android Port (installed folder: VanillaConsolePort): clean-room Pocket Realm core for Interface 11200.
-VanillaConsolePort = VanillaConsolePort or {}
-local VCP = VanillaConsolePort
+-- Android Port (installed folder: AndroidPort): clean-room Pocket Realm core for Interface 11200.
+AndroidPort = AndroidPort or {}
+local AP = AndroidPort
 
-VCP.VERSION = "0.5.0"
-VCP.BINDING_SCHEMA = 5
-VCP.keys = { "1", "2", "3", "4", "5", "6", "7", "8" }
+AP.VERSION = "0.6.0"
+AP.BINDING_SCHEMA = 5
+AP.keys = { "1", "2", "3", "4", "5", "6", "7", "8" }
 
-BINDING_HEADER_VANILLA_CONSOLE_PORT = "Android Port"
+BINDING_HEADER_ANDROID_PORT = "Android Port"
 for slot = 1, 40 do
-    setglobal("BINDING_NAME_VCP_ACTION_" .. slot, "Controller action " .. slot)
+    setglobal("BINDING_NAME_AP_ACTION_" .. slot, "Controller action " .. slot)
 end
-BINDING_NAME_VCP_TOGGLE_RADIAL = "Controller radial menu"
-BINDING_NAME_VCP_MOVE_UI = "Move UI"
-BINDING_NAME_VCP_NEARBY_INTERACT = "Nearby use / open"
+BINDING_NAME_AP_TOGGLE_RADIAL = "Controller radial menu"
+BINDING_NAME_AP_MOVE_UI = "Move UI"
+BINDING_NAME_AP_NEARBY_INTERACT = "Nearby use / open"
 
-function VCP:Print(message)
+function AP:Print(message)
     if DEFAULT_CHAT_FRAME then
         DEFAULT_CHAT_FRAME:AddMessage("|cff7fff7fAndroid Port:|r " .. message)
     end
 end
 
 local function Print(message)
-    VCP:Print(message)
+    AP:Print(message)
 end
 
-function VCP:GetLayout()
+function AP:GetLayout()
     local width = UIParent and UIParent:GetWidth() or 1280
     local height = UIParent and UIParent:GetHeight() or 720
     if height >= 900 then
@@ -39,23 +39,51 @@ function VCP:GetLayout()
     }
 end
 
-function VCP:InitializeDatabase()
-    VanillaConsolePortDB = VanillaConsolePortDB or {}
-    VanillaConsolePortCharacterDB = VanillaConsolePortCharacterDB or {}
-    VanillaConsolePortDB.schema = 1
-    VanillaConsolePortDB.androidKeyboard = true
-    VanillaConsolePortDB.touchSidebars = false
+function AP:InitializeDatabase()
+    AndroidPortDB = AndroidPortDB or {}
+    AndroidPortCharacterDB = AndroidPortCharacterDB or {}
+    AndroidPortDB.schema = 1
+    AndroidPortDB.androidKeyboard = true
+    AndroidPortDB.touchSidebars = false
     -- uiSchema 2 marks the unified frame layout journal. Legacy icon anchors
     -- keep their own key and remain readable for installations made by 0.3.x.
-    VanillaConsolePortDB.uiSchema = 2
-    if type(VanillaConsolePortDB.addonIconAnchors) ~= "table" then
-        VanillaConsolePortDB.addonIconAnchors = {}
+    AndroidPortDB.uiSchema = 2
+    if type(AndroidPortDB.addonIconAnchors) ~= "table" then
+        AndroidPortDB.addonIconAnchors = {}
     end
-    if type(VanillaConsolePortDB.frameAnchors) ~= "table" then
-        VanillaConsolePortDB.frameAnchors = {}
+    if type(AndroidPortDB.frameAnchors) ~= "table" then
+        AndroidPortDB.frameAnchors = {}
     end
-    if type(VanillaConsolePortDB.frameBackups) ~= "table" then
-        VanillaConsolePortDB.frameBackups = {}
+    if type(AndroidPortDB.frameBackups) ~= "table" then
+        AndroidPortDB.frameBackups = {}
+    end
+    -- 0.6.0 renamed this addon's frames from the VanillaConsolePort prefix;
+    -- saved journals copied over from the old name still key by the old
+    -- frame names, so re-key them once onto the live prefix.
+    local journals = { AndroidPortDB.frameAnchors, AndroidPortDB.frameBackups }
+    for _, journal in ipairs(journals) do
+        for name, saved in pairs(journal) do
+            if string.find(name, "VanillaConsolePort", 1, true) == 1 and journal["AndroidPort" .. string.sub(name, 18)] == nil then
+                journal["AndroidPort" .. string.sub(name, 18)] = saved
+                journal[name] = nil
+            end
+        end
+    end
+    if type(AndroidPortDB.bags) ~= "table" then
+        AndroidPortDB.bags = {}
+    end
+    if AndroidPortDB.bags.enabled == nil then
+        AndroidPortDB.bags.enabled = true
+    end
+    if not AndroidPortDB.bags.columns then
+        AndroidPortDB.bags.columns = 8
+    end
+    if not AndroidPortDB.bags.mode then
+        AndroidPortDB.bags.mode = "all"
+    end
+    local bagsModule = AndroidPort.Bags
+    if bagsModule then
+        bagsModule.mode = AndroidPortDB.bags.mode
     end
 end
 
@@ -68,7 +96,7 @@ local anchorPoints = {
 local unsafeFrameNameParts = {
     "actionbutton", "bonusaction", "multibar", "playerframe", "targetframe",
     "partyframe", "partymember", "petframe", "castingbar", "buffbutton",
-    "debuffbutton", "lootbutton", "containerframe", "vanillaconsoleport",
+    "debuffbutton", "lootbutton", "containerframe", "androidport",
     "uiparent", "worldframe", "gametooltip", "pfminimappin",
 }
 
@@ -88,10 +116,10 @@ local knownAddonIcons = {
     { id = "atlasloot-minimap-button", frame = "AtlasLootMinimapButton", label = "AtlasLoot minimap button" },
 }
 
-VCP.addonIconRegistry = VCP.addonIconRegistry or {}
-VCP.addonIconCandidates = VCP.addonIconCandidates or {}
-VCP.addonIconHandleCount = VCP.addonIconHandleCount or 0
-VCP.liveFrameNames = VCP.liveFrameNames or {}
+AP.addonIconRegistry = AP.addonIconRegistry or {}
+AP.addonIconCandidates = AP.addonIconCandidates or {}
+AP.addonIconHandleCount = AP.addonIconHandleCount or 0
+AP.liveFrameNames = AP.liveFrameNames or {}
 
 local function IsValidAnchor(saved)
     if type(saved) ~= "table" then return false end
@@ -121,7 +149,7 @@ local function IsUnsafeFrameName(name)
     return false
 end
 
-function VCP:IsSafeAddonIconFrame(frame, registered)
+function AP:IsSafeAddonIconFrame(frame, registered)
     if not HasMoverMethods(frame) then return false end
     local name = frame:GetName()
     if IsUnsafeFrameName(name) then return false end
@@ -152,7 +180,7 @@ end
 -- re-resolves the name here: curated stock frames live for the whole session
 -- and resolve via getglobal alone, every other candidate must additionally
 -- appear in the live set built from the engine's own frame list.
-function VCP:ResolveCandidate(candidate)
+function AP:ResolveCandidate(candidate)
     if not candidate or type(candidate.name) ~= "string" then return nil end
     local frame = getglobal(candidate.name)
     if not frame then return nil end
@@ -163,7 +191,7 @@ function VCP:ResolveCandidate(candidate)
     return nil
 end
 
-function VCP:RegisterAddonIcon(id, frameOrName, label)
+function AP:RegisterAddonIcon(id, frameOrName, label)
     if type(id) ~= "string" or id == "" or not frameOrName then return false end
     self.addonIconRegistry[id] = {
         reference = frameOrName,
@@ -173,14 +201,14 @@ function VCP:RegisterAddonIcon(id, frameOrName, label)
     return true
 end
 
-function VCP:RegisterKnownAddonIcons()
+function AP:RegisterKnownAddonIcons()
     for _, icon in ipairs(knownAddonIcons) do
         self:RegisterAddonIcon(icon.id, icon.frame, icon.label)
     end
 end
 
-function VCP:GetSavedAddonIconAnchor(id)
-    local anchors = VanillaConsolePortDB and VanillaConsolePortDB.addonIconAnchors
+function AP:GetSavedAddonIconAnchor(id)
+    local anchors = AndroidPortDB and AndroidPortDB.addonIconAnchors
     local saved = type(anchors) == "table" and anchors[id]
     if not saved and id == "pfquest-route-arrow" and type(pfQuest_config) == "table" then
         saved = pfQuest_config["pocketrealm_arrow_position"]
@@ -188,7 +216,7 @@ function VCP:GetSavedAddonIconAnchor(id)
     if IsValidAnchor(saved) then return saved end
 end
 
-function VCP:RestoreAddonIcon(candidate)
+function AP:RestoreAddonIcon(candidate)
     local saved = self:GetSavedAddonIconAnchor(candidate.id)
     if not saved or not self:IsSafeAddonIconFrame(candidate.frame, candidate.registered) then return false end
     candidate.frame:ClearAllPoints()
@@ -200,7 +228,7 @@ end
 -- One movable-target predicate: curated and swept window candidates are
 -- vetted by name resolution and frame capability; icon candidates keep the
 -- conservative icon filter.
-function VCP:CanMoveCandidate(candidate)
+function AP:CanMoveCandidate(candidate)
     local frame = self:ResolveCandidate(candidate)
     if not frame then return false end
     if candidate.curated or candidate.window then
@@ -210,7 +238,7 @@ function VCP:CanMoveCandidate(candidate)
     return self:IsSafeAddonIconFrame(frame, candidate and candidate.registered)
 end
 
-function VCP:SaveAddonIcon(candidate)
+function AP:SaveAddonIcon(candidate)
     local frame = self:ResolveCandidate(candidate)
     if not frame or not self:CanMoveCandidate(candidate) then return false end
     if candidate.scaleOnly then
@@ -222,8 +250,8 @@ function VCP:SaveAddonIcon(candidate)
     local saved = { point = "CENTER", relativePoint = "BOTTOMLEFT", x = x, y = y }
     if frame.GetScale then saved.scale = frame:GetScale() end
     if not IsValidAnchor(saved) then return false end
-    if candidate.icon and VanillaConsolePortDB.addonIconAnchors then
-        VanillaConsolePortDB.addonIconAnchors[candidate.id] = saved
+    if candidate.icon and AndroidPortDB.addonIconAnchors then
+        AndroidPortDB.addonIconAnchors[candidate.id] = saved
     end
     if candidate.id == "pfquest-route-arrow" and type(pfQuest_config) == "table" then
         pfQuest_config["pocketrealm_arrow_position"] = saved
@@ -232,7 +260,7 @@ function VCP:SaveAddonIcon(candidate)
     return true
 end
 
-function VCP:AddAddonIconCandidate(id, frame, label, registered, seen)
+function AP:AddAddonIconCandidate(id, frame, label, registered, seen)
     if seen[frame] or not self:IsSafeAddonIconFrame(frame, registered) then return end
     seen[frame] = true
     local candidate = self.addonIconCandidates[id]
@@ -256,7 +284,7 @@ end
 -- getglobal cannot prove the global still points at a live object in
 -- Interface 11200, so third-party candidates are only actionable while
 -- their name is a member of this set.
-function VCP:BuildLiveFrameSet()
+function AP:BuildLiveFrameSet()
     local live = {}
     if type(EnumerateFrames) ~= "function" then
         self.liveFrameNames = live
@@ -281,7 +309,7 @@ end
 -- Discover visible top-level windows by name. Anchors and drag never touch
 -- candidate userdata across ticks, so a freed third-party frame can never be
 -- dereferenced: it simply stops resolving and its handle is detached.
-function VCP:DiscoverTopLevelFrames(seen)
+function AP:DiscoverTopLevelFrames(seen)
     if type(EnumerateFrames) ~= "function" then return end
     local frame = EnumerateFrames()
     local guard = 0
@@ -307,7 +335,7 @@ function VCP:DiscoverTopLevelFrames(seen)
     end
 end
 
-function VCP:AddWindowCandidate(name)
+function AP:AddWindowCandidate(name)
     local key = "window:" .. name
     local candidate = self.addonIconCandidates[key]
     if not candidate then
@@ -321,7 +349,7 @@ function VCP:AddWindowCandidate(name)
     end
 end
 
-function VCP:RefreshAddonIcons()
+function AP:RefreshAddonIcons()
     if self.addonIconRefreshActive then return false end
     self.addonIconRefreshActive = true
     local ok = pcall(function()
@@ -338,9 +366,9 @@ function VCP:RefreshAddonIcons()
     return ok
 end
 
-function VCP:GetMoveInstructions()
-    local frame = getglobal("VanillaConsolePortMoveInstructions")
-    if not frame then frame = CreateFrame("Frame", "VanillaConsolePortMoveInstructions", UIParent) end
+function AP:GetMoveInstructions()
+    local frame = getglobal("AndroidPortMoveInstructions")
+    if not frame then frame = CreateFrame("Frame", "AndroidPortMoveInstructions", UIParent) end
     frame:SetWidth(700)
     frame:SetHeight(54)
     frame:ClearAllPoints()
@@ -353,10 +381,10 @@ function VCP:GetMoveInstructions()
     end
     text:ClearAllPoints()
     text:SetPoint("LEFT", frame, "LEFT", 12, 0)
-    text:SetText("Move UI: drag a green handle; D-pad Down/Up focuses, Left/Right scales\nOpen any window to make it movable; Select + Start or Escape saves and exits")
+    text:SetText("Move UI: drag a handle to move it; D-pad Down/Up selects, Left/Right resizes\nOpen any window to make it movable; Select + Start or Escape saves and exits")
     local exit = frame.exitButton
     if not exit then
-        exit = CreateFrame("Button", "VanillaConsolePortMoveSaveExit", frame, "UIPanelButtonTemplate")
+        exit = CreateFrame("Button", "AndroidPortMoveSaveExit", frame, "UIPanelButtonTemplate")
         frame.exitButton = exit
     end
     exit:SetWidth(120)
@@ -364,15 +392,15 @@ function VCP:GetMoveInstructions()
     exit:ClearAllPoints()
     exit:SetPoint("RIGHT", frame, "RIGHT", -12, 0)
     exit:SetText("Save & Exit")
-    exit:SetScript("OnClick", function() VCP:FinishMoveUI(false) end)
+    exit:SetScript("OnClick", function() AP:FinishMoveUI(false) end)
     frame:SetScript("OnHide", function()
-        if VCP.moveUiActive then VCP:FinishMoveUI(false) end
+        if AP.moveUiActive then AP:FinishMoveUI(false) end
     end)
     local listed = false
     for _, name in ipairs(UISpecialFrames) do
-        if name == "VanillaConsolePortMoveInstructions" then listed = true end
+        if name == "AndroidPortMoveInstructions" then listed = true end
     end
-    if not listed then tinsert(UISpecialFrames, "VanillaConsolePortMoveInstructions") end
+    if not listed then tinsert(UISpecialFrames, "AndroidPortMoveInstructions") end
     return frame
 end
 
@@ -381,14 +409,14 @@ end
 -- screen rectangle is sampled; on mouse-up a single absolute SetPoint moves
 -- the freshly re-resolved target. SetPoint stores the resolved object, so a
 -- handle never keeps an anchor into a frame the poll has not confirmed.
-function VCP:ShowAddonIconHandle(candidate)
+function AP:ShowAddonIconHandle(candidate)
     if candidate.moving then return true end
     local frame = self:ResolveCandidate(candidate)
     if not frame or not frame.IsShown or not frame:IsShown() then return false end
     local handle = candidate.handle
     if not handle then
         self.addonIconHandleCount = self.addonIconHandleCount + 1
-        local name = "VanillaConsolePortMoverHandle" .. self.addonIconHandleCount
+        local name = "AndroidPortMoverHandle" .. self.addonIconHandleCount
         handle = CreateFrame("Button", name, UIParent)
         handle:SetFrameStrata("TOOLTIP")
         local shade = handle:CreateTexture(nil, "BACKGROUND")
@@ -406,16 +434,16 @@ function VCP:ShowAddonIconHandle(candidate)
         handle:EnableMouseWheel(1)
         handle:RegisterForDrag("LeftButton", "RightButton")
         handle:SetScript("OnMouseWheel", function()
-            if not VCP.moveUiActive then return end
-            VCP:ScaleMoveCandidate(candidate, arg1)
+            if not AP.moveUiActive then return end
+            AP:ScaleMoveCandidate(candidate, arg1)
         end)
         -- Drag delivery is the stock chat-tab pattern: OnDragStop arrives even
         -- when the button is released off the handle, so a touch drop outside
         -- the handle still completes instead of stranding the drag.
         handle:SetScript("OnDragStart", function()
-            if not VCP.moveUiActive then return end
+            if not AP.moveUiActive then return end
             if candidate.scaleOnly then return end
-            local target = VCP:ResolveCandidate(candidate)
+            local target = AP:ResolveCandidate(candidate)
             if not target then return end
             candidate.grabLeft = handle:GetLeft()
             candidate.grabTop = handle:GetTop()
@@ -430,7 +458,7 @@ function VCP:ShowAddonIconHandle(candidate)
             if not candidate.moving then return end
             handle:StopMovingOrSizing()
             candidate.moving = nil
-            VCP:ApplyHandleDrop(candidate, handle)
+            AP:ApplyHandleDrop(candidate, handle)
         end)
         candidate.handle = handle
     end
@@ -441,7 +469,7 @@ function VCP:ShowAddonIconHandle(candidate)
     return true
 end
 
-function VCP:FinishMoveUI(silent)
+function AP:FinishMoveUI(silent)
     if not self.moveUiActive then return false end
     self.moveUiActive = nil
     self.moveFocused = nil
@@ -477,9 +505,28 @@ function VCP:FinishMoveUI(silent)
     return true
 end
 
+-- Shared drop/scale clamp. The target may sit flush against any screen edge
+-- and may hang partly off one, exactly as the horizontal pair has always
+-- allowed; at least 40 units stay reachable so a frame can always be
+-- re-grabbed. Inputs and outputs are in UIParent screen space (screenTop
+-- measured up from the floor).
+function AP:ClampFrameRect(target, screenLeft, screenTop)
+    local parentWidth = UIParent:GetWidth()
+    local parentTop = UIParent:GetTop()
+    local scale = target.GetScale and target:GetScale() or 1
+    if type(scale) ~= "number" or scale <= 0 then scale = 1 end
+    local width = (target.GetWidth and target:GetWidth() or 0) * scale
+    local height = (target.GetHeight and target:GetHeight() or 0) * scale
+    if screenLeft < 40 - width then screenLeft = 40 - width end
+    if screenLeft > parentWidth - 40 then screenLeft = parentWidth - 40 end
+    if screenTop < 40 then screenTop = 40 end
+    if screenTop > parentTop + height - 40 then screenTop = parentTop + height - 40 end
+    return screenLeft, screenTop
+end
+
 -- Move the target by the exact distance the handle was dragged, then journal
 -- the new absolute anchor through the frame mover.
-function VCP:ApplyHandleDrop(candidate, handle)
+function AP:ApplyHandleDrop(candidate, handle)
     local target = self:ResolveCandidate(candidate)
     if not target or not target.SetPoint then return false end
     local left = handle.GetLeft and handle:GetLeft() or nil
@@ -496,18 +543,10 @@ function VCP:ApplyHandleDrop(candidate, handle)
     if type(scale) ~= "number" or scale <= 0 then scale = 1 end
     local x = candidate.grabTargetLeft + (left - candidate.grabLeft) / scale
     local y = candidate.grabTargetTop + (top - candidate.grabTop - UIParent:GetTop()) / scale
-    -- Clamp so at least 40 units of the target stay reachable on screen; a
-    -- cluster released at the edge must never strand itself off-screen.
-    local parentWidth = UIParent:GetWidth()
     local parentTop = UIParent:GetTop()
-    local width = (target.GetWidth and target:GetWidth() or 0) * scale
-    local height = (target.GetHeight and target:GetHeight() or 0) * scale
     local screenLeft = x * scale
     local screenTop = parentTop + y * scale
-    if screenLeft < 40 - width then screenLeft = 40 - width end
-    if screenLeft > parentWidth - 40 then screenLeft = parentWidth - 40 end
-    if screenTop < 40 + height then screenTop = 40 + height end
-    if screenTop > parentTop - 40 then screenTop = parentTop - 40 end
+    screenLeft, screenTop = self:ClampFrameRect(target, screenLeft, screenTop)
     target:ClearAllPoints()
     target:SetPoint("TOPLEFT", "UIParent", "TOPLEFT", screenLeft / scale, (screenTop - parentTop) / scale)
     candidate.moved = true
@@ -517,7 +556,7 @@ end
 -- Revalidate every candidate against a fresh live-set sweep: rebind live
 -- handles, detach handles whose target vanished, and retire swept windows
 -- that stay dead for several polls so transient frames do not accumulate.
-function VCP:RefreshMoveHandles()
+function AP:RefreshMoveHandles()
     for key, candidate in pairs(self.addonIconCandidates) do
         local handle = candidate.handle
         local frame = self:ResolveCandidate(candidate)
@@ -544,7 +583,7 @@ function VCP:RefreshMoveHandles()
     end
 end
 
-function VCP:PulseMoveUI()
+function AP:PulseMoveUI()
     if not self.moveUiActive then return end
     self:RefreshAddonIcons()
     self:RefreshMoveHandles()
@@ -555,7 +594,7 @@ local MOVE_SCALE_MAX = 1.5
 local MOVE_SCALE_STEP = 0.1
 
 -- Visible candidates in label order, so D-pad focus cycling is deterministic.
-function VCP:MoveFocusCandidates()
+function AP:MoveFocusCandidates()
     local ordered = {}
     for _, entry in pairs(self.addonIconCandidates) do
         if entry.handle and entry.handle:IsVisible() then tinsert(ordered, entry) end
@@ -564,7 +603,7 @@ function VCP:MoveFocusCandidates()
     return ordered
 end
 
-function VCP:SetMoveFocus(candidate)
+function AP:SetMoveFocus(candidate)
     self.moveFocused = candidate
     for _, entry in pairs(self.addonIconCandidates) do
         local handle = entry.handle
@@ -578,23 +617,49 @@ function VCP:SetMoveFocus(candidate)
     end
 end
 
-function VCP:ScaleMoveCandidate(candidate, direction)
+function AP:ScaleMoveCandidate(candidate, direction)
     local frame = self:ResolveCandidate(candidate)
     if not frame or not frame.GetScale or not frame.SetScale then return false end
     if type(direction) ~= "number" or direction == 0 then return false end
-    local scale = frame:GetScale() + direction * MOVE_SCALE_STEP
+    -- Scaling alone pivots on the anchored corner and drifts the visible
+    -- rect, which reads as the D-pad moving the frame. Sample the centre
+    -- first, then re-anchor so resizing keeps it fixed.
+    local oldScale = frame:GetScale()
+    if type(oldScale) ~= "number" or oldScale <= 0 then oldScale = 1 end
+    local cx, cy = frame.GetCenter and frame:GetCenter() or nil
+    local scale = oldScale + direction * MOVE_SCALE_STEP
     if scale < MOVE_SCALE_MIN then scale = MOVE_SCALE_MIN end
     if scale > MOVE_SCALE_MAX then scale = MOVE_SCALE_MAX end
     frame:SetScale(scale)
-    -- Scale alone must not de-register a stock panel; FinishMoveUI routes
-    -- this flag to the scale-only journal.
     candidate.scaled = true
+    if candidate.scaleOnly or not cx or not cy then
+        -- Scale alone must not de-register a stock panel; FinishMoveUI routes
+        -- this flag to the scale-only journal. Stock-position frames keep the
+        -- anchored-corner behaviour because the bag sweep owns their anchor.
+        return true
+    end
+    local width = (frame.GetWidth and frame:GetWidth() or 0) * scale
+    local height = (frame.GetHeight and frame:GetHeight() or 0) * scale
+    local screenLeft = cx * oldScale - width / 2
+    local screenTop = cy * oldScale + height / 2
+    screenLeft, screenTop = self:ClampFrameRect(frame, screenLeft, screenTop)
+    local parentTop = UIParent:GetTop()
+    frame:ClearAllPoints()
+    frame:SetPoint("TOPLEFT", "UIParent", "TOPLEFT", screenLeft / scale, (screenTop - parentTop) / scale)
+    candidate.moved = true
+    -- A scale that lands mid-drag shifts the sampled drag origin; re-sample
+    -- so the in-flight drop still lands under the finger.
+    if candidate.moving then
+        candidate.grabTargetLeft = frame.GetLeft and frame:GetLeft() or candidate.grabTargetLeft
+        candidate.grabTargetTop = frame.GetTop and frame:GetTop() or candidate.grabTargetTop
+    end
     return true
 end
 
 -- While Move UI is open the action buttons stop firing abilities: D-pad
--- Down/Up moves focus and D-pad Left/Right scales the focused target.
-function VCP:MoveUIAdjust(slot)
+-- Down/Up selects the next target and D-pad Left/Right resizes it. Dragging
+-- a handle is the only way a frame ever moves.
+function AP:MoveUIAdjust(slot)
     local candidates = self:MoveFocusCandidates()
     local count = table.getn(candidates)
     if count == 0 then return false end
@@ -616,7 +681,7 @@ function VCP:MoveUIAdjust(slot)
     return false
 end
 
-function VCP:ToggleMoveUI()
+function AP:ToggleMoveUI()
     if self:FinishMoveUI(false) then return end
     self:RefreshAddonIcons()
     self.moveUiActive = true
@@ -635,36 +700,36 @@ function VCP:ToggleMoveUI()
     end
     self.moveUiInstructions = self:GetMoveInstructions()
     self.moveUiInstructions:Show()
-    Print("drag any highlighted window; D-pad Down/Up changes focus, Left/Right scales; Select + Start saves and exits")
+    Print("drag a handle to move it; D-pad Down/Up selects, Left/Right resizes; Select + Start saves and exits")
 end
 
 -- Slow poll while move mode is open: refreshes the live set, picks up newly
 -- shown windows, and detaches handles whose target has vanished.
-local movePoll = getglobal("VanillaConsolePortMovePoll")
+local movePoll = getglobal("AndroidPortMovePoll")
 if not movePoll then
-    movePoll = CreateFrame("Frame", "VanillaConsolePortMovePoll", UIParent)
+    movePoll = CreateFrame("Frame", "AndroidPortMovePoll", UIParent)
 end
 movePoll:SetScript("OnUpdate", function()
-    if not VCP.moveUiActive then
+    if not AP.moveUiActive then
         this.elapsed = nil
         return
     end
     this.elapsed = (this.elapsed or 0) + arg1
     if this.elapsed < 0.25 then return end
     this.elapsed = 0
-    VCP:PulseMoveUI()
+    AP:PulseMoveUI()
 end)
 
-function VCP:GetBindingJournal()
-    if GetCurrentBindingSet() == 2 then return VanillaConsolePortCharacterDB end
-    return VanillaConsolePortDB
+function AP:GetBindingJournal()
+    if GetCurrentBindingSet() == 2 then return AndroidPortCharacterDB end
+    return AndroidPortDB
 end
 
-function VCP:BindingCommand(slot)
-    return "VCP_ACTION_" .. slot
+function AP:BindingCommand(slot)
+    return "AP_ACTION_" .. slot
 end
 
-function VanillaConsolePort_NearbyInteract()
+function AndroidPort_NearbyInteract()
     if not SendChatMessage then return end
     -- Vanilla 1.12 blocks solo PARTY addon traffic client-side, so the
     -- trigger rides a self-whisper. The Pocket Realm server consumes this
@@ -673,7 +738,7 @@ function VanillaConsolePort_NearbyInteract()
     SendChatMessage("PR6I:1 INTERACT", "WHISPER", nil, UnitName("player"))
 end
 
-function VCP:ApplyBindings()
+function AP:ApplyBindings()
     local db = self:GetBindingJournal()
     if db.bindingSchema == self.BINDING_SCHEMA then return end
     db.bindingBackup = db.bindingBackup or {}
@@ -719,21 +784,21 @@ function VCP:ApplyBindings()
         end
     end
     local mayClaimF12 = db.bindingSchema == nil or GetBindingAction("F12") == "" or
-        GetBindingAction("F12") == "VCP_TOGGLE_RADIAL"
+        GetBindingAction("F12") == "AP_TOGGLE_RADIAL"
     if db.bindingBackup["F12"] == nil then
         db.bindingBackup["F12"] = GetBindingAction("F12") or ""
         mayClaimF12 = true
     end
     if mayClaimF12 then
-        SetBinding("F12", "VCP_TOGGLE_RADIAL")
+        SetBinding("F12", "AP_TOGGLE_RADIAL")
     end
     local mayClaimF8 = db.bindingSchema == nil or GetBindingAction("F8") == "" or
-        GetBindingAction("F8") == "VCP_MOVE_UI"
+        GetBindingAction("F8") == "AP_MOVE_UI"
     if db.bindingBackup["F8"] == nil then
         db.bindingBackup["F8"] = GetBindingAction("F8") or ""
     end
     if mayClaimF8 then
-        SetBinding("F8", "VCP_MOVE_UI")
+        SetBinding("F8", "AP_MOVE_UI")
     end
     local mayClaimF9 = db.bindingSchema == nil or GetBindingAction("F9") == "" or
         GetBindingAction("F9") == "TOGGLEAUTORUN"
@@ -744,30 +809,30 @@ function VCP:ApplyBindings()
         SetBinding("F9", "TOGGLEAUTORUN")
     end
     local mayClaimF7 = db.bindingSchema == nil or GetBindingAction("F7") == "" or
-        GetBindingAction("F7") == "VCP_NEARBY_INTERACT"
+        GetBindingAction("F7") == "AP_NEARBY_INTERACT"
     if db.bindingBackup["F7"] == nil then
         db.bindingBackup["F7"] = GetBindingAction("F7") or ""
     end
     if mayClaimF7 then
-        SetBinding("F7", "VCP_NEARBY_INTERACT")
+        SetBinding("F7", "AP_NEARBY_INTERACT")
     end
     SaveBindings(GetCurrentBindingSet())
     db.bindingSchema = self.BINDING_SCHEMA
 end
 
-function VCP:RestoreBindings()
+function AP:RestoreBindings()
     local db = self:GetBindingJournal()
     if not db or not db.bindingBackup then return end
     for key, command in pairs(db.bindingBackup) do
         local owned
         if key == "F12" then
-            owned = "VCP_TOGGLE_RADIAL"
+            owned = "AP_TOGGLE_RADIAL"
         elseif key == "F8" then
-            owned = "VCP_MOVE_UI"
+            owned = "AP_MOVE_UI"
         elseif key == "F9" then
             owned = "TOGGLEAUTORUN"
         elseif key == "F7" then
-            owned = "VCP_NEARBY_INTERACT"
+            owned = "AP_NEARBY_INTERACT"
         else
             local _, _, modifier, number = string.find(key, "^(.-)([0-9])$")
             local index = tonumber(number)
@@ -789,55 +854,62 @@ function VCP:RestoreBindings()
     Print("prior keyboard bindings restored")
 end
 
-function VanillaConsolePort_Action(slot, state)
+function AndroidPort_Action(slot, state)
     if state ~= "down" then return end
-    if VCP.moveUiActive then
-        if slot >= 5 and slot <= 8 then VCP:MoveUIAdjust(slot) end
+    if AP.moveUiActive then
+        if slot >= 5 and slot <= 8 then AP:MoveUIAdjust(slot) end
         return
     end
-    if slot >= 1 and slot <= 8 and VCP.Radial and VCP.Radial:Activate(slot) then return end
-    if VCP.ActionBars then VCP.ActionBars:UseSlot(slot) end
+    if slot >= 1 and slot <= 8 and AP.Radial and AP.Radial:Activate(slot) then return end
+    if AP.ActionBars then AP.ActionBars:UseSlot(slot) end
 end
 
-function VanillaConsolePort_ToggleRadial()
-    if VCP.Radial then VCP.Radial:Toggle() end
+function AndroidPort_ToggleRadial()
+    if AP.Radial then AP.Radial:Toggle() end
 end
 
-function VanillaConsolePort_ToggleMoveUI()
-    VCP:ToggleMoveUI()
+function AndroidPort_ToggleMoveUI()
+    AP:ToggleMoveUI()
 end
 
-SLASH_VANILLACONSOLEPORT1 = "/vcp"
-SlashCmdList["VANILLACONSOLEPORT"] = function(message)
+SLASH_ANDROIDPORT1 = "/ap"
+SlashCmdList["ANDROIDPORT"] = function(message)
     message = string.lower(message or "")
     if message == "restore" then
-        VCP:RestoreBindings()
+        AP:RestoreBindings()
     elseif message == "resetui" then
-        if VCP.FrameMover then VCP.FrameMover:ResetUI() end
+        if AP.FrameMover then AP.FrameMover:ResetUI() end
         -- resetui reverts the chat treatment too, matching the documented
         -- "back to exactly stock" contract.
-        if VCP.Hud and type(VanillaConsolePortDB) == "table" then
-            VanillaConsolePortDB.chatMinimal = false
-            VCP.Hud:RestoreChatFrame()
+        if AP.Hud and type(AndroidPortDB) == "table" then
+            AndroidPortDB.chatMinimal = false
+            AP.Hud:RestoreChatFrame()
         end
     elseif message == "chat" then
-        if VCP.Hud then VCP.Hud:ToggleChat() end
+        if AP.Hud then AP.Hud:ToggleChat() end
     elseif message == "radial" then
-        VanillaConsolePort_ToggleRadial()
+        AndroidPort_ToggleRadial()
+    elseif message == "bags" then
+        if AP.Bags then
+            AP.Bags:SetEnabled(not (AndroidPortDB and AndroidPortDB.bags and AndroidPortDB.bags.enabled))
+        end
     else
-        Print("/vcp radial opens the menu; /vcp chat toggles the minimal chat; /vcp restore restores pre-install key bindings; /vcp resetui restores the stock frame layout")
+        Print("/ap radial opens the menu; /ap chat toggles the minimal chat; /ap bags toggles the all-in-one bag window; /ap restore restores pre-install key bindings; /ap resetui restores the stock frame layout")
     end
 end
 
-local events = CreateFrame("Frame", "VanillaConsolePortEvents", UIParent)
+local events = CreateFrame("Frame", "AndroidPortEvents", UIParent)
 events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("PLAYER_LOGOUT")
-function VCP:InitializeModules()
+function AP:InitializeModules()
     self:InitializeDatabase()
     self:RefreshAddonIcons()
     if self.FrameMover then self.FrameMover:Initialize() end
     if self.Hud then self.Hud:Initialize() end
+    -- Bags is deliberately non-fatal: a failure here must never trip the
+    -- bars or radial fail-safe below nor block ApplyBindings.
+    if self.Bags then self.Bags:Initialize() end
     local barsReady = self.ActionBars and self.ActionBars:Initialize()
     local radialReady = self.Radial and self.Radial:Initialize()
     if barsReady and radialReady then return true end
@@ -847,18 +919,18 @@ function VCP:InitializeModules()
 end
 
 events:SetScript("OnEvent", function()
-    if event == "ADDON_LOADED" and arg1 == "VanillaConsolePort" then
-        VCP:InitializeModules()
+    if event == "ADDON_LOADED" and arg1 == "AndroidPort" then
+        AP:InitializeModules()
     elseif event == "ADDON_LOADED" then
-        VCP:RefreshAddonIcons()
+        AP:RefreshAddonIcons()
     elseif event == "PLAYER_ENTERING_WORLD" then
-        if VCP:InitializeModules()
-            and VCP.ActionBars.ready
-            and VCP.Radial.ready
-            and VCP.ActionBars:Refresh() then
-            VCP:ApplyBindings()
+        if AP:InitializeModules()
+            and AP.ActionBars.ready
+            and AP.Radial.ready
+            and AP.ActionBars:Refresh() then
+            AP:ApplyBindings()
         end
     elseif event == "PLAYER_LOGOUT" then
-        VCP:FinishMoveUI(true)
+        AP:FinishMoveUI(true)
     end
 end)

@@ -47,12 +47,12 @@ class AddonCatalogTest {
     @Test fun `vanilla console port is a project owned built in identity`() {
         val addon = requireNotNull(AddonCatalog.parse(File(assetRoot, "addons/catalog-v1.json").readText()).addon("151"))
         assertEquals(AddonInstallSource.BUILTIN, addon.installSource)
-        assertEquals(VanillaConsolePortPackage.INSTALL_ID, addon.installId)
-        assertEquals("0.5.0 Pocket Realm", addon.version)
-        assertEquals("0.5.0", VanillaConsolePortPackage.VERSION)
+        assertEquals(AndroidPortPackage.INSTALL_ID, addon.installId)
+        assertEquals("0.6.0 Pocket Realm", addon.version)
+        assertEquals("0.6.0", AndroidPortPackage.VERSION)
         assertNull(addon.githubUrl)
         assertTrue(addon.communitySignal.contains("not externally rated"))
-        assertEquals(listOf("builtin:addons/vanilla-console-port"), addon.researchSources)
+        assertEquals(listOf("builtin:addons/android-port"), addon.researchSources)
     }
 
     @Test fun `catalog exposes installed compatibility exceptions`() {

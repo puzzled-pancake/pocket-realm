@@ -57,6 +57,10 @@ class AddonRepository private constructor(context: Context) {
     )
     init {
         registryPublisher.recoverIfNeeded()
+        // After recovery (a pending transaction must not restore pre-rename
+        // content over the remap) and before installed state is read, so the
+        // 0.6.0 id/folder rename cannot be mistaken for a removal.
+        runCatching { AndroidPortMigrator.migrate(root, null) }
         cleanupStaleAddonStaging(packages)
         retireRemovedProducts()
     }
@@ -69,7 +73,7 @@ class AddonRepository private constructor(context: Context) {
     @Volatile private var activeCancelledNotice: String? = null
 
     init {
-        reconcileVanillaConsolePort(initialInstalled)?.let { failure ->
+        reconcileAndroidPort(initialInstalled)?.let { failure ->
             mutableState.value = mutableState.value.copy(
                 errorTitle = "Android Port controls need attention",
                 error = failure,
@@ -84,12 +88,12 @@ class AddonRepository private constructor(context: Context) {
      * retaining the prior registry/package as the ordinary one-step rollback.
      */
     private fun refreshInstalledBuiltInIfNeeded(installed: List<InstalledAddon>) {
-        if (installed.none { it.id == VanillaConsolePortPackage.INSTALL_ID }) return
+        if (installed.none { it.id == AndroidPortPackage.INSTALL_ID }) return
         launchOperation(errorTitle = "Could not refresh Android Port") { token ->
             val current = loadRegistryStrict(registry)
-                .firstOrNull { it.id == VanillaConsolePortPackage.INSTALL_ID }
+                .firstOrNull { it.id == AndroidPortPackage.INSTALL_ID }
                 ?: return@launchOperation
-            val assetDigest = sha256AssetTree(VanillaConsolePortPackage.ASSET_PATH, token)
+            val assetDigest = sha256AssetTree(AndroidPortPackage.ASSET_PATH, token)
             if (assetDigest.equals(current.archiveSha256, ignoreCase = true)) return@launchOperation
             val addon = checkNotNull(AddonCatalog.load(appContext).addon("151"))
             installBuiltInLocked(addon, token)
@@ -107,8 +111,8 @@ class AddonRepository private constructor(context: Context) {
 
     fun installBuiltIn(addon: CatalogAddon) {
         require(addon.installSource == AddonInstallSource.BUILTIN)
-        require(addon.installId == VanillaConsolePortPackage.INSTALL_ID)
-        require(addon.assetPath == VanillaConsolePortPackage.ASSET_PATH)
+        require(addon.installId == AndroidPortPackage.INSTALL_ID)
+        require(addon.assetPath == AndroidPortPackage.ASSET_PATH)
         launchOperation(
             errorTitle = "Could not install built-in add-on",
             cancelledNotice = "Installation cancelled. Installed add-ons were not changed.",
@@ -121,9 +125,9 @@ class AddonRepository private constructor(context: Context) {
         launchOperation(errorTitle = "Could not check add-on updates") { token ->
             val current = loadRegistryStrict(registry)
             val updates = linkedMapOf<String, String>()
-            current.firstOrNull { it.id == VanillaConsolePortPackage.INSTALL_ID }?.let { installed ->
+            current.firstOrNull { it.id == AndroidPortPackage.INSTALL_ID }?.let { installed ->
                 token.checkpoint()
-                val digest = sha256AssetTree(VanillaConsolePortPackage.ASSET_PATH, token)
+                val digest = sha256AssetTree(AndroidPortPackage.ASSET_PATH, token)
                 if (!digest.equals(installed.archiveSha256, ignoreCase = true)) {
                     updates[installed.id] = digest.take(40)
                 }
@@ -169,7 +173,7 @@ class AddonRepository private constructor(context: Context) {
             token.beginCommit()
             publishRegistry(current.filterNot { it.id == addonId })
             val installed = loadRegistryStrict(registry)
-            val profileFailure = reconcileVanillaConsolePort(installed)
+            val profileFailure = reconcileAndroidPort(installed)
             mutableState.value = AddonCatalogState(
                 installed = installed,
                 notice = if (profileFailure == null) {
@@ -199,7 +203,7 @@ class AddonRepository private constructor(context: Context) {
             token.beginCommit()
             publishRegistry(prior)
             val installed = loadRegistryStrict(registry)
-            val profileFailure = reconcileVanillaConsolePort(installed)
+            val profileFailure = reconcileAndroidPort(installed)
             mutableState.value = AddonCatalogState(
                 installed = installed,
                 notice = if (profileFailure == null) {
@@ -328,8 +332,8 @@ class AddonRepository private constructor(context: Context) {
             val installed = InstalledAddon(
                 id = canonical.id,
                 repository = "https://github.com/${canonical.slug}",
-                displayName = if (canonical.id == VanillaConsolePortPackage.INSTALL_ID) {
-                    VanillaConsolePortPackage.DISPLAY_NAME
+                displayName = if (canonical.id == AndroidPortPackage.INSTALL_ID) {
+                    AndroidPortPackage.DISPLAY_NAME
                 } else {
                     canonical.repo
                 },
@@ -358,13 +362,13 @@ class AddonRepository private constructor(context: Context) {
                 throw failure
             }
             runCatching { prunePackages(loadRegistry(registry), loadRegistry(previousRegistry)) }
-            val profileFailure = reconcileVanillaConsolePort(loadRegistryStrict(registry))
+            val profileFailure = reconcileAndroidPort(loadRegistryStrict(registry))
             mutableState.value = AddonCatalogState(
                 installed = loadRegistryStrict(registry),
                 notice = when {
                     profileFailure != null ->
                         "${installed.displayName} installed, but its matching controller preset could not be selected."
-                    installed.id == VanillaConsolePortPackage.INSTALL_ID ->
+                    installed.id == AndroidPortPackage.INSTALL_ID ->
                         "Android Port and its matching Winlator control preset are ready for the next game launch."
                     else -> "${installed.displayName} is ready for the next game launch."
                 },
@@ -434,7 +438,7 @@ class AddonRepository private constructor(context: Context) {
                 throw failure
             }
             runCatching { prunePackages(loadRegistry(registry), loadRegistry(previousRegistry)) }
-            val profileFailure = reconcileVanillaConsolePort(loadRegistryStrict(registry))
+            val profileFailure = reconcileAndroidPort(loadRegistryStrict(registry))
             mutableState.value = AddonCatalogState(
                 installed = loadRegistryStrict(registry),
                 notice = if (profileFailure == null) {
@@ -582,13 +586,13 @@ class AddonRepository private constructor(context: Context) {
      * sync. InputProfileStore compare-and-restores the prior profile only when
      * the automatically applied preset was not subsequently customized.
      */
-    private fun reconcileVanillaConsolePort(installed: List<InstalledAddon>): String? {
+    private fun reconcileAndroidPort(installed: List<InstalledAddon>): String? {
         val failure = runCatching {
             val store = InputProfileStore(appContext)
-            if (installed.any { it.id == VanillaConsolePortPackage.INSTALL_ID }) {
-                store.enableVanillaConsolePort()
-            } else if (store.hasManagedVanillaConsolePort()) {
-                store.disableVanillaConsolePort()
+            if (installed.any { it.id == AndroidPortPackage.INSTALL_ID }) {
+                store.enableAndroidPort()
+            } else if (store.hasManagedAndroidPort()) {
+                store.disableAndroidPort()
             }
         }.exceptionOrNull() ?: return null
         return failure.message ?: "The matching control preset could not be persisted."
@@ -781,8 +785,8 @@ class AddonRepository private constructor(context: Context) {
             InstalledAddon(
                 id = id,
                 repository = item.getString("repository"),
-                displayName = if (id == VanillaConsolePortPackage.INSTALL_ID) {
-                    VanillaConsolePortPackage.DISPLAY_NAME
+                displayName = if (id == AndroidPortPackage.INSTALL_ID) {
+                    AndroidPortPackage.DISPLAY_NAME
                 } else {
                     item.getString("displayName")
                 },
@@ -847,14 +851,14 @@ class AddonRepository private constructor(context: Context) {
 
     private fun validateBuiltInPackage(packageRoot: File): List<String> {
         val folders = packageRoot.listFiles().orEmpty().filter { it.isDirectory }.map { it.name }
-        require(folders == listOf(VanillaConsolePortPackage.ADDON_FOLDER)) {
+        require(folders == listOf(AndroidPortPackage.ADDON_FOLDER)) {
             "Built-in Android Port package has an unexpected folder layout"
         }
         require(packageRoot.listFiles().orEmpty().none { it.isFile }) {
             "Built-in Android Port package contains files outside its add-on folder"
         }
-        val addon = File(packageRoot, VanillaConsolePortPackage.ADDON_FOLDER)
-        val toc = File(addon, "${VanillaConsolePortPackage.ADDON_FOLDER}.toc")
+        val addon = File(packageRoot, AndroidPortPackage.ADDON_FOLDER)
+        val toc = File(addon, "${AndroidPortPackage.ADDON_FOLDER}.toc")
         require(toc.isFile && Regex("""(?m)^## Interface:\s*11200\s*$""").containsMatchIn(toc.readText())) {
             "Built-in Android Port is not an Interface 11200 add-on"
         }

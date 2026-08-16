@@ -3,8 +3,8 @@
 -- re-anchored by the stock UI whenever they open, so only their scale is
 -- journaled (scaleOnly) and the stock anchor sweep is wrapped so journaled
 -- layout survives bag open and close.
-VanillaConsolePort.FrameMover = VanillaConsolePort.FrameMover or {}
-local Mover = VanillaConsolePort.FrameMover
+AndroidPort.FrameMover = AndroidPort.FrameMover or {}
+local Mover = AndroidPort.FrameMover
 Mover.ready = Mover.ready or false
 
 Mover.SCALE_MIN = 0.5
@@ -55,8 +55,12 @@ local curatedFrames = {
     -- The console action stars are this addon's own session-lifetime frames;
     -- curating them keeps the crash-safety exemption honest (they can never
     -- be freed under us) while making the stars movable and scalable as units.
-    { name = "VanillaConsolePortLeftCluster", label = "Left action cluster" },
-    { name = "VanillaConsolePortRightCluster", label = "Right action cluster" },
+    { name = "AndroidPortLeftCluster", label = "Left action cluster" },
+    { name = "AndroidPortRightCluster", label = "Right action cluster" },
+    -- The all-in-one bag window replaces the stock containers while the Bags
+    -- module is ready; the stock sweep never re-anchors it, so it journals a
+    -- full anchor like the clusters. Created at file load in Bags.lua.
+    { name = "AndroidPortBagsFrame", label = "Bags" },
 }
 
 -- Journal anchors may only reference these relatives by name. Applying a
@@ -165,7 +169,7 @@ function Mover:ReleasePanelManagement(name)
     if type(UIPanelWindows) ~= "table" then return false end
     local info = UIPanelWindows[name]
     if info == nil or info.area == "full" then return false end
-    local db = VanillaConsolePortDB
+    local db = AndroidPortDB
     if type(db) ~= "table" then return false end
     local released = db.panelReleases
     if type(released) ~= "table" then
@@ -188,7 +192,7 @@ function Mover:ChainOnShow(name, frame)
     local original = frame.GetScript and frame:GetScript("OnShow") or nil
     frame:SetScript("OnShow", function()
         if original then original() end
-        local anchors = VanillaConsolePortDB and VanillaConsolePortDB.frameAnchors
+        local anchors = AndroidPortDB and AndroidPortDB.frameAnchors
         local saved = type(anchors) == "table" and anchors[name] or nil
         if saved and saved.points then
             local target = getglobal(name)
@@ -199,10 +203,10 @@ function Mover:ChainOnShow(name, frame)
 end
 
 -- Remember the stock layout once, before this addon ever changes the frame,
--- so /vcp resetui can put it back exactly. A frame already journaled by us
+-- so /ap resetui can put it back exactly. A frame already journaled by us
 -- never re-captures, so a later session cannot mistake our layout for stock.
 function Mover:CaptureBackup(frame)
-    local db = VanillaConsolePortDB
+    local db = AndroidPortDB
     local name = frame and frame.GetName and frame:GetName() or nil
     if not name or type(db) ~= "table" then return false end
     local anchors, backups = db.frameAnchors, db.frameBackups
@@ -217,7 +221,7 @@ function Mover:CaptureBackup(frame)
 end
 
 function Mover:SaveFrame(frame, label)
-    local db = VanillaConsolePortDB
+    local db = AndroidPortDB
     local name = frame and frame.GetName and frame:GetName() or nil
     if not name or type(db) ~= "table" or type(db.frameAnchors) ~= "table" then return false end
     local points = self:CapturePoints(frame)
@@ -232,7 +236,7 @@ function Mover:SaveFrame(frame, label)
 end
 
 function Mover:SaveScaleOnly(frame)
-    local db = VanillaConsolePortDB
+    local db = AndroidPortDB
     local name = frame and frame.GetName and frame:GetName() or nil
     if not name or type(db) ~= "table" or type(db.frameAnchors) ~= "table" then return false end
     if not frame.GetScale or not frame.SetScale then return false end
@@ -250,7 +254,7 @@ function Mover:SaveScaleOnly(frame)
 end
 
 function Mover:RestoreFrames()
-    local anchors = VanillaConsolePortDB and VanillaConsolePortDB.frameAnchors
+    local anchors = AndroidPortDB and AndroidPortDB.frameAnchors
     if type(anchors) ~= "table" then return false end
     for name, saved in pairs(anchors) do
         local frame = getglobal(name)
@@ -266,7 +270,7 @@ end
 -- The stock bag sweep runs from both the open and the close path and also
 -- resets container scale, so re-assert journaled layout after it settles.
 function Mover:ReassertContainers()
-    local anchors = VanillaConsolePortDB and VanillaConsolePortDB.frameAnchors
+    local anchors = AndroidPortDB and AndroidPortDB.frameAnchors
     if type(anchors) ~= "table" then return end
     for name, saved in pairs(anchors) do
         if string.find(name, "ContainerFrame", 1, true) or name == "BankFrame" then
@@ -295,7 +299,7 @@ end
 -- including the legacy add-on icon anchors, so the interface comes back
 -- exactly as this addon never existed.
 function Mover:ResetUI()
-    local db = VanillaConsolePortDB
+    local db = AndroidPortDB
     if type(db) ~= "table" then return false end
     local released = db.panelReleases
     if type(released) == "table" and type(UIPanelWindows) == "table" then
@@ -317,15 +321,15 @@ function Mover:ResetUI()
     db.frameBackups = {}
     db.frameAnchors = {}
     db.addonIconAnchors = {}
-    if VanillaConsolePort and VanillaConsolePort.Print then
-        VanillaConsolePort:Print("stock frame layout restored")
+    if AndroidPort and AndroidPort.Print then
+        AndroidPort:Print("stock frame layout restored")
     end
     return restored
 end
 
 function Mover:Initialize()
     if self.ready then return true end
-    local host = VanillaConsolePort
+    local host = AndroidPort
     if not host or type(host.addonIconCandidates) ~= "table" then return false end
     local ok = pcall(function()
         for _, spec in ipairs(curatedFrames) do

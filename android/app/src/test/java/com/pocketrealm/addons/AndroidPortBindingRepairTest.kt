@@ -7,7 +7,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class VanillaConsolePortBindingRepairTest {
+class AndroidPortBindingRepairTest {
     @Test fun `nearby F7 ownership restores exactly and a later player edit wins`() {
         val root = Files.createTempDirectory("vcp-nearby-f7").toFile()
         try {
@@ -16,14 +16,14 @@ class VanillaConsolePortBindingRepairTest {
                 writeText("bind F7 TOGGLECHARACTER0\n")
             }
             val journal = File(root, "journal.json")
-            VanillaConsolePortBindingRepair.captureBeforeLaunch(root, journal)
-            bindings.writeText("bind F7 VCP_NEARBY_INTERACT\n")
-            assertEquals(1, VanillaConsolePortBindingRepair.restoreAfterRemoval(root, journal))
+            AndroidPortBindingRepair.captureBeforeLaunch(root, journal)
+            bindings.writeText("bind F7 AP_NEARBY_INTERACT\n")
+            assertEquals(1, AndroidPortBindingRepair.restoreAfterRemoval(root, journal))
             assertEquals("bind F7 TOGGLECHARACTER0\n", bindings.readText())
 
-            VanillaConsolePortBindingRepair.captureBeforeLaunch(root, journal)
+            AndroidPortBindingRepair.captureBeforeLaunch(root, journal)
             bindings.writeText("bind F7 PLAYER_EDIT\n")
-            assertEquals(0, VanillaConsolePortBindingRepair.restoreAfterRemoval(root, journal))
+            assertEquals(0, AndroidPortBindingRepair.restoreAfterRemoval(root, journal))
             assertEquals("bind F7 PLAYER_EDIT\n", bindings.readText())
         } finally {
             root.deleteRecursively()
@@ -36,20 +36,20 @@ class VanillaConsolePortBindingRepairTest {
             val account = File(root, "WTF/Account/TEST").apply { mkdirs() }
             val bindings = File(account, "bindings-cache.wtf").apply {
                 writeText(
-                    "bind 1 VCP_ACTION_1\r\n" +
+                    "bind 1 AP_ACTION_1\r\n" +
                         "bind 2 SPELLBOOK\r\n" +
-                        "bind SHIFT-1 VCP_ACTION_11\r\n" +
-                        "bind F7 VCP_NEARBY_INTERACT\r\n" +
-                        "bind F8 VCP_MOVE_UI\r\n" +
+                        "bind SHIFT-1 AP_ACTION_11\r\n" +
+                        "bind F7 AP_NEARBY_INTERACT\r\n" +
+                        "bind F8 AP_MOVE_UI\r\n" +
                         "bind F9 TOGGLEAUTORUN\r\n" +
-                        "bind F12 VCP_TOGGLE_RADIAL\r\n" +
+                        "bind F12 AP_TOGGLE_RADIAL\r\n" +
                         "bind K TOGGLEGAMEMENU\r\n",
                 )
             }
-            val saved = File(account, "SavedVariables/VanillaConsolePort.lua").apply {
+            val saved = File(account, "SavedVariables/AndroidPort.lua").apply {
                 parentFile.mkdirs()
                 writeText(
-                    "VanillaConsolePortDB = { [\"bindingBackup\"] = {\n" +
+                    "AndroidPortDB = { [\"bindingBackup\"] = {\n" +
                         "[\"1\"] = \"ACTIONBUTTON1\", [\"2\"] = \"ACTIONBUTTON2\",\n" +
                         "[\"SHIFT-1\"] = \"MULTIACTIONBAR1BUTTON1\", " +
                         "[\"F7\"] = \"TOGGLECHARACTER0\", " +
@@ -59,9 +59,9 @@ class VanillaConsolePortBindingRepairTest {
             }
 
             val journal = File(root, "host-journal.json")
-            VanillaConsolePortBindingRepair.captureBeforeLaunch(root, journal)
+            AndroidPortBindingRepair.captureBeforeLaunch(root, journal)
             assertTrue(journal.isFile)
-            assertEquals(1, VanillaConsolePortBindingRepair.restoreAfterRemoval(root, journal))
+            assertEquals(1, AndroidPortBindingRepair.restoreAfterRemoval(root, journal))
             assertEquals(
                 "bind 1 ACTIONBUTTON1\r\n" +
                     "bind 2 SPELLBOOK\r\n" +
@@ -78,14 +78,41 @@ class VanillaConsolePortBindingRepairTest {
         }
     }
 
+    @Test fun `pre-rename VCP-era bindings are still owned and retired`() {
+        val root = Files.createTempDirectory("vcp-era-legacy").toFile()
+        try {
+            val bindings = File(root, "WTF/Account/TEST/bindings-cache.wtf").apply {
+                parentFile.mkdirs()
+                writeText("bind 1 VCP_ACTION_1\nbind F12 VCP_TOGGLE_RADIAL\nbind F8 VCP_MOVE_UI\n")
+            }
+            // Provenance still lives in the 0.5.x saved-variables file.
+            val saved = File(bindings.parentFile, "SavedVariables/VanillaConsolePort.lua").apply {
+                parentFile.mkdirs()
+                writeText(
+                    "VanillaConsolePortDB = { [\"bindingBackup\"] = {" +
+                        "[\"1\"] = \"ACTIONBUTTON1\", [\"F12\"] = \"\", [\"F8\"] = \"QUESTLOG\", }, }",
+                )
+            }
+            val journal = File(root, "journal.json")
+
+            AndroidPortBindingRepair.captureBeforeLaunch(root, journal)
+            assertEquals(1, AndroidPortBindingRepair.restoreAfterRemoval(root, journal))
+
+            assertEquals("bind 1 ACTIONBUTTON1\nbind F8 QUESTLOG\n", bindings.readText())
+            assertFalse(saved.exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     @Test fun `missing ownership evidence never mutates a manual binding cache`() {
         val root = Files.createTempDirectory("vcp-no-journal").toFile()
         try {
             val bindings = File(root, "WTF/Account/TEST/bindings-cache.wtf").apply {
-                parentFile.mkdirs(); writeText("bind 1 VCP_ACTION_1\n")
+                parentFile.mkdirs(); writeText("bind 1 AP_ACTION_1\n")
             }
             // The projector deliberately never calls repair in this state.
-            assertTrue(bindings.readText() == "bind 1 VCP_ACTION_1\n")
+            assertTrue(bindings.readText() == "bind 1 AP_ACTION_1\n")
         } finally {
             root.deleteRecursively()
         }
@@ -101,15 +128,15 @@ class VanillaConsolePortBindingRepairTest {
                 )
             }
             val journal = File(root, "journal.json")
-            VanillaConsolePortBindingRepair.captureBeforeLaunch(root, journal)
+            AndroidPortBindingRepair.captureBeforeLaunch(root, journal)
             // Simulate the add-on saving bindings followed by a forced stop
             // before its Lua SavedVariables journal reaches disk.
             bindings.writeText(
-                "bind 1 VCP_ACTION_1\nbind F7 VCP_NEARBY_INTERACT\nbind F8 VCP_MOVE_UI\nbind F9 TOGGLEAUTORUN\n" +
-                    "bind F12 VCP_TOGGLE_RADIAL\n",
+                "bind 1 AP_ACTION_1\nbind F7 AP_NEARBY_INTERACT\nbind F8 AP_MOVE_UI\nbind F9 TOGGLEAUTORUN\n" +
+                    "bind F12 AP_TOGGLE_RADIAL\n",
             )
 
-            assertEquals(1, VanillaConsolePortBindingRepair.restoreAfterRemoval(root, journal))
+            assertEquals(1, AndroidPortBindingRepair.restoreAfterRemoval(root, journal))
             assertEquals(
                 "bind 1 ACTIONBUTTON1\nbind F7 TOGGLECHARACTER0\nbind F8 QUESTLOG\nbind F9 TOGGLEFRIENDSTAB\n" +
                     "bind F12 OPENALLBAGS\n",
@@ -127,26 +154,26 @@ class VanillaConsolePortBindingRepairTest {
             val account = File(root, "WTF/Account/TEST").apply { mkdirs() }
             val bindings = File(account, "bindings-cache.wtf").apply {
                 writeText(
-                    "bind SHIFT-1 VCP_ACTION_9\n" +
-                        "bind CTRL-1 VCP_ACTION_17\n" +
-                        "bind CTRL-SHIFT-1 VCP_ACTION_25\n" +
+                    "bind SHIFT-1 AP_ACTION_9\n" +
+                        "bind CTRL-1 AP_ACTION_17\n" +
+                        "bind CTRL-SHIFT-1 AP_ACTION_25\n" +
                         "bind SHIFT-2 PLAYER_EDIT\n" +
                         "bind 9 ACTIONBUTTON9\n",
                 )
             }
-            val saved = File(account, "SavedVariables/VanillaConsolePort.lua").apply {
+            val saved = File(account, "SavedVariables/AndroidPort.lua").apply {
                 parentFile.mkdirs()
                 writeText(
-                    "VanillaConsolePortDB = { [\"bindingBackup\"] = {\n" +
+                    "AndroidPortDB = { [\"bindingBackup\"] = {\n" +
                         "[\"SHIFT-1\"] = \"MULTIACTIONBAR1BUTTON1\", " +
                         "[\"CTRL-1\"] = \"MULTIACTIONBAR2BUTTON1\", " +
                         "[\"CTRL-SHIFT-1\"] = \"MULTIACTIONBAR3BUTTON1\", }, }",
                 )
             }
             val journal = File(root, "journal.json")
-            VanillaConsolePortBindingRepair.captureBeforeLaunch(root, journal)
+            AndroidPortBindingRepair.captureBeforeLaunch(root, journal)
 
-            assertEquals(1, VanillaConsolePortBindingRepair.restoreAfterRemoval(root, journal))
+            assertEquals(1, AndroidPortBindingRepair.restoreAfterRemoval(root, journal))
             assertEquals(
                 "bind SHIFT-1 MULTIACTIONBAR1BUTTON1\n" +
                     "bind CTRL-1 MULTIACTIONBAR2BUTTON1\n" +
@@ -167,10 +194,10 @@ class VanillaConsolePortBindingRepairTest {
             val bindings = File(root, "WTF/$relative").apply {
                 parentFile.mkdirs()
                 writeText(
-                    "bind 1 VCP_ACTION_1\n" +
+                    "bind 1 AP_ACTION_1\n" +
                         "bind F8 QUESTLOG\n" +
                         "bind F9 OPENALLBAGS\n" +
-                        "bind F12 VCP_TOGGLE_RADIAL\n",
+                        "bind F12 AP_TOGGLE_RADIAL\n",
                 )
             }
             val journal = File(root, "journal.json").apply {
@@ -188,7 +215,7 @@ class VanillaConsolePortBindingRepairTest {
                 )
             }
 
-            VanillaConsolePortBindingRepair.captureBeforeLaunch(root, journal)
+            AndroidPortBindingRepair.captureBeforeLaunch(root, journal)
             val previous = org.json.JSONObject(journal.readText())
                 .getJSONArray("scopes").getJSONObject(0).getJSONObject("previous")
             assertEquals("QUESTLOG", previous.getString("F8"))
@@ -196,12 +223,12 @@ class VanillaConsolePortBindingRepairTest {
             assertEquals("", previous.getString("F12"))
 
             bindings.writeText(
-                "bind 1 VCP_ACTION_1\n" +
-                    "bind F8 VCP_MOVE_UI\n" +
+                "bind 1 AP_ACTION_1\n" +
+                    "bind F8 AP_MOVE_UI\n" +
                     "bind F9 TOGGLEAUTORUN\n" +
-                    "bind F12 VCP_TOGGLE_RADIAL\n",
+                    "bind F12 AP_TOGGLE_RADIAL\n",
             )
-            assertEquals(1, VanillaConsolePortBindingRepair.restoreAfterRemoval(root, journal))
+            assertEquals(1, AndroidPortBindingRepair.restoreAfterRemoval(root, journal))
             assertEquals(
                 "bind 1 ACTIONBUTTON1\n" +
                     "bind F8 QUESTLOG\n" +
@@ -220,15 +247,15 @@ class VanillaConsolePortBindingRepairTest {
             val bindings = File(root, "WTF/$relative").apply {
                 parentFile.mkdirs()
                 writeText(
-                    "bind 1 VCP_ACTION_1\n" +
-                        "bind F8 VCP_MOVE_UI\n" +
+                    "bind 1 AP_ACTION_1\n" +
+                        "bind F8 AP_MOVE_UI\n" +
                         "bind F9 TOGGLEAUTORUN\n",
                 )
             }
-            File(bindings.parentFile, "SavedVariables/VanillaConsolePort.lua").apply {
+            File(bindings.parentFile, "SavedVariables/AndroidPort.lua").apply {
                 parentFile.mkdirs()
                 writeText(
-                    "VanillaConsolePortDB = { [\"bindingBackup\"] = {" +
+                    "AndroidPortDB = { [\"bindingBackup\"] = {" +
                         "[\"F8\"] = \"QUESTLOG\", [\"F9\"] = \"OPENALLBAGS\", }, }",
                 )
             }
@@ -245,7 +272,7 @@ class VanillaConsolePortBindingRepairTest {
                 )
             }
 
-            assertEquals(1, VanillaConsolePortBindingRepair.restoreAfterRemoval(root, journal))
+            assertEquals(1, AndroidPortBindingRepair.restoreAfterRemoval(root, journal))
             assertEquals(
                 "bind 1 ACTIONBUTTON1\n" +
                     "bind F8 QUESTLOG\n" +
@@ -278,11 +305,11 @@ class VanillaConsolePortBindingRepairTest {
                 )
             }
 
-            VanillaConsolePortBindingRepair.captureBeforeLaunch(root, journal)
+            AndroidPortBindingRepair.captureBeforeLaunch(root, journal)
             val previous = org.json.JSONObject(journal.readText())
                 .getJSONArray("scopes").getJSONObject(0).getJSONObject("previous")
             assertEquals("TOGGLEAUTORUN", previous.getString("F9"))
-            assertEquals(0, VanillaConsolePortBindingRepair.restoreAfterRemoval(root, journal))
+            assertEquals(0, AndroidPortBindingRepair.restoreAfterRemoval(root, journal))
             assertEquals("bind F9 TOGGLEAUTORUN\n", bindings.readText())
         } finally {
             root.deleteRecursively()

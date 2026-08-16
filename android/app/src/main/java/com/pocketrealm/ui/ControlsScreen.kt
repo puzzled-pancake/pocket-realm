@@ -164,7 +164,7 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
 
     val physicalControls: @Composable () -> Unit = {
         SupportingText(
-            if (profile.scheme == ControlScheme.VANILLA_CONSOLE_PORT) {
+            if (profile.scheme == ControlScheme.ANDROID_PORT) {
                 "Android Port combat keeps frequent actions direct: R1 targets the nearest enemy " +
                     "and L1 selects and uses the nearest eligible corpse, chest, or ordinary object. " +
                     "Select + L1 is the precise use-at-pointer fallback. L2/R2 are Shift/Ctrl action-page modifiers. " +
@@ -421,7 +421,7 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                if (profile.scheme == ControlScheme.VANILLA_CONSOLE_PORT) {
+                if (profile.scheme == ControlScheme.ANDROID_PORT) {
                     "The leveling loop does not use Select: R1 directly targets the nearest living enemy and L1 " +
                         "selects and uses the nearest eligible corpse, chest, or ordinary object. Select + L1 sends " +
                         "the precise use-at-pointer fallback. Face buttons send actions 1-4 and D-pad sends 5-8; " +

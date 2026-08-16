@@ -6,7 +6,7 @@ The canonical offline decisions are ADR-001 through ADR-012 in
 ## Product and legal boundary
 
 1. The product is one installed Android application and UX, not one process and not "SPP inside an APK."
-2. The APK does not distribute the proprietary WoW executable, MPQs, client-derived DBC/maps/vmaps/mmaps, or unlicensed third-party assets. Users import a supported client they are entitled to use.
+2. The APK does not distribute the proprietary WoW executable, MPQs, or unlicensed third-party assets; users import a supported client they are entitled to use. Extracted server data derived from the imported client (DBC, maps, vmaps, mmaps) may be stored and committed in this repository, matching the redistribution posture SPP Classics has used for years; this risk is accepted by the project owner.
 3. The initial compatibility invariant is Vanilla 1.12.1 build 5875 with pinned CMaNGOS Classic, Playerbots, Classic-DB, MariaDB, toolchain, runtime, locale, addon, and device-profile inputs.
 4. Offline is the first release. Connected code cannot enter the offline artifact or start before O22 is done.
 5. Offline and connected realms are permanently separate universes; offline progress is never merged into a connected economy.
@@ -409,3 +409,61 @@ The coordinated plan and verification notes live in
   reconstructed (the overlay claimed them in the capture); reserved set =
   VCP-owned ∪ {F6, F9}, reserved-default commands badge "controller overlay"
   and reset skips them.
+
+## Android Port rename with device-data migration; all-in-one bags (2026-08-16, addon 0.6.0)
+
+- **Rename, one atomic commit:** the built-in addon's every on-disk spelling
+  moved from the VanillaConsolePort era to Android Port — asset tree
+  `addons/android-port/AndroidPort/`, `AndroidPort.toc` (`AndroidPortDB`
+  saved variables, 0.6.0), Lua table `AndroidPort` (alias `AP`), binding
+  actions `AP_*` (count stays 43), slash `/ap`, enum `ANDROID_PORT`. Frozen
+  persisted strings stay byte-identical: pref keys
+  `vanilla_console_port_prior_v1`/`_applied_v1`, `pocket_input_profile`,
+  registry `packagePath`. Third-party "vanilla" names (vanilla-tweaks crate,
+  Kron4ek wine provider, `WowVanilla*` catalogs, cmangos SQL) are unrelated
+  and untouched.
+- **`AndroidPortMigrator`** (pure Kotlin, JVM-tested) runs at the top of
+  `AddonRuntimeProjector.project()` (before any installed/journal read that
+  would mistake an unmigrated device for a removal and retire saved
+  variables; safe mode included) and in `AddonRepository.init` right after
+  publisher recovery. Idempotent steps, ownership-gated: registry.json AND
+  registry.previous.json remap id+folders+repository (folder remap is what
+  keeps the projector's builtin `require` from failing the launch), journal
+  move, per-character SavedVariables copy with `DB =` token rewrite, and a
+  `bind`-line `VCP_*`→`AP_*` rewrite in every `bindings-cache.wtf`
+  (per-line terminators preserved; without it `ApplyBindings`' schema-5
+  early return would orphan all 43 chords). `AndroidPortBindingRepair` owns
+  both command spellings and both saved-variable filenames across the
+  transition.
+- **Bags module (`Bags.lua`), revised after device testing against the
+  catalog's reference addons (Bagnon/OneBag/Bagshui/ShaguTweaks/pfUI,
+  cloned under .tmp/refaddons):** OneBag-style container (no HUD dock —
+  removed on user request; its cursor drop semantics moved onto the All and
+  Key tabs) using the stock
+  `ContainerFrameItemButtonTemplate` with per-bag holder frames whose
+  `SetID` is the bag; the header's four bag slots are REAL equipment slots
+  (id via `ContainerIDToInventoryID`/`GetInventorySlotInfo("BagNSlot")`,
+  click = `PutItemInBag`, drag = `PickupBagFromSlot`, icons refreshed on
+  `BAG_UPDATE` arg1) plus All/Key views and a money readout on
+  `PLAYER_MONEY`. Stock `OpenBag`/`OpenBackpack`/`OpenAllBags`/`ToggleBag`/
+  `ToggleBackpack`/`ToggleKeyRing` AND `CloseBag`/`CloseBackpack`/
+  `CloseAllBags`/`IsBagOpen` reroute while ready (bank ids pass through;
+  `CanOpenPanels` kept) so vendor close closes the container; restored on
+  disable/fail-safe. The scripted sorter was REMOVED (broken on device;
+  no 1.12 reference addon scripts physical sorts). Sell junk = gray
+  quality only, bags 0-4 only (never the keyring), `ClearCursor()` then
+  ONE `UseContainerItem` per 0.2s tick re-verified immediately before each
+  sale, merchant-visibility abort each tick plus `MERCHANT_CLOSED`, and a
+  deferred earnings read because money lags the sale in 1.12. The OnUpdate
+  driver frame is SHOWN at 1x1 — hidden frames never receive OnUpdate in
+  WoW, which is why the first device build's engines never ran.
+- **Move UI:** vertical drop clamps now follow the horizontal pair's
+  "at least 40 units reachable" rule, so frames sit flush at the very top
+  and base of the screen; `ScaleMoveCandidate` re-anchors around the visual
+  centre so resizing never drifts a frame (scaleOnly stock containers keep
+  the anchored-corner behaviour and scale-only journaling); the D-pad's
+  select/resize-only contract is pinned by test — `MoveUIAdjust`'s body
+  contains no positioning calls.
+- **XP strip** re-anchored from floating below the PlayerFrame to directly
+  under `PlayerFrameManaBar` (0,-2) with a dark backing, still a PlayerFrame
+  child so it moves and scales with the unit frame.

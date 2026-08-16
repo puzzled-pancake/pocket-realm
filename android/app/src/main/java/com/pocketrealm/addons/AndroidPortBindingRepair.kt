@@ -16,7 +16,7 @@ import org.json.JSONObject
  * add-on, so a forced stop before SavedVariables flush cannot lose provenance.
  * Any binding the player changed after installation is deliberately preserved.
  */
-internal object VanillaConsolePortBindingRepair {
+internal object AndroidPortBindingRepair {
     private const val MAX_TREE_ENTRIES = 10_000
     private const val MAX_BINDING_FILES = 128
     private const val MAX_FILE_BYTES = 1024L * 1024L
@@ -38,13 +38,17 @@ internal object VanillaConsolePortBindingRepair {
                 // Accept both identities so update, crash recovery and removal
                 // can retire an installation made by either schema exactly.
                 if (index < 8) commands += "VCP_ACTION_${page * 8 + index + 1}"
+                // 0.6.0 renamed the binding actions from VCP_ to AP_; both
+                // spellings stay owned so the transition retires either one.
+                commands += "AP_ACTION_${page * 10 + index + 1}"
+                if (index < 8) commands += "AP_ACTION_${page * 8 + index + 1}"
                 put("$modifier$key", commands)
             }
         }
-        put("F12", setOf("VCP_TOGGLE_RADIAL"))
-        put("F8", setOf("VCP_MOVE_UI"))
+        put("F12", setOf("VCP_TOGGLE_RADIAL", "AP_TOGGLE_RADIAL"))
+        put("F8", setOf("VCP_MOVE_UI", "AP_MOVE_UI"))
         put("F9", setOf("TOGGLEAUTORUN"))
-        put("F7", setOf("VCP_NEARBY_INTERACT"))
+        put("F7", setOf("VCP_NEARBY_INTERACT", "AP_NEARBY_INTERACT"))
     }
 
     /**
@@ -70,8 +74,7 @@ internal object VanillaConsolePortBindingRepair {
         bindingFiles.forEach { path ->
             val relative = path.toFile().relativeTo(wtf).invariantSeparatorsPath
             val current = parseCurrent(path.toFile())
-            val saved = File(path.parent.toFile(), "SavedVariables/VanillaConsolePort.lua")
-                .takeIf { it.isFile && !Files.isSymbolicLink(it.toPath()) }
+            val saved = savedVariableFile(path.parent.toFile())
                 ?.let(::parseBackup)
                 .orEmpty()
             val previous = scopes[relative].orEmpty().toMutableMap()
@@ -119,22 +122,32 @@ internal object VanillaConsolePortBindingRepair {
         bindingFiles.forEach { path ->
             val scope = path.parent.toFile()
             val relative = path.toFile().relativeTo(wtf).invariantSeparatorsPath
-            val saved = File(scope, "SavedVariables/VanillaConsolePort.lua")
             val durableBackup = durable[relative].orEmpty()
-            val savedBackup = saved.takeIf { it.isFile && !Files.isSymbolicLink(it.toPath()) }
+            val savedBackup = savedVariableFile(scope)
                 ?.let(::parseBackup).orEmpty()
             val backup = owned.keys.associateWith { key ->
                 durableBackup[key] ?: savedBackup[key].orEmpty()
             }
             if (restoreFile(path.toFile(), backup)) changed += 1
-            if (saved.isFile) {
-                check(saved.delete()) { "Android Port binding journal could not be retired" }
-                File(saved.parentFile, "${saved.name}.bak").delete()
+            // Retirement removes the saved-variables backups under both the
+            // current and the pre-0.6.0 addon names.
+            listOf("AndroidPort.lua", "VanillaConsolePort.lua").forEach { name ->
+                val saved = File(scope, "SavedVariables/$name")
+                if (saved.isFile) {
+                    check(saved.delete()) { "Android Port binding journal could not be retired" }
+                    File(saved.parentFile, "$name.bak").delete()
+                }
             }
         }
         if (journal.isFile) check(journal.delete()) { "Android Port host journal could not be retired" }
         return changed
     }
+
+    /** Saved-variables backup under the 0.6.0 name, else the pre-rename one. */
+    private fun savedVariableFile(scope: File): File? =
+        listOf("AndroidPort.lua", "VanillaConsolePort.lua")
+            .map { File(scope, "SavedVariables/$it") }
+            .firstOrNull { it.isFile && !Files.isSymbolicLink(it.toPath()) }
 
     private fun bindingFiles(clientRoot: File): Pair<File, List<java.nio.file.Path>>? {
         val wtf = File(clientRoot, "WTF")

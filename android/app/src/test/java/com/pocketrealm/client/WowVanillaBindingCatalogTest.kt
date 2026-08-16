@@ -222,7 +222,7 @@ class WowVanillaBindingDefaultsTest {
 
     @Test
     fun `reserved set equals the controller overlay claims`() {
-        val vcpOwned = com.pocketrealm.addons.VanillaConsolePortBindingRepair.ownedKeys
+        val vcpOwned = com.pocketrealm.addons.AndroidPortBindingRepair.ownedKeys
         val expected = vcpOwned + setOf("F6", "F9")
         assertEquals(expected, WowVanillaBindingCatalog.reservedKeys)
         assertTrue("CTRL-SHIFT-8" in WowVanillaBindingCatalog.reservedKeys)

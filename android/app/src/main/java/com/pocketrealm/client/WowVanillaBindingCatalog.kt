@@ -118,7 +118,7 @@ object WowVanillaBindingCatalog {
      * with the controller overlay's claims filtered out: targets beginning
      * `VCP_`, the keys F7/F8/F12, and the legacy surrogate pairs F6/
      * TARGETNEARESTENEMY and F9/TOGGLEAUTORUN. ACTIONBUTTON1..8 are
-     * reconstructed (the VanillaConsolePort overlay had claimed the digit
+     * reconstructed (the pre-0.6.0 VanillaConsolePort addon overlay claimed the digit
      * keys in the capture); the 9/0/-/= row continuing the pattern and
      * LegacyControllerBindingRepair's stock map corroborate them. Provenance
      * is DEVICE_CAPTURE, not the FrameXML pin - `Bindings.xml` carries no
@@ -253,7 +253,7 @@ object WowVanillaBindingCatalog {
 
     /**
      * Keys the controller overlay owns and the editor must never unbind,
-     * offer as assignment targets, or reset: the VanillaConsolePort set
+     * offer as assignment targets, or reset: the pre-0.6.0 VanillaConsolePort binding set
      * (digits 1-0 plus SHIFT-/CTRL-/CTRL-SHIFT- chords, F7, F8, F12) and the
      * legacy surrogates F6/F9, which the repair re-appends at every launch.
      */

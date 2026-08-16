@@ -1,9 +1,9 @@
 -- Android Port HUD: clean-room Interface 11200 chat placement plus an
 -- experience strip docked to the player frame. Chat styling never writes to
--- the client's stored chat profile, so /vcp resetui or /vcp chat fully
+-- the client's stored chat profile, so /ap resetui or /ap chat fully
 -- reverts it; the look is simply re-applied at every login.
-VanillaConsolePort.Hud = VanillaConsolePort.Hud or {}
-local Hud = VanillaConsolePort.Hud
+AndroidPort.Hud = AndroidPort.Hud or {}
+local Hud = AndroidPort.Hud
 Hud.ready = Hud.ready or false
 
 local CHAT_WIDTH = 340
@@ -16,7 +16,7 @@ local MAX_PLAYER_LEVEL = 60
 local chatButtons = { "UpButton", "DownButton", "BottomButton" }
 
 function Hud:ChatEnabled()
-    local db = VanillaConsolePortDB
+    local db = AndroidPortDB
     if type(db) ~= "table" then return true end
     return db.chatMinimal ~= false
 end
@@ -26,7 +26,7 @@ end
 -- so short and tall profiles both clear the buttons, with headroom for the
 -- edit box that hangs below the frame.
 function Hud:ChatAnchorY()
-    local layout = VanillaConsolePort:GetLayout()
+    local layout = AndroidPort:GetLayout()
     return layout.bottom + layout.padding + layout.button + 20
 end
 
@@ -63,7 +63,7 @@ function Hud:ApplyChatFrame()
     if not self:ChatEnabled() then return false end
     local chat = getglobal("ChatFrame1")
     if not chat or not chat.SetPoint then return false end
-    local db = VanillaConsolePortDB
+    local db = AndroidPortDB
     local journaled = type(db) == "table" and type(db.frameAnchors) == "table" and
         db.frameAnchors["ChatFrame1"] ~= nil
     chat:SetUserPlaced(1)
@@ -116,16 +116,16 @@ function Hud:RestoreChatFrame()
 end
 
 function Hud:ToggleChat()
-    local db = VanillaConsolePortDB
+    local db = AndroidPortDB
     if type(db) ~= "table" then return false end
     if self:ChatEnabled() then
         db.chatMinimal = false
         self:RestoreChatFrame()
-        VanillaConsolePort:Print("stock chat restored")
+        AndroidPort:Print("stock chat restored")
     else
         db.chatMinimal = true
         self:ApplyChatFrame()
-        VanillaConsolePort:Print("minimal chat enabled")
+        AndroidPort:Print("minimal chat enabled")
     end
     return true
 end
@@ -169,16 +169,29 @@ end
 
 -- Experience strip docked to the player frame: a child StatusBar moves and
 -- scales with the unit frame for free and never appears in the Move UI
--- sweep because it is not a top-level window. The frame art is untouched.
+-- sweep because it is not a top-level window. The strip sits directly under
+-- the mana bar with a two-unit gap, so it reads as part of the portrait
+-- block instead of floating below the frame art. The frame art is untouched.
 function Hud:CreateXPBar()
-    local bar = getglobal("VanillaConsolePortXPBar")
+    local bar = getglobal("AndroidPortXPBar")
     if bar then return bar end
     local playerFrame = getglobal("PlayerFrame")
     if not playerFrame then return nil end
-    bar = CreateFrame("StatusBar", "VanillaConsolePortXPBar", playerFrame)
+    local manaBar = getglobal("PlayerFrameManaBar")
+    bar = CreateFrame("StatusBar", "AndroidPortXPBar", playerFrame)
     bar:SetHeight(8)
-    bar:SetPoint("TOPLEFT", playerFrame, "BOTTOMLEFT", 4, 9)
-    bar:SetPoint("TOPRIGHT", playerFrame, "BOTTOMRIGHT", -4, 9)
+    if manaBar then
+        bar:SetPoint("TOPLEFT", manaBar, "BOTTOMLEFT", 0, -2)
+        bar:SetPoint("TOPRIGHT", manaBar, "BOTTOMRIGHT", 0, -2)
+    else
+        bar:SetPoint("TOPLEFT", playerFrame, "BOTTOMLEFT", 4, 9)
+        bar:SetPoint("TOPRIGHT", playerFrame, "BOTTOMRIGHT", -4, 9)
+    end
+    local backing = bar:CreateTexture(nil, "BACKGROUND")
+    backing:SetTexture(0, 0, 0)
+    backing:SetAlpha(0.6)
+    backing:SetAllPoints(bar)
+    bar.backing = backing
     bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
     bar:SetMinMaxValues(0, 1)
     bar:SetValue(0)
@@ -243,7 +256,7 @@ end
 -- pcall in this module guards Lua errors only; it is not crash protection.
 function Hud:Initialize()
     if self.ready then return true end
-    local host = VanillaConsolePort
+    local host = AndroidPort
     if not host or type(host.GetLayout) ~= "function" then return false end
     local ok = pcall(function()
         Hud:InstallChatHooks()
@@ -261,12 +274,12 @@ end
 function Hud:FailSafe()
     Hud.ready = false
     pcall(function()
-        local bar = getglobal("VanillaConsolePortXPBar")
+        local bar = getglobal("AndroidPortXPBar")
         if bar then bar:Hide() end
     end)
 end
 
-local events = CreateFrame("Frame", "VanillaConsolePortHudEvents", UIParent)
+local events = CreateFrame("Frame", "AndroidPortHudEvents", UIParent)
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("UPDATE_CHAT_WINDOWS")
 events:RegisterEvent("PLAYER_XP_UPDATE")

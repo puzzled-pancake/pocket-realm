@@ -34,17 +34,17 @@ class O14InputProfilePersistenceTest {
             val prior = InputProfile.DEFAULT.copy(cameraSensitivity = 1.35f)
             store.save(prior)
 
-            val enabled = store.enableVanillaConsolePort()
-            assertEquals(ControlScheme.VANILLA_CONSOLE_PORT, enabled.scheme)
-            assertTrue(store.hasManagedVanillaConsolePort())
-            assertEquals(prior, store.disableVanillaConsolePort())
-            assertFalse(store.hasManagedVanillaConsolePort())
+            val enabled = store.enableAndroidPort()
+            assertEquals(ControlScheme.ANDROID_PORT, enabled.scheme)
+            assertTrue(store.hasManagedAndroidPort())
+            assertEquals(prior, store.disableAndroidPort())
+            assertFalse(store.hasManagedAndroidPort())
 
-            store.enableVanillaConsolePort()
+            store.enableAndroidPort()
             val customized = store.loadStoredOrDefault().copy(cameraSensitivity = 1.7f)
             store.save(customized)
-            assertEquals(customized, store.disableVanillaConsolePort())
-            assertFalse(store.hasManagedVanillaConsolePort())
+            assertEquals(customized, store.disableAndroidPort())
+            assertFalse(store.hasManagedAndroidPort())
         } finally {
             val edit = prefs.edit()
             originals.forEach { (key, original) ->

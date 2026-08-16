@@ -3243,17 +3243,17 @@
       "category": "Controller UI / action bars",
       "description": "Controller-first Vanilla 1.12.1 interface with Pocket Realm's responsive 6-inch action bars, modern controller prompts, four eight-action layers and a compact radial menu. A built-in Move UI repositions stock frames and add-on icons; the mouse wheel or D-pad scales the focused frame. Text entry continues to use Pocket Realm's Android keyboard.",
       "githubUrl": null,
-      "builtinId": "builtin__vanillaconsoleport",
-      "assetPath": "addons/vanilla-console-port",
+      "builtinId": "builtin__androidport",
+      "assetPath": "addons/android-port",
       "clientTarget": "Vanilla 1.12.1 / Interface 11200",
-      "version": "0.5.0 Pocket Realm",
+      "version": "0.6.0 Pocket Realm",
       "verifiedUpdate": "2026-08-15",
       "dateConfidence": "Project-owned Interface 11200 source",
       "communitySignal": "New Pocket Realm built-in; not externally rated",
       "maintenance": "Built into Pocket Realm / clean-room Vanilla implementation",
       "compatibilityNotes": "Project-owned Interface 11200 add-on with 1280x720 and 1920x1080 six-inch layouts, controller-button chrome, four action layers and no touch sidebars or add-on keyboard. RP6 M1/M2 rear buttons are intentionally disabled because they can latch on some units. Disable other action-bar replacements. Includes its own Move UI (Select + Start) for stock frames and add-on icons, so external frame movers are optional. Native DLL payloads are not used.",
       "researchSources": [
-        "builtin:addons/vanilla-console-port"
+        "builtin:addons/android-port"
       ],
       "compatibilityRole": "Controller UI",
       "handheldScore": 9.1,
@@ -3714,7 +3714,7 @@
       "action": "Disable pfUI > Action Bars. Keep only one controller/action-bar owner.",
       "basis": "Built-in package structure",
       "evidenceSources": [
-        "builtin:addons/vanilla-console-port"
+        "builtin:addons/android-port"
       ]
     },
     {
@@ -4672,7 +4672,7 @@
       "action": "Use the cast-bar add-on normally and position it clear of the two controller button clusters.",
       "basis": "Built-in feature inventory",
       "evidenceSources": [
-        "builtin:addons/vanilla-console-port"
+        "builtin:addons/android-port"
       ]
     },
     {
@@ -5112,7 +5112,7 @@
       "action": "Test on a copied WTF folder; start with the controller addon plus default UI or pfUI instead.",
       "basis": "Undocumented combination",
       "evidenceSources": [
-        "builtin:addons/vanilla-console-port"
+        "builtin:addons/android-port"
       ]
     },
     {
@@ -5344,7 +5344,7 @@
       "action": "Test on a copied WTF folder; start with the controller addon plus default UI or pfUI instead.",
       "basis": "Undocumented combination",
       "evidenceSources": [
-        "builtin:addons/vanilla-console-port"
+        "builtin:addons/android-port"
       ]
     },
     {
@@ -5564,7 +5564,7 @@
       "action": "Test on a copied WTF folder; start with the controller addon plus default UI or pfUI instead.",
       "basis": "Undocumented combination",
       "evidenceSources": [
-        "builtin:addons/vanilla-console-port"
+        "builtin:addons/android-port"
       ]
     },
     {
@@ -5924,7 +5924,7 @@
       "action": "Configure bag scale for the device and use the native pointer; there is no special controller-focus integration.",
       "basis": "Built-in feature inventory",
       "evidenceSources": [
-        "builtin:addons/vanilla-console-port"
+        "builtin:addons/android-port"
       ]
     },
     {
@@ -6430,7 +6430,7 @@
       "action": "Keep one radial menu to avoid duplicate UI and key ownership.",
       "basis": "Structural overlap",
       "evidenceSources": [
-        "builtin:addons/vanilla-console-port"
+        "builtin:addons/android-port"
       ]
     },
     {
@@ -6493,7 +6493,7 @@
       "action": "Choose Android Port or the standalone action-bar replacement, not both.",
       "basis": "Structural conflict",
       "evidenceSources": [
-        "builtin:addons/vanilla-console-port"
+        "builtin:addons/android-port"
       ]
     },
     {
@@ -6529,7 +6529,7 @@
       "action": "Choose Android Port or the standalone action-bar replacement, not both.",
       "basis": "Structural conflict",
       "evidenceSources": [
-        "builtin:addons/vanilla-console-port"
+        "builtin:addons/android-port"
       ]
     },
     {
@@ -6553,7 +6553,7 @@
       "action": "Place Flyout on a visible controller action slot and verify its popup is pointer-reachable.",
       "basis": "Built-in feature inventory",
       "evidenceSources": [
-        "builtin:addons/vanilla-console-port"
+        "builtin:addons/android-port"
       ]
     },
     {
@@ -6656,7 +6656,7 @@
       "action": "Configure bag scale for the device and use the native pointer; there is no special controller-focus integration.",
       "basis": "Built-in feature inventory",
       "evidenceSources": [
-        "builtin:addons/vanilla-console-port"
+        "builtin:addons/android-port"
       ]
     },
     {
@@ -6668,7 +6668,7 @@
       "action": "Choose one controller layer.",
       "basis": "Structural conflict",
       "evidenceSources": [
-        "builtin:addons/vanilla-console-port",
+        "builtin:addons/android-port",
         "https://github.com/shagu/ShaguController"
       ]
     },
@@ -6681,7 +6681,7 @@
       "action": "Use Android Port alone unless the minimal helper supplies a deliberately unmapped function.",
       "basis": "Structural overlap",
       "evidenceSources": [
-        "builtin:addons/vanilla-console-port",
+        "builtin:addons/android-port",
         "https://github.com/yutsuku/Gamepad"
       ]
     },
@@ -6694,7 +6694,7 @@
       "action": "Use MoveAnything only for deeper customization; avoid moving the same frame in both tools.",
       "basis": "Handheld layout recommendation",
       "evidenceSources": [
-        "builtin:addons/vanilla-console-port",
+        "builtin:addons/android-port",
         "https://github.com/JembaWoW/MoveAnything"
       ]
     },

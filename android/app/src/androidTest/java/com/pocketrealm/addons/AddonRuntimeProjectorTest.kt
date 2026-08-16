@@ -91,21 +91,21 @@ class AddonRuntimeProjectorTest {
 
     @Test fun builtInPackageProjectsCurrentApkAssetsInsteadOfPinnedCache() {
         val stale = createPackage(
-            VanillaConsolePortPackage.ADDON_FOLDER,
-            "packages/${VanillaConsolePortPackage.INSTALL_ID}/old",
+            AndroidPortPackage.ADDON_FOLDER,
+            "packages/${AndroidPortPackage.INSTALL_ID}/old",
         )
-        File(stale, "${VanillaConsolePortPackage.ADDON_FOLDER}/stale.txt").writeText("old")
+        File(stale, "${AndroidPortPackage.ADDON_FOLDER}/stale.txt").writeText("old")
         writeRegistry(listOf(installed(
-            VanillaConsolePortPackage.INSTALL_ID,
-            VanillaConsolePortPackage.ADDON_FOLDER,
+            AndroidPortPackage.INSTALL_ID,
+            AndroidPortPackage.ADDON_FOLDER,
             stale,
         )))
 
         val applied = AddonRuntimeProjector(context, addonRoot).project(clientRoot, safeMode = false)
 
-        assertEquals(listOf(VanillaConsolePortPackage.ADDON_FOLDER), applied)
-        val projected = File(clientRoot, "Interface/AddOns/${VanillaConsolePortPackage.ADDON_FOLDER}")
-        assertTrue(File(projected, "Core.lua").readText().contains("VCP.VERSION"))
+        assertEquals(listOf(AndroidPortPackage.ADDON_FOLDER), applied)
+        val projected = File(clientRoot, "Interface/AddOns/${AndroidPortPackage.ADDON_FOLDER}")
+        assertTrue(File(projected, "Core.lua").readText().contains("AP.VERSION"))
         assertFalse(File(projected, "stale.txt").exists())
     }
 
@@ -128,18 +128,45 @@ class AddonRuntimeProjectorTest {
         assertFalse(runtime.exists())
     }
 
+    @Test fun legacyRegistryIdentityMigratesAndOldOwnedFolderIsRetiredAtLaunch() {
+        writeRegistry(listOf(installed(
+            AndroidPortPackage.LEGACY_INSTALL_ID,
+            AndroidPortPackage.LEGACY_ADDON_FOLDER,
+            createPackage(AndroidPortPackage.LEGACY_ADDON_FOLDER, "packages/legacy/old"),
+        ).put("repository", "builtin:addons/vanilla-console-port")))
+        val runtimeLegacy = File(clientRoot, "Interface/AddOns/${AndroidPortPackage.LEGACY_ADDON_FOLDER}").apply { mkdirs() }
+        File(runtimeLegacy, "old.lua").writeText("old=true")
+        File(runtimeLegacy.parentFile, ".pocketrealm-managed.json").writeText(
+            JSONObject().put("schema", 1)
+                .put("folders", JSONArray().put(AndroidPortPackage.LEGACY_ADDON_FOLDER)).toString(),
+        )
+        val savedVariables = File(clientRoot, "WTF/Account/ACC/SavedVariables").apply { mkdirs() }
+        File(savedVariables, "VanillaConsolePort.lua").writeText("VanillaConsolePortDB = { keep = true }")
+        val bindings = File(clientRoot, "WTF/Account/ACC/bindings-cache.wtf").apply {
+            parentFile.mkdirs(); writeText("bind 1 VCP_ACTION_1\n")
+        }
+
+        val applied = AddonRuntimeProjector(context, addonRoot).project(clientRoot, safeMode = false)
+
+        assertEquals(listOf(AndroidPortPackage.ADDON_FOLDER), applied)
+        assertFalse(runtimeLegacy.exists())
+        assertTrue(File(clientRoot, "Interface/AddOns/${AndroidPortPackage.ADDON_FOLDER}/Core.lua").isFile)
+        assertEquals("AndroidPortDB = { keep = true }", File(savedVariables, "AndroidPort.lua").readText())
+        assertEquals("bind 1 AP_ACTION_1\n", bindings.readText())
+    }
+
     @Test fun unownedManualControllerAddonAndBindingsAreNeverRetiredByName() {
         writeRegistry(emptyList())
-        val manual = File(clientRoot, "Interface/AddOns/VanillaConsolePort").apply { mkdirs() }
+        val manual = File(clientRoot, "Interface/AddOns/AndroidPort").apply { mkdirs() }
         File(manual, "manual.lua").writeText("manual=true")
         val bindings = File(clientRoot, "WTF/Account/TEST/bindings-cache.wtf").apply {
-            parentFile!!.mkdirs(); writeText("bind 1 VCP_ACTION_1\n")
+            parentFile!!.mkdirs(); writeText("bind 1 AP_ACTION_1\n")
         }
 
         assertEquals(emptyList<String>(), AddonRuntimeProjector(context, addonRoot)
             .project(clientRoot, safeMode = false))
         assertTrue(File(manual, "manual.lua").isFile)
-        assertEquals("bind 1 VCP_ACTION_1\n", bindings.readText())
+        assertEquals("bind 1 AP_ACTION_1\n", bindings.readText())
     }
 
     @Test fun unownedManualLegacyNamedAddonKeepsItsConfigurationAndBindings() {

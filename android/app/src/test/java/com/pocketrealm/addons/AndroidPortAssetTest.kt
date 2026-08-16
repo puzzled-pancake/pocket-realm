@@ -9,7 +9,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class VanillaConsolePortAssetTest {
+class AndroidPortAssetTest {
     private val assetRoot: File by lazy {
         listOf(
             File("src/main/assets"),
@@ -17,14 +17,14 @@ class VanillaConsolePortAssetTest {
             File("android/app/src/main/assets"),
         ).first { it.isDirectory }
     }
-    private val addon = File(assetRoot, "addons/vanilla-console-port/VanillaConsolePort")
+    private val addon = File(assetRoot, "addons/android-port/AndroidPort")
 
     @Test fun `built in package is a clean Interface 11200 Lua addon`() {
-        val toc = File(addon, "VanillaConsolePort.toc").readText()
+        val toc = File(addon, "AndroidPort.toc").readText()
         assertTrue(toc.lineSequence().any { it.trim() == "## Interface: 11200" })
         val declared = toc.lineSequence().map(String::trim)
             .filter { it.endsWith(".lua") || it.endsWith(".xml") }.toList()
-        assertEquals(listOf("Core.lua", "ActionBars.lua", "Radial.lua", "FrameMover.lua", "Hud.lua"), declared)
+        assertEquals(listOf("Core.lua", "ActionBars.lua", "Radial.lua", "Bags.lua", "FrameMover.lua", "Hud.lua"), declared)
         declared.forEach { assertTrue("TOC entry $it", File(addon, it).isFile) }
         // Vanilla discovers this reserved filename itself. Listing it in the
         // TOC sends it through the generic FrameXML loader, which reports one
@@ -47,7 +47,7 @@ class VanillaConsolePortAssetTest {
     }
 
     @Test fun `special binding loader and visible frames use exact 11200 conventions`() {
-        val toc = File(addon, "VanillaConsolePort.toc").readText()
+        val toc = File(addon, "AndroidPort.toc").readText()
         val core = File(addon, "Core.lua").readText()
         val bars = File(addon, "ActionBars.lua").readText()
         val radial = File(addon, "Radial.lua").readText()
@@ -55,14 +55,14 @@ class VanillaConsolePortAssetTest {
 
         assertFalse(toc.lineSequence().map(String::trim).any { it == "Bindings.xml" })
         assertTrue(core.contains("events:RegisterEvent(\"ADDON_LOADED\")"))
-        assertTrue(core.contains("event == \"ADDON_LOADED\" and arg1 == \"VanillaConsolePort\""))
+        assertTrue(core.contains("event == \"ADDON_LOADED\" and arg1 == \"AndroidPort\""))
         assertFalse(core.contains("this:UnregisterEvent(\"ADDON_LOADED\")"))
         assertTrue(core.contains("elseif event == \"ADDON_LOADED\" then"))
-        assertTrue(core.contains("VCP:RefreshAddonIcons()"))
+        assertTrue(core.contains("AP:RefreshAddonIcons()"))
         assertTrue(core.contains("self.ActionBars:Initialize()"))
         assertTrue(core.contains("self.Radial:Initialize()"))
         assertTrue(core.contains("event == \"PLAYER_ENTERING_WORLD\""))
-        assertTrue(core.contains("VCP:ApplyBindings()"))
+        assertTrue(core.contains("AP:ApplyBindings()"))
 
         // CooldownFrameTemplate is a Model in Interface 11200. A modern
         // `Cooldown` frame type aborts the first button before any UI appears.
@@ -71,14 +71,14 @@ class VanillaConsolePortAssetTest {
         assertFalse(bars.contains("CreateFrame(\"Cooldown\""))
         assertTrue(bars.contains("staged[index] = self:CreateButton(index)"))
         assertTrue(bars.contains("staged[index]:Show()"))
-        assertTrue(radial.contains("CreateFrame(\"Frame\", \"VanillaConsolePortRadialMenu\""))
+        assertTrue(radial.contains("CreateFrame(\"Frame\", \"AndroidPortRadialMenu\""))
 
-        assertEquals(40, Regex("<Binding name=\"VCP_ACTION_[0-9]+\"").findAll(bindings).count())
-        assertTrue(bindings.contains("<Binding name=\"VCP_TOGGLE_RADIAL\""))
-        assertTrue(bindings.contains("<Binding name=\"VCP_MOVE_UI\""))
-        assertTrue(bindings.contains("<Binding name=\"VCP_NEARBY_INTERACT\""))
-        assertTrue(bindings.contains("VanillaConsolePort_Action(1, keystate)"))
-        assertTrue(bindings.contains("VanillaConsolePort_ToggleRadial()"))
+        assertEquals(40, Regex("<Binding name=\"AP_ACTION_[0-9]+\"").findAll(bindings).count())
+        assertTrue(bindings.contains("<Binding name=\"AP_TOGGLE_RADIAL\""))
+        assertTrue(bindings.contains("<Binding name=\"AP_MOVE_UI\""))
+        assertTrue(bindings.contains("<Binding name=\"AP_NEARBY_INTERACT\""))
+        assertTrue(bindings.contains("AndroidPort_Action(1, keystate)"))
+        assertTrue(bindings.contains("AndroidPort_ToggleRadial()"))
     }
 
     @Test fun `Lua stays within vanilla APIs and never claims rear controls`() {
@@ -134,27 +134,27 @@ class VanillaConsolePortAssetTest {
 
     @Test fun `radial binding matches native F12 and restore preserves later edits`() {
         val core = File(addon, "Core.lua").readText()
-        assertTrue(core.contains("VCP.BINDING_SCHEMA = 5"))
-        assertTrue(core.contains("VCP.keys = { \"1\", \"2\", \"3\", \"4\", \"5\", \"6\", \"7\", \"8\" }"))
+        assertTrue(core.contains("AP.BINDING_SCHEMA = 5"))
+        assertTrue(core.contains("AP.keys = { \"1\", \"2\", \"3\", \"4\", \"5\", \"6\", \"7\", \"8\" }"))
         assertTrue(core.contains("if db.bindingSchema == 1 then"))
         assertTrue(core.contains("db.bindingSchema == 1 and current == oldOwned"))
-        assertTrue(core.contains("SetBinding(\"F12\", \"VCP_TOGGLE_RADIAL\")"))
-        assertTrue(core.contains("SetBinding(\"F8\", \"VCP_MOVE_UI\")"))
+        assertTrue(core.contains("SetBinding(\"F12\", \"AP_TOGGLE_RADIAL\")"))
+        assertTrue(core.contains("SetBinding(\"F8\", \"AP_MOVE_UI\")"))
         assertTrue(core.contains("SetBinding(\"F9\", \"TOGGLEAUTORUN\")"))
-        assertTrue(core.contains("SetBinding(\"F7\", \"VCP_NEARBY_INTERACT\")"))
+        assertTrue(core.contains("SetBinding(\"F7\", \"AP_NEARBY_INTERACT\")"))
         assertTrue(core.contains("local mayClaimF9 = db.bindingSchema == nil or GetBindingAction(\"F9\") == \"\" or"))
         assertFalse(core.contains("db.bindingBackup[\"F8\"] = GetBindingAction(\"F8\") or \"\"\n        mayClaimF8 = true"))
         assertFalse(core.contains("db.bindingBackup[\"F9\"] = GetBindingAction(\"F9\") or \"\"\n        mayClaimF9 = true"))
         assertFalse(core.contains("db.bindingBackup[\"F7\"] = GetBindingAction(\"F7\") or \"\"\n        mayClaimF7 = true"))
         assertTrue(core.contains("GetBindingAction(key) == owned"))
         assertFalse(core.contains("SHIFT-ESCAPE"))
-        assertTrue(File(addon, "VanillaConsolePort.toc").readText().contains("## SavedVariables: VanillaConsolePortDB"))
+        assertTrue(File(addon, "AndroidPort.toc").readText().contains("## SavedVariables: AndroidPortDB"))
     }
 
     @Test fun `nearby use sends one exact authenticated-session request and never auto loots`() {
         val core = File(addon, "Core.lua").readText()
         val bindings = File(addon, "Bindings.xml").readText()
-        assertTrue(bindings.contains("VanillaConsolePort_NearbyInteract()"))
+        assertTrue(bindings.contains("AndroidPort_NearbyInteract()"))
         assertTrue(core.contains("SendChatMessage(\"PR6I:1 INTERACT\", \"WHISPER\", nil, UnitName(\"player\"))"))
         assertFalse(core.contains("SendAddonMessage"))
         assertFalse(core.contains("local player = UnitName(\"player\")"))
@@ -166,9 +166,9 @@ class VanillaConsolePortAssetTest {
         val core = File(addon, "Core.lua").readText()
         val radial = File(addon, "Radial.lua").readText()
         val bindings = File(addon, "Bindings.xml").readText()
-        assertTrue(bindings.contains("VanillaConsolePort_ToggleMoveUI()"))
+        assertTrue(bindings.contains("AndroidPort_ToggleMoveUI()"))
         assertTrue(radial.contains("name = \"Move UI\""))
-        assertTrue(radial.contains("VanillaConsolePort:ToggleMoveUI()"))
+        assertTrue(radial.contains("AndroidPort:ToggleMoveUI()"))
         assertFalse(radial.contains("name = \"Game Menu\""))
         val activate = radial.substringAfter("function Radial:Activate(index)")
             .substringBefore("function Radial:Toggle()")
@@ -177,24 +177,24 @@ class VanillaConsolePortAssetTest {
         assertTrue(core.contains("if self:FinishMoveUI(false) then return end"))
         assertTrue(core.contains("if not self.moveUiActive then return false end"))
         assertTrue(core.contains("self.moveUiActive = nil"))
-        assertTrue(core.contains("VanillaConsolePortMoveSaveExit"))
+        assertTrue(core.contains("AndroidPortMoveSaveExit"))
         assertTrue(core.contains("exit:SetText(\"Save & Exit\")"))
-        assertTrue(core.contains("if VCP.moveUiActive then VCP:FinishMoveUI(false) end"))
-        assertTrue(core.contains("tinsert(UISpecialFrames, \"VanillaConsolePortMoveInstructions\")"))
+        assertTrue(core.contains("if AP.moveUiActive then AP:FinishMoveUI(false) end"))
+        assertTrue(core.contains("tinsert(UISpecialFrames, \"AndroidPortMoveInstructions\")"))
         assertTrue(core.contains("Select + Start or Escape saves and exits"))
         assertFalse(core.contains("SetAllPoints(UIParent)"))
-        assertFalse(core.contains("VanillaConsolePortMoveShade"))
+        assertFalse(core.contains("AndroidPortMoveShade"))
     }
 
     @Test fun `icon mover registers known addons and conservatively discovers minimap buttons`() {
         val core = File(addon, "Core.lua").readText()
-        assertTrue(core.contains("function VCP:RegisterAddonIcon(id, frameOrName, label)"))
+        assertTrue(core.contains("function AP:RegisterAddonIcon(id, frameOrName, label)"))
         assertTrue(core.contains("id = \"pfquest-route-arrow\", frame = \"pfQuestRouteArrow\""))
         assertTrue(core.contains("id = \"pfquest-minimap-button\", frame = \"pfQuestMinimapButton\""))
-        assertTrue(core.contains("function VCP:DiscoverTopLevelFrames(seen)"))
+        assertTrue(core.contains("function AP:DiscoverTopLevelFrames(seen)"))
         assertTrue(core.contains("self:BuildLiveFrameSet()"))
         assertTrue(core.contains("self:DiscoverTopLevelFrames(seen)"))
-        assertTrue(core.contains("function VCP:ResolveCandidate(candidate)"))
+        assertTrue(core.contains("function AP:ResolveCandidate(candidate)"))
         // The recursive minimap walk held raw frame userdata past those
         // frames' lifetime and crashed the client on freed objects; the sweep
         // must resolve everything by name against the engine frame list.
@@ -211,9 +211,9 @@ class VanillaConsolePortAssetTest {
 
     @Test fun `icon anchors validate persist restore and tolerate missing or late addons`() {
         val core = File(addon, "Core.lua").readText()
-        assertTrue(core.contains("if type(VanillaConsolePortDB.addonIconAnchors) ~= \"table\" then"))
-        assertTrue(core.contains("VanillaConsolePortDB.addonIconAnchors = {}"))
-        assertTrue(core.contains("function VCP:GetSavedAddonIconAnchor(id)"))
+        assertTrue(core.contains("if type(AndroidPortDB.addonIconAnchors) ~= \"table\" then"))
+        assertTrue(core.contains("AndroidPortDB.addonIconAnchors = {}"))
+        assertTrue(core.contains("function AP:GetSavedAddonIconAnchor(id)"))
         assertTrue(core.contains("if IsValidAnchor(saved) then return saved end"))
         assertTrue(core.contains("x >= -10000 and x <= 10000 and y >= -10000 and y <= 10000"))
         assertTrue(core.contains("frame:GetCenter()"))
@@ -240,8 +240,8 @@ class VanillaConsolePortAssetTest {
 
     @Test fun `move mode overlays only icon handles so ordinary dialogs remain clickable`() {
         val core = File(addon, "Core.lua").readText()
-        val handle = core.substringAfter("function VCP:ShowAddonIconHandle(candidate)")
-            .substringBefore("function VCP:FinishMoveUI(silent)")
+        val handle = core.substringAfter("function AP:ShowAddonIconHandle(candidate)")
+            .substringBefore("function AP:FinishMoveUI(silent)")
         assertTrue(handle.contains("CreateFrame(\"Button\", name, UIParent)"))
         assertTrue(handle.contains("local handle = candidate.handle"))
         assertTrue(handle.contains("if not handle then"))
@@ -284,11 +284,11 @@ class VanillaConsolePortAssetTest {
     @Test fun `frame mover curates stock frames journals layout and resets cleanly`() {
         val core = File(addon, "Core.lua").readText()
         val mover = File(addon, "FrameMover.lua").readText()
-        val toc = File(addon, "VanillaConsolePort.toc").readText()
+        val toc = File(addon, "AndroidPort.toc").readText()
 
-        assertTrue(core.contains("VCP.VERSION = \"0.5.0\""))
-        assertTrue(toc.contains("## Version: 0.5.0"))
-        assertTrue(mover.contains("VanillaConsolePort.FrameMover = VanillaConsolePort.FrameMover or {}"))
+        assertTrue(core.contains("AP.VERSION = \"0.6.0\""))
+        assertTrue(toc.contains("## Version: 0.6.0"))
+        assertTrue(mover.contains("AndroidPort.FrameMover = AndroidPort.FrameMover or {}"))
         assertTrue(mover.contains("Mover.SCALE_MIN = 0.5"))
         assertTrue(mover.contains("Mover.SCALE_MAX = 1.5"))
         assertTrue(mover.contains("name = \"PlayerFrame\", label = \"Player frame\""))
@@ -311,18 +311,18 @@ class VanillaConsolePortAssetTest {
         // later layout, so resetui always returns to the true stock position.
         assertTrue(mover.contains("if anchors[name] ~= nil or backups[name] ~= nil then return false end"))
 
-        assertTrue(core.contains("VanillaConsolePortDB.uiSchema = 2"))
-        assertTrue(core.contains("if type(VanillaConsolePortDB.frameAnchors) ~= \"table\" then"))
-        assertTrue(core.contains("VanillaConsolePortDB.frameAnchors = {}"))
-        assertTrue(core.contains("if type(VanillaConsolePortDB.frameBackups) ~= \"table\" then"))
-        assertTrue(core.contains("VanillaConsolePortDB.frameBackups = {}"))
-        assertTrue(core.contains("function VCP:CanMoveCandidate(candidate)"))
+        assertTrue(core.contains("AndroidPortDB.uiSchema = 2"))
+        assertTrue(core.contains("if type(AndroidPortDB.frameAnchors) ~= \"table\" then"))
+        assertTrue(core.contains("AndroidPortDB.frameAnchors = {}"))
+        assertTrue(core.contains("if type(AndroidPortDB.frameBackups) ~= \"table\" then"))
+        assertTrue(core.contains("AndroidPortDB.frameBackups = {}"))
+        assertTrue(core.contains("function AP:CanMoveCandidate(candidate)"))
         assertTrue(core.contains("if candidate.scaleOnly then\n        if self.FrameMover then return self.FrameMover:SaveScaleOnly(frame) end"))
         assertTrue(core.contains("if self.FrameMover then self.FrameMover:SaveFrame(frame, candidate.label) end"))
         assertTrue(core.contains("if saved.scale and candidate.frame.SetScale then candidate.frame:SetScale(saved.scale) end"))
         assertTrue(core.contains("if self.FrameMover then self.FrameMover:Initialize() end"))
         assertTrue(core.contains("elseif message == \"resetui\" then"))
-        assertTrue(core.contains("VCP.Hud:RestoreChatFrame()"))
+        assertTrue(core.contains("AP.Hud:RestoreChatFrame()"))
 
         // Stock re-anchor resistance: the bag sweep runs on both open and
         // close and also resets scale, so the chokepoint itself is wrapped;
@@ -345,7 +345,7 @@ class VanillaConsolePortAssetTest {
     @Test fun `hud docks a minimal chat and a player frame xp strip`() {
         val core = File(addon, "Core.lua").readText()
         val hud = File(addon, "Hud.lua").readText()
-        val toc = File(addon, "VanillaConsolePort.toc").readText()
+        val toc = File(addon, "AndroidPort.toc").readText()
         assertTrue(toc.lineSequence().map(String::trim).contains("Hud.lua"))
         assertTrue(core.contains("if self.Hud then self.Hud:Initialize() end"))
         assertTrue(core.contains("elseif message == \"chat\" then"))
@@ -381,7 +381,7 @@ class VanillaConsolePortAssetTest {
         // XP strip: a StatusBar child of PlayerFrame moves and scales with
         // the unit frame, updates on the stock XP event set, hides at the
         // level cap the way the stock bar branches, and never journals.
-        assertTrue(hud.contains("CreateFrame(\"StatusBar\", \"VanillaConsolePortXPBar\", playerFrame)"))
+        assertTrue(hud.contains("CreateFrame(\"StatusBar\", \"AndroidPortXPBar\", playerFrame)"))
         assertTrue(hud.contains("events:RegisterEvent(\"PLAYER_XP_UPDATE\")"))
         assertTrue(hud.contains("events:RegisterEvent(\"UPDATE_EXHAUSTION\")"))
         assertTrue(hud.contains("events:RegisterEvent(\"PLAYER_LEVEL_UP\")"))
@@ -395,21 +395,39 @@ class VanillaConsolePortAssetTest {
         val core = File(addon, "Core.lua").readText()
 
         // While Move UI is open no action slot reaches the action bars.
-        val action = core.substringAfter("function VanillaConsolePort_Action(slot, state)")
-            .substringBefore("function VanillaConsolePort_ToggleRadial()")
-        assertTrue(action.contains("if VCP.moveUiActive then\n        if slot >= 5 and slot <= 8 then VCP:MoveUIAdjust(slot) end\n        return\n    end"))
+        val action = core.substringAfter("function AndroidPort_Action(slot, state)")
+            .substringBefore("function AndroidPort_ToggleRadial()")
+        assertTrue(action.contains("if AP.moveUiActive then\n        if slot >= 5 and slot <= 8 then AP:MoveUIAdjust(slot) end\n        return\n    end"))
 
-        assertTrue(core.contains("function VCP:MoveUIAdjust(slot)"))
-        assertTrue(core.contains("function VCP:SetMoveFocus(candidate)"))
-        assertTrue(core.contains("function VCP:ScaleMoveCandidate(candidate, direction)"))
-        assertTrue(core.contains("function VCP:MoveFocusCandidates()"))
+        assertTrue(core.contains("function AP:MoveUIAdjust(slot)"))
+        assertTrue(core.contains("function AP:SetMoveFocus(candidate)"))
+        assertTrue(core.contains("function AP:ScaleMoveCandidate(candidate, direction)"))
+        assertTrue(core.contains("function AP:MoveFocusCandidates()"))
         assertTrue(core.contains("if scale < MOVE_SCALE_MIN then scale = MOVE_SCALE_MIN end"))
         assertTrue(core.contains("if scale > MOVE_SCALE_MAX then scale = MOVE_SCALE_MAX end"))
         assertTrue(core.contains("handle:EnableMouseWheel(1)"))
-        assertTrue(core.contains("VCP:ScaleMoveCandidate(candidate, arg1)"))
+        assertTrue(core.contains("AP:ScaleMoveCandidate(candidate, arg1)"))
         assertTrue(core.contains("if candidate.scaleOnly then return end"))
         assertTrue(core.contains("self.moveFocused = nil"))
-        assertTrue(core.contains("D-pad Down/Up focuses, Left/Right scales"))
+        assertTrue(core.contains("D-pad Down/Up selects, Left/Right resizes"))
+
+        // The D-pad never moves a frame: MoveUIAdjust itself only selects and
+        // resizes, so its body must contain no positioning calls. Resizing
+        // mutates position only through the shared centre-preserving path.
+        val adjust = core.substringAfter("function AP:MoveUIAdjust(slot)")
+            .substringBefore("function AP:ToggleMoveUI()")
+        assertFalse(adjust.contains("SetPoint"))
+        assertFalse(adjust.contains("StartMoving"))
+        assertFalse(adjust.contains("StopMovingOrSizing"))
+
+        // Frames may sit flush against the very top and base of the screen:
+        // the vertical clamps follow the same at-least-40-reachable rule as
+        // the horizontal pair instead of forcing an inside margin.
+        assertTrue(core.contains("if screenTop < 40 then screenTop = 40 end"))
+        assertTrue(core.contains("if screenTop > parentTop + height - 40 then screenTop = parentTop + height - 40 end"))
+        // Resizing pivots on the visual centre so a scaled frame never drifts.
+        assertTrue(core.contains("local cx, cy = frame.GetCenter and frame:GetCenter()"))
+        assertTrue(core.contains("screenLeft, screenTop = self:ClampFrameRect(frame, screenLeft, screenTop)"))
 
         val model = FrameMoverModel()
         assertNull(model.focusedLabel)
@@ -426,6 +444,76 @@ class VanillaConsolePortAssetTest {
         assertEquals(0.5, model.scale, 1e-9)
         repeat(20) { model.adjust(8) }
         assertEquals(1.5, model.scale, 1e-9)
+    }
+
+    @Test fun `bags module docks left merges containers and sells gray only`() {
+        val toc = File(addon, "AndroidPort.toc").readText()
+        val core = File(addon, "Core.lua").readText()
+        val bags = File(addon, "Bags.lua").readText()
+        val radial = File(addon, "Radial.lua").readText()
+        val mover = File(addon, "FrameMover.lua").readText()
+
+        assertTrue(toc.lineSequence().map(String::trim).contains("Bags.lua"))
+        // File-load creation lets the frame mover's curated registry adopt the
+        // container, exactly like the action clusters. No dock lives on the
+        // main HUD: the container opens from the radial menu or bag keys.
+        assertTrue(mover.contains("name = \"AndroidPortBagsFrame\", label = \"Bags\""))
+        assertTrue(bags.contains("Bags:EnsureFrame()"))
+        assertFalse(bags.contains("AndroidPortBagDock"))
+        // The stock item template plus a parent whose ID is the bag gives the
+        // full stock click, drag, tooltip and keyring behaviour.
+        assertTrue(bags.contains("\"ContainerFrameItemButtonTemplate\""))
+        assertTrue(bags.contains("holder:SetID(bag)"))
+        assertTrue(bags.contains("getglobal(\"AndroidPortBagsFrame\")"))
+        assertTrue(bags.contains("tinsert(UISpecialFrames, \"AndroidPortBagsFrame\")"))
+        // Cursor drop semantics live on the All and Key tabs.
+        assertTrue(bags.contains("PutItemInBackpack()"))
+        assertTrue(bags.contains("PutKeyInKeyRing()"))
+        assertTrue(bags.contains("GetKeyRingSize"))
+        assertTrue(bags.contains("Bags:Toggle(\"key\")"))
+        // Stock entry points reroute while ready; bank ids pass through.
+        assertTrue(bags.contains("function Bags:InstallStockHooks()"))
+        assertTrue(bags.contains("Bags.stockOpenBag(id)"))
+        assertTrue(bags.contains("function Bags:RestoreStockHooks()"))
+        // Sell junk: gray items detected through the poor-quality link color
+        // code (the GetContainerItemInfo quality return is not dependable on
+        // 11200; every working reference addon reads the link), bags 0
+        // through 4 only so the keyring is never scanned, one verified sale
+        // per tick, merchant tab guards, cursor cleared first and earnings
+        // read on a deferred tick.
+        assertTrue(bags.contains("for bag = 0, 4 do"))
+        assertTrue(bags.contains("string.find(link, \"ff9d9d9d\", 1, true)"))
+        assertTrue(bags.contains("MerchantFrame.selectedTab ~= 2"))
+        assertTrue(bags.contains("ClearCursor()"))
+        assertTrue(bags.contains("UseContainerItem(bag, slot)"))
+        assertTrue(bags.contains("MERCHANT_CLOSED"))
+        assertTrue(bags.contains("self.reportAt = GetTime() + REPORT_DELAY"))
+        // Real bag slots: drag a bag on to equip, drag off to lift it.
+        assertTrue(bags.contains("PutItemInBag(this:GetID())"))
+        assertTrue(bags.contains("PickupBagFromSlot(this:GetID())"))
+        assertTrue(bags.contains("GetInventorySlotInfo(\"Bag\" .. (bag - 1) .. \"Slot\")"))
+        assertTrue(bags.contains("ContainerIDToInventoryID(bag)"))
+        // Stock close paths and open-state queries reroute too.
+        assertTrue(bags.contains("Bags.stockCloseBackpack()"))
+        assertTrue(bags.contains("Bags.stockCloseAllBags()"))
+        assertTrue(bags.contains("IsBagOpen = function(id)"))
+        // The oval portrait mask must never back a rectangular region, and
+        // the tick driver must be shown or its OnUpdate never fires.
+        assertFalse(bags.contains("TempPortraitAlphaMask"))
+        assertTrue(bags.contains("events:Show()"))
+        assertTrue(bags.contains("PLAYER_MONEY"))
+        // Bags stays non-fatal in the module bootstrap and the radial keeps
+        // its stock fallback.
+        assertTrue(core.contains("if self.Bags then self.Bags:Initialize() end"))
+        assertTrue(radial.contains("AndroidPort.Bags.ready and AndroidPort.Bags:Toggle()"))
+    }
+
+    @Test fun `xp strip sits under the mana bar inside the portrait block`() {
+        val hud = File(addon, "Hud.lua").readText()
+        assertTrue(hud.contains("local manaBar = getglobal(\"PlayerFrameManaBar\")"))
+        assertTrue(hud.contains("bar:SetPoint(\"TOPLEFT\", manaBar, \"BOTTOMLEFT\", 0, -2)"))
+        assertTrue(hud.contains("bar:SetPoint(\"TOPRIGHT\", manaBar, \"BOTTOMRIGHT\", 0, -2)"))
+        assertTrue(hud.contains("SetTexture(0, 0, 0)"))
     }
 
     @Test fun `replacement action buttons retain placement and cooldown functionality`() {
@@ -453,12 +541,12 @@ class VanillaConsolePortAssetTest {
         // The two action stars are movable as units through their cluster
         // containers: buttons parent and anchor to the cluster, so one
         // journal entry moves or scales the whole star.
-        assertTrue(bars.contains("[1] = \"VanillaConsolePortRightCluster\""))
-        assertTrue(bars.contains("[-1] = \"VanillaConsolePortLeftCluster\""))
+        assertTrue(bars.contains("[1] = \"AndroidPortRightCluster\""))
+        assertTrue(bars.contains("[-1] = \"AndroidPortLeftCluster\""))
         assertTrue(bars.contains("button:SetPoint(\n                \"BOTTOM\", cluster, \"CENTER\","))
         assertTrue(bars.contains("button:SetParent(cluster)"))
-        assertTrue(mover.contains("name = \"VanillaConsolePortLeftCluster\", label = \"Left action cluster\""))
-        assertTrue(mover.contains("name = \"VanillaConsolePortRightCluster\", label = \"Right action cluster\""))
+        assertTrue(mover.contains("name = \"AndroidPortLeftCluster\", label = \"Left action cluster\""))
+        assertTrue(mover.contains("name = \"AndroidPortRightCluster\", label = \"Right action cluster\""))
     }
 
     @Test fun `initialization is transactional retryable and gates stock replacement`() {
@@ -469,8 +557,8 @@ class VanillaConsolePortAssetTest {
         assertFalse(bars.contains("self.initialized"))
         assertTrue(bars.contains("self.ready = false"))
         assertTrue(bars.contains("local ok = pcall(function()"))
-        assertTrue(bars.contains("getglobal(\"VanillaConsolePortButton\" .. index)"))
-        assertTrue(bars.contains("getglobal(\"VanillaConsolePortBarWatcher\")"))
+        assertTrue(bars.contains("getglobal(\"AndroidPortButton\" .. index)"))
+        assertTrue(bars.contains("getglobal(\"AndroidPortBarWatcher\")"))
         assertTrue(bars.contains("if not ok or not self:ValidateButtons(staged) or not watcher then"))
         assertTrue(bars.contains("self:FailSafe(staged)"))
         assertTrue(bars.indexOf("self.ready = true") > bars.indexOf("self.buttons = staged"))
@@ -483,8 +571,8 @@ class VanillaConsolePortAssetTest {
         assertTrue(refresh.contains("self:FailSafe(self.buttons)"))
 
         assertTrue(radial.contains("Radial.ready = Radial.ready or false"))
-        assertTrue(radial.contains("getglobal(\"VanillaConsolePortRadialMenu\")"))
-        assertTrue(radial.contains("getglobal(\"VanillaConsolePortRadialShade\")"))
+        assertTrue(radial.contains("getglobal(\"AndroidPortRadialMenu\")"))
+        assertTrue(radial.contains("getglobal(\"AndroidPortRadialShade\")"))
         assertTrue(radial.contains("getglobal(name)"))
         assertTrue(radial.contains("if not ok or not self:Validate(frame, overlay, buttons) then"))
         assertTrue(radial.contains("self:FailSafe(frame, overlay, buttons)"))
@@ -492,10 +580,10 @@ class VanillaConsolePortAssetTest {
         assertTrue(radial.contains("Face 1-4 / D-pad 5-8: choose\\nSelect: close"))
         assertTrue(radial.contains("function Radial:Activate(index)"))
         assertTrue(radial.contains("if not self.ready or not self.frame or not self.frame:IsVisible() then return false end"))
-        assertTrue(core.contains("VCP.Radial:Activate(slot)"))
+        assertTrue(core.contains("AP.Radial:Activate(slot)"))
         assertTrue(radial.contains("not frame.help"))
 
-        val moduleInit = core.substringAfter("function VCP:InitializeModules()")
+        val moduleInit = core.substringAfter("function AP:InitializeModules()")
             .substringBefore("events:SetScript")
         assertTrue(moduleInit.contains("if barsReady and radialReady then return true end"))
         assertTrue(moduleInit.contains("self.ActionBars:FailSafe(self.ActionBars.buttons)"))
@@ -504,10 +592,10 @@ class VanillaConsolePortAssetTest {
 
         val playerEnteringWorld = core.substringAfter("event == \"PLAYER_ENTERING_WORLD\"")
             .substringBefore("end\nend)")
-        assertTrue(playerEnteringWorld.contains("VCP:InitializeModules()"))
-        assertTrue(playerEnteringWorld.contains("VCP.ActionBars.ready"))
-        assertTrue(playerEnteringWorld.contains("VCP.Radial.ready"))
-        assertTrue(playerEnteringWorld.indexOf("VCP.ActionBars:Refresh()") < playerEnteringWorld.indexOf("VCP:ApplyBindings()"))
+        assertTrue(playerEnteringWorld.contains("AP:InitializeModules()"))
+        assertTrue(playerEnteringWorld.contains("AP.ActionBars.ready"))
+        assertTrue(playerEnteringWorld.contains("AP.Radial.ready"))
+        assertTrue(playerEnteringWorld.indexOf("AP.ActionBars:Refresh()") < playerEnteringWorld.indexOf("AP:ApplyBindings()"))
         assertFalse(playerEnteringWorld.contains("HideStockBars"))
     }
 

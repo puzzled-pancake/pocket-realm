@@ -455,7 +455,7 @@ class InputContractTest {
         val contract = InputContract(sink, scheduler)
         contract.attach(null, 1)
         contract.switchProfile(
-            InputProfile.profileForScheme(ControlScheme.VANILLA_CONSOLE_PORT, "16:9"),
+            InputProfile.profileForScheme(ControlScheme.ANDROID_PORT, "16:9"),
             "16:9",
             1,
         )
@@ -849,7 +849,7 @@ class InputContractTest {
     @Test fun `console port Select tap retains one balanced radial pulse`() {
         val (c, sink) = newContract()
         c.switchProfile(
-            InputProfile.profileForScheme(ControlScheme.VANILLA_CONSOLE_PORT, "16:9"),
+            InputProfile.profileForScheme(ControlScheme.ANDROID_PORT, "16:9"),
             "16:9",
             1,
         )
@@ -869,7 +869,7 @@ class InputContractTest {
     @Test fun `console port radial tap unlocks camera and centres pointer before F12`() {
         val (c, sink) = newContract()
         c.switchProfile(
-            InputProfile.profileForScheme(ControlScheme.VANILLA_CONSOLE_PORT, "16:9"),
+            InputProfile.profileForScheme(ControlScheme.ANDROID_PORT, "16:9"),
             "16:9",
             1,
         )
@@ -904,7 +904,7 @@ class InputContractTest {
     @Test fun `console port frequent target nearby use and pointer buttons are direct buttons`() {
         fun contract(): Pair<InputContract, RecordingSink> = newContract().also { (c, _) ->
             c.switchProfile(
-                InputProfile.profileForScheme(ControlScheme.VANILLA_CONSOLE_PORT, "16:9"),
+                InputProfile.profileForScheme(ControlScheme.ANDROID_PORT, "16:9"),
                 "16:9",
                 1,
             )
@@ -974,7 +974,7 @@ class InputContractTest {
     @Test fun `console port Select chords cover last hostile jump pointer and camera`() {
         fun contract(): Pair<InputContract, RecordingSink> = newContract().also { (c, _) ->
             c.switchProfile(
-                InputProfile.profileForScheme(ControlScheme.VANILLA_CONSOLE_PORT, "16:9"),
+                InputProfile.profileForScheme(ControlScheme.ANDROID_PORT, "16:9"),
                 "16:9",
                 1,
             )
@@ -1031,7 +1031,7 @@ class InputContractTest {
     @Test fun `console port Select Start enters Move UI without changing R3`() {
         val (c, sink) = newContract()
         c.switchProfile(
-            InputProfile.profileForScheme(ControlScheme.VANILLA_CONSOLE_PORT, "16:9"),
+            InputProfile.profileForScheme(ControlScheme.ANDROID_PORT, "16:9"),
             "16:9",
             1,
         )
@@ -1075,7 +1075,7 @@ class InputContractTest {
     @Test fun `console port Select pointer chord supports analogue R2 and Select L1 aimed use`() {
         val (c, sink) = newContract()
         c.switchProfile(
-            InputProfile.profileForScheme(ControlScheme.VANILLA_CONSOLE_PORT, "16:9"),
+            InputProfile.profileForScheme(ControlScheme.ANDROID_PORT, "16:9"),
             "16:9",
             1,
         )
@@ -1115,7 +1115,7 @@ class InputContractTest {
     @Test fun `console port pending Select lifecycle release is neutral`() {
         val (c, sink) = newContract()
         c.switchProfile(
-            InputProfile.profileForScheme(ControlScheme.VANILLA_CONSOLE_PORT, "16:9"),
+            InputProfile.profileForScheme(ControlScheme.ANDROID_PORT, "16:9"),
             "16:9",
             1,
         )
@@ -2461,7 +2461,7 @@ class InputContractTest {
 
     @Test fun `vanilla console port preset matches ConsoleExperience keyboard contract`() {
         val profile = InputProfile.profileForScheme(
-            ControlScheme.VANILLA_CONSOLE_PORT,
+            ControlScheme.ANDROID_PORT,
             "16:9",
         )
         val expected = linkedMapOf(
@@ -2486,9 +2486,9 @@ class InputContractTest {
         expected.forEach { (control, action) ->
             assertEquals(control.displayName, action, InputProfile.actionFor(profile, control))
         }
-        assertEquals(ControlScheme.VANILLA_CONSOLE_PORT, profile.scheme)
+        assertEquals(ControlScheme.ANDROID_PORT, profile.scheme)
         assertEquals(
-            ControlScheme.VANILLA_CONSOLE_PORT,
+            ControlScheme.ANDROID_PORT,
             InputProfile.fromJson(InputProfile.toJson(profile)).scheme,
         )
     }
@@ -2526,7 +2526,7 @@ class InputContractTest {
             return InputProfile.fromJson(org.json.JSONObject()
                 .put("version", 11)
                 .put("aspectIdentity", "16:9")
-                .put("scheme", ControlScheme.VANILLA_CONSOLE_PORT.name)
+                .put("scheme", ControlScheme.ANDROID_PORT.name)
                 .put("rp6Bindings", stored))
         }
 

@@ -14,7 +14,7 @@ enum class ControlScheme(val displayName: String, val description: String) {
         "Built-in leveling controls (no add-on)",
         "Target, loot/interact, jump, movement and abilities work without an add-on. Lock camera makes the right stick look; unlock it to move the cursor.",
     ),
-    VANILLA_CONSOLE_PORT(
+    ANDROID_PORT(
         "Android Port",
         "Optional Vanilla 1.12.1 layout: direct target/use shoulders, eight action buttons, LT/RT modifier pages and radial menu. Unreliable RP6 M1/M2 rear buttons stay disabled.",
     ),
@@ -357,7 +357,7 @@ data class InputProfile(
          * supplies these ordinary key/mouse events through Winlator; the addon
          * remains optional and receives no raw Android controller authority.
          */
-        fun vanillaConsolePortBindings(): Map<Rp6Control, ControllerAction> = linkedMapOf(
+        fun androidPortBindings(): Map<Rp6Control, ControllerAction> = linkedMapOf(
             Rp6Control.LEFT_STICK_UP to ControllerAction.MOVE_W,
             Rp6Control.LEFT_STICK_DOWN to ControllerAction.MOVE_S,
             Rp6Control.LEFT_STICK_LEFT to ControllerAction.STRAFE_Q,
@@ -390,7 +390,7 @@ data class InputProfile(
         )
 
         /** Exact uncustomized Console Port map written by the first schema-v11 build. */
-        private fun v11VanillaConsolePortBindingNames(): Map<Rp6Control, String> = linkedMapOf(
+        private fun v11AndroidPortBindingNames(): Map<Rp6Control, String> = linkedMapOf(
             Rp6Control.LEFT_STICK_UP to "MOVE_W",
             Rp6Control.LEFT_STICK_DOWN to "MOVE_S",
             Rp6Control.LEFT_STICK_LEFT to "STRAFE_Q",
@@ -416,7 +416,7 @@ data class InputProfile(
         )
 
         /** Exact uncustomized map shipped immediately before nearby Use/Open. */
-        private fun v11VanillaConsolePortDirectBindingNames(): Map<Rp6Control, String> = linkedMapOf(
+        private fun v11AndroidPortDirectBindingNames(): Map<Rp6Control, String> = linkedMapOf(
             Rp6Control.LEFT_STICK_UP to "MOVE_W",
             Rp6Control.LEFT_STICK_DOWN to "MOVE_S",
             Rp6Control.LEFT_STICK_LEFT to "STRAFE_Q",
@@ -442,7 +442,7 @@ data class InputProfile(
         )
 
         /** Exact uncustomized map shipped when nearby Use/Open replaced direct L1 use, before L3 became pointer right. */
-        private fun v11VanillaConsolePortNearbyUseBindingNames(): Map<Rp6Control, String> = linkedMapOf(
+        private fun v11AndroidPortNearbyUseBindingNames(): Map<Rp6Control, String> = linkedMapOf(
             Rp6Control.LEFT_STICK_UP to "MOVE_W",
             Rp6Control.LEFT_STICK_DOWN to "MOVE_S",
             Rp6Control.LEFT_STICK_LEFT to "STRAFE_Q",
@@ -553,9 +553,9 @@ data class InputProfile(
                 overlayBindings = defaultOverlayBindings(),
                 layerFaceBindings = defaultLayerFaceBindings(),
             )
-            ControlScheme.VANILLA_CONSOLE_PORT -> base.copy(
+            ControlScheme.ANDROID_PORT -> base.copy(
                 scheme = scheme,
-                rp6Bindings = vanillaConsolePortBindings(),
+                rp6Bindings = androidPortBindings(),
                 overlayBindings = defaultOverlayBindings(),
                 // LT/RT are real Shift/Ctrl keys for the addon's four pages;
                 // the native face-only layers are deliberately inactive.
@@ -619,7 +619,14 @@ data class InputProfile(
                 value.optString("faceButtonLayout") == FaceButtonLayout.RP6_PRINTED.name
             val parsedScheme = storedScheme
                 .takeIf { it.isNotBlank() }
-                ?.let { stored -> ControlScheme.values().firstOrNull { it.name == stored } }
+                // Profiles saved by 0.5.x store the pre-rename enum name.
+                ?.let { stored ->
+                    if (stored == "VANILLA_CONSOLE_PORT") {
+                        ControlScheme.ANDROID_PORT
+                    } else {
+                        ControlScheme.values().firstOrNull { it.name == stored }
+                    }
+                }
                 ?: if (
                     legacyDefault || v5CameraLockDefault || v7ClassicDefault ||
                         retiredAddonScheme || retiredGeneratedProfile
@@ -639,11 +646,11 @@ data class InputProfile(
             val v11RearButtonDefault = storedVersion == 11 &&
                 repairedScheme == ControlScheme.CLASSIC_CAMERA &&
                 storedBindings?.matchesRp6(v11RearButtonBindingNames()) == true
-            val v11VanillaConsolePortDefault = storedVersion == 11 &&
-                repairedScheme == ControlScheme.VANILLA_CONSOLE_PORT &&
-                (storedBindings?.matchesRp6(v11VanillaConsolePortBindingNames()) == true ||
-                    storedBindings?.matchesRp6(v11VanillaConsolePortDirectBindingNames()) == true ||
-                    storedBindings?.matchesRp6(v11VanillaConsolePortNearbyUseBindingNames()) == true)
+            val v11AndroidPortDefault = storedVersion == 11 &&
+                repairedScheme == ControlScheme.ANDROID_PORT &&
+                (storedBindings?.matchesRp6(v11AndroidPortBindingNames()) == true ||
+                    storedBindings?.matchesRp6(v11AndroidPortDirectBindingNames()) == true ||
+                    storedBindings?.matchesRp6(v11AndroidPortNearbyUseBindingNames()) == true)
             val repairedOverlay = if (retiredAddonScheme || v10GeneratedOverlay) {
                 defaultOverlayBindings()
             } else overlayBindings
@@ -703,8 +710,8 @@ data class InputProfile(
                         ?.let { stored -> FaceButtonLayout.values().firstOrNull { it.name == stored } }
                         ?: FaceButtonLayout.ANDROID_STANDARD
                 },
-                rp6Bindings = if (v11VanillaConsolePortDefault) {
-                    vanillaConsolePortBindings()
+                rp6Bindings = if (v11AndroidPortDefault) {
+                    androidPortBindings()
                 } else if (
                     legacyDefault ||
                         (repairedScheme == ControlScheme.CLASSIC_CAMERA && v5CameraLockDefault) ||
@@ -933,7 +940,7 @@ class InputProfileStore(context: Context) {
     /** Current persisted profile without applying an aspect-reset policy. */
     fun loadStoredOrDefault(): InputProfile = storedProfile() ?: InputProfile.DEFAULT
 
-    fun hasManagedVanillaConsolePort(): Boolean =
+    fun hasManagedAndroidPort(): Boolean =
         preferences.contains(VANILLA_CONSOLE_APPLIED_KEY) ||
             preferences.contains(VANILLA_CONSOLE_PRIOR_KEY)
 
@@ -942,7 +949,7 @@ class InputProfileStore(context: Context) {
      * The prior and exact applied profiles share the same committed preferences
      * file, allowing removal to restore only an untouched managed preset.
      */
-    fun enableVanillaConsolePort(): InputProfile {
+    fun enableAndroidPort(): InputProfile {
         val current = loadStoredOrDefault()
         val currentRaw = InputProfile.toJson(current).toString()
         val priorApplied = preferences.getString(VANILLA_CONSOLE_APPLIED_KEY, null)
@@ -953,7 +960,7 @@ class InputProfileStore(context: Context) {
             return current
         }
         val desired = InputProfile.profileForScheme(
-            ControlScheme.VANILLA_CONSOLE_PORT,
+            ControlScheme.ANDROID_PORT,
             current.aspectIdentity,
             current,
         )
@@ -969,7 +976,7 @@ class InputProfileStore(context: Context) {
     }
 
     /** Restore the pre-install profile only when the managed preset is intact. */
-    fun disableVanillaConsolePort(): InputProfile {
+    fun disableAndroidPort(): InputProfile {
         val current = loadStoredOrDefault()
         val currentRaw = InputProfile.toJson(current).toString()
         val appliedRaw = canonicalProfileJson(preferences.getString(VANILLA_CONSOLE_APPLIED_KEY, null))

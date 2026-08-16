@@ -2,7 +2,7 @@ package com.pocketrealm.ingame
 
 /**
  * Line codec for `bindings-cache.wtf`, sharing the grammar proven by
- * `VanillaConsolePortBindingRepair` / `LegacyControllerBindingRepair`:
+ * `AndroidPortBindingRepair` / `LegacyControllerBindingRepair`:
  * quote-optional on parse (`bind KEY COMMAND` or `bind "KEY" "COMMAND"`),
  * unquoted on emission, with SHIFT-/CTRL-/CTRL-SHIFT-/ALT- chords,
  * MOUSEWHEEL/BUTTON tokens, and any of the \r\r\n/\r\n/\n/\r terminators
