@@ -68,7 +68,11 @@ public abstract class FileUtils {
             return sb.toString();
         }
         catch (IOException e) {
-            return null;
+            // De-vibe X3: returning null silently NPE'd callers; log loudly
+            // and surface an empty string instead (1.12 callers treat blank
+            // config as absent either way).
+            android.util.Log.w("FileUtils", "readString failed for " + uri, e);
+            return "";
         }
     }
 
@@ -316,10 +320,6 @@ public abstract class FileUtils {
             }
         }
         else return false;
-    }
-
-    public static void getSizeAsync(File file, Callback<Long> callback) {
-        Executors.newSingleThreadExecutor().execute(() -> getSize(file, callback));
     }
 
     private static void getSize(File file, Callback<Long> callback) {

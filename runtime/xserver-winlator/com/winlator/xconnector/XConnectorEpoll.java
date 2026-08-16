@@ -144,11 +144,21 @@ public class XConnectorEpoll {
 
     @Keep
     private void killAllConnections() {
-        while (!connectedClients.isEmpty()) killConnection(connectedClients.remove(0));
+        // De-vibe X2: every other access synchronizes on connectedClients
+        // (the native callback thread mutates it); this removal loop and the
+        // getClients() snapshot must not race those writers.
+        List<ConnectedClient> snapshot;
+        synchronized (connectedClients) {
+            snapshot = new ArrayList<>(connectedClients);
+            connectedClients.clear();
+        }
+        for (ConnectedClient client : snapshot) killConnection(client);
     }
 
     public List<ConnectedClient> getClients() {
-        return Collections.unmodifiableList(connectedClients);
+        synchronized (connectedClients) {
+            return Collections.unmodifiableList(new ArrayList<>(connectedClients));
+        }
     }
 
     public ConnectedClient getClientWidthFd(int fd) {

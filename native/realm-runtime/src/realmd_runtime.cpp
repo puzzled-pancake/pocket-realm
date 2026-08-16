@@ -101,7 +101,12 @@ private:
             if (sRealmList.size() == 0)
                 return fail(POCKET_SERVER_DB_REVISION, "realmd found no valid pinned realm row");
 
-            m_io = std::make_unique<boost::asio::io_context>();
+            {
+                // N5 (de-vibe): stop() reads m_io under m_lifecycle from Binder
+                // threads; the assignment must hold the same mutex.
+                std::lock_guard<std::mutex> io_guard(m_lifecycle);
+                m_io = std::make_unique<boost::asio::io_context>();
+            }
             try
             {
                 m_listener = std::make_unique<MaNGOS::AsyncListener<AuthSocket>>(
@@ -115,7 +120,16 @@ private:
             }
             const uint32 threads = std::max(1, sConfig.GetIntDefault("ListenerThreads", 1));
             for (uint32 i = 0; i < threads; ++i)
-                m_threads.emplace_back([this] { m_io->run(); });
+                m_threads.emplace_back([this] {
+                    try {
+                        m_io->run();
+                    } catch (...) {
+                        // N6 (de-vibe): an exception escaping io_context::run()
+                        // used to std::terminate the whole :realm process;
+                        // surface it as a FAILED server instead.
+                        fail(POCKET_SERVER_INTERNAL, "realmd io thread exception");
+                    }
+                });
             LoginDatabase.AllowAsyncTransactions();
             m_state.transition(POCKET_SERVER_READY);
             while (!m_stop.load(std::memory_order_acquire))
@@ -141,9 +155,13 @@ private:
 
     void cleanup()
     {
-        if (m_io) m_io->stop();
+        {
+            std::lock_guard<std::mutex> io_guard(m_lifecycle);
+            if (m_io) m_io->stop();
+        }
         for (auto& thread : m_threads) if (thread.joinable()) thread.join();
         m_threads.clear();
+        std::lock_guard<std::mutex> io_guard(m_lifecycle);
         m_listener.reset();
         m_io.reset();
         LoginDatabase.StopServerEmbedded();

@@ -63,7 +63,12 @@ static bool realmd_start_db()
 lifecycle_result start_realmd(realmd_state** out)
 {
     lifecycle_result r;
-    auto* st = new realmd_state;
+    // Shared ownership (de-vibe N7): the listener threads previously captured
+    // a reference to this stack-local pointer ([&]), dangling the moment
+    // start_realmd returned on EVERY successful start; the throw path
+    // additionally destroyed a joinable std::thread at `delete st`
+    // (std::terminate). Capture the shared state by value.
+    std::shared_ptr<realmd_state> st(new realmd_state);
     st->io.reset(new boost::asio::io_context);
 
     try
@@ -72,7 +77,6 @@ lifecycle_result start_realmd(realmd_state** out)
         {
             r.err = REALM_E_DB;
             r.detail = "realmd: database version check failed";
-            delete st;
             return r;
         }
 
@@ -81,7 +85,6 @@ lifecycle_result start_realmd(realmd_state** out)
         {
             r.err = REALM_E_DB;
             r.detail = "realmd: no valid realms configured";
-            delete st;
             return r;
         }
 
@@ -101,9 +104,13 @@ lifecycle_result start_realmd(realmd_state** out)
             sConfig.GetIntDefault("RealmServerPort", DEFAULT_REALMSERVER_PORT)));
 
         for (uint32_t i = 0; i < networkThreadCount; ++i)
-            st->threads.emplace_back([&]() { st->io->run(); });
+            st->threads.emplace_back([st]() { st->io->run(); });
 
-        *out = st; // no reinterpret_cast: realmd_state is the real type
+        // A partially spawned thread set leaves joinable threads inside st;
+        // releasing into a local and joining them below avoids destroying a
+        // joinable thread (std::terminate) while still unwinding cleanly.
+        std::shared_ptr<realmd_state> released = st;
+        *out = released.release(); // no reinterpret_cast: realmd_state is the real type
     }
     catch (...)
     {
@@ -119,7 +126,12 @@ lifecycle_result start_realmd(realmd_state** out)
             r.err = REALM_E_INTERNAL;
             r.detail = "realmd: exception during listener startup";
         }
-        delete st;
+        // st is still owned here: stop the io_context so the (possibly
+        // partially started) threads exit their run() loops, join them, then
+        // let the shared_ptr free the state.
+        try { st->io->stop(); } catch (...) {}
+        for (auto& thread : st->threads)
+            if (thread.joinable()) thread.join();
     }
     return r;
 }

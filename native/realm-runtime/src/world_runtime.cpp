@@ -58,6 +58,7 @@ public:
         m_last_tick.store(0, std::memory_order_release);
         m_max_tick.store(0, std::memory_order_release);
         m_hard_stall_total.store(0, std::memory_order_release);
+        m_consecutive_hard_stalls.store(0, std::memory_order_release);
         m_last_hard_stall_elapsed_ms.store(0, std::memory_order_release);
         {
             std::lock_guard<std::mutex> tick_guard(m_tick_window_mutex);
@@ -387,7 +388,30 @@ public:
                m_state.state() != POCKET_SERVER_FAILED &&
                pocket_server::monotonic_ms() < deadline)
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        if (m_state.state() != POCKET_SERVER_STOPPED) return POCKET_SERVER_TIMEOUT;
+        if (m_state.state() == POCKET_SERVER_FAILED)
+        {
+            // A FAILED worker completed on its own (de-vibe N2: this used to be
+            // conflated with a wedge TIMEOUT): join it and finish the stop.
+            std::lock_guard<std::mutex> guard(m_lifecycle);
+            if (m_worker.joinable()) m_worker.join();
+            m_state.transition(POCKET_SERVER_STOPPED);
+            return POCKET_SERVER_OK;
+        }
+        if (m_state.state() != POCKET_SERVER_STOPPED)
+        {
+            // Wedged teardown (de-vibe N1/N2): the old code leaked the joinable
+            // worker forever AND reported TIMEOUT identically to a clean
+            // failure. Detach with a loud record so the caller sees the wedge;
+            // the worker thread dies with the :world process at service exit.
+            std::lock_guard<std::mutex> guard(m_lifecycle);
+            if (m_worker.joinable())
+            {
+                m_worker.detach();
+                sLog.outError("PocketRealm: world stop timed out after %llums; worker detached",
+                              static_cast<unsigned long long>(timeout_ms));
+            }
+            return POCKET_SERVER_TIMEOUT;
+        }
         std::lock_guard<std::mutex> guard(m_lifecycle);
         if (m_worker.joinable()) m_worker.join();
         return POCKET_SERVER_OK;
@@ -427,8 +451,23 @@ public:
         if (duration > 1000)
         {
             m_hard_stall_total.fetch_add(1, std::memory_order_relaxed);
-            m_last_hard_stall_elapsed_ms.store(
-                pocket_server::monotonic_ms(), std::memory_order_release);
+            // Store the elapsed duration (de-vibe N3: this previously stored a
+            // monotonic TIMESTAMP into a field named *_elapsed_ms).
+            m_last_hard_stall_elapsed_ms.store(duration, std::memory_order_release);
+            if (m_consecutive_hard_stalls.fetch_add(1, std::memory_order_relaxed) + 1 >=
+                    HARD_STALL_FAIL_STREAK)
+            {
+                // Watchdog escalation (de-vibe N3): Kotlin already backs bots
+                // off on repeated stalls; a world loop wedged for this many
+                // CONSECUTIVE >1s ticks (~minutes) is failed loudly instead of
+                // running dead forever.
+                World::StopNow(SHUTDOWN_EXIT_CODE);
+                fail(POCKET_SERVER_INTERNAL, "world loop wedged: repeated consecutive hard stalls");
+            }
+        }
+        else
+        {
+            m_consecutive_hard_stalls.store(0, std::memory_order_relaxed);
         }
         {
             std::lock_guard<std::mutex> guard(m_tick_window_mutex);
@@ -511,7 +550,9 @@ private:
             OSSL_PROVIDER_load(nullptr, "legacy");
             OSSL_PROVIDER_load(nullptr, "default");
             if (!sConfig.SetSource(config, "Mangosd_"))
-                return fail(POCKET_SERVER_CONFIG, "world configuration rejected");
+                fail(POCKET_SERVER_CONFIG, "world configuration rejected");
+                cleanup();  // de-vibe N2: early fails skipped teardown
+                return;
 #ifdef ENABLE_PLAYERBOTS
             sPlayerbotAIConfig.SetConfigSource(
                 sConfig.GetStringDefault("PocketRealm.PlayerbotConfig", ""));
@@ -519,17 +560,23 @@ private:
 #endif
             sLog.Initialize();
             if (!sMaster.StartDatabasesEmbedded())
-                return fail(POCKET_SERVER_DB_REVISION, "world database connect or revision check failed");
+                fail(POCKET_SERVER_DB_REVISION, "world database connect or revision check failed");
+                cleanup();  // de-vibe N2: early fails skipped teardown
+                return;
             bool client_data_gate = false;
             if (!sMaster.InitWorldEmbedded(&client_data_gate))
-                return fail(client_data_gate ? POCKET_SERVER_DATA_MISSING : POCKET_SERVER_DATA_BUILD,
-                            client_data_gate ? "verified client-derived data is missing" : "world data load failed");
+                fail(client_data_gate ? POCKET_SERVER_DATA_MISSING : POCKET_SERVER_DATA_BUILD,
+                     client_data_gate ? "verified client-derived data is missing" : "world data load failed");
+                cleanup();  // de-vibe N2: early fails skipped teardown
+                return;
 #ifdef ENABLE_PLAYERBOTS
             if (sPlayerbotAIConfig.enabled)
             {
                 if (configured_bot_target < static_cast<int>(sPlayerbotAIConfig.minRandomBots) ||
                     configured_bot_target > static_cast<int>(sPlayerbotAIConfig.maxRandomBots))
-                    return fail(POCKET_SERVER_CONFIG, "bot target is outside the measured profile bounds");
+                    fail(POCKET_SERVER_CONFIG, "bot target is outside the measured profile bounds");
+                    cleanup();  // de-vibe N2: early fails skipped teardown
+                    return;
                 m_bot_min.store(sPlayerbotAIConfig.minRandomBots, std::memory_order_release);
                 m_bot_max.store(sPlayerbotAIConfig.maxRandomBots, std::memory_order_release);
                 m_bot_accounts.store(sPlayerbotAIConfig.randomBotAccounts.size(), std::memory_order_release);
@@ -556,7 +603,9 @@ private:
             }
 #endif
             if (!sMaster.StartNetworkEmbedded(1))
-                return fail(POCKET_SERVER_PORT_IN_USE, "world listener failed");
+                fail(POCKET_SERVER_PORT_IN_USE, "world listener failed");
+                cleanup();  // de-vibe N2: early fails skipped teardown
+                return;
             m_started = true;
             m_state.transition(POCKET_SERVER_READY);
             while (!m_stop.load(std::memory_order_acquire))
@@ -639,6 +688,9 @@ private:
     std::atomic<uint32_t> m_max_tick{0};
     std::atomic<uint64_t> m_hard_stall_total{0};
     std::atomic<uint64_t> m_last_hard_stall_elapsed_ms{0};
+    std::atomic<uint32_t> m_consecutive_hard_stalls{0};
+    // >=60 consecutive ticks over 1s each (world loop wedged for a minute+).
+    static constexpr uint32_t HARD_STALL_FAIL_STREAK = 60;
     std::atomic<bool> m_bot_enabled{false};
     std::atomic<uint32_t> m_bots_available{0};
     std::atomic<uint32_t> m_bots_online{0};

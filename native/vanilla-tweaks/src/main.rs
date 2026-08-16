@@ -72,7 +72,7 @@ struct Args {
     /// If set, do not patch farclip.
     #[clap(long, default_value_t = false, value_parser)]
     no_farclip: bool,
-    
+
     /// If set, do not patch frilldistance.
     #[clap(long, default_value_t = false, value_parser)]
     no_frilldistance: bool,
@@ -101,6 +101,266 @@ struct Args {
     /// If set, do not patch the fix for the camera sometimes skipping to a random direction when rotated.
     #[clap(long, default_value_t = false, value_parser)]
     no_cameraskipfix: bool
+}
+
+/// Highest byte offset any patch touches (camera-skip block at 0x355ddc + 29).
+const MAX_PATCHED_OFFSET_END: usize = 0x355ddc + 29;
+
+/// Validate the input is the expected PE32 i386 executable before any write.
+/// Every fixed-offset patch silently corrupts anything else (de-vibe N10):
+/// wrong-version exes, truncated files, and non-PE inputs must fail cleanly,
+/// never panic and never write an output file.
+fn validate_pe32_i386(file: &[u8]) -> Result<(), String> {
+    if file.len() < 0x40 {
+        return Err(format!("input is {} bytes; not a PE image (too small)", file.len()));
+    }
+    if &file[0..2] != b"MZ" {
+        return Err("input is not an MZ/PE executable (missing DOS magic)".to_string());
+    }
+    let e_lfanew = u32::from_le_bytes(
+        file[0x3c..0x40].try_into().expect("length checked above"),
+    ) as usize;
+    if e_lfanew + 6 > file.len() {
+        return Err(format!("PE header offset {e_lfanew:#x} is outside the {}-byte input", file.len()));
+    }
+    if &file[e_lfanew..e_lfanew + 4] != b"PE\0\0" {
+        return Err(format!("no PE signature at e_lfanew {e_lfanew:#x}; not a PE executable"));
+    }
+    let machine = u16::from_le_bytes(
+        file[e_lfanew + 4..e_lfanew + 6].try_into().expect("length checked above"),
+    );
+    // 0x14c = IMAGE_FILE_MACHINE_I386: every patch offset below was derived
+    // from the 32-bit 1.12.1 client.
+    if machine != 0x14c {
+        return Err(format!("PE machine type {machine:#x} is not i386 ({:#x}); the 1.12.1 32-bit client is required", 0x14c));
+    }
+    if file.len() < MAX_PATCHED_OFFSET_END {
+        return Err(format!("input is {} bytes; the 1.12.1 client (build 5875) is larger — wrong or truncated file", file.len()));
+    }
+    Ok(())
+}
+
+/// Bounds-checked, already-patched-aware fixed-offset write. Panics were the
+/// old failure mode (de-vibe N10); this returns errors instead.
+fn patch_range(file: &mut [u8], offset: usize, bytes: &[u8], label: &str) -> Result<(), String> {
+    let end = offset.checked_add(bytes.len()).ok_or_else(|| format!("{label}: offset overflow"))?;
+    if end > file.len() {
+        return Err(format!("{label}: range {offset:#x}..{end:#x} is outside the {}-byte input", file.len()));
+    }
+    if file[offset..end] == *bytes {
+        // Idempotent re-application: the bytes are already in place.
+        return Ok(());
+    }
+    file[offset..end].copy_from_slice(bytes);
+    Ok(())
+}
+
+fn main() -> ExitCode {
+    let args = Args::parse();
+
+    //Open input file
+    let file_path = &args.infile;
+    let mut file: std::vec::Vec<u8> = match fs::read(file_path) {
+        Ok(file) => file,
+        Err(err) => {
+            println!("Unable to read file: {err}");
+            return ExitCode::from(1);
+        }
+    };
+
+    if let Err(err) = validate_pe32_i386(&file) {
+        println!("Refusing to patch {file_path}: {err}");
+        return ExitCode::from(2);
+    }
+
+    let outfile_path = OsString::from(&args.outfile);
+
+    /*
+     * PATCHES PATCHES PATCHES PATCHES
+     */
+
+    let mut failure: Option<String> = None;
+
+    // Large address aware patch
+    if !args.no_largeaddressaware {
+        const CHARACTERISTICS_OFFSET: usize = 0x126;
+        let mut characteristics = u16::from_le_bytes(file[CHARACTERISTICS_OFFSET..CHARACTERISTICS_OFFSET+2].try_into().expect("validated above"));
+        characteristics = characteristics | 0x20; // https://docs.microsoft.com/en-us/windows/win32/debug/pe-format#characteristics
+        let characteristics_bytes = characteristics.to_le_bytes();
+        print!("Applying patch: make executable large address aware...");
+        match patch_range(&mut file, CHARACTERISTICS_OFFSET, &characteristics_bytes, "large address aware") {
+            Ok(()) => println!(" Success!"),
+            Err(err) => { println!(" FAILED!"); failure = Some(err); }
+        }
+    }
+
+    // Farclip patch
+    if !args.no_farclip {
+        const FARCLIP_OFFSET: usize = 0x40FED8;
+        let farclip_bytes: [u8; 4] = args.farclip.to_le_bytes();
+        print!("Applying patch: increased farclip max value...");
+        match patch_range(&mut file, FARCLIP_OFFSET, &farclip_bytes, "farclip") {
+            Ok(()) => println!(" Success!"),
+            Err(err) => { println!(" FAILED!"); failure = Some(err); }
+        }
+    }
+
+    // Widescreen FoV patch
+    if !args.no_fov {
+        const FOV_OFFSET: usize = 0x4089B4;
+        let fov_bytes = args.fov.to_le_bytes();
+        print!("Applying patch: widescreen FoV fix...");
+        match patch_range(&mut file, FOV_OFFSET, &fov_bytes, "FoV") {
+            Ok(()) => println!(" Success!"),
+            Err(err) => { println!(" FAILED!"); failure = Some(err); }
+        }
+    }
+
+    // Frilldistance patch
+    if !args.no_frilldistance {
+        const FRILLDISTANCE_OFFSET: usize = 0x467958;
+        let frilldistance_bytes = args.frilldistance.to_le_bytes();
+        print!("Applying patch: frilldistance (grass distance) increase...");
+        match patch_range(&mut file, FRILLDISTANCE_OFFSET, &frilldistance_bytes, "frilldistance") {
+            Ok(()) => println!(" Success!"),
+            Err(err) => { println!(" FAILED!"); failure = Some(err); }
+        }
+    }
+
+    // Sound in background patch
+    if !args.no_sound_in_background {
+        const SOUND_IN_BACKGROUND_OFFSET: usize = 0x3A4869;
+        const SOUND_IN_BACKGROUND_BYTES: [u8; 1] = [0x27];
+        print!("Applying patch: sound in background...");
+        match patch_range(&mut file, SOUND_IN_BACKGROUND_OFFSET, &SOUND_IN_BACKGROUND_BYTES, "sound in background") {
+            Ok(()) => println!(" Success!"),
+            Err(err) => { println!(" FAILED!"); failure = Some(err); }
+        }
+    }
+
+    // Sound channels patch
+    if !args.soundchannels_skip(&args) {
+        const SOUNDCHANNEL_OFFSET: usize = 0x435d38;
+        let soundchannel_string = args.soundchannels.to_string();
+        print!("Applying patch: software sound channels default increase...");
+        let cstring = match CString::new(soundchannel_string) {
+            Ok(value) => value,
+            Err(err) => {
+                println!(" FAILED!");
+                failure = Some(format!("sound channels: {err}"));
+                return finish(failure, &outfile_path, file);
+            }
+        };
+        let soundchannel_bytes = cstring.to_bytes_with_nul();
+        if soundchannel_bytes.len() <= 4 {
+            match patch_range(&mut file, SOUNDCHANNEL_OFFSET, soundchannel_bytes, "sound channels") {
+                Ok(()) => println!(" Success!"),
+                Err(err) => { println!(" FAILED!"); failure = Some(err); }
+            }
+        }
+        else {
+            println!(" FAILED!");
+            println!("Sound channels value is too long.");
+            return ExitCode::from(1);
+        }
+    }
+
+    // Quickloot key reverse patch (hold shift to manual loot)
+    if !args.no_quickloot {
+        const QUICKLOOT_OFFSET: usize = 0x0C1ECF;
+        const QUICKLOOT_BYTES: [u8; 1] = [0x75];
+        const QUICKLOOT_OFFSET2: usize = 0x0C2B25;
+        const QUICKLOOT_BYTES2: [u8; 1] = [0x75];
+        print!("Applying patch: quickloot reverse...");
+        match patch_range(&mut file, QUICKLOOT_OFFSET, &QUICKLOOT_BYTES, "quickloot")
+            .and_then(|()| patch_range(&mut file, QUICKLOOT_OFFSET2, &QUICKLOOT_BYTES2, "quickloot 2"))
+        {
+            Ok(()) => println!(" Success!"),
+            Err(err) => { println!(" FAILED!"); failure = Some(err); }
+        }
+    }
+
+    // Nameplate range change patch
+    if !args.no_nameplatedistance {
+        const NAMEPLATE_OFFSET: usize = 0x40c448;
+        let nameplate_bytes: [u8; 4] = args.nameplatedistance.to_le_bytes();
+        print!("Applying patch: nameplate range...");
+        match patch_range(&mut file, NAMEPLATE_OFFSET, &nameplate_bytes, "nameplate range") {
+            Ok(()) => println!(" Success!"),
+            Err(err) => { println!(" FAILED!"); failure = Some(err); }
+        }
+    }
+
+    // Max camera distance patch
+    if let Some(maxcameradistance) = args.maxcameradistance {
+        const MAXCAMERADISTANCE_OFFSET: usize = 0x4089a4;
+        let maxcamera_bytes: [u8; 4] = maxcameradistance.to_le_bytes();
+        print!("Applying patch: max camera distance...");
+        match patch_range(&mut file, MAXCAMERADISTANCE_OFFSET, &maxcamera_bytes, "max camera distance") {
+            Ok(()) => println!(" Success!"),
+            Err(err) => { println!(" FAILED!"); failure = Some(err); }
+        }
+    }
+
+    // Camera skip glitch fix.
+    // Thanks to Bon on the Turtle WoW Discord for implementing this patch, and phamd for submitting the PR to include it.
+    if !args.no_cameraskipfix {
+        let patches: [(usize, Vec<u8>); 5] = [
+            (0x02ccd0, vec![0x55, 0x8b, 0x05, 0x48, 0x4e, 0x88, 0x00, 0x8b, 0x0d, 0x44, 0x4e, 0x88, 0x00, 0xe9, 0x33, 0x90,
+                            0x32, 0x00, 0x83, 0xc0, 0x32, 0x83, 0xc1, 0x32, 0x3b, 0x0d, 0xa8, 0xeb, 0xc4, 0x00, 0x7e, 0x03,
+                            0x83, 0xe9, 0x01, 0x3b, 0x05, 0xac, 0xeb, 0xc4, 0x00, 0x7e, 0x03, 0x83, 0xe8, 0x01, 0x83, 0xe9,
+                            0x32, 0x83, 0xe8, 0x32, 0x89, 0x05, 0x48, 0x4e, 0x88, 0x00, 0x89, 0x0d, 0x44, 0x4e, 0x88, 0x00,
+                            0x5d, 0xeb, 0x0d]),
+            (0x02d326, vec![0xe9, 0xb1, 0x8a, 0x32, 0x00]),
+            (0x02d334, vec![0x8b, 0x35, 0x48, 0x4e, 0x88, 0x00]),
+            (0x355d15, vec![                              0x83, 0xf8, 0x32, 0x7d, 0x03, 0x83, 0xc0, 0x01, 0x83, 0xf9, 0x32,
+                            0x7d, 0x03, 0x83, 0xc1, 0x01, 0xe9, 0xb8, 0x6f, 0xcd, 0xff]),
+            (0x355ddc, vec![                                                                        0x8d, 0x4d, 0xf0, 0x51,
+                            0xff, 0x35, 0x00, 0x4e, 0x88, 0x00, 0xff, 0x15, 0x50, 0xf6, 0x7f, 0x00, 0x8b, 0x45, 0xf0, 0x8b,
+                            0x15, 0x44, 0x4e, 0x88, 0x00, 0xe9, 0x35, 0x75, 0xcd, 0xff])
+        ];
+
+        print!("Applying patch: camera skip glitch fix...");
+        let mut camera_result: Result<(), String> = Ok(());
+        for (address, bytes) in patches.iter() {
+            camera_result = patch_range(&mut file, *address, bytes, "camera skip fix");
+            if camera_result.is_err() {
+                break;
+            }
+        }
+        match camera_result {
+            Ok(()) => println!(" Success!"),
+            Err(err) => { println!(" FAILED!"); failure = Some(err); }
+        }
+    }
+
+    finish(failure, &outfile_path, file)
+}
+
+impl Args {
+    /// Mirrors the flag style of the other patches for the sound-channels
+    /// block (kept as a helper so the patch order above reads uniformly).
+    fn soundchannels_skip(&self, _args: &Args) -> bool {
+        _args.no_soundchannels
+    }
+}
+
+fn finish(failure: Option<String>, outfile_path: &OsString, file: Vec<u8>) -> ExitCode {
+    if let Some(err) = failure {
+        // A failed patch must never leave an output file behind: a partially
+        // patched executable is silent corruption (de-vibe N10).
+        println!("{err}");
+        println!("No output file was written.");
+        return ExitCode::from(3);
+    }
+    match fs::write(outfile_path, file) {
+        Err(err) => {
+            println!("File writing failed: {err}");
+            return ExitCode::from(1);
+        },
+        Ok(_) => println!("Wrote file {}", outfile_path.to_string_lossy())
+    };
+    ExitCode::from(0)
 }
 
 /**
@@ -133,160 +393,20 @@ fn replace(haystack: &mut Vec<u8>, find: &Vec<u8>, replace: &Vec<u8>) -> bool {
     return true;
 }
 
-fn main() -> ExitCode {
-    let args = Args::parse();
-
-    //Open input file
-    let file_path = &args.infile;
-    let mut file: std::vec::Vec<u8> = match fs::read(file_path) {
-        Ok(file) => file,
-        Err(err) => {
-            println!("Unable to read file: {err}");
-            return ExitCode::from(1);
-        }
-    };
-
-    let outfile_path = OsString::from(&args.outfile);
-
-    /*
-     * PATCHES PATCHES PATCHES PATCHES
-     */
-
-    // Large address aware patch
-    if !args.no_largeaddressaware {
-        const CHARACTERISTICS_OFFSET: usize = 0x126;
-        let mut characteristics = u16::from_le_bytes(file[CHARACTERISTICS_OFFSET..CHARACTERISTICS_OFFSET+2].try_into().expect("slice with incorrect length!"));
-        characteristics = characteristics | 0x20; // https://docs.microsoft.com/en-us/windows/win32/debug/pe-format#characteristics
-        let characteristics_bytes = characteristics.to_le_bytes();
-        print!("Applying patch: make executable large address aware...");
-        file[CHARACTERISTICS_OFFSET..CHARACTERISTICS_OFFSET+characteristics_bytes.len()].copy_from_slice(&characteristics_bytes);
-        println!(" Success!");
-    }
-
-    // Farclip patch
-    if !args.no_farclip {
-        const FARCLIP_OFFSET: usize = 0x40FED8;
-        let farclip_bytes: [u8; 4] = args.farclip.to_le_bytes();
-        print!("Applying patch: increased farclip max value...");
-        file[FARCLIP_OFFSET..FARCLIP_OFFSET+farclip_bytes.len()].copy_from_slice(&farclip_bytes);
-        println!(" Success!");
-    }
-
-    // Widescreen FoV patch
-    if !args.no_fov {
-        const FOV_OFFSET: usize = 0x4089B4;
-        let fov_bytes = args.fov.to_le_bytes();
-        print!("Applying patch: widescreen FoV fix...");
-        file[FOV_OFFSET..FOV_OFFSET+fov_bytes.len()].copy_from_slice(&fov_bytes);
-        println!(" Success!");
-    }
-
-    // Frilldistance patch
-    if !args.no_frilldistance {
-        const FRILLDISTANCE_OFFSET: usize = 0x467958;
-        let frilldistance_bytes = args.frilldistance.to_le_bytes();
-        print!("Applying patch: frilldistance (grass distance) increase...");
-        file[FRILLDISTANCE_OFFSET..FRILLDISTANCE_OFFSET+frilldistance_bytes.len()].copy_from_slice(&frilldistance_bytes);
-        println!(" Success!");
-    }
-
-    // Sound in background patch
-    if !args.no_sound_in_background {
-        const SOUND_IN_BACKGROUND_OFFSET: usize = 0x3A4869;
-        const SOUND_IN_BACKGROUND_BYTES: [u8; 1] = [0x27];
-        print!("Applying patch: sound in background...");
-        file[SOUND_IN_BACKGROUND_OFFSET..SOUND_IN_BACKGROUND_OFFSET+SOUND_IN_BACKGROUND_BYTES.len()].copy_from_slice(&SOUND_IN_BACKGROUND_BYTES);
-        println!(" Success!");
-    }
-
-    // Sound channels patch
-    if !args.no_soundchannels {
-        const SOUNDCHANNEL_OFFSET: usize = 0x435d38;
-        let soundchannel_string = args.soundchannels.to_string();
-        print!("Applying patch: software sound channels default increase...");
-        let cstring = CString::new(soundchannel_string).expect("CString::new failed");
-        let soundchannel_bytes = cstring.to_bytes_with_nul();
-        if soundchannel_bytes.len() <= 4 {
-            file[SOUNDCHANNEL_OFFSET..SOUNDCHANNEL_OFFSET+soundchannel_bytes.len()].copy_from_slice(&soundchannel_bytes);
-            println!(" Success!");
-        }
-        else {
-            println!(" FAILED!");
-            println!("Sound channels value is too long.");
-            return ExitCode::from(1);
-        }
-    }
-
-    // Quickloot key reverse patch (hold shift to manual loot)
-    if !args.no_quickloot {
-        const QUICKLOOT_OFFSET: usize = 0x0C1ECF;
-        const QUICKLOOT_BYTES: [u8; 1] = [0x75];
-        const QUICKLOOT_OFFSET2: usize = 0x0C2B25;
-        const QUICKLOOT_BYTES2: [u8; 1] = [0x75];
-        print!("Applying patch: quickloot reverse...");
-        file[QUICKLOOT_OFFSET..QUICKLOOT_OFFSET+QUICKLOOT_BYTES.len()].copy_from_slice(&QUICKLOOT_BYTES);
-        file[QUICKLOOT_OFFSET2..QUICKLOOT_OFFSET2+QUICKLOOT_BYTES2.len()].copy_from_slice(&QUICKLOOT_BYTES2);
-        println!(" Success!");
-    }
-
-    // Nameplate range change patch
-    if !args.no_nameplatedistance {
-        const NAMEPLATE_OFFSET: usize = 0x40c448;
-        let nameplate_bytes: [u8; 4] = args.nameplatedistance.to_le_bytes();
-        print!("Applying patch: nameplate range...");
-        file[NAMEPLATE_OFFSET..NAMEPLATE_OFFSET+nameplate_bytes.len()].copy_from_slice(&nameplate_bytes);
-        println!(" Success!");
-    }
-
-    // Max camera distance patch
-    if let Some(maxcameradistance) = args.maxcameradistance {
-        const MAXCAMERADISTANCE_OFFSET: usize = 0x4089a4;
-        let maxcamera_bytes: [u8; 4] = maxcameradistance.to_le_bytes();
-        print!("Applying patch: max camera distance...");
-        file[MAXCAMERADISTANCE_OFFSET..MAXCAMERADISTANCE_OFFSET+maxcamera_bytes.len()].copy_from_slice(&maxcamera_bytes);
-        println!(" Success!");
-    }
-
-    // Camera skip glitch fix.
-    // Thanks to Bon on the Turtle WoW Discord for implementing this patch, and phamd for submitting the PR to include it.
-    if !args.no_cameraskipfix {
-        let patches: [(usize, Vec<u8>); 5] = [
-            (0x02ccd0, vec![0x55, 0x8b, 0x05, 0x48, 0x4e, 0x88, 0x00, 0x8b, 0x0d, 0x44, 0x4e, 0x88, 0x00, 0xe9, 0x33, 0x90,
-                            0x32, 0x00, 0x83, 0xc0, 0x32, 0x83, 0xc1, 0x32, 0x3b, 0x0d, 0xa8, 0xeb, 0xc4, 0x00, 0x7e, 0x03,
-                            0x83, 0xe9, 0x01, 0x3b, 0x05, 0xac, 0xeb, 0xc4, 0x00, 0x7e, 0x03, 0x83, 0xe8, 0x01, 0x83, 0xe9,
-                            0x32, 0x83, 0xe8, 0x32, 0x89, 0x05, 0x48, 0x4e, 0x88, 0x00, 0x89, 0x0d, 0x44, 0x4e, 0x88, 0x00,
-                            0x5d, 0xeb, 0x0d]),
-            (0x02d326, vec![0xe9, 0xb1, 0x8a, 0x32, 0x00]),
-            (0x02d334, vec![0x8b, 0x35, 0x48, 0x4e, 0x88, 0x00]),
-            (0x355d15, vec![                              0x83, 0xf8, 0x32, 0x7d, 0x03, 0x83, 0xc0, 0x01, 0x83, 0xf9, 0x32,
-                            0x7d, 0x03, 0x83, 0xc1, 0x01, 0xe9, 0xb8, 0x6f, 0xcd, 0xff]),
-            (0x355ddc, vec![                                                                        0x8d, 0x4d, 0xf0, 0x51,
-                            0xff, 0x35, 0x00, 0x4e, 0x88, 0x00, 0xff, 0x15, 0x50, 0xf6, 0x7f, 0x00, 0x8b, 0x45, 0xf0, 0x8b,
-                            0x15, 0x44, 0x4e, 0x88, 0x00, 0xe9, 0x35, 0x75, 0xcd, 0xff])
-        ];
-
-        print!("Applying patch: camera skip glitch fix...");
-        for (address, bytes) in patches.iter() {
-            file[*address..*address+bytes.len()].copy_from_slice(&bytes);
-        }
-        println!(" Success!");
-    }
-
-    //Write out patched file
-    match fs::write(&outfile_path, file) {
-        Err(err) => {
-            println!("File writing failed: {err}");
-            return ExitCode::from(1);
-        },
-        Ok(_) => println!("Wrote file {}", outfile_path.to_string_lossy())
-    };
-
-    return ExitCode::from(0);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Minimal structurally valid PE32 i386 image covering the highest
+    /// patched offset: MZ, e_lfanew -> PE\0\0, machine 0x14c.
+    fn synthetic_pe() -> Vec<u8> {
+        let mut image = vec![0u8; MAX_PATCHED_OFFSET_END + 0x100];
+        image[0..2].copy_from_slice(b"MZ");
+        image[0x3c..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        image[0x80..0x84].copy_from_slice(b"PE\0\0");
+        image[0x84..0x86].copy_from_slice(&0x14cu16.to_le_bytes());
+        image
+    }
 
     #[test]
     fn replace_should_succeed() {
@@ -314,5 +434,61 @@ mod tests {
         let repl: Vec::<u8> = vec![6, 5, 4, 3];
         let return_val = replace(&mut data, &find, &repl);
         assert!(!return_val);
+    }
+
+    #[test]
+    fn validation_rejects_truncated() {
+        assert!(validate_pe32_i386(&synthetic_pe()[..0x20]).is_err());
+        assert!(validate_pe32_i386(&[]).is_err());
+    }
+
+    #[test]
+    fn validation_rejects_non_pe() {
+        let mut image = synthetic_pe();
+        image[0..2].copy_from_slice(b"XX");
+        assert!(validate_pe32_i386(&image).is_err());
+    }
+
+    #[test]
+    fn validation_rejects_wrong_architecture() {
+        let mut image = synthetic_pe();
+        image[0x84..0x86].copy_from_slice(&0x8664u16.to_le_bytes()); // x86-64
+        let err = validate_pe32_i386(&image).unwrap_err();
+        assert!(err.contains("not i386"));
+    }
+
+    #[test]
+    fn validation_rejects_missing_pe_signature() {
+        let mut image = synthetic_pe();
+        image[0x80..0x84].copy_from_slice(b"ZZ\0\0");
+        assert!(validate_pe32_i386(&image).is_err());
+    }
+
+    #[test]
+    fn validation_rejects_too_small_for_patches() {
+        let mut image = vec![0u8; 0x1000];
+        image[0..2].copy_from_slice(b"MZ");
+        image[0x3c..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        image[0x80..0x84].copy_from_slice(b"PE\0\0");
+        image[0x84..0x86].copy_from_slice(&0x14cu16.to_le_bytes());
+        assert!(validate_pe32_i386(&image).is_err());
+    }
+
+    #[test]
+    fn validation_accepts_synthetic_client() {
+        assert!(validate_pe32_i386(&synthetic_pe()).is_ok());
+    }
+
+    #[test]
+    fn patch_range_is_idempotent_and_bounds_checked() {
+        let mut image = synthetic_pe();
+        patch_range(&mut image, 0x0C1ECF, &[0x75], "quickloot").unwrap();
+        let first = image[0x0C1ECF];
+        assert_eq!(first, 0x75);
+        patch_range(&mut image, 0x0C1ECF, &[0x75], "quickloot").unwrap();
+        assert_eq!(image[0x0C1ECF], 0x75);
+        let near_end = image.len() - 1;
+        assert!(patch_range(&mut image, near_end, &[0x01, 0x02], "overflow").is_err());
+        assert!(patch_range(&mut image, usize::MAX - 1, &[0x01], "usize overflow").is_err());
     }
 }
