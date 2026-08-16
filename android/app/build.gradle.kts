@@ -622,6 +622,14 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.detekt)
+}
+
+// De-vibe Phase 3: static analysis, non-blocking (baseline captures existing
+// findings; tighten over time instead of starting from zero).
+detekt {
+    buildUponDefaultConfig = true
+    baseline = file("detekt-baseline.xml")
 }
 
 // There is intentionally no generic "allow physical devices" switch. The

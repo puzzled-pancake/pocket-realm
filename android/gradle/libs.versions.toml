@@ -1,6 +1,7 @@
 [versions]
 agp = "9.3.1"
 kotlin = "2.0.21"
+detekt = "1.23.7"
 coreKtx = "1.15.0"
 lifecycle = "2.8.3"
 activityCompose = "1.9.3"
@@ -49,3 +50,4 @@ junit = { group = "junit", name = "junit", version = "4.13.2" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }

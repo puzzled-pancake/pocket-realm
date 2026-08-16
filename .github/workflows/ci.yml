@@ -1,0 +1,59 @@
+# CI for the de-vibe safety net (DEVIBE_PLAN.md Phase 3).
+#
+# This repo currently has no remote — the workflow activates on first push.
+# Scoping is deliberate (windows runners lack the MSYS2/NDK native toolchain,
+# so no full APK builds here):
+#   - hygiene (ubuntu): check_repo + validate_features + pytest
+#   - android-unit (windows): JVM unit tests only, with the mandatory
+#     -PpocketAbi/-PpocketLane properties (build.gradle.kts refuses without them).
+# tools/check_sources.py stays local (pre-commit hook) because its
+# prebuilt-archive checks require the local native/.providers cache.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Repo hygiene gate
+        run: python tools/check_repo.py
+      - name: Features schema
+        run: python tools/validate_features.py
+      - name: Python tests
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        # The 8 deselected ids are the documented pre-existing substring-contract
+        # failures (DEVIBE_PLAN.md P15). They are expected to fail until Phase 4+
+        # retires them; any NEW failure fails CI.
+        run: |
+          python -m pytest tests/ -q \
+            --deselect tests/test_gladio_client_unpack_transport.py::GladioClientValidationLaneContractTest::test_arm_production_packaging_excludes_gladio \
+            --deselect tests/test_gladio_client_unpack_transport.py::GladioClientValidationLaneContractTest::test_build_script_is_x86_validation_only \
+            --deselect tests/test_vortek_lifecycle_hardening.py::test_java_control_plane_rejects_ambiguous_ownership_and_unknown_requests \
+            --deselect tests/test_vortek_lifecycle_hardening.py::test_production_dispatch_opens_only_in_reviewed_bridge_target \
+            --deselect tests/test_vortek_lifecycle_hardening.py::test_window_authority_is_generation_instance_and_lifetime_bound \
+            --deselect tests/test_vortek_lifecycle_hardening.py::test_window_operations_revalidate_and_swapchain_creation_is_transactional \
+            --deselect tests/test_vortek_winlator_baseline.py::test_source_built_guest_is_pinned_and_reports_receiver_map_errno \
+            --deselect tests/test_vortek_winlator_baseline.py::test_idle_ring_wait_uses_peer_loss_and_progressive_backoff
+
+  android-unit:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Unit tests
+        run: ./gradlew :app:testDebugUnitTest -PpocketAbi=x86_64 -PpocketLane=full --console=plain
