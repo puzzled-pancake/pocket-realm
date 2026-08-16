@@ -87,13 +87,13 @@ class InGameSettingsContractTest {
         )
         assertEquals(
             File("/client/WTF/Account/player-1/MaNGOS/char-1/bindings-cache.wtf").path,
-            InGameSettingsFiles.bindingsForScope(root, "HI/MaNGOS/char-1").path,
+            InGameSettingsFiles.bindingsForScope(root, "player-1/MaNGOS/char-1").path,
         )
         assertThrows(IllegalArgumentException::class.java) {
             InGameSettingsFiles.accountDirectory(root, "../escape")
         }
         assertThrows(IllegalArgumentException::class.java) {
-            InGameSettingsFiles.characterBindings(root, "HI/MaNGOS")
+            InGameSettingsFiles.characterBindings(root, "player-1/MaNGOS")
         }
     }
 }
