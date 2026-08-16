@@ -246,7 +246,7 @@ Work on a branch (`devibe/cleanup`). Every phase ends with its gate green and a 
 - [ ] Redact serial + LAN IP in `GRAPHICS_SELECTION_CONTEXT.md:127` **now** (the doc is only folded in Phase 2, but Gate 1 greps for the serial) and in the moved gl-calls notes.
 - [ ] Account/character names in `docs/L1_NEARBY_USE_INVESTIGATION.md` **plus [R2]** `android/app/src/test/.../InGameSettingsContractTest.kt:86,89,90` and `docs/INGAME_SETTINGS_GROUND_TRUTH.md:5` → replace with `player-1`/`char-1`, IP → `192.168.1.x`.
 
-**Gate 1:** fresh clone to temp: no `.codex-*`, proprietary content unreachable, `git grep -l "4a8069ae\|192.168.1.x\|char-1"` (tracked files, excluding submodule dirs) empty, Gate 0 baselines still green, `.git` size recorded.
+**Gate 1:** fresh clone to temp: no `.codex-*`, proprietary content unreachable, greps for the scrubbed identifiers (device-serial hash fragment, scrubbed LAN IP, old character name) return nothing across tracked files (excluding submodule dirs), Gate 0 baselines still green, `.git` size recorded.
 
 ### Phase 2 — Docs: one truth (half a day) — *fixes D1–D5*
 
@@ -262,7 +262,7 @@ Work on a branch (`devibe/cleanup`). Every phase ends with its gate green and a 
 
 ### Phase 3 — Safety net before code changes (1 day) — *fixes D6, D7, B2-interim*
 
-- [ ] `tools/check_repo.py`: fail on forbidden tracked patterns (`.codex-*`, `build-authority/`, `native/.tmp-*`, root images/exe), tracked blobs > 1 MB outside an explicit allowlist (docs reports, `tests/avd/**/evidence`, `docs/wiki/**`, the LGPL X-server trees — **[R2] these are large and must stay**, catalog-v1.json), FEATURES schema violations, and scrubbed identifiers (`4a8069ae`, `192.168.1.`, `Users\David`, `G:\msys64`) in tracked text.
+- [ ] `tools/check_repo.py`: fail on forbidden tracked patterns (`.codex-*`, `build-authority/`, `native/.tmp-*`, root images/exe), tracked blobs > 1 MB outside an explicit allowlist (docs reports, `tests/avd/**/evidence`, `docs/wiki/**`, the LGPL X-server trees — **[R2] these are large and must stay**, catalog-v1.json), FEATURES schema violations, and scrubbed identifiers (the device-serial hash fragment, the scrubbed LAN IP literal, user-home path patterns, the MSYS2 drive default) in tracked text.
 - [ ] Git hook written fresh (`.githooks/` + `core.hooksPath`; **[R2]** `block_destructive.py` is a Claude-JSON hook, not reusable): runs `check_repo.py` + `pytest tests/` + **`tools/check_sources.py`** (existing verifier, currently wired into nothing).
 - [ ] `.github/workflows/ci.yml` ready for the future remote — **[R2] scoped honestly**: pytest + check_repo + check_sources on ubuntu-latest, and gradle unit tests with `-PpocketAbi=x86_64 -PpocketLane=full` on windows-latest; no full builds (runners lack MSYS2/NDK toolchain).
 - [ ] Detekt with generated baseline (non-blocking initially).

@@ -82,11 +82,11 @@ class InGameSettingsContractTest {
     fun `binding scopes map to the verified WTF layout and reject traversal`() {
         val root = File("/client")
         assertEquals(
-            File("/client/WTF/Account/HI/bindings-cache.wtf").path,
-            InGameSettingsFiles.accountBindings(root, "HI").path,
+            File("/client/WTF/Account/player-1/bindings-cache.wtf").path,
+            InGameSettingsFiles.accountBindings(root, "player-1").path,
         )
         assertEquals(
-            File("/client/WTF/Account/HI/MaNGOS/char-1/bindings-cache.wtf").path,
+            File("/client/WTF/Account/player-1/MaNGOS/char-1/bindings-cache.wtf").path,
             InGameSettingsFiles.bindingsForScope(root, "HI/MaNGOS/char-1").path,
         )
         assertThrows(IllegalArgumentException::class.java) {

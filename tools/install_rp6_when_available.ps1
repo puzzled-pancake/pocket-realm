@@ -3,11 +3,15 @@ param(
     [string] $ApkPath,
     [Parameter(Mandatory = $true)]
     [string] $ExpectedSha256,
+    # Wireless-ADB serial of the target device (adb-<hash>._adb-tls-connect._tcp).
+    # Supply explicitly or via the POCKET_ADB_SERIAL environment variable; when
+    # omitted the script falls back to matching any attached Retroid Pocket 6.
+    [string] $Serial,
     [ValidateRange(10, 300)]
     [int] $IntervalSeconds = 15
 )
 
-$knownSerial = "adb-REDACTED-DEVICE._adb-tls-connect._tcp"
+$knownSerial = if ($Serial) { $Serial } elseif ($env:POCKET_ADB_SERIAL) { $env:POCKET_ADB_SERIAL } else { $null }
 $knownModel = "model:Retroid_Pocket_6"
 $workspace = Split-Path -Parent $PSScriptRoot
 $logDirectory = Join-Path $workspace "tmp"
@@ -43,8 +47,9 @@ Write-InstallLog "Waiting for the known RP6; APK SHA-256 $actualSha256"
 while ($true) {
     $deviceLine = adb devices -l 2>$null |
         Where-Object {
-            $_ -match "^$([regex]::Escape($knownSerial))\s+device\s" -and
-            $_ -like "*$knownModel*"
+            ($_ -match "device\s") -and
+            ($_ -like "*$knownModel*") -and
+            (-not $knownSerial -or $_ -match "^$([regex]::Escape($knownSerial))\s+device\s")
         } |
         Select-Object -First 1
     if (-not $deviceLine) {
@@ -52,16 +57,17 @@ while ($true) {
         continue
     }
 
-    $before = Read-AppHashes $knownSerial
+    $matchedSerial = if ($knownSerial) { $knownSerial } else { ($deviceLine -split '\s+')[0] }
+    $before = Read-AppHashes $matchedSerial
     Write-InstallLog "Known RP6 connected; starting data-preserving package replacement"
-    $installOutput = & adb -s $knownSerial install -r $resolvedApk 2>&1
+    $installOutput = & adb -s $matchedSerial install -r $resolvedApk 2>&1
     $installExit = $LASTEXITCODE
     Write-InstallLog "adb install exit=$installExit output=$($installOutput -join ' ')"
     if ($installExit -ne 0) {
         exit $installExit
     }
 
-    $after = Read-AppHashes $knownSerial
+    $after = Read-AppHashes $matchedSerial
     $beforeText = $before -join "`n"
     $afterText = $after -join "`n"
     if ($beforeText -eq $afterText) {

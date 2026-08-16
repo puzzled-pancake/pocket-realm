@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-14 / 2026-08-15 (evening session, ~22:00 – 00:45 device time)
 **Feature:** Gamepad L1 = "choose the nearest eligible corpse, chest, or ordinary usable object and open it as one realm action" (Vanilla 1.12.1 profile)
-**Device:** Retroid Pocket 6 (kalima), wireless ADB `adb-REDACTED-DEVICE._adb-tls-connect._tcp`, package `com.pocketrealm`, character `char-1`, account `HI`
+**Device:** Retroid Pocket 6 (kalima), wireless ADB `adb-REDACTED-DEVICE._adb-tls-connect._tcp`, package `com.pocketrealm`, character `char-1`, account `player-1`
 **Status (follow-up session, 2026-08-14):** Root cause #2 is now **found and fixed in the client binary** — the exact gate was reverse-engineered in `WoW.exe` (build 5875 enUS) and neutralized with a 2-byte companion patch shipped in the `WoW.exe.patched` pipeline. See §7. On-device verification was pending at writing time (device off-network); the patch is deterministic, unit-tested, and fail-closed.
 
 ---
@@ -98,7 +98,7 @@ The **window gate** is where it currently stops: `HandleLootOpcode` ends in `Loo
 - **Input side ✅:** logcat showed every L1 press (`code=102`, `gamepad=true`, layout `RETROID_POCKET_6_XBOX`) at 22:57:39-45, including Android auto-repeat bursts.
 - **Profile ✅ (after one correction):** first dump of `pocket_input_profile.xml` was head-truncated and showed only a legacy `profile_v7` (CUSTOM, `L1=KEY_0`) — briefly misdiagnosed as the root cause. Full key list revealed `profile_v11` with `L1=NEARBY_USE`; the store reads `profile_v11` first (`InputProfileStore.storedProfile`, `InputProfile.kt:938-943`). Lesson recorded below in §6.
 - **Addon ✅:** registry `no_backup/addons/registry.json` contains `builtin__vanillaconsoleport`; projection at every launch (`AddonRuntimeProjector`, from `WineRuntimeStore.kt:1895`) — on-device folder listing complete (6 files including `Bindings.xml`, `## Interface: 11200`).
-- **Binding ✅:** on-device `WTF/Account/HI/bindings-cache.wtf:163` = `bind F7 VCP_NEARBY_INTERACT`.
+- **Binding ✅:** on-device `WTF/Account/player-1/bindings-cache.wtf:163` = `bind F7 VCP_NEARBY_INTERACT`.
 - **Server ✅:** `mangosd.conf` values correct; installed `libpocket_world_runtime.so` sha256 `19781dbc…59bc54` **exactly matched** the pin in `schemas/realm-runtime-lockfile-arm64-v8a.json` (the overlay is in the running binary).
 - **Smoking gun #1:** `world.log` contained **zero** interaction results and zero chat packets around the L1 presses — the trigger never reached the server.
 

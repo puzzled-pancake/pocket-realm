@@ -1,7 +1,7 @@
 # In-Game Settings — Phase 0 ground truth (2026-08-16)
 
 Sources: the live managed client generation on the Retroid Pocket 6
-(generation `fcda3cb3-2b23-4e42-a524-2b68b8b4fdd2`, account `HI`, character
+(generation `fcda3cb3-2b23-4e42-a524-2b68b8b4fdd2`, account `player-1`, character
 `char-1` on `MaNGOS`, pulled read-only via `run-as` over wireless ADB), and the
 pinned MOUZU mirror of Blizzard's 1.12.1 FrameXML at commit
 `776d64ecf708540969e34df9680ffdacb3e8b555` (`UIOptionsFrame.lua`,
@@ -102,7 +102,7 @@ the same flip the plan schedules for Phase 2. `gamma`/`uiscale`/`useUiScale`
 had no line in the capture and no FrameXML source → **excluded from the
 catalog** rather than shipped on hypothesis.
 
-## Bindings (DEVICE_CAPTURE, `WTF/Account/HI/bindings-cache.wtf`)
+## Bindings (DEVICE_CAPTURE, `WTF/Account/player-1/bindings-cache.wtf`)
 
 - Grammar confirmed: unquoted `bind KEY COMMAND` with `SHIFT-`/`CTRL-`/
   `CTRL-SHIFT-`/`ALT-` prefixes (`bind ALT-1 SELFACTIONBUTTON1` is live
