@@ -20,7 +20,7 @@ plan Decision points 4, 5, 7 and the audit's close-out additions):
 7. **Vortek dual tree** (plan Decision 7, from the round-2 audit): the
    hardened `cpp/vortekrenderer/` tree (bounded serializer, 552 bounds
    checks) is NOT the one shipped — the APK packages the essentially-upstream
-   `cpp/vortek-runner-2.1` decoder. Recommendation on file: promote the
+   `cpp/vortekrenderer-winlator-2.1` decoder. Recommendation on file: promote the
    hardened tree behind its host test suite or delete it and its hardener
    toolchain. Unresolved; both trees remain until decided.
 
