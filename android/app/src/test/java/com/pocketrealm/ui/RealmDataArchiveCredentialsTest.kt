@@ -43,7 +43,10 @@ class RealmDataArchiveCredentialsTest {
         RealmDataArchive.writeArchive(out, snapshot("a"), null, RealmDataArchive.meta("s1", 1L, "v", "x86_64"))
         val names = entryNames(out.toByteArray())
         assertFalse("credentials must not ride a default export", names.contains("account.json"))
-        assertEquals(listOf("realm-archive.json", "snapshot/nested/manifest.json", "snapshot/realm.sqlite"), names.sorted())
+        assertEquals(
+            listOf("realm-archive.json", "snapshot/nested/manifest.json", "snapshot/realm.sqlite"),
+            names.sorted(),
+        )
     }
 
     @Test fun `opt-in export includes the credentials entry verbatim`() {
