@@ -2,6 +2,9 @@ package com.pocketrealm.ui
 
 import android.os.Build
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -11,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -19,6 +23,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -34,6 +39,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.pocketrealm.BuildConfig
 import com.pocketrealm.client.ArmTranslationBackend
 import com.pocketrealm.client.ArmRendererAuto
 import com.pocketrealm.client.ArmClientRenderer
@@ -52,8 +58,11 @@ import com.pocketrealm.client.GladioCapability
 import com.pocketrealm.client.VulkanDriverCatalog
 import com.pocketrealm.server.NearbyInteractPolicy
 import com.pocketrealm.storage.Settings
+import com.pocketrealm.storage.StorageRoots
+import com.pocketrealm.supervisor.RuntimeSupervisorClient
 import com.pocketrealm.supervisor.UserAccountStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
@@ -94,6 +103,128 @@ fun SettingsScreen(
     }
     val availableDisplays = remember(physicalDisplay) {
         ClientDisplayProfile.availableForPhysical(physicalDisplay.first, physicalDisplay.second)
+    }
+
+    val supervisor = remember(context) { RuntimeSupervisorClient(context) }
+    val roots = remember(context) { StorageRoots.get(context) }
+    var realmDataBusy by remember { mutableStateOf(false) }
+    var realmDataStatus by remember { mutableStateOf("Realm characters live in the stopped-realm database snapshots.") }
+    var pendingImport by remember { mutableStateOf<Pair<Uri, RealmDataArchive.ArchiveInfo>?>(null) }
+
+    suspend fun awaitBackupCompletion(): Boolean {
+        while (true) {
+            val status = runCatching { supervisor.backupStatus() }.getOrNull() ?: return false
+            realmDataStatus = "${status.optString("kind")}: ${status.optString("phase")}"
+            if (status.optString("phase") == "COMPLETE") return true
+            if (status.optString("phase") == "FAILED") return false
+            delay(500)
+        }
+    }
+
+    suspend fun exportRealmCharacters(target: Uri) {
+        realmDataBusy = true
+        try {
+            val name = "manual-export-${System.currentTimeMillis()}"
+            val accepted = runCatching { supervisor.createBackup(name) }
+            if (accepted.getOrNull()?.optBoolean("ok") != true) {
+                realmDataStatus = accepted.fold(
+                    { it.optString("error").ifBlank { "backup rejected" } },
+                    { "backup failed: ${it.javaClass.simpleName}" },
+                )
+                return
+            }
+            if (!awaitBackupCompletion()) return
+            val snapshotId = runCatching { supervisor.listBackups() }.getOrNull()
+                ?.optJSONArray("backups")?.optJSONObject(0)?.optString("snapshotId")
+            if (snapshotId.isNullOrBlank()) {
+                realmDataStatus = "snapshot not found after backup"
+                return
+            }
+            val snapshotDir = java.io.File(roots.databaseSnapshots, snapshotId)
+            val accountFile = java.io.File(context.noBackupFilesDir, "user-account/account.json").takeIf { it.isFile }
+            withContext(Dispatchers.IO) {
+                val output = context.contentResolver.openOutputStream(target)
+                    ?: throw IllegalStateException("could not open export target")
+                output.use { stream ->
+                    RealmDataArchive.writeArchive(
+                        stream, snapshotDir, accountFile,
+                        RealmDataArchive.meta(
+                            snapshotId, System.currentTimeMillis(),
+                            BuildConfig.VERSION_NAME, Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
+                        ),
+                    )
+                }
+            }
+            realmDataStatus = "Characters exported (snapshot $snapshotId)."
+        } catch (failure: Throwable) {
+            realmDataStatus = "Export failed: ${failure.message ?: failure.javaClass.simpleName}"
+        } finally {
+            realmDataBusy = false
+        }
+    }
+
+    suspend fun inspectRealmArchive(source: Uri) {
+        val info = withContext(Dispatchers.IO) {
+            runCatching {
+                context.contentResolver.openInputStream(source)?.use { input -> RealmDataArchive.inspect(input) }
+            }.getOrNull()
+        }
+        if (info == null) {
+            realmDataStatus = "Could not read the selected archive."
+            return
+        }
+        if (info.snapshotId.isBlank()) {
+            realmDataStatus = "Archive has no snapshot id."
+            return
+        }
+        pendingImport = source to info
+    }
+
+    suspend fun restoreRealmCharacters(source: Uri, info: RealmDataArchive.ArchiveInfo) {
+        realmDataBusy = true
+        try {
+            val target = java.io.File(roots.databaseSnapshots, info.snapshotId)
+            if (target.exists()) {
+                realmDataStatus = "Snapshot ${info.snapshotId} already exists on this device."
+                return
+            }
+            val accountBytes = withContext(Dispatchers.IO) {
+                check(target.mkdirs()) { "could not create snapshot directory" }
+                val input = context.contentResolver.openInputStream(source)
+                    ?: throw IllegalStateException("could not open archive")
+                input.use { stream -> RealmDataArchive.extractSnapshot(stream, target).second }
+            }
+            val accepted = runCatching { supervisor.restoreBackup(info.snapshotId) }
+            if (accepted.getOrNull()?.optBoolean("ok") != true) {
+                realmDataStatus = accepted.fold(
+                    { it.optString("error").ifBlank { "restore rejected" } },
+                    { "restore failed: ${it.javaClass.simpleName}" },
+                )
+                return
+            }
+            if (!awaitBackupCompletion()) return
+            accountBytes?.let { bytes ->
+                withContext(Dispatchers.IO) {
+                    val accountFile = java.io.File(context.noBackupFilesDir, "user-account/account.json")
+                    accountFile.parentFile?.mkdirs()
+                    accountFile.writeBytes(bytes)
+                    android.system.Os.chmod(accountFile.absolutePath,
+                        android.system.OsConstants.S_IRUSR or android.system.OsConstants.S_IWUSR)
+                }
+            }
+            realmDataStatus = "Realm data imported."
+        } catch (failure: Throwable) {
+            realmDataStatus = "Import failed: ${failure.message ?: failure.javaClass.simpleName}"
+        } finally {
+            realmDataBusy = false
+        }
+    }
+
+    val exportPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        if (uri != null) scope.launch { exportRealmCharacters(uri) }
+    }
+    val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) scope.launch { inspectRealmArchive(uri) }
     }
 
     Column(
@@ -606,6 +737,64 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
             )
         }
+
+        HorizontalDivider()
+        SettingCard("Realm data") {
+            OutlinedButton(
+                onClick = {
+                    exportPicker.launch(
+                        "pocket-realm-characters-" +
+                            java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US)
+                                .format(java.util.Date()) + ".zip",
+                    )
+                },
+                enabled = !realmDataBusy,
+                modifier = Modifier.fillMaxWidth().testTag("settings-realm-export"),
+            ) { Text(if (realmDataBusy) "Working…" else "Back up realm characters") }
+            OutlinedButton(
+                onClick = { importPicker.launch(arrayOf("application/zip", "application/octet-stream")) },
+                enabled = !realmDataBusy,
+                modifier = Modifier.fillMaxWidth().testTag("settings-realm-import"),
+            ) { Text("Import realm data") }
+            Text(
+                realmDataStatus,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.testTag("settings-realm-data-status"),
+            )
+            Text(
+                "Exports the realm database (characters, bot accounts, login credentials) as one " +
+                    "file you choose. Importing replaces the current realm database; archives from a " +
+                    "different app build are rejected by the database seals.",
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+    }
+
+    pendingImport?.let { (source, info) ->
+        AlertDialog(
+            onDismissRequest = { pendingImport = null },
+            title = { Text("Import realm data?") },
+            text = {
+                Text(
+                    "Characters from snapshot ${info.snapshotId} (from app ${info.appVersionName}, " +
+                        "created " + java.text.SimpleDateFormat("d MMM yyyy HH:mm", java.util.Locale.US)
+                            .format(java.util.Date(info.createdAtMs)) + ") will replace the current " +
+                        "realm database. The realm stops during the restore.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val pending = pendingImport
+                    pendingImport = null
+                    pending?.let { (uri, archiveInfo) ->
+                        scope.launch { restoreRealmCharacters(uri, archiveInfo) }
+                    }
+                }) { Text("Import") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingImport = null }) { Text("Cancel") }
+            },
+        )
     }
 }
 
