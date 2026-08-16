@@ -30,47 +30,80 @@ class RealmdRuntime {
 public:
     int start(const std::string& config)
     {
-        std::lock_guard<std::mutex> guard(m_lifecycle);
-        if (m_state.state() != POCKET_SERVER_STOPPED && m_state.state() != POCKET_SERVER_FAILED)
-            return POCKET_SERVER_WRONG_STATE;
-        if (config.empty()) return POCKET_SERVER_INVALID_ARGUMENT;
+        {
+            std::lock_guard<std::mutex> guard(m_lifecycle);
+            if (m_state.state() != POCKET_SERVER_STOPPED && m_state.state() != POCKET_SERVER_FAILED)
+                return POCKET_SERVER_WRONG_STATE;
+            if (config.empty()) return POCKET_SERVER_INVALID_ARGUMENT;
+            // Signal a leftover worker (de-vibe round 2b: an io-thread fail()
+            // can leave FAILED with the worker still looping). The join must
+            // run OUTSIDE the guard: the worker's exit path calls cleanup(),
+            // which takes m_lifecycle.
+            m_stop.store(true, std::memory_order_release);
+            if (m_io) m_io->stop();
+        }
         if (m_worker.joinable()) m_worker.join();
-        m_stop.store(false, std::memory_order_release);
-        m_state.transition(POCKET_SERVER_STARTING);
-        m_worker = std::thread([this, config] { run(config); });
+        {
+            std::lock_guard<std::mutex> guard(m_lifecycle);
+            m_stop.store(false, std::memory_order_release);
+            m_state.transition(POCKET_SERVER_STARTING);
+            m_worker = std::thread([this, config] { run(config); });
+        }
         return POCKET_SERVER_OK;
     }
 
     int stop(uint64_t timeout_ms)
     {
+        bool failed_at_entry = false;
         {
             std::lock_guard<std::mutex> guard(m_lifecycle);
             auto state = m_state.state();
             if (state == POCKET_SERVER_STOPPED) return POCKET_SERVER_OK;
+            // Signal BOTH exits under the guard (de-vibe round 2b); the join
+            // and cleanup run OUTSIDE it — the worker's exit path calls
+            // cleanup(), which takes m_lifecycle, so joining while holding it
+            // deadlocked (round-1/2 finding).
             if (state == POCKET_SERVER_FAILED)
             {
-                // de-vibe round 2: an io-thread fail() can set FAILED while
-                // the worker still loops on m_stop; signal BOTH exits before
-                // the join or stop() hangs forever holding this mutex.
-                m_stop.store(true, std::memory_order_release);
-                if (m_io) m_io->stop();
-                if (m_worker.joinable()) m_worker.join();
-                cleanup();
-                m_state.transition(POCKET_SERVER_STOPPED);
-                return POCKET_SERVER_OK;
+                failed_at_entry = true;
             }
-            m_state.transition(POCKET_SERVER_STOPPING);
+            else
+            {
+                m_state.transition(POCKET_SERVER_STOPPING);
+            }
             m_stop.store(true, std::memory_order_release);
             if (m_io) m_io->stop();
+        }
+        if (failed_at_entry)
+        {
+            if (m_worker.joinable()) m_worker.join();
+            cleanup();
+            std::lock_guard<std::mutex> guard(m_lifecycle);
+            m_state.transition(POCKET_SERVER_STOPPED);
+            return POCKET_SERVER_OK;
         }
         const uint64_t deadline = pocket_server::monotonic_ms() + timeout_ms;
         while (m_state.state() != POCKET_SERVER_STOPPED &&
                m_state.state() != POCKET_SERVER_FAILED &&
                pocket_server::monotonic_ms() < deadline)
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        if (m_state.state() == POCKET_SERVER_FAILED)
+        {
+            // The worker failed during shutdown (de-vibe N2: was conflated
+            // with a wedge timeout). Join outside the lock, then finish.
+            if (m_worker.joinable()) m_worker.join();
+            cleanup();
+            std::lock_guard<std::mutex> guard(m_lifecycle);
+            m_state.transition(POCKET_SERVER_STOPPED);
+            return POCKET_SERVER_OK;
+        }
         if (m_state.state() != POCKET_SERVER_STOPPED) return POCKET_SERVER_TIMEOUT;
-        std::lock_guard<std::mutex> guard(m_lifecycle);
-        if (m_worker.joinable()) m_worker.join();
+        {
+            // The worker is done (STOPPED is its final statement); joining
+            // under the guard is safe and keeps the reset atomic.
+            std::lock_guard<std::mutex> guard(m_lifecycle);
+            if (m_worker.joinable()) m_worker.join();
+        }
         return POCKET_SERVER_OK;
     }
 
@@ -137,7 +170,11 @@ private:
                 });
             LoginDatabase.AllowAsyncTransactions();
             m_state.transition(POCKET_SERVER_READY);
-            while (!m_stop.load(std::memory_order_acquire))
+            // Also exit on FAILED (de-vibe round 2b): io-thread exceptions
+            // fail the state; the loop must not outlive it or stop()'s join
+            // can never complete.
+            while (!m_stop.load(std::memory_order_acquire) &&
+                   m_state.state() != POCKET_SERVER_FAILED)
             {
                 m_heartbeat_count.fetch_add(1, std::memory_order_relaxed);
                 m_state.beat();
