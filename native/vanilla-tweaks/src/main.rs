@@ -103,8 +103,10 @@ struct Args {
     no_cameraskipfix: bool
 }
 
-/// Highest byte offset any patch touches (camera-skip block at 0x355ddc + 29).
-const MAX_PATCHED_OFFSET_END: usize = 0x355ddc + 29;
+/// Highest byte offset any patch touches (frilldistance float at 0x467958 + 4).
+/// (Verification round 1 caught the old floor missing the nameplate/farclip/
+/// frilldistance offsets; patch_range bounds-checks every write regardless.)
+const MAX_PATCHED_OFFSET_END: usize = 0x467958 + 4;
 
 /// Validate the input is the expected PE32 i386 executable before any write.
 /// Every fixed-offset patch silently corrupts anything else (de-vibe N10):

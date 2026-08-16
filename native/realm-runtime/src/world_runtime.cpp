@@ -550,9 +550,11 @@ private:
             OSSL_PROVIDER_load(nullptr, "legacy");
             OSSL_PROVIDER_load(nullptr, "default");
             if (!sConfig.SetSource(config, "Mangosd_"))
+            {
                 fail(POCKET_SERVER_CONFIG, "world configuration rejected");
                 cleanup();  // de-vibe N2: early fails skipped teardown
                 return;
+            }
 #ifdef ENABLE_PLAYERBOTS
             sPlayerbotAIConfig.SetConfigSource(
                 sConfig.GetStringDefault("PocketRealm.PlayerbotConfig", ""));
@@ -560,23 +562,29 @@ private:
 #endif
             sLog.Initialize();
             if (!sMaster.StartDatabasesEmbedded())
+            {
                 fail(POCKET_SERVER_DB_REVISION, "world database connect or revision check failed");
                 cleanup();  // de-vibe N2: early fails skipped teardown
                 return;
+            }
             bool client_data_gate = false;
             if (!sMaster.InitWorldEmbedded(&client_data_gate))
+            {
                 fail(client_data_gate ? POCKET_SERVER_DATA_MISSING : POCKET_SERVER_DATA_BUILD,
                      client_data_gate ? "verified client-derived data is missing" : "world data load failed");
                 cleanup();  // de-vibe N2: early fails skipped teardown
                 return;
+            }
 #ifdef ENABLE_PLAYERBOTS
             if (sPlayerbotAIConfig.enabled)
             {
                 if (configured_bot_target < static_cast<int>(sPlayerbotAIConfig.minRandomBots) ||
                     configured_bot_target > static_cast<int>(sPlayerbotAIConfig.maxRandomBots))
+                {
                     fail(POCKET_SERVER_CONFIG, "bot target is outside the measured profile bounds");
                     cleanup();  // de-vibe N2: early fails skipped teardown
                     return;
+                }
                 m_bot_min.store(sPlayerbotAIConfig.minRandomBots, std::memory_order_release);
                 m_bot_max.store(sPlayerbotAIConfig.maxRandomBots, std::memory_order_release);
                 m_bot_accounts.store(sPlayerbotAIConfig.randomBotAccounts.size(), std::memory_order_release);
@@ -603,12 +611,18 @@ private:
             }
 #endif
             if (!sMaster.StartNetworkEmbedded(1))
+            {
                 fail(POCKET_SERVER_PORT_IN_USE, "world listener failed");
                 cleanup();  // de-vibe N2: early fails skipped teardown
                 return;
+            }
             m_started = true;
             m_state.transition(POCKET_SERVER_READY);
-            while (!m_stop.load(std::memory_order_acquire))
+            // Also exit on FAILED (de-vibe): the hard-stall watchdog fails the
+            // state from the world thread; the loop must not outlive it or
+            // stop()'s join hangs forever.
+            while (!m_stop.load(std::memory_order_acquire) &&
+                   m_state.state() != POCKET_SERVER_FAILED)
             {
                 m_state.beat();
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));

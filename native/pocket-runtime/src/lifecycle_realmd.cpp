@@ -38,7 +38,9 @@ namespace pocket_realm {
 
 struct realmd_state
 {
-    std::unique_ptr<boost::asio::io_context> io;
+    // shared (de-vibe N7): listener threads capture the io_context by value;
+    // unique_ptr here would dangle with the raw state ownership below.
+    std::shared_ptr<boost::asio::io_context> io;
     std::unique_ptr<MaNGOS::AsyncListener<AuthSocket>> listener;
     std::vector<std::thread> threads;
     std::atomic<bool> stop{false};
@@ -63,12 +65,13 @@ static bool realmd_start_db()
 lifecycle_result start_realmd(realmd_state** out)
 {
     lifecycle_result r;
-    // Shared ownership (de-vibe N7): the listener threads previously captured
-    // a reference to this stack-local pointer ([&]), dangling the moment
-    // start_realmd returned on EVERY successful start; the throw path
-    // additionally destroyed a joinable std::thread at `delete st`
-    // (std::terminate). Capture the shared state by value.
-    std::shared_ptr<realmd_state> st(new realmd_state);
+    // Raw state ownership stays with the facade (stop_realmd deletes it);
+    // only the io_context is shared (de-vibe N7: the listener threads
+    // previously captured this stack-local pointer BY REFERENCE, dangling the
+    // moment start_realmd returned on every successful start; the throw path
+    // additionally destroyed a joinable std::thread at `delete st`,
+    // i.e. std::terminate).
+    realmd_state* st = new realmd_state;
     st->io.reset(new boost::asio::io_context);
 
     try
@@ -77,6 +80,7 @@ lifecycle_result start_realmd(realmd_state** out)
         {
             r.err = REALM_E_DB;
             r.detail = "realmd: database version check failed";
+            delete st;
             return r;
         }
 
@@ -85,6 +89,7 @@ lifecycle_result start_realmd(realmd_state** out)
         {
             r.err = REALM_E_DB;
             r.detail = "realmd: no valid realms configured";
+            delete st;
             return r;
         }
 
@@ -103,14 +108,11 @@ lifecycle_result start_realmd(realmd_state** out)
             sConfig.GetStringDefault("BindIP", "127.0.0.1"),
             sConfig.GetIntDefault("RealmServerPort", DEFAULT_REALMSERVER_PORT)));
 
+        const std::shared_ptr<boost::asio::io_context> io = st->io;
         for (uint32_t i = 0; i < networkThreadCount; ++i)
-            st->threads.emplace_back([st]() { st->io->run(); });
+            st->threads.emplace_back([io]() { io->run(); });
 
-        // A partially spawned thread set leaves joinable threads inside st;
-        // releasing into a local and joining them below avoids destroying a
-        // joinable thread (std::terminate) while still unwinding cleanly.
-        std::shared_ptr<realmd_state> released = st;
-        *out = released.release(); // no reinterpret_cast: realmd_state is the real type
+        *out = st; // no reinterpret_cast: realmd_state is the real type
     }
     catch (...)
     {
@@ -128,10 +130,11 @@ lifecycle_result start_realmd(realmd_state** out)
         }
         // st is still owned here: stop the io_context so the (possibly
         // partially started) threads exit their run() loops, join them, then
-        // let the shared_ptr free the state.
+        // free the state (raw ownership: plain delete).
         try { st->io->stop(); } catch (...) {}
         for (auto& thread : st->threads)
             if (thread.joinable()) thread.join();
+        delete st;
     }
     return r;
 }

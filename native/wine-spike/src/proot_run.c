@@ -437,6 +437,11 @@ int wine_spike_kill_tree_recursive(int64_t root_pid) {
         pid_t wroot = waitpid((pid_t)root_pid, &status, WNOHANG);
         if (wroot == (pid_t)root_pid) { reaped++; got = 1; }
         if (got) continue;
+        {
+            int remaining = 0;
+            for (int i = 0; i < n; i++) if (pids[i] > 0) remaining++;
+            if (remaining == 0) break;  /* everything reaped: no fixed 500ms */
+        }
         if (t < 49) { usleep(10000); continue; }
         break;
     }
@@ -993,11 +998,9 @@ int wine_spike_run_wine_via_proot(const char *native_dir,
                 break;
             }
         }
-        /* If child is done but pipes still open (rare), keep draining but bound
-         * the wait so we don't loop forever. */
-        if (got_status && pipes_open) {
-            /* A few more short polls to flush, then give up. */
-        }
+        /* (de-vibe N9) dead branch removed: `if (got_status && pipes_open)`
+         * had an empty body; the surrounding drain loop already bounds the
+         * wait. */
     }
 
     if (out_pipe[0] >= 0) close(out_pipe[0]);

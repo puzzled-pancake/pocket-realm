@@ -49,6 +49,11 @@ public:
             if (state == POCKET_SERVER_STOPPED) return POCKET_SERVER_OK;
             if (state == POCKET_SERVER_FAILED)
             {
+                // de-vibe round 2: an io-thread fail() can set FAILED while
+                // the worker still loops on m_stop; signal BOTH exits before
+                // the join or stop() hangs forever holding this mutex.
+                m_stop.store(true, std::memory_order_release);
+                if (m_io) m_io->stop();
                 if (m_worker.joinable()) m_worker.join();
                 cleanup();
                 m_state.transition(POCKET_SERVER_STOPPED);
