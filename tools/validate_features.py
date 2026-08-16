@@ -43,6 +43,9 @@ def main() -> int:
             active += 1
 
         for dep in feature.get("depends", []):
+            if dep == fid:
+                errors.append(f"{fid}: depends on itself")
+                continue
             if dep not in ids:
                 if dep in [f.get("id") for f in features]:
                     errors.append(f"{fid}: dependency {dep} appears later in the list (ordering)")

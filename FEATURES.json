@@ -336,7 +336,7 @@
       "track": "offline",
       "priority": 120,
       "title": "G4 measured playerbot tiers, admission control, and world metrics",
-      "status": "active",
+      "status": "pending",
       "depends": [
         "O12"
       ],
@@ -360,7 +360,7 @@
       "track": "offline",
       "priority": 130,
       "title": "G4 touch, gamepad, keyboard/mouse, IME, and minimal addon UX",
-      "status": "pending",
+      "status": "active",
       "depends": [
         "O12"
       ],
@@ -559,7 +559,7 @@
       "depends": [
         "O14"
       ],
-      "plan": "fixed/PLAN-vanilla-tweaks-autologin.md",
+      "plan": "docs/PLAN-vanilla-tweaks-autologin.md",
       "acceptance": [
         "Toggling a client tweak regenerates a root-level WoW.exe.patched whose sidecar matches and the pristine WoW.exe sha256 is unchanged",
         "A user-chosen account is stored on ACCOUNT_CREATED and auto-logs in on the next client launch; the random bot identity is the fallback only",

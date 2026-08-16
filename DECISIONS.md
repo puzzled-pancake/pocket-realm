@@ -282,7 +282,7 @@ Two orthogonal features shipped together on the O14 continuation branch.
   known multi-process DataStore assumption.
 
 The coordinated plan and verification notes live in
-`fixed/PLAN-vanilla-tweaks-autologin.md`.
+`docs/PLAN-vanilla-tweaks-autologin.md`.
 
 ## Gladio phase-4 production transport (2026-08-15, matched pair v6)
 

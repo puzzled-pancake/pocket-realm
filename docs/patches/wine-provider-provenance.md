@@ -5,7 +5,7 @@ license obligation, trim list, and O07 Gladio adaptations for the in-app X
 server and WineD3D bridge.
 
 **Status as of this revision:** the Java X11 wire-protocol sources are vendored
-and compile (143 `.java` files). The native transport `libwinlator.so` is
+and compile (159 `.java` files; see the refreshed inventory below). The native transport `libwinlator.so` is
 vendored, built, and packaged. O07 additionally vendors and packages the
 source-matched `libgladiorenderer.so` GLX/OpenGL bridge. Both are NDK-built and
 16 KB aligned. S-3 passes end-to-end on the Modern 4 KB and 16 KB lanes. No Java
@@ -200,8 +200,8 @@ Compilation and closure checks alone are not claims of broad device support.
 4. **`com.winlator.inputcontrols.ExternalController`** — input fully stubbed for
    S-3 (window create+map+paint does not require input events).
 5. **`com.winlator.sysvshm.SysVSharedMemory`** — System V shared memory. Stubbed
-   (the SysV IPC path is not exercised; MIT-SHM is not advertised by the
-   qualified GDI/GLX extension set).
+   at vendoring time; since implemented as a 4-file source-matched JNI bridge
+   used by the DRI3 dma-buf transport (see the package inventory above).
 6. **`com.winlator.R`** — resource references. No XML resources are required by
    the X-server core; GLSL shaders are inline strings in the material classes.
    `GLRenderer.createRootCursorDrawable` uses a resource-name lookup with a 1x1

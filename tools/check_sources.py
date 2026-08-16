@@ -179,6 +179,9 @@ KIND_CHECKERS = {
     "source-built-archive": check_source_built_archive,
     "source-built-static-library": check_source_built_static_library,
     "vendored-source": check_vendored_source,
+    # Prebuilt distributed from a source-pinned upstream: the commit pin is the
+    # identity; built outputs are verified by the consuming recipe/lockfile.
+    "vendored-prebuilt-from-source": check_source_built_archive,
     "host-toolchain": check_host_toolchain,
     "verified-package-converted": check_verified_package,
 }
