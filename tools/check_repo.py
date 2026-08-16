@@ -23,10 +23,6 @@ SUBMODULE_PREFIXES = ("native/cmangos", "native/playerbots", "native/classic-db"
 
 FORBIDDEN_PATTERNS = [
     ".codex-*",
-    "/*.png",
-    "/*.jpg",
-    "/*.jpeg",
-    "/*.exe",
     "build-authority/*",
     "native/.tmp-*",
     "GL calls testing/*",
@@ -41,6 +37,9 @@ FORBIDDEN_PATTERNS = [
     "*.lastbuildstate",
     "*.recipe",
 ]
+
+# Agent debris never belongs at the repo root, whatever the extension case.
+ROOT_FORBIDDEN_SUFFIXES = (".png", ".jpg", ".jpeg", ".exe")
 
 # Tracked blobs larger than this are errors outside the allowlist prefixes.
 MAX_BLOB_BYTES = 1024 * 1024
@@ -98,8 +97,14 @@ def is_binary(path: Path) -> bool:
 def check_forbidden_paths(files: list[str], errors: list[str]) -> None:
     for path in files:
         norm = path.replace("\\", "/")
+        lowered = norm.lower()
+        if "/" not in norm and lowered.endswith(ROOT_FORBIDDEN_SUFFIXES):
+            errors.append(f"forbidden root-level artifact {norm!r} (root images/exe ban)")
+            continue
         for pattern in FORBIDDEN_PATTERNS:
-            if fnmatch.fnmatch(norm, pattern) or fnmatch.fnmatch(norm, "**/" + pattern):
+            if fnmatch.fnmatch(lowered, pattern.lower()) or fnmatch.fnmatch(
+                lowered, ("**/" + pattern).lower()
+            ):
                 errors.append(f"forbidden tracked path {norm!r} (pattern {pattern})")
                 break
 
@@ -135,15 +140,16 @@ def check_pii(files: list[str], errors: list[str], warnings: list[str]) -> None:
             text = full.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
+        lowered_text = text.lower()
         for marker in PII_ERROR_MARKERS:
-            if marker in text:
+            if marker.lower() in lowered_text:
                 errors.append(f"scrubbed identifier {marker!r} present in {norm}")
         # docs/devibe/** quotes the pre-cleanup findings as history; its WARN
         # mentions are records, not live hardcoding.
         if norm.startswith("docs/devibe/"):
             continue
         for marker in PII_WARN_MARKERS:
-            if marker in text:
+            if marker.lower() in lowered_text:
                 warnings.append(f"personal-path literal {marker!r} present in {norm}")
 
 
