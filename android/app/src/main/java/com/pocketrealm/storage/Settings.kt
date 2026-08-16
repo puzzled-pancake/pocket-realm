@@ -163,8 +163,6 @@ class Settings(private val context: Context) {
 
     private val store = pocketSettingsStore(context)
 
-    /** Legacy, never-applied preference. It is read only for migration diagnostics. */
-    enum class FpsProfile(val hz: Int) { FPS_30(30), FPS_40(40), FPS_60(60) }
     enum class AudioMode { OFF, ON }
 
     /**

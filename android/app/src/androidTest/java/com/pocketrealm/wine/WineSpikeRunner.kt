@@ -163,17 +163,6 @@ class WineSpikeRunner(private val context: Context) {
         }
     }
 
-    /**
-     * Verify the loader chain by running `wine --version` via the APK-managed
-     * glibc loader with LD_DEBUG=libs, capturing stderr. Superseded by
-     * verifyLoaderChainEx (which supports tunables + trampoline); kept as a
-     * thin delegate for any caller that wants the no-options form.
-     */
-    private fun verifyLoaderChain(
-        nativeDir: String, wineTarget: String, prefixDir: java.io.File,
-        treeDir: java.io.File
-    ): LoaderProof = verifyLoaderChainEx(nativeDir, wineTarget, prefixDir, treeDir, "")
-
     private fun announce(result: ExperimentResult) {
         // Mirror the PKG_EXPERIMENT announce contract for the host driver.
         println("WINE_SPIKE_${result.experiment}_RESULT\tok=${result.ok}\tcode=${result.code}")

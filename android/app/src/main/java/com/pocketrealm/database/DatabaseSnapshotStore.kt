@@ -180,18 +180,7 @@ internal class DatabaseSnapshotStore(
         !relative.startsWith('/') && !relative.startsWith('\\') &&
         relative.split('/').none { it.isEmpty() || it == "." || it == ".." }
 
-    private fun sha256(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input ->
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-            while (true) {
-                val read = input.read(buffer)
-                if (read < 0) break
-                digest.update(buffer, 0, read)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
-    }
+    private fun sha256(file: File): String = com.pocketrealm.fs.FileDigests.sha256(file)
 
     companion object {
         private val ID = Regex("[a-zA-Z0-9._-]{1,96}")

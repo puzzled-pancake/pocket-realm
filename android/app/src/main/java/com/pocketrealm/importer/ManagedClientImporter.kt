@@ -212,18 +212,7 @@ class ManagedClientImporter(
         return lower.endsWith(".dll") && lower !in STANDARD_DLLS
     }
 
-    private fun sha256(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input ->
-            val buffer = ByteArray(COPY_BUFFER)
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                digest.update(buffer, 0, count)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
-    }
+    private fun sha256(file: File): String = com.pocketrealm.fs.FileDigests.sha256(file)
 
     private fun fsyncDirectory(directory: File) {
         val descriptor = Os.open(directory.absolutePath, OsConstants.O_RDONLY, 0)

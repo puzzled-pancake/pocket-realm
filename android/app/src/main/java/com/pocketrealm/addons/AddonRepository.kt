@@ -917,15 +917,8 @@ class AddonRepository private constructor(context: Context) {
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
-    private fun writeAtomic(destination: File, content: String) {
-        destination.parentFile?.mkdirs()
-        val temp = File(destination.parentFile, ".${destination.name}.${System.nanoTime()}.tmp")
-        FileOutputStream(temp).use { output ->
-            output.write(content.toByteArray(Charsets.UTF_8))
-            output.fd.sync()
-        }
-        Os.rename(temp.absolutePath, destination.absolutePath)
-    }
+    private fun writeAtomic(destination: File, content: String) =
+        com.pocketrealm.fs.DurableFiles.atomicWrite(destination, content)
 
     private fun sha256(file: File, token: AddonOperationToken): String {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -942,9 +935,7 @@ class AddonRepository private constructor(context: Context) {
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
-    private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
-        .digest(value.toByteArray(Charsets.UTF_8))
-        .joinToString("") { "%02x".format(it) }
+    private fun sha256(value: String): String = com.pocketrealm.fs.FileDigests.sha256(value)
 
     companion object {
         private val ALLOWED_HOSTS = setOf(

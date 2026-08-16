@@ -246,24 +246,7 @@ internal object AndroidPortMigrator {
         }
     }
 
-    private fun writeAtomic(file: File, content: String) {
-        file.parentFile?.mkdirs()
-        val temp = File(file.parentFile, ".${file.name}.${System.nanoTime()}.tmp")
-        FileOutputStream(temp).use { output ->
-            output.write(content.toByteArray(Charsets.UTF_8))
-            output.fd.sync()
-        }
-        try {
-            Files.move(
-                temp.toPath(), file.toPath(),
-                StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING,
-            )
-        } catch (_: AtomicMoveNotSupportedException) {
-            Files.move(temp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
-        } finally {
-            temp.delete()
-        }
-    }
+    private fun writeAtomic(file: File, content: String) = com.pocketrealm.fs.DurableFiles.atomicWrite(file, content)
 
     private val BIND_LINE = Regex(
         """^\s*bind\s+"?([^"\s]+)"?\s+"?([^"\r\n]+?)"?\s*$""",

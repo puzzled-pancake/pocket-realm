@@ -312,18 +312,8 @@ class ArmRootfsProvisioner(private val context: Context) {
         ): Boolean = size == AUDIO_PLUGIN_SIZE &&
             sha256 == AUDIO_PLUGIN_SHA256 && elfMachine == ELF_MACHINE_AARCH64
 
-        private fun sha256(file: File): String {
-            val digest = MessageDigest.getInstance("SHA-256")
-            file.inputStream().use { input ->
-                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    digest.update(buffer, 0, read)
-                }
-            }
-            return digest.digest().joinToString("") { "%02x".format(it) }
-        }
+        private fun sha256(file: File): String =
+            com.pocketrealm.fs.FileDigests.sha256(file)
 
         private fun elfMachine(file: File): Int {
             val header = ByteArray(20)

@@ -401,7 +401,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                     component,
                     value.put("state", "FAILED").put(
                         "exitReason",
-                        "supervisor waitReady timeout after ${WAIT_READY_TIMEOUT_MS / 1000}s",
+                        "supervisor waitReady timeout after ${WAIT_READY_TIMEOUT_MS / MINUTES_MS}m",
                     ),
                     "READY",
                 )
@@ -652,9 +652,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                 }
                 if (observed.state == ComponentLifecycle.FAILED) return observed
                 if (System.currentTimeMillis() >= clientStartDeadline) {
-                    throw IllegalStateException(
-                        "client failed to reach READY within ${CLIENT_START_TIMEOUT_MS / 1000}s",
-                    )
+                    error("client failed to reach READY within ${CLIENT_START_TIMEOUT_MS / MINUTES_MS}m")
                 }
                 delay(100)
             }
@@ -895,8 +893,9 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         // Generous ceilings (de-vibe A5): real starts complete in well under a
         // minute; these exist so a wedged component surfaces as a failure
         // instead of an infinite supervisor poll.
-        private const val WAIT_READY_TIMEOUT_MS = 5 * 60_000L
-        private const val CLIENT_START_TIMEOUT_MS = 5 * 60_000L
+        private const val MINUTES_MS = 60_000L
+        private const val WAIT_READY_TIMEOUT_MS = 5 * MINUTES_MS
+        private const val CLIENT_START_TIMEOUT_MS = 5 * MINUTES_MS
 
         private const val TAG = "AndroidRuntimeBackend"
         private const val MAX_DATABASE_PREPARATION_STEPS = 12

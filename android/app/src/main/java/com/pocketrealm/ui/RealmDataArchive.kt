@@ -143,15 +143,5 @@ internal object RealmDataArchive {
     private fun safeRelative(relative: String): Boolean =
         relative.isNotEmpty() && !relative.startsWith("/") && relative.split('/').none { it == ".." || it.isEmpty() }
 
-    private fun sha256(file: File): String = MessageDigest.getInstance("SHA-256").let { digest ->
-        file.inputStream().use { input ->
-            val buffer = ByteArray(BUFFER)
-            while (true) {
-                val size = input.read(buffer)
-                if (size < 0) break
-                digest.update(buffer, 0, size)
-            }
-        }
-        digest.digest().joinToString("") { "%02x".format(it) }
-    }
+    private fun sha256(file: File): String = com.pocketrealm.fs.FileDigests.sha256(file)
 }

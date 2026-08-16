@@ -184,18 +184,7 @@ class ClientGenerationStore(context: Context) {
         return value
     }
 
-    private fun sha256(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input ->
-            val buffer = ByteArray(1024 * 1024)
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                digest.update(buffer, 0, count)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
-    }
+    private fun sha256(file: File): String = com.pocketrealm.fs.FileDigests.sha256(file)
 
     data class PublishedGeneration(val id: String, val root: File, val manifestSha256: String)
 

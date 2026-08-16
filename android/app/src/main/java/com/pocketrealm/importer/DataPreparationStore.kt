@@ -348,13 +348,8 @@ class DataPreparationStore(
     }
     private fun directoryBytes(directory: File): Long = if (!directory.exists()) 0 else
         directory.walkTopDown().filter { it.isFile }.sumOf { it.length() }
-    private fun sha256(file: File): String = MessageDigest.getInstance("SHA-256").let { digest ->
-        file.inputStream().use { input ->
-            val buffer = ByteArray(1 shl 20)
-            while (true) { val size = input.read(buffer); if (size < 0) break; digest.update(buffer, 0, size) }
-        }
-        digest.digest().joinToString("") { "%02x".format(it) }
-    }
+    private fun sha256(file: File): String = com.pocketrealm.fs.FileDigests.sha256(file)
+
     private fun atomicWrite(target: File, bytes: ByteArray) {
         target.parentFile?.mkdirs()
         val temp = File(target.parentFile, ".${target.name}.${android.os.Process.myPid()}.tmp")

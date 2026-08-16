@@ -259,7 +259,8 @@ internal class ArmGraphicsGenerationLease private constructor(
         /** Bounded acquire (de-vibe A6): the old loop spun a Binder thread
          *  every 25 ms forever when the lease could not be taken. Escalate the
          *  backoff and fail loudly instead of wedging the launch path. */
-        private const val ACQUIRE_DEADLINE_MS = 30_000L
+        private const val ACQUIRE_DEADLINE_SECONDS = 30L
+        private const val ACQUIRE_DEADLINE_MS = ACQUIRE_DEADLINE_SECONDS * 1_000L
         private const val ACQUIRE_MAX_BACKOFF_MS = 500L
         private val GENERATION_NAME = Regex("g-[0-9a-f]{32}")
         private val parentMonitors = ConcurrentHashMap<String, Any>()
@@ -280,7 +281,7 @@ internal class ArmGraphicsGenerationLease private constructor(
                 if (acquired != null) return acquired
                 if (System.currentTimeMillis() >= deadline) {
                     throw IllegalStateException(
-                        "generation lease not acquirable within ${ACQUIRE_DEADLINE_MS / 1000}s " +
+                        "generation lease not acquirable within $ACQUIRE_DEADLINE_SECONDS s " +
                             "(contended by another preparation?)",
                     )
                 }
@@ -1401,18 +1402,7 @@ internal class WineRuntimeStore(private val context: Context) {
             .short.toInt() and 0xffff
     }
 
-    private fun sha256(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input ->
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-            while (true) {
-                val read = input.read(buffer)
-                if (read < 0) break
-                digest.update(buffer, 0, read)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
-    }
+    private fun sha256(file: File): String = com.pocketrealm.fs.FileDigests.sha256(file)
 
     private fun sha256(text: String): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8))
@@ -2235,9 +2225,5 @@ internal class WineRuntimeStore(private val context: Context) {
             else copyAsset(source, File(destination, name))
         }
     }
-    private fun writeAtomic(target: File, value: String) {
-        val temp = File(target.parentFile, ".${target.name}.tmp")
-        temp.writeText(value)
-        check(temp.renameTo(target)) { "atomic manifest replace failed" }
-    }
+    private fun writeAtomic(target: File, value: String) = com.pocketrealm.fs.DurableFiles.atomicWrite(target, value)
 }

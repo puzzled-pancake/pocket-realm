@@ -1264,18 +1264,7 @@ internal class DatabaseEngine(private val context: Context) {
         return bytes.decodeToString(endIndex = count)
     }
 
-    private fun sha256(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        file.inputStream().buffered().use { input ->
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                digest.update(buffer, 0, count)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
-    }
+    private fun sha256(file: File): String = com.pocketrealm.fs.FileDigests.sha256(file)
     private fun sha256Asset(path: String): String {
         val digest = MessageDigest.getInstance("SHA-256")
         context.assets.open(path).use { input ->
@@ -1288,8 +1277,7 @@ internal class DatabaseEngine(private val context: Context) {
         }
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
-    private fun sha256Text(value: String): String = MessageDigest.getInstance("SHA-256")
-        .digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
+    private fun sha256Text(value: String): String = com.pocketrealm.fs.FileDigests.sha256(value)
 
     companion object {
         private const val TAG = "DatabaseEngine"

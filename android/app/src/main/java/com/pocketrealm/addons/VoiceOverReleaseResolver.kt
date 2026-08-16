@@ -70,7 +70,5 @@ internal object VoiceOverReleaseResolver {
             "([A-Za-z0-9._-]{1,100})/(AI_VoiceOverData_Vanilla-[A-Za-z0-9._-]{1,160}\\.zip)",
     )
 
-    private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
-        .digest(value.toByteArray(Charsets.UTF_8))
-        .joinToString("") { "%02x".format(it) }
+    private fun sha256(value: String): String = com.pocketrealm.fs.FileDigests.sha256(value)
 }

@@ -72,7 +72,8 @@ import kotlin.math.roundToInt
  * General application/server settings. Bot world configuration lives in the
  * dedicated Bots destination; LAN host/join lives in the LAN destination.
  */
-private const val BACKUP_AWAIT_TIMEOUT_MS = 10 * 60_000L
+private const val BACKUP_AWAIT_TIMEOUT_MINUTES = 10L
+private const val BACKUP_AWAIT_TIMEOUT_MS = BACKUP_AWAIT_TIMEOUT_MINUTES * 60_000L
 
 @Composable
 fun SettingsScreen(
@@ -125,7 +126,7 @@ fun SettingsScreen(
             if (status.optString("phase") == "COMPLETE") return true
             if (status.optString("phase") == "FAILED") return false
             if (System.currentTimeMillis() >= deadline) {
-                realmDataStatus = "Backup did not settle within ${BACKUP_AWAIT_TIMEOUT_MS / 60_000} minutes."
+                realmDataStatus = "Backup did not settle within $BACKUP_AWAIT_TIMEOUT_MINUTES minutes."
                 return false
             }
             delay(500)

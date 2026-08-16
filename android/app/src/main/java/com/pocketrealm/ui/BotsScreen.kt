@@ -571,7 +571,10 @@ fun BotsScreen() {
                         runCatching { store.delete(id) }
                             .onFailure { actionError = it.message ?: "Could not delete the preset" }
                         if (snapshot.botSavedPresetId == id) {
-                            settings.update { it.copy(botSavedPresetId = null) }
+                            runCatching { settings.update { it.copy(botSavedPresetId = null) } }
+                        .onFailure { failure ->
+                            android.util.Log.w("BotsScreen", "preset-id clear failed", failure)
+                        }
                         }
                     }
                 }) { Text("Delete") }

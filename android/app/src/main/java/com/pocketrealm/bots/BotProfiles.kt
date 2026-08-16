@@ -1035,6 +1035,10 @@ object BotProfiles {
         ?: decodeAdvanced(id)
     fun require(id: String): BotProfile = requireNotNull(find(id)) { "unknown bot profile: $id" }
     fun ids(): Set<String> = profiles.keys
+
+    // Test-support surface: no production caller (every profile is installed
+    // explicitly by id), but the policy/experience tests assert the public
+    // ladder through these. Kept deliberately (de-vibe 5d judgment).
     fun userSelectable(): List<BotProfile> = profiles.values.filter { it.userSelectable }
         .sortedBy { it.selectedTarget }
     fun forRequestedTarget(target: Int): BotProfile = userSelectable().minBy {
