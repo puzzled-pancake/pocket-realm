@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "metadata_url": "https://sync.termux-pacman.dev/gpkg/x86_64/gpkg.json",
-  "metadata_sha256": "1a381cf1db2a49bf1329b3c613c99e9c3974f9b74314ac7932a05dc192fb0848",
+  "metadata_sha256": "22d47e564bbe2810aead33f5763787dd4a18f53e8727a80141e91b24729c9bb2",
   "mariadb_archive": {
     "path": "native/.build-x86_64/mariadb/mariadb-glibc-11.5.2-0-x86_64.pkg.tar.xz",
     "sha256": "a8b91dc430673327f8a49ddcbedcfd2c6624b6859614098bb2cf8c65e702e726"
@@ -16,8 +16,8 @@
   },
   "packages": {
     "bash-glibc": {
-      "filename": "bash-glibc-5.3.15-0-x86_64.pkg.tar.xz",
-      "sha256": "8e657beb9d6f7195dd98c2fa3b2305856795d8953f5fd80f1734eb25a5d230d9",
+      "filename": "bash-glibc-5.2.37-0-x86_64.pkg.tar.xz",
+      "sha256": "17f0eeb93c73fe87f5a7cdbfc2bfc10bb5ebdc65a73fe5157ac2557bc39503ce",
       "license": "GPL-3.0",
       "used_by_elf_closure": false
     },
@@ -49,8 +49,8 @@
       "used_by_elf_closure": false
     },
     "libicu-glibc": {
-      "filename": "libicu-glibc-78.3-0-x86_64.pkg.tar.xz",
-      "sha256": "0b31cf801be5f829049d6e8a79339c88f994d30e3c870e43af2fd478e9111160",
+      "filename": "libicu-glibc-76.1-0-x86_64.pkg.tar.xz",
+      "sha256": "70527fcca5f7268da7364c580f3df7050da1395968a5be84583e4ccc711cfc2f",
       "license": "BSD",
       "used_by_elf_closure": false
     },
@@ -61,8 +61,8 @@
       "used_by_elf_closure": false
     },
     "liblzma-glibc": {
-      "filename": "liblzma-glibc-5.8.3-0-x86_64.pkg.tar.xz",
-      "sha256": "5296b6eea7328e8703bcc00d74d93ac47ab9dd6f37a2fd2659022534844f1810",
+      "filename": "liblzma-glibc-5.6.4-0-x86_64.pkg.tar.xz",
+      "sha256": "71a726edcda6065b9b1a21664239303e64a10bb3a6b14d93f8b38a9cb991116d",
       "license": [
         "LGPL-2.1",
         "GPL-2.0",
@@ -101,8 +101,8 @@
       "used_by_elf_closure": true
     },
     "readline-glibc": {
-      "filename": "readline-glibc-8.3.3-0-x86_64.pkg.tar.xz",
-      "sha256": "4def01e15b94d983dd8acf5f31275c7ebe8cba79cb6656a7c10992fe08739252",
+      "filename": "readline-glibc-8.2.13-0-x86_64.pkg.tar.xz",
+      "sha256": "b617f6e75a9366216724b0adf409f315cf967c8bdab600f30e66845ed9ec10cd",
       "license": "GPL-3.0",
       "used_by_elf_closure": false
     },
