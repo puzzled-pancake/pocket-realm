@@ -1,7 +1,8 @@
 # Graphics selection context — 2026-08-16 session compression
 
-This file is the complete handoff for the renderer/GPU-selection work. Read it
-instead of re-deriving from the session transcript. Companion artifacts:
+This is the specialized handoff for the renderer/GPU-selection work, referenced
+from PROGRESS.md (which remains the single authoritative current-state handoff).
+Read it instead of re-deriving from the session transcript. Companion artifacts:
 `docs/research/gl-calls/CONTEXT_NOTES.md` (gladio transport history) and
 `C:\pocket_realm_graphics_backup\` (source backup of all graphics work).
 

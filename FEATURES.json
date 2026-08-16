@@ -212,7 +212,7 @@
       "track": "offline",
       "priority": 80,
       "title": "G2 native x86_64 MariaDB service, schema ledger, and dirty recovery",
-      "status": "complete",
+      "status": "done",
       "depends": [
         "O05",
         "O03"
@@ -579,7 +579,7 @@
       "depends": [
         "O22"
       ],
-      "plan": "PLAN.md ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Milestone B1",
+      "plan": "PLAN.md \u00c3\u0192\u00c2\u00a2\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00ac\u00c3\u00a2\u00e2\u201a\u00ac\u00c2\u009d Milestone B1",
       "acceptance": [
         "Storage, IDs, keys, accounts, characters, backups, and services are separate",
         "Offline data cannot be mounted or merged as connected progress",
@@ -597,7 +597,7 @@
       "depends": [
         "C01"
       ],
-      "plan": "PLAN.md ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Milestone B1",
+      "plan": "PLAN.md \u00c3\u0192\u00c2\u00a2\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00ac\u00c3\u00a2\u00e2\u201a\u00ac\u00c2\u009d Milestone B1",
       "acceptance": [
         "Two Android devices connect on LAN, Internet/NAT, and relay paths",
         "Route/IP exposure is visible",
@@ -615,7 +615,7 @@
       "depends": [
         "C02"
       ],
-      "plan": "PLAN.md ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Milestone B1",
+      "plan": "PLAN.md \u00c3\u0192\u00c2\u00a2\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00ac\u00c3\u00a2\u00e2\u201a\u00ac\u00c2\u009d Milestone B1",
       "acceptance": [
         "Private invite/revoke flow works without pretending to prove host honesty",
         "Strict role certificate binds app/device key, realm, mesh identity, policy, role, expiry, and revocation",
@@ -633,7 +633,7 @@
       "depends": [
         "C02"
       ],
-      "plan": "PLAN.md ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Milestone B2",
+      "plan": "PLAN.md \u00c3\u0192\u00c2\u00a2\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00ac\u00c3\u00a2\u00e2\u201a\u00ac\u00c2\u009d Milestone B2",
       "acceptance": [
         "Typed bounded commands replace remote SQL/admin console",
         "Global ID/name/session/lease conflicts resolve canonically",
@@ -651,7 +651,7 @@
       "depends": [
         "C04"
       ],
-      "plan": "PLAN.md ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Milestone B2",
+      "plan": "PLAN.md \u00c3\u0192\u00c2\u00a2\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00ac\u00c3\u00a2\u00e2\u201a\u00ac\u00c2\u009d Milestone B2",
       "acceptance": [
         "Idempotent retry returns one stable outcome",
         "Ownership/balance/claim invariants hold under disconnect and replay",
@@ -669,7 +669,7 @@
       "depends": [
         "C05"
       ],
-      "plan": "PLAN.md ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Milestone B2",
+      "plan": "PLAN.md \u00c3\u0192\u00c2\u00a2\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00ac\u00c3\u00a2\u00e2\u201a\u00ac\u00c2\u009d Milestone B2",
       "acceptance": [
         "Checkpoint restore reproduces the committed state root",
         "Old authority output/writes are rejected after promotion",
@@ -687,7 +687,7 @@
       "depends": [
         "C06"
       ],
-      "plan": "PLAN.md ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Milestone B3",
+      "plan": "PLAN.md \u00c3\u0192\u00c2\u00a2\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00ac\u00c3\u00a2\u00e2\u201a\u00ac\u00c2\u009d Milestone B3",
       "acceptance": [
         "All peers offline stops simulation and produces a canonical dormant record",
         "Return selects the highest valid history and applies bounded catch-up once",
@@ -706,7 +706,7 @@
         "C04",
         "O22"
       ],
-      "plan": "PLAN.md ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Milestone B3",
+      "plan": "PLAN.md \u00c3\u0192\u00c2\u00a2\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00ac\u00c3\u00a2\u00e2\u201a\u00ac\u00c2\u009d Milestone B3",
       "acceptance": [
         "Gameplay/economy/protocol invariants remain enforced under Box64/Wine",
         "Unreliable memory/renderer/timing checks are disabled or evidence-only, not global anti-cheat",
@@ -725,7 +725,7 @@
         "C04",
         "O13"
       ],
-      "plan": "PLAN.md ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Milestone B3",
+      "plan": "PLAN.md \u00c3\u0192\u00c2\u00a2\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00ac\u00c3\u00a2\u00e2\u201a\u00ac\u00c2\u009d Milestone B3",
       "acceptance": [
         "Elastic bots yield gradually to unique active humans while resident floors remain",
         "Alts/zone hopping cannot rapidly manipulate density",
@@ -744,7 +744,7 @@
         "C02",
         "C04"
       ],
-      "plan": "PLAN.md ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Milestone B4",
+      "plan": "PLAN.md \u00c3\u0192\u00c2\u00a2\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00ac\u00c3\u00a2\u00e2\u201a\u00ac\u00c2\u009d Milestone B4",
       "acceptance": [
         "Client remains on one local TCP/header-crypt session while backend route changes",
         "Anchor owns sequencing/bounds but no gameplay authority",
@@ -763,7 +763,7 @@
         "C06",
         "C10"
       ],
-      "plan": "PLAN.md ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Milestone B4",
+      "plan": "PLAN.md \u00c3\u0192\u00c2\u00a2\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00ac\u00c3\u00a2\u00e2\u201a\u00ac\u00c2\u009d Milestone B4",
       "acceptance": [
         "No raw pointer/process image/socket/database connection is serialized",
         "Baseline+deltas converge to equal semantic state roots",
@@ -781,7 +781,7 @@
       "depends": [
         "C11"
       ],
-      "plan": "PLAN.md ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Milestone B4",
+      "plan": "PLAN.md \u00c3\u0192\u00c2\u00a2\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00ac\u00c3\u00a2\u00e2\u201a\u00ac\u00c2\u009d Milestone B4",
       "acceptance": [
         "Standby applies authoritative deltas rather than simulating a second world",
         "Qualified crash promotes through a higher epoch and replays input once",
@@ -799,7 +799,7 @@
       "depends": [
         "C11"
       ],
-      "plan": "PLAN.md ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Milestone B4",
+      "plan": "PLAN.md \u00c3\u0192\u00c2\u00a2\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00ac\u00c3\u00a2\u00e2\u201a\u00ac\u00c2\u009d Milestone B4",
       "acceptance": [
         "Ordinary zones/cities remain within one authority",
         "Continent/dungeon/raid transfers use normal loading screen and atomic state transfer",
@@ -821,7 +821,7 @@
         "C12",
         "C13"
       ],
-      "plan": "PLAN.md ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Milestone B5",
+      "plan": "PLAN.md \u00c3\u0192\u00c2\u00a2\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00ac\u00c3\u00a2\u00e2\u201a\u00ac\u00c2\u009d Milestone B5",
       "acceptance": [
         "LAN/NAT/relay/partition/stale/clock/crash/dormancy/restore/migration tests pass",
         "One canonical economy and explicit degraded behavior hold",

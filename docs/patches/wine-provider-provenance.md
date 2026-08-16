@@ -81,13 +81,14 @@ Final paired-runtime qualification is recorded in:
 
 ## Vendored Java layer
 
-143 `.java` files under `runtime/xserver-winlator/com/winlator/`:
+159 `.java` files under `runtime/xserver-winlator/com/winlator/` (refreshed
+2026-08-16 during the de-vibe doc pass; earlier revisions said 143):
 
 | Package | Files | Role |
 |---|---|---|
-| `com.winlator.xserver` | 36 | X11 core: window/pixmap/GC/atom/visual/colormap/cursor managers, request handlers, errors, events, extensions |
+| `com.winlator.xserver` | 37 | X11 core: window/pixmap/GC/atom/visual/colormap/cursor managers, request handlers, errors, events, extensions |
 | `com.winlator.xserver.errors` | 18 | X11 error events |
-| `com.winlator.xserver.events` | 25 | X11 event types |
+| `com.winlator.xserver.events` | 27 | X11 event types |
 | `com.winlator.xserver.extensions` | 9 | BigReq, DRI3, GLX, MIT-SHM, Present, Sync, XComposite (+ base `Extension`) |
 | `com.winlator.xserver.requests` | 11 | X11 core request handlers (CreateWindow, MapWindow, PolyFillRect, etc.) |
 | `com.winlator.xconnector` | 8 | Unix-socket connection layer. `XConnectorEpoll` + `XInputStream` + `XOutputStream` use the packaged native transport. |
@@ -101,7 +102,9 @@ Final paired-runtime qualification is recorded in:
 | `com.winlator.contentdialog` | 1 | stub (`DebugDialog`) |
 | `com.winlator.winhandler` | 2 | stub (`WinHandler`, `MouseEventFlags`) |
 | `com.winlator.inputcontrols` | 1 | stub (`ExternalController`) |
-| `com.winlator.sysvshm` | 1 | stub (`SysVSharedMemory`) |
+| `com.winlator.sysvshm` | 4 | implemented: source-matched JNI shared-memory bridge used by DRI3 dma-buf transport (was a 1-file stub at vendoring time) |
+| `com.winlator.alsaserver` | 5 | Pocket Realm addition: ALSA audio bridge (not upstream) |
+| `com.winlator.xenvironment.components` | 5 | Pocket Realm addition: Vortek/VirGL renderer components, context registry, window authority (not upstream) |
 
 ## What is vendored + built
 

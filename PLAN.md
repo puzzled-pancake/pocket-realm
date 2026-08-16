@@ -69,7 +69,11 @@ The report changes the route, not the validity of already-proven artifacts:
 
 No completed source is deleted merely because the critical path changed. Production integration must not depend on the in-process/SQLite combination until a superseding evidence-backed decision exists.
 
-The project is currently at **G0 architecture proof**, not at a completed native-runtime milestone. The next feature is O05: production packaging, process-isolation, and capability experiments.
+Status lives in `PROGRESS.md` (single source of truth; last verified at the
+2026-08-16 edit: gate G4, O14 active, O23 overlay in progress). This file is the
+architecture overlay: gates, tracks, and constraints. Earlier revisions of this
+section claimed "currently at G0, next feature O05" — stale; G0 through G3 are
+complete on their stated lanes.
 
 ## 4. Track A - offline delivery gates
 

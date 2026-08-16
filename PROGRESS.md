@@ -6,6 +6,8 @@ Active feature: `O14 — G4 touch, gamepad, keyboard/mouse, IME, and minimal add
 
 Parallel in-progress overlay: `O23 — vanilla-tweaks client patcher + audio` (uncommitted on this working tree; no release gate promoted).
 
+Specialized handoff: `docs/handoffs/graphics-selection.md` (renderer/GPU-selection session context; this file remains the single current handoff).
+
 Current gate: `G4 — bots and mobile input UX`. G0 production packaging, G1 direct-client proof, G2 native realm baseline, and G3 integrated x86 application are complete on their stated lanes; O13's 25-bot soak is qualified on the large lane but its remaining sub-acceptance paths are still open.
 
 Plan/reference alignment: `3 August 2026`

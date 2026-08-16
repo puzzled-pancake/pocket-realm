@@ -6,7 +6,7 @@ The canonical offline decisions are ADR-001 through ADR-012 in
 ## Product and legal boundary
 
 1. The product is one installed Android application and UX, not one process and not "SPP inside an APK."
-2. The APK does not distribute the proprietary WoW executable, MPQs, or unlicensed third-party assets; users import a supported client they are entitled to use. Extracted server data derived from the imported client (DBC, maps, vmaps, mmaps) may be stored and committed in this repository, matching the redistribution posture SPP Classics has used for years; this risk is accepted by the project owner.
+2. The APK does not distribute the proprietary WoW executable, MPQs, or unlicensed third-party assets; users import a supported client they are entitled to use. Extracted server data derived from the imported client (DBC, maps, vmaps, mmaps) stays on the user's device in app-private storage and is NEVER committed to this repository (enforced by `.gitignore`). *Delta 2026-08-16 (de-vibe Phase 2): this decision previously permitted committing extracted client data, contradicting agent.md's non-negotiable rule and the .gitignore policy; the stricter rule wins. The 2026-08-16 history rewrite removed the one committed proprietary artifact (a mangled copy of the client exe).*
 3. The initial compatibility invariant is Vanilla 1.12.1 build 5875 with pinned CMaNGOS Classic, Playerbots, Classic-DB, MariaDB, toolchain, runtime, locale, addon, and device-profile inputs.
 4. Offline is the first release. Connected code cannot enter the offline artifact or start before O22 is done.
 5. Offline and connected realms are permanently separate universes; offline progress is never merged into a connected economy.
