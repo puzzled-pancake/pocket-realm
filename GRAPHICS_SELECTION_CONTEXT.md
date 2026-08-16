@@ -2,7 +2,7 @@
 
 This file is the complete handoff for the renderer/GPU-selection work. Read it
 instead of re-deriving from the session transcript. Companion artifacts:
-`GL calls testing/CONTEXT_NOTES.md` (gladio transport history) and
+`docs/research/gl-calls/CONTEXT_NOTES.md` (gladio transport history) and
 `C:\pocket_realm_graphics_backup\` (source backup of all graphics work).
 
 ## 1. What happened, in order

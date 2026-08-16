@@ -114,3 +114,23 @@ support_bundle/
 # the auditable artifacts the acceptance criteria require, not throwaway logs.
 !tests/avd/**/evidence/*.log
 !tests/avd/**/evidence/*.log.*
+
+# ===== De-vibe hygiene (DEVIBE_PLAN.md Phase 1) =====
+# Root-level image/exe debris (agent screenshots, drops) — never at repo root
+/.codex-*
+/*.png
+/*.jpg
+/*.jpeg
+/*.exe
+/.pytest_cache/
+.tmp/
+native/.tmp-*
+CMakeFiles/
+CMakeCache.txt
+CMakeConfigureLog.yaml
+*.tlog
+*.pdb
+*.ilk
+*.lastbuildstate
+*.recipe
+build-authority/

@@ -42,10 +42,8 @@ native/playerbots/           pinned playerbots source
 native/classic-db/           pinned Classic-DB source and migration inputs
 native/mariadb/              Android MariaDB build/launcher integration
 native/pocket-runtime/       reusable C ABI/control/logging experiments
-runtime/providers/           ClientRuntime contract and tuple manifests
-runtime/wine-x86/            direct x86/x86-64 Wine development backend
-runtime/box64/               ARM translated-Wine backend
-addons/                      project-owned controller/status/bot UI addons
+runtime/xserver-winlator/    vendored X-server Java layer (see native/xserver-winlator for C++)
+addons/                      (removed — project addons ship in android/app/src/main/assets/addons)
 schemas/                     compatibility, control, config, journal, and ABI schemas
 tools/                       deterministic build/import/validation tooling
 tests/                       component, contract, integration, fault, and soak tests
