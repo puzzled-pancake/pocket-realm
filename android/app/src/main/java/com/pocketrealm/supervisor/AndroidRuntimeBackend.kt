@@ -896,8 +896,11 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         // minute; these exist so a wedged component surfaces as a failure
         // instead of an infinite supervisor poll.
         private const val MINUTES_MS = 60_000L
-        private const val WAIT_READY_TIMEOUT_MS = 5 * MINUTES_MS
-        private const val CLIENT_START_TIMEOUT_MS = 5 * MINUTES_MS
+        // 10 minutes: bot-world starts legitimately need up to 600s
+        // (RuntimeContracts.botWorldStartMs); the ceilings bound wedges,
+        // not race legitimate starts.
+        private const val WAIT_READY_TIMEOUT_MS = 10 * MINUTES_MS
+        private const val CLIENT_START_TIMEOUT_MS = 10 * MINUTES_MS
 
         private const val TAG = "AndroidRuntimeBackend"
         private const val MAX_DATABASE_PREPARATION_STEPS = 12

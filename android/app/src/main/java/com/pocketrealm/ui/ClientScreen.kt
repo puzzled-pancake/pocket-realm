@@ -47,6 +47,10 @@ import com.pocketrealm.importer.importWorkerLabel
 import com.pocketrealm.importer.stageTitle
 import kotlinx.coroutines.delay
 
+// Terminal phases that stop the status poller once the current epoch has
+// observed an active run (de-vibe A5; ImportProgressPresentation terminals).
+private val TERMINAL_IMPORT_PHASES = setOf("COMPLETE", "FAILED", "CANCELLED")
+
 /**
  * Managed client import, server-data generation, and the import benchmark.
  * Picking the client folder again after a completed import starts a fresh
@@ -91,16 +95,26 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
     // at a terminal phase, and starting another import bumps the epoch so the
     // effect relaunches instead of leaving a frozen progress card.
     LaunchedEffect(importEpoch) {
+        // A freshly (re)started import's journal row appears only seconds
+        // after start; the first polls still observe the PREVIOUS run's
+        // terminal phase. Stop only for a terminal phase seen AFTER this
+        // epoch observed an active one (verification round 2).
+        var observedActiveRun = false
         while (true) {
             runCatching { ImportWorkerService.readStatus(context) }.onSuccess { value ->
                 importProgress = ImportProgressPresentation.fromJson(value)
                 importComplete = importProgress.phase == "COMPLETE"
                 dataPreparationEnabled = value.optBoolean("dataPreparationEnabled", true)
-                if (importPhaseBusy(importProgress.phase)) importNotice = null
+                if (importPhaseBusy(importProgress.phase)) {
+                    observedActiveRun = true
+                    importNotice = null
+                }
                 if (!importPhaseBusy(importProgress.phase)) importBusyNotice = null
-                // Terminal phase: stop polling (de-vibe A5) — the screen can
-                // stay open long after a finished/failed import.
-                if (importProgress.phase == "COMPLETE" || importProgress.phase == "FAILED") return@LaunchedEffect
+                // Terminal phase after activity: stop polling (de-vibe A5) —
+                // the screen can stay open long after a finished run.
+                if (observedActiveRun &&
+                    importProgress.phase in TERMINAL_IMPORT_PHASES
+                ) return@LaunchedEffect
             }
             delay(1_000)
         }
@@ -122,6 +136,7 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
             onResume = {
                 persistedTree?.let {
                     ImportWorkerService.start(context, it)
+                    importEpoch += 1  // restart the status poller for the resumed run
                     importNotice = "Resume requested. Verified files and completed stages are retained."
                 }
             },
