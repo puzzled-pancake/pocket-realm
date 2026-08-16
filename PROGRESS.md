@@ -22,9 +22,32 @@ procfs task-wide children fix also repairs the live import CPU pane, which
 could not see the forked generator); and two realm-runtime overlays
 (`mmap-loadmap-graceful-miss`, `mmap-loadallmaptiles-graceful-miss`) degrade
 unregistered-navmesh maps to logged skips instead of aborting worldd. Both ABI
-runtimes were rebuilt and the realmRuntime APK installed on the RP6; the
-remaining step is the user-run re-import acceptance (43-map generation, port
-8085, bot entry into Uldaman without a tombstone).
+runtimes were rebuilt and the realmRuntime APK installed on the RP6.
+
+Round 2 (2026-08-16, on-device acceptance partially run by the user): the
+43-map re-import completed on the RP6 and recorded the first journal benchmark
+(import bb562f86: total 18m40s — copy 1m46s, data 16m54s of which navmesh
+16m15s at 6 threads; now pinned in code as `RETROID_POCKET_6_BASELINE` and
+shown as a reference row on the Game setup benchmark card). Re-picking the
+client folder after a completed import had been silently dropped because
+`COMPLETE` sat in the worker-busy set; the gate now checks only the
+executing-phase set, and the O06 self-test UI was removed from that screen
+(production display, input, and window-visible paths in
+`IntegratedClientDisplay`/`ClientDisplayService`/`ClientActivity` are
+untouched). `ImportJournal` moved to SCHEMA 3 (stage timestamps, import
+completion, benchmarks table; one-way migration covered by tests). Settings
+gained a database-only "Realm data" card exporting/importing a SAF zip
+(hash-verified snapshot + paired account + manifest), validated by the
+operational uninstall → fresh-install → restore drill that preserved
+generation 137054e3 without re-initialization. Known open issue from that
+drill: the settings wipe resets the renderer to AUTO (DXVK + turnip on
+Adreno), and on the RP6 `wow.exe` page-faults under DXVK 2.4.1 and 1.10.3
+with zero presented frames (wine `last-session.json`), so the pre-wipe
+qualified Legacy Gladio renderer must be re-selected manually until the DXVK
+fault is investigated. The world process has produced no tombstones on the
+current build; the 15:10/16:50 NZST SIGABRTs in the crash buffer predate it
+(old install, pre-full-mmaps data). The remaining acceptance steps are the
+Uldaman bot-teleport check and a rendered client session.
 
 > Note: an earlier O05 commit (27eb1ad) was reopened after a review found the
 > evidence pipeline had blocking gaps (variant-mistaken host driver, PKG-01 not
