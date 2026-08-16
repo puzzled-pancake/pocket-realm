@@ -39,8 +39,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ANDROID = ROOT / "android"
-SDK = Path(os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or "")
-ADB = str(SDK / "platform-tools" / "adb.exe") if SDK.is_dir() else "adb"
+
+try:
+    from tools import common
+except ImportError:
+    import common
+
+ADB = str(common.resolve_android_tool("adb"))
 
 LANES = {
     "legacy": {"avd": "AVD-Legacy-x86_64", "api": 28, "page": 4096, "pkg06": False},

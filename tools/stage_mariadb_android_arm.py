@@ -25,6 +25,11 @@ from pathlib import Path
 from urllib.request import urlopen, Request
 
 ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/<script>.py
+    import common
 ABI = "arm64-v8a"
 BUILD = ROOT / "native" / ".build-arm64" / "mariadb-arm"
 STAGE = ROOT / "native" / ".build-arm64" / "mariadb-staging"
@@ -134,14 +139,7 @@ SYSTEM_SONAMES = {
 }
 
 
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
+sha256 = common.sha256_file
 def readelf(name: str) -> Path:
     sdk = Path(os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or "")
     candidates = sorted(sdk.glob("ndk*/toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-readelf.exe"))

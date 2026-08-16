@@ -8,7 +8,7 @@ upstream update re-applies them deliberately rather than silently.
 ## Environment
 
 - NDK r30 (30.0.15729638), CMake 4.1.2, Ninja 1.12 (all SDK-bundled)
-- MSYS2 (located via `MSYS2_ROOT`/`MSYS_HOME`, default `G:\msys64`) provides the
+- MSYS2 (located via `MSYS2_ROOT` env, then conventional install paths) provides the
   complete Unix-style perl (OpenSSL's android target requires a Unix-host perl;
   Git-for-Windows perl is missing core modules and Strawberry perl is
   native-Windows). MSYS2 gcc bootstraps Boost's b2.

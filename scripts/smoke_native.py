@@ -29,15 +29,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE = ROOT / "native"
 
-SDK = Path(os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or "")
-NDK_DIR = SDK / "ndk"
-_NDK_VERSIONS = sorted([p.name for p in NDK_DIR.iterdir()]) if NDK_DIR.is_dir() else []
-NDK = NDK_DIR / _NDK_VERSIONS[-1] if _NDK_VERSIONS else None
-TC = NDK / "toolchains" / "llvm" / "prebuilt" / "windows-x86_64" if NDK else None
-READELF = TC / "bin" / "llvm-readelf.exe" if TC else shutil.which("readelf")
-OBJDUMP = TC / "bin" / "llvm-objdump.exe" if TC else shutil.which("objdump")
-STRIP = TC / "bin" / "llvm-strip.exe" if TC else shutil.which("strip")
-ADB = SDK / "platform-tools" / "adb.exe" if SDK.is_dir() else shutil.which("adb")
+sys.path.insert(0, str(ROOT / "tools"))
+import common  # noqa: E402
+
+try:
+    SDK = common.resolve_android_sdk()
+    NDK = common.resolve_android_ndk(sdk=SDK)
+    ADB = common.resolve_android_tool("adb", sdk=SDK)
+except RuntimeError as exc:
+    print(f"ERROR: {exc}", file=sys.stderr)
+    sys.exit(2)
+TC = NDK / "toolchains" / "llvm" / "prebuilt" / common.HOST_TAG
+READELF = TC / "bin" / common._exe("llvm-readelf")
+OBJDUMP = TC / "bin" / common._exe("llvm-objdump")
+STRIP = TC / "bin" / common._exe("llvm-strip")
 
 # Expected per-ABI ELF facts.
 ABI_FACTS = {
@@ -142,7 +147,7 @@ def device_checks(binpath: Path, facts: dict) -> bool:
         print("FAIL  no device/emulator connected (run `adb devices`)", file=sys.stderr)
         return False
 
-    libcxx = (NDK / "toolchains" / "llvm" / "prebuilt" / "windows-x86_64" / "sysroot"
+    libcxx = (NDK / "toolchains" / "llvm" / "prebuilt" / common.HOST_TAG / "sysroot"
               / "usr" / "lib" / facts["libcxx_dir"] / "libc++_shared.so")
     # Stage stripped binaries + libc++_shared.so in a temp dir, then push once.
     stage = NATIVE / f".smoke-stage-{facts['triple']}"

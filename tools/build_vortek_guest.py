@@ -12,6 +12,11 @@ import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/<script>.py
+    import common
 NATIVE = ROOT / "native"
 CATALOG = json.loads(
     (ROOT / "schemas" / "vulkan-driver-catalog.json").read_text(encoding="utf-8")
@@ -318,14 +323,7 @@ NEW_PLACED_MAP = """VkResult vt_call_vkMapMemory2KHR(VkDevice device, const VkMe
 """
 
 
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for block in iter(lambda: source.read(1 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
+sha256 = common.sha256_file
 def replace_once(text: str, old: str, new: str, label: str) -> str:
     count = text.count(old)
     if count != 1:

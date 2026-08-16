@@ -27,6 +27,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from tools import common
+except ImportError:
+    import common
 SRC = ROOT / "runtime" / "wine-x86_64-wow64" / "selftest" / "pocket_selftest.c"
 OUT_DIR = ROOT / "runtime" / "wine-x86_64-wow64" / "selftest"
 OUT_PE = OUT_DIR / "pocket_selftest.exe"
@@ -42,8 +47,9 @@ def find_mingw_gcc() -> tuple[str | None, str | None]:
     Without the bin dir on PATH, gcc spawns, fails to load a DLL, and exits 1
     with NO output (silent spawn death). Returns (gcc_path, bin_dir)."""
     candidates = [
-        r"G:\msys64\mingw32\bin\i686-w64-mingw32-gcc.exe",
-        r"C:\msys64\mingw32\bin\i686-w64-mingw32-gcc.exe",
+        # Personal-drive candidates removed (Phase 4 de-hardcoding); the
+        # toolchain is found on PATH or via MSYS2_ROOT discovery.
+        str(common.msys2_root() / "mingw32" / "bin" / common._exe("i686-w64-mingw32-gcc")),
     ]
     found = shutil.which("i686-w64-mingw32-gcc")
     if found:

@@ -32,6 +32,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/<script>.py
+    import common
 NATIVE = ROOT / "native"
 SRC = NATIVE / "xserver-winlator" / "cpp"
 SDK = Path(os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or "")
@@ -52,14 +57,7 @@ WINLATOR_COMMIT = "ca3d735a60d653a787daf16d14fafef28d9c2c23"
 VIRGL_SOURCE_TREE_ID = "44f73c34d4a2cf4e21fcdbcfc4fc37a44837e1b9"
 
 
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for block in iter(lambda: source.read(1 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
+sha256_file = common.sha256_file
 def source_tree_sha256(paths: list[Path]) -> str:
     digest = hashlib.sha256()
     files = sorted(

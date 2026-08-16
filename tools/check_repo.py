@@ -62,8 +62,9 @@ PII_ERROR_MARKERS = (
     "Lolpp",
 )
 
-# Known-hardcoded personal toolchain paths. WARN until Phase 4 removes them,
-# then promote to PII_ERROR_MARKERS and make --strict the default.
+# Personal toolchain path literals. Promoted to errors in Phase 4 once the
+# de-hardcoding removed every in-tree occurrence (Phase 3 shipped them as
+# warnings). --strict remains as a no-op escape hatch for history.
 PII_WARN_MARKERS = (
     r"Users\David",
     "G:/msys64",
@@ -177,7 +178,9 @@ def check_features(errors: list[str]) -> None:
 
 
 def main() -> int:
-    strict = "--strict" in sys.argv
+    # Strict is the default since Phase 4 (all in-tree WARN-tier findings
+    # resolved); --strict is accepted as a no-op for command history.
+    strict = "--strict" in sys.argv or "--no-strict" not in sys.argv
     errors: list[str] = []
     warnings: list[str] = []
 
@@ -197,6 +200,7 @@ def main() -> int:
     if strict and warnings:
         print(f"check_repo: FAILED in strict mode ({len(set(warnings))} warnings)")
         return 1
+    print("note: --no-strict downgrades personal-path literals to warnings")
     print(
         f"check_repo: OK ({len(files)} tracked files, "
         f"0 errors, {len(set(warnings))} warnings)"

@@ -8,7 +8,7 @@
   "captured_at_utc": "2026-08-09T00:12:49.711635+00:00",
   "capture": {
     "tool": "tools/capture_rp6.py",
-    "tool_sha256": "fdefcff85619a567886cd21216200e8c01c8c7567a7241466175b33678f56550",
+    "tool_sha256": "f6b1b449adceb045328dbf147297ba61ef92c50e08eab01adeccdcb412d627cd",
     "adb_version": "1.0.41",
     "selection": "exact ro.product.model match across online adb devices",
     "redaction": {

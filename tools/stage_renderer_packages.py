@@ -12,6 +12,11 @@ import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/<script>.py
+    import common
 SOURCE = (
     ROOT / "native" / ".providers-extracted" / "winlator-app-ca3d735" /
     "app" / "src" / "main" / "assets"
@@ -76,14 +81,7 @@ MEMBERS = (
 )
 
 
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for block in iter(lambda: source.read(1 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
+sha256 = common.sha256_file
 def validate_archive_members(archive: Path) -> set[str]:
     result = subprocess.run(
         ["tar", "-tf", str(archive)], check=True, capture_output=True, text=True,

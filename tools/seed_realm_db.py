@@ -205,7 +205,7 @@ def translate_statements(sql_text: str):
         yield stmt + ";"
 
 
-def apply_dump(conn: sqlite3.Connection, source: Path, label: str, verbose: bool):
+def apply_dump(conn: sqlite3.Connection, source: Path, label: str, verbose: bool, tolerate_errors: bool = False):
     """Read a (possibly gzipped) MySQL dump and execute every translated stmt."""
     if source.suffix == ".gz":
         with gzip.open(source, "rt", encoding="utf-8", errors="replace") as f:
@@ -231,13 +231,19 @@ def apply_dump(conn: sqlite3.Connection, source: Path, label: str, verbose: bool
             count += 1
         except sqlite3.Error as e:
             errors += 1
-            if verbose or errors <= 5:
+            if not tolerate_errors:
+                # Fail-loud default: a silently dropped statement is silent
+                # data loss in the seeded realm (de-vibe P2).
                 print(f"  [{label}] sqlite error: {e}\n    on: {preview}", file=sys.stderr)
+                conn.rollback()
+                raise
+            if verbose or errors <= 5:
+                print(f"  [{label}] (tolerated) sqlite error: {e}\n    on: {preview}", file=sys.stderr)
     conn.commit()
     return count, errors
 
 
-def build_one(db_path: Path, sources: list[Path], label: str, verbose: bool) -> int:
+def build_one(db_path: Path, sources: list[Path], label: str, verbose: bool, tolerate_errors: bool = False) -> int:
     if db_path.exists():
         db_path.unlink()
     # WAL side files too.
@@ -255,29 +261,39 @@ def build_one(db_path: Path, sources: list[Path], label: str, verbose: bool) -> 
             if not src.exists():
                 print(f"ERROR: missing source for {label}: {src}", file=sys.stderr)
                 return 1
-            n, err = apply_dump(conn, src, label, verbose)
+            n, err = apply_dump(conn, src, label, verbose, tolerate_errors)
             total += n
             total_err += err
         # Sanity: the version column must exist for CheckRequiredField.
         ver_ok = verify_version_table(conn, label)
         status = "PASS" if ver_ok else "BEHIND (O06 migration needed)"
-        print(f"OK  {label}: {total} statements applied ({total_err} tolerated errors); "
+        print(f"OK  {label}: {total} statements applied ({total_err} errors); "
               f"version: {status}")
-        # The seeder succeeds even if the world DB snapshot is older than the
-        # core expects — that's the documented O04/O06 boundary, not a seed
-        # failure. Only return non-zero if NO statements applied (real failure).
-        return 0 if total > 0 else 1
+        # Success requires a fully-applied dump (zero SQL errors); tolerated
+        # errors are an explicit --tolerate-sql-errors opt-in and still get
+        # counted in the summary. The old "any statement applied" rule
+        # silently seeded partially-built databases (de-vibe P2).
+        return 0 if (total > 0 and (total_err == 0 or tolerate_errors)) else 1
     finally:
         conn.close()
 
 
 # Required version column per DB (revision_sql.h). CheckRequiredField does
 # SELECT <col> FROM <table> LIMIT 1, so the column must exist.
+try:
+    from tools import stage_database_migrations as _migrations
+except ImportError:  # direct execution
+    import stage_database_migrations as _migrations
+
+# Single source of truth for required revisions: the migration generator's
+# EXPECTED_REVISIONS (also emitted into schemas/database-migrations.json).
+# This file only adds the version-table name per database label.
+_REV = _migrations.EXPECTED_REVISIONS
 REQUIRED_VERSIONS = {
-    "realmd": ("realmd_db_version", "required_z2820_01_realmd_joindate_datetime"),
-    "characters": ("character_db_version", "required_z2819_01_characters_item_instance_text_id_fix"),
-    "logs": ("logs_db_version", "required_z2778_01_logs_anticheat"),
-    "mangos": ("db_version", "required_z2830_01_mangos_icon_name"),
+    "realmd": ("realmd_db_version", _REV["realm"]),
+    "characters": ("character_db_version", _REV["characters"]),
+    "logs": ("logs_db_version", _REV["logs"]),
+    "mangos": ("db_version", _REV["world"]),
 }
 
 
@@ -316,6 +332,10 @@ def main() -> int:
     ap.add_argument("--out", required=True, help="output directory for the 4 .sqlite files")
     ap.add_argument("--world-dump", default=str(WORLD_DUMP),
                     help=f"path to the ClassicDB .sql.gz (default: {WORLD_DUMP})")
+    ap.add_argument("--tolerate-sql-errors", action="store_true",
+                    help="opt in to tolerating per-statement SQL errors (counted and "
+                         "reported; NOT the default because dropped statements are "
+                         "silent data loss in the seeded realm)")
     ap.add_argument("--verbose", action="store_true",
                     help="log every tolerated translation error")
     args = ap.parse_args()
@@ -330,7 +350,8 @@ def main() -> int:
         # The mangos (world) DB also gets the big content dump after the base.
         if db_name == "mangos" and world_dump.exists():
             sources.append(world_dump)
-        r = build_one(out / f"{db_name}.sqlite", sources, db_name, args.verbose)
+        r = build_one(out / f"{db_name}.sqlite", sources, db_name, args.verbose,
+                       getattr(args, "tolerate_sql_errors", False))
         if r != 0:
             rc = r
     if rc == 0:

@@ -45,19 +45,25 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE = ROOT / "native"
 DEPS_SRC = NATIVE / ".deps" / "src"
-# MSYS2 location is environment-overridable so the build is not pinned to one
-# developer's machine. Default kept as the documented install path.
-MSYS2 = Path(os.environ.get("MSYS2_ROOT") or os.environ.get("MSYS_HOME") or "G:/msys64")
+sys.path.insert(0, str(ROOT / "tools"))
+import common  # noqa: E402
+
+# MSYS2 location is environment-driven (MSYS2_ROOT -> conventional installs);
+# no developer-specific drive defaults.
+try:
+    MSYS2 = common.msys2_root()
+except RuntimeError as exc:
+    print(f"ERROR: {exc}", file=sys.stderr)
+    sys.exit(2)
 MSYS_BASH = MSYS2 / "usr" / "bin" / "bash.exe"
 
-SDK = Path(os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or "")
-if not SDK.is_dir():
-    print("ERROR: ANDROID_SDK_ROOT/ANDROID_HOME not set or missing", file=sys.stderr)
+try:
+    SDK = common.resolve_android_sdk()
+    NDK = common.resolve_android_ndk(sdk=SDK)
+except RuntimeError as exc:
+    print(f"ERROR: {exc}", file=sys.stderr)
     sys.exit(2)
-
 _NDK_DIR = SDK / "ndk"
-NDK_VERSIONS = sorted([p.name for p in _NDK_DIR.iterdir()]) if _NDK_DIR.is_dir() else []
-NDK = _NDK_DIR / NDK_VERSIONS[-1] if NDK_VERSIONS else None
 if NDK is None or not NDK.is_dir():
     print(f"ERROR: no NDK found under {_NDK_DIR}. Install an NDK via the SDK "
           f"manager (e.g. ndk;30.0.15729638).", file=sys.stderr)
@@ -69,7 +75,7 @@ PLAYERBOTS_IN_TREE = NATIVE / "cmangos" / "src" / "modules" / "PlayerBots"
 # An NDK junction with a simple name avoids Windows 8.3 short-name path issues
 # in OpenSSL's toolchain detection. Created if missing.
 NDK_LINK = SDK / "ndk-link"
-TOOLCHAIN = NDK_LINK / "toolchains" / "llvm" / "prebuilt" / "windows-x86_64"
+TOOLCHAIN = NDK_LINK / "toolchains" / "llvm" / "prebuilt" / common.HOST_TAG
 API = 26
 # The embeddable realm lifecycle facade (O04). Built as libpocketrealm.so from
 # native/pocket-runtime, linked against the same game/shared/playerbots static

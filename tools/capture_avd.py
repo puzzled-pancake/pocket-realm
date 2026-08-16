@@ -29,13 +29,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SDK = Path(os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or "")
-ADB = SDK / "platform-tools" / "adb.exe" if SDK.is_dir() else shutil.which("adb")
+
+try:
+    from tools import common
+except ImportError:
+    import common
+
+SDK = common.resolve_android_sdk()
+ADB = common.resolve_android_tool("adb", sdk=SDK)
 REFERENCE = "docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx"
 
 
 def adb(serial: str, shell_cmd: str) -> str:
-    assert ADB, "adb not found; set ANDROID_SDK_ROOT"
+    if not ADB:
+        raise RuntimeError("adb not found; set ANDROID_SDK_ROOT")
     r = subprocess.run([str(ADB), "-s", serial, "shell", shell_cmd],
                        capture_output=True, text=True, timeout=30)
     if r.returncode != 0:
@@ -140,8 +147,8 @@ def capture(serial: str, avd_id: str, system_image: str | None) -> dict:
 
 
 def _host_emulator_version() -> str:
-    emu = SDK / "emulator" / "emulator.exe" if SDK.is_dir() else shutil.which("emulator")
-    if not emu:
+    emu = SDK / "emulator" / common._exe("emulator")
+    if not emu.is_file():
         return ""
     try:
         r = subprocess.run([str(emu), "-version"], capture_output=True, text=True, timeout=10)
@@ -193,7 +200,8 @@ def compare(adb_record: dict, app_report: dict) -> list[tuple[str, str, str, boo
 def pull_app_report(serial: str) -> dict | None:
     """Pull the in-app CapabilityReport JSON the test wrote to app-private
     storage and parse it. Returns None if unavailable."""
-    assert ADB, "adb not found; set ANDROID_SDK_ROOT"
+    if not ADB:
+        raise RuntimeError("adb not found; set ANDROID_SDK_ROOT")
     # The report is written by CapabilityReport.writeToFile to
     # /data/data/<pkg>/app_capability/capability-report.json (debug build only;
     # run-as is required to read app-private storage).

@@ -35,6 +35,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/<script>.py
+    import common
 SOURCES = ROOT / "schemas" / "sources.json"
 # Cache root for prebuilt archives. Populated by tools/fetch_provider.py.
 PROVIDER_CACHE = ROOT / "native" / ".providers"
@@ -55,14 +60,7 @@ def submodule_commit(path: Path) -> str:
     return line.split()[0].lstrip("+-")
 
 
-def sha256_of(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
+sha256_of = common.sha256_file
 def check_prebuilt_archive(entry: dict) -> tuple[bool, str]:
     """Verify a cached prebuilt archive exists and its SHA-256 matches.
 

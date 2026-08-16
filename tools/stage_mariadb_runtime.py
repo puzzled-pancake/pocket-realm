@@ -16,6 +16,11 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/<script>.py
+    import common
 BUILD = ROOT / "native" / ".build-x86_64" / "mariadb"
 STAGE = ROOT / "native" / ".build-x86_64" / "mariadb-staging"
 JNI = STAGE / "jniLibs" / "x86_64"
@@ -39,14 +44,7 @@ INITIAL_PACKAGES = {
 REQUIRED_PLUGINS: set[str] = set()
 
 
-def digest(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1 << 20), b""):
-            h.update(block)
-    return h.hexdigest()
-
-
+digest = common.sha256_file
 def sdk_tool(name: str) -> Path:
     sdk = Path(os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or "")
     ndks = sorted((sdk / "ndk").glob("*"))

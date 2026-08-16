@@ -28,6 +28,11 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/<script>.py
+    import common
 SOURCES = ROOT / "schemas" / "sources.json"
 CACHE = ROOT / "native" / ".providers"
 # Extracted trees live next to the cache (gitignored). check_wine_dtneeded.py
@@ -37,19 +42,12 @@ EXTRACT_ROOT = ROOT / "native" / ".providers-extracted"
 CHUNK = 1 << 20  # 1 MiB
 
 
-def sha256_of(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(CHUNK), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
+sha256_of = common.sha256_file
 def download(url: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     print(f"  downloading {url}")
     tmp = dest.with_suffix(dest.suffix + ".part")
-    with urllib.request.urlopen(url) as r, tmp.open("wb") as f:  # noqa: S310 - pinned URL
+    with urllib.request.urlopen(url, timeout=60) as r, tmp.open("wb") as f:  # noqa: S310 - pinned URL
         shutil.copyfileobj(r, f, length=CHUNK)
     tmp.replace(dest)
 
@@ -103,8 +101,17 @@ def extract_archive(entry: dict, archive: Path) -> None:
         try:
             tf.extractall(target, filter="data")  # noqa: S202 - pinned provider archive
         except TypeError:
-            # Python < 3.12 has no filter argument.
-            tf.extractall(target)
+            # Python < 3.12 has no filter argument: apply the same "data"
+            # rules by hand instead of extracting unsafely.
+            safe = []
+            for member in tf.getmembers():
+                if member.isdev() or member.issym() or member.islnk():
+                    continue  # no devices, no links
+                parts = Path(member.name).parts
+                if member.name.startswith(("/", *Path(member.name).drive,)) or ".." in parts:
+                    raise RuntimeError(f"unsafe archive member: {member.name}")
+                safe.append(member)
+            tf.extractall(target, members=safe)
 
 
 def main() -> int:

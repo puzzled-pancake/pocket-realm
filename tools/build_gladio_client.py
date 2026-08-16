@@ -33,6 +33,11 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/<script>.py
+    import common
 SOURCE = ROOT / "native" / ".providers-extracted" / "gladio-source"
 SOURCE_URL = "https://github.com/brunodev85/gladio.git"
 SOURCE_COMMIT = "eaa2a8d6eda3a1a6af755370ea9fac6cf7792ac3"
@@ -140,14 +145,7 @@ def select_target(abi: str) -> None:
     )
 
 
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
+sha256 = common.sha256_file
 def docker_path(path: Path) -> str:
     value = str(path.resolve()).replace("\\", "/")
     if len(value) >= 2 and value[1] == ":":

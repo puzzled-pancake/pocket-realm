@@ -549,7 +549,8 @@ def _consume_getevent_values(device: dict[str, object], event_type: str, value: 
         )
         if match:
             axes = device["absolute_axes"]
-            assert isinstance(axes, list)
+            if not isinstance(axes, list):
+                raise TypeError(f"absolute_axes malformed: {axes!r}")
             axes.append(
                 {
                     "code": match.group(1),
@@ -561,11 +562,13 @@ def _consume_getevent_values(device: dict[str, object], event_type: str, value: 
                 }
             )
             codes = device["event_codes"]
-            assert isinstance(codes, dict)
+            if not isinstance(codes, dict):
+                raise TypeError(f"event_codes malformed: {codes!r}")
             codes[event_type].append(match.group(1))
         return
     codes = device["event_codes"]
-    assert isinstance(codes, dict)
+    if not isinstance(codes, dict):
+        raise TypeError(f"event_codes malformed: {codes!r}")
     parsed = re.findall(r"\b(?:KEY|BTN|REL|SW|MSC|LED|SND|REP|FF)_[A-Z0-9_]+\b", value)
     codes[event_type].extend(parsed)
 
@@ -643,7 +646,8 @@ def capture(
 
     wm_size = _parse_wm_dimension(shell("wm size"), "size")
     physical_size = wm_size["physical"]
-    assert isinstance(physical_size, dict)
+    if not isinstance(physical_size, dict):
+        raise TypeError(f"physical_size malformed: {physical_size!r}")
     wm_size["landscape_width"] = max(int(physical_size["width"]), int(physical_size["height"]))
     wm_size["landscape_height"] = min(int(physical_size["width"]), int(physical_size["height"]))
 
@@ -738,7 +742,8 @@ def capture(
         },
     }
     sanitized = _sanitize(record, serial)
-    assert isinstance(sanitized, dict)
+    if not isinstance(sanitized, dict):
+        raise TypeError(f"sanitized record malformed: {sanitized!r}")
     serialized = json.dumps(sanitized, ensure_ascii=False)
     if serial and serial in serialized:
         raise CaptureError("internal redaction failure: ADB serial remained in artifact")
@@ -777,7 +782,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         )
         if args.checkin or args.output:
             path = DEFAULT_OUTPUT if args.checkin else args.output
-            assert path is not None
+            if path is None:
+                raise ValueError("screenshot path unexpectedly missing")
             if not path.is_absolute():
                 path = ROOT / path
             _write_record(record, path)

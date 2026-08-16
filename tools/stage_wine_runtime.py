@@ -43,6 +43,11 @@ import tarfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/<script>.py
+    import common
 GLIBC_ROOTFS = ROOT / "runtime" / "glibc-rootfs-x86_64"
 WINE_EXTRACT = ROOT / "native" / ".providers-extracted" / "wine-kron4ek-11-14-vanilla-wow64"
 WINE_ROOT_NAME = "wine-11.14-amd64-wow64"
@@ -97,14 +102,7 @@ TERMUX_LIB_PREFIX = "data/data/com.termux/files/usr/glibc/lib"
 ANDROID_MAX_PAGE_SIZE = 0x4000
 
 
-def sha256_of(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
+sha256_of = common.sha256_file
 def validate_elf_page_compatibility(data: bytes, label: str) -> None:
     """Fail closed unless every ELF PT_LOAD works on 4 KB and 16 KB kernels.
 

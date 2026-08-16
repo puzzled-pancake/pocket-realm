@@ -31,8 +31,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ANDROID = ROOT / "android"
-SDK = Path(os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or "")
-ADB = SDK / "platform-tools" / "adb.exe" if SDK.is_dir() else Path("adb")
+
+try:
+    from tools import common
+except ImportError:
+    import common
+
+ADB = common.resolve_android_tool("adb")
 
 PKG = "com.pocketrealm"
 TEST_PKG = "com.pocketrealm.test"
@@ -127,11 +132,12 @@ def run_instrumentation(serial: str, lane: str, only: str | None, smoke_seconds:
     except subprocess.TimeoutExpired:
         instr_out = "(instrumentation timed out after 600s)"
 
-    # Drain logcat.
+    # Drain logcat. A failure here loses evidence, so keep the error text
+    # instead of an empty string.
     try:
         log = adb(serial, "logcat", "-d", timeout=120)
-    except Exception:
-        log = ""
+    except Exception as exc:  # noqa: BLE001 - the error IS the evidence
+        log = f"(logcat drain failed: {exc})"
     return instr_out, log
 
 

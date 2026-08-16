@@ -24,6 +24,11 @@ import build_glibc_closure as closure
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/<script>.py
+    import common
 BUILD_ROOT = ROOT / "native" / ".build-x86_64" / "mariadb"
 PROVENANCE = BUILD_ROOT / "BUILD_PROVENANCE.json"
 PACKAGE_VERSION = "11.5.2"
@@ -37,14 +42,7 @@ LIBSTDCXX_SHA256 = "5a8695ed68f47c5bd087ee374a1ea0ed542b9c4dfc9eb3e870668ba8f688
 GCC_SOURCE_SHA256 = "50efb4d94c3397aff3b0d61a5abd748b4dd31d9d3f2ab7be05b171d36a510f79"
 
 
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
+sha256 = common.sha256_file
 def validate_recipe(repo: Path) -> Path:
     recipe = repo / "gpkg" / "mariadb" / "build.sh"
     text = recipe.read_text(encoding="utf-8")

@@ -11,6 +11,11 @@ import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/<script>.py
+    import common
 SOURCE_COMMIT = "ca3d735a60d653a787daf16d14fafef28d9c2c23"
 MESA_SOURCE_COMMIT = "71c57a2def7db3eb45cde5ee520f112de0fa6ec0"
 PACKAGE_ID = "box64-virgl-23.1.9"
@@ -30,14 +35,7 @@ TARGET = STAGE / "libGL.so.1"
 PROVENANCE = STAGE / "BUILD_PROVENANCE.json"
 
 
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for block in iter(lambda: source.read(1 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
+sha256 = common.sha256_file
 def members() -> set[str]:
     result = subprocess.run(
         ["tar", "-tf", str(ARCHIVE)], check=True, capture_output=True, text=True,

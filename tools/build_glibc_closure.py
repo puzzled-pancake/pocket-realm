@@ -46,6 +46,11 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/<script>.py
+    import common
 LOCKFILE = ROOT / "schemas" / "wine-runtime-lockfile.json"
 SOURCES = ROOT / "schemas" / "sources.json"
 WORK_ROOT = ROOT / "native" / ".glibc-build"          # gitignored build workspace
@@ -72,14 +77,7 @@ BUILD_ORDER = (
     "fontconfig",
 )
 
-def sha256_of(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
+sha256_of = common.sha256_file
 def load_glibc_packages_pin() -> dict:
     data = json.loads(SOURCES.read_text(encoding="utf-8"))
     for s in data["sources"]:

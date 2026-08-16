@@ -40,9 +40,9 @@ ABIS = {
 }
 
 
-def run(cmd, **kw):
+def run(cmd, check=True, **kw):
     print("  $", " ".join(str(c) for c in cmd[:8]) + (" ..." if len(cmd) > 8 else ""))
-    return subprocess.run([str(c) for c in cmd], **kw)
+    return subprocess.run([str(c) for c in cmd], check=check, **kw)
 
 
 def adb_root(serial: str | None):
@@ -149,16 +149,18 @@ ListenerThreads = 1
     run(adb + ["shell", f"mkdir -p {dev_root}/content/dbc {dev_root}/content/maps {dev_root}/db"])
 
     # Strip the .so for push (481MB unstripped -> ~manageable).
-    llvm_strip = (NATIVE / ".deps").glob(f"prefix-{deps_suffix}/bin/llvm-strip")
-    # Use the NDK strip instead.
-    ndk_strip = str(Path(os.environ["ANDROID_SDK_ROOT"]) / "ndk-link" / "toolchains" /
-                    "llvm" / "prebuilt" / "windows-x86_64" / "bin" / "llvm-strip.exe")
+    sys.path.insert(0, str(ROOT / "tools"))
+    import common
+    sdk = common.resolve_android_sdk()
+    ndk_strip = sdk / "ndk-link" / "toolchains" / "llvm" / "prebuilt" / common.HOST_TAG / "bin" / common._exe("llvm-strip")
+    if not ndk_strip.is_file():
+        raise RuntimeError(f"NDK strip not found at {ndk_strip}")
     stripped_lib = stage / "libpocketrealm.stripped.so"
     shutil.copy(lib, stripped_lib)
-    subprocess.run([ndk_strip, "--strip-debug", str(stripped_lib)])
+    run([str(ndk_strip), "--strip-debug", str(stripped_lib)])
     stripped_test = stage / "pocket_lifecycle_test.stripped"
     shutil.copy(test_bin, stripped_test)
-    subprocess.run([ndk_strip, str(stripped_test)])
+    run([str(ndk_strip), str(stripped_test)])
 
     run(adb + ["push", str(stripped_lib), f"{dev_root}/libpocketrealm.so"])
     run(adb + ["push", str(stripped_test), f"{dev_root}/pocket_lifecycle_test"])
@@ -168,8 +170,8 @@ ListenerThreads = 1
     # The test binary + .so link libc++_shared (the NDK STL), which isn't on the
     # emulator's default lib path. Push it next to the .so so LD_LIBRARY_PATH
     # resolves it. (mirrors smoke_native.py's libc++_shared push.)
-    ndk_lib = (Path(os.environ["ANDROID_SDK_ROOT"]) / "ndk-link" / "toolchains" /
-               "llvm" / "prebuilt" / "windows-x86_64" / "sysroot" / "usr" / "lib" /
+    ndk_lib = (sdk / "ndk-link" / "toolchains" /
+               "llvm" / "prebuilt" / common.HOST_TAG / "sysroot" / "usr" / "lib" /
                f"{triple}-linux-android" / "libc++_shared.so")
     if ndk_lib.is_file():
         run(adb + ["push", str(ndk_lib), f"{dev_root}/libc++_shared.so"])

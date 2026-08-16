@@ -15,6 +15,11 @@ import build_o09_realm_runtime as o09
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/<script>.py
+    import common
 SOURCE = ROOT / "native" / "cmangos"
 TARGET_ABI = "x86_64"
 BUILD = ROOT / "native" / ".build-o11-x86_64" / "extractors"
@@ -50,14 +55,7 @@ def output(args: list[object]) -> str:
     return subprocess.check_output([str(value) for value in args], text=True)
 
 
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(8 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
+sha256 = common.sha256_file
 def prepare_source(commit: str, force: bool) -> Path:
     """Materialize and patch the pinned source without dirtying the submodule."""
     recipe = hashlib.sha256(

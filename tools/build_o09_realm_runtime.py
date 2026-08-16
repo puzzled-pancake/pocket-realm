@@ -18,6 +18,11 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/<script>.py
+    import common
 NATIVE = ROOT / "native"
 TARGET_ABI = "x86_64"
 BUILD = NATIVE / ".build-o09-x86_64"
@@ -703,14 +708,7 @@ def output(args: list[str | Path], cwd: Path | None = None) -> str:
     return subprocess.check_output([str(value) for value in args], cwd=cwd, text=True).strip()
 
 
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
+sha256 = common.sha256_file
 def sdk_root() -> Path:
     configured = os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME")
     if configured:

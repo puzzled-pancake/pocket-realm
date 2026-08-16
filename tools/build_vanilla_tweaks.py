@@ -20,6 +20,11 @@ from pathlib import Path
 import build_o09_realm_runtime as o09
 
 ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/<script>.py
+    import common
 SOURCE = ROOT / "native" / "vanilla-tweaks"
 ABI = "x86_64"
 RUST_TRIPLE = "x86_64-linux-android"
@@ -57,14 +62,7 @@ def output(args: list[object]) -> str:
     return subprocess.check_output([str(value) for value in args], text=True)
 
 
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(8 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
+sha256 = common.sha256_file
 def ndk_bin(ndk: Path) -> Path:
     prebuilt = ndk / "toolchains" / "llvm" / "prebuilt"
     host_dirs = [p for p in prebuilt.iterdir() if p.is_dir()] if prebuilt.is_dir() else []
@@ -111,23 +109,31 @@ def stage(built: Path, llvm: Path) -> dict:
     target = STAGE / OUTPUT_NAME
     shutil.copy2(built, target)
     strip = llvm / "llvm-strip.exe"
-    if strip.is_file():
-        run([strip, "--strip-unneeded", target])
+    if not strip.is_file():
+        raise RuntimeError(
+            f"llvm-strip not found at {strip}; DT_NEEDED/alignment verification "
+            "must not be skipped silently (de-vibe P7)"
+        )
+    run([strip, "--strip-unneeded", target])
     readelf = llvm / "llvm-readelf.exe"
     needed = []
     aligns: list[int] = []
-    if readelf.is_file():
-        dynamic = output([readelf, "-dW", target])
-        needed = sorted(line.split("[")[1].split("]")[0]
-                        for line in dynamic.splitlines() if "(NEEDED)" in line)
-        unexpected = set(needed) - ALLOWED_NEEDED
-        if unexpected:
-            raise RuntimeError(f"unexpected DT_NEEDED for {OUTPUT_NAME}: {sorted(unexpected)}")
-        program = output([readelf, "-lW", target])
-        aligns = [int(line.split()[-1], 16) for line in program.splitlines()
-                  if line.lstrip().startswith("LOAD ")]
-        if not aligns or any(value < MAX_PAGE for value in aligns):
-            raise RuntimeError(f"{OUTPUT_NAME} is not 16 KB compatible: {aligns}")
+    if not readelf.is_file():
+        raise RuntimeError(
+            f"llvm-readelf not found at {readelf}; DT_NEEDED/alignment verification "
+            "must not be skipped silently (de-vibe P7)"
+        )
+    dynamic = output([readelf, "-dW", target])
+    needed = sorted(line.split("[")[1].split("]")[0]
+                    for line in dynamic.splitlines() if "(NEEDED)" in line)
+    unexpected = set(needed) - ALLOWED_NEEDED
+    if unexpected:
+        raise RuntimeError(f"unexpected DT_NEEDED for {OUTPUT_NAME}: {sorted(unexpected)}")
+    program = output([readelf, "-lW", target])
+    aligns = [int(line.split()[-1], 16) for line in program.splitlines()
+              if line.lstrip().startswith("LOAD ")]
+    if not aligns or any(value < MAX_PAGE for value in aligns):
+        raise RuntimeError(f"{OUTPUT_NAME} is not 16 KB compatible: {aligns}")
     record = {
         "schema": 1,
         "built_at_utc": datetime.now(timezone.utc).isoformat(),

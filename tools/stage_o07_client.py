@@ -24,6 +24,12 @@ import time
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/<script>.py
+    import common
+
+
 PACKAGE = "com.pocketrealm"
 CLIENT_ID = "wow-1.12.1-5875"
 EXPECTED_EXE_SHA256 = "b4756d38ef207c02ed651f4952bd89a70b4857b73a33413339e1b285b28d2dc7"
@@ -70,14 +76,7 @@ class SourceFile:
     size: int
 
 
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
+sha256_file = common.sha256_file
 def parse_wow_exe(path: Path) -> dict[str, object]:
     data = path.read_bytes()
     if len(data) < 512 or data[:2] != b"MZ":
@@ -439,7 +438,9 @@ def stage(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", required=True, type=Path)
-    parser.add_argument("--serial", default="emulator-5554")
+    parser.add_argument("--serial", required=True,
+                        help="target device/emulator serial (e.g. emulator-5554); "
+                             "no implicit device default (de-vibe P4)")
     parser.add_argument("--package", default=PACKAGE)
     parser.add_argument("--validate-only", action="store_true")
     parser.add_argument("--replace", action="store_true")

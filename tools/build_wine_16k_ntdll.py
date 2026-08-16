@@ -24,6 +24,11 @@ import tarfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/<script>.py
+    import common
 PINNED_SOURCE = ROOT / "native" / ".providers-extracted" / "wine-source-1012f3d"
 PINNED_COMMIT = "1012f3d99507b80d4869eabf0853567660a7ecbb"
 SOURCE_DATE_EPOCH = "1784925752"
@@ -43,14 +48,7 @@ OLD_DISPATCH = bytes.fromhex("ff14250010fe7f")
 NEW_DISPATCH = bytes.fromhex("ff14250040fe7f")
 
 
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
+sha256 = common.sha256_file
 def docker_path(path: Path) -> str:
     value = str(path.resolve()).replace("\\", "/")
     if len(value) >= 2 and value[1] == ":":
