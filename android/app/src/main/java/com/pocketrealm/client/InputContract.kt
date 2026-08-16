@@ -499,7 +499,17 @@ class InputContract(
                         keyCode == KeyEvent.KEYCODE_BUTTON_THUMBL ->
                         externalSelectChordBindingLocked(
                             state, ExternalSelectChord.JUMP, utilityMode,
-                        ) ?: gamepadBinding(keyCode, layout, profile, activeLayer)
+                        )
+                            ?: lockedL3JumpLocked()
+                            ?: gamepadBinding(keyCode, layout, profile, activeLayer)
+                    cameraLocked &&
+                        keyCode == KeyEvent.KEYCODE_BUTTON_THUMBL &&
+                        layout in PROFILED_LAYOUTS ->
+                        // Mouselook hides the pointer, so L3's cursor binding
+                        // is idle there; jump instead. The profile binding
+                        // (right-click, auto-run, or a remap) still applies
+                        // while the cursor is free.
+                        GamepadBinding.Key(KeyEvent.KEYCODE_SPACE)
                     utilityMode != null &&
                         keyCode == KeyEvent.KEYCODE_BUTTON_R2 ->
                         externalSelectChordBindingLocked(
@@ -1312,6 +1322,10 @@ class InputContract(
         sink.inject(SinkEvent.PointerButton(PointerButton.RIGHT.toSink(), pressed = false))
     }
 
+    /** Jump override for L3 while the camera is locked; null keeps the profile binding. */
+    private fun lockedL3JumpLocked(): GamepadBinding.Key? =
+        if (cameraLocked) GamepadBinding.Key(KeyEvent.KEYCODE_SPACE) else null
+
     private fun gamepadActionLocked(
         src: Int,
         owner: ControlOwner,
@@ -1708,11 +1722,7 @@ class InputContract(
             layout: GamepadLayout,
             profile: InputProfile,
         ): ExternalSelectMode? {
-            if (layout !in setOf(
-                GamepadLayout.PROFILED,
-                GamepadLayout.RETROID_POCKET_6,
-                GamepadLayout.RETROID_POCKET_6_XBOX,
-            )) return null
+            if (layout !in PROFILED_LAYOUTS) return null
             return when (InputProfile.actionFor(profile, Rp6Control.SELECT)) {
                 ControllerAction.MAP -> ExternalSelectMode.MAP
                 ControllerAction.CONSOLE_RADIAL -> ExternalSelectMode.CONSOLE_PORT
@@ -1754,6 +1764,12 @@ class InputContract(
             Rp6Control.FACE_LEFT,
             Rp6Control.FACE_TOP,
             Rp6Control.FACE_RIGHT,
+        )
+
+        private val PROFILED_LAYOUTS = setOf(
+            GamepadLayout.PROFILED,
+            GamepadLayout.RETROID_POCKET_6,
+            GamepadLayout.RETROID_POCKET_6_XBOX,
         )
     }
 }

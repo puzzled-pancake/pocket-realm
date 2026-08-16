@@ -170,12 +170,15 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
                     "Select + L1 is the precise use-at-pointer fallback. L2/R2 are Shift/Ctrl action-page modifiers. " +
                     "Tap Select for the radial menu; its eight entries use face buttons 1-4 and D-pad 5-8. " +
                     "Select + R3 toggles camera/pointer, Select + R1 sends stock G / last hostile, " +
-                    "and Select + L3 jumps. Select + Start opens Move UI: drag a green handle with the pointer, " +
+                    "and Select + L3 jumps. L3 by itself jumps whenever the camera is locked " +
+                    "and right-clicks the pointer only while the cursor is free. " +
+                    "Select + Start opens Move UI: drag a green handle with the pointer, " +
                     "D-pad Down/Up focuses a frame, D-pad Left/Right scales it, and Select + Start or Escape saves. " +
                     "M1/M2 stay disabled because they can latch on some units."
             } else {
                 "The default layout puts Target on R1, Use / open at pointer on R2, and Jump on R3. " +
                     "Hold Select + R3 for camera/pointer mode or Select + R2 for left-click. " +
+                    "While the camera is locked, L3 jumps instead of toggling auto-run. " +
                     "M1/M2 stay disabled because they can latch on some units."
             },
         )
@@ -425,17 +428,19 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
                         "L2/R2 select the Shift/Ctrl pages. Select opens the eight-item radial menu, where those same " +
                         "face and D-pad inputs activate the shown item. Select + R3 toggles camera/pointer; in Pointer " +
                         "mode, hold R3 and move the right stick to drag movable add-on frames. Select + R1 sends stock " +
-                        "G for last hostile and Select + L3 jumps. " +
-                        "Automatic item collection remains an optional client tweak or add-on behavior."
+                    "G for last hostile and Select + L3 jumps. L3 by itself jumps whenever the camera " +
+                    "is locked; it right-clicks the pointer only while the cursor is free. " +
+                    "Automatic item collection remains an optional client tweak or add-on behavior."
                 } else {
                     "For normal leveling: R1 or Target selects one nearest living enemy. " +
                         "Aim the pointer at a container, NPC, object, or lootable corpse, then press R2 or Use / open; " +
                         "this sends a normal right-click. Loot collection is intentionally not a controller action: " +
                         "enable the optional client tweak or an add-on if you want opened loot collected automatically. R3 jumps, " +
                         "face buttons use actions 1-4, L2 + face uses 5-8, and L1 + face uses 9-12. " +
-                        "D-pad Up sends stock G for last hostile (not guaranteed to be a corpse), Down sends F1 for " +
-                        "self or pet, Left sends B for the backpack, and Right sends L for the quest log. " +
-                        "Hold Select + R3 to toggle camera or pointer mode."
+                    "D-pad Up sends stock G for last hostile (not guaranteed to be a corpse), Down sends F1 for " +
+                    "self or pet, Left sends B for the backpack, and Right sends L for the quest log. " +
+                    "Hold Select + R3 to toggle camera or pointer mode. While the camera is locked, " +
+                    "L3 jumps instead of toggling auto-run."
                 },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
