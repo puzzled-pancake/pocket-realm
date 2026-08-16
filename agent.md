@@ -35,6 +35,21 @@ For ordinary feature work, read the report's document-control guidance and only 
 - Use a read-only subagent for broad research or a focused high-risk review; ordinary changes do not need multi-agent ceremony.
 - Commit only coherent passing work with a descriptive message.
 
+## Repository hygiene rules (de-vibe sustainment)
+- Evidence artifacts (screenshots, UI dumps, logcat captures) live in
+  `tests/**/evidence/` or stay in local `tmp/` — NEVER at the repo root and
+  never as `.codex-*`/agent-session debris. The pre-commit gate rejects them.
+- No binary over 1 MB enters the tree without a DECISIONS.md entry; build
+  outputs (`build-authority/`, CMake/MSVC artifacts, `native/.tmp-*`) are
+  never committed.
+- No AI-tool ref writes into this repository's refs (no turn-diff
+  checkpoints); they made a purged proprietary blob reachable again once.
+- One-time clone setup: `git config core.hooksPath .githooks` (hygiene gate:
+  check_repo + check_sources + pytest). CI activates from
+  `.github/workflows/ci.yml` on first push.
+- Monthly: `git gc`, `python tools/check_repo.py --strict`,
+  `python tools/check_sources.py`, `python tools/validate_features.py`.
+
 ## Non-negotiable product rules
 - Never redistribute proprietary WoW client files or game data. Users import a supported client they are entitled to use.
 - Offline play has no Internet dependency. Realm services bind to loopback and MariaDB uses an app-private Unix socket where possible. Server, bots, and database are native for each Android ABI; only the Windows client uses Wine and, on ARM, CPU translation.

@@ -41,3 +41,14 @@ Repeat for the next feature. `/goal` requires a current Claude Code release; use
 
 Claim status for any given milestone is whatever `PROGRESS.md` currently says —
 do not rely on summaries (including this one) for gate or feature state.
+
+## One-time clone setup
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Enables the pre-commit hygiene gate (repo hygiene + pinned sources + python
+tests). `python` must be a working interpreter; if the ambient environment
+autoloads broken pytest plugins, the hook already sets
+`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` internally.
