@@ -12,8 +12,8 @@
   "artifacts": [
     {
       "path": "native/.build-vanilla-tweaks-arm64-v8a/staging/jniLibs/arm64-v8a/libpocket_vanilla_tweaks.so",
-      "size": 856840,
-      "sha256": "8d827afcd2c3b709a8cd3768f2dee487c05edc30c5a7095cef9d69727b97688b",
+      "size": 859328,
+      "sha256": "76548f71b68a7402838063262414be1cb5c326396003b519652ca26d3debe3ce",
       "needed": [
         "libc.so",
         "libdl.so"
