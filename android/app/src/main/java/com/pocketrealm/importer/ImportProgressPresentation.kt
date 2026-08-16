@@ -13,6 +13,33 @@ data class ImportStageProgress(
     val checkpoint: String?,
     val updatedAtMs: Long,
     val explanation: String,
+    val startedAtMs: Long = 0L,
+    val completedAtMs: Long = 0L,
+)
+
+data class ImportBenchmarkStageDuration(val stage: String, val durationMs: Long)
+
+data class ImportBenchmarkRun(
+    val deviceLabel: String,
+    val totalMs: Long,
+    val copyMs: Long,
+    val dataMs: Long,
+    val stages: List<ImportBenchmarkStageDuration>,
+    val mmapMaps: Int,
+    val mmapThreads: Int,
+    val createdAtMs: Long,
+)
+
+data class ImportBenchmarkHistoryEntry(val deviceLabel: String, val totalMs: Long, val createdAtMs: Long)
+
+data class ImportDeviceSpec(
+    val label: String,
+    val soc: String,
+    val activelyCooled: Boolean,
+    val abi: String,
+    val api: Int,
+    val cores: Int,
+    val ramBytes: Long,
 )
 
 data class ImportProgressPresentation(
@@ -37,6 +64,9 @@ data class ImportProgressPresentation(
     val processCount: Int,
     val updatedAtMs: Long,
     val error: String?,
+    val benchmark: ImportBenchmarkRun? = null,
+    val benchmarkHistory: List<ImportBenchmarkHistoryEntry> = emptyList(),
+    val device: ImportDeviceSpec? = null,
 ) {
     val fileFraction: Float get() = fraction(filesProcessed.toLong(), filesTotal.toLong())
     val byteFraction: Float get() = when {
@@ -59,23 +89,27 @@ data class ImportProgressPresentation(
                 val array = value.optJSONArray("dataStages") ?: return@buildList
                 for (index in 0 until array.length()) {
                     val item = array.optJSONObject(index) ?: continue
-                    val id = item.optString("stage")
-                    add(ImportStageProgress(
-                        id = id,
-                        title = stageTitle(id),
-                        state = item.optString("state", DataStageState.PENDING.name),
-                        processed = item.optInt("processed"),
-                        total = item.optInt("total"),
-                        bytesWritten = item.optLong("bytesWritten"),
-                        checkpoint = item.optionalString("checkpoint"),
-                        updatedAtMs = item.optLong("updatedAtMs"),
-                        explanation = stageExplanation(id),
-                    ))
+                val id = item.optString("stage")
+                add(ImportStageProgress(
+                    id = id,
+                    title = stageTitle(id),
+                    state = item.optString("state", DataStageState.PENDING.name),
+                    processed = item.optInt("processed"),
+                    total = item.optInt("total"),
+                    bytesWritten = item.optLong("bytesWritten"),
+                    checkpoint = item.optionalString("checkpoint"),
+                    updatedAtMs = item.optLong("updatedAtMs"),
+                    explanation = stageExplanation(id),
+                    startedAtMs = item.optLong("startedAtMs"),
+                    completedAtMs = item.optLong("completedAtMs"),
+                ))
                 }
             }
             val worker = value.optJSONObject("worker") ?: JSONObject()
             val activeStage = stages.firstOrNull { it.state == DataStageState.RUNNING.name }
                 ?: stages.firstOrNull { it.state == DataStageState.FAILED.name }
+            val benchmarkObject = value.optJSONObject("benchmark")
+            val historyArray = benchmarkObject?.optJSONArray("history")
             return ImportProgressPresentation(
                 phase = phase,
                 phaseTitle = phaseTitle(phase),
@@ -99,6 +133,42 @@ data class ImportProgressPresentation(
                 processCount = worker.optInt("processCount"),
                 updatedAtMs = value.optLong("updatedAtMs"),
                 error = value.optionalString("lastError"),
+                benchmark = benchmarkObject?.optJSONObject("latest")?.let { latest ->
+                    val durations = latest.optJSONObject("stageDurations") ?: JSONObject()
+                    ImportBenchmarkRun(
+                        deviceLabel = latest.optString("deviceLabel"),
+                        totalMs = latest.optLong("totalMs"),
+                        copyMs = latest.optLong("copyMs"),
+                        dataMs = latest.optLong("dataMs"),
+                        stages = durations.keys().asSequence().map { stage ->
+                            ImportBenchmarkStageDuration(stage, durations.optLong(stage))
+                        }.sortedBy { it.stage }.toList(),
+                        mmapMaps = latest.optInt("mmapMaps"),
+                        mmapThreads = latest.optInt("mmapThreads"),
+                        createdAtMs = latest.optLong("createdAtMs"),
+                    )
+                },
+                benchmarkHistory = if (historyArray != null) buildList {
+                    for (index in 0 until historyArray.length()) {
+                        val entry = historyArray.optJSONObject(index) ?: continue
+                        add(ImportBenchmarkHistoryEntry(
+                            deviceLabel = entry.optString("deviceLabel"),
+                            totalMs = entry.optLong("totalMs"),
+                            createdAtMs = entry.optLong("createdAtMs"),
+                        ))
+                    }
+                } else emptyList(),
+                device = value.optJSONObject("device")?.let { device ->
+                    ImportDeviceSpec(
+                        label = device.optString("label"),
+                        soc = device.optString("soc"),
+                        activelyCooled = device.optBoolean("activelyCooled"),
+                        abi = device.optString("abi"),
+                        api = device.optInt("api"),
+                        cores = device.optInt("cores"),
+                        ramBytes = device.optLong("ramBytes"),
+                    )
+                },
             )
         }
     }
@@ -116,6 +186,35 @@ fun formatImportBytes(bytes: Long): String {
     return if (unit == 0) "${value.toLong()} ${units[unit]}"
     else String.format(Locale.US, "%.1f %s", value, units[unit])
 }
+
+fun formatImportDuration(ms: Long): String {
+    val totalSeconds = (ms.coerceAtLeast(0L) + 500) / 1000
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    return when {
+        hours > 0 -> "${hours}h ${minutes}m ${seconds}s"
+        minutes > 0 -> "${minutes}m ${seconds}s"
+        else -> "${seconds}s"
+    }
+}
+
+/**
+ * True only while an import is actually executing. Terminal phases (COMPLETE,
+ * CANCELLED, FAILED) must count as not busy: re-picking the client folder after
+ * a completed import starts a fresh import, and FAILED remains resumable —
+ * refusing either silently drops the picker result.
+ */
+fun importPhaseBusy(phase: String): Boolean = phase in ACTIVE_IMPORT_PHASES
+
+private val ACTIVE_IMPORT_PHASES = setOf(
+    ImportPhase.DISCOVERING.name,
+    ImportPhase.PREFLIGHT.name,
+    ImportPhase.COPYING.name,
+    ImportPhase.VERIFYING.name,
+    ImportPhase.PUBLISHING.name,
+    ImportPhase.PREPARING_DATA.name,
+)
 
 fun formatImportPercent(fraction: Float): String =
     String.format(Locale.US, "%.1f%%", fraction.coerceIn(0f, 1f) * 100f)

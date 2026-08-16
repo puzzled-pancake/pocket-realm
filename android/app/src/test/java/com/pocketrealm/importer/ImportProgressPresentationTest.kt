@@ -68,4 +68,66 @@ class ImportProgressPresentationTest {
         assertEquals("Working", importWorkerLabel("working", present = true))
         assertEquals("Worker not running", importWorkerLabel("working", present = false))
     }
+
+    @Test fun busyPhasesCoverOnlyExecutingImports() {
+        listOf("IDLE", "PAUSED", "COMPLETE", "CANCELLED", "FAILED").forEach {
+            assertFalse("phase $it must not count as busy", importPhaseBusy(it))
+        }
+        listOf("DISCOVERING", "PREFLIGHT", "COPYING", "VERIFYING", "PUBLISHING", "PREPARING_DATA").forEach {
+            assertTrue("phase $it must count as busy", importPhaseBusy(it))
+        }
+        assertFalse(importPhaseBusy("UNKNOWN_PHASE"))
+    }
+
+    @Test fun formatsDurationsInHumanUnits() {
+        assertEquals("0s", formatImportDuration(0L))
+        assertEquals("1s", formatImportDuration(1_200L))
+        assertEquals("59s", formatImportDuration(59_499L))
+        assertEquals("1m 0s", formatImportDuration(59_500L))
+        assertEquals("10m 30s", formatImportDuration(630_000L))
+        assertEquals("2h 4m 7s", formatImportDuration((2 * 3600 + 4 * 60 + 7) * 1000L))
+        assertEquals("0s", formatImportDuration(-5_000L))
+    }
+
+    @Test fun presentsBenchmarkAndDeviceSpec() {
+        val value = JSONObject()
+            .put("phase", ImportPhase.COMPLETE.name)
+            .put("updatedAtMs", 9_000L)
+            .put("dataStages", JSONArray())
+            .put("device", JSONObject()
+                .put("label", "Retroid Pocket 6")
+                .put("soc", "Snapdragon 8 Gen 2")
+                .put("activelyCooled", true)
+                .put("abi", "arm64-v8a")
+                .put("api", 33)
+                .put("cores", 8)
+                .put("ramBytes", 8L * 1024 * 1024 * 1024))
+            .put("benchmark", JSONObject()
+                .put("latest", JSONObject()
+                    .put("deviceLabel", "Retroid Pocket 6")
+                    .put("totalMs", 7_412_000L)
+                    .put("copyMs", 2_100_000L)
+                    .put("dataMs", 5_312_000L)
+                    .put("stageDurations", JSONObject()
+                        .put("MMAPS", 3_200_000L)
+                        .put("DBC_MAPS", 240_000L))
+                    .put("mmapMaps", 43)
+                    .put("mmapThreads", 6)
+                    .put("createdAtMs", 9_000L))
+                .put("history", JSONArray()
+                    .put(JSONObject().put("deviceLabel", "Retroid Pocket 6")
+                        .put("totalMs", 7_412_000L).put("createdAtMs", 9_000L))))
+        val presentation = ImportProgressPresentation.fromJson(value)
+        val benchmark = presentation.benchmark
+        assertEquals("Retroid Pocket 6", benchmark?.deviceLabel)
+        assertEquals(7_412_000L, benchmark?.totalMs)
+        assertEquals(listOf("DBC_MAPS" to 240_000L, "MMAPS" to 3_200_000L),
+            benchmark?.stages?.map { it.stage to it.durationMs })
+        assertEquals(43, benchmark?.mmapMaps)
+        assertEquals(1, presentation.benchmarkHistory.size)
+        val device = presentation.device
+        assertEquals("Snapdragon 8 Gen 2", device?.soc)
+        assertTrue(device?.activelyCooled == true)
+        assertNull(presentation.error)
+    }
 }

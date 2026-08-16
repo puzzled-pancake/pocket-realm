@@ -1,25 +1,18 @@
 package com.pocketrealm.ui
 
 import android.content.Intent
-import android.os.Build
-import android.system.Os
-import android.system.OsConstants
-import androidx.compose.foundation.background
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
@@ -30,66 +23,39 @@ import androidx.compose.material3.Text
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.pocketrealm.client.ClientDisplayHost
-import com.pocketrealm.client.ClientManifest
-import com.pocketrealm.client.ClientRuntimeContract
-import com.pocketrealm.client.ClientRuntimeProvider
-import com.pocketrealm.client.ClientRuntimeSelector
-import com.pocketrealm.client.ClientState
-import com.pocketrealm.client.DeviceCaps
-import com.pocketrealm.client.LaunchRequest
-import com.pocketrealm.client.PrefixRequest
-import com.pocketrealm.client.X86DirectWineRuntime
+import com.pocketrealm.importer.DeviceProfile
 import com.pocketrealm.importer.ImportWorkerService
 import com.pocketrealm.importer.ImportProgressPresentation
 import com.pocketrealm.importer.ImportStageProgress
 import com.pocketrealm.importer.formatImportBytes
 import com.pocketrealm.importer.formatImportCpu
+import com.pocketrealm.importer.formatImportDuration
 import com.pocketrealm.importer.formatImportPercent
+import com.pocketrealm.importer.importPhaseBusy
 import com.pocketrealm.importer.importWorkerLabel
-import com.pocketrealm.storage.Settings
-import kotlinx.coroutines.Job
+import com.pocketrealm.importer.stageTitle
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.launch
-import java.util.UUID
 
-/** O06 user-facing, redistributable self-test surface. */
+/**
+ * Managed client import, server-data generation, and the import benchmark.
+ * Picking the client folder again after a completed import starts a fresh
+ * import (new journal id, new immutable generations).
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValues) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val scope = rememberCoroutineScope()
-    val runtime = remember { X86DirectWineRuntime(context) }
-    val settings = remember(context) { Settings(context) }
-    val settingsSnapshot by settings.flow.collectAsState(initial = Settings.Snapshot())
-    var host by remember { mutableStateOf<ClientDisplayHost?>(null) }
-    var sessionId by remember { mutableStateOf<UUID?>(null) }
-    var state by remember { mutableStateOf<ClientState?>(null) }
-    var detail by remember { mutableStateOf("Ready to check the bundled compatibility client") }
-    var busy by remember { mutableStateOf(false) }
-    var observer by remember { mutableStateOf<Job?>(null) }
     var importProgress by remember { mutableStateOf(ImportProgressPresentation.idle()) }
     var importNotice by remember { mutableStateOf<String?>(null) }
     var importBusyNotice by remember { mutableStateOf<String?>(null) }
@@ -102,10 +68,10 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             runCatching {
-                val workerBusy = ImportProgressPresentation.fromJson(
+                val phase = ImportProgressPresentation.fromJson(
                     ImportWorkerService.readStatus(context),
-                ).phase !in setOf("IDLE", "PAUSED")
-                if (workerBusy) {
+                ).phase
+                if (importPhaseBusy(phase)) {
                     // The worker ignores new starts mid-import; do not claim
                     // one started or silently swap the folder under it.
                     importBusyNotice = "An import is already running. Choose the folder again after it finishes."
@@ -125,75 +91,10 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
                 importProgress = ImportProgressPresentation.fromJson(value)
                 importComplete = importProgress.phase == "COMPLETE"
                 dataPreparationEnabled = value.optBoolean("dataPreparationEnabled", true)
-                if (importProgress.phase !in setOf("IDLE", "PAUSED")) importNotice = null
-                if (importProgress.phase in setOf("IDLE", "PAUSED", "COMPLETE")) importBusyNotice = null
+                if (importPhaseBusy(importProgress.phase)) importNotice = null
+                if (!importPhaseBusy(importProgress.phase)) importBusyNotice = null
             }
             delay(1_000)
-        }
-    }
-
-    fun start() {
-        if (busy || sessionId != null && state !in setOf(ClientState.EXITED, ClientState.FAILED, ClientState.FORCE_STOPPED)) return
-        busy = true; detail = "Probing Wine runtime…"
-        scope.launch {
-            try {
-                val runtimeSelection = ClientRuntimeSelector.select(context)
-                check(runtimeSelection.supported) { runtimeSelection.reason }
-                check(runtimeSelection.provider == ClientRuntimeProvider.X86_DIRECT_WINE) {
-                    "The redistributable self-test is currently qualified only for x86DirectWine"
-                }
-                val pageSize = Os.sysconf(OsConstants._SC_PAGESIZE).toInt()
-                val caps = runtime.probe(
-                    DeviceCaps(Build.SUPPORTED_ABIS.firstOrNull().orEmpty(), Build.VERSION.SDK_INT, pageSize),
-                    ClientManifest(ClientRuntimeContract.SELF_TEST_ID),
-                )
-                check(caps.supported) { caps.reason }
-                detail = "Preparing isolated prefix…"
-                val prefix = runtime.preparePrefix(PrefixRequest(ClientManifest(ClientRuntimeContract.SELF_TEST_ID)))
-                var pendingWindow = false
-                val display = ClientDisplayHost(context, prefix.runtimeRoot) {
-                    val id = sessionId
-                    if (id == null) pendingWindow = true else scope.launch { runtime.reportWindowVisible(id) }
-                }
-                host?.close(); host = display
-                detail = "Launching self-test with audio disabled…"
-                val session = runtime.launch(LaunchRequest(prefix.prefixId))
-                sessionId = session.sessionId; state = session.state
-                if (pendingWindow) runtime.reportWindowVisible(session.sessionId)
-                observer?.cancel()
-                observer = scope.launch {
-                    runtime.observe(session.sessionId).collectLatest {
-                        state = it.state; detail = it.detail
-                        if (it.state in setOf(ClientState.EXITED, ClientState.FAILED, ClientState.FORCE_STOPPED)) {
-                            val d = runtime.collectDiagnostics(session.sessionId)
-                            detail = "${it.detail}; window=${d.windowVisible}, audioOff=${d.audioOff}, " +
-                                "keyboard=${d.keyboardSeen}, mouse=${d.mouseSeen}"
-                        }
-                    }
-                }
-                display.onResume()
-            } catch (t: Throwable) {
-                state = ClientState.FAILED
-                detail = "${t.javaClass.simpleName}: ${t.message}"
-            } finally { busy = false }
-        }
-    }
-
-    DisposableEffect(lifecycleOwner) {
-        val lifecycleObserver = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_PAUSE, Lifecycle.Event.ON_STOP -> host?.onPause()
-                Lifecycle.Event.ON_RESUME -> host?.onResume()
-                else -> Unit
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(lifecycleObserver)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(lifecycleObserver)
-            observer?.cancel()
-            host?.releaseInput()
-            host?.close()
-            runtime.close()
         }
     }
 
@@ -202,8 +103,8 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("Direct x86 Wine", style = MaterialTheme.typography.headlineSmall)
-        Text("Redistributable lifecycle self-test • WineD3D • audio off")
+        Text("Game setup", style = MaterialTheme.typography.headlineSmall)
+        Text("Import the WoW 1.12.1 client and generate the server's world data")
         ImportProgressCard(
             progress = importProgress,
             notice = importNotice ?: importBusyNotice,
@@ -217,40 +118,6 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
                 }
             },
         )
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(10.dp)) {
-                Text("State: ${state?.name ?: "IDLE"}", modifier = Modifier.testTag("client-state"))
-                Text(detail, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("client-detail"))
-            }
-        }
-        Box(Modifier.fillMaxWidth().height(360.dp).background(Color.Black).testTag("client-surface")) {
-            host?.let { current ->
-                key(current.generation) {
-                    AndroidView(factory = { current.container }, modifier = Modifier.fillMaxSize())
-                }
-                if (!settingsSnapshot.inputSafeMode) TouchOverlay(current)
-            } ?: Text("The Windows surface is created before launch", color = Color.White, modifier = Modifier.padding(16.dp))
-        }
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = ::start, enabled = !busy, modifier = Modifier.testTag("client-start")) {
-                Text(if (busy) "Working…" else "Start self-test")
-            }
-            OutlinedButton(
-                onClick = { sessionId?.let { scope.launch { runtime.requestClose(it) } } },
-                enabled = sessionId != null && state !in setOf(ClientState.EXITED, ClientState.FAILED, ClientState.FORCE_STOPPED),
-                modifier = Modifier.testTag("client-close"),
-            ) { Text("Close") }
-            OutlinedButton(
-                onClick = { sessionId?.let { scope.launch { runtime.forceStop(it) } } },
-                enabled = sessionId != null && state !in setOf(ClientState.EXITED, ClientState.FAILED, ClientState.FORCE_STOPPED),
-                modifier = Modifier.testTag("client-force-stop"),
-            ) { Text("Force stop") }
-            OutlinedButton(
-                onClick = { host?.showIme() },
-                enabled = host != null,
-                modifier = Modifier.testTag("client-ime-open"),
-            ) { Text("Keyboard") }
-        }
     }
 }
 
@@ -379,7 +246,7 @@ private fun ImportPrimaryPane(
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onSelect, modifier = Modifier.testTag("client-import-select")) {
-                Text("Choose client folder")
+                Text(if (progress.phase == "COMPLETE") "Import again" else "Choose client folder")
             }
             OutlinedButton(
                 onClick = onResume,
@@ -452,8 +319,115 @@ private fun ImportDetailPane(
             Text("Preparation stages", style = MaterialTheme.typography.titleSmall)
             progress.stages.forEach { stage -> ImportStageRow(stage) }
         }
+
+        BenchmarkCard(progress = progress)
     }
 }
+
+@Composable
+private fun BenchmarkCard(progress: ImportProgressPresentation) {
+    val context = LocalContext.current
+    var thermal by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            thermal = thermalStatusLabel(context)
+            delay(2_000)
+        }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        HorizontalDivider()
+        Text("Benchmark", style = MaterialTheme.typography.titleMedium, modifier = Modifier.testTag("client-benchmark"))
+        val benchmark = progress.benchmark
+        if (benchmark != null) {
+            Text(
+                "${benchmark.deviceLabel} — full import in ${formatImportDuration(benchmark.totalMs)}",
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.testTag("client-benchmark-headline"),
+            )
+            benchmark.stages.forEach { stage ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(stageTitle(stage.stage), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    Spacer(Modifier.width(8.dp))
+                    Text(formatImportDuration(stage.durationMs), style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            Text(
+                "Client copy and verify ${formatImportDuration(benchmark.copyMs)}  •  " +
+                    "server data ${formatImportDuration(benchmark.dataMs)}",
+                style = MaterialTheme.typography.labelSmall,
+            )
+            if (benchmark.mmapMaps > 0) {
+                Text(
+                    "Navmesh maps ${benchmark.mmapMaps}  •  generator threads ${benchmark.mmapThreads}",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        } else {
+            Text(
+                "The first complete import on this device records a timed benchmark.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        Text(
+            "Reference: ${DeviceProfile.RETROID_POCKET_6_BASELINE.deviceLabel} full ${DeviceProfile.RETROID_POCKET_6_BASELINE.mmapMaps}-map " +
+                "import in ${formatImportDuration(DeviceProfile.RETROID_POCKET_6_BASELINE.totalMs)} " +
+                "(navmesh ${formatImportDuration(DeviceProfile.RETROID_POCKET_6_BASELINE.mmapMs)} at " +
+                "${DeviceProfile.RETROID_POCKET_6_BASELINE.mmapThreads} threads)",
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.testTag("client-benchmark-reference"),
+        )
+
+        progress.device?.let { device ->
+            Text("Device", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "${device.soc}${if (device.activelyCooled) " • actively cooled" else " • passive cooling"}",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.testTag("client-benchmark-device"),
+            )
+            Text(
+                "${formatImportBytes(device.ramBytes)} RAM  •  ${device.cores} cores  •  ${device.abi}  •  Android API ${device.api}",
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+        thermal?.let {
+            Text(
+                "Thermal now: $it",
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.testTag("client-benchmark-thermal"),
+            )
+        }
+        if (progress.benchmarkHistory.isNotEmpty()) {
+            Text("Past runs", style = MaterialTheme.typography.titleSmall)
+            progress.benchmarkHistory.forEach { entry ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(entry.deviceLabel, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "${formatImportDuration(entry.totalMs)}  •  " +
+                            java.text.SimpleDateFormat("d MMM HH:mm", java.util.Locale.US)
+                                .format(java.util.Date(entry.createdAtMs)),
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun thermalStatusLabel(context: android.content.Context): String? = runCatching {
+    val manager = context.getSystemService(android.content.Context.POWER_SERVICE) as? android.os.PowerManager
+        ?: return null
+    when (manager.currentThermalStatus) {
+        android.os.PowerManager.THERMAL_STATUS_NONE -> "nominal"
+        android.os.PowerManager.THERMAL_STATUS_LIGHT -> "light throttle"
+        android.os.PowerManager.THERMAL_STATUS_MODERATE -> "moderate throttle"
+        android.os.PowerManager.THERMAL_STATUS_SEVERE -> "severe throttle"
+        android.os.PowerManager.THERMAL_STATUS_CRITICAL -> "critical"
+        android.os.PowerManager.THERMAL_STATUS_EMERGENCY -> "emergency"
+        android.os.PowerManager.THERMAL_STATUS_SHUTDOWN -> "shutdown imminent"
+        else -> null
+    }
+}.getOrNull()
 
 @Composable
 private fun ImportProgressLine(

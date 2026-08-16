@@ -388,7 +388,7 @@ class DataPreparationStore(
         private const val MIN_MAP_TILES = 100
         // RP6/modern handheld lane: leave two cores for Android/UI while the
         // finite on-device navigation build uses the remaining big/little pool.
-        private const val MMAP_THREADS = 6
+        internal const val MMAP_THREADS = 6
         private const val CMANGOS_COMMIT = "c096bada9e4ed23ad4ca706c67160a26d7121337"
         private val UUID = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
     }

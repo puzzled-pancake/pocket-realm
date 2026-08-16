@@ -21,6 +21,28 @@ data class DataCheckpoint(
     val attempt: Int,
     val lastError: String?,
     val updatedAtMs: Long,
+    val startedAtMs: Long = 0L,
+    val completedAtMs: Long = 0L,
+)
+
+/** One recorded full-import benchmark; persisted in the importer journal. */
+data class ImportBenchmark(
+    val importId: String,
+    val deviceLabel: String,
+    val model: String,
+    val soc: String,
+    val activelyCooled: Boolean,
+    val abi: String,
+    val api: Int,
+    val cores: Int,
+    val ramBytes: Long,
+    val totalMs: Long,
+    val copyMs: Long,
+    val dataMs: Long,
+    val stageDurationsJson: String,
+    val mmapMaps: Int,
+    val mmapThreads: Int,
+    val createdAtMs: Long,
 )
 
 data class ActiveImportFile(

@@ -50,6 +50,7 @@ class ManagedClientImporter(
         generations.recoverPublished(importId)?.let { published ->
             if (prepareData) dataStore.prepare(importId, published.root)
             journal.complete(importId, published.id)
+            recordBenchmark(importId)
             return@withContext ImportResult(importId, published.id, inventory, storage, scanner.warnings)
         }
         journal.recordInventory(importId, inventory.entries)
@@ -131,6 +132,7 @@ class ManagedClientImporter(
             )
             if (prepareData) dataStore.prepare(importId, published.root)
             journal.complete(importId, published.id)
+            recordBenchmark(importId)
             ImportResult(importId, published.id, inventory, storage, scanner.warnings)
         } catch (error: Throwable) {
             if (error !is ImportInterrupted && error !is kotlinx.coroutines.CancellationException &&
@@ -156,6 +158,51 @@ class ManagedClientImporter(
             copiedBytes = generations.partialLength(id, file.relativePath, file.tempName)
                 .coerceAtMost(file.expectedBytes),
         )
+    }
+
+    fun deviceProfile(): DeviceProfile.Info = DeviceProfile.current(context)
+
+    fun benchmarks(limit: Int = 8): List<ImportBenchmark> = journal.benchmarks(limit)
+
+    /**
+     * Persist a timed benchmark row for a completed import. Telemetry only:
+     * a recording failure must never fail the import itself.
+     */
+    private fun recordBenchmark(importId: String) {
+        runCatching {
+            val timing = journal.importTiming(importId) ?: return
+            val completedAt = timing.second ?: return
+            val stages = journal.dataStages(importId)
+            val durations = JSONObject()
+            var firstStageStart = 0L
+            stages.forEach { checkpoint ->
+                if (checkpoint.startedAtMs > 0L && (firstStageStart == 0L || checkpoint.startedAtMs < firstStageStart)) {
+                    firstStageStart = checkpoint.startedAtMs
+                }
+                if (checkpoint.startedAtMs > 0L && checkpoint.completedAtMs > checkpoint.startedAtMs) {
+                    durations.put(checkpoint.stage.name, checkpoint.completedAtMs - checkpoint.startedAtMs)
+                }
+            }
+            val device = DeviceProfile.current(context)
+            journal.recordBenchmark(ImportBenchmark(
+                importId = importId,
+                deviceLabel = device.label,
+                model = device.model,
+                soc = device.soc,
+                activelyCooled = device.activelyCooled,
+                abi = device.abi,
+                api = device.api,
+                cores = device.cores,
+                ramBytes = device.ramBytes,
+                totalMs = (completedAt - timing.first).coerceAtLeast(0L),
+                copyMs = if (firstStageStart > timing.first) firstStageStart - timing.first else 0L,
+                dataMs = if (firstStageStart > 0L) (completedAt - firstStageStart).coerceAtLeast(0L) else 0L,
+                stageDurationsJson = durations.toString(),
+                mmapMaps = stages.firstOrNull { it.stage == DataStage.MMAPS }?.total ?: 0,
+                mmapThreads = DataPreparationStore.MMAP_THREADS,
+                createdAtMs = completedAt,
+            ))
+        }.onFailure { android.util.Log.w("ImportBenchmark", "benchmark recording failed", it) }
     }
 
     private fun excludeFromSafeRuntime(relative: String): Boolean {

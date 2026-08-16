@@ -192,7 +192,9 @@ class ImportWorkerService : Service() {
                             .put("checkpoint", checkpoint.checkpoint)
                             .put("attempt", checkpoint.attempt)
                             .put("lastError", checkpoint.lastError)
-                            .put("updatedAtMs", checkpoint.updatedAtMs))
+                            .put("updatedAtMs", checkpoint.updatedAtMs)
+                            .put("startedAtMs", checkpoint.startedAtMs)
+                            .put("completedAtMs", checkpoint.completedAtMs))
                     }
                 })
                 .put("worker", JSONObject().put("present", metrics.workerPresent)
@@ -201,6 +203,30 @@ class ImportWorkerService : Service() {
                     .put("processCount", metrics.processCount)
                     .put("sampleWindowMs", metrics.sampleWindowMs)
                     .put("cpuPercent", metrics.cpuPercent))
+                .put("device", importer.deviceProfile().let { device ->
+                    JSONObject().put("label", device.label).put("soc", device.soc)
+                        .put("activelyCooled", device.activelyCooled).put("abi", device.abi)
+                        .put("api", device.api).put("cores", device.cores)
+                        .put("ramBytes", device.ramBytes)
+                })
+                .put("benchmark", JSONObject().apply {
+                    val benchmarks = importer.benchmarks()
+                    put("latest", benchmarks.firstOrNull()?.let { benchmark ->
+                        JSONObject().put("deviceLabel", benchmark.deviceLabel)
+                            .put("totalMs", benchmark.totalMs).put("copyMs", benchmark.copyMs)
+                            .put("dataMs", benchmark.dataMs)
+                            .put("stageDurations", JSONObject(benchmark.stageDurationsJson))
+                            .put("mmapMaps", benchmark.mmapMaps).put("mmapThreads", benchmark.mmapThreads)
+                            .put("createdAtMs", benchmark.createdAtMs)
+                    })
+                    put("history", JSONArray().apply {
+                        benchmarks.forEach { benchmark ->
+                            put(JSONObject().put("deviceLabel", benchmark.deviceLabel)
+                                .put("totalMs", benchmark.totalMs)
+                                .put("createdAtMs", benchmark.createdAtMs))
+                        }
+                    })
+                })
         }
     }
 }
