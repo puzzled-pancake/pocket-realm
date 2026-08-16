@@ -7,6 +7,7 @@ import android.os.Process
 import com.pocketrealm.log.AppLog
 import com.pocketrealm.supervisor.ComponentOwnership
 import org.json.JSONObject
+import com.pocketrealm.BuildConfig
 
 /** Fault-isolated, non-exported owner of MariaDB and its live datadir. */
 class DatabaseService : Service() {
@@ -48,16 +49,25 @@ class DatabaseService : Service() {
             ownership.requireOwner(instanceToken)
             engine.killForTest()
         }
-        override fun killForTest(): String = guarded { engine.killForTest() }
+        override fun killForTest(): String = guarded {
+            check(BuildConfig.DEBUG) { "test process kill is debug-only" }
+            engine.killForTest()
+        }
         override fun recover(): String = guarded { engine.recover() }
-        override fun snapshotAndRestoreTest(): String = guarded { engine.snapshotAndRestoreTest() }
+        override fun snapshotAndRestoreTest(): String = guarded {
+            check(BuildConfig.DEBUG) { "snapshot/restore fault injection is debug-only" }
+            engine.snapshotAndRestoreTest()
+        }
         override fun createNamedBackup(name: String): String = guarded { engine.createNamedBackup(name) }
         override fun listBackups(): String = guarded { engine.listBackups() }
         override fun beginRestore(snapshotId: String): String = guarded { engine.beginRestore(snapshotId) }
         override fun commitRestore(restoreToken: String): String = guarded { engine.commitRestore(restoreToken) }
         override fun rollbackRestore(restoreToken: String): String = guarded { engine.rollbackRestore(restoreToken) }
         override fun rollbackPendingRestore(): String = guarded { engine.rollbackPendingRestore() }
-        override fun storageFullTest(): String = guarded { engine.storageFullTest() }
+        override fun storageFullTest(): String = guarded {
+            check(BuildConfig.DEBUG) { "storage-full fault injection is debug-only" }
+            engine.storageFullTest()
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder = binder

@@ -86,6 +86,7 @@ import com.pocketrealm.supervisor.RuntimeSupervisorClient
 import java.io.File
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 
 /** What the editor is currently pointed at. */
@@ -121,11 +122,17 @@ fun BotsScreen() {
     val settings = remember(context) { Settings(context) }
     val snapshotState: Settings.Snapshot? by settings.flow.collectAsState(initial = null)
     val snapshot = snapshotState ?: Settings.Snapshot()
+    // Installed from a side effect, not during composition (de-vibe A8):
+    // install() does a blocking cold load, which used to run on the main
+    // thread inside remember{} on every first composition.
+    val botsDir = remember(context) { File(context.filesDir, "bots") }
     val store = remember(context) {
+        BotCustomPresets.store() ?: BotPresetStore(botsDir)
+    }
+    LaunchedEffect(context) {
         if (BotCustomPresets.store() == null) {
-            BotCustomPresets.install(File(context.filesDir, "bots"))
+            withContext(Dispatchers.IO) { BotCustomPresets.install(botsDir) }
         }
-        BotCustomPresets.store() ?: BotPresetStore(File(context.filesDir, "bots"))
     }
     val presets by store.presets.collectAsState()
     val scope = rememberCoroutineScope()

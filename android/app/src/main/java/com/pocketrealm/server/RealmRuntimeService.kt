@@ -8,6 +8,7 @@ import com.pocketrealm.log.AppLog
 import com.pocketrealm.supervisor.ComponentOwnership
 import com.pocketrealm.supervisor.RealmEndpoint
 import org.json.JSONObject
+import com.pocketrealm.BuildConfig
 
 /** Dedicated realmd fault domain; Binder exposes lifecycle only, never paths or credentials. */
 class RealmRuntimeService : Service() {
@@ -66,6 +67,7 @@ class RealmRuntimeService : Service() {
             return ""
         }
         override fun killForTest(): String {
+            check(BuildConfig.DEBUG) { "test process kill is debug-only" }
             files.writeLifecycle("realm", false, "kill-for-test")
             Process.killProcess(Process.myPid())
             return ""

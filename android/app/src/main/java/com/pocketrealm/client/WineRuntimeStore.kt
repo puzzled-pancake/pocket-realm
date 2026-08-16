@@ -255,6 +255,12 @@ internal class ArmGraphicsGenerationLease private constructor(
         const val FILE_NAME = ".generation.lease"
         private const val PARENT_LOCK_FILE_NAME = ".generation-index.lock"
         private const val ACQUIRE_RETRY_MS = 25L
+
+        /** Bounded acquire (de-vibe A6): the old loop spun a Binder thread
+         *  every 25 ms forever when the lease could not be taken. Escalate the
+         *  backoff and fail loudly instead of wedging the launch path. */
+        private const val ACQUIRE_DEADLINE_MS = 30_000L
+        private const val ACQUIRE_MAX_BACKOFF_MS = 500L
         private val GENERATION_NAME = Regex("g-[0-9a-f]{32}")
         private val parentMonitors = ConcurrentHashMap<String, Any>()
 
@@ -264,13 +270,22 @@ internal class ArmGraphicsGenerationLease private constructor(
          * it never waits on an inode that pruning could rename out from under it.
          */
         fun acquire(generationRoot: File): ArmGraphicsGenerationLease {
+            val deadline = System.currentTimeMillis() + ACQUIRE_DEADLINE_MS
+            var backoff = ACQUIRE_RETRY_MS
             while (true) {
                 val acquired = withParentLock(generationRoot) { current ->
                     ensureCurrentGenerationRoot(current)
                     tryOpenCurrentLease(current)
                 }
                 if (acquired != null) return acquired
-                Thread.sleep(ACQUIRE_RETRY_MS)
+                if (System.currentTimeMillis() >= deadline) {
+                    throw IllegalStateException(
+                        "generation lease not acquirable within ${ACQUIRE_DEADLINE_MS / 1000}s " +
+                            "(contended by another preparation?)",
+                    )
+                }
+                Thread.sleep(backoff)
+                backoff = minOf(backoff * 2, ACQUIRE_MAX_BACKOFF_MS)
             }
         }
 

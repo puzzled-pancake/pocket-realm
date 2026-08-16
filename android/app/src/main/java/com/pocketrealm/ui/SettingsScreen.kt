@@ -17,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -71,6 +72,8 @@ import kotlin.math.roundToInt
  * General application/server settings. Bot world configuration lives in the
  * dedicated Bots destination; LAN host/join lives in the LAN destination.
  */
+private const val BACKUP_AWAIT_TIMEOUT_MS = 10 * 60_000L
+
 @Composable
 fun SettingsScreen(
     contentPadding: PaddingValues = PaddingValues(),
@@ -108,15 +111,23 @@ fun SettingsScreen(
     val supervisor = remember(context) { RuntimeSupervisorClient(context) }
     val roots = remember(context) { StorageRoots.get(context) }
     var realmDataBusy by remember { mutableStateOf(false) }
+    var exportIncludesAccount by remember { mutableStateOf(false) }
     var realmDataStatus by remember { mutableStateOf("Realm characters live in the stopped-realm database snapshots.") }
     var pendingImport by remember { mutableStateOf<Pair<Uri, RealmDataArchive.ArchiveInfo>?>(null) }
 
     suspend fun awaitBackupCompletion(): Boolean {
+        // Bounded (de-vibe A5): a backup whose phase never settles used to
+        // spin this coroutine forever with a busy status line.
+        val deadline = System.currentTimeMillis() + BACKUP_AWAIT_TIMEOUT_MS
         while (true) {
             val status = runCatching { supervisor.backupStatus() }.getOrNull() ?: return false
             realmDataStatus = "${status.optString("kind")}: ${status.optString("phase")}"
             if (status.optString("phase") == "COMPLETE") return true
             if (status.optString("phase") == "FAILED") return false
+            if (System.currentTimeMillis() >= deadline) {
+                realmDataStatus = "Backup did not settle within ${BACKUP_AWAIT_TIMEOUT_MS / 60_000} minutes."
+                return false
+            }
             delay(500)
         }
     }
@@ -141,7 +152,14 @@ fun SettingsScreen(
                 return
             }
             val snapshotDir = java.io.File(roots.databaseSnapshots, snapshotId)
-            val accountFile = java.io.File(context.noBackupFilesDir, "user-account/account.json").takeIf { it.isFile }
+            // Credentials are excluded by default (de-vibe A2): an exported ZIP
+            // travels wherever the user sends it; re-entering a password on
+            // import is cheap, un-leaking a credentials file is not.
+            val accountFile = if (exportIncludesAccount) {
+                java.io.File(context.noBackupFilesDir, "user-account/account.json").takeIf { it.isFile }
+            } else {
+                null
+            }
             withContext(Dispatchers.IO) {
                 val output = context.contentResolver.openOutputStream(target)
                     ?: throw IllegalStateException("could not open export target")
@@ -740,6 +758,19 @@ fun SettingsScreen(
 
         HorizontalDivider()
         SettingCard("Realm data") {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Checkbox(
+                    checked = exportIncludesAccount,
+                    onCheckedChange = { exportIncludesAccount = it },
+                )
+                Text(
+                    "Include login credentials in the export (PLAIN TEXT)",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
             OutlinedButton(
                 onClick = {
                     exportPicker.launch(

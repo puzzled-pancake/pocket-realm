@@ -19,6 +19,26 @@ class AndroidPortAssetTest {
     }
     private val addon = File(assetRoot, "addons/android-port/AndroidPort")
 
+    @Test fun `journal re-key drops the whole VanillaConsolePort prefix`() {
+        // 0.5.x -> 0.6.0 migration: "VanillaConsolePort" is 18 characters, so
+        // the re-key must slice from 19. An earlier build sliced from 18
+        // (keeping the trailing "t"), silently losing migrated frame positions
+        // (de-vibe AD1). Pin the corrected slice and forbid the off-by-one.
+        val core = File(addon, "Core.lua").readText()
+        assertTrue(
+            "re-key must use string.sub(name, 19)",
+            core.contains("string.sub(name, 19)"),
+        )
+        assertFalse(
+            "off-by-one slice string.sub(name, 18) must not appear in the re-key",
+            core.contains("string.sub(name, 18)"),
+        )
+        assertTrue(
+            "re-key only applies to the VanillaConsolePort prefix",
+            core.contains("string.find(name, \"VanillaConsolePort\", 1, true) == 1"),
+        )
+    }
+
     @Test fun `built in package is a clean Interface 11200 Lua addon`() {
         val toc = File(addon, "AndroidPort.toc").readText()
         assertTrue(toc.lineSequence().any { it.trim() == "## Interface: 11200" })

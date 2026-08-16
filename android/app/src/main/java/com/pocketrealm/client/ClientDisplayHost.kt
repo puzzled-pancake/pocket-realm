@@ -466,16 +466,7 @@ class ClientDisplayHost(
         alsaConnector = if (audioEnabled) {
             val alsaConfig = UnixSocketConfig.create(tmp.absolutePath, ".sound/AS0")
             ALSAClient.assignFramesPerBuffer(context)
-            val alsaConnectionHandler = if (BuildConfig.DEBUG) {
-                val options = ALSAClient.Options().apply {
-                    // Temporary isolation experiment; an exact regular file
-                    // in app cache is the only runtime enable switch.
-                    syntheticTone = File(context.cacheDir, "alsa-synthetic-tone").isFile
-                }
-                ALSAClientConnectionHandler(options, ALSADiagnostics())
-            } else {
-                ALSAClientConnectionHandler(ALSAClient.Options())
-            }
+            val alsaConnectionHandler = ALSAClientConnectionHandler(ALSAClient.Options())
             XConnectorEpoll(
                 alsaConfig,
                 alsaConnectionHandler,

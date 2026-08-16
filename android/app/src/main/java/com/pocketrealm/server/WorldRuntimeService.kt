@@ -16,6 +16,7 @@ import com.pocketrealm.log.AppLog
 import com.pocketrealm.supervisor.ComponentOwnership
 import com.pocketrealm.supervisor.RealmEndpoint
 import org.json.JSONObject
+import com.pocketrealm.BuildConfig
 
 /** Dedicated mangosd fault domain; bots require an explicit measured profile. */
 class WorldRuntimeService : Service() {
@@ -205,6 +206,7 @@ class WorldRuntimeService : Service() {
             }
         }
         override fun killForTest(): String {
+            check(BuildConfig.DEBUG) { "test process kill is debug-only" }
             return transitionGate.run {
                 stopAdmissionMonitor()
                 files.writeLifecycle("world", false, "kill-for-test")

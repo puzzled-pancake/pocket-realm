@@ -45,6 +45,7 @@ import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import com.pocketrealm.BuildConfig
 
 /** Synchronous admission plus balanced power-lease cleanup for service work. */
 internal class ServiceOperationCoordinator {
@@ -264,6 +265,7 @@ class RealmService : Service() {
         override fun backupStatus(): String = maintenanceStatus
 
         override fun forceComponentForTest(component: String): String {
+            check(BuildConfig.DEBUG) { "fault injection is debug-only" }
             val selected = RuntimeComponent.valueOf(component.uppercase())
             return accepted("force-${selected.name.lowercase()}") {
                 val snapshot = supervisor.state.value
@@ -276,6 +278,7 @@ class RealmService : Service() {
         }
 
         override fun killSupervisorForTest(): String {
+            check(BuildConfig.DEBUG) { "test process kill is debug-only" }
             Thread({
                 Thread.sleep(150)
                 Process.killProcess(Process.myPid())

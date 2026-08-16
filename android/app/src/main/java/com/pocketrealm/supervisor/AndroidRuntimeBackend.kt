@@ -389,10 +389,23 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         component: RuntimeComponent,
         read: suspend () -> JSONObject,
     ): ComponentObservation {
+        // Bounded (de-vibe A5): a component wedged in STARTING used to spin a
+        // supervisor coroutine forever; surface a FAILED observation instead.
+        val deadline = System.currentTimeMillis() + WAIT_READY_TIMEOUT_MS
         while (true) {
             val value = read()
             val result = observation(component, value, "READY")
             if (result.ready || result.state == ComponentLifecycle.FAILED) return result
+            if (System.currentTimeMillis() >= deadline) {
+                return observation(
+                    component,
+                    value.put("state", "FAILED").put(
+                        "exitReason",
+                        "supervisor waitReady timeout after ${WAIT_READY_TIMEOUT_MS / 1000}s",
+                    ),
+                    "READY",
+                )
+            }
             delay(100)
         }
     }
@@ -620,6 +633,9 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
             val launched = json(client.api().launch(launchRequest.toString()))
             val launchedSessionId = launched.getString("sessionId")
             json(display.api().attachSession(owner.instanceToken, launchedSessionId))
+            // Bounded (de-vibe A5): a client wedged mid-start used to poll
+            // forever while holding the launch path.
+            val clientStartDeadline = System.currentTimeMillis() + CLIENT_START_TIMEOUT_MS
             while (true) {
                 if (renderer == "opengl" || renderer == "virgl") {
                     val graphics = json(display.api().status())
@@ -635,6 +651,11 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                     return observed
                 }
                 if (observed.state == ComponentLifecycle.FAILED) return observed
+                if (System.currentTimeMillis() >= clientStartDeadline) {
+                    throw IllegalStateException(
+                        "client failed to reach READY within ${CLIENT_START_TIMEOUT_MS / 1000}s",
+                    )
+                }
                 delay(100)
             }
         } finally {
@@ -871,6 +892,12 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
     }
 
     companion object {
+        // Generous ceilings (de-vibe A5): real starts complete in well under a
+        // minute; these exist so a wedged component surfaces as a failure
+        // instead of an infinite supervisor poll.
+        private const val WAIT_READY_TIMEOUT_MS = 5 * 60_000L
+        private const val CLIENT_START_TIMEOUT_MS = 5 * 60_000L
+
         private const val TAG = "AndroidRuntimeBackend"
         private const val MAX_DATABASE_PREPARATION_STEPS = 12
         const val DEFAULT_PROFILE = "mobile-low-v1"

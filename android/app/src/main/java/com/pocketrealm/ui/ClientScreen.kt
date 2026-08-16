@@ -93,6 +93,9 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
                 dataPreparationEnabled = value.optBoolean("dataPreparationEnabled", true)
                 if (importPhaseBusy(importProgress.phase)) importNotice = null
                 if (!importPhaseBusy(importProgress.phase)) importBusyNotice = null
+                // Terminal phase: stop polling (de-vibe A5) — the screen can
+                // stay open long after a finished/failed import.
+                if (importProgress.phase == "COMPLETE" || importProgress.phase == "FAILED") return@LaunchedEffect
             }
             delay(1_000)
         }
