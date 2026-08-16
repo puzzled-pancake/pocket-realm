@@ -141,9 +141,9 @@ SYSTEM_SONAMES = {
 
 sha256 = common.sha256_file
 def readelf(name: str) -> Path:
-    sdk = Path(os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or "")
-    candidates = sorted(sdk.glob("ndk*/toolchains/llvm/prebuilt/windows-x86_64/bin/llvm-readelf.exe"))
-    candidates += sorted((sdk / "ndk-link/toolchains/llvm/prebuilt/windows-x86_64/bin").glob("llvm-readelf.exe"))
+    sdk = common.resolve_android_sdk()
+    candidates = sorted(sdk.glob(f"ndk*/toolchains/llvm/prebuilt/{common.HOST_TAG}/bin/llvm-readelf.exe"))
+    candidates += sorted((sdk / f"ndk-link/toolchains/llvm/prebuilt/{common.HOST_TAG}/bin").glob("llvm-readelf.exe"))
     if not candidates:
         raise RuntimeError("Android NDK llvm-readelf unavailable")
     return candidates[-1]

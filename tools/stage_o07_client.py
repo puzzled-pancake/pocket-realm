@@ -199,7 +199,7 @@ class Adb:
         self.package = package
         self.exe = shutil.which("adb")
         if not self.exe:
-            sdk = Path(os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or "")
+            sdk = common.resolve_android_sdk()
             candidate = sdk / "platform-tools" / "adb.exe"
             if candidate.is_file():
                 self.exe = str(candidate)

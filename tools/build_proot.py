@@ -44,14 +44,19 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from tools import common
+except ImportError:  # direct execution: python tools/<script>.py
+    import common
 NATIVE = ROOT / "native"
 PROVIDERS = NATIVE / ".providers-extracted"
 PROOT_SRC = PROVIDERS / "proot-termux-a89b3732"
 TALLOC_SRC = PROVIDERS / "talloc-2.4.2"
 
-SDK = Path(os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or "")
+SDK = common.resolve_android_sdk()
 NDK = SDK / "ndk-link"
-TOOLCHAIN = NDK / "toolchains" / "llvm" / "prebuilt" / "windows-x86_64"
+TOOLCHAIN = NDK / "toolchains" / "llvm" / "prebuilt" / common.HOST_TAG
 BIN = TOOLCHAIN / "bin"
 SYSROOT = TOOLCHAIN / "sysroot"
 

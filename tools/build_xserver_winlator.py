@@ -39,10 +39,8 @@ except ImportError:  # direct execution: python tools/<script>.py
     import common
 NATIVE = ROOT / "native"
 SRC = NATIVE / "xserver-winlator" / "cpp"
-SDK = Path(os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or "")
-NDK_DIR = SDK / "ndk"
-NDK_VERSIONS = sorted([p.name for p in NDK_DIR.iterdir()]) if NDK_DIR.is_dir() else []
-NDK = NDK_DIR / NDK_VERSIONS[-1] if NDK_VERSIONS else None
+SDK = common.resolve_android_sdk()
+NDK = common.resolve_android_ndk(sdk=SDK)
 NDK_LINK = SDK / "ndk-link"
 TOOLCHAIN_FILE = NDK_LINK / "build" / "cmake" / "android.toolchain.cmake"
 CMAKE_DIR = SDK / "cmake"

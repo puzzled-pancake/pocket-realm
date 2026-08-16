@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 import os
 import re
 import shutil
@@ -46,7 +47,7 @@ REQUIRED_PLUGINS: set[str] = set()
 
 digest = common.sha256_file
 def sdk_tool(name: str) -> Path:
-    sdk = Path(os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or "")
+    sdk = common.resolve_android_sdk()
     ndks = sorted((sdk / "ndk").glob("*"))
     if not ndks:
         raise RuntimeError("Android NDK unavailable")
@@ -91,11 +92,33 @@ def package_archive(metadata: dict, package: str) -> Path:
     return destination
 
 
-def load_metadata() -> tuple[dict, str]:
+def load_metadata(refresh: bool = False) -> tuple[dict, str]:
+    """Fetch the termux gpkg index, PINNED to the committed lockfile.
+
+    The index is live upstream metadata: without a pin, any full staging run
+    silently moves package versions (observed twice during the de-vibe
+    Phase 4 window). Default behavior: refuse an index whose hash differs
+    from schemas/mariadb-runtime-lockfile.json's metadata_sha256; --refresh
+    explicitly accepts the new index and rewrites the lockfile for review.
+    """
     BUILD.mkdir(parents=True, exist_ok=True)
     path = BUILD / "gpkg.json"
     urllib.request.urlretrieve(METADATA_URL, path)
-    return json.loads(path.read_text(encoding="utf-8")), digest(path)
+    metadata_hash = digest(path)
+    pinned = None
+    if LOCKFILE.is_file():
+        try:
+            pinned = json.loads(LOCKFILE.read_text(encoding="utf-8")).get("metadata_sha256")
+        except json.JSONDecodeError:
+            pinned = None
+    if pinned and metadata_hash != pinned and not refresh:
+        raise RuntimeError(
+            "termux gpkg index moved (metadata sha256 "
+            f"{metadata_hash[:16]}... != pinned {pinned[:16]}...). Package versions "
+            "would silently drift. Review the change and re-run with --refresh "
+            "to accept the new index and rewrite the lockfile."
+        )
+    return json.loads(path.read_text(encoding="utf-8")), metadata_hash
 
 
 def extract(archive: Path, destination: Path) -> None:
@@ -225,7 +248,8 @@ def build_bootstrap(share: Path) -> tuple[str, list[str]]:
 
 
 def main() -> int:
-    metadata, metadata_hash = load_metadata()
+    refresh = "--refresh" in sys.argv
+    metadata, metadata_hash = load_metadata(refresh=refresh)
     mariadb_archive = locate_mariadb_archive()
     if not LIBSTDCXX.is_file():
         raise RuntimeError("run tools/build_mariadb_android.py to extract pinned CGCT libstdc++")

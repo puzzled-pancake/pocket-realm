@@ -41,8 +41,6 @@ REFERENCE = "docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx"
 
 
 def adb(serial: str, shell_cmd: str) -> str:
-    if not ADB:
-        raise RuntimeError("adb not found; set ANDROID_SDK_ROOT")
     r = subprocess.run([str(ADB), "-s", serial, "shell", shell_cmd],
                        capture_output=True, text=True, timeout=30)
     if r.returncode != 0:
