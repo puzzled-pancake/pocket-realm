@@ -1,6 +1,7 @@
 package com.pocketrealm.storage
 
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.mutablePreferencesOf
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.pocketrealm.client.VulkanDriverCatalog
@@ -27,6 +28,20 @@ class SettingsDataStoreTest {
         assertEquals("arm_vulkan_driver_package", driverKey.name)
         assertEquals("arm_vulkan_driver_selection_schema", schemaKey.name)
         assertEquals("arm_vulkan_driver_migration_notice", noticeKey.name)
+    }
+
+    @Test
+    fun gameSettingsKeysFollowTheTweaksPatternWithAnIndependentCounterKey() {
+        val queue = stringPreferencesKey("game_settings_queue")
+        val queueSchema = intPreferencesKey("game_settings_queue_schema")
+        val revision = longPreferencesKey("game_settings_revision")
+        val directEdits = stringPreferencesKey("game_settings_direct_edit_revisions")
+        assertEquals("game_settings_queue", queue.name)
+        assertEquals("game_settings_queue_schema", queueSchema.name)
+        // The revision counter must live outside the queue JSON's key pair
+        // so no queue fallback can regress it.
+        assertEquals("game_settings_revision", revision.name)
+        assertEquals("game_settings_direct_edit_revisions", directEdits.name)
     }
 
     @Test

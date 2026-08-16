@@ -212,10 +212,7 @@ SET gxVSync "0"\r
 SET gxMultisample "1"\r
 SET gxMultisampleQuality "0.000000"\r
 SET maxFPS "30"\r
-SET Sound_EnableAllSound "0"\r
-SET Sound_EnableMusic "0"\r
-SET Sound_EnableSFX "0"\r
-SET Sound_EnableAmbience "0"\r
+SET MasterSoundEffects "0"\r
 SET ffxGlow "0"\r
 SET ffxDeath "0"\r
 SET farclip "177"\r

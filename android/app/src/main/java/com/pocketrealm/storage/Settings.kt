@@ -12,6 +12,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.PreferencesSerializer
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.pocketrealm.bots.BotAdvancedSettings
 import com.pocketrealm.bots.BotProfiles
@@ -26,6 +27,7 @@ import com.pocketrealm.client.ClientDisplaySelection
 import com.pocketrealm.client.ClientFrameCap
 import com.pocketrealm.client.RendererPackageCatalog
 import com.pocketrealm.client.VulkanDriverCatalog
+import com.pocketrealm.ingame.WowGameSettingsConfig
 import com.pocketrealm.server.NearbyInteractPolicy
 import com.pocketrealm.supervisor.RuntimeMode
 import kotlinx.coroutines.CoroutineScope
@@ -272,6 +274,15 @@ class Settings(private val context: Context) {
         val autoLoginAdvanced: Boolean = false,
         val autoLoginTimings: AutoLoginTimings = AutoLoginTimings(),
         val tweaks: ClientTweaksConfig = ClientTweaksConfig(),
+        /**
+         * Pending in-game settings edits (queue only; the revision counter
+         * and direct-edit journal live in their own keys and are written
+         * exclusively through [mutateGameSettings] /
+         * [journalGameSettingsDirectEdit], never through [update]).
+         */
+        val gameSettings: WowGameSettingsConfig = WowGameSettingsConfig(),
+        val gameSettingsRevision: Long = 0L,
+        val gameSettingsDirectEditRevisions: Map<String, Long> = emptyMap(),
         val audioMode: AudioMode = AudioMode.ON,
         val nearbyInteractTriggerGuardMs: Int = NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
         /** Missing legacy values migrate to LOCAL; LAN hosting remains opt-in. */
@@ -306,8 +317,7 @@ class Settings(private val context: Context) {
 
     val flow: Flow<Snapshot> = store.data.map { it.toSnapshot() }
 
-    suspend fun update(transform: (Snapshot) -> Snapshot) {
-        store.edit { prefs ->
+    suspend fun update(transform: (Snapshot) -> Snapshot) {        store.edit { prefs ->
             val current = prefs.toSnapshot()
             val next = transform(current)
             val requestedDisplay = next.displaySelection()
@@ -377,12 +387,66 @@ class Settings(private val context: Context) {
             prefs[Keys.AL_POINTER_DWELL] = timings.pointerDwellMs.toInt()
             prefs[Keys.TWEAKS] = next.tweaks.toJson()
             prefs[Keys.TWEAKS_SCHEMA] = 1
+            prefs[Keys.GAME_SETTINGS] = next.gameSettings.toJson()
+            prefs[Keys.GAME_SETTINGS_SCHEMA] = 1
             prefs[Keys.AUDIO_MODE] = next.audioMode.name
             prefs[Keys.NEARBY_INTERACT_TRIGGER_GUARD_MS] =
                 NearbyInteractPolicy.normalizeTriggerGuardMs(next.nearbyInteractTriggerGuardMs)
             prefs[Keys.RUNTIME_MODE] = next.runtimeMode.name
             prefs[Keys.ALLOW_LAN_PLAYERS] = if (next.allowLanPlayers) 1 else 0
         }
+    }
+
+    /**
+     * One atomic queue mutation: bump the global revision counter and hand
+     * the transformed queue and the post-bump revision to [transform], which
+     * stamps each staged entry. The counter and the queue commit together —
+     * a rejected transform (e.g. payload over cap) rolls both back. The
+     * counter lives in its own preferences key, so no JSON parse failure or
+     * `update()` rewrite can ever regress it.
+     */
+    suspend fun mutateGameSettings(
+        transform: (WowGameSettingsConfig, Long) -> WowGameSettingsConfig,
+    ): Long {
+        var bumped = 0L
+        store.edit { prefs ->
+            val current = if ((prefs[Keys.GAME_SETTINGS_SCHEMA] ?: 0) >= 1) {
+                WowGameSettingsConfig.fromJson(prefs[Keys.GAME_SETTINGS])
+            } else WowGameSettingsConfig()
+            val revision = (prefs[Keys.GAME_SETTINGS_REVISION] ?: 0L) + 1L
+            val next = transform(current, revision)
+            val json = next.toJson()
+            require(json.toByteArray(Charsets.UTF_8).size <= WowGameSettingsConfig.MAX_JSON_BYTES) {
+                "the in-game settings queue is full — discard some pending changes first"
+            }
+            prefs[Keys.GAME_SETTINGS_REVISION] = revision
+            prefs[Keys.GAME_SETTINGS] = json
+            prefs[Keys.GAME_SETTINGS_SCHEMA] = 1
+            bumped = revision
+        }
+        return bumped
+    }
+
+    /**
+     * Journal one direct file edit: bump the counter (every direct edit
+     * bumps it, not only queue-superseding ones) and record the post-bump
+     * revision for the edited key. The master-sound transition rule in
+     * `ManagedConfigPolicy` depends on this journal to tell a user-chosen
+     * master-off apart from a stale enforced zero.
+     */
+    suspend fun journalGameSettingsDirectEdit(key: String): Long {
+        var bumped = 0L
+        store.edit { prefs ->
+            val revision = (prefs[Keys.GAME_SETTINGS_REVISION] ?: 0L) + 1L
+            val edits = parseGameSettingsDirectEdits(prefs[Keys.GAME_SETTINGS_DIRECT_EDITS])
+                .toMutableMap()
+            edits[key] = revision
+            prefs[Keys.GAME_SETTINGS_REVISION] = revision
+            prefs[Keys.GAME_SETTINGS_DIRECT_EDITS] =
+                JSONObject(edits.toMap()).toString()
+            bumped = revision
+        }
+        return bumped
     }
 
     private object Keys {
@@ -438,6 +502,10 @@ class Settings(private val context: Context) {
         val AL_POINTER_DWELL = intPreferencesKey("al_pointer_dwell_ms")
         val TWEAKS = stringPreferencesKey("client_tweaks")
         val TWEAKS_SCHEMA = intPreferencesKey("client_tweaks_schema")
+        val GAME_SETTINGS = stringPreferencesKey("game_settings_queue")
+        val GAME_SETTINGS_SCHEMA = intPreferencesKey("game_settings_queue_schema")
+        val GAME_SETTINGS_REVISION = longPreferencesKey("game_settings_revision")
+        val GAME_SETTINGS_DIRECT_EDITS = stringPreferencesKey("game_settings_direct_edit_revisions")
         val AUDIO_MODE = stringPreferencesKey("audio_mode")
         val NEARBY_INTERACT_TRIGGER_GUARD_MS =
             intPreferencesKey("nearby_interact_trigger_guard_ms")
@@ -613,6 +681,12 @@ class Settings(private val context: Context) {
         tweaks = if ((this[Keys.TWEAKS_SCHEMA] ?: 0) >= 1) {
             ClientTweaksConfig.fromJson(this[Keys.TWEAKS])
         } else ClientTweaksConfig(),
+        gameSettings = if ((this[Keys.GAME_SETTINGS_SCHEMA] ?: 0) >= 1) {
+            WowGameSettingsConfig.fromJson(this[Keys.GAME_SETTINGS])
+        } else WowGameSettingsConfig(),
+        gameSettingsRevision = this[Keys.GAME_SETTINGS_REVISION] ?: 0L,
+        gameSettingsDirectEditRevisions =
+            parseGameSettingsDirectEdits(this[Keys.GAME_SETTINGS_DIRECT_EDITS]),
         audioMode = runCatching { AudioMode.valueOf(this[Keys.AUDIO_MODE] ?: "") }
             .getOrDefault(AudioMode.ON),
         nearbyInteractTriggerGuardMs = NearbyInteractPolicy.normalizeTriggerGuardMs(
@@ -623,5 +697,15 @@ class Settings(private val context: Context) {
             .getOrDefault(RuntimeMode.LOCAL),
         allowLanPlayers = (this[Keys.ALLOW_LAN_PLAYERS] ?: 0) == 1,
         )
+    }
+
+    private fun parseGameSettingsDirectEdits(raw: String?): Map<String, Long> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        return runCatching {
+            val root = JSONObject(raw)
+            val out = linkedMapOf<String, Long>()
+            root.keys().forEachRemaining { key -> out[key] = root.getLong(key) }
+            out
+        }.getOrDefault(emptyMap())
     }
 }

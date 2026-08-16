@@ -144,3 +144,91 @@ class WowVanillaBindingCatalogTest {
         assertFalse(WowVanillaBindingCatalog.basicRecommended.any { it.id == "RAIDTARGET1" })
     }
 }
+
+class WowVanillaBindingDefaultsTest {
+
+    private fun captureSha256(): String {
+        val lines = WowVanillaBindingCatalog.stockKeyBindings.entries.joinToString("\n") {
+            "${it.key}=${it.value.slots.joinToString(",")}"
+        }
+        return java.security.MessageDigest.getInstance("SHA-256")
+            .digest(lines.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+    }
+
+    @Test
+    fun `catalog is version two with capture-pinned defaults`() {
+        assertEquals(2, WowVanillaBindingCatalog.CATALOG_VERSION)
+        assertEquals(WowVanillaBindingCatalog.DEFAULTS_COUNT, WowVanillaBindingCatalog.stockKeyBindings.size)
+        assertEquals(WowVanillaBindingCatalog.DEFAULTS_CAPTURE_SHA256, captureSha256())
+    }
+
+    @Test
+    fun `defaults only reference catalog commands - reserved defaults are the digit bar`() {
+        // Commands whose stock default is a reserved key are exactly the
+        // digit-bar family the controller overlay claims; per the plan they
+        // badge as "controller overlay" instead of Modified and reset skips
+        // them. Every other default must be freely assignable.
+        val digitBar = setOf(
+            "ACTIONBUTTON1", "ACTIONBUTTON2", "ACTIONBUTTON3", "ACTIONBUTTON4",
+            "ACTIONBUTTON5", "ACTIONBUTTON6", "ACTIONBUTTON7", "ACTIONBUTTON8",
+            "ACTIONBUTTON9", "ACTIONBUTTON10",
+            "BONUSACTIONBUTTON9", "BONUSACTIONBUTTON10",
+        )
+        WowVanillaBindingCatalog.stockKeyBindings.forEach { (command, keys) ->
+            assertNotNull(command, WowVanillaBindingCatalog.find(command))
+            assertTrue(command, keys.slots.isNotEmpty())
+            assertTrue(command, keys.slots.size <= 2)
+            keys.slots.forEach { key ->
+                val reserved = WowVanillaBindingCatalog.reservedKeys.any { candidate ->
+                    candidate.equals(key, ignoreCase = true)
+                }
+                assertTrue(
+                    "$command default $key must not be a reserved key",
+                    !reserved || command in digitBar,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `capture spot checks match the live device table`() {
+        assertEquals("W", WowVanillaBindingCatalog.stockDefaultKeys("MOVEFORWARD")!!.primary)
+        assertEquals(
+            "UP",
+            WowVanillaBindingCatalog.stockDefaultKeys("MOVEFORWARD")!!.secondary,
+        )
+        assertEquals(
+            listOf("SPACE", "NUMPAD0"),
+            WowVanillaBindingCatalog.stockDefaultKeys("JUMP")!!.slots,
+        )
+        assertEquals(
+            listOf("9", "0"),
+            listOf(
+                WowVanillaBindingCatalog.stockDefaultKeys("ACTIONBUTTON9")!!.primary,
+                WowVanillaBindingCatalog.stockDefaultKeys("ACTIONBUTTON10")!!.primary,
+            ),
+        )
+        assertEquals(
+            "ALT-1",
+            WowVanillaBindingCatalog.stockDefaultKeys("SELFACTIONBUTTON1")!!.primary,
+        )
+        assertEquals(
+            "CTRL-SHIFT-TAB",
+            WowVanillaBindingCatalog.stockDefaultKeys("TARGETPREVIOUSFRIEND")!!.primary,
+        )
+        assertEquals("4", WowVanillaBindingCatalog.stockDefaultKeys("ACTIONBUTTON4")!!.primary)
+    }
+
+    @Test
+    fun `reserved set equals the controller overlay claims`() {
+        val vcpOwned = com.pocketrealm.addons.VanillaConsolePortBindingRepair.ownedKeys
+        val expected = vcpOwned + setOf("F6", "F9")
+        assertEquals(expected, WowVanillaBindingCatalog.reservedKeys)
+        assertTrue("CTRL-SHIFT-8" in WowVanillaBindingCatalog.reservedKeys)
+        // The overlay owns the digit bar, so ACTIONBUTTON1-8 defaults are
+        // reconstructed, not captured.
+        assertEquals("1", WowVanillaBindingCatalog.stockDefaultKeys("ACTIONBUTTON1")!!.primary)
+        assertTrue("1" in WowVanillaBindingCatalog.reservedKeys)
+    }
+}

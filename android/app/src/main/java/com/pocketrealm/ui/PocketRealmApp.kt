@@ -51,6 +51,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.navigation
+import com.pocketrealm.ingame.WowSettingSection
 import com.pocketrealm.log.AppLog
 import com.pocketrealm.realm.RealmState
 import com.pocketrealm.supervisor.RuntimeSupervisorClient
@@ -191,6 +192,26 @@ fun PocketRealmApp() {
                             )
                         }
                     }
+                    navigation(startDestination = InGameRoutes.HUB, route = InGameRoutes.GRAPH) {
+                        composable(InGameRoutes.HUB) {
+                            InGameSettingsHubScreen(
+                                onOpenRoute = { route -> navigatePush(navController, route) },
+                            )
+                        }
+                        composable(InGameRoutes.GRAPHICS) {
+                            InGameCategoryScreen(WowSettingSection.GRAPHICS)
+                        }
+                        composable(InGameRoutes.SOUND) {
+                            InGameCategoryScreen(WowSettingSection.SOUND)
+                        }
+                        composable(InGameRoutes.INTERFACE) {
+                            InGameCategoryScreen(WowSettingSection.INTERFACE)
+                        }
+                        composable(InGameRoutes.INTERFACE_ADVANCED) {
+                            InGameCategoryScreen(WowSettingSection.INTERFACE_ADVANCED)
+                        }
+                        composable(InGameRoutes.BINDINGS) { InGameBindingsScreen() }
+                    }
                     composable(Screen.Controls.route) { ControlsScreen() }
                     composable(Screen.Settings.route) {
                         SettingsScreen(
@@ -198,6 +219,7 @@ fun PocketRealmApp() {
                             onClientSetup = { navigatePush(navController, Screen.Client.route) },
                             onCapability = { navigatePush(navController, Screen.Capability.route) },
                             onDiagnostics = { navigatePush(navController, Screen.Diagnostics.route) },
+                            onInGameSettings = { navigatePush(navController, InGameRoutes.HUB) },
                         )
                     }
                     composable(Screen.Client.route) { ClientScreen(PaddingValues()) }
@@ -311,6 +333,7 @@ internal object AddonRoutes {
 }
 
 internal fun screenTitle(route: String?): String = when {
+    route?.startsWith(InGameRoutes.GRAPH) == true -> InGameRoutes.titleFor(route)
     route == AddonRoutes.HUB -> "Add-ons"
     route == AddonRoutes.RECOMMENDED -> "Recommended add-ons"
     route == AddonRoutes.INSTALLED -> "My add-ons"

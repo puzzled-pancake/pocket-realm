@@ -47,6 +47,13 @@ internal object VanillaConsolePortBindingRepair {
         put("F7", setOf("VCP_NEARBY_INTERACT"))
     }
 
+    /**
+     * The key chords this repair owns on behalf of the controller overlay.
+     * The binding editor's reserved-key set is defined to equal this set
+     * plus the legacy F6/F9 surrogates (asserted by unit test).
+     */
+    val ownedKeys: Set<String> get() = owned.keys
+
     fun captureBeforeLaunch(clientRoot: File, journal: File) {
         val (wtf, bindingFiles) = bindingFiles(clientRoot) ?: return
         val scopes = linkedMapOf<String, Map<String, String>>()

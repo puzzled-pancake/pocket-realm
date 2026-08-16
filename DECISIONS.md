@@ -364,3 +364,48 @@ The coordinated plan and verification notes live in
   selection unchanged so launch fails closed on the real probe error.
 - **Review:** fresh code-reviewer pass reported NO FINDINGS; unit suite
   green; APK installed on the Pixel 6a 2026-08-16.
+
+## In-game settings external editor; Config.wtf merge model (2026-08-16)
+
+- **Feature:** the Settings screen gains an "In-Game Settings" sub-menu
+  (Graphics / Sound / Interface / Advanced Interface / Key Bindings, hub +
+  nested nav) that edits the imported build-5875 client's own persistence —
+  `WTF/Config.wtf`, account `SavedVariables.lua`, `bindings-cache.wtf` — with
+  a pinned, integrity-hashed catalog
+  (`ingame/WowVanillaSettingsCatalog`, 107 entries) and catalog v2 of
+  `WowVanillaBindingCatalog` (116 capture-pinned stock defaults).
+  Ground truth: `docs/INGAME_SETTINGS_GROUND_TRUTH.md`; design:
+  `docs/INGAME_SETTINGS_PLAN_2026-08-16.md`.
+- **Behavior change:** `Config.wtf` is no longer regenerated from a fixed
+  template. Prepare merges the app-enforced overlay (written-or-deleted per
+  launch condition) over the live file, so client-persisted CVars (volumes,
+  camera, view distance) survive relaunches for the first time. Attestation
+  compares the file against the exact bytes captured in `Prepared`
+  (equivalent fail-closed strength under a merge model). `farclip` flips from
+  enforced to user-editable (seed default 177, capture default 500).
+- **Sound fix riding along:** the template/seed's `Sound_Enable*` lines were
+  WotLK-era names that 1.12.1 ignores (verified: the client preserved them
+  verbatim through a full session). Replaced in lockstep (template policy +
+  `SAFE_CONFIG` + `ClientBuild5875LoginTest`) with the verified
+  `MasterSoundEffects` master CVar: enforced "0" while Pocket Realm audio is
+  OFF (effective enforcement for the first time), user-owned when ON with a
+  one-time off→on transition cleanup guarded by the direct-edit journal.
+- **Apply-once delivery:** edits made while the client runs stage into a
+  DataStore queue (`game_settings_queue`, 48 KiB cap) with a global
+  never-resetting revision counter in its own preferences key
+  (`game_settings_revision`); prepare delivers each entry once per id+scope,
+  records delivery in `managed-safe-profile.json` (`applied_overrides`,
+  carried forward and pruned), and the editor reconcile reports
+  "N applied · M superseded · B blocked". Entries stranded on enforced keys
+  are skipped-and-retained ("blocked — audio is off"), not dropped.
+- **Race closure:** a cross-process `InGameSettingsEditLock` at the stable
+  client root (lease-then-lock ordering, same on both sides) makes editor
+  writes and prepare writes mutually exclusive; the editor re-checks the
+  stopped state (session terminal + drained, no prepared ticket, no prepare
+  in flight — newly exposed via `statusCurrent`) *inside* the lock before
+  writing.
+- **Binding defaults provenance:** device capture filtered for overlay claims
+  (VCP targets/keys, legacy F6/F9), with ACTIONBUTTON1–8's digit defaults
+  reconstructed (the overlay claimed them in the capture); reserved set =
+  VCP-owned ∪ {F6, F9}, reserved-default commands badge "controller overlay"
+  and reset skips them.

@@ -51,6 +51,13 @@ class X86DirectWineRuntime(
         }
     }
 
+    /**
+     * One-shot status snapshot (AIDL `statusCurrent`): the in-game settings
+     * editor's stopped-check consumes `state`, `runtimeFinished`,
+     * `processTreeDrained`, `preparedTicket`, and `prepareInFlight`.
+     */
+    suspend fun statusCurrentJson(): String = transact { it.statusCurrent() }
+
     override suspend fun probe(device: DeviceCaps, client: ClientManifest): ClientCaps = transact {
         val response = json(it.probe(JSONObject().put("protocol", ClientRuntimeContract.PROTOCOL_VERSION)
             .put("provider", provider.id)

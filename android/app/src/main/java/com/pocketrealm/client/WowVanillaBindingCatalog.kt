@@ -56,7 +56,7 @@ data class WowBindingDefinition(
  * binding IDs for this catalog.
  */
 object WowVanillaBindingCatalog {
-    const val CATALOG_VERSION: Int = 1
+    const val CATALOG_VERSION: Int = 2
     const val WOW_CLIENT_VERSION: String = "1.12.1"
     const val WOW_CLIENT_BUILD: Int = 5875
     const val SOURCE_COMMIT: String = "776d64ecf708540969e34df9680ffdacb3e8b555"
@@ -97,6 +97,171 @@ object WowVanillaBindingCatalog {
             description = "$descriptionPrefix $number.",
             advanced = advanced,
         )
+    }
+
+
+    // ------------------------------------------------------------- v2 defaults
+
+    /**
+     * The stock default key slots for one command, ordered (primary first).
+     */
+    data class WowBindingDefaultKeys(val slots: List<String>) {
+        constructor(vararg keys: String) : this(keys.toList())
+
+        val primary: String? get() = slots.getOrNull(0)
+        val secondary: String? get() = slots.getOrNull(1)
+    }
+
+    /**
+     * Stock default keys per command, captured from the live build-5875
+     * account `bindings-cache.wtf` on the Retroid Pocket 6 (2026-08-16)
+     * with the controller overlay's claims filtered out: targets beginning
+     * `VCP_`, the keys F7/F8/F12, and the legacy surrogate pairs F6/
+     * TARGETNEARESTENEMY and F9/TOGGLEAUTORUN. ACTIONBUTTON1..8 are
+     * reconstructed (the VanillaConsolePort overlay had claimed the digit
+     * keys in the capture); the 9/0/-/= row continuing the pattern and
+     * LegacyControllerBindingRepair's stock map corroborate them. Provenance
+     * is DEVICE_CAPTURE, not the FrameXML pin - `Bindings.xml` carries no
+     * default keys (docs/INGAME_SETTINGS_GROUND_TRUTH.md).
+     */
+    val stockKeyBindings: Map<String, WowBindingDefaultKeys> = linkedMapOf(
+            "MOVEANDSTEER" to WowBindingDefaultKeys("BUTTON3"),
+            "MOVEFORWARD" to WowBindingDefaultKeys("W", "UP"),
+            "MOVEBACKWARD" to WowBindingDefaultKeys("S", "DOWN"),
+            "TURNLEFT" to WowBindingDefaultKeys("A", "LEFT"),
+            "TURNRIGHT" to WowBindingDefaultKeys("D", "RIGHT"),
+            "STRAFELEFT" to WowBindingDefaultKeys("Q"),
+            "STRAFERIGHT" to WowBindingDefaultKeys("E"),
+            "JUMP" to WowBindingDefaultKeys("SPACE", "NUMPAD0"),
+            "SITORSTAND" to WowBindingDefaultKeys("X"),
+            "TOGGLESHEATH" to WowBindingDefaultKeys("Z"),
+            "TOGGLEAUTORUN" to WowBindingDefaultKeys("NUMLOCK", "BUTTON4"),
+            "PITCHUP" to WowBindingDefaultKeys("INSERT"),
+            "PITCHDOWN" to WowBindingDefaultKeys("DELETE"),
+            "TOGGLERUN" to WowBindingDefaultKeys("NUMPADDIVIDE"),
+            "OPENCHAT" to WowBindingDefaultKeys("ENTER"),
+            "OPENCHATSLASH" to WowBindingDefaultKeys("/"),
+            "CHATPAGEUP" to WowBindingDefaultKeys("PAGEUP"),
+            "CHATPAGEDOWN" to WowBindingDefaultKeys("PAGEDOWN"),
+            "CHATBOTTOM" to WowBindingDefaultKeys("SHIFT-PAGEDOWN"),
+            "COMBATLOGPAGEUP" to WowBindingDefaultKeys("CTRL-PAGEUP"),
+            "COMBATLOGPAGEDOWN" to WowBindingDefaultKeys("CTRL-PAGEDOWN"),
+            "COMBATLOGBOTTOM" to WowBindingDefaultKeys("CTRL-SHIFT-PAGEDOWN"),
+            "REPLY" to WowBindingDefaultKeys("R"),
+            "REPLY2" to WowBindingDefaultKeys("SHIFT-R"),
+            "ACTIONBUTTON9" to WowBindingDefaultKeys("9"),
+            "ACTIONBUTTON10" to WowBindingDefaultKeys("0"),
+            "ACTIONBUTTON11" to WowBindingDefaultKeys("-"),
+            "ACTIONBUTTON12" to WowBindingDefaultKeys("="),
+            "SELFACTIONBUTTON1" to WowBindingDefaultKeys("ALT-1"),
+            "SELFACTIONBUTTON2" to WowBindingDefaultKeys("ALT-2"),
+            "SELFACTIONBUTTON3" to WowBindingDefaultKeys("ALT-3"),
+            "SELFACTIONBUTTON4" to WowBindingDefaultKeys("ALT-4"),
+            "SELFACTIONBUTTON5" to WowBindingDefaultKeys("ALT-5"),
+            "SELFACTIONBUTTON6" to WowBindingDefaultKeys("ALT-6"),
+            "SELFACTIONBUTTON7" to WowBindingDefaultKeys("ALT-7"),
+            "SELFACTIONBUTTON8" to WowBindingDefaultKeys("ALT-8"),
+            "SELFACTIONBUTTON9" to WowBindingDefaultKeys("ALT-9"),
+            "SELFACTIONBUTTON10" to WowBindingDefaultKeys("ALT-0"),
+            "SELFACTIONBUTTON11" to WowBindingDefaultKeys("ALT--"),
+            "SELFACTIONBUTTON12" to WowBindingDefaultKeys("ALT-="),
+            "SHAPESHIFTBUTTON1" to WowBindingDefaultKeys("CTRL-F1"),
+            "SHAPESHIFTBUTTON2" to WowBindingDefaultKeys("CTRL-F2"),
+            "SHAPESHIFTBUTTON3" to WowBindingDefaultKeys("CTRL-F3"),
+            "SHAPESHIFTBUTTON4" to WowBindingDefaultKeys("CTRL-F4"),
+            "SHAPESHIFTBUTTON5" to WowBindingDefaultKeys("CTRL-F5"),
+            "SHAPESHIFTBUTTON6" to WowBindingDefaultKeys("CTRL-F6"),
+            "SHAPESHIFTBUTTON7" to WowBindingDefaultKeys("CTRL-F7"),
+            "SHAPESHIFTBUTTON8" to WowBindingDefaultKeys("CTRL-F8"),
+            "SHAPESHIFTBUTTON9" to WowBindingDefaultKeys("CTRL-F9"),
+            "SHAPESHIFTBUTTON10" to WowBindingDefaultKeys("CTRL-F10"),
+            "BONUSACTIONBUTTON9" to WowBindingDefaultKeys("CTRL-9"),
+            "BONUSACTIONBUTTON10" to WowBindingDefaultKeys("CTRL-0"),
+            "PREVIOUSACTIONPAGE" to WowBindingDefaultKeys("SHIFT-UP", "SHIFT-MOUSEWHEELUP"),
+            "NEXTACTIONPAGE" to WowBindingDefaultKeys("SHIFT-DOWN", "SHIFT-MOUSEWHEELDOWN"),
+            "TARGETPREVIOUSENEMY" to WowBindingDefaultKeys("SHIFT-TAB"),
+            "TARGETNEARESTFRIEND" to WowBindingDefaultKeys("CTRL-TAB"),
+            "TARGETPREVIOUSFRIEND" to WowBindingDefaultKeys("CTRL-SHIFT-TAB"),
+            "TARGETSELF" to WowBindingDefaultKeys("F1"),
+            "TARGETPET" to WowBindingDefaultKeys("SHIFT-F1"),
+            "TARGETPARTYMEMBER1" to WowBindingDefaultKeys("F2"),
+            "TARGETPARTYMEMBER2" to WowBindingDefaultKeys("F3"),
+            "TARGETPARTYMEMBER3" to WowBindingDefaultKeys("F4"),
+            "TARGETPARTYMEMBER4" to WowBindingDefaultKeys("F5"),
+            "TARGETPARTYPET1" to WowBindingDefaultKeys("SHIFT-F2"),
+            "TARGETPARTYPET2" to WowBindingDefaultKeys("SHIFT-F3"),
+            "TARGETPARTYPET3" to WowBindingDefaultKeys("SHIFT-F4"),
+            "TARGETPARTYPET4" to WowBindingDefaultKeys("SHIFT-F5"),
+            "TARGETLASTHOSTILE" to WowBindingDefaultKeys("G"),
+            "ASSISTTARGET" to WowBindingDefaultKeys("F"),
+            "NAMEPLATES" to WowBindingDefaultKeys("V"),
+            "FRIENDNAMEPLATES" to WowBindingDefaultKeys("SHIFT-V"),
+            "ALLNAMEPLATES" to WowBindingDefaultKeys("CTRL-V"),
+            "ATTACKTARGET" to WowBindingDefaultKeys("T"),
+            "PETATTACK" to WowBindingDefaultKeys("SHIFT-T"),
+            "TOGGLECHARACTER0" to WowBindingDefaultKeys("C"),
+            "OPENALLBAGS" to WowBindingDefaultKeys("SHIFT-B"),
+            "TOGGLESPELLBOOK" to WowBindingDefaultKeys("P"),
+            "TOGGLEPETBOOK" to WowBindingDefaultKeys("SHIFT-I"),
+            "TOGGLECHARACTER3" to WowBindingDefaultKeys("SHIFT-P"),
+            "TOGGLEWORLDSTATESCORES" to WowBindingDefaultKeys("SHIFT-SPACE"),
+            "TOGGLEBATTLEFIELDMINIMAP" to WowBindingDefaultKeys("SHIFT-M"),
+            "TOGGLECHARACTER4" to WowBindingDefaultKeys("H"),
+            "TOGGLETALENTS" to WowBindingDefaultKeys("N"),
+            "TOGGLECHARACTER2" to WowBindingDefaultKeys("U"),
+            "TOGGLECHARACTER1" to WowBindingDefaultKeys("K"),
+            "TOGGLESOCIAL" to WowBindingDefaultKeys("O"),
+            "TOGGLEQUESTLOG" to WowBindingDefaultKeys("L"),
+            "TOGGLECOMBATLOG" to WowBindingDefaultKeys("SHIFT-C"),
+            "TOGGLEGAMEMENU" to WowBindingDefaultKeys("ESCAPE"),
+            "TOGGLEWORLDMAP" to WowBindingDefaultKeys("M"),
+            "SCREENSHOT" to WowBindingDefaultKeys("PRINTSCREEN"),
+            "MINIMAPZOOMIN" to WowBindingDefaultKeys("NUMPADPLUS"),
+            "MINIMAPZOOMOUT" to WowBindingDefaultKeys("NUMPADMINUS"),
+            "TOGGLEMUSIC" to WowBindingDefaultKeys("CTRL-M"),
+            "TOGGLESOUND" to WowBindingDefaultKeys("CTRL-S"),
+            "MASTERVOLUMEUP" to WowBindingDefaultKeys("CTRL-="),
+            "MASTERVOLUMEDOWN" to WowBindingDefaultKeys("CTRL--"),
+            "TOGGLEUI" to WowBindingDefaultKeys("ALT-Z"),
+            "CAMERAZOOMIN" to WowBindingDefaultKeys("MOUSEWHEELUP"),
+            "CAMERAZOOMOUT" to WowBindingDefaultKeys("MOUSEWHEELDOWN"),
+            "NEXTVIEW" to WowBindingDefaultKeys("END"),
+            "PREVVIEW" to WowBindingDefaultKeys("HOME"),
+            "TURNORACTION" to WowBindingDefaultKeys("BUTTON2"),
+            "CAMERAORSELECTORMOVE" to WowBindingDefaultKeys("BUTTON1"),
+            "CAMERAORSELECTORMOVESTICKY" to WowBindingDefaultKeys("CTRL-BUTTON1"),
+            "TOGGLEBACKPACK" to WowBindingDefaultKeys("B"),
+            "TARGETNEARESTENEMY" to WowBindingDefaultKeys("TAB"),
+            "TOGGLEBAG4" to WowBindingDefaultKeys("F11"),
+            "ACTIONBUTTON1" to WowBindingDefaultKeys("1"),
+            "ACTIONBUTTON2" to WowBindingDefaultKeys("2"),
+            "ACTIONBUTTON3" to WowBindingDefaultKeys("3"),
+            "ACTIONBUTTON4" to WowBindingDefaultKeys("4"),
+            "ACTIONBUTTON5" to WowBindingDefaultKeys("5"),
+            "ACTIONBUTTON6" to WowBindingDefaultKeys("6"),
+            "ACTIONBUTTON7" to WowBindingDefaultKeys("7"),
+            "ACTIONBUTTON8" to WowBindingDefaultKeys("8"),
+    )
+
+    /** SHA-256 over `COMMAND=KEY1,KEY2` lines in declaration order. */
+    const val DEFAULTS_CAPTURE_SHA256: String =
+        "30c92e4011fab164b7ac1f31e2176cd22882572c25f375442cf4643c5a7564f1"
+    const val DEFAULTS_COUNT: Int = 116
+
+    fun stockDefaultKeys(commandId: String): WowBindingDefaultKeys? =
+        stockKeyBindings[commandId]
+
+    /**
+     * Keys the controller overlay owns and the editor must never unbind,
+     * offer as assignment targets, or reset: the VanillaConsolePort set
+     * (digits 1-0 plus SHIFT-/CTRL-/CTRL-SHIFT- chords, F7, F8, F12) and the
+     * legacy surrogates F6/F9, which the repair re-appends at every launch.
+     */
+    val reservedKeys: Set<String> = buildSet {
+        listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0").forEach { digit ->
+            add(digit); add("SHIFT-$digit"); add("CTRL-$digit"); add("CTRL-SHIFT-$digit")
+        }
+        addAll(listOf("F7", "F8", "F12", "F6", "F9"))
     }
 
     /** Active, non-debug, non-platform-specific bindings in stock source order. */

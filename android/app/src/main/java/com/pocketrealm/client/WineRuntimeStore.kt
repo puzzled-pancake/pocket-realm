@@ -4,9 +4,22 @@ import android.content.Context
 import android.os.Build
 import android.os.SystemClock
 import com.pocketrealm.addons.AddonRuntimeProjector
+import com.pocketrealm.ingame.BindingsFileCodec
+import com.pocketrealm.ingame.ConfigWtfCodec
+import com.pocketrealm.ingame.GameSettingsDeliveryEntry
+import com.pocketrealm.ingame.GameSettingsDeliveryPlanner
+import com.pocketrealm.ingame.InGameSettingsEditLock
+import com.pocketrealm.ingame.InGameSettingsFiles
+import com.pocketrealm.ingame.ManagedConfigPolicy
+import com.pocketrealm.ingame.SavedVariablesCodec
+import com.pocketrealm.ingame.WowGameSettingsConfig
+import com.pocketrealm.ingame.WowUvarValueForm
+import com.pocketrealm.ingame.WowVanillaSettingsCatalog
 import com.pocketrealm.log.AppLog
 import com.pocketrealm.supervisor.RealmEndpoint
 import com.pocketrealm.wine.WineSpikeNative
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -413,6 +426,12 @@ internal class WineRuntimeStore(private val context: Context) {
         val armGenerationLease: ArmGraphicsGenerationLease? = null,
         val selectedExecutableSize: Long = 0L,
         val selectedExecutableSha256: String = "",
+        /**
+         * Exact bytes written to WTF/Config.wtf by this prepare's merge, or
+         * null when enforcement was skipped (self-test). Attestation
+         * byte-compares the live file against this capture.
+         */
+        val managedConfigText: String? = null,
     ) : AutoCloseable {
         override fun close() {
             try {
@@ -552,9 +571,9 @@ internal class WineRuntimeStore(private val context: Context) {
         check(prefixReady(p.prefix, 1_000)) { "Wine prefix did not become ready" }
         check(p.executable.isFile) { "Authorized client executable is absent" }
         val effectivePrepared = applyTweaks(p, tweaks)
-        if (!p.selfTest) enforceManagedSafeMode(
+        val enforced = if (!p.selfTest) enforceManagedSafeMode(
             effectivePrepared, renderer, displayProfile, inputSafeMode, audioMode, realmEndpoint,
-        )
+        ) else effectivePrepared
 
         val manifest = JSONObject()
             .put("runtime_build_id", ClientRuntimeContract.RUNTIME_BUILD_ID)
@@ -598,7 +617,7 @@ internal class WineRuntimeStore(private val context: Context) {
         }
         writeAtomic(manifestFile, manifest.toString(2))
         enforceQuotas(p)
-        effectivePrepared
+        enforced
         } catch (error: Throwable) {
             p.close()
             throw error
@@ -852,7 +871,7 @@ internal class WineRuntimeStore(private val context: Context) {
         val z = File(dosDevices, "z:").toPath()
         if (Files.exists(z, LinkOption.NOFOLLOW_LINKS)) Files.delete(z)
         Files.createSymbolicLink(z, File("/").toPath())
-        enforceManagedSafeMode(
+        val enforced = enforceManagedSafeMode(
             effectivePrepared, renderer, displayProfile, inputSafeMode, audioMode, realmEndpoint,
         )
 
@@ -927,7 +946,7 @@ internal class WineRuntimeStore(private val context: Context) {
         }
         writeAtomic(File(p.prefix.parentFile, "prefix-manifest.json"), manifest.toString(2))
         pruneInactiveArmGenerations(p)
-        effectivePrepared
+        enforced
         } catch (error: Throwable) {
             p.close()
             throw error
@@ -1551,12 +1570,18 @@ internal class WineRuntimeStore(private val context: Context) {
 
         val displayProfile = ClientDisplayProfile.requireId(p.displayProfileId)
         ClientFrameCap.requireFps(p.frameCap)
-        val configFile = File(managed.root, "WTF/Config.wtf")
-        check(configFile.isFile && !Files.isSymbolicLink(configFile.toPath()) &&
-            configFile.readText(Charsets.UTF_8) == managedConfigText(
-                p, displayProfile, p.audioMode, p.realmEndpoint, config,
-            )) {
-            "prepared WoW display/audio configuration changed after preparation"
+
+        // The prepared Config is attested against the exact bytes this
+        // prepare's merge wrote (captured in Prepared), not a recomputed
+        // template — under the merge model the base file varies per install,
+        // and byte-capture is equivalent fail-closed strength.
+        val expectedConfig = p.managedConfigText
+        if (expectedConfig != null) {
+            val configFile = File(managed.root, "WTF/Config.wtf")
+            check(configFile.isFile && !Files.isSymbolicLink(configFile.toPath()) &&
+                configFile.readText(Charsets.UTF_8) == expectedConfig) {
+                "prepared WoW display/audio configuration changed after preparation"
+            }
         }
 
         if (p.armRenderer != null) {
@@ -1894,7 +1919,7 @@ internal class WineRuntimeStore(private val context: Context) {
         inputSafeMode: Boolean,
         audioMode: String,
         realmEndpoint: RealmEndpoint,
-    ) {
+    ): Prepared {
         check(p.clientId == ClientRuntimeContract.WOW_5875_ID) { "safe profile target mismatch" }
         require(renderer == "dxvk" || renderer == "opengl" || renderer == "virgl" ||
             renderer == "wined3d") {
@@ -1904,16 +1929,122 @@ internal class WineRuntimeStore(private val context: Context) {
         // is launch-effective and may intentionally differ from the user's
         // persisted request when the imported executable is unqualified.
         val effectiveTweaks = ClientTweaksConfig.fromControlJson(p.tweaksJson)
-        val config = managedConfigText(
-            p, displayProfile, audioMode, realmEndpoint, effectiveTweaks,
+        val resolution = resolveVirtualDisplay(displayProfile).resolution
+        val workingDir = p.workingDir
+        val configFile = File(workingDir, "WTF/Config.wtf")
+        val recordFile = File(workingDir, "managed-safe-profile.json")
+
+        // Read side: the user's staged overrides (UI process is the queue's
+        // only writer; this process reads, never writes) and the previous
+        // launch's delivery record, consumed before it is overwritten.
+        val settings = runBlocking { com.pocketrealm.storage.Settings(context).flow.first() }
+        val previousRecord = runCatching {
+            JSONObject(recordFile.readText(Charsets.UTF_8))
+        }.getOrNull()
+        val previousAudio = previousRecord?.optString("audio")?.takeIf { it.isNotEmpty() }
+        val previousPreparedAtRevision = previousRecord?.optLong("preparedAtRevision") ?: 0L
+        val previousDelivered = GameSettingsDeliveryEntry.listFromJson(
+            previousRecord?.opt("applied_overrides"),
         )
-        ClientRealmEndpointProjection.project(File(p.workingDir, "realmlist.wtf"), realmEndpoint)
-        File(p.workingDir, "WTF").mkdirs()
-        writeAtomic(File(p.workingDir, "WTF/Config.wtf"), config)
-        val activeAddons = AddonRuntimeProjector(context).project(p.workingDir, inputSafeMode)
+
+        val enforced = ManagedConfigPolicy.enforcedKeys(
+            ManagedConfigPolicy.LaunchConditions(
+                renderer = renderer,
+                resolution = resolution,
+                gameMaximized = displayProfile.gameMaximized,
+                frameCap = p.frameCap,
+                audioMode = audioMode,
+                realmLoopback = realmEndpoint.isLoopback,
+                soundChannelsEnabled = effectiveTweaks.soundChannelsEnabled,
+                soundChannels = effectiveTweaks.soundChannels,
+            ),
+        ).toMutableList()
+        ManagedConfigPolicy.masterSoundTransitionDelete(
+            previousAudioMode = previousAudio,
+            currentAudioMode = audioMode,
+            previousPreparedAtRevision = previousPreparedAtRevision,
+            directEditRevisions = settings.gameSettingsDirectEditRevisions,
+        )?.let { enforced += it }
+
+        val plan = GameSettingsDeliveryPlanner.plan(
+            config = settings.gameSettings,
+            // Every enforced key — written or deleted — is off-limits to
+            // queued overrides this launch; the merge would skip them anyway.
+            enforcedCvarKeys = enforced.map { it.key }.toSet(),
+            uvarScopeExists = { scope ->
+                InGameSettingsFiles.accountSavedVariables(workingDir, scope).isFile
+            },
+            bindingScopeExists = { scope ->
+                InGameSettingsFiles.bindingsForScope(workingDir, scope).isFile
+            },
+            previousDelivered = previousDelivered,
+        )
+
+        val delivered = mutableListOf<GameSettingsDeliveryEntry>()
+        val configText: String
+        InGameSettingsEditLock.acquire(stableClientRoot()).use {
+            ClientRealmEndpointProjection.project(
+                File(workingDir, "realmlist.wtf"), realmEndpoint,
+            )
+            File(workingDir, "WTF").mkdirs()
+            val base = if (configFile.isFile) configFile.readText(Charsets.UTF_8) else null
+            val merged = ConfigWtfCodec.merge(base, enforced, plan.cvarWrites)
+            configText = merged.text
+            writeAtomic(configFile, configText)
+            delivered += plan.delivered.filter {
+                it.scope == WowGameSettingsConfig.SCOPE_CONFIG
+            }
+            // uvar deliveries: only scalar assignments in files that exist.
+            plan.uvarWrites.forEach { (scope, assignments) ->
+                val file = InGameSettingsFiles.accountSavedVariables(workingDir, scope)
+                if (!file.isFile) return@forEach
+                val text = file.readText(Charsets.UTF_8)
+                var next = text
+                val appliedNames = mutableSetOf<String>()
+                assignments.forEach { (name, value) ->
+                    val updated = SavedVariablesCodec.assign(
+                        next, name, value,
+                        numberForm = WowVanillaSettingsCatalog.byKey(name)
+                            ?.uvarValueForm == WowUvarValueForm.NUMBER,
+                    )
+                    if (updated != null) {
+                        next = updated
+                        appliedNames += name
+                    }
+                }
+                if (next != text) writeAtomic(file, next)
+                delivered += plan.delivered.filter { entry ->
+                    entry.scope == scope &&
+                        WowVanillaSettingsCatalog.byId(entry.key)?.key in appliedNames
+                }
+            }
+            // binding deliveries: enforce the staged two-slot state per command.
+            plan.bindingWrites.forEach { (scope, assignments) ->
+                val file = InGameSettingsFiles.bindingsForScope(workingDir, scope)
+                if (!file.isFile) return@forEach
+                val text = file.readText(Charsets.UTF_8)
+                var next = text
+                assignments.forEach { assignment ->
+                    BindingsFileCodec.keysForCommand(next, assignment.command).forEach { old ->
+                        next = BindingsFileCodec.assign(next, old, null)
+                    }
+                    listOfNotNull(assignment.primary, assignment.secondary).forEach { key ->
+                        next = BindingsFileCodec.assign(next, key, assignment.command)
+                    }
+                }
+                if (next != text) writeAtomic(file, next)
+                delivered += plan.delivered.filter { entry -> entry.scope == scope }
+            }
+        }
+        val activeAddons = AddonRuntimeProjector(context).project(workingDir, inputSafeMode)
+        val carriedForward = GameSettingsDeliveryPlanner.carryForward(
+            previousDelivered,
+            delivered.distinct(),
+            settings.gameSettings,
+        )
         val record = JSONObject()
             .put("schema", 1).put("client_id", p.clientId)
-            .put("renderer", renderer).put("resolution", resolveVirtualDisplay(displayProfile).resolution)
+            .put("renderer", renderer).put("resolution", resolution)
             .put("fps_cap", p.frameCap).put("audio", audioMode)
             .put("game_windowed", true).put("game_maximized", displayProfile.gameMaximized)
             .put("realm_endpoint", realmEndpoint.address)
@@ -1921,60 +2052,19 @@ internal class WineRuntimeStore(private val context: Context) {
             .put("addon_safe_mode", inputSafeMode)
             .put("addon_folders", JSONArray(activeAddons))
             .put("passwords_stored", false).put("source_modified", false)
-        writeAtomic(File(p.workingDir, "managed-safe-profile.json"), record.toString(2))
+            .put("preparedAtRevision", settings.gameSettingsRevision)
+            .put("applied_overrides", GameSettingsDeliveryEntry.listToJson(carriedForward))
+            .put("config_sha256", sha256Text(configText))
+        writeAtomic(recordFile, record.toString(2))
+        return p.copy(managedConfigText = configText)
     }
 
-    private fun managedConfigText(
-        p: Prepared,
-        displayProfile: ClientDisplayProfile,
-        audioMode: String,
-        realmEndpoint: RealmEndpoint,
-        effectiveTweaks: ClientTweaksConfig,
-    ): String {
-        val gameMaximize = if (displayProfile.gameMaximized) "1" else "0"
-        // The virtual desktop adopts the panel's aspect; WoW must render at
-        // exactly that geometry or its window letterboxes inside the desktop.
-        val resolution = resolveVirtualDisplay(displayProfile).resolution
-        val soundOn = audioMode == "on"
-        val soundFlag = if (soundOn) "1" else "0"
-        val soundMixRateLine = if (soundOn) "SET SoundMixRate \"48000\"\n" else ""
-        // Build 5875 defaults its FMOD/DirectSound queue to 50 ms. That is
-        // independently shorter than the qualified Android ALSA queue and is
-        // a plausible Wine scheduling boundary for this client. Keep both at
-        // 100 ms without changing the selected Wine driver.
-        val soundBufferSizeLine = if (soundOn) "SET SoundBufferSize \"100\"\n" else ""
-        val soundChannelsLine = managedSoundChannelsConfigLine(audioMode, effectiveTweaks)
-        val realmNameLine = if (realmEndpoint.isLoopback) "SET realmName \"MaNGOS\"\n" else ""
-        val graphicsApi = if (p.armRenderer == "opengl") "opengl" else "d3d"
-        val legacyShaderLine = if (p.armRenderer == "opengl") "SET M2UseShaders \"0\"\n" else ""
-        return """SET readTOS "1"
-SET readEULA "1"
-SET readScanning "1"
-SET movie "0"
-SET gxApi "$graphicsApi"
-SET gxResolution "$resolution"
-SET gxWindowedResolution "$resolution"
-SET gxWindow "1"
-SET gxMaximize "$gameMaximize"
-SET gxVSync "0"
-SET gxMultisample "1"
-SET gxMultisampleQuality "0.000000"
-SET maxFPS "${p.frameCap}"
-SET scriptMemory "0"
-$legacyShaderLine
-SET Sound_EnableAllSound "$soundFlag"
-SET Sound_EnableMusic "$soundFlag"
-SET Sound_EnableSFX "$soundFlag"
-SET Sound_EnableAmbience "$soundFlag"
-$soundMixRateLine
-$soundBufferSizeLine
-$soundChannelsLine
-SET ffxGlow "0"
-SET ffxDeath "0"
-SET farclip "177"
-$realmNameLine
-""".replace("\n", "\r\n")
-    }
+    private fun sha256Text(text: String): String =
+        java.security.MessageDigest.getInstance("SHA-256")
+            .digest(text.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+
+    private fun stableClientRoot(): File = File(context.noBackupFilesDir, "client")
 
     private fun materializePeCaches(p: Prepared) {
         val extracted = File(context.cacheDir, "client-runtime-assets")

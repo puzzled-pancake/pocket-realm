@@ -32,6 +32,15 @@ class ClientRuntimeService : Service() {
     private var prepared: WineRuntimeStore.Prepared? = null
     private var session: SessionRecord? = null
 
+    /**
+     * True while a preparePrefix call is between its validation and its
+     * prepared-ticket publication — the window in which Config.uvar/binding
+     * writes may be in flight even though no session exists yet. The
+     * in-game settings editor treats this as "not stopped" (plan §5.3).
+     */
+    @Volatile
+    private var prepareInFlight: Boolean = false
+
     private data class SessionRecord(
         val id: UUID,
         val prepared: WineRuntimeStore.Prepared,
@@ -178,19 +187,24 @@ class ClientRuntimeService : Service() {
                 request.getString("tweaks"),
             ).toJson()
             val realmEndpoint = RealmEndpoint.parseStored(request.getString("realmEndpoint"))
-            val base = store.prepare(
-                clientId = request.getString("clientId"),
-                renderer = renderer,
-                audioMode = audioMode,
-                armTranslator = translator,
-                inputSafeMode = request.optBoolean("inputSafeMode", false),
-                armRendererPackageId = rendererPackageId,
-                armVulkanDriverId = vulkanDriverId,
-                displayProfileId = displaySelection.profile.id,
-                frameCap = displaySelection.frameCap.fps,
-                tweaksJson = tweaksJson,
-                realmEndpoint = realmEndpoint,
-            )
+            prepareInFlight = true
+            val base = try {
+                store.prepare(
+                    clientId = request.getString("clientId"),
+                    renderer = renderer,
+                    audioMode = audioMode,
+                    armTranslator = translator,
+                    inputSafeMode = request.optBoolean("inputSafeMode", false),
+                    armRendererPackageId = rendererPackageId,
+                    armVulkanDriverId = vulkanDriverId,
+                    displayProfileId = displaySelection.profile.id,
+                    frameCap = displaySelection.frameCap.fps,
+                    tweaksJson = tweaksJson,
+                    realmEndpoint = realmEndpoint,
+                )
+            } finally {
+                prepareInFlight = false
+            }
             val p = base.copy(prefixId = "${base.prefixId}:${UUID.randomUUID()}")
             synchronized(lock) { prepared = p }
             JSONObject().put("ok", true).put("prefixId", p.prefixId)
@@ -385,10 +399,17 @@ class ClientRuntimeService : Service() {
 
         override fun statusCurrent(): String = guarded("") {
             val value = synchronized(lock) {
-                session?.also(::maybePromoteRunningLocked)?.let(::eventJsonUnsafe) ?: JSONObject().put("ok", true)
-                    .put("sequence", 0).put("state", ClientState.EXITED.name)
-                    .put("detail", "no active client session")
-            }
+                session?.also(::maybePromoteRunningLocked)?.let { eventJsonUnsafe(it) }
+                    ?: JSONObject().put("ok", true)
+                        .put("sequence", 0).put("state", ClientState.EXITED.name)
+                        .put("detail", "no active client session")
+                        .put("runtimeFinished", true)
+                        .put("processTreeDrained", true)
+                // A finished session record lingers until the next launch;
+                // the prepared-ticket truth must come from the field, not
+                // the session payload (plan 5.3's stopped-check).
+            }.put("preparedTicket", synchronized(lock) { prepared != null })
+            value.put("prepareInFlight", prepareInFlight)
             ownership.decorate(value)
         }
 
@@ -930,6 +951,8 @@ class ClientRuntimeService : Service() {
         .put("sequence", r.sequence).put("state", r.state.name).put("detail", r.detail)
         .put("cleanExit", r.cleanExit).put("forced", r.forced)
         .put("windowVisible", r.windowVisible).put("runtimeFinished", r.runtimeFinished)
+        .put("processTreeDrained", r.processTreeDrained)
+        .put("preparedTicket", false)
         .put("renderer", r.prepared.armRenderer ?: "wined3d")
         .put("graphicsTransportContexts", r.graphicsTransportContexts)
         .put("graphicsRendererContexts", r.graphicsRendererContexts)

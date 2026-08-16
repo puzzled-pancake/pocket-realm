@@ -99,12 +99,20 @@ class ClientBuild5875LoginTest {
         delay(1_000)
         closeDisplay()
 
+        // The plan's Phase 1 preservation assertion: a user CVar line seeded
+        // before a prepare survives the merge-based rewrite (the old template
+        // model silently reset every client-persisted CVar each launch).
+        val managedRoot = ManagedClientStore(context).load(ClientRuntimeContract.WOW_5875_ID).root
+        File(managedRoot, "WTF/Config.wtf").appendText("SET MasterVolume \"0.500000\"\r\n")
+
         val relaunchPrefix = withTimeout(240_000) { runtime.preparePrefix(prefixRequest) }
         assertTrue(relaunchPrefix.ok)
+        assertTrue(
+            File(managedRoot, "WTF/Config.wtf").readText().contains("SET MasterVolume \"0.500000\""),
+        )
         assertNotEquals("relaunch must use a newly prepared one-shot ticket", prefix.prefixId,
             relaunchPrefix.prefixId)
         val second = launchAndAwait(relaunchPrefix, "relaunch", renderer, rendererPackageId)
-        val managedRoot = ManagedClientStore(context).load(ClientRuntimeContract.WOW_5875_ID).root
         val config = File(managedRoot, "WTF/Config.wtf").readText()
         val realm = File(managedRoot, "realmlist.wtf").readText().trim()
         val expectedProfile = displaySelection.profile
@@ -120,9 +128,14 @@ class ClientBuild5875LoginTest {
         // add-ons such as pfQuest. Zero is the client-supported unlimited
         // setting exposed by the character-select AddOns screen.
         assertTrue(config.contains("SET scriptMemory \"0\""))
-        assertTrue(config.contains(
-            "SET Sound_EnableAllSound \"${if (audioMode == "on") 1 else 0}\"",
-        ))
+        // The master sound CVar is the verified 1.12.1 name (the template's
+        // old Sound_Enable* family was WotLK-era and inert). Audio-off
+        // enforcement writes it; audio-on leaves it user-owned.
+        if (audioMode == "on") {
+            assertTrue(!config.contains("SET MasterSoundEffects \"0\""))
+        } else {
+            assertTrue(config.contains("SET MasterSoundEffects \"0\""))
+        }
         if (audioMode == "on") {
             assertTrue(config.contains("SET SoundMixRate \"48000\""))
             assertTrue(config.contains("SET SoundBufferSize \"100\""))

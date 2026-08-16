@@ -69,6 +69,7 @@ fun SettingsScreen(
     onClientSetup: (() -> Unit)? = null,
     onCapability: (() -> Unit)? = null,
     onDiagnostics: (() -> Unit)? = null,
+    onInGameSettings: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val settings = remember(context) { Settings(context) }
@@ -535,6 +536,22 @@ fun SettingsScreen(
                     scope.launch { settings.update { it.copy(tweaks = transform(it.tweaks)) } }
                 },
             )
+        }
+
+        HorizontalDivider()
+        SettingCard("In-Game Settings") {
+            Text(
+                "Change the game's own graphics, sound, interface, and key-binding " +
+                    "options here; they apply before the client starts and stay in sync " +
+                    "with changes made in game.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            onInGameSettings?.let { action ->
+                OutlinedButton(
+                    onClick = action,
+                    modifier = Modifier.fillMaxWidth().testTag("settings-open-ingame"),
+                ) { Text("Open In-Game Settings →") }
+            }
         }
 
         HorizontalDivider()
