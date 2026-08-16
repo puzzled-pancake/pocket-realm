@@ -3,6 +3,27 @@
 The canonical offline decisions are ADR-001 through ADR-012 in
 [`docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx`](docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx). This file is a concise repository overlay. A replacement decision must identify the report ADR/section it supersedes, cite implementation evidence, describe migration/rollback, and update `PLAN.md`, `FEATURES.json`, and `PROGRESS.md`.
 
+## Open decisions (de-vibe close-out, 2026-08-17)
+
+These require the project owner and are recorded so they cannot be lost (de-vibe
+plan Decision points 4, 5, 7 and the audit's close-out additions):
+
+4. **pocket-runtime retirement** (plan Decision 4): realm-runtime/MySQL is the
+   verified production runtime; the SQLite-era facade has zero production
+   callers but is still a required gradle closure item and the PKG-experiment
+   dlopen target. Retirement sequence documented in docs/devibe execution
+   records; awaiting owner go-ahead.
+5. **targetSdk 27** (plan Decision 5): kept (documented Wine/execmod
+   constraint). The distribution consequence — never Play-distributable as-is —
+   is recorded here per the plan; schemas/flavor.json's stale target_sdk 35
+   remains tracked as build hygiene item B7.
+7. **Vortek dual tree** (plan Decision 7, from the round-2 audit): the
+   hardened `cpp/vortekrenderer/` tree (bounded serializer, 552 bounds
+   checks) is NOT the one shipped — the APK packages the essentially-upstream
+   `cpp/vortek-runner-2.1` decoder. Recommendation on file: promote the
+   hardened tree behind its host test suite or delete it and its hardener
+   toolchain. Unresolved; both trees remain until decided.
+
 ## Product and legal boundary
 
 1. The product is one installed Android application and UX, not one process and not "SPP inside an APK."
