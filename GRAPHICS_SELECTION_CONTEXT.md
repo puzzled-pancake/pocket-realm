@@ -122,7 +122,7 @@ Gladio on the Pixel.
 - Selection schemas: VulkanDriverCatalog **4**, ArmClientRendererCatalog **3**.
 - Backup of all graphics work: `C:\pocket_realm_graphics_backup\`
   (`graphics-work-2026-08-16.tar.gz` + `graphics-work-extra.tar.gz`).
-- Devices: Pixel 6a `adb-2B031JEGR16397-CaRp5n._adb-tls-connect._tcp` (Mali,
+- Devices: Pixel 6a `adb-REDACTED-DEVICE._adb-tls-connect._tcp` (Mali,
   Android 17, 6 GB, app installed 10:06 with everything above);
   Retroid Pocket 6 `adb-REDACTED-DEVICE._adb-tls-connect._tcp` (Adreno 740,
   Android 13, still running the older v6 targetSdk-35 build unless updated).
