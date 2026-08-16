@@ -92,8 +92,14 @@ public class GLXExtension extends Extension {
             if (contexts == null) throw new GLXBadContext();
 
             long context = contexts.get(contextId, 0L);
-            if (context != 0) destroyGLContext(context);
-            contexts.delete(contextId);
+            if (context != 0) {
+                // Delete before destroying: after the deletion no thread can
+                // newly resolve this pointer while teardown runs (defense in
+                // depth alongside the native glx_context_mutex).
+                contexts.delete(contextId);
+                destroyGLContext(context);
+            }
+            else contexts.delete(contextId);
         }
 
         try (XStreamLock lock = outputStream.lock()) {
@@ -146,8 +152,11 @@ public class GLXExtension extends Extension {
             long context = contexts.get(contextId);
             if (context == 0) throw new GLXBadContext();
 
-            destroyGLXContext(context);
+            // Delete before destroying: after the deletion no thread can
+            // newly resolve this pointer while teardown runs (defense in
+            // depth alongside the native glx_context_mutex).
             contexts.delete(contextId);
+            destroyGLXContext(context);
         }
     }
 

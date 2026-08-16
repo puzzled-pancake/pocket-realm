@@ -340,7 +340,7 @@ class AndroidPortAssetTest {
         assertTrue(core.contains("if candidate.scaleOnly then\n        if self.FrameMover then return self.FrameMover:SaveScaleOnly(frame) end"))
         assertTrue(core.contains("if self.FrameMover then self.FrameMover:SaveFrame(frame, candidate.label) end"))
         assertTrue(core.contains("if saved.scale and candidate.frame.SetScale then candidate.frame:SetScale(saved.scale) end"))
-        assertTrue(core.contains("if self.FrameMover then self.FrameMover:Initialize() end"))
+        assertTrue(core.contains("if self.FrameMover and moverOn then self.FrameMover:Initialize() end"))
         assertTrue(core.contains("elseif message == \"resetui\" then"))
         assertTrue(core.contains("AP.Hud:RestoreChatFrame()"))
 
@@ -367,7 +367,7 @@ class AndroidPortAssetTest {
         val hud = File(addon, "Hud.lua").readText()
         val toc = File(addon, "AndroidPort.toc").readText()
         assertTrue(toc.lineSequence().map(String::trim).contains("Hud.lua"))
-        assertTrue(core.contains("if self.Hud then self.Hud:Initialize() end"))
+        assertTrue(core.contains("if self.Hud and hudOn then self.Hud:Initialize() end"))
         assertTrue(core.contains("elseif message == \"chat\" then"))
 
         // Minimal chat: never persisted into the stored chat profile, so the
@@ -524,7 +524,7 @@ class AndroidPortAssetTest {
         assertTrue(bags.contains("PLAYER_MONEY"))
         // Bags stays non-fatal in the module bootstrap and the radial keeps
         // its stock fallback.
-        assertTrue(core.contains("if self.Bags then self.Bags:Initialize() end"))
+        assertTrue(core.contains("if self.Bags and bagsOn then self.Bags:Initialize() end"))
         assertTrue(radial.contains("AndroidPort.Bags.ready and AndroidPort.Bags:Toggle()"))
     }
 

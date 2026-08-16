@@ -24,6 +24,30 @@ local function Print(message)
     AP:Print(message)
 end
 
+-- Bisection switches: "/ap off <module>" sets the flag; "/console reloadui"
+-- (or a relog) applies it. Modules: bars, radial, mover, hud, bags.
+function AP:IsModuleEnabled(name)
+    if type(AndroidPortDB) ~= "table" then return true end
+    if type(AndroidPortDB.disabled) ~= "table" then return true end
+    return not AndroidPortDB.disabled[name]
+end
+
+local MODULE_NAMES = {
+    bars = true, radial = true, mover = true, hud = true, bags = true,
+}
+
+local function SetModuleEnabled(name, enabled)
+    if type(AndroidPortDB) ~= "table" or type(AndroidPortDB.disabled) ~= "table" then
+        return false
+    end
+    if enabled then
+        AndroidPortDB.disabled[name] = nil
+    else
+        AndroidPortDB.disabled[name] = true
+    end
+    return true
+end
+
 function AP:GetLayout()
     local width = UIParent and UIParent:GetWidth() or 1280
     local height = UIParent and UIParent:GetHeight() or 720
@@ -45,6 +69,12 @@ function AP:InitializeDatabase()
     AndroidPortDB.schema = 1
     AndroidPortDB.androidKeyboard = true
     AndroidPortDB.touchSidebars = false
+    -- Per-module disable flags for crash bisection ("/ap off bags" etc.).
+    -- A disabled module skips its initialization and world-entry work; the
+    -- stock behavior stays in place for that module.
+    if type(AndroidPortDB.disabled) ~= "table" then
+        AndroidPortDB.disabled = {}
+    end
     -- uiSchema 2 marks the unified frame layout journal. Legacy icon anchors
     -- keep their own key and remain readable for installations made by 0.3.x.
     AndroidPortDB.uiSchema = 2
@@ -879,6 +909,17 @@ end
 SLASH_ANDROIDPORT1 = "/ap"
 SlashCmdList["ANDROIDPORT"] = function(message)
     message = string.lower(message or "")
+    -- Lua 5.0 (Interface 11200) has no 5.1-style pattern-matching helper;
+    -- capture via string.find instead.
+    local _, _, verb, moduleName = string.find(message, "(%S+)%s+(%S+)")
+    if (verb == "off" or verb == "on") and moduleName and MODULE_NAMES[moduleName] then
+        if SetModuleEnabled(moduleName, verb == "on") then
+            Print(verb == "off"
+                and (moduleName .. " module disabled; run /console reloadui (or relog) to apply")
+                or (moduleName .. " module enabled; run /console reloadui (or relog) to apply"))
+        end
+        return
+    end
     if message == "restore" then
         AP:RestoreBindings()
     elseif message == "resetui" then
@@ -898,7 +939,7 @@ SlashCmdList["ANDROIDPORT"] = function(message)
             AP.Bags:SetEnabled(not (AndroidPortDB and AndroidPortDB.bags and AndroidPortDB.bags.enabled))
         end
     else
-        Print("/ap radial opens the menu; /ap chat toggles the minimal chat; /ap bags toggles the all-in-one bag window; /ap restore restores pre-install key bindings; /ap resetui restores the stock frame layout")
+        Print("/ap radial opens the menu; /ap chat toggles the minimal chat; /ap bags toggles the all-in-one bag window; /ap restore restores pre-install key bindings; /ap resetui restores the stock frame layout; /ap off <bars|radial|mover|hud|bags> disables one module (reloadui to apply) — /ap on re-enables it")
     end
 end
 
@@ -909,16 +950,24 @@ events:RegisterEvent("PLAYER_LOGOUT")
 function AP:InitializeModules()
     self:InitializeDatabase()
     self:RefreshAddonIcons()
-    if self.FrameMover then self.FrameMover:Initialize() end
-    if self.Hud then self.Hud:Initialize() end
+    -- Crash-bisection switches: a module named in AndroidPortDB.disabled is
+    -- skipped entirely (its stock counterpart remains). Disabled modules
+    -- count as ready so key claiming and the fail-safe logic still run.
+    local moverOn = self:IsModuleEnabled("mover")
+    local hudOn = self:IsModuleEnabled("hud")
+    local bagsOn = self:IsModuleEnabled("bags")
+    local barsOn = self:IsModuleEnabled("bars")
+    local radialOn = self:IsModuleEnabled("radial")
+    if self.FrameMover and moverOn then self.FrameMover:Initialize() end
+    if self.Hud and hudOn then self.Hud:Initialize() end
     -- Bags is deliberately non-fatal: a failure here must never trip the
     -- bars or radial fail-safe below nor block ApplyBindings.
-    if self.Bags then self.Bags:Initialize() end
-    local barsReady = self.ActionBars and self.ActionBars:Initialize()
-    local radialReady = self.Radial and self.Radial:Initialize()
+    if self.Bags and bagsOn then self.Bags:Initialize() end
+    local barsReady = not barsOn or (self.ActionBars and self.ActionBars:Initialize())
+    local radialReady = not radialOn or (self.Radial and self.Radial:Initialize())
     if barsReady and radialReady then return true end
-    if self.ActionBars then self.ActionBars:FailSafe(self.ActionBars.buttons) end
-    if self.Radial then self.Radial:FailSafe(self.Radial.frame, self.Radial.overlay, self.Radial.buttons) end
+    if self.ActionBars and barsOn then self.ActionBars:FailSafe(self.ActionBars.buttons) end
+    if self.Radial and radialOn then self.Radial:FailSafe(self.Radial.frame, self.Radial.overlay, self.Radial.buttons) end
     return false
 end
 
@@ -928,10 +977,12 @@ events:SetScript("OnEvent", function()
     elseif event == "ADDON_LOADED" then
         AP:RefreshAddonIcons()
     elseif event == "PLAYER_ENTERING_WORLD" then
+        local barsOn = AP:IsModuleEnabled("bars")
+        local radialOn = AP:IsModuleEnabled("radial")
         if AP:InitializeModules()
-            and AP.ActionBars.ready
-            and AP.Radial.ready
-            and AP.ActionBars:Refresh() then
+            and (not barsOn or (AP.ActionBars and AP.ActionBars.ready))
+            and (not radialOn or (AP.Radial and AP.Radial.ready))
+            and (not barsOn or (AP.ActionBars and AP.ActionBars:Refresh())) then
             AP:ApplyBindings()
         end
     elseif event == "PLAYER_LOGOUT" then

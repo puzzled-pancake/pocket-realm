@@ -75,9 +75,12 @@ object ArmClientRendererCatalog {
         "arm-translated/renderer-packages/$GLADIO_PACKAGE_ID/libGL.so.1"
     const val GLADIO_CLIENT_SHA256 =
         "c02fb7275463bebcc3aa3fcf3e8e6de668bd2e6f39bda57052d3352801636d08"
-    const val GLADIO_SERVER_BUILD_ID = "gladio-eaa2a8d-android-gles-server-f6f6a5db"
+    // Server build re-pinned 2026-08-17: the share-group lifetime fix in
+    // native/xserver-winlator/cpp/gladiorenderer/include/gl_client_state.h
+    // (refcounted GLSharedObjectState; deliberate one-time re-pin).
+    const val GLADIO_SERVER_BUILD_ID = "gladio-eaa2a8d-android-gles-server-4e722a89"
     const val GLADIO_SERVER_SHA256 =
-        "f6f6a5db3ab2169d6ce4157f46be25d7fb06c42daf535861244f2ff4d1c687d7"
+        "4e722a89c8871fb59627f36a5a48446e7d7a0e96e4136bf27188f0a041ebc705"
     const val VIRGL_PACKAGE_ID = "box64-virgl-23.1.9"
     const val VIRGL_ENVIRONMENT_ID = "virpipe-v0-gl31-noerror-ext-v1"
     const val VIRGL_BUILD_ID =

@@ -34,11 +34,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /** Provenance, storage health, and the structured log ring. */
+private const val MAX_CLIENT_CRASH_DUMP_ROWS = 5
+private const val GENERATION_ID_PREFIX_LENGTH = 8
+
 @Composable
 fun DiagnosticsScreen(contentPadding: PaddingValues = PaddingValues()) {
     val context = LocalContext.current
@@ -68,6 +72,37 @@ fun DiagnosticsScreen(contentPadding: PaddingValues = PaddingValues()) {
         }
     }
 
+    // Client-session evidence for crash triage: the Wine session summary and
+    // the WoW client's own crash dumps live under no_backup (main process
+    // shares the UID, so a plain read is fine). Kept read-only and best
+    // effort — absence just means "no session yet".
+    val clientEvidence = remember(context) {
+        runCatching {
+            val wineSession = File(context.noBackupFilesDir, "wine/last-session.json")
+            val sessionLine = if (wineSession.isFile) {
+                val json = org.json.JSONObject(wineSession.readText())
+                listOf(
+                    "session ${json.optString("sessionId")} state=${json.optString("state")}",
+                    "renderer=${json.optString("renderer")} package=${json.optString("rendererPackageId")}" +
+                        " vulkan=${json.optString("vulkanDriverId")} cleanExit=${json.optBoolean("cleanExit")}",
+                )
+            } else emptyList()
+            val crashFiles = File(context.noBackupFilesDir, "client/generations")
+                .listFiles { dir -> dir.isDirectory }
+                .orEmpty()
+                .flatMap { generation ->
+                    File(generation, "Errors").listFiles().orEmpty()
+                        .map { it to generation.name.take(GENERATION_ID_PREFIX_LENGTH) }
+                }
+                .sortedByDescending { it.first.lastModified() }
+                .take(MAX_CLIENT_CRASH_DUMP_ROWS)
+                .map { (file, generationPrefix) ->
+                    "Errors/${file.name} (generation $generationPrefix)"
+                }
+            sessionLine + crashFiles
+        }.getOrDefault(emptyList())
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -87,6 +122,27 @@ fun DiagnosticsScreen(contentPadding: PaddingValues = PaddingValues()) {
                     report.roots.forEach { r ->
                         Text("• ${r.name}: ${if (r.exists) "ok" else "MISSING"} · ${r.usableBytes / (1024 * 1024)} MB free",
                             style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                    }
+                }
+            }
+        }
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Client session evidence",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold)
+                    if (clientEvidence.isEmpty()) {
+                        Text("No Wine session record or client crash dumps found.",
+                            style = MaterialTheme.typography.bodyMedium)
+                    } else {
+                        clientEvidence.forEach { line ->
+                            Text("• $line", style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace)
+                        }
+                        Text("Crash dump texts live in the client generation's Errors/ folder " +
+                            "(Wine timestamps are UTC before the TZ fix).",
+                            style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }

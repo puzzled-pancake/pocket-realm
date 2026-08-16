@@ -286,6 +286,9 @@ events:RegisterEvent("PLAYER_XP_UPDATE")
 events:RegisterEvent("UPDATE_EXHAUSTION")
 events:RegisterEvent("PLAYER_LEVEL_UP")
 events:SetScript("OnEvent", function()
+    -- Crash-bisection switch ("/ap off hud"): skip ALL world-entry work so
+    -- a surviving crash genuinely exonerates this module.
+    if AndroidPort and not AndroidPort:IsModuleEnabled("hud") then return end
     if event == "PLAYER_ENTERING_WORLD" or event == "UPDATE_CHAT_WINDOWS" then
         -- The engine applies the saved chat rectangle after the load-time
         -- pass, silently dropping the window back onto the action cluster;
@@ -300,6 +303,10 @@ events:SetScript("OnEvent", function()
 end)
 events:SetScript("OnUpdate", function()
     if not this.pendingReassert then return end
+    if AndroidPort and not AndroidPort:IsModuleEnabled("hud") then
+        this.pendingReassert = nil
+        return
+    end
     this.elapsed = (this.elapsed or 0) + arg1
     if this.elapsed < this.pendingReassert[1] then return end
     this.elapsed = 0

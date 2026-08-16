@@ -181,6 +181,9 @@ function Radial:Activate(index)
 end
 
 function Radial:Toggle()
+    -- Bisection switch: "/ap off radial" must not lazily (re)initialize the
+    -- module via F12 or /ap radial.
+    if AndroidPort and not AndroidPort:IsModuleEnabled("radial") then return end
     if not self.ready and not self:Initialize() then return end
     if self.frame:IsVisible() then self:Hide() else self:Show() end
 end

@@ -1,12 +1,16 @@
 package com.pocketrealm.client
 
+import android.app.Notification
+import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.os.Process
 import android.os.SystemClock
+import androidx.core.app.NotificationCompat
 import com.pocketrealm.log.AppLog
+import com.pocketrealm.service.RealmService
 import com.pocketrealm.supervisor.RealmEndpoint
 import com.pocketrealm.supervisor.ComponentOwnership
 import com.pocketrealm.wine.WineSpikeNative
@@ -31,6 +35,7 @@ class ClientRuntimeService : Service() {
     private lateinit var ownership: ComponentOwnership
     private var prepared: WineRuntimeStore.Prepared? = null
     private var session: SessionRecord? = null
+    private var sessionForegroundActive = false
 
     /**
      * True while a preparePrefix call is between its validation and its
@@ -82,6 +87,42 @@ class ClientRuntimeService : Service() {
         }
         AppLog.i(TAG, "ClientRuntimeService started pid=${android.os.Process.myPid()}")
     }
+
+    /**
+     * FGS promotion while a Wine session is live: a bound-only service sits
+     * at cache priority whenever the UI is backgrounded, but this process
+     * hosts the entire Box64/Wine/game tree. The supervisor (itself an FGS)
+     * sends ACTION_START_SESSION_FOREGROUND when it binds and the stop action
+     * when it unbinds; the runtime-finished transition below also drops the
+     * foreground state so the notification never outlives the session.
+     */
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_START_SESSION_FOREGROUND -> {
+                RealmService.ensureChannel(this)
+                startForeground(SESSION_NOTIF_ID, buildSessionNotification())
+                sessionForegroundActive = true
+            }
+            ACTION_STOP_SESSION_FOREGROUND -> stopSessionForeground()
+        }
+        return START_NOT_STICKY
+    }
+
+    private fun stopSessionForeground() {
+        if (sessionForegroundActive) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            sessionForegroundActive = false
+        }
+    }
+
+    private fun buildSessionNotification(): Notification =
+        NotificationCompat.Builder(this, RealmService.CHANNEL_ID)
+            .setSmallIcon(com.pocketrealm.R.drawable.ic_launcher_foreground)
+            .setContentTitle("Pocket Realm client")
+            .setContentText("Game client session active")
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .build()
 
     private val binder = object : IClientRuntimeControl.Stub() {
         override fun claim(sessionId: String, instanceToken: String, ownerLease: IBinder): String =
@@ -608,6 +649,9 @@ class ClientRuntimeService : Service() {
             "HOME=${home.absolutePath}",
             "USER=xuser",
             "DISPLAY=:0",
+            // Guest timestamps (WoW Errors/ files, Wine logs) otherwise render
+            // in UTC, 12 hours off on NZST devices.
+            "TZ=${ClientRuntimeContract.posixTzNow()}",
             "ANDROID_SYSVSHM_SERVER=${File(rootfs, "tmp/.sysvshm/SM0").absolutePath}",
             "WINEPREFIX=${r.prepared.prefix.absolutePath}",
             "WINEDEBUG=-all",
@@ -716,6 +760,10 @@ class ClientRuntimeService : Service() {
                     "box64 rc=${result.rc} exit=${result.exitCode} timeout=${result.timedOut}",
                 )
             } else persist(r)
+            // The Wine session is over (clean or failed); drop the FGS
+            // promotion regardless of whether the supervisor's stop intent
+            // has arrived yet.
+            stopSessionForeground()
         }
     }
 
@@ -1054,6 +1102,11 @@ class ClientRuntimeService : Service() {
         private const val TAG = "ClientRuntime"
         private const val FORCE_DRAIN_TIMEOUT_MS = 15_000L
         private const val FORCE_DRAIN_POLL_MS = 50L
+        const val ACTION_START_SESSION_FOREGROUND =
+            "com.pocketrealm.action.CLIENT_SESSION_FOREGROUND_START"
+        const val ACTION_STOP_SESSION_FOREGROUND =
+            "com.pocketrealm.action.CLIENT_SESSION_FOREGROUND_STOP"
+        const val SESSION_NOTIF_ID = 2
         private const val RENDERER_PROOF_TIMEOUT_MS = 15_000L
         private val TERMINAL_STATES = setOf(ClientState.EXITED, ClientState.FORCE_STOPPED, ClientState.FAILED)
     }

@@ -61,7 +61,9 @@ Facts: both crashes are byte-identical — EIP `0x0070211C`, instruction
 WoW.exe build 5875, during first world entry after a fresh realm start
 (T+92 s and T+129 s after `:world` start); the entry at T+4 min succeeded.
 Stack residue: `Interface\AddOns\And…`, `DBG:AndroidPortEvents`,
-`WTF\Account\HELL…`. Not LMK, not renderer-default related (H1 withdrawn).
+`WTF\Account\<account>…`. Not LMK, not renderer-default related (H1
+withdrawn). (v2: also "byte-identical" refined — same fault signature:
+identical EIP/instruction/EBX; timestamps and heap addresses differ.)
 
 Work items (host-side only; the user runs all device tests):
 1. **Bisection tooling + procedure**: add a temporary, UI-reachable "disable
@@ -169,6 +171,22 @@ at death). Work items:
 **F1 tests/gates**: supervisor retry tests (existing `DurableRuntimeSupervisor`
 test patterns), detekt, unit suite; device: crash-bisection log captured;
 `adb install -r` update of the RP6 build (data preserved).
+
+**F1 verification round 1 (2026-08-17) outcome**: agents 1/2 CLEAN, agent 3
+found one blocker — `/ap off hud` left Hud's file-scope event frame
+active at world entry (chat restyle + XP bar), which would falsely
+exonerate Hud in the bisection. Fixed by gating Hud.lua's OnEvent/OnUpdate
+on `IsModuleEnabled("hud")`, and likewise `Radial:Toggle` (F12 could
+lazily re-initialize a disabled radial). Also hardened:
+`requestForegroundStop` now uses `stopService` (a stop-intent could
+resurrect a freshly killed :client process). Deferred/remaining: (a) F1b.2
+Home-screen "world is preparing" Starting-state hint lands with F3a (same
+first-boot window logic); (b) the gladio GUEST-side `libGL.so.1` builds
+from a separately pinned source tree with the same owner-frees-while-
+children-alias pattern — not implicated by current tombstones, recorded as
+remaining work; (c) docs/handoffs/graphics-selection.md:115 retains the
+pre-fix build id as a historical handoff record (superseded by the
+DECISIONS entry).
 
 ---
 

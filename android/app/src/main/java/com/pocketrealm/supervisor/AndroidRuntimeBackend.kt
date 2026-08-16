@@ -61,7 +61,11 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
     private val world = ServiceHandle(appContext, WorldRuntimeService::class.java) {
         IWorldControl.Stub.asInterface(it)
     }
-    private val client = ServiceHandle(appContext, ClientRuntimeService::class.java) {
+    private val client = ServiceHandle(
+        appContext,
+        ClientRuntimeService::class.java,
+        foregroundStartAction = ClientRuntimeService.ACTION_START_SESSION_FOREGROUND,
+    ) {
         IClientRuntimeControl.Stub.asInterface(it)
     }
     private val display = ServiceHandle(appContext, ClientDisplayService::class.java) {
@@ -1023,6 +1027,10 @@ internal fun clientAlreadyDrained(
 private class ServiceHandle<T>(
     private val context: Context,
     private val serviceType: Class<*>,
+    // When set, the service is also promoted to a specialUse FGS while
+    // connected (only :client, which hosts the Box64/Wine process tree and
+    // would otherwise sit at cache priority whenever the UI is backgrounded).
+    private val foregroundStartAction: String? = null,
     private val convert: (IBinder) -> T,
 ) : AutoCloseable {
     private val lock = Mutex()
@@ -1056,10 +1064,30 @@ private class ServiceHandle<T>(
                     connection = null
                     pending = null
                     wait.completeExceptionally(IllegalStateException("${serviceType.simpleName} bind failed"))
+                    return@also
+                }
+                // RealmService (the caller's process) is itself an FGS, so
+                // promoting the bound service is legal even if the UI is in
+                // the background at this moment.
+                foregroundStartAction?.let { action ->
+                    runCatching {
+                        context.startForegroundService(
+                            Intent(context, serviceType).setAction(action))
+                    }
                 }
             }
         }
         return deferred.await()
+    }
+
+    private fun requestForegroundStop() {
+        foregroundStartAction ?: return
+        // stopService (not a stop-intent startService): a started intent
+        // would resurrect a freshly dead :client process just to deliver a
+        // no-op, parking it at service priority — the exact memory-pressure
+        // scenario the promotion exists to avoid. Stopping the component
+        // drops the started half; any remaining binding keeps it alive.
+        runCatching { context.stopService(Intent(context, serviceType)) }
     }
 
     private fun disconnected(candidate: ServiceConnection) {
@@ -1067,6 +1095,7 @@ private class ServiceHandle<T>(
         if (connection === candidate) {
             runCatching { context.unbindService(candidate) }
             connection = null
+            requestForegroundStop()
         }
     }
 
@@ -1074,6 +1103,7 @@ private class ServiceHandle<T>(
         connection?.let { runCatching { context.unbindService(it) } }
         connection = null
         remote = null
+        requestForegroundStop()
         pending?.cancel()
         pending = null
     }

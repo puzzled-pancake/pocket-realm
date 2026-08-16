@@ -2,7 +2,9 @@ package com.pocketrealm.client
 
 import com.pocketrealm.supervisor.RealmEndpoint
 import kotlinx.coroutines.flow.Flow
+import java.util.Locale
 import java.util.UUID
+import kotlin.math.abs
 
 /** Report §15.3 runtime boundary. Proprietary client execution remains O07. */
 interface ClientRuntime {
@@ -208,8 +210,38 @@ object ClientRuntimeContract {
         """.trimIndent() + "\n"
     }
 
+    /**
+     * POSIX TZ string for the device's current UTC offset, e.g. `<+12>-12`
+     * for NZST. The box64 rootfs carries no zoneinfo tree, so glibc silently
+     * ignores IANA names like `Pacific/Auckland`; a POSIX string works
+     * without any tzdata. The fixed offset reflects the offset at launch —
+     * a DST transition mid-session shifts guest timestamps by an hour until
+     * the next launch, which is acceptable for crash-log timestamps (the
+     * previous behavior was a constant 12-hour skew because TZ was absent
+     * and Wine defaulted to UTC).
+     */
+    fun posixTzForOffset(offsetSeconds: Int): String {
+        val magnitude = abs(offsetSeconds)
+        val hours = magnitude / SECONDS_PER_HOUR
+        val minutes = (magnitude % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE
+        val offset = if (minutes == 0) "$hours" else "$hours:$minutes"
+        // POSIX inverts the sign: NZST-12 means twelve hours EAST of UTC.
+        val posixSign = if (offsetSeconds >= 0) "-" else "+"
+        val nameSign = if (offsetSeconds >= 0) "+" else "-"
+        val name = if (minutes == 0) String.format(Locale.ROOT, "%s%d", nameSign, hours)
+        else String.format(Locale.ROOT, "%s%d:%02d", nameSign, hours, minutes)
+        return "<$name>$posixSign$offset"
+    }
+
+    /** TZ value for the guest environment: the device's current offset. */
+    fun posixTzNow(): String =
+        posixTzForOffset(java.time.ZoneOffset.systemDefault()
+            .rules.getOffset(java.time.Instant.now()).totalSeconds)
+
     const val SELF_TEST_ID = "pocket-selftest-v1"
     const val WOW_5875_ID = "wow-1.12.1-5875"
+    private const val SECONDS_PER_HOUR = 3600
+    private const val SECONDS_PER_MINUTE = 60
     const val PREFIX_SCHEMA = 1
     const val MAX_CONTROL_BYTES = 64 * 1024
     const val MAX_DIAGNOSTIC_CHARS = 64 * 1024

@@ -379,8 +379,10 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
         if (abi == "arm64-v8a" && selectedLane == "full") {
             val gladioServer = File(nativeBuildRoot,
                 "xserver-winlator-build/libgladiorenderer.so")
-            check(gladioServer.length() == 1_313_096L && sha256(gladioServer) ==
-                "f6f6a5db3ab2169d6ce4157f46be25d7fb06c42daf535861244f2ff4d1c687d7") {
+            // Re-pinned 2026-08-17 for the share-group lifetime fix
+            // (refcounted GLSharedObjectState in gl_client_state.h).
+            check(gladioServer.length() == 1_314_512L && sha256(gladioServer) ==
+                "4e722a89c8871fb59627f36a5a48446e7d7a0e96e4136bf27188f0a041ebc705") {
                 "ARM Gladio server differs from the reviewed source build"
             }
             val virglServer = File(nativeBuildRoot,

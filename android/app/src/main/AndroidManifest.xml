@@ -76,11 +76,19 @@
 
         <!-- O06: Wine and every native child live in a dedicated fault domain.
              Only the same APK can bind; the token-scoped AIDL surface never
-             accepts an arbitrary executable, prefix path, or environment. -->
+             accepts an arbitrary executable, prefix path, or environment.
+             specialUse FGS while a session runs: the supervisor promotes the
+             service when it binds so the game process tree is not
+             cache-priority whenever the UI is backgrounded. -->
         <service
             android:name=".client.ClientRuntimeService"
             android:process=":client"
-            android:exported="false" />
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Hosts the translated Wine game client process tree for the duration of a play session; killing it terminates the user's game." />
+        </service>
         <service
             android:name=".client.ClientDisplayService"
             android:exported="false" />

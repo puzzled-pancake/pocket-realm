@@ -46,34 +46,62 @@ typedef struct GLClientState {
     } pixelStore;
 #endif
 
+    /* Heap object groups shared across a GLX share list.  Wine destroys
+     * share-group owners before their children (glX allows any order), so
+     * the containers must be reference-counted: the context that allocates
+     * them is not necessarily the one that outlives the group.  Freeing
+     * them on the owner's destruction left every remaining child aliasing
+     * freed SparseArray containers during rendering, corrupting the heap
+     * (observed as an MTE "Pointer tag ... was truncated" abort inside
+     * SparseArray_free on 2026-08-15 when the guest disconnected). */
+    struct GLSharedObjectState* sharedObjects;
     bool usingSharedState;
 } GLClientState;
 
-static inline void GLClientState_init(GLClientState* clientState, GLClientState* sharedState) {
-    if (sharedState) {
-        clientState->usingSharedState = true;
-        clientState->buffers = sharedState->buffers;
+typedef struct GLSharedObjectState {
+    unsigned int refs;
+    SparseArray* buffers;
 #ifdef GL_SERVER
-        clientState->textures = sharedState->textures;
-        clientState->arbPrograms = sharedState->arbPrograms;
-        clientState->programs = sharedState->programs;
-        clientState->shaders = sharedState->shaders;
-        clientState->queries = sharedState->queries;
-        clientState->framebuffers = sharedState->framebuffers;
+    SparseArray* textures;
+    SparseArray* arbPrograms;
+    SparseArray* programs;
+    SparseArray* shaders;
+    SparseArray* framebuffers;
+    SparseArray* queries;
 #endif
+} GLSharedObjectState;
+
+static inline void GLClientState_init(GLClientState* clientState, GLClientState* sharedState) {
+    GLSharedObjectState* sharedObjects;
+    if (sharedState && sharedState->sharedObjects) {
+        sharedObjects = sharedState->sharedObjects;
+        sharedObjects->refs++;
+        clientState->usingSharedState = true;
     }
     else {
-        clientState->usingSharedState = false;
-        clientState->buffers = calloc(1, sizeof(SparseArray));
+        sharedObjects = calloc(1, sizeof(GLSharedObjectState));
+        sharedObjects->refs = 1;
+        sharedObjects->buffers = calloc(1, sizeof(SparseArray));
 #ifdef GL_SERVER
-        clientState->textures = calloc(1, sizeof(SparseArray));
-        clientState->arbPrograms = calloc(1, sizeof(SparseArray));
-        clientState->programs = calloc(1, sizeof(SparseArray));
-        clientState->shaders = calloc(1, sizeof(SparseArray));
-        clientState->queries = calloc(1, sizeof(SparseArray));
-        clientState->framebuffers = calloc(1, sizeof(SparseArray));
+        sharedObjects->textures = calloc(1, sizeof(SparseArray));
+        sharedObjects->arbPrograms = calloc(1, sizeof(SparseArray));
+        sharedObjects->programs = calloc(1, sizeof(SparseArray));
+        sharedObjects->shaders = calloc(1, sizeof(SparseArray));
+        sharedObjects->queries = calloc(1, sizeof(SparseArray));
+        sharedObjects->framebuffers = calloc(1, sizeof(SparseArray));
 #endif
+        clientState->usingSharedState = false;
     }
+    clientState->sharedObjects = sharedObjects;
+    clientState->buffers = sharedObjects->buffers;
+#ifdef GL_SERVER
+    clientState->textures = sharedObjects->textures;
+    clientState->arbPrograms = sharedObjects->arbPrograms;
+    clientState->programs = sharedObjects->programs;
+    clientState->shaders = sharedObjects->shaders;
+    clientState->queries = sharedObjects->queries;
+    clientState->framebuffers = sharedObjects->framebuffers;
+#endif
 }
 
 static inline void GLClientState_destroy(GLClientState* clientState) {
@@ -83,30 +111,48 @@ static inline void GLClientState_destroy(GLClientState* clientState) {
     ArrayList_free(&clientState->persistentBuffers, false);
 #endif
 
-    if (!clientState->usingSharedState) {
-        GLBuffer_onDestroy(clientState);
-        SparseArray_free(clientState->buffers, false);
-        MEMFREE(clientState->buffers);
+    if (clientState->sharedObjects) {
+        GLSharedObjectState* sharedObjects = clientState->sharedObjects;
+        /* The last context in the share group releases the containers;
+         * children destroyed before the owner merely drop their
+         * reference, and the owner destroyed first leaves the containers
+         * alive for its children. */
+        if (--sharedObjects->refs == 0) {
+            GLBuffer_onDestroy(clientState);
+            SparseArray_free(sharedObjects->buffers, false);
+            MEMFREE(sharedObjects->buffers);
 
 #ifdef GL_SERVER
-        SparseArray_free(clientState->textures, true);
-        MEMFREE(clientState->textures);
+            SparseArray_free(sharedObjects->textures, true);
+            MEMFREE(sharedObjects->textures);
 
-        ARBProgram_onDestroy(clientState);
-        SparseArray_free(clientState->arbPrograms, false);
-        MEMFREE(clientState->arbPrograms);
+            ARBProgram_onDestroy(clientState);
+            SparseArray_free(sharedObjects->arbPrograms, false);
+            MEMFREE(sharedObjects->arbPrograms);
 
-        ShaderConverter_onDestroy(clientState);
-        SparseArray_free(clientState->programs, false);
-        MEMFREE(clientState->programs);
-        SparseArray_free(clientState->shaders, false);
-        MEMFREE(clientState->shaders);
+            ShaderConverter_onDestroy(clientState);
+            SparseArray_free(sharedObjects->programs, false);
+            MEMFREE(sharedObjects->programs);
+            SparseArray_free(sharedObjects->shaders, false);
+            MEMFREE(sharedObjects->shaders);
 
-        SparseArray_free(clientState->framebuffers, true);
-        MEMFREE(clientState->framebuffers);
+            SparseArray_free(sharedObjects->framebuffers, true);
+            MEMFREE(sharedObjects->framebuffers);
 
-        SparseArray_free(clientState->queries, true);
-        MEMFREE(clientState->queries);
+            SparseArray_free(sharedObjects->queries, true);
+            MEMFREE(sharedObjects->queries);
+#endif
+            free(sharedObjects);
+        }
+        clientState->sharedObjects = NULL;
+        clientState->buffers = NULL;
+#ifdef GL_SERVER
+        clientState->textures = NULL;
+        clientState->arbPrograms = NULL;
+        clientState->programs = NULL;
+        clientState->shaders = NULL;
+        clientState->queries = NULL;
+        clientState->framebuffers = NULL;
 #endif
     }
 }

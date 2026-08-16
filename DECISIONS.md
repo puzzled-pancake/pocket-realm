@@ -488,3 +488,37 @@ The coordinated plan and verification notes live in
 - **XP strip** re-anchored from floating below the PlayerFrame to directly
   under `PlayerFrameManaBar` (0,-2) with a dark backing, still a PlayerFrame
   child so it moves and scales with the unit frame.
+
+## Gladio share-group lifetime fix; server re-pin (2026-08-17, F1c)
+
+- **What shipped:** reference-counted GLX share-group object containers.
+  `GLClientState_init` now allocates a `GLSharedObjectState` (buffers,
+  textures, arbPrograms, programs, shaders, queries, framebuffers) with a
+  refcount; share-list children increment it instead of borrowing the
+  owner's pointers, and `GLClientState_destroy` releases it — the last
+  context in the group frees the containers. Previously the allocating
+  context freed them on its own destruction, leaving surviving children
+  aliasing freed `SparseArray` containers during rendering; the resulting
+  heap corruption surfaced as the 2026-08-15 MTE "Pointer tag ... was
+  truncated" abort that killed the whole app process on guest disconnect.
+  Wine destroys share-group owners before their children (glX permits any
+  destruction order), so the owner-first order is routine, not exotic.
+- **Hardening shipped alongside:** `SparseArray_free(NULL)` is now a no-op,
+  and `GLXExtension.destroyContext`/`destroyGLContext` delete the map entry
+  before invoking native teardown so a stale pointer can never be resolved
+  and raced by a concurrent makeCurrent.
+- **Deliberate one-time re-pin:** `libgladiorenderer.so`
+  `gladio-eaa2a8d-android-gles-server-4e722a89`, 1314512 bytes, sha256
+  `4e722a89c8871fb59627f36a5a48446e7d7a0e96e4136bf27188f0a041ebc705`
+  (supersedes the phase-4 pair-pin above; the client side is unchanged).
+  Updated in `ArmClientRendererCatalog.kt` and the `build.gradle.kts`
+  closure gate in the same commit. `libvirglrenderer.so` rebuilt
+  byte-identical (pin unchanged). Existing prepared Gladio generations fail
+  the prepared-manifest identity check until re-prepared — fail-closed by
+  design.
+- **Known retained deviation:** `destroyGLXContext` still does not free the
+  `GLXContext` struct itself (inherited from upstream winlator ca3d735).
+  Freeing it is unsafe while guest threads can concurrently hold the raw
+  pointer inside native calls; the bounded per-session leak is preferred
+  over a new use-after-free class. The context-struct fix would require a
+  broader liveness redesign.

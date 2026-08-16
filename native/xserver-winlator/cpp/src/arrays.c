@@ -458,6 +458,7 @@ void* SparseArray_remove(SparseArray* sparseArray, int key) {
 }
 
 void SparseArray_free(SparseArray* sparseArray, bool freeValues) {
+    if (!sparseArray) return;
     if (sparseArray->entries) {
         if (freeValues) {
             for (int i = 0; i < sparseArray->capacity; i++) {
