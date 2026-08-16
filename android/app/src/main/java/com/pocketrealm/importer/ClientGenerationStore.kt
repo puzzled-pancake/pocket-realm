@@ -9,7 +9,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
-import java.security.MessageDigest
 
 /** Immutable generation publication with an atomic active-pointer switch. */
 class ClientGenerationStore(context: Context) {

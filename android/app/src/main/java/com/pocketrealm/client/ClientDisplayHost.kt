@@ -6,7 +6,6 @@ import android.os.Build
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.widget.FrameLayout
-import com.pocketrealm.BuildConfig
 import com.pocketrealm.log.AppLog
 import com.pocketrealm.storage.Settings
 import com.winlator.XServerDisplayActivity

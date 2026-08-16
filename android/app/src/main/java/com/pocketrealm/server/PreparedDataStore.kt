@@ -5,7 +5,6 @@ import java.io.File
 import java.io.RandomAccessFile
 import java.nio.channels.FileLock
 import java.nio.channels.OverlappingFileLockException
-import java.security.MessageDigest
 
 /** Fail-closed reader for the immutable O11 normal-play data generation. */
 internal class PreparedDataStore(private val root: File) {

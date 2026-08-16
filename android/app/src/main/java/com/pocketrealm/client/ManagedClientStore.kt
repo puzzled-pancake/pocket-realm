@@ -5,7 +5,6 @@ import com.pocketrealm.supervisor.RealmEndpoint
 import org.json.JSONObject
 import java.io.File
 import java.nio.file.Files
-import java.security.MessageDigest
 
 /** Fail-closed reader for the app-private O07 client generation. */
 internal class ManagedClientStore(context: Context) {

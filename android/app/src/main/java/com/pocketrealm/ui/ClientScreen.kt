@@ -65,6 +65,7 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
         mutableStateOf(context.contentResolver.persistedUriPermissions
             .firstOrNull { it.isReadPermission }?.uri)
     }
+    var importEpoch by remember { mutableStateOf(0) }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             runCatching {
@@ -80,12 +81,16 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
                 context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 persistedTree = uri
                 ImportWorkerService.start(context, uri)
+                importEpoch += 1  // restart the status poller for the new run
                 importNotice = "Import started. The selected folder remains read-only."
             }.onFailure { importNotice = "Import start failed: ${it.message}" }
         }
     }
 
-    LaunchedEffect(Unit) {
+    // Keyed on the import epoch (de-vibe A5 + verification B1): polling stops
+    // at a terminal phase, and starting another import bumps the epoch so the
+    // effect relaunches instead of leaving a frozen progress card.
+    LaunchedEffect(importEpoch) {
         while (true) {
             runCatching { ImportWorkerService.readStatus(context) }.onSuccess { value ->
                 importProgress = ImportProgressPresentation.fromJson(value)

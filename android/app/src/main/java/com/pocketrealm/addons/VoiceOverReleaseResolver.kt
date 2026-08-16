@@ -1,7 +1,6 @@
 package com.pocketrealm.addons
 
 import org.json.JSONObject
-import java.security.MessageDigest
 
 /** Strictly resolves the two upstream artifacts required by mrthinger's Vanilla 1.12 VoiceOver. */
 internal object VoiceOverReleaseResolver {

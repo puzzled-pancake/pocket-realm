@@ -78,12 +78,17 @@ abstract class ValidateConnectedAndroidTestTargetTask : DefaultTask() {
     fun validateTarget() {
         // Configuration-cache cross-check (de-vibe B2): taskSerialOptionPresent
         // was captured from gradle.startParameter at configuration time, which a
-        // cached configuration can serve stale. Re-derive the flag from the
-        // actual launcher command at execution time and fail loudly on any
-        // disagreement instead of silently skipping the --serial block.
-        val launcherSerialOptionPresent = System.getProperty("sun.java.command", "")
+        // cached configuration can serve stale. Under a Gradle daemon the
+        // launcher JVM is the daemon itself, so its command line carries no
+        // build arguments and this check cannot verify anything (verification
+        // round C1) — it stays useful for no-daemon runs only. The durable fix
+        // is a settings ValueSource feeding a tracked property; tracked as
+        // remaining work. Do not claim coverage the check cannot provide.
+        val launcherCommand = System.getProperty("sun.java.command", "")
+        val launcherIsDaemon = launcherCommand.contains("GradleDaemon")
+        val launcherSerialOptionPresent = launcherCommand
             .split(" ").any { it == "--serial" || it.startsWith("--serial=") }
-        if (launcherSerialOptionPresent != taskSerialOptionPresent.get()) {
+        if (!launcherIsDaemon && launcherSerialOptionPresent != taskSerialOptionPresent.get()) {
             throw GradleException(
                 "BLOCKED: --serial option detection is stale under the configuration " +
                     "cache (configuration saw ${taskSerialOptionPresent.get()}, execution " +

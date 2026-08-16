@@ -399,8 +399,10 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
             if (System.currentTimeMillis() >= deadline) {
                 return observation(
                     component,
+                    // "detail" (not "exitReason"): observation() only surfaces
+                    // detail to the supervisor state (verification C2).
                     value.put("state", "FAILED").put(
-                        "exitReason",
+                        "detail",
                         "supervisor waitReady timeout after ${WAIT_READY_TIMEOUT_MS / MINUTES_MS}m",
                     ),
                     "READY",
@@ -902,7 +904,6 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         const val DEFAULT_PROFILE = "mobile-low-v1"
         const val INTEGRATED_PROFILE = "mobile-low-v2-normal"
         const val BOT_LOW_25_PROFILE = "mobile-low-b1-25-v1"
-        const val BOT_LIVELY_700_PROFILE = "mobile-lively-b700-v2"
         const val CLIENT_BUILD_ID = ClientRuntimeContract.WOW_5875_ID
     }
 }

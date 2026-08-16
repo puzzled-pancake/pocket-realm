@@ -1404,10 +1404,8 @@ internal class WineRuntimeStore(private val context: Context) {
 
     private fun sha256(file: File): String = com.pocketrealm.fs.FileDigests.sha256(file)
 
-    private fun sha256(text: String): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8))
-        return digest.joinToString("") { "%02x".format(it) }
-    }
+    private fun sha256(text: String): String =
+        com.pocketrealm.fs.FileDigests.sha256(text)
 
     /**
      * O23 vanilla-tweaks patch step (A.5). Produces a root-level
@@ -2065,9 +2063,7 @@ internal class WineRuntimeStore(private val context: Context) {
     }
 
     private fun sha256Text(text: String): String =
-        java.security.MessageDigest.getInstance("SHA-256")
-            .digest(text.toByteArray(Charsets.UTF_8))
-            .joinToString("") { "%02x".format(it) }
+        com.pocketrealm.fs.FileDigests.sha256(text)
 
     private fun stableClientRoot(): File = File(context.noBackupFilesDir, "client")
 

@@ -6,7 +6,6 @@ import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
 import java.util.UUID
 
 /** Stopped-state, hash-verified datadir snapshots. Never accepts a live flag. */

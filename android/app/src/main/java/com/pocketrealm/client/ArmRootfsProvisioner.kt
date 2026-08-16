@@ -13,7 +13,6 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.file.Files
 import java.nio.file.Paths
-import java.security.MessageDigest
 
 /** Publishes the pinned Winlator rootfs on clean install without an ADB staging step. */
 class ArmRootfsProvisioner(private val context: Context) {
