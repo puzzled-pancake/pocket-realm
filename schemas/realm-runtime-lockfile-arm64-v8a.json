@@ -25,6 +25,16 @@
       "reason": "Do not enter MMapManager::loadMap when mmap.enabled=0; the disabled manager intentionally has no map instance."
     },
     {
+      "id": "mmap-loadmap-graceful-miss",
+      "path": "src/game/MotionGenerators/MoveMap.cpp",
+      "reason": "Entering a map whose navmesh was never registered (missing mmaps/NNN.mmap) must disable pathfinding for that map, not abort the world process."
+    },
+    {
+      "id": "mmap-loadallmaptiles-graceful-miss",
+      "path": "src/game/MotionGenerators/MoveMap.cpp",
+      "reason": "The Playerbots tile preload path must degrade to a logged skip on an unregistered map instead of aborting the world process."
+    },
+    {
       "id": "embedded-world-thread-rearm",
       "path": "src/mangosd/Master.cpp",
       "reason": "Re-arm CMaNGOS process-global stop state immediately before each embedded world-thread launch."
@@ -96,8 +106,8 @@
     },
     {
       "path": "native/.build-o09-arm64-v8a/realm-staging/jniLibs/arm64-v8a/libpocket_world_runtime.so",
-      "size": 32787944,
-      "sha256": "4f042ba98c47342a27c62e1a2a518c181ef2959daa94aecab569f759217f9b19",
+      "size": 32788376,
+      "sha256": "f385f8c844070c5ed47153bc7a482c21f95e3f6b954ded9688511b5b2dd58fd0",
       "needed": [
         "libc.so",
         "libdl.so",

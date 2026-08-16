@@ -10,6 +10,22 @@ Current gate: `G4 — bots and mobile input UX`. G0 production packaging, G1 dir
 
 Plan/reference alignment: `3 August 2026`
 
+Recent verified fix (2026-08-16, on-device acceptance pending): the O11 MMAP
+stage generated navmeshes for only the 22 terrain-backed maps, so a bot
+entering the WMO-only Uldaman (070) aborted `com.pocketrealm:world` with
+SIGABRT at `MoveMap.cpp:202` (tombstone 15:10 NZST). The import now derives
+its generation map list from `maps/*.map` union `vmaps/*.vmtree` (43 maps,
+WMO-only dungeons included) with a hard failure only when a terrain-backed map
+does not publish and journaled skips for degenerate vmtree-only maps; the MMAP
+stage writes one-second generator CPU and tile-throughput checkpoints (the
+procfs task-wide children fix also repairs the live import CPU pane, which
+could not see the forked generator); and two realm-runtime overlays
+(`mmap-loadmap-graceful-miss`, `mmap-loadallmaptiles-graceful-miss`) degrade
+unregistered-navmesh maps to logged skips instead of aborting worldd. Both ABI
+runtimes were rebuilt and the realmRuntime APK installed on the RP6; the
+remaining step is the user-run re-import acceptance (43-map generation, port
+8085, bot entry into Uldaman without a tombstone).
+
 > Note: an earlier O05 commit (27eb1ad) was reopened after a review found the
 > evidence pipeline had blocking gaps (variant-mistaken host driver, PKG-01 not
 > setting LD_LIBRARY_PATH, null GL strings, non-reproducible API-28 page size,

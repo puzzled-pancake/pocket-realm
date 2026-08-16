@@ -9,9 +9,30 @@
   "playerbots_commit": "1abeac646f4be02bfb47abcc779f3f9089d67f3e",
   "cmangos_source_overlays": [
     {
+      "id": "authenticated-nearby-use-open",
+      "paths": [
+        "src/game/World/World.h",
+        "src/game/World/World.cpp",
+        "src/game/Server/WorldSession.h",
+        "src/game/Chat/ChatHandler.cpp",
+        "src/game/Chat/PocketRealmInteraction.cpp"
+      ],
+      "reason": "Let the managed Vanilla addon request one rate-limited nearby corpse/chest/ordinary-object interaction through the authenticated session and existing loot/use handlers."
+    },
+    {
       "id": "mmap-disabled-load-guard",
       "path": "src/game/Maps/GridMap.cpp",
       "reason": "Do not enter MMapManager::loadMap when mmap.enabled=0; the disabled manager intentionally has no map instance."
+    },
+    {
+      "id": "mmap-loadmap-graceful-miss",
+      "path": "src/game/MotionGenerators/MoveMap.cpp",
+      "reason": "Entering a map whose navmesh was never registered (missing mmaps/NNN.mmap) must disable pathfinding for that map, not abort the world process."
+    },
+    {
+      "id": "mmap-loadallmaptiles-graceful-miss",
+      "path": "src/game/MotionGenerators/MoveMap.cpp",
+      "reason": "The Playerbots tile preload path must degrade to a logged skip on an unregistered map instead of aborting the world process."
     },
     {
       "id": "embedded-world-thread-rearm",
@@ -33,6 +54,32 @@
         "playerbot/RandomPlayerbotFactory.cpp"
       ],
       "reason": "Persist each character normally, then yield after a profile-bounded batch so interrupted generation resumes from existing account/character rows."
+    },
+    {
+      "id": "bounded-first-player-activation",
+      "paths": [
+        "playerbot/PlayerbotAIConfig.h",
+        "playerbot/PlayerbotAIConfig.cpp",
+        "playerbot/RandomPlayerbotMgr.cpp"
+      ],
+      "reason": "Limit the synchronous deficit scan to a profile-bounded activation batch so the first real-player login cannot mark hundreds of bots active in one transaction."
+    },
+    {
+      "id": "fresh-coalesced-character-db-probe",
+      "paths": [
+        "playerbot/RandomPlayerbotMgr.h",
+        "playerbot/RandomPlayerbotMgr.cpp",
+        "playerbot/PlayerbotLoginMgr.cpp"
+      ],
+      "reason": "Keep at most one deadline-bounded character-database probe in flight, reject late generations, and permit new bot logins only from a fresh successful result."
+    },
+    {
+      "id": "low-cpu-locality-telemetry",
+      "paths": [
+        "playerbot/RandomPlayerbotMgr.h",
+        "playerbot/RandomPlayerbotMgr.cpp"
+      ],
+      "reason": "Sample bot locality and operation rates once per ten seconds instead of scanning the full population on every manager pass."
     }
   ],
   "mariadb_connector_c": {
@@ -59,8 +106,8 @@
     },
     {
       "path": "native/.build-o09-x86_64/realm-staging/jniLibs/x86_64/libpocket_world_runtime.so",
-      "size": 33000040,
-      "sha256": "f8005881b588961db327d4d23e0a3d123b345f4dc314ddf8c3e7f7c98865bd2b",
+      "size": 33022232,
+      "sha256": "19253575e3fbea8af193af67359331de797f70a1d5e995503ee336475969fbe9",
       "needed": [
         "libc.so",
         "libdl.so",

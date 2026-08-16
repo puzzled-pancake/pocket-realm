@@ -102,8 +102,10 @@ internal object ImportProcessMetricsSampler {
         pending.add(root.pid)
         while (pending.isNotEmpty() && records.size < MAX_PROCESSES) {
             val parent = pending.removeFirst()
-            val children = File("/proc/$parent/task/$parent/children").readTextOrNull()
-                ?.trim()?.split(Regex("\\s+"))?.mapNotNull(String::toIntOrNull).orEmpty()
+            // ProcessBuilder children are forked by whichever worker thread calls
+            // start(), so the leader's children file alone misses them; scan every
+            // thread of the parent.
+            val children = descendantPids(parent)
             for (pid in children) {
                 if (!seen.add(pid)) continue
                 val child = readProcess(pid, requireImportProcess = false, context = context) ?: continue
@@ -114,6 +116,31 @@ internal object ImportProcessMetricsSampler {
         }
         return records
     }
+
+    private fun descendantPids(parent: Int): List<Int> =
+        File("/proc/$parent/task").listFiles().orEmpty()
+            .flatMap { thread -> File(thread, "children").readTextOrNull()
+                ?.trim()?.takeIf(String::isNotBlank)
+                ?.split(Regex("\\s+"))?.mapNotNull(String::toIntOrNull).orEmpty() }
+            .distinct()
+
+    /** Direct children forked by any thread of this process; usable only in-process. */
+    fun forkedChildPids(): Set<Int> =
+        File("/proc/self/task").listFiles().orEmpty()
+            .flatMapTo(mutableSetOf()) { thread -> File(thread, "children").readTextOrNull()
+                ?.trim()?.takeIf(String::isNotBlank)
+                ?.split(Regex("\\s+"))?.mapNotNull(String::toIntOrNull).orEmpty() }
+
+    /** Cumulative CPU seconds (user+system) of a same-UID process, or null if unreadable. */
+    fun processCpuSeconds(pid: Int): Double? = runCatching {
+        val stat = File("/proc/$pid/stat").readText()
+        val fields = stat.substring(stat.lastIndexOf(')') + 2).trim().split(Regex("\\s+"))
+        val ticks = fields[11].toLong() + fields[12].toLong()
+        ticks.toDouble() / clockTicksPerSecond()
+    }.getOrNull()
+
+    fun clockTicksPerSecond(): Long = runCatching { Os.sysconf(OsConstants._SC_CLK_TCK) }
+        .getOrDefault(100L).coerceAtLeast(1L)
 
     private fun readProcess(pid: Int, requireImportProcess: Boolean, context: Context): ProcRecord? = runCatching {
         require(pid > 0)

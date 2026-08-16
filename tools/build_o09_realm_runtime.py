@@ -66,6 +66,16 @@ CMANGOS_OVERLAYS = [
         "reason": "Do not enter MMapManager::loadMap when mmap.enabled=0; the disabled manager intentionally has no map instance.",
     },
     {
+        "id": "mmap-loadmap-graceful-miss",
+        "path": "src/game/MotionGenerators/MoveMap.cpp",
+        "reason": "Entering a map whose navmesh was never registered (missing mmaps/NNN.mmap) must disable pathfinding for that map, not abort the world process.",
+    },
+    {
+        "id": "mmap-loadallmaptiles-graceful-miss",
+        "path": "src/game/MotionGenerators/MoveMap.cpp",
+        "reason": "The Playerbots tile preload path must degrade to a logged skip on an unregistered map instead of aborting the world process.",
+    },
+    {
         "id": "embedded-world-thread-rearm",
         "path": "src/mangosd/Master.cpp",
         "reason": "Re-arm CMaNGOS process-global stop state immediately before each embedded world-thread launch.",
@@ -205,6 +215,33 @@ MMAP_GUARD_ANDROID = """    auto* mmap = MMAP::MMapFactory::createOrGetMMapManag
         // load navmesh only when mmap pathfinding is enabled and initialized
         mmap->loadMap(sWorld.GetDataPath(), m_mapId, x, y);
 }
+"""
+# The trailing comment makes this anchor unique: loadAllMapTiles carries a
+# byte-identical assert pair earlier in the file and replace_anchor patches the
+# first match.
+MMAP_LOADMAP_UPSTREAM = """        auto itr = loadedMMaps.find(mapId);
+        MANGOS_ASSERT(itr != loadedMMaps.end()); // must not occur here as it would not be thread safe - only in loadMapData through loadMapInstance
+"""
+MMAP_LOADMAP_ANDROID = """        auto itr = loadedMMaps.find(mapId);
+        if (itr == loadedMMaps.end())
+        {
+            sLog.outError("MMAP:loadMap: navmesh data for map %u was never registered (missing mmaps/%03u.mmap); pathfinding disabled for this map", mapId, mapId);
+            return false;
+        }
+"""
+MMAP_LOADALL_UPSTREAM = """    void MMapManager::loadAllMapTiles(std::string const& basePath, uint32 mapId)
+    {
+        auto itr = loadedMMaps.find(mapId);
+        MANGOS_ASSERT(itr != loadedMMaps.end());
+"""
+MMAP_LOADALL_ANDROID = """    void MMapManager::loadAllMapTiles(std::string const& basePath, uint32 mapId)
+    {
+        auto itr = loadedMMaps.find(mapId);
+        if (itr == loadedMMaps.end())
+        {
+            sLog.outError("MMAP:loadAllMapTiles: navmesh data for map %u was never registered (missing mmaps/%03u.mmap); tile preload skipped", mapId, mapId);
+            return;
+        }
 """
 WORLD_THREAD_UPSTREAM = """    // Launch the world update thread.
     m_worldThread.reset(new MaNGOS::Thread(new WorldRunnable));
@@ -769,6 +806,16 @@ def prepare_cmangos_source() -> None:
         MMAP_GUARD_ANDROID,
     )
     replace_anchor(
+        cmangos / "src" / "game" / "MotionGenerators" / "MoveMap.cpp",
+        MMAP_LOADMAP_UPSTREAM,
+        MMAP_LOADMAP_ANDROID,
+    )
+    replace_anchor(
+        cmangos / "src" / "game" / "MotionGenerators" / "MoveMap.cpp",
+        MMAP_LOADALL_UPSTREAM,
+        MMAP_LOADALL_ANDROID,
+    )
+    replace_anchor(
         cmangos / "src" / "mangosd" / "Master.cpp",
         WORLD_THREAD_UPSTREAM,
         WORLD_THREAD_ANDROID,
@@ -837,6 +884,16 @@ def restore_cmangos_source() -> None:
         NATIVE / "cmangos" / "src" / "game" / "Maps" / "GridMap.cpp",
         MMAP_GUARD_ANDROID,
         MMAP_GUARD_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "MotionGenerators" / "MoveMap.cpp",
+        MMAP_LOADALL_ANDROID,
+        MMAP_LOADALL_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "MotionGenerators" / "MoveMap.cpp",
+        MMAP_LOADMAP_ANDROID,
+        MMAP_LOADMAP_UPSTREAM,
     )
     restore_anchor(
         NATIVE / "cmangos" / "src" / "mangosd" / "Master.cpp",

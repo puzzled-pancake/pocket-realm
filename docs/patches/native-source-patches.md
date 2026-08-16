@@ -217,6 +217,27 @@ Android page boundary and crashed at `mpq_libmpq04.h:67` with SIGSEGV. The
 bounded parser completed the same read-only client extraction and also removes
 the corresponding latent defect from the DBC/map extractor.
 
+### Realm runtime — graceful MMap miss guards (`MoveMap.cpp`)
+
+**Change:** two `tools/build_o09_realm_runtime.py` overlays
+(`mmap-loadmap-graceful-miss`, `mmap-loadallmaptiles-graceful-miss`) replace
+the `MANGOS_ASSERT(itr != loadedMMaps.end())` preconditions in
+`MMapManager::loadMap` and `MMapManager::loadAllMapTiles` with an
+`sLog.outError` plus early return (`false` for `loadMap`, plain return for the
+void `loadAllMapTiles`). A map whose navmesh was never registered — a missing
+`mmaps/NNN.mmap` — now disables pathfinding for that map instead of aborting
+the world process; the distinct error strings keep overlay cleanup symmetric.
+
+**Why:** the fatal precondition is safe only when every enterable map ships a
+navmesh header. A bot entering Uldaman (map 070, WMO-only, no ADT terrain)
+after the O11 mmap stage skipped it killed `com.pocketrealm:world` with SIGABRT
+at `MoveMap.cpp:202` (tombstone 2026-08-16 15:10). The companion import fix
+derives the generation map list from `maps/*.map` union `vmaps/*.vmtree` so
+WMO-only dungeons generate real navmeshes; these guards make any residual gap
+(corrupted or deleted content) degrade instead of kill. The `loadMap` anchor
+must keep its full trailing comment: `loadAllMapTiles` carries a byte-identical
+bare assert earlier in the file and `replace_anchor` patches the first match.
+
 ## Reproduction
 
 See `scripts/build_native.py` for the full reproducible build (stages:
