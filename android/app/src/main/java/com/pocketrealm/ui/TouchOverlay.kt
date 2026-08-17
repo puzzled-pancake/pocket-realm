@@ -37,6 +37,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -480,10 +481,12 @@ private fun BoxScope.FullTouchControls(
 /**
  * Wraps one touch cluster so the player can drag it anywhere in move mode.
  * Without a saved anchor the cluster keeps its stock alignment; anchored
- * clusters are placed from normalized fractions of the overlay container.
- * While move mode is on, a scrim covers the cluster: it owns the drag
- * gesture across the whole cluster area and blocks the covered buttons from
- * dispatching game input while the player rearranges. The scrim also
+ * clusters are placed from normalized fractions of the overlay container and
+ * re-clamped at render time, so a cluster that grows after anchoring — the
+ * utility drawer expanding its menu near an edge — always stays fully on the
+ * display. While move mode is on, a scrim covers the cluster: it owns the
+ * drag gesture across the whole cluster area and blocks the covered buttons
+ * from dispatching game input while the player rearranges. The scrim also
  * finalizes an in-flight drag when it is torn down mid-gesture.
  */
 @Composable
@@ -522,14 +525,15 @@ private fun BoxScope.MovableCluster(
 
     val anchor = liveAnchor
     val placement = if (anchor != null) {
-        Modifier
-            .align(Alignment.TopStart)
-            .offset {
-                IntOffset(
-                    (anchor.xFraction * containerSize.width).roundToInt(),
-                    (anchor.yFraction * containerSize.height).roundToInt(),
-                )
-            }
+        // Render-time clamp keeps a grown cluster (drawer menu expanding
+        // near an edge) fully on the display; reading clusterSize here
+        // re-renders whenever the cluster or container size changes.
+        val topLeft = clampedClusterTopLeft(anchor, containerSize, clusterSize)
+        with(LocalDensity.current) {
+            Modifier
+                .align(Alignment.TopStart)
+                .offset(topLeft.x.toDp(), topLeft.y.toDp())
+        }
     } else {
         Modifier.align(stockAlignment).padding(stockPadding)
     }
@@ -784,6 +788,25 @@ private fun ControllerAction.shortLabel(fallback: String): String = when (this) 
 
 /** WoW's default wheel binding is up = zoom in, down = zoom out. */
 internal fun cameraZoomWheelTicks(zoomIn: Boolean): Int = if (zoomIn) -1 else 1
+
+/**
+ * Placement for an anchored cluster, clamped so the cluster renders fully
+ * inside the overlay container. Clamping at render time — not only at drop
+ * time — keeps a cluster on screen after it grows, e.g. the utility drawer
+ * expanding its menu near an edge, or after container inset changes.
+ */
+internal fun clampedClusterTopLeft(
+    anchor: ClusterAnchor,
+    containerSize: IntSize,
+    clusterSize: IntSize,
+): IntOffset {
+    val maxX = (containerSize.width - clusterSize.width).coerceAtLeast(0)
+    val maxY = (containerSize.height - clusterSize.height).coerceAtLeast(0)
+    return IntOffset(
+        (anchor.xFraction * containerSize.width).roundToInt().coerceIn(0, maxX),
+        (anchor.yFraction * containerSize.height).roundToInt().coerceIn(0, maxY),
+    )
+}
 
 /** Fraction-preserving touch scaler so a lower speed stays smooth for one-pixel drags. */
 internal class TouchCameraScaler(private val sensitivity: Float) {
