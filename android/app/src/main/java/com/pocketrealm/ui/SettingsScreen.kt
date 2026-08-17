@@ -20,6 +20,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -59,6 +60,8 @@ import com.pocketrealm.client.GladioCapability
 import com.pocketrealm.client.VulkanDriverCatalog
 import com.pocketrealm.server.NearbyInteractPolicy
 import com.pocketrealm.storage.Settings
+import com.pocketrealm.update.AppUpdateCoordinator
+import com.pocketrealm.update.AppUpdateInstallReceiver
 import com.pocketrealm.storage.StorageRoots
 import com.pocketrealm.supervisor.RuntimeSupervisorClient
 import com.pocketrealm.supervisor.UserAccountStore
@@ -74,6 +77,8 @@ import kotlin.math.roundToInt
  */
 private const val BACKUP_AWAIT_TIMEOUT_MINUTES = 10L
 private const val BACKUP_AWAIT_TIMEOUT_MS = BACKUP_AWAIT_TIMEOUT_MINUTES * 60_000L
+
+private const val MIB = 1024L * 1024
 
 @Composable
 fun SettingsScreen(
@@ -782,6 +787,97 @@ fun SettingsScreen(
                     "backups and restores live in the Realm data section below.",
                 style = MaterialTheme.typography.bodySmall,
             )
+        }
+
+        HorizontalDivider()
+        SettingCard("App updates") {
+            var updateStatus by remember { mutableStateOf<String?>(null) }
+            var availableUpdate by remember {
+                mutableStateOf<AppUpdateCoordinator.UpdateManifest?>(null)
+            }
+            Text(
+                "Installed: ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE}). " +
+                    "Updates install in place over this app — game files, realm data, and " +
+                    "settings are preserved.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            updateStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = {
+                    updateStatus = "Checking..."
+                    availableUpdate = null
+                    scope.launch(Dispatchers.IO) {
+                        val message = when (val result = AppUpdateCoordinator.check()) {
+                            is AppUpdateCoordinator.CheckResult.Available -> {
+                                availableUpdate = result.manifest
+                                "Update ${result.manifest.versionName} available " +
+                                    "(${result.manifest.size / MIB} MB). " +
+                                    result.manifest.notes
+                            }
+                            is AppUpdateCoordinator.CheckResult.UpToDate -> "You are up to date."
+                            is AppUpdateCoordinator.CheckResult.Unavailable -> result.reason
+                        }
+                        updateStatus = message
+                    }
+                }) { Text("Check for updates") }
+                OutlinedButton(onClick = {
+                    context.startActivity(
+                        android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse(AppUpdateInstallReceiver.RELEASES_PAGE_URL),
+                        ),
+                    )
+                }) { Text("Release page") }
+            }
+            val manifest = availableUpdate
+            if (manifest != null) {
+                var installBusy by remember { mutableStateOf(false) }
+                var meteredWarningShown by remember { mutableStateOf(false) }
+                Button(
+                    enabled = !installBusy,
+                    onClick = {
+                        if (!AppUpdateCoordinator.canRequestPackageInstalls(context)) {
+                            updateStatus =
+                                "Allow installing from this app in the system settings that " +
+                                    "just opened, then tap Install again."
+                            context.startActivity(AppUpdateCoordinator.manageUnknownSourcesIntent())
+                            return@Button
+                        }
+                        val connectivity = context.getSystemService(
+                            android.net.ConnectivityManager::class.java)
+                        val metered = connectivity != null && connectivity.isActiveNetworkMetered
+                        if (metered && !meteredWarningShown) {
+                            meteredWarningShown = true
+                            updateStatus =
+                                "This looks like a metered connection — the update is " +
+                                    "${manifest.size / MIB} MB. Tap Install again to proceed " +
+                                    "on mobile data."
+                            return@Button
+                        }
+                        meteredWarningShown = false
+                        installBusy = true
+                        updateStatus = "Downloading ${manifest.versionName}..."
+                        scope.launch(Dispatchers.IO) {
+                            runCatching {
+                                AppUpdateCoordinator.downloadApk(context, manifest) { progress ->
+                                    updateStatus =
+                                        "Downloading... ${progress / MIB} / " +
+                                            "${manifest.size / MIB} MB"
+                                }
+                            }.onSuccess { apk ->
+                                AppUpdateCoordinator.install(context, apk)
+                                updateStatus =
+                                    "Install offered to the system — confirm in the installer " +
+                                        "dialog. The new version starts on the next launch."
+                            }.onFailure { failure ->
+                                updateStatus =
+                                    "Update failed: ${failure.message ?: failure.javaClass.simpleName}"
+                            }
+                            installBusy = false
+                        }
+                    },
+                ) { Text("Install update") }
+            }
         }
 
         HorizontalDivider()

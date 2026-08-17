@@ -742,8 +742,9 @@ android {
         // the app in the legacy permissive domain, matching how Winlator and
         // other on-device emulators ship.
         targetSdk = (project.findProperty("pocketTargetSdk") as String?)?.toInt() ?: 27
-        versionCode = 1
-        versionName = "0.1.0"
+        // F6: bump-on-release discipline (update manifests compare codes).
+        versionCode = 2
+        versionName = "0.2.0"
         buildConfigField(
             "boolean", "ENABLE_CLIENT_DATA_PREPARATION", (pocketLane == "full").toString(),
         )
@@ -769,6 +770,32 @@ android {
         }
         getByName("release") {
             isMinifyEnabled = false
+            // F6 signature continuity: the installed builds are debug-signed,
+            // and an in-place update must carry the same signature or Android
+            // refuses it (the refusal protects the app's data). A dedicated
+            // release keystore is an open DECISIONS item; until adopted,
+            // release builds sign with the debug keystore (path overridable
+            // via POCKET_RELEASE_KEYSTORE etc.). No keystore material is
+            // committed.
+            val keystorePath = providers.gradleProperty("pocketReleaseKeystore")
+                .orElse(providers.environmentVariable("POCKET_RELEASE_KEYSTORE").orElse(""))
+                .get().ifBlank { null }
+            if (keystorePath != null) {
+                signingConfig = signingConfigs.create("pocketRelease") {
+                    storeFile = file(keystorePath)
+                    storePassword = providers.gradleProperty("pocketReleaseStorePassword")
+                        .orElse(providers.environmentVariable("POCKET_RELEASE_STORE_PASSWORD").orElse(""))
+                        .get()
+                    keyAlias = providers.gradleProperty("pocketReleaseKeyAlias")
+                        .orElse(providers.environmentVariable("POCKET_RELEASE_KEY_ALIAS").orElse(""))
+                        .get()
+                    keyPassword = providers.gradleProperty("pocketReleaseKeyPassword")
+                        .orElse(providers.environmentVariable("POCKET_RELEASE_KEY_PASSWORD").orElse(""))
+                        .get()
+                }
+            } else {
+                signingConfig = signingConfigs.getByName("debug")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

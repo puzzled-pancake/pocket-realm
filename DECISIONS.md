@@ -522,3 +522,37 @@ The coordinated plan and verification notes live in
   pointer inside native calls; the bounded per-session leak is preferred
   over a new use-after-free class. The context-struct fix would require a
   broader liveness redesign.
+
+## Update delivery from a public updates repository (2026-08-17, F6)
+
+- **What shipped:** in-app update checking and in-place installation from a
+  dedicated public GitHub "updates" repository (owner/repo constant in
+  `AppUpdateCoordinator.UPDATES_REPO`; the source repository stays private).
+  Releases carry the signed APK plus an `update-manifest.json` asset
+  (versionCode, versionName, apkUrl, size, sha256, minSupportedVersionCode,
+  notes). The app resolves `releases/latest`, enforces the same GitHub host
+  allowlist the addon downloader uses, downloads with HTTP Range resume +
+  ETag If-Range, verifies sha256, and installs through a PackageInstaller
+  session gated on `REQUEST_INSTALL_PACKAGES` + the per-app
+  "install unknown apps" grant (`canRequestPackageInstalls` +
+  `ACTION_MANAGE_UNKNOWN_APP_SOURCES`). A check-only card and a
+  browser-assisted release-page button cover the private/no-permission case.
+- **Data preservation is Android-enforced:** updates install over the
+  existing app; a signature mismatch is REFUSED by the system installer
+  rather than wiping. Nothing in the flow ever uninstalls. Persisted state
+  (DataStore forward-only schemas, addon registry, import journal, client
+  generations, MariaDB datadir, Wine prefixes) lives outside APK-managed
+  paths and survives replacement; built-in addon refresh handles asset
+  drift on upgrade.
+- **Signing decision (default = continuity):** release builds sign with the
+  debug keystore (env/gradle-property override for a dedicated keystore
+  exists but is unset). The debug keystore is machine-local and MUST be
+  privately backed up — losing it makes in-place updates impossible for
+  existing installs (Settings realm-data export → reinstall → restore is
+  the recorded fallback). Adopting a dedicated release keystore remains an
+  open decision and requires one deliberate transition.
+- **Activation gate:** publishing the updates repo (creation, LICENSE/NOTICE
+  + GPL source-offer statement for the embedded GPL/LGPL-derived binaries,
+  first release upload via `gh release`) is an outward-facing act awaiting
+  explicit owner approval; until it exists, checks fail softly with
+  "update channel unavailable".

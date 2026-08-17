@@ -12,6 +12,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- F6: in-app update installs. The system installer's signature check
+         is the data-preservation guard; this permission only allows
+         OFFERING the session to the user for confirmation. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:allowBackup="false"
@@ -64,6 +68,13 @@
                 <action android:name="com.pocketrealm.action.SAVE_EXIT" />
             </intent-filter>
         </receiver>
+
+        <!-- F6: PackageInstaller session status sink. Registered in the
+             manifest so the system can deliver the commit status through
+             the app-created PendingIntent while the process may be gone. -->
+        <receiver
+            android:name=".update.AppUpdateInstallReceiver"
+            android:exported="false" />
 
         <!-- O05 PKG-02: an isolated fault domain for the native crash experiment.
              The deliberate abort() happens here, never in :main. Not a bound
@@ -120,5 +131,16 @@
             android:name=".server.WorldRuntimeService"
             android:process=":world"
             android:exported="false" />
+        <!-- F6: shares the downloaded update APK with the system
+             installer when a session-based install is not usable. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.update-files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_file_paths" />
+        </provider>
     </application>
 </manifest>
