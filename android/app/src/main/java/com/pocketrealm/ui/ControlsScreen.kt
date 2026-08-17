@@ -114,7 +114,7 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
         SupportingText(
             if (profile.overlayLayout == OverlayLayout.CONSOLE) {
                 "Console is the controller-free arrangement: a 1-4 face diamond and 5-8 pad with " +
-                    "Shift/Ctrl holds that reach the addon's extra action pages, plus look and click keys."
+                    "Shift/Ctrl holds that reach the addon's extra action pages, plus look, click, and target keys."
             } else {
                 "Classic keeps the twelve-button paged action grid with target, use, and movement clusters."
             },

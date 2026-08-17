@@ -247,8 +247,8 @@ private fun BoxScope.TouchCameraRegion(host: ClientDisplayHost, profile: InputPr
  * with Shift/Ctrl page holds bottom-left (modifiers sit opposite the face
  * keys so one thumb holds while the other taps), a 1-4 face diamond with a
  * 5-8 pad above it bottom-right, a camera-look toggle with left/right
- * clicks at bottom-center, and a radial / nearby-use / Move UI / menu
- * utility row top-left. Every cluster is movable and every action stays
+ * clicks and target bottom-center, and a radial / nearby-use / Move UI /
+ * menu stack top-left. Every cluster is movable and every action stays
  * remappable through the profile.
  */
 @Composable
@@ -275,11 +275,17 @@ private fun BoxScope.ConsoleTouchControls(
         stockPadding = PaddingValues(start = 12.dp, top = 12.dp),
         stockZIndex = 0f,
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ActionKey(host, profile, OverlayControl.RADIAL, "Radial", opacity, targetSize, wide = true)
-            ActionKey(host, profile, OverlayControl.NEARBY_USE, "Use near", opacity, targetSize, wide = true)
-            ActionKey(host, profile, OverlayControl.MOVE_UI, "Move UI", opacity, targetSize, wide = true)
-            ActionKey(host, profile, OverlayControl.MENU, "Menu", opacity, targetSize, wide = true)
+        // Two stacked pairs keep the stack narrow so the collapsed drawer
+        // never crosses it on narrow screens.
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ActionKey(host, profile, OverlayControl.RADIAL, "Radial", opacity, targetSize, wide = true)
+                ActionKey(host, profile, OverlayControl.NEARBY_USE, "Use near", opacity, targetSize, wide = true)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ActionKey(host, profile, OverlayControl.MOVE_UI, "Move UI", opacity, targetSize, wide = true)
+                ActionKey(host, profile, OverlayControl.MENU, "Menu", opacity, targetSize, wide = true)
+            }
         }
     }
 
@@ -309,9 +315,6 @@ private fun BoxScope.ConsoleTouchControls(
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 ActionKey(host, profile, OverlayControl.AUTO_RUN, "Auto", opacity, targetSize, wide = true)
                 ActionKey(host, profile, OverlayControl.JUMP, "Jump", opacity, targetSize, wide = true)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                ActionKey(host, profile, OverlayControl.TARGET, "Target", opacity, targetSize, wide = true)
             }
         }
     }
@@ -361,6 +364,7 @@ private fun BoxScope.ConsoleTouchControls(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            ActionKey(host, profile, OverlayControl.TARGET, "Target", opacity, targetSize, wide = true)
             ActionKey(host, profile, OverlayControl.LOOK_TOGGLE, "Look", opacity, targetSize, wide = true)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ActionKey(host, profile, OverlayControl.MOUSE_LEFT, "Tap", opacity, targetSize, wide = true)
@@ -568,6 +572,9 @@ private fun BoxScope.MovableCluster(
                                     if (containerSize.width <= 0 || containerSize.height <= 0) {
                                         return@detectDragGestures
                                     }
+                                    // A pointerInput block serves many gestures;
+                                    // re-arm the teardown guard each time.
+                                    dragFinalized = false
                                     dragging = true
                                     if (liveAnchor == null) {
                                         // Seed from the stock placement so the
