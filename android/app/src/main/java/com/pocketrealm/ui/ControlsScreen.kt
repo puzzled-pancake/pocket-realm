@@ -46,6 +46,7 @@ import com.pocketrealm.client.InputProfile
 import com.pocketrealm.client.InputProfileStore
 import com.pocketrealm.client.IntegratedClientDisplay
 import com.pocketrealm.client.OverlayControl
+import com.pocketrealm.client.OverlayLayout
 import com.pocketrealm.client.OverlayMode
 import com.pocketrealm.client.Rp6Control
 import com.pocketrealm.client.WowVanillaBindingCatalog
@@ -103,6 +104,21 @@ fun ControlsScreen(contentPadding: PaddingValues = PaddingValues()) {
             tag = "overlay-mode",
         ) { apply(profile.copy(overlayMode = it)) }
         SupportingText(profile.overlayMode.explanation())
+        ChoiceRow(
+            label = "Touch layout",
+            value = profile.overlayLayout,
+            choices = OverlayLayout.values().toList(),
+            display = { it.displayName },
+            tag = "overlay-layout",
+        ) { apply(profile.copy(overlayLayout = it)) }
+        SupportingText(
+            if (profile.overlayLayout == OverlayLayout.CONSOLE) {
+                "Console is the controller-free arrangement: a 1-4 face diamond and 5-8 pad with " +
+                    "Shift/Ctrl holds that reach the addon's extra action pages, plus look and click keys."
+            } else {
+                "Classic keeps the twelve-button paged action grid with target, use, and movement clusters."
+            },
+        )
         if (showAdvanced) {
             ValueSlider(
                 "Control size", profile.overlayScale, 0.75f..1.5f,

@@ -59,6 +59,7 @@ enum class ControllerAction(
     val autoRunPulse: Boolean = false,
     val wheelTicks: Int? = null,
     val radialMenuPulse: Boolean = false,
+    val moveUiPulse: Boolean = false,
 ) {
     DISABLED("Disabled"),
     KEY_1("Key 1", KeyEvent.KEYCODE_1),
@@ -183,6 +184,10 @@ enum class ControllerAction(
     // Android Port binds its radial menu to the app-owned F12 edge.
     CONSOLE_RADIAL("Console radial menu", radialMenuPulse = true),
     NEARBY_USE("Nearby use / open (realm-assisted)", nearbyUsePulse = true),
+
+    // Appended last for the same ordinal stability. The flag carries the
+    // unlock-camera-first Move UI edge; there is no direct key behind it.
+    MOVE_UI("Move UI (addon frame mover)", moveUiPulse = true),
 }
 
 /** Physical RP6 controls whose gameplay output can be changed in Settings. */
@@ -234,13 +239,33 @@ enum class OverlayControl(val displayName: String) {
     ACTION_10("Action 10"),
     ACTION_11("Action 11"),
     ACTION_12("Action 12"),
+
+    // Console-layout controls are appended after the classic action grid so
+    // ordinal-derived touch source ids and the classic page math stay stable.
+    MODIFIER_SHIFT("Shift (hold)"),
+    MODIFIER_CTRL("Ctrl (hold)"),
+    MOUSE_LEFT("Mouse left click"),
+    MOUSE_RIGHT("Mouse right click"),
+    LOOK_TOGGLE("Camera look (toggle)"),
+    RADIAL("Radial menu"),
+    NEARBY_USE("Nearby use / open"),
+    MOVE_UI("Move UI"),
+}
+
+/** Which control arrangement the FULL touch presentation uses. */
+enum class OverlayLayout(val displayName: String) {
+    CONSOLE("Console"),
+    CLASSIC("Classic"),
 }
 
 /**
  * Touch-overlay cluster whose placement the player can rearrange. Ids are
  * stable serialization keys; append new clusters so stored positions survive.
  */
-enum class OverlayClusterId { DRAWER, TARGET_ROW, MOVEMENT, ACTIONS }
+enum class OverlayClusterId {
+    DRAWER, TARGET_ROW, MOVEMENT, ACTIONS,
+    FACE, SECONDARY_PAD, MODIFIERS, LOOK_CLICKS, UTILITY_ROW,
+}
 
 /**
  * Normalized top-left of a touch cluster inside the overlay container, each
@@ -280,6 +305,7 @@ data class InputProfile(
     val overlayOpacity: Float = 0.85f,
     val overlayEnabled: Boolean = true,
     val overlayMode: OverlayMode = OverlayMode.AUTO,
+    val overlayLayout: OverlayLayout = OverlayLayout.CONSOLE,
     val overlayScale: Float = 1.0f,
     val overlayClusterPositions: Map<OverlayClusterId, ClusterAnchor> = emptyMap(),
     val cameraRegionWidth: Float = 0.42f,
@@ -534,6 +560,14 @@ data class InputProfile(
             OverlayControl.ACTION_10 to ControllerAction.KEY_0,
             OverlayControl.ACTION_11 to ControllerAction.KEY_MINUS,
             OverlayControl.ACTION_12 to ControllerAction.KEY_EQUALS,
+            OverlayControl.MODIFIER_SHIFT to ControllerAction.SHIFT,
+            OverlayControl.MODIFIER_CTRL to ControllerAction.CTRL,
+            OverlayControl.MOUSE_LEFT to ControllerAction.POINTER_LEFT,
+            OverlayControl.MOUSE_RIGHT to ControllerAction.POINTER_RIGHT,
+            OverlayControl.LOOK_TOGGLE to ControllerAction.CAMERA_LOCK,
+            OverlayControl.RADIAL to ControllerAction.CONSOLE_RADIAL,
+            OverlayControl.NEARBY_USE to ControllerAction.NEARBY_USE,
+            OverlayControl.MOVE_UI to ControllerAction.MOVE_UI,
         )
 
         fun defaultLayerFaceBindings(): Map<FaceLayer, Map<Rp6Control, ControllerAction>> = linkedMapOf(
@@ -718,6 +752,10 @@ data class InputProfile(
                         ?.let { stored -> OverlayMode.values().firstOrNull { it.name == stored } }
                         ?: OverlayMode.AUTO
                 },
+                overlayLayout = value.optString("overlayLayout")
+                    .takeIf { it.isNotBlank() }
+                    ?.let { stored -> OverlayLayout.values().firstOrNull { it.name == stored } }
+                    ?: OverlayLayout.CONSOLE,
                 overlayScale = value.optDouble("overlayScale", 1.0).toFloat(),
                 overlayClusterPositions = clusterPositions,
                 cameraRegionWidth = value.optDouble("cameraRegionWidth", 0.42).toFloat(),
@@ -799,6 +837,7 @@ data class InputProfile(
                 .put("overlayOpacity", profile.overlayOpacity.toDouble())
                 .put("overlayEnabled", profile.overlayEnabled)
                 .put("overlayMode", profile.overlayMode.name)
+                .put("overlayLayout", profile.overlayLayout.name)
                 .put("overlayScale", profile.overlayScale.toDouble())
                 .put("overlayClusterPositions", clusterPositions)
                 .put("cameraRegionWidth", profile.cameraRegionWidth.toDouble())

@@ -91,6 +91,13 @@ class O14TouchOverlayAcceptanceTest {
         }
         compose.runOnIdle { host!!.onResume() }
         assertTrue(host!!.awaitRendererReady(15_000))
+        // The console arrangement is the default; this flow pins the classic
+        // grid and exercises the console layout in its own section below.
+        compose.runOnIdle {
+            host!!.switchInputProfile(
+                host!!.activeProfile.copy(overlayLayout = com.pocketrealm.client.OverlayLayout.CLASSIC),
+            )
+        }
 
         val session = runBlocking { runtime.launch(LaunchRequest(prefix.prefixId)) }
         runBlocking {
@@ -219,6 +226,45 @@ class O14TouchOverlayAcceptanceTest {
         }
         compose.onNodeWithTag("touch-control-MOVE_UP").assertExists()
         compose.onNodeWithTag("touch-camera-reticle").assertDoesNotExist()
+
+        // Console layout: face diamond, secondary pad, modifier holds, look
+        // and click cluster, and the utility row replace the paged grid.
+        compose.runOnIdle {
+            host!!.switchInputProfile(
+                host!!.activeProfile.copy(overlayLayout = com.pocketrealm.client.OverlayLayout.CONSOLE),
+            )
+        }
+        compose.onNodeWithTag("touch-control-ACTION_1").assertExists()
+        compose.onNodeWithTag("touch-control-ACTION_8").assertExists()
+        compose.onNodeWithTag("touch-control-MODIFIER_SHIFT").assertExists()
+        compose.onNodeWithTag("touch-control-MODIFIER_CTRL").assertExists()
+        compose.onNodeWithTag("touch-control-LOOK_TOGGLE").assertExists()
+        compose.onNodeWithTag("touch-control-MOUSE_LEFT").assertExists()
+        compose.onNodeWithTag("touch-control-MOUSE_RIGHT").assertExists()
+        compose.onNodeWithTag("touch-control-RADIAL").assertExists()
+        compose.onNodeWithTag("touch-control-NEARBY_USE").assertExists()
+        compose.onNodeWithTag("touch-control-MOVE_UI").assertExists()
+        compose.onNodeWithTag("touch-action-page-label").assertDoesNotExist()
+        compose.onNodeWithTag("touch-camera-region").assertExists()
+
+        // Move mode from the drawer: clusters drag anywhere, the camera region
+        // suspends, and Done/Reset restore interaction.
+        compose.onNodeWithTag("touch-utility-drawer").assertTextEquals("More").performClick()
+        compose.onNodeWithTag("touch-move-mode").assertExists().performClick()
+        compose.onNodeWithTag("touch-camera-region").assertDoesNotExist()
+        compose.onNodeWithTag("touch-move-done").assertExists()
+        compose.onNodeWithTag("touch-control-ACTION_1").performTouchInput {
+            swipe(center, center + androidx.compose.ui.geometry.Offset(-160f, -80f), 400)
+        }
+        compose.waitUntil(5_000) {
+            host!!.activeProfile.overlayClusterPositions.containsKey(com.pocketrealm.client.OverlayClusterId.FACE)
+        }
+        compose.onNodeWithTag("touch-move-done").assertExists().performClick()
+        compose.onNodeWithTag("touch-camera-region").assertExists()
+        compose.onNodeWithTag("touch-move-reset").assertExists().performClick()
+        compose.waitUntil(5_000) { host!!.activeProfile.overlayClusterPositions.isEmpty() }
+        compose.onNodeWithTag("touch-utility-drawer").performClick()
+        compose.onNodeWithTag("touch-utility-drawer").assertTextEquals("More")
 
         compose.onNodeWithTag("touch-utility-drawer").assertTextEquals("More").performClick()
         compose.onNodeWithTag("touch-utility-drawer").assertTextEquals("Close")
@@ -368,6 +414,8 @@ class O14TouchOverlayAcceptanceTest {
             .put("pausedLateImeRejected", true)
             .put("concurrentOffMainCloseIdempotent", true)
             .put("persistedOverlayDisableHidesAllControls", true)
+            .put("consoleLayout", true)
+            .put("clusterMoveMode", true)
             .put("batchedJoystickHistory", true)
             .put("batchedPointerDeltaX", pointerAfterBatch - pointerBeforeBatch)
             .put("syntheticGamepadMotion", true)

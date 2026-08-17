@@ -1661,6 +1661,7 @@ class InputContract(
             // every other key. This avoids synthesizing Shift edges around
             // Escape while L2 or a physical keyboard already owns Shift.
             if (action.radialMenuPulse) return GamepadBinding.Key(KeyEvent.KEYCODE_F12)
+            if (action.moveUiPulse) return GamepadBinding.MoveUiToggle
             action.wheelTicks?.let { return GamepadBinding.Wheel(it) }
             if (action == ControllerAction.LAYER_L2) return GamepadBinding.Layer(FaceLayer.L2)
             if (action == ControllerAction.LAYER_L1) return GamepadBinding.Layer(FaceLayer.L1)

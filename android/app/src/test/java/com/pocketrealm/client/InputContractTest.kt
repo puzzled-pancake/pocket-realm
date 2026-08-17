@@ -2582,6 +2582,21 @@ class InputContractTest {
         assertTrue(c.isNeutral(1))
     }
 
+    @Test fun `move ui action fires one F8 edge from the touch overlay`() {
+        val (c, sink) = newContract()
+        assertTrue(c.virtualAction(4, ControllerAction.MOVE_UI, true, 1))
+        assertTrue(c.virtualAction(4, ControllerAction.MOVE_UI, false, 1))
+        assertEquals(
+            listOf(
+                KeyEvent.KEYCODE_F8 to true,
+                KeyEvent.KEYCODE_F8 to false,
+            ),
+            sink.events.filterIsInstance<SinkEvent.Key>()
+                .map { it.logicalKeyCode to it.pressed },
+        )
+        assertTrue(c.isNeutral(1))
+    }
+
     @Test fun `controller actions cover qualified runtime keys exactly once except unusable TAB`() {
         assertEquals(25, ControllerAction.TARGET.ordinal)
         assertEquals(33, ControllerAction.CAMERA_LOCK.ordinal)
@@ -2618,6 +2633,10 @@ class InputContractTest {
         assertEquals(expected, outputs.toSet())
         assertEquals(ControllerAction.TARGET,
             ControllerAction.values().single { it.keyCode == KeyEvent.KEYCODE_F6 })
+        // MOVE_UI carries no direct key; it must stay appended after the
+        // pulse actions so ordinal-derived touch source ids stay stable.
+        assertTrue(ControllerAction.MOVE_UI.ordinal > ControllerAction.NEARBY_USE.ordinal)
+        assertEquals(ControllerAction.MOVE_UI, ControllerAction.values().last())
     }
 
     @Test fun `middle mouse and wheel actions are balanced discrete or held outputs`() {

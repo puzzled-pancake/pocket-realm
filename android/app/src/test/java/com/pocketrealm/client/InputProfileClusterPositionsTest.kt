@@ -3,6 +3,7 @@ package com.pocketrealm.client
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Cluster-anchor persistence: round-trip, tolerance, and deterministic order. */
@@ -81,5 +82,33 @@ class InputProfileClusterPositionsTest {
                 ),
             )
         }
+    }
+
+    @Test
+    fun overlayLayoutRoundTripsAndAbsentFieldUpgradesToConsole() {
+        assertEquals(OverlayLayout.CONSOLE, InputProfile.DEFAULT.overlayLayout)
+
+        val classic = InputProfile.DEFAULT.copy(overlayLayout = OverlayLayout.CLASSIC)
+        assertEquals(classic, InputProfile.fromJson(InputProfile.toJson(classic)))
+
+        val storedV11 = JSONObject()
+            .put("version", 11)
+            .put("aspectIdentity", "16:9")
+        assertEquals(OverlayLayout.CONSOLE, InputProfile.fromJson(storedV11).overlayLayout)
+    }
+
+    @Test
+    fun consoleControlsHaveDefaultBindingsAppendedAfterTheClassicGrid() {
+        val defaults = InputProfile.defaultOverlayBindings()
+
+        assertEquals(ControllerAction.SHIFT, defaults.getValue(OverlayControl.MODIFIER_SHIFT))
+        assertEquals(ControllerAction.CTRL, defaults.getValue(OverlayControl.MODIFIER_CTRL))
+        assertEquals(ControllerAction.POINTER_LEFT, defaults.getValue(OverlayControl.MOUSE_LEFT))
+        assertEquals(ControllerAction.POINTER_RIGHT, defaults.getValue(OverlayControl.MOUSE_RIGHT))
+        assertEquals(ControllerAction.CAMERA_LOCK, defaults.getValue(OverlayControl.LOOK_TOGGLE))
+        assertEquals(ControllerAction.CONSOLE_RADIAL, defaults.getValue(OverlayControl.RADIAL))
+        assertEquals(ControllerAction.NEARBY_USE, defaults.getValue(OverlayControl.NEARBY_USE))
+        assertEquals(ControllerAction.MOVE_UI, defaults.getValue(OverlayControl.MOVE_UI))
+        assertTrue(OverlayControl.ACTION_12.ordinal < OverlayControl.MODIFIER_SHIFT.ordinal)
     }
 }

@@ -49,6 +49,7 @@ import com.pocketrealm.client.ControllerFamily
 import com.pocketrealm.client.InputProfile
 import com.pocketrealm.client.OverlayClusterId
 import com.pocketrealm.client.OverlayControl
+import com.pocketrealm.client.OverlayLayout
 import com.pocketrealm.client.OverlayMode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.drop
@@ -137,7 +138,11 @@ fun TouchOverlay(host: ClientDisplayHost, modifier: Modifier = Modifier) {
         }
 
         if (presentation == OverlayPresentation.FULL) {
-            FullTouchControls(host, profile, opacity, moveMode, containerSize)
+            if (profile.overlayLayout == OverlayLayout.CONSOLE) {
+                ConsoleTouchControls(host, profile, opacity, moveMode, containerSize)
+            } else {
+                FullTouchControls(host, profile, opacity, moveMode, containerSize)
+            }
         }
 
         if (showModeHud) {
@@ -178,6 +183,203 @@ fun TouchOverlay(host: ClientDisplayHost, modifier: Modifier = Modifier) {
     }
 }
 
+/** Invisible right-side camera-look drag area shared by both full layouts. */
+@Composable
+private fun BoxScope.TouchCameraRegion(host: ClientDisplayHost, profile: InputProfile) {
+    Box(
+        Modifier
+            .align(Alignment.CenterEnd)
+            .fillMaxHeight()
+            .fillMaxWidth(profile.cameraRegionWidth)
+            .pointerInput(
+                host.generation,
+                profile.invertCameraX,
+                profile.invertCameraY,
+                profile.touchCameraSensitivity,
+            ) {
+                val scaler = TouchCameraScaler(profile.touchCameraSensitivity)
+                detectDragGestures(
+                    onDragStart = {
+                        scaler.reset()
+                        host.dispatchRightButton(true)
+                    },
+                    onDragEnd = {
+                        scaler.reset()
+                        host.dispatchRightButton(false)
+                    },
+                    onDragCancel = {
+                        scaler.reset()
+                        host.dispatchRightButton(false)
+                    },
+                    onDrag = { _, drag ->
+                        val dx = if (profile.invertCameraX) -drag.x else drag.x
+                        val dy = if (profile.invertCameraY) -drag.y else drag.y
+                        val scaled = scaler.scale(dx, dy)
+                        if (scaled.first != 0 || scaled.second != 0) {
+                            host.dispatchRelativePointer(scaled.first, scaled.second)
+                        }
+                    },
+                )
+            }
+            .testTag("touch-camera-region"),
+    )
+}
+
+/**
+ * Console-style touch arrangement for controller-free play: movement pad
+ * bottom-left, a 1-4 face diamond plus a 5-8 secondary pad bottom-right,
+ * Shift/Ctrl holds that reach the addon's modifier pages on the right edge,
+ * a camera-look toggle with left/right clicks at bottom-center, and a radial
+ * / nearby-use / Move UI / menu utility row top-left. Every cluster is
+ * movable and every action stays remappable through the profile.
+ */
+@Composable
+private fun BoxScope.ConsoleTouchControls(
+    host: ClientDisplayHost,
+    profile: InputProfile,
+    opacity: Float,
+    moveMode: Boolean,
+    containerSize: IntSize,
+) {
+    val targetSize = effectiveTouchTargetDp(profile.overlayScale).dp
+
+    if (!moveMode) {
+        TouchCameraRegion(host, profile)
+    }
+
+    MovableCluster(
+        clusterId = OverlayClusterId.UTILITY_ROW,
+        host = host,
+        profile = profile,
+        containerSize = containerSize,
+        moveMode = moveMode,
+        stockAlignment = Alignment.TopStart,
+        stockPadding = PaddingValues(start = 12.dp, top = 12.dp),
+        stockZIndex = 0f,
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ActionKey(host, profile, OverlayControl.RADIAL, "Radial", opacity, targetSize, wide = true)
+            ActionKey(host, profile, OverlayControl.NEARBY_USE, "Use near", opacity, targetSize, wide = true)
+            ActionKey(host, profile, OverlayControl.MOVE_UI, "Move UI", opacity, targetSize, wide = true)
+            ActionKey(host, profile, OverlayControl.MENU, "Menu", opacity, targetSize, wide = true)
+        }
+    }
+
+    MovableCluster(
+        clusterId = OverlayClusterId.MOVEMENT,
+        host = host,
+        profile = profile,
+        containerSize = containerSize,
+        moveMode = moveMode,
+        stockAlignment = Alignment.BottomStart,
+        stockPadding = PaddingValues(start = 12.dp, bottom = 12.dp),
+        stockZIndex = 0f,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.padding(start = 56.dp)) {
+                ActionKey(host, profile, OverlayControl.MOVE_UP, "W", opacity, targetSize)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ActionKey(host, profile, OverlayControl.MOVE_LEFT, "A", opacity, targetSize)
+                ActionKey(host, profile, OverlayControl.MOVE_DOWN, "S", opacity, targetSize)
+                ActionKey(host, profile, OverlayControl.MOVE_RIGHT, "D", opacity, targetSize)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ActionKey(host, profile, OverlayControl.AUTO_RUN, "Auto", opacity, targetSize, wide = true)
+                ActionKey(host, profile, OverlayControl.JUMP, "Jump", opacity, targetSize, wide = true)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ActionKey(host, profile, OverlayControl.TARGET, "Target", opacity, targetSize, wide = true)
+            }
+        }
+    }
+
+    MovableCluster(
+        clusterId = OverlayClusterId.FACE,
+        host = host,
+        profile = profile,
+        containerSize = containerSize,
+        moveMode = moveMode,
+        stockAlignment = Alignment.BottomEnd,
+        stockPadding = PaddingValues(end = 12.dp, bottom = 12.dp),
+        stockZIndex = 0f,
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            ActionKey(host, profile, OverlayControl.ACTION_3, "3", opacity, targetSize)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ActionKey(host, profile, OverlayControl.ACTION_2, "2", opacity, targetSize)
+                ActionKey(host, profile, OverlayControl.ACTION_4, "4", opacity, targetSize)
+            }
+            ActionKey(host, profile, OverlayControl.ACTION_1, "1", opacity, targetSize)
+        }
+    }
+
+    MovableCluster(
+        clusterId = OverlayClusterId.SECONDARY_PAD,
+        host = host,
+        profile = profile,
+        containerSize = containerSize,
+        moveMode = moveMode,
+        stockAlignment = Alignment.BottomEnd,
+        // Sits left of the face diamond: container inset + diamond (two keys
+        // wide) + a gutter.
+        stockPadding = PaddingValues(end = targetSize * 2 + 30.dp, bottom = 12.dp),
+        stockZIndex = 0f,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ActionKey(host, profile, OverlayControl.ACTION_5, "5", opacity, targetSize)
+                ActionKey(host, profile, OverlayControl.ACTION_6, "6", opacity, targetSize)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ActionKey(host, profile, OverlayControl.ACTION_7, "7", opacity, targetSize)
+                ActionKey(host, profile, OverlayControl.ACTION_8, "8", opacity, targetSize)
+            }
+        }
+    }
+
+    MovableCluster(
+        clusterId = OverlayClusterId.MODIFIERS,
+        host = host,
+        profile = profile,
+        containerSize = containerSize,
+        moveMode = moveMode,
+        stockAlignment = Alignment.CenterEnd,
+        stockPadding = PaddingValues(end = 12.dp),
+        stockZIndex = 0f,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            ActionKey(host, profile, OverlayControl.MODIFIER_SHIFT, "Shift", opacity, targetSize, wide = true)
+            ActionKey(host, profile, OverlayControl.MODIFIER_CTRL, "Ctrl", opacity, targetSize, wide = true)
+        }
+    }
+
+    MovableCluster(
+        clusterId = OverlayClusterId.LOOK_CLICKS,
+        host = host,
+        profile = profile,
+        containerSize = containerSize,
+        moveMode = moveMode,
+        stockAlignment = Alignment.BottomCenter,
+        stockPadding = PaddingValues(bottom = 12.dp),
+        stockZIndex = 0f,
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            ActionKey(host, profile, OverlayControl.LOOK_TOGGLE, "Look", opacity, targetSize, wide = true)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ActionKey(host, profile, OverlayControl.MOUSE_LEFT, "Tap", opacity, targetSize, wide = true)
+                ActionKey(host, profile, OverlayControl.MOUSE_RIGHT, "R-tap", opacity, targetSize, wide = true)
+            }
+        }
+    }
+}
+
 @Composable
 private fun BoxScope.FullTouchControls(
     host: ClientDisplayHost,
@@ -194,43 +396,7 @@ private fun BoxScope.FullTouchControls(
     // while rearranging so an accidental empty-screen drag cannot dispatch
     // camera-look.
     if (!moveMode) {
-        Box(
-            Modifier
-                .align(Alignment.CenterEnd)
-                .fillMaxHeight()
-                .fillMaxWidth(profile.cameraRegionWidth)
-                .pointerInput(
-                    host.generation,
-                    profile.invertCameraX,
-                    profile.invertCameraY,
-                    profile.touchCameraSensitivity,
-                ) {
-                    val scaler = TouchCameraScaler(profile.touchCameraSensitivity)
-                    detectDragGestures(
-                        onDragStart = {
-                            scaler.reset()
-                            host.dispatchRightButton(true)
-                        },
-                        onDragEnd = {
-                            scaler.reset()
-                            host.dispatchRightButton(false)
-                        },
-                        onDragCancel = {
-                            scaler.reset()
-                            host.dispatchRightButton(false)
-                        },
-                        onDrag = { _, drag ->
-                            val dx = if (profile.invertCameraX) -drag.x else drag.x
-                            val dy = if (profile.invertCameraY) -drag.y else drag.y
-                            val scaled = scaler.scale(dx, dy)
-                            if (scaled.first != 0 || scaled.second != 0) {
-                                host.dispatchRelativePointer(scaled.first, scaled.second)
-                            }
-                        },
-                    )
-                }
-                .testTag("touch-camera-region"),
-        )
+        TouchCameraRegion(host, profile)
     }
 
     MovableCluster(
@@ -601,6 +767,8 @@ private fun ControllerAction.shortLabel(fallback: String): String = when (this) 
     ControllerAction.NAV_LEFT -> "Left"
     ControllerAction.NAV_RIGHT -> "Right"
     ControllerAction.TARGET, ControllerAction.TARGET_PULSE -> "Target"
+    ControllerAction.SHIFT -> "Shift"
+    ControllerAction.CTRL -> "Ctrl"
     else -> keyCode?.let { displayName.removePrefix("Key ").removePrefix("Move ").removePrefix("Strafe ") }
         ?: fallback
 }
