@@ -237,6 +237,18 @@ enum class OverlayControl(val displayName: String) {
 }
 
 /**
+ * Touch-overlay cluster whose placement the player can rearrange. Ids are
+ * stable serialization keys; append new clusters so stored positions survive.
+ */
+enum class OverlayClusterId { DRAWER, TARGET_ROW, MOVEMENT, ACTIONS }
+
+/**
+ * Normalized top-left of a touch cluster inside the overlay container, each
+ * fraction in `0f..1f`. Absent anchor = the cluster's stock alignment.
+ */
+data class ClusterAnchor(val xFraction: Float, val yFraction: Float)
+
+/**
  * O14 G4 mobile input UX — versioned logical input profile.
  *
  * Report §16.6/§16.8 require a persisted action map with per-device dead zones
@@ -269,6 +281,7 @@ data class InputProfile(
     val overlayEnabled: Boolean = true,
     val overlayMode: OverlayMode = OverlayMode.AUTO,
     val overlayScale: Float = 1.0f,
+    val overlayClusterPositions: Map<OverlayClusterId, ClusterAnchor> = emptyMap(),
     val cameraRegionWidth: Float = 0.42f,
     val touchCameraSensitivity: Float = 0.35f,
     val invertCameraX: Boolean = false,
@@ -300,11 +313,16 @@ data class InputProfile(
         require(leftTriggerOnThreshold in 0.1f..0.9f) { "left trigger threshold out of range" }
         require(rightTriggerOffThreshold in 0f..rightTriggerOnThreshold) { "invalid right trigger hysteresis" }
         require(rightTriggerOnThreshold in 0.1f..0.9f) { "right trigger threshold out of range" }
+        overlayClusterPositions.values.forEach { anchor ->
+            require(anchor.xFraction in 0f..1f && anchor.yFraction in 0f..1f) {
+                "overlay cluster position out of range: $anchor"
+            }
+        }
     }
 
     companion object {
         /** Current [InputProfile] schema version. */
-        const val CURRENT_VERSION: Int = 11
+        const val CURRENT_VERSION: Int = 12
 
         private const val V6_DEFAULT_RIGHT_STICK_DEAD_ZONE: Float = 0.12f
 
@@ -668,6 +686,22 @@ data class InputProfile(
                     }
                 }
             }
+            // Cluster anchors are parsed per entry and clamped or dropped, so a
+            // malformed anchor degrades to the stock alignment instead of
+            // discarding the whole stored profile.
+            val clusterPositions = linkedMapOf<OverlayClusterId, ClusterAnchor>()
+            value.optJSONObject("overlayClusterPositions")?.let { stored ->
+                stored.keys().asSequence().sorted().forEach { key ->
+                    val cluster = OverlayClusterId.values().firstOrNull { it.name == key }
+                        ?: return@forEach
+                    val anchor = stored.optJSONObject(key) ?: return@forEach
+                    val x = anchor.optDouble("x", Double.NaN).toFloat()
+                    val y = anchor.optDouble("y", Double.NaN).toFloat()
+                    if (!x.isNaN() && !y.isNaN()) {
+                        clusterPositions[cluster] = ClusterAnchor(x.coerceIn(0f, 1f), y.coerceIn(0f, 1f))
+                    }
+                }
+            }
             return InputProfile(
                 version = CURRENT_VERSION,
                 deadZone = value.optDouble("deadZone", DEFAULT.deadZone.toDouble()).toFloat(),
@@ -685,6 +719,7 @@ data class InputProfile(
                         ?: OverlayMode.AUTO
                 },
                 overlayScale = value.optDouble("overlayScale", 1.0).toFloat(),
+                overlayClusterPositions = clusterPositions,
                 cameraRegionWidth = value.optDouble("cameraRegionWidth", 0.42).toFloat(),
                 touchCameraSensitivity = value.optDouble("touchCameraSensitivity", 0.35).toFloat(),
                 invertCameraX = value.optBoolean("invertCameraX", false),
@@ -743,6 +778,18 @@ data class InputProfile(
                 }
                 layerFaceBindings.put(layer.name, storedLayer)
             }
+            // Sorted key order keeps the canonical re-serialization used by the
+            // managed-preset comparison independent of map insertion order.
+            val clusterPositions = JSONObject()
+            profile.overlayClusterPositions.keys.sortedBy { it.name }.forEach { cluster ->
+                val anchor = profile.overlayClusterPositions.getValue(cluster)
+                clusterPositions.put(
+                    cluster.name,
+                    JSONObject()
+                        .put("x", anchor.xFraction.toDouble())
+                        .put("y", anchor.yFraction.toDouble()),
+                )
+            }
             return JSONObject()
                 .put("version", profile.version)
                 .put("deadZone", profile.deadZone.toDouble())
@@ -753,6 +800,7 @@ data class InputProfile(
                 .put("overlayEnabled", profile.overlayEnabled)
                 .put("overlayMode", profile.overlayMode.name)
                 .put("overlayScale", profile.overlayScale.toDouble())
+                .put("overlayClusterPositions", clusterPositions)
                 .put("cameraRegionWidth", profile.cameraRegionWidth.toDouble())
                 .put("touchCameraSensitivity", profile.touchCameraSensitivity.toDouble())
                 .put("invertCameraX", profile.invertCameraX)
@@ -1010,11 +1058,11 @@ class InputProfileStore(context: Context) {
 
     private companion object {
         const val NAME = "pocket_input_profile"
-        const val KEY = "profile_v11"
+        const val KEY = "profile_v12"
         const val VANILLA_CONSOLE_PRIOR_KEY = "vanilla_console_port_prior_v1"
         const val VANILLA_CONSOLE_APPLIED_KEY = "vanilla_console_port_applied_v1"
         val LEGACY_KEYS = listOf(
-            "profile_v10", "profile_v9", "profile_v8", "profile_v7", "profile_v6", "profile_v5", "profile_v4", "profile_v3", "profile_v2",
+            "profile_v11", "profile_v10", "profile_v9", "profile_v8", "profile_v7", "profile_v6", "profile_v5", "profile_v4", "profile_v3", "profile_v2",
         )
     }
 }

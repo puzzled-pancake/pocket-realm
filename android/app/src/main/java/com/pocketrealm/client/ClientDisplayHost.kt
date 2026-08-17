@@ -746,6 +746,32 @@ class ClientDisplayHost(
         return report
     }
 
+    /**
+     * Persist a new normalized position for one touch-overlay cluster. Goes
+     * through [switchInputProfile] so the contract, the store, and the
+     * profile StateFlow stay in sync; held input is released by the switch,
+     * which is acceptable at drag end.
+     */
+    fun updateOverlayClusterPosition(
+        clusterId: OverlayClusterId,
+        xFraction: Float,
+        yFraction: Float,
+    ): InputContract.ReleaseReport = switchInputProfile(
+        profile.value.copy(
+            overlayClusterPositions = profile.value.overlayClusterPositions +
+                (
+                    clusterId to ClusterAnchor(
+                        xFraction.coerceIn(0f, 1f),
+                        yFraction.coerceIn(0f, 1f),
+                    )
+                    ),
+        ),
+    )
+
+    /** Return every touch cluster to its stock alignment. */
+    fun resetOverlayClusterPositions(): InputContract.ReleaseReport =
+        switchInputProfile(profile.value.copy(overlayClusterPositions = emptyMap()))
+
     // ---- O14 increment 1: additional pointer entry points -----------------
     // These route through the same [InputContract] generation gate and pressed-
     // state tracking as touch/keyboard. They preserve the verified left-button

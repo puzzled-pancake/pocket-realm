@@ -669,6 +669,6 @@ internal fun loadProfileForControls(context: Context): InputProfile {
 }
 
 private val CONTROL_PROFILE_KEYS = listOf(
-    "profile_v11", "profile_v10", "profile_v9", "profile_v8", "profile_v7", "profile_v6",
+    "profile_v12", "profile_v11", "profile_v10", "profile_v9", "profile_v8", "profile_v7", "profile_v6",
     "profile_v5", "profile_v4", "profile_v3", "profile_v2",
 )

@@ -24,7 +24,7 @@ class O14InputProfilePersistenceTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val prefs = context.getSharedPreferences("pocket_input_profile", Context.MODE_PRIVATE)
         val keys = listOf(
-            "profile_v11", "profile_v10", "profile_v9", "profile_v8", "profile_v7", "profile_v6", "profile_v5", "profile_v4", "profile_v3", "profile_v2",
+            "profile_v12", "profile_v11", "profile_v10", "profile_v9", "profile_v8", "profile_v7", "profile_v6", "profile_v5", "profile_v4", "profile_v3", "profile_v2",
             "vanilla_console_port_prior_v1", "vanilla_console_port_applied_v1",
         )
         val originals = keys.associateWith { prefs.getString(it, null) }
@@ -59,7 +59,7 @@ class O14InputProfilePersistenceTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val prefs = context.getSharedPreferences("pocket_input_profile", Context.MODE_PRIVATE)
         val keys = listOf(
-            "profile_v11", "profile_v10", "profile_v9", "profile_v8", "profile_v7", "profile_v6", "profile_v5", "profile_v4", "profile_v3", "profile_v2",
+            "profile_v12", "profile_v11", "profile_v10", "profile_v9", "profile_v8", "profile_v7", "profile_v6", "profile_v5", "profile_v4", "profile_v3", "profile_v2",
         )
         val originals = keys.associateWith { prefs.getString(it, null) }
         try {
@@ -93,7 +93,7 @@ class O14InputProfilePersistenceTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val prefs = context.getSharedPreferences("pocket_input_profile", Context.MODE_PRIVATE)
         val keys = listOf(
-            "profile_v11", "profile_v10", "profile_v9", "profile_v8", "profile_v7", "profile_v6", "profile_v5", "profile_v4", "profile_v3", "profile_v2",
+            "profile_v12", "profile_v11", "profile_v10", "profile_v9", "profile_v8", "profile_v7", "profile_v6", "profile_v5", "profile_v4", "profile_v3", "profile_v2",
         )
         val originals = keys.associateWith { prefs.getString(it, null) }
         try {
@@ -108,14 +108,15 @@ class O14InputProfilePersistenceTest {
             // A hostless settings read must be non-mutating and must not
             // manufacture the default 16:9 identity.
             assertEquals("16:10", InputProfile.fromJson(
-                org.json.JSONObject(prefs.getString("profile_v11", null)!!),
+                org.json.JSONObject(prefs.getString("profile_v12", null)!!),
             ).aspectIdentity)
 
             prefs.edit()
                 // Remove the valid current record so this test genuinely
-                // exercises legacy fallback without contaminating profile_v11.
-                .remove("profile_v11")
-                .putString("profile_v10", "{not valid json")
+                // exercises legacy fallback without contaminating profile_v12.
+                .remove("profile_v12")
+                .putString("profile_v11", "{not valid json")
+                .putString("profile_v10", "{not valid legacy json")
                 .putString("profile_v9", "{not valid legacy json")
                 .putString("profile_v8", "{not valid legacy json")
                 .putString("profile_v7", "{not valid legacy json")
