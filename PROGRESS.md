@@ -66,6 +66,35 @@ client session.
 > regenerates every evidence artifact through one reproducible serial+variant-
 > specific driver (tools/run_pkg_experiments.py).
 
+## First-boot fixes round (2026-08-17, F0-F7 of docs/devibe/FIRSTBOOT_FIXES_PLAN.md)
+
+Executed after the 0.2.0 fresh-install session on the RP6, all phases
+closed under multi-agent verification (plan records each round's outcome):
+
+- **Stability:** reference-counted Gladio GLX share-group containers (the
+  2026-08-15 whole-app MTE abort), `:client` specialUse FGS while a session
+  runs, POSIX TZ in the guest env, first-boot retry guidance, `/ap off|on`
+  addon-module bisection switches, Diagnostics client-evidence card.
+- **Import UX:** busy-but-dead worker auto-restarts using the journal's own
+  source URI (LMK-kill recovery without manual Resume), 30-minute
+  confirmation dialog, CPU% display removed, device row shows the model.
+- **Defaults:** first-realm-start warning + Starting hint, Setup copy
+  rewritten, absent Vulkan selection persists as "auto", one-time
+  widescreen tweak defaults (schema 2 with the writer fixed), Config.wtf
+  cvar seeds + first-login uvar seeds (the SAFE_CONFIG writer's historical
+  no-op  replace fixed — fresh generations now carry true CRLF).
+- **Display/graphics:** Classic 4:3 profile (exact 1280x960, pillarboxed,
+  FoV-coupled), graphics section unlocked per the reviewed grouping with
+  renderer-conditional GL-lane locks.
+- **Addons/bots:** built-in Android Port installs on fresh installs;
+  complete source-verified addon description; Independent playstyle
+  distinct again (pairwise-distinctness test added).
+- **Updates:** in-app check + streaming resumable checksum-verified
+  PackageInstaller flow from a public updates repo (activation owner-
+  gated), versionCode 2 / 0.2.0, debug-signature continuity (DECISIONS).
+- Hand-off: DEVICE_TEST_CHECKLIST.md; world-entry crash bisection is the
+  top device task (evidence in .tmp/devibe/rp6_firstboot_crash/).
+
 ## Source of truth
 
 - `docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.pdf` is the canonical offline engineering reference; the adjacent DOCX is its editable source.

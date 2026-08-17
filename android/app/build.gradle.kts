@@ -398,7 +398,13 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
                 virglServerProvenance["upstream_virgl_source_tree_id"] ==
                     "44f73c34d4a2cf4e21fcdbcfc4fc37a44837e1b9" &&
                 virglServerProvenance["adapted_source_sha256"] ==
-                    "d0e74286cade7dd9da18c39d1fed34a37b08648209e0bbf422c01a060908da21" &&
+                    // Re-pinned 2026-08-17: the F1c xserver rebuild regenerated
+                    // the provenance with a new adapted_source_sha256 because
+                    // the build script self-hashes into it and the de-vibe
+                    // phase-4 toolbox refactor changed the script. The
+                    // libvirglrenderer.so binary itself is byte-identical
+                    // (sha/size pins above unchanged).
+                    "ecde987136d772e99c289e882c19df18796e760fef2a232b963694ee544f1e15" &&
                 virglServerProvenance["ndk_version"] == "30.0.15729638" &&
                 (virglServerProvenance["size"] as Number).toLong() == virglServer.length() &&
                 virglServerProvenance["sha256"] == sha256(virglServer) &&
