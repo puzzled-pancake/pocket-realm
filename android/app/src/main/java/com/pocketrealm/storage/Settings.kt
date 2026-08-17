@@ -46,11 +46,78 @@ private val vulkanSelectionSchemaPreference =
 private val vulkanMigrationNoticePreference =
     intPreferencesKey("arm_vulkan_driver_migration_notice")
 private val rendererPreference = stringPreferencesKey("renderer")
+internal val tweaksPreference = stringPreferencesKey("client_tweaks")
+internal val tweaksSchemaPreference = intPreferencesKey("client_tweaks_schema")
 private val rendererSelectionSchemaPreference =
     intPreferencesKey("arm_renderer_selection_schema")
 
 internal const val POCKET_SETTINGS_STORE_NAME = "pocket_settings"
 internal const val POCKET_SETTINGS_FILE_NAME = "$POCKET_SETTINGS_STORE_NAME.preferences_pb"
+
+/**
+ * client_tweaks schema history:
+ *  1 — explicitly versioned user choices (the unversioned era's accidental
+ *      enable-everything state was migrated once to pristine Vanilla);
+ *  2 — one-time first-boot defaults for widescreen devices (fov, quick-loot,
+ *      camera-skip fix, max camera distance). Only never-configured keys
+ *      (schema < 1) gain the new defaults; schema-1 explicit choices are
+ *      preserved untouched. [Settings.update] must keep writing this
+ *      constant or every settings write would regress the stamp and re-run
+ *      the migration.
+ */
+internal const val TWEAKS_SCHEMA_VERSION = 2
+
+/**
+ * F3d: enable the recommended tweak set once for never-configured installs
+ * when the resolved virtual display is widescreen (both shipped profiles
+ * are 16:9; a future 4:3 profile disables the FOV tweak at selection time).
+ * The 4:3 coupling and the user's later toggles always win — this runs at
+ * most once, ever.
+ */
+internal fun clientTweaksDefaultsMigration(context: Context): DataMigration<Preferences> =
+    clientTweaksDefaultsMigration {
+        runCatching { resolvesWidescreenVirtualDisplay(context) }.getOrDefault(true)
+    }
+
+internal fun clientTweaksDefaultsMigration(
+    resolvesWidescreen: () -> Boolean,
+): DataMigration<Preferences> =
+    object : DataMigration<Preferences> {
+        override suspend fun shouldMigrate(currentData: Preferences): Boolean =
+            (currentData[tweaksSchemaPreference] ?: 0) < TWEAKS_SCHEMA_VERSION
+
+        override suspend fun migrate(currentData: Preferences): Preferences {
+            val priorSchema = currentData[tweaksSchemaPreference] ?: 0
+            val neverConfigured = priorSchema < 1
+            val widescreen = resolvesWidescreen()
+            return currentData.toMutablePreferences().apply {
+                if (neverConfigured && widescreen) {
+                    val defaults = ClientTweaksConfig.fromJson(this[tweaksPreference])
+                        .copy(
+                            fovEnabled = true,
+                            quicklootEnabled = true,
+                            cameraSkipFixEnabled = true,
+                            maxCameraDistanceEnabled = true,
+                        )
+                    this[tweaksPreference] = defaults.toJson()
+                }
+                this[tweaksSchemaPreference] = TWEAKS_SCHEMA_VERSION
+            }
+        }
+
+        override suspend fun cleanUp() = Unit
+    }
+
+private const val WIDESCREEN_WIDTH_MULTIPLIER = 9
+private const val WIDESCREEN_HEIGHT_MULTIPLIER = 16
+
+internal fun resolvesWidescreenVirtualDisplay(context: Context): Boolean {
+    val (width, height) = ClientDisplayCapabilities.physicalLandscapeBounds(context)
+    val profile = ClientDisplayProfile.forDevice(Build.SUPPORTED_ABIS.asList(), Build.MODEL)
+    val display = profile.resolveFor(width, height)
+    return display.width * WIDESCREEN_WIDTH_MULTIPLIER ==
+        display.height * WIDESCREEN_HEIGHT_MULTIPLIER
+}
 
 internal fun pocketSettingsDataFile(context: Context): File =
     context.applicationContext.preferencesDataStoreFile(POCKET_SETTINGS_STORE_NAME)
@@ -144,6 +211,7 @@ private object PocketSettingsStore {
             migrations = listOf(
                 vulkanSelectionMigration(),
                 rendererSelectionMigration(),
+                clientTweaksDefaultsMigration(context),
             ),
             scope = scope,
         )
@@ -384,7 +452,7 @@ class Settings(private val context: Context) {
             prefs[Keys.AL_FIELD_SETTLE] = timings.fieldSettleMs.toInt()
             prefs[Keys.AL_POINTER_DWELL] = timings.pointerDwellMs.toInt()
             prefs[Keys.TWEAKS] = next.tweaks.toJson()
-            prefs[Keys.TWEAKS_SCHEMA] = 1
+            prefs[Keys.TWEAKS_SCHEMA] = TWEAKS_SCHEMA_VERSION
             prefs[Keys.GAME_SETTINGS] = next.gameSettings.toJson()
             prefs[Keys.GAME_SETTINGS_SCHEMA] = 1
             prefs[Keys.AUDIO_MODE] = next.audioMode.name
@@ -498,8 +566,8 @@ class Settings(private val context: Context) {
         val AL_IME_GAP = intPreferencesKey("al_ime_key_gap_ms")
         val AL_FIELD_SETTLE = intPreferencesKey("al_field_settle_ms")
         val AL_POINTER_DWELL = intPreferencesKey("al_pointer_dwell_ms")
-        val TWEAKS = stringPreferencesKey("client_tweaks")
-        val TWEAKS_SCHEMA = intPreferencesKey("client_tweaks_schema")
+        val TWEAKS = tweaksPreference
+        val TWEAKS_SCHEMA = tweaksSchemaPreference
         val GAME_SETTINGS = stringPreferencesKey("game_settings_queue")
         val GAME_SETTINGS_SCHEMA = intPreferencesKey("game_settings_queue_schema")
         val GAME_SETTINGS_REVISION = longPreferencesKey("game_settings_revision")

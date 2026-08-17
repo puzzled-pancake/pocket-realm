@@ -406,6 +406,24 @@ note.**
 **F3 tests/gates**: settings migration tests, catalog/policy unit tests,
 mock-config tests, detekt.
 
+**F3 verification round 1 (2026-08-17) outcome**: no blockers; three
+concerns, all fixed. (1) The Kotlin SAFE_CONFIG write-site
+`.replace("\\r\\n", "\r\n")` was a historical NO-OP (the raw string holds
+backslash-r + newline, never backslash-r-backslash-n), so the app-written
+Config.wtf carried junk trailing `\r` text on every line — replaced with a
+correct `normalizeRawConfigLineEndings()` so fresh generations get true
+CRLF, byte-matching the Python mirror. (2) The ground-truth addendum
+misstated the NAMEPLATES_ON capture (nil when off, not a numeric scalar) —
+corrected; the number form rests on the Bindings.xml handler alone.
+(3) The F1b.2 "world is preparing" Starting-state hint now ships (derived
+from the bootstrap seal marker inside the realm card — no signature change,
+so the pre-existing detekt baseline entry keeps matching; the dead
+firstStartInSession stub removed). Also fixed: dangling KDoc ordering next
+to resolveVirtualDisplay. Recorded decisions: the DXVK group's existing
+copy already explains auto-stepping (no relabel needed); the F3a dialog
+carries no testTag yet (no instrumented test drives the realm buttons
+today — the first such test adds it).
+
 ---
 
 ## F4 — Display modes and graphics unlock

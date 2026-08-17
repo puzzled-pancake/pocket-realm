@@ -160,3 +160,34 @@ gamma/uiscale) — excluded per the provenance rules rather than guessed.
    planned.
 4. **Video catalog is capture-evidenced CVars only**; gamma/uiscale excluded
    (absent from capture, no FrameXML source).
+
+## Addendum: F3e first-login default seeds (2026-08-17)
+
+Provenance for the account-level uvars seeded once by
+`WineRuntimeStore.seedFirstLoginAccountDefaults` (file absent = never logged
+in; the client owns the file afterward and rewrites it at logout):
+
+- `QUEST_FADING_DISABLE`, `SHOW_TARGET_OF_TARGET`, `SHOW_COMBAT_TEXT`,
+  `SHOW_NEWBIE_TIPS`, `AUTO_QUEST_WATCH` — all five are catalog uvars with
+  FRAMEXML_PIN provenance (`WowVanillaSettingsCatalog`, §6) and appear as
+  scalars in the captured `SavedVariables.lua` (string forms except
+  `AUTO_QUEST_WATCH`, which the catalog pins as `uvarValueForm NUMBER`).
+- `NAMEPLATES_ON` has no catalog row; its evidence base is the 1.12.1
+  binding handler (`Bindings.xml` sets `NAMEPLATES_ON = 1`, number form).
+  The RP6 capture shows `NAMEPLATES_ON = nil` (nameplates were off when the
+  capture was taken), which confirms the client persists the key itself —
+  the number form and the enabled value come from the binding handler, not
+  the capture. It is the only enemy-overhead-names mechanism in
+  1.12 (the later-client `nameplateShowEnemies` family does not exist).
+  Not adding a catalog row is deliberate: the seed is a one-time default,
+  not a settings-surface claim.
+
+Config.wtf cvar seeds (`SAFE_CONFIG` in `ClientGenerationStore`, mirrored by
+`tools/stage_o07_client.py`) all correspond to catalog rows:
+`autoSelfCast`, `statusBarText` (the 1.12 numeric status-text equivalent),
+`UnitNameNPC`, `UnitNamePlayerGuild`, `UnitNamePlayerPVPTitle`,
+`cameraSmoothStyle`, `MasterSoundEffects` (flipped to "1" — sounds on; the
+old "0" started every fresh import silent, and the audio-off enforcement
+still applies when the app sound setting is off). Documented N/A: rotate
+minimap (no 1.12 cvar) and friendly-nameplates-off (the 1.12 client never
+persists `FRIENDNAMEPLATES_ON`; stock behavior is off each session).

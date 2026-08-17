@@ -1761,6 +1761,19 @@ internal class WineRuntimeStore(private val context: Context) {
         private val ARM_GENERATION_NAME = Regex("g-[0-9a-f]{32}")
         private const val VANILLA_TWEAKS_VERSION = "1.6.0"
         private const val PATCHER_LIB = "libpocket_vanilla_tweaks.so"
+
+        // name to (value, numberForm): string literals except the two
+        // numeric uvars (NAMEPLATES_ON per 1.12 Bindings.xml,
+        // AUTO_QUEST_WATCH per the catalog's uvarValueForm).
+        private val FIRST_LOGIN_UVAR_DEFAULTS = listOf(
+            Triple("QUEST_FADING_DISABLE", "1", false),
+            Triple("SHOW_TARGET_OF_TARGET", "1", false),
+            Triple("NAMEPLATES_ON", "1", true),
+            Triple("SHOW_COMBAT_TEXT", "1", false),
+            Triple("SHOW_NEWBIE_TIPS", "0", false),
+            Triple("AUTO_QUEST_WATCH", "1", true),
+        )
+
         private const val PATCHER_TIMEOUT_SECONDS = 120L
         private const val BOX64_LIBASOUND_SHA256 =
             "593ff5247c19882402b67f6472711791646ffaec5a4764b061f1eacb999ca3b3"
@@ -1907,6 +1920,32 @@ internal class WineRuntimeStore(private val context: Context) {
     }
 
     /**
+     * F3e one-time interface defaults: the first prepare after the account
+     * exists but has never logged in (SavedVariables absent) seeds the
+     * account-level uvars — instant quest text, target-of-target, enemy
+     * nameplates, floating combat text, newbie tooltips off, automatic quest
+     * tracking. Once the file exists the client owns it (and rewrites it at
+     * logout), so this never fights later user choices. Skipped entirely
+     * when no provisioned auto-login account is known yet; the next prepare
+     * retries.
+     */
+    private fun seedFirstLoginAccountDefaults(workingDir: File) {
+        val account = runCatching {
+            com.pocketrealm.supervisor.UserAccountStore(context)
+                .loadProvisioned()?.username
+        }.getOrNull() ?: return
+        val savedVars = InGameSettingsFiles.accountSavedVariables(workingDir, account)
+        if (savedVars.isFile) return
+        var text = ""
+        FIRST_LOGIN_UVAR_DEFAULTS.forEach { (name, value, numberForm) ->
+            text = SavedVariablesCodec.assign(
+                text, name, value, numberForm = numberForm,
+            ) ?: text
+        }
+        writeAtomic(savedVars, text)
+    }
+
+    /**
      * Panel-resolved desktop for a profile. Deterministic for one device, so
      * the launch-side Config.wtf, the safe-profile record, and the later
      * integrity checks all agree without threading the geometry around.
@@ -1990,6 +2029,7 @@ internal class WineRuntimeStore(private val context: Context) {
                 File(workingDir, "realmlist.wtf"), realmEndpoint,
             )
             File(workingDir, "WTF").mkdirs()
+            seedFirstLoginAccountDefaults(workingDir)
             val base = if (configFile.isFile) configFile.readText(Charsets.UTF_8) else null
             val merged = ConfigWtfCodec.merge(base, enforced, plan.cvarWrites)
             configText = merged.text

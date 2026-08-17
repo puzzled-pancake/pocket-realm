@@ -97,12 +97,12 @@ class SettingsDataStoreTest {
     }
 
     @Test
-    fun missingSelectionMigratesToVendorDefault() = runTest {
+    fun missingSelectionMigratesToAutoFollowingTheCatalogDefault() = runTest {
         val migration = vulkanSelectionMigration(adrenoGpu = true)
         val empty = mutablePreferencesOf(unrelatedKey to "kept-account")
 
         val migrated = migration.migrate(empty)
-        assertEquals(VulkanDriverCatalog.TURNIP_26_1, migrated[driverKey])
+        assertEquals(VulkanDriverCatalog.AUTO_ID, migrated[driverKey])
         assertEquals(VulkanDriverCatalog.SELECTION_SCHEMA, migrated[schemaKey])
         assertEquals("kept-account", migrated[unrelatedKey])
     }

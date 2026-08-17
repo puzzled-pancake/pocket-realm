@@ -34,6 +34,10 @@ PACKAGE = "com.pocketrealm"
 CLIENT_ID = "wow-1.12.1-5875"
 EXPECTED_EXE_SHA256 = "b4756d38ef207c02ed651f4952bd89a70b4857b73a33413339e1b285b28d2dc7"
 SAFE_REALMLIST = b"set realmlist 127.0.0.1\r\n"
+# Mirrors ClientGenerationStore.SAFE_CONFIG key-for-key (F3e lockstep). The
+# old inert WotLK-era Sound_Enable* "0" family was never written by the
+# Kotlin side and is dropped; MasterSoundEffects "1" enables sound and the
+# F3e interface-default cvars ship on for fresh generations.
 SAFE_CONFIG = b"""SET readTOS "1"\r
 SET readEULA "1"\r
 SET readScanning "1"\r
@@ -45,10 +49,13 @@ SET gxVSync "0"\r
 SET gxMultisample "1"\r
 SET gxMultisampleQuality "0.000000"\r
 SET maxFPS "30"\r
-SET Sound_EnableAllSound "0"\r
-SET Sound_EnableMusic "0"\r
-SET Sound_EnableSFX "0"\r
-SET Sound_EnableAmbience "0"\r
+SET MasterSoundEffects "1"\r
+SET autoSelfCast "1"\r
+SET statusBarText "1"\r
+SET UnitNameNPC "1"\r
+SET UnitNamePlayerGuild "0"\r
+SET UnitNamePlayerPVPTitle "0"\r
+SET cameraSmoothStyle "0"\r
 SET ffxGlow "0"\r
 SET ffxDeath "0"\r
 SET farclip "177"\r

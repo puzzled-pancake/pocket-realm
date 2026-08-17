@@ -752,7 +752,11 @@ fun SettingsScreen(
                 }
             }
             Text(
-                "Import, device information, and troubleshooting are kept here so the Home screen stays focused on play.",
+                "Setup covers three tools: importing the WoW 1.12.1 game files and " +
+                    "generating the server's world data, a report of what this " +
+                    "device's hardware can run, and diagnostics with logs for " +
+                    "investigating problems. Start here on a new install. Character " +
+                    "backups and restores live in the Realm data section below.",
                 style = MaterialTheme.typography.bodySmall,
             )
         }

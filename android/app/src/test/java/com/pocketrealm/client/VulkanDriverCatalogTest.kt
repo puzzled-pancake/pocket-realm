@@ -106,14 +106,29 @@ class VulkanDriverCatalogTest {
 
     @Test
     fun preSchemaAdrenoSystemMigratesOnceToTurnip() {
-        for (legacy in listOf(null, VulkanDriverCatalog.SYSTEM_DEFAULT)) {
-            val resolved = VulkanDriverCatalog.resolvePersistedSelection(
-                requestedId = legacy,
-                selectionSchema = 0,
-                adrenoGpu = true,
-            )
-            assertEquals(VulkanDriverCatalog.TURNIP_26_1, resolved.driverId)
-            assertTrue(resolved.migrated)
+        val resolved = VulkanDriverCatalog.resolvePersistedSelection(
+            requestedId = VulkanDriverCatalog.SYSTEM_DEFAULT,
+            selectionSchema = 0,
+            adrenoGpu = true,
+        )
+        assertEquals(VulkanDriverCatalog.TURNIP_26_1, resolved.driverId)
+        assertTrue(resolved.migrated)
+    }
+
+    @Test
+    fun absentSelectionPersistsAsAutoFollowingTheCatalogDefault() {
+        // A never-configured key must persist "auto" (fresh installs follow
+        // the catalog default and the vendor rule if they change later)
+        // rather than materializing today's concrete default.
+        for (schema in listOf(0, VulkanDriverCatalog.SELECTION_SCHEMA)) {
+            for (adreno in listOf(true, false)) {
+                val resolved = VulkanDriverCatalog.resolvePersistedSelection(
+                    requestedId = null,
+                    selectionSchema = schema,
+                    adrenoGpu = adreno,
+                )
+                assertEquals(VulkanDriverCatalog.AUTO_ID, resolved.driverId)
+            }
         }
     }
 

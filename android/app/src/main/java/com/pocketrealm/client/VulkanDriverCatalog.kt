@@ -163,7 +163,9 @@ object VulkanDriverCatalog {
     /**
      * Schema 4 adopts Winlator-style auto-selection. Schema-0/1/2 RP6 System
      * selections keep migrating to the pinned Turnip package; schema-3
-     * selections pass through unchanged; "auto" resolves at read time.
+     * selections pass through unchanged; an absent key now persists as
+     * "auto" (fresh installs follow the catalog default and the vendor rule
+     * if they change later) instead of materializing the concrete default.
      */
     fun resolvePersistedSelection(
         requestedId: String?,
@@ -174,7 +176,7 @@ object VulkanDriverCatalog {
             requestedId == SYSTEM_DEFAULT
         val resolvedId = when {
             legacyAdrenoSystem -> TURNIP_26_1
-            requestedId == null -> resolveDefault(adrenoGpu).id
+            requestedId == null -> AUTO_ID
             else -> requestedId
         }
         return PersistedVulkanDriverSelection(

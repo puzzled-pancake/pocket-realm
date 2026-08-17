@@ -63,6 +63,8 @@ import com.pocketrealm.storage.Settings
 import com.pocketrealm.supervisor.RuntimeSupervisorClient
 import com.pocketrealm.supervisor.RuntimeMode
 import com.pocketrealm.supervisor.UserAccountStore
+import com.pocketrealm.storage.StorageRoots
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -183,18 +185,71 @@ fun HomeScreen(
         }
     }
 
+    // F3a: the first realm start bootstraps the database and prepares the
+    // world — a once-only cost worth warning about. The seal marker is
+    // written only after a fully verified bootstrap (DatabaseEngine), so its
+    // absence at tap time means "never successfully started".
+    var pendingFirstStart by remember { mutableStateOf<Boolean?>(null) }
+    fun performStart(includeClient: Boolean) {
+        if (settingsSnapshot.allowLanPlayers) {
+            RealmService.hostLan(context, botProfile.id, includeClient = includeClient)
+        } else RealmService.start(context, botProfile.id, includeClient = includeClient)
+    }
+
     val startRealmOnly = startRealmOnly@{
         if (settingsSnapshotState == null) return@startRealmOnly
-        if (settingsSnapshot.allowLanPlayers) {
-            RealmService.hostLan(context, botProfile.id, includeClient = false)
-        } else RealmService.start(context, botProfile.id, includeClient = false)
+        scope.launch {
+            val initialized = withContext(Dispatchers.IO) {
+                File(StorageRoots.get(context).databaseRoot, "initialized.json").isFile
+            }
+            if (initialized) {
+                performStart(includeClient = false)
+            } else {
+                pendingFirstStart = false
+            }
+        }
+        Unit
     }
     val startRealmAndGame = startRealmAndGame@{
         if (settingsSnapshotState == null) return@startRealmAndGame
-        pendingAutoEnterBase = displayHost?.generation ?: -1L
-        if (settingsSnapshot.allowLanPlayers) {
-            RealmService.hostLan(context, botProfile.id, includeClient = true)
-        } else RealmService.start(context, botProfile.id, includeClient = true)
+        scope.launch {
+            val initialized = withContext(Dispatchers.IO) {
+                File(StorageRoots.get(context).databaseRoot, "initialized.json").isFile
+            }
+            if (initialized) {
+                pendingAutoEnterBase = displayHost?.generation ?: -1L
+                performStart(includeClient = true)
+            } else {
+                pendingFirstStart = true
+            }
+        }
+        Unit
+    }
+    pendingFirstStart?.let { includeClient ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { pendingFirstStart = null },
+            title = { androidx.compose.material3.Text("First realm start") },
+            text = {
+                androidx.compose.material3.Text(
+                    "The first start creates the realm database and prepares the " +
+                        "world (schema migrations, bot characters, map data). This can " +
+                        "take several minutes and happens only once — later starts are " +
+                        "much faster.",
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    pendingFirstStart = null
+                    if (includeClient) pendingAutoEnterBase = displayHost?.generation ?: -1L
+                    performStart(includeClient = includeClient)
+                }) { androidx.compose.material3.Text("Start") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { pendingFirstStart = null }) {
+                    androidx.compose.material3.Text("Cancel")
+                }
+            },
+        )
     }
     val saveAndExit = { RealmService.saveExit(context) }
     val retryGame: () -> Unit = {
@@ -417,7 +472,16 @@ private fun RealmControlCard(
     landscape: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     val (statusText, detailText) = realmStatus(state)
+    // F1b.2: while a never-initialized realm is starting, say what the wait
+    // is. Derived from the bootstrap seal marker (absent = first start).
+    var firstStartHint by remember(state) { mutableStateOf(false) }
+    LaunchedEffect(state) {
+        firstStartHint = state is RealmState.Starting && withContext(Dispatchers.IO) {
+            !File(StorageRoots.get(context).databaseRoot, "initialized.json").isFile
+        }
+    }
     val actions = homeActionAvailability(
         settingsReady = settingsReady,
         clientUnavailableReason = clientUnavailableReason,
@@ -443,6 +507,14 @@ private fun RealmControlCard(
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(detailText, style = MaterialTheme.typography.labelSmall)
+                if (firstStartHint) {
+                    Text(
+                        "First start is building the databases and preparing the " +
+                            "world — this once-only setup can take several minutes.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
                 clientUnavailableReason?.let {
                     Text(
                         it,

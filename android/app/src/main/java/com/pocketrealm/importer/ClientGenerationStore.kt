@@ -139,8 +139,20 @@ class ClientGenerationStore(context: Context) {
 
     private fun writeManagedConfiguration(staging: File) {
         atomicWrite(File(staging, "realmlist.wtf"), "set realmlist 127.0.0.1\r\n".toByteArray())
-        atomicWrite(File(staging, "WTF/Config.wtf"), SAFE_CONFIG.replace("\\r\\n", "\r\n").toByteArray())
+        atomicWrite(File(staging, "WTF/Config.wtf"), SAFE_CONFIG.normalizeRawConfigLineEndings().toByteArray())
     }
+
+    /**
+     * The raw SAFE_CONFIG string carries a literal backslash-r before each
+     * real newline (Kotlin raw strings do not process escapes), so the
+     * app-written Config.wtf must convert that sequence to a true CRLF.
+     * The historical needle "\\r\\n" (four literal
+     * characters) never matched the actual content (backslash-r + newline)
+     * and was a no-op: every line shipped with junk trailing text until the
+     * client's own exit-rewrite normalized the file.
+     */
+    private fun String.normalizeRawConfigLineEndings(): String =
+        replace("\\r\n", "\r\n")
 
     private fun atomicWrite(target: File, bytes: ByteArray) {
         target.parentFile?.mkdirs()
@@ -189,6 +201,17 @@ class ClientGenerationStore(context: Context) {
 
     companion object {
         private val UUID = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+        /**
+         * App-written Config.wtf for a fresh generation (ADR-018: this file is
+         * app-owned and replaces any WTF/Config.wtf that arrived inside the
+         * imported tree). The F3e interface-default keys sit outside
+         * ManagedConfigPolicy's enforced set, so the client owns them after
+         * the first launch and rewrites them with the player's own values at
+         * exit (round-trip proven in docs/INGAME_SETTINGS_GROUND_TRUTH.md).
+         * MasterSoundEffects "1" = all sounds on (the previous "0" started
+         * every fresh import silent).
+         */
         private const val SAFE_CONFIG = """SET readTOS "1"\r
 SET readEULA "1"\r
 SET readScanning "1"\r
@@ -200,7 +223,13 @@ SET gxVSync "0"\r
 SET gxMultisample "1"\r
 SET gxMultisampleQuality "0.000000"\r
 SET maxFPS "30"\r
-SET MasterSoundEffects "0"\r
+SET MasterSoundEffects "1"\r
+SET autoSelfCast "1"\r
+SET statusBarText "1"\r
+SET UnitNameNPC "1"\r
+SET UnitNamePlayerGuild "0"\r
+SET UnitNamePlayerPVPTitle "0"\r
+SET cameraSmoothStyle "0"\r
 SET ffxGlow "0"\r
 SET ffxDeath "0"\r
 SET farclip "177"\r
