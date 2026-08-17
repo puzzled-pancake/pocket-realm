@@ -263,8 +263,7 @@ enum class OverlayLayout(val displayName: String) {
  * stable serialization keys; append new clusters so stored positions survive.
  */
 enum class OverlayClusterId {
-    DRAWER, TARGET_ROW, MOVEMENT, ACTIONS,
-    FACE, SECONDARY_PAD, MODIFIERS, LOOK_CLICKS, UTILITY_ROW,
+    DRAWER, TARGET_ROW, MOVEMENT, ACTIONS, FACE, UTILITY_ROW, LOOK_CLICKS,
 }
 
 /**

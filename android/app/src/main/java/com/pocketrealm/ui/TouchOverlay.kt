@@ -175,10 +175,27 @@ fun TouchOverlay(host: ClientDisplayHost, modifier: Modifier = Modifier) {
                 expanded = drawerExpanded,
                 onExpandedChange = { drawerExpanded = it },
                 onHide = { visible = false },
-                moveMode = moveMode,
-                onToggleMoveMode = { moveMode = !moveMode },
-                onResetLayout = { host.resetOverlayClusterPositions() },
+                onToggleMoveMode = {
+                    moveMode = !moveMode
+                    if (moveMode) drawerExpanded = false
+                },
             )
+        }
+
+        // Rearranging scrim covers the drawer too, so exit controls float.
+        if (moveMode) {
+            Row(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 12.dp)
+                    .zIndex(5f),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OverlayButton("Done moving", "touch-move-done", opacity) { moveMode = false }
+                OverlayButton("Reset layout", "touch-move-reset", opacity) {
+                    host.resetOverlayClusterPositions()
+                }
+            }
         }
     }
 }
@@ -227,11 +244,12 @@ private fun BoxScope.TouchCameraRegion(host: ClientDisplayHost, profile: InputPr
 
 /**
  * Console-style touch arrangement for controller-free play: movement pad
- * bottom-left, a 1-4 face diamond plus a 5-8 secondary pad bottom-right,
- * Shift/Ctrl holds that reach the addon's modifier pages on the right edge,
- * a camera-look toggle with left/right clicks at bottom-center, and a radial
- * / nearby-use / Move UI / menu utility row top-left. Every cluster is
- * movable and every action stays remappable through the profile.
+ * with Shift/Ctrl page holds bottom-left (modifiers sit opposite the face
+ * keys so one thumb holds while the other taps), a 1-4 face diamond with a
+ * 5-8 pad above it bottom-right, a camera-look toggle with left/right
+ * clicks at bottom-center, and a radial / nearby-use / Move UI / menu
+ * utility row top-left. Every cluster is movable and every action stays
+ * remappable through the profile.
  */
 @Composable
 private fun BoxScope.ConsoleTouchControls(
@@ -276,6 +294,10 @@ private fun BoxScope.ConsoleTouchControls(
         stockZIndex = 0f,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ActionKey(host, profile, OverlayControl.MODIFIER_SHIFT, "Shift", opacity, targetSize, wide = true)
+                ActionKey(host, profile, OverlayControl.MODIFIER_CTRL, "Ctrl", opacity, targetSize, wide = true)
+            }
             Row(Modifier.padding(start = 56.dp)) {
                 ActionKey(host, profile, OverlayControl.MOVE_UP, "W", opacity, targetSize)
             }
@@ -308,28 +330,6 @@ private fun BoxScope.ConsoleTouchControls(
             verticalArrangement = Arrangement.spacedBy(6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            ActionKey(host, profile, OverlayControl.ACTION_3, "3", opacity, targetSize)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                ActionKey(host, profile, OverlayControl.ACTION_2, "2", opacity, targetSize)
-                ActionKey(host, profile, OverlayControl.ACTION_4, "4", opacity, targetSize)
-            }
-            ActionKey(host, profile, OverlayControl.ACTION_1, "1", opacity, targetSize)
-        }
-    }
-
-    MovableCluster(
-        clusterId = OverlayClusterId.SECONDARY_PAD,
-        host = host,
-        profile = profile,
-        containerSize = containerSize,
-        moveMode = moveMode,
-        stockAlignment = Alignment.BottomEnd,
-        // Sits left of the face diamond: container inset + diamond (two keys
-        // wide) + a gutter.
-        stockPadding = PaddingValues(end = targetSize * 2 + 30.dp, bottom = 12.dp),
-        stockZIndex = 0f,
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 ActionKey(host, profile, OverlayControl.ACTION_5, "5", opacity, targetSize)
                 ActionKey(host, profile, OverlayControl.ACTION_6, "6", opacity, targetSize)
@@ -338,22 +338,12 @@ private fun BoxScope.ConsoleTouchControls(
                 ActionKey(host, profile, OverlayControl.ACTION_7, "7", opacity, targetSize)
                 ActionKey(host, profile, OverlayControl.ACTION_8, "8", opacity, targetSize)
             }
-        }
-    }
-
-    MovableCluster(
-        clusterId = OverlayClusterId.MODIFIERS,
-        host = host,
-        profile = profile,
-        containerSize = containerSize,
-        moveMode = moveMode,
-        stockAlignment = Alignment.CenterEnd,
-        stockPadding = PaddingValues(end = 12.dp),
-        stockZIndex = 0f,
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            ActionKey(host, profile, OverlayControl.MODIFIER_SHIFT, "Shift", opacity, targetSize, wide = true)
-            ActionKey(host, profile, OverlayControl.MODIFIER_CTRL, "Ctrl", opacity, targetSize, wide = true)
+            ActionKey(host, profile, OverlayControl.ACTION_3, "3", opacity, targetSize)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ActionKey(host, profile, OverlayControl.ACTION_2, "2", opacity, targetSize)
+                ActionKey(host, profile, OverlayControl.ACTION_4, "4", opacity, targetSize)
+            }
+            ActionKey(host, profile, OverlayControl.ACTION_1, "1", opacity, targetSize)
         }
     }
 
@@ -486,8 +476,10 @@ private fun BoxScope.FullTouchControls(
  * Wraps one touch cluster so the player can drag it anywhere in move mode.
  * Without a saved anchor the cluster keeps its stock alignment; anchored
  * clusters are placed from normalized fractions of the overlay container.
- * The drag detector is installed only while move mode is on, so a finger
- * slide on a held movement key outside move mode never cancels the key.
+ * While move mode is on, a scrim covers the cluster: it owns the drag
+ * gesture across the whole cluster area and blocks the covered buttons from
+ * dispatching game input while the player rearranges. The scrim also
+ * finalizes an in-flight drag when it is torn down mid-gesture.
  */
 @Composable
 private fun BoxScope.MovableCluster(
@@ -545,24 +537,32 @@ private fun BoxScope.MovableCluster(
                 if (liveAnchor == null && !dragging) {
                     stockTopLeft = coordinates.positionInParent()
                 }
-            }
-            .then(
-                if (moveMode) {
-                    Modifier
-                        .border(1.5.dp, MOVE_MODE_OUTLINE, RoundedCornerShape(18.dp))
-                        .pointerInput(clusterId) {
-                            val finishDrag: () -> Unit = {
-                                dragging = false
-                                liveAnchor?.let { current ->
-                                    val clamped = clampAnchor(current)
-                                    liveAnchor = clamped
-                                    host.updateOverlayClusterPosition(
-                                        clusterId,
-                                        clamped.xFraction,
-                                        clamped.yFraction,
-                                    )
-                                }
+            },
+    ) {
+        content()
+        if (moveMode) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .background(MOVE_MODE_SCRIM)
+                    .border(1.5.dp, MOVE_MODE_OUTLINE, RoundedCornerShape(18.dp))
+                    // Re-keyed on the container size so drag math survives
+                    // inset/density changes that do not recreate the activity.
+                    .pointerInput(clusterId, containerSize) {
+                        val finishDrag: () -> Unit = {
+                            dragging = false
+                            liveAnchor?.let { current ->
+                                val clamped = clampAnchor(current)
+                                liveAnchor = clamped
+                                host.updateOverlayClusterPosition(
+                                    clusterId,
+                                    clamped.xFraction,
+                                    clamped.yFraction,
+                                )
                             }
+                        }
+                        var dragFinalized = false
+                        try {
                             detectDragGestures(
                                 onDragStart = {
                                     if (containerSize.width <= 0 || containerSize.height <= 0) {
@@ -589,16 +589,24 @@ private fun BoxScope.MovableCluster(
                                         )
                                     }
                                 },
-                                onDragEnd = finishDrag,
-                                onDragCancel = finishDrag,
+                                onDragEnd = {
+                                    dragFinalized = true
+                                    finishDrag()
+                                },
+                                onDragCancel = {
+                                    dragFinalized = true
+                                    finishDrag()
+                                },
                             )
+                        } finally {
+                            // Tearing the scrim down mid-drag (mode exit) does
+                            // not invoke onDragCancel; finalize here instead
+                            // so dragging state never strands.
+                            if (!dragFinalized) finishDrag()
                         }
-                } else {
-                    Modifier
-                },
-            ),
-    ) {
-        content()
+                    },
+            )
+        }
     }
 }
 
@@ -610,9 +618,7 @@ private fun UtilityDrawer(
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     onHide: () -> Unit,
-    moveMode: Boolean,
     onToggleMoveMode: () -> Unit,
-    onResetLayout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -659,12 +665,7 @@ private fun UtilityDrawer(
                 OverlayButton("Hide", "touch-overlay-toggle", opacity, onClick = onHide)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OverlayButton(
-                    label = if (moveMode) "Done moving" else "Move buttons",
-                    tag = if (moveMode) "touch-move-done" else "touch-move-mode",
-                    opacity = opacity,
-                ) { onToggleMoveMode() }
-                OverlayButton("Reset layout", "touch-move-reset", opacity, onClick = onResetLayout)
+                OverlayButton("Move buttons", "touch-move-mode", opacity, onClick = onToggleMoveMode)
             }
         }
     }
@@ -810,5 +811,6 @@ private const val MIN_TOUCH_TARGET_DP = 48f
 private const val MIN_TOUCH_SCALE = MIN_TOUCH_TARGET_DP / BASE_TOUCH_TARGET_DP
 private const val WIDE_TARGET_RATIO = 92f / BASE_TOUCH_TARGET_DP
 
-/** Outline shown around every cluster while the player rearranges them. */
+/** Scrim/outline shown over every cluster while the player rearranges them. */
+private val MOVE_MODE_SCRIM = Color(0xFF6EC1FF).copy(alpha = 0.16f)
 private val MOVE_MODE_OUTLINE = Color(0xFF6EC1FF)

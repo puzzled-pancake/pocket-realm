@@ -247,8 +247,9 @@ class O14TouchOverlayAcceptanceTest {
         compose.onNodeWithTag("touch-action-page-label").assertDoesNotExist()
         compose.onNodeWithTag("touch-camera-region").assertExists()
 
-        // Move mode from the drawer: clusters drag anywhere, the camera region
-        // suspends, and Done/Reset restore interaction.
+        // Move mode from the drawer: a scrim over every cluster owns the drag
+        // across the whole cluster area and blocks accidental game input;
+        // Done/Reset float while the scrim covers the drawer itself.
         compose.onNodeWithTag("touch-utility-drawer").assertTextEquals("More").performClick()
         compose.onNodeWithTag("touch-move-mode").assertExists().performClick()
         compose.onNodeWithTag("touch-camera-region").assertDoesNotExist()
@@ -259,11 +260,10 @@ class O14TouchOverlayAcceptanceTest {
         compose.waitUntil(5_000) {
             host!!.activeProfile.overlayClusterPositions.containsKey(com.pocketrealm.client.OverlayClusterId.FACE)
         }
-        compose.onNodeWithTag("touch-move-done").assertExists().performClick()
-        compose.onNodeWithTag("touch-camera-region").assertExists()
         compose.onNodeWithTag("touch-move-reset").assertExists().performClick()
         compose.waitUntil(5_000) { host!!.activeProfile.overlayClusterPositions.isEmpty() }
-        compose.onNodeWithTag("touch-utility-drawer").performClick()
+        compose.onNodeWithTag("touch-move-done").performClick()
+        compose.onNodeWithTag("touch-camera-region").assertExists()
         compose.onNodeWithTag("touch-utility-drawer").assertTextEquals("More")
 
         compose.onNodeWithTag("touch-utility-drawer").assertTextEquals("More").performClick()
