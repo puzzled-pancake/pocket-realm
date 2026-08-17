@@ -619,6 +619,20 @@ keyboard.
 **F5 tests/gates**: addon repo/projector tests, bot preset tests, catalog
 parse pins, detekt.
 
+**F5 verification round 1 (2026-08-17) outcome**: agent 1 (seed +
+repository) CLEAN. Agents 2/3 found one factual copy concern — the new
+description claimed layouts "save per character" while the addon's
+SavedVariables are account-wide — plus nits (three-of-four modifier list,
+dropped Select-button aliases, the plan-cited Installed-empty-state copy,
+import order). All fixed verbatim per the reviewers' wording
+("account-wide (SavedVariables)", "none, Shift, Ctrl, Ctrl+Shift",
+"F12 / Select" + "F8 / Select+Start", actionable empty-state string,
+import block order); JSON re-validated (154 addons / 266 pairs intact) and
+the gate re-run green. A formal recheck round was not possible (the two
+reviewer agents were no longer resumable); the fixes are mechanical string
+edits matching the reviewers' exact suggested text, verified by the patch
+script's assertions.
+
 ---
 
 ## F6 — In-app updates from GitHub (no-breakage requirement)

@@ -245,7 +245,7 @@ enum class BotPlaystylePreset(val label: String, val summary: String) {
     CLASSIC_WORLD("Classic World", "Quests, autonomous groups, wandering; level matching off."),
     SOLO_FRIENDLY("Solo Friendly", "Player-focused and quiet; bots do not form their own groups."),
     LAN_COOP("LAN Co-op", "Group-ready behaviour for several humans in one world."),
-    INDEPENDENT("Independent", "Bots live their own lives across the world."),
+    INDEPENDENT("Independent", "Bots roam and quest alone; no bot-only groups form."),
     DUNGEON("Dungeon / Raid", "Group and role ready with level matching to the party."),
     SOCIAL("Social", "Chatty bots that invite the player."),
     CUSTOM("Custom", "User-defined behaviour values.");
@@ -278,9 +278,13 @@ enum class BotPlaystylePreset(val label: String, val summary: String) {
             allowPlayerInvites = false,
             syncLevelWithPlayers = true,
         )
+        // Distinct from CLASSIC_WORLD (verification: the two presets were
+        // tuple-identical, so both chips rendered selected at once and the
+        // default profile matched both). Independent bots do not form
+        // bot-only groups.
         INDEPENDENT -> configuration.copy(
             autoDoQuests = true,
-            groupNearby = true,
+            groupNearby = false,
             wanderWhenIdle = true,
             enableOffSpecStrategies = true,
             allowBotChat = false,

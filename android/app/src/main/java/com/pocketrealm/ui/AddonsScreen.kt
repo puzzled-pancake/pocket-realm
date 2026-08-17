@@ -46,7 +46,7 @@ import com.pocketrealm.addons.AddonRepository
 import com.pocketrealm.addons.CatalogAddon
 import com.pocketrealm.addons.InstalledAddon
 
-/** Progressive, landscape-first add-on hub. No add-on is installed automatically. */
+/** Progressive, landscape-first add-on hub. The built-in Android Port installs on fresh installs. */
 @Composable
 fun AddonsHubScreen(
     onRecommended: () -> Unit,
@@ -67,7 +67,8 @@ fun AddonsHubScreen(
         ) {
             item {
                 Text(
-                    "Choose one place to start. Add-ons remain optional and apply on the next game launch.",
+                    "Choose one place to start. The built-in Android Port is installed by default; " +
+                        "everything else stays optional and applies on the next game launch.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -76,7 +77,7 @@ fun AddonsHubScreen(
                 AddonHubRow(
                     title = "Recommended for Pocket Realm",
                     summary = "${catalog.recommended.size} handheld-friendly choices that stay clear of Android Port's controller bars.",
-                    status = "Nothing is installed automatically",
+                    status = "Android Port is installed by default",
                     onClick = onRecommended,
                     tag = "addon-hub-recommended",
                 )
@@ -171,7 +172,8 @@ fun InstalledAddonsScreen(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                if (state.installed.isEmpty()) "No add-ons installed."
+                if (state.installed.isEmpty()) "No add-ons installed. Reinstall the built-in " +
+                    "Android Port from Browse if you removed it."
                 else "${state.installed.size} installed · changes apply next launch.",
                 modifier = Modifier.fillMaxWidth(),
             )

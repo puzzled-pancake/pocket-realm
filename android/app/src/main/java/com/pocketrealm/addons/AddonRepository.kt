@@ -80,6 +80,22 @@ class AddonRepository private constructor(context: Context) {
             )
         }
         refreshInstalledBuiltInIfNeeded(initialInstalled)
+        seedBuiltInOnFreshInstall()
+    }
+
+    /**
+     * F5a: a fresh install (registry.json never written — a deliberate full
+     * removal always leaves the file behind) ships with the built-in Android
+     * Port addon installed. Runs after the migrator so legacy 0.5.x installs
+     * remap first (they own a registry file and never take this path).
+     */
+    private fun seedBuiltInOnFreshInstall() {
+        if (registry.isFile) return
+        launchOperation(errorTitle = "Could not install the built-in Android Port") { token ->
+            if (registry.isFile) return@launchOperation
+            val addon = checkNotNull(AddonCatalog.load(appContext).addon("151"))
+            installBuiltInLocked(addon, token)
+        }
     }
 
     /**

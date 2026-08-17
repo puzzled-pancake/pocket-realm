@@ -1107,6 +1107,14 @@ private fun BasicsContent(
     }
 
     SectionHeader("ACTIVITY")
+    Text(
+        "Activity controls how much CPU the bot AI spends thinking, not how bots " +
+            "behave: the AI update interval, the work per wake, and the share of " +
+            "background bots kept fully active. Smart is the most responsive and " +
+            "uses the most battery; Light suits cooler, longer sessions. Bots near " +
+            "you or in your group are always fully active regardless of this setting.",
+        style = MaterialTheme.typography.bodySmall,
+    )
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         listOf(
             BotActivityPreset.SMART, BotActivityPreset.ACTIVE,
@@ -1135,13 +1143,40 @@ private fun BasicsContent(
     )
 
     SectionHeader("PLAYSTYLE")
+    Text(
+        "Playstyle controls how random bots behave around you and each other: " +
+            "whether they quest and level on their own, form their own groups, wander " +
+            "when idle, use off-spec talent strategies, talk without a player present, " +
+            "invite you to groups, and match their level to nearby players. It does not " +
+            "change combat roles (tank/heal/damage) — LAN Co-op here means group-ready " +
+            "behaviour for several humans, not networking. Individual switches for every " +
+            "one of these behaviours live in the Behaviour tab.",
+        style = MaterialTheme.typography.bodySmall,
+    )
+    // Exclusive selection (verification: two presets with identical values
+    // previously lit both chips at once).
+    val selectedPlaystyle = BotPlaystylePreset.entries
+        .firstOrNull { it != BotPlaystylePreset.CUSTOM && it.matches(working) }
     BotPlaystylePreset.entries.filter { it != BotPlaystylePreset.CUSTOM }.forEach { playstyle ->
         FilterChip(
-            selected = playstyle.matches(working),
+            selected = playstyle == selectedPlaystyle,
             onClick = { onWorking(playstyle.applyTo(working)) },
             label = { Text(playstyle.label) },
             modifier = Modifier.fillMaxWidth()
                 .testTag("playstyle-${playstyle.name.lowercase()}"),
+        )
+        Text(
+            playstyle.summary,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    if (selectedPlaystyle == null) {
+        FilterChip(
+            selected = true,
+            onClick = {},
+            label = { Text("Custom") },
+            modifier = Modifier.fillMaxWidth().testTag("playstyle-custom"),
         )
     }
 
