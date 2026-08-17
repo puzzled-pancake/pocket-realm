@@ -272,12 +272,13 @@ private fun BoxScope.ConsoleTouchControls(
         containerSize = containerSize,
         moveMode = moveMode,
         stockAlignment = Alignment.TopStart,
-        stockPadding = PaddingValues(start = 12.dp, top = 12.dp),
+        stockPadding = PaddingValues(start = 12.dp, top = 8.dp),
         stockZIndex = 0f,
     ) {
         // Two stacked pairs keep the stack narrow so the collapsed drawer
-        // never crosses it on narrow screens.
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // never crosses it on narrow screens; the tight top inset keeps the
+        // stack clear of the movement pad at the 16:9 target height.
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ActionKey(host, profile, OverlayControl.RADIAL, "Radial", opacity, targetSize, wide = true)
                 ActionKey(host, profile, OverlayControl.NEARBY_USE, "Use near", opacity, targetSize, wide = true)
