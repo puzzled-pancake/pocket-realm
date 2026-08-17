@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
@@ -260,10 +261,36 @@ class O14TouchOverlayAcceptanceTest {
         compose.waitUntil(5_000) {
             host!!.activeProfile.overlayClusterPositions.containsKey(com.pocketrealm.client.OverlayClusterId.FACE)
         }
-        compose.onNodeWithTag("touch-move-reset").assertExists().performClick()
-        compose.waitUntil(5_000) { host!!.activeProfile.overlayClusterPositions.isEmpty() }
+        // Drag the drawer itself into the bottom-right corner; the drop clamp
+        // pins it using the COLLAPSED size, which is exactly the state where
+        // expanding used to push the whole menu off screen.
+        compose.onNodeWithTag("touch-utility-drawer").performTouchInput {
+            swipe(center, center + androidx.compose.ui.geometry.Offset(400f, 800f), 400)
+        }
+        compose.waitUntil(5_000) {
+            host!!.activeProfile.overlayClusterPositions.containsKey(com.pocketrealm.client.OverlayClusterId.DRAWER)
+        }
         compose.onNodeWithTag("touch-move-done").performClick()
         compose.onNodeWithTag("touch-camera-region").assertExists()
+        compose.onNodeWithTag("touch-utility-drawer").assertTextEquals("More").performClick()
+        compose.onNodeWithTag("touch-utility-drawer").assertTextEquals("Close")
+        // Every expanded menu row must stay fully inside the display even
+        // though the anchor was saved for the smaller collapsed cluster.
+        val overlayRoot = compose.onRoot().fetchSemanticsNode()
+        listOf("touch-map", "touch-bags", "touch-settings", "touch-move-mode").forEach { tag ->
+            val expanded = compose.onNodeWithTag(tag).fetchSemanticsNode()
+            assertTrue("$tag renders off screen", expanded.positionInRoot.x >= 0f && expanded.positionInRoot.y >= 0f)
+            assertTrue(
+                "$tag extends past the display",
+                expanded.positionInRoot.x + expanded.size.width <= overlayRoot.size.width &&
+                    expanded.positionInRoot.y + expanded.size.height <= overlayRoot.size.height,
+            )
+        }
+        // Restore stock placements for the sections below; the floating Reset
+        // control only exists inside move mode, so use the same host API.
+        compose.runOnIdle { host!!.resetOverlayClusterPositions() }
+        compose.waitUntil(5_000) { host!!.activeProfile.overlayClusterPositions.isEmpty() }
+        compose.onNodeWithTag("touch-utility-drawer").performClick()
         compose.onNodeWithTag("touch-utility-drawer").assertTextEquals("More")
 
         compose.onNodeWithTag("touch-utility-drawer").assertTextEquals("More").performClick()
@@ -416,6 +443,7 @@ class O14TouchOverlayAcceptanceTest {
             .put("persistedOverlayDisableHidesAllControls", true)
             .put("consoleLayout", true)
             .put("clusterMoveMode", true)
+            .put("drawerExpandStaysOnScreen", true)
             .put("batchedJoystickHistory", true)
             .put("batchedPointerDeltaX", pointerAfterBatch - pointerBeforeBatch)
             .put("syntheticGamepadMotion", true)
