@@ -474,13 +474,28 @@ fun SettingsScreen(
                     selected = snap.displayProfileId == profile.id,
                     onClick = {
                         scope.launch {
-                            settings.update { it.copy(displayProfileId = profile.id) }
+                            settings.update { current ->
+                                if (profile == ClientDisplayProfile.CLASSIC_43) {
+                                    // 4:3 couples to the widescreen tweaks:
+                                    // selecting it disables them in the same
+                                    // write. Switching back to a widescreen
+                                    // profile leaves tweaks off (re-enable
+                                    // deliberately in Client tweaks).
+                                    current.copy(
+                                        displayProfileId = profile.id,
+                                        tweaks = current.tweaks.copy(fovEnabled = false),
+                                    )
+                                } else {
+                                    current.copy(displayProfileId = profile.id)
+                                }
+                            }
                         }
                     },
                     label = {
                         val suffix = when (profile) {
                             ClientDisplayProfile.BALANCED -> "Performance"
                             ClientDisplayProfile.QUALITY -> "Sharp"
+                            ClientDisplayProfile.CLASSIC_43 -> "Classic 4:3"
                         }
                         Text(
                             profile.resolveFor(physicalDisplay.first, physicalDisplay.second)
@@ -488,6 +503,14 @@ fun SettingsScreen(
                         )
                     },
                     modifier = Modifier.fillMaxWidth().testTag("display-profile-${profile.id}"),
+                )
+            }
+            if (snap.displayProfileId == ClientDisplayProfile.CLASSIC_43.id) {
+                Text(
+                    "Classic 4:3 turns the widescreen FoV tweak off; the pillarboxed " +
+                        "image keeps the vanilla UI's intended framing. Switching aspect " +
+                        "resets customized control layouts to their defaults.",
+                    style = MaterialTheme.typography.bodySmall,
                 )
             }
             snap.displaySelectionNotice?.let { notice ->

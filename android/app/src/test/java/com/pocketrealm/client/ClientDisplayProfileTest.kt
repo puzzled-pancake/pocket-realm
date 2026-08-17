@@ -140,9 +140,40 @@ class ClientDisplayProfileTest {
         // A 4:3 1440x1080 panel hosts Quality at 1440x1080; the old fixed
         // 1920x1080 geometry did not fit and silently downgraded to Balanced.
         assertEquals(
-            listOf(ClientDisplayProfile.BALANCED, ClientDisplayProfile.QUALITY),
+            listOf(
+                ClientDisplayProfile.BALANCED,
+                ClientDisplayProfile.QUALITY,
+                ClientDisplayProfile.CLASSIC_43,
+            ),
             ClientDisplayProfile.availableForPhysical(1440, 1080),
         )
         assertEquals("1440x1080", ClientDisplayProfile.QUALITY.resolveFor(1440, 1080).resolution)
+    }
+
+    @Test
+    fun classic43KeepsExactGeometryAndPillarboxesOnWidePanels() {
+        assertEquals(
+            listOf(
+                ClientDisplayProfile.BALANCED,
+                ClientDisplayProfile.QUALITY,
+                ClientDisplayProfile.CLASSIC_43,
+            ),
+            ClientDisplayProfile.availableForPhysical(1920, 1080),
+        )
+        // Exact geometry on a 16:9 panel: no width adaptation to 1706x960.
+        assertEquals(
+            "1280x960",
+            ClientDisplayProfile.CLASSIC_43.resolveFor(1920, 1080).resolution,
+        )
+        // And on a native 4:3 panel it fills exactly.
+        assertEquals(
+            "1280x960",
+            ClientDisplayProfile.CLASSIC_43.resolveFor(1440, 1080).resolution,
+        )
+        // Too tall for shorter panels.
+        assertEquals(
+            listOf(ClientDisplayProfile.BALANCED),
+            ClientDisplayProfile.availableForPhysical(1280, 720),
+        )
     }
 }

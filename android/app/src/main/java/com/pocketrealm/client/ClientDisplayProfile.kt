@@ -19,7 +19,7 @@ data class ClientVirtualDisplay(
     val resolution: String
         get() = "${width}x$height"
 
-    /** Uniform presentation scale onto a same-aspect physical surface. */
+    /** Uniform presentation scale; narrower desktops pillarbox via offsets. */
     fun uniformScaleTo(physicalWidth: Int, physicalHeight: Int): Float {
         require(physicalWidth > 0 && physicalHeight > 0) { "physical surface must be non-empty" }
         return physicalHeight.toFloat() / height
@@ -29,43 +29,71 @@ data class ClientVirtualDisplay(
 /**
  * Explicit virtual-desktop profiles for the dedicated gameplay surface.
  *
- * A profile fixes the virtual desktop's height class (and its 16:9 reference
- * geometry); [resolveFor] adopts the physical panel's landscape aspect for the
- * width so a uniformly scaled desktop always fills the screen. On an exactly
- * 16:9 panel such as the RP6's 1920x1080 the resolved desktop is exactly the
- * reference geometry (1280x720 / 1920x1080).
+ * A widescreen profile fixes the virtual desktop's height class (and its 16:9
+ * reference geometry); [resolveFor] adopts the physical panel's landscape
+ * aspect for the width so a uniformly scaled desktop always fills the screen.
+ * On an exactly 16:9 panel such as the RP6's 1920x1080 the resolved desktop is
+ * exactly the reference geometry (1280x720 / 1920x1080). A fixed-aspect
+ * profile ([CLASSIC_43]) keeps its exact geometry and pillarboxes on wider
+ * panels instead.
  *
  * The current x86 provider remains pinned to [BALANCED]. [QUALITY] is a hook
  * for a separately qualified runtime/profile selection; declaring it here does
  * not silently opt an existing provider into a more expensive resolution.
  */
+private const val WIDESCREEN_WIDTH_NUM = 9
+private const val WIDESCREEN_HEIGHT_NUM = 16
+private const val FOUR_THREE_WIDTH_NUM = 3
+private const val FOUR_THREE_HEIGHT_NUM = 4
+private const val CLASSIC_43_WIDTH = 1280
+private const val CLASSIC_43_HEIGHT = 960
+
 enum class ClientDisplayProfile(
     val id: String,
-    /** 16:9 reference width; the runtime width comes from [resolveFor]. */
+    /** Reference width; the runtime width comes from [resolveFor]. */
     val virtualWidth: Int,
-    /** 16:9 reference height; this is the profile's fixed height class. */
+    /** Reference height; this is the profile's fixed height class. */
     val virtualHeight: Int,
     val gameMaximized: Boolean,
+    /** Fixed-aspect profiles keep their exact geometry in [resolveFor]. */
+    private val fixedAspect: Boolean = false,
 ) {
     BALANCED("balanced", 1280, 720, gameMaximized = true),
     QUALITY("quality", 1920, 1080, gameMaximized = true),
+
+    /**
+     * Classic 4:3 desktop for the vanilla UI's intended framing. The
+     * widescreen FoV tweak must be disabled when this profile is selected
+     * (the settings screen couples them); presentation pillarboxes on 16:9
+     * panels via the uniform scale + offsets.
+     */
+    CLASSIC_43(
+        "classic43", CLASSIC_43_WIDTH, CLASSIC_43_HEIGHT,
+        gameMaximized = true, fixedAspect = true,
+    ),
     ;
 
     init {
-        require(virtualWidth * 9 == virtualHeight * 16) { "client display profile must be 16:9" }
+        val widescreen = virtualWidth * WIDESCREEN_WIDTH_NUM == virtualHeight * WIDESCREEN_HEIGHT_NUM
+        val fourByThree = virtualWidth * FOUR_THREE_WIDTH_NUM == virtualHeight * FOUR_THREE_HEIGHT_NUM
+        require(widescreen || fourByThree) {
+            "client display profile must be 16:9 or 4:3"
+        }
+        require(fixedAspect || widescreen) { "adaptive profiles must be 16:9" }
     }
 
-    /** 16:9 reference geometry, for labels and panel-query failure fallbacks. */
+    /** Reference geometry, for labels and panel-query failure fallbacks. */
     val resolution: String
         get() = "${virtualWidth}x$virtualHeight"
 
-    /** 16:9 reference geometry as a [ClientVirtualDisplay]. */
+    /** Reference geometry as a [ClientVirtualDisplay] (exact for fixed-aspect). */
     fun nominalDisplay(): ClientVirtualDisplay = ClientVirtualDisplay(virtualWidth, virtualHeight)
 
     /**
      * Resolve this profile onto a physical landscape panel. The height class
-     * is kept; the width adopts the panel's aspect (even-rounded down) so
-     * uniform presentation scaling fills the panel without stretch or crop.
+     * is kept; adaptive widths adopt the panel's aspect (even-rounded down)
+     * so uniform presentation scaling fills the panel without stretch or
+     * crop; fixed-aspect profiles keep their exact geometry and pillarbox.
      * The profile's height class must fit the panel.
      */
     fun resolveFor(landscapeWidth: Int, landscapeHeight: Int): ClientVirtualDisplay {
@@ -74,6 +102,12 @@ enum class ClientDisplayProfile(
         }
         require(virtualHeight <= landscapeHeight) {
             "client display profile $id exceeds the physical display"
+        }
+        if (fixedAspect) {
+            // A fixed-aspect profile must not re-derive its width from the
+            // panel (a 1280x960 desktop on a 16:9 panel would become
+            // 1706x960); the exact geometry pillarboxes instead.
+            return ClientVirtualDisplay(virtualWidth, virtualHeight)
         }
         val adapted = (landscapeWidth.toLong() * virtualHeight / landscapeHeight).toInt()
         val width = if (adapted % 2 == 0) adapted else adapted - 1
@@ -96,8 +130,9 @@ enum class ClientDisplayProfile(
             }
             val width = maxOf(landscapeWidth, landscapeHeight)
             val height = minOf(landscapeWidth, landscapeHeight)
-            // Widths adapt to the panel aspect in [resolveFor], so only the
-            // fixed height class has to fit the panel.
+            // Widths adapt to the panel aspect in [resolveFor] (fixed-aspect
+            // profiles keep their geometry and pillarbox), so only the fixed
+            // height class has to fit the panel.
             return entries.filter { it.virtualHeight <= height }
         }
 
@@ -177,7 +212,7 @@ data class ClientDisplaySelection(
             )
 
         /**
-         * Context-free selection carrying only the 16:9 reference geometry.
+         * Context-free selection carrying only the reference geometry.
          * Used for display labels; runtime launch resolves the panel through
          * [ClientDisplayCapabilities.requireSelection] instead.
          */

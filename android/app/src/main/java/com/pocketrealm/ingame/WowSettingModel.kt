@@ -65,6 +65,12 @@ data class WowSettingDefinition(
     /** Companion CVar written as source value x multiplier (e.g. camera pitch). */
     val pairedWrites: List<Pair<String, Float>> = emptyList(),
     val capability: WowSettingCapabilityRequirement? = null,
+    /**
+     * Renderer-conditional lock: the row is user-editable only under the
+     * DXVK lane; the Legacy GL lanes (gladio/virgl) keep it fixed. The
+     * editor resolves this against the effective renderer selection.
+     */
+    val legacyRendererOnly: Boolean = false,
     /** Verified 1.12.1 default; null = the client default is unknown ("Default" row state). */
     val defaultValue: String? = null,
     val provenance: WowSettingProvenance,

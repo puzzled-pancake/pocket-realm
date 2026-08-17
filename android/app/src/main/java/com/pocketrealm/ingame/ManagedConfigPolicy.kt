@@ -40,9 +40,11 @@ object ManagedConfigPolicy {
             add(ConfigWtfCodec.EnforcedLine("gxWindowedResolution", conditions.resolution))
             add(ConfigWtfCodec.EnforcedLine("gxWindow", "1"))
             add(ConfigWtfCodec.EnforcedLine("gxMaximize", if (conditions.gameMaximized) "1" else "0"))
-            add(ConfigWtfCodec.EnforcedLine("gxVSync", "0"))
-            add(ConfigWtfCodec.EnforcedLine("gxMultisample", "1"))
-            add(ConfigWtfCodec.EnforcedLine("gxMultisampleQuality", "0.000000"))
+            // F4: gxVSync/gxMultisample/gxMultisampleQuality are user-owned.
+            // No cleanup entry is needed for their previously enforced lines:
+            // the 1.12 client itself drops gxVSync/gxMultisample lines at
+            // clean exit (ground truth capture), and the editor can change
+            // them at any time now that they are absent from this set.
             add(ConfigWtfCodec.EnforcedLine("maxFPS", conditions.frameCap.toString()))
             add(ConfigWtfCodec.EnforcedLine("scriptMemory", "0"))
             // Audio-off enforcement is the only sound line the app owns. While
@@ -64,8 +66,8 @@ object ManagedConfigPolicy {
                 ),
             )
             add(ConfigWtfCodec.EnforcedLine("M2UseShaders", if (conditions.renderer == "opengl") "0" else null))
-            add(ConfigWtfCodec.EnforcedLine("ffxGlow", "0"))
-            add(ConfigWtfCodec.EnforcedLine("ffxDeath", "0"))
+            // F4: ffxGlow/ffxDeath are user-owned under the DXVK lane (the
+            // Legacy GL lanes keep the rows fixed in the editor).
             add(
                 ConfigWtfCodec.EnforcedLine(
                     "realmName",

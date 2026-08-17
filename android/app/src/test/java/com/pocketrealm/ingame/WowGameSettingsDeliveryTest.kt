@@ -370,13 +370,13 @@ class ManagedConfigPolicyTest {
     @Test
     fun `every enforced key is written or deleted - no preserve entries`() {
         val on = ManagedConfigPolicy.enforcedKeys(conditions("on"))
-        assertEquals(21, on.size)
+        assertEquals(16, on.size)
         assertTrue(on.all { it.value != null || it.key in setOf(
             "SoundMixRate", "SoundBufferSize", "SoundSoftwareChannels",
             "M2UseShaders", "realmName",
         ) })
         val off = ManagedConfigPolicy.enforcedKeys(conditions("off"))
-        assertEquals(22, off.size)
+        assertEquals(17, off.size)
         assertTrue(off.all { it.value != null || it.key in setOf(
             "SoundMixRate", "SoundBufferSize", "SoundSoftwareChannels",
             "M2UseShaders", "realmName",

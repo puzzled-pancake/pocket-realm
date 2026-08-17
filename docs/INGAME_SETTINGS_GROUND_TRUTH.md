@@ -191,3 +191,31 @@ old "0" started every fresh import silent, and the audio-off enforcement
 still applies when the app sound setting is off). Documented N/A: rotate
 minimap (no 1.12 cvar) and friendly-nameplates-off (the 1.12 client never
 persists `FRIENDNAMEPLATES_ON`; stock behavior is off each session).
+
+## Addendum: F4 graphics unlock (2026-08-17)
+
+F4 made the graphics section user-editable with two deliberate exceptions:
+
+- Unlocked plain: `gxVSync`, `gxFixLag`, `hwDetect`, `lodDist`, `DistCull`,
+  `SmallCull`, `trilinear`, `fullAlpha`, `frillDensity`, `particleDensity`,
+  `unitDrawDist`. Unlocked with authored choices: `gxMultisample`
+  (0/1/2/4), `gxColorBits` and `gxDepthBits` (16/24). The multisample
+  default "1" matches the app-authored seed (the capture shows the client
+  deleting the line at exit, §"Video panel"), which is also the value the
+  app enforced before the unlock.
+- Renderer-conditional (`legacyRendererOnly`): `specular`, `pixelShaders`,
+  `ffxGlow`, `ffxDeath` — editable under the DXVK lane (the default,
+  including auto), still fixed under the Legacy GL lanes with the original
+  "Not supported by the current renderer" reason.
+- Still display-managed: `gxResolution`, `gxWindowedResolution`, `gxWindow`,
+  `gxMaximize`, `maxFPS`; `gxRefresh` is fixed with the honest reason "The
+  panel is 60 Hz".
+- `gxVSync`/`gxMultisample`/`gxMultisampleQuality`/`ffxGlow`/`ffxDeath` were
+  removed from the enforced overlay. No cleanup entry was added: this
+  capture already records (§"Video panel") that the 1.12 client drops the
+  gxVSync/gxMultisample lines at clean exit, and the editor can change them
+  freely now that they are outside the enforced set. A previous revision of
+  this change added guarded delete-only-if-stale entries; verification
+  showed that kept the keys permanently in the enforced set (blocking the
+  editor forever) and deleted a user's own equal-value choice, so it was
+  removed.

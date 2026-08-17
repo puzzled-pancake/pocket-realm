@@ -38,6 +38,8 @@ import com.pocketrealm.ingame.WowSettingBackend
 import com.pocketrealm.ingame.WowSettingControl
 import com.pocketrealm.ingame.WowSettingDefinition
 import com.pocketrealm.ingame.WowSettingSection
+import com.pocketrealm.client.ArmClientRenderer
+import com.pocketrealm.client.ArmClientRendererCatalog
 import com.pocketrealm.ingame.WowVanillaSettingsCatalog
 import com.pocketrealm.storage.Settings
 import kotlinx.coroutines.delay
@@ -514,7 +516,15 @@ private fun SettingDefinitionRow(
     val soundGated = definition.section == WowSettingSection.SOUND &&
         snap.audioMode == Settings.AudioMode.OFF
     val uvarGated = definition.backend == WowSettingBackend.UVAR && state.selectedAccount == null
-    val enabled = definition.fixedReason == null &&
+    // F4: shader-dependent rows stay locked on the Legacy GL lanes, which is
+    // exactly why they were fixed before; DXVK unlocks them.
+    val selectedRenderer = ArmClientRendererCatalog.find(snap.selectedArmRendererId())
+    val legacyRenderer = selectedRenderer == ArmClientRenderer.LEGACY_GLADIO ||
+        selectedRenderer == ArmClientRenderer.MESA_VIRGL
+    val rendererFixedReason = if (definition.legacyRendererOnly && legacyRenderer) {
+        WowVanillaSettingsCatalog.FIXED_REASON_RENDERER
+    } else null
+    val enabled = definition.fixedReason == null && rendererFixedReason == null &&
         definition.backend != WowSettingBackend.FUNCTION &&
         !soundGated && !uvarGated && requirementBlocking == null
 
@@ -540,7 +550,7 @@ private fun SettingDefinitionRow(
                     if (isNotEmpty()) append(" · ")
                     append("Requires ${it.id.substringAfterLast('.').replaceFirstChar(Char::titlecase)}")
                 }
-                definition.fixedReason?.let {
+                (definition.fixedReason ?: rendererFixedReason)?.let {
                     if (isNotEmpty()) append(" · ")
                     append(it)
                 }
@@ -593,9 +603,9 @@ private fun SettingDefinitionRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (definition.fixedReason != null) {
+            (definition.fixedReason ?: rendererFixedReason)?.let {
                 Text(
-                    definition.fixedReason,
+                    it,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -616,9 +626,9 @@ private fun SettingDefinitionRow(
                     choices.firstOrNull { it.id == id }?.let { commit(it.stored) }
                 },
             )
-            if (definition.fixedReason != null) {
+            (definition.fixedReason ?: rendererFixedReason)?.let {
                 Text(
-                    definition.fixedReason,
+                    it,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

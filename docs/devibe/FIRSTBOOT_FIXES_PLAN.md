@@ -516,6 +516,32 @@ Two locks must move together — catalog `fixedReason` and
 device smoke (4:3 toggle + a graphics change round-trip through
 Config.wtf).
 
+**F4 verification round 1 (2026-08-17) outcome**: agents 2 and 3 found one
+shared blocker — the delete-only-if-stale unlock cleanup kept
+gxVSync/gxMultisample/gxMultisampleQuality permanently inside the enforced
+set (the editor would throw on those rows forever, queued overrides would
+never deliver, and a user's own equal-value choice would be deleted every
+launch). REMOVED entirely: no cleanup entries are needed because the 1.12
+client itself drops those lines at clean exit (ground-truth capture) and
+the editor can change them once they are outside the enforced set; the
+EnforcedLine.deleteOnlyIfValueIs codec extension and its tests were
+reverted with it. Enforced counts are therefore 16/17 as the plan
+originally predicted. Also fixed: the TOGGLE branch support string now
+includes the renderer-conditional reason (the four legacyRendererOnly rows
+are toggles and previously showed no reason under GL lanes); five stale
+16:9 doc comments reworded; a ground-truth F4 addendum records the unlock
+set and the removed-cleanup rationale. Accepted deviations recorded: the
+aspect-reset warning ships as a caption under the chips (chips act
+immediately; the destructive reset happens at next launch) rather than a
+selection dialog; the capability metadata still has no consumer — the
+renderer gate uses the new legacyRendererOnly flag (two overlapping
+metadata systems, noted as future consolidation); the pre-existing editor/
+policy renderer-id mismatch for M2UseShaders (enum id vs runtime string) is
+harmless today and left for a follow-up. (Recheck round note: the
+ClientDisplayHost.kt "16:9 reference geometry" comment reword was reverted —
+touching that file disturbed the detekt baseline match for its pre-existing
+LongParameterList finding; the comment inaccuracy is recorded here instead.)
+
 ---
 
 ## F5 — Addons and bots

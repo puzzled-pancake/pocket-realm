@@ -69,8 +69,9 @@ internal const val TWEAKS_SCHEMA_VERSION = 2
 
 /**
  * F3d: enable the recommended tweak set once for never-configured installs
- * when the resolved virtual display is widescreen (both shipped profiles
- * are 16:9; a future 4:3 profile disables the FOV tweak at selection time).
+ * when the resolved virtual display is widescreen (both adaptive profiles
+ * are 16:9; the fixed-aspect Classic 4:3 profile disables the FOV tweak at
+ * selection time).
  * The 4:3 coupling and the user's later toggles always win — this runs at
  * most once, ever.
  */
