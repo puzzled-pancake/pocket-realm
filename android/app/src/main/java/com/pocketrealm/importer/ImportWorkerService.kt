@@ -177,6 +177,7 @@ class ImportWorkerService : Service() {
                 .put("bytesCopied", value.bytesCopied).put("bytesTotal", value.bytesTotal)
                 .put("lastRelativePath", value.lastRelativePath).put("warningCount", value.warningCount)
                 .put("lastError", value.lastError).put("activeGeneration", value.activeGeneration)
+                .put("sourceUri", value.sourceUri ?: JSONObject.NULL)
                 .put("dataPreparationEnabled", BuildConfig.ENABLE_CLIENT_DATA_PREPARATION)
                 .put("updatedAtMs", value.updatedAtMs)
                 .put("activeFile", activeFile?.let {
@@ -200,9 +201,7 @@ class ImportWorkerService : Service() {
                 .put("worker", JSONObject().put("present", metrics.workerPresent)
                     .put("state", metrics.state).put("rssBytes", metrics.rssBytes)
                     .put("threadCount", metrics.threadCount)
-                    .put("processCount", metrics.processCount)
-                    .put("sampleWindowMs", metrics.sampleWindowMs)
-                    .put("cpuPercent", metrics.cpuPercent))
+                    .put("processCount", metrics.processCount))
                 .put("device", importer.deviceProfile().let { device ->
                     JSONObject().put("label", device.label).put("soc", device.soc)
                         .put("activelyCooled", device.activelyCooled).put("abi", device.abi)

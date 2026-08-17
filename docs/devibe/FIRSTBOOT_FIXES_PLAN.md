@@ -272,6 +272,21 @@ code comment).
 
 **F2 tests/gates**: importer/UI unit tests updated, detekt, manual device pass.
 
+**F2 verification round 1 (2026-08-17) outcome**: agents found one blocker —
+the ImportUiState state-holder refactor dropped the per-epoch reset of
+`observedActiveRun`, reintroducing the de-vibe round-2 bug (the relaunched
+poller's first polls observe the previous run's terminal phase and exit,
+freezing the card for the new run). Fixed with `beginNewPollEpoch()` which
+bumps the epoch AND resets `observedActiveRun` + the watchdog budget. Also
+fixed: the stopped-worker notice now clears when the worker is observed
+alive again; the plan-required process-death comment added. Accepted
+simplification recorded: the F2d dialog is shown UNCONDITIONALLY rather
+than gated on `dataPreparationEnabled` + "no benchmark recorded yet" — the
+two plan gates conflicted with each other (a benchmarked device could never
+re-confirm a re-import), and the dialog copy errs toward safety; on the
+database lane the copy overstates what that lane builds (noted for the F7
+release notes).
+
 ---
 
 ## F3 — First-run messaging and defaults

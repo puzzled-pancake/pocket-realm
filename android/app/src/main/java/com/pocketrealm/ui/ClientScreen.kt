@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
@@ -20,6 +21,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -39,7 +41,6 @@ import com.pocketrealm.importer.ImportWorkerService
 import com.pocketrealm.importer.ImportProgressPresentation
 import com.pocketrealm.importer.ImportStageProgress
 import com.pocketrealm.importer.formatImportBytes
-import com.pocketrealm.importer.formatImportCpu
 import com.pocketrealm.importer.formatImportDuration
 import com.pocketrealm.importer.formatImportPercent
 import com.pocketrealm.importer.importPhaseBusy
@@ -51,6 +52,14 @@ import kotlinx.coroutines.delay
 // observed an active run (de-vibe A5; ImportProgressPresentation terminals).
 private val TERMINAL_IMPORT_PHASES = setOf("COMPLETE", "FAILED", "CANCELLED")
 
+// F2a watchdog tuning: a busy journal phase whose worker process has been
+// gone this long was LMK-killed, not merely quiet between operations.
+private const val WORKER_STALLED_AFTER_SECONDS = 25L
+private const val MAX_WATCHDOG_RESTARTS = 4
+private const val WATCHDOG_RESTART_INTERVAL_MS = 60_000L
+private const val WORKER_STOPPED_NOTICE =
+    "Worker was stopped by the system — tap Resume to continue."
+
 /**
  * Managed client import, server-data generation, and the import benchmark.
  * Picking the client folder again after a completed import starts a fresh
@@ -60,61 +69,49 @@ private val TERMINAL_IMPORT_PHASES = setOf("COMPLETE", "FAILED", "CANCELLED")
 @Composable
 fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValues) {
     val context = LocalContext.current
-    var importProgress by remember { mutableStateOf(ImportProgressPresentation.idle()) }
-    var importNotice by remember { mutableStateOf<String?>(null) }
-    var importBusyNotice by remember { mutableStateOf<String?>(null) }
-    var importComplete by remember { mutableStateOf(false) }
-    var dataPreparationEnabled by remember { mutableStateOf(true) }
-    var persistedTree by remember {
-        mutableStateOf(context.contentResolver.persistedUriPermissions
-            .firstOrNull { it.isReadPermission }?.uri)
-    }
-    var importEpoch by remember { mutableStateOf(0) }
+    val ui = remember { ImportUiState(context) }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) {
-            runCatching {
-                val phase = ImportProgressPresentation.fromJson(
-                    ImportWorkerService.readStatus(context),
-                ).phase
-                if (importPhaseBusy(phase)) {
-                    // The worker ignores new starts mid-import; do not claim
-                    // one started or silently swap the folder under it.
-                    importBusyNotice = "An import is already running. Choose the folder again after it finishes."
-                    return@runCatching
-                }
-                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                persistedTree = uri
-                ImportWorkerService.start(context, uri)
-                importEpoch += 1  // restart the status poller for the new run
-                importNotice = "Import started. The selected folder remains read-only."
-            }.onFailure { importNotice = "Import start failed: ${it.message}" }
-        }
+        if (uri != null) ui.onFolderPicked(context, uri)
+    }
+
+    ui.pendingImport?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { ui.pendingImport = null },
+            title = { Text("Import the game files?") },
+            text = {
+                Text(
+                    "This copies and verifies the WoW 1.12.1 client, then builds the " +
+                        "server's maps, collision and navmesh data. Depending on the " +
+                        "device this can take over 30 minutes. Keep the device plugged " +
+                        "in and awake. The selected folder is only read, never modified.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    ui.pendingImport = null
+                    ui.startImport(context, uri)
+                }) { Text("Start import") }
+            },
+            dismissButton = {
+                TextButton(onClick = { ui.pendingImport = null }) { Text("Cancel") }
+            },
+        )
     }
 
     // Keyed on the import epoch (de-vibe A5 + verification B1): polling stops
     // at a terminal phase, and starting another import bumps the epoch so the
     // effect relaunches instead of leaving a frozen progress card.
-    LaunchedEffect(importEpoch) {
+    LaunchedEffect(ui.importEpoch) {
         // A freshly (re)started import's journal row appears only seconds
         // after start; the first polls still observe the PREVIOUS run's
         // terminal phase. Stop only for a terminal phase seen AFTER this
         // epoch observed an active one (verification round 2).
-        var observedActiveRun = false
         while (true) {
             runCatching { ImportWorkerService.readStatus(context) }.onSuccess { value ->
-                importProgress = ImportProgressPresentation.fromJson(value)
-                importComplete = importProgress.phase == "COMPLETE"
-                dataPreparationEnabled = value.optBoolean("dataPreparationEnabled", true)
-                if (importPhaseBusy(importProgress.phase)) {
-                    observedActiveRun = true
-                    importNotice = null
-                }
-                if (!importPhaseBusy(importProgress.phase)) importBusyNotice = null
-                // Terminal phase after activity: stop polling (de-vibe A5) —
-                // the screen can stay open long after a finished run.
-                if (observedActiveRun &&
-                    importProgress.phase in TERMINAL_IMPORT_PHASES
-                ) return@LaunchedEffect
+                if (ui.applyStatus(value)) return@LaunchedEffect
+            }
+            ui.takePendingRestart()?.let { restartUri ->
+                runCatching { ImportWorkerService.start(context, restartUri) }
             }
             delay(1_000)
         }
@@ -128,19 +125,160 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
         Text("Game setup", style = MaterialTheme.typography.headlineSmall)
         Text("Import the WoW 1.12.1 client and generate the server's world data")
         ImportProgressCard(
-            progress = importProgress,
-            notice = importNotice ?: importBusyNotice,
-            dataPreparationEnabled = dataPreparationEnabled,
-            canResume = persistedTree != null && !importComplete,
+            progress = ui.importProgress,
+            notice = ui.importNotice ?: ui.importBusyNotice,
+            dataPreparationEnabled = ui.dataPreparationEnabled,
+            canResume = ui.persistedTree != null && !ui.importComplete,
             onSelect = { folderPicker.launch(null) },
             onResume = {
-                persistedTree?.let {
+                ui.persistedTree?.let {
                     ImportWorkerService.start(context, it)
-                    importEpoch += 1  // restart the status poller for the resumed run
-                    importNotice = "Resume requested. Verified files and completed stages are retained."
+                    ui.beginNewPollEpoch()  // restart the status poller for the resumed run
+                    ui.importNotice = "Resume requested. Verified files and completed stages are retained."
                 }
             },
         )
+    }
+}
+
+/**
+ * State holder for the import screen so the poller/watchdog/start logic lives
+ * in plain functions (detekt complexity is counted per function; the screen
+ * composable stays a thin shell).
+ */
+private class ImportUiState(context: android.content.Context) {
+    var importProgress by mutableStateOf(ImportProgressPresentation.idle())
+    var importNotice by mutableStateOf<String?>(null)
+    var importBusyNotice by mutableStateOf<String?>(null)
+    var importComplete by mutableStateOf(false)
+    var dataPreparationEnabled by mutableStateOf(true)
+    var persistedTree by mutableStateOf(
+        context.contentResolver.persistedUriPermissions
+            .firstOrNull { it.isReadPermission }?.uri)
+    var importEpoch by mutableStateOf(0)
+    // F2d: the pick is staged behind a confirmation dialog; the persistable
+    // permission is only taken on confirm so a cancel leaves no grant behind.
+    var pendingImport by mutableStateOf<android.net.Uri?>(null)
+
+    // Poller/watchdog bookkeeping (not composable state).
+    private var observedActiveRun = false
+    // F2a watchdog: restart a busy-but-dead worker using the journal's own
+    // source URI. ActivityManager's service-restart backoff after an LMK kill
+    // runs 32-290 s; without this the only escape is the manual Resume button.
+    // The >=60 s rate limit bounds this counter (which resets if the UI
+    // process itself is killed).
+    private var watchdogRestarts = 0
+    private var lastWatchdogRestartMs = 0L
+
+    /**
+     * Starts a fresh poller epoch: the effect relaunches AND the per-epoch
+     * guards reset. Without the observedActiveRun reset, the relaunched
+     * poller's first polls still observe the PREVIOUS run's terminal phase
+     * and would exit immediately, freezing the card for the new run (the
+     * exact bug the de-vibe round-2 verification fixed for the old local
+     * variable). The watchdog budget also resets: this is a new run, and the
+     * >=60 s in-process rate limit plus the 25 s stall requirement bound the
+     * reset behavior.
+     */
+    fun beginNewPollEpoch() {
+        importEpoch += 1
+        observedActiveRun = false
+        watchdogRestarts = 0
+        lastWatchdogRestartMs = 0L
+    }
+
+    fun onFolderPicked(context: android.content.Context, uri: android.net.Uri) {
+        val phase = runCatching {
+            ImportProgressPresentation.fromJson(ImportWorkerService.readStatus(context)).phase
+        }.getOrNull()
+        if (phase != null && importPhaseBusy(phase)) {
+            // The worker ignores new starts mid-import; do not claim one
+            // started or silently swap the folder under it.
+            importBusyNotice = "An import is already running. Choose the folder again after it finishes."
+        } else {
+            pendingImport = uri
+        }
+    }
+
+    fun startImport(context: android.content.Context, uri: android.net.Uri) {
+        // Process death between pick and confirm discards the dialog (plain
+        // remember, not saveable) and usually the SAF grant with it; a stale
+        // grant that somehow survives surfaces here as the runCatching
+        // failure notice below.
+        runCatching {
+            // The busy gate runs at confirm time: a run may have started
+            // while the dialog was open.
+            val phase = ImportProgressPresentation.fromJson(
+                ImportWorkerService.readStatus(context),
+            ).phase
+            if (importPhaseBusy(phase)) {
+                importBusyNotice = "An import is already running. Choose the folder again after it finishes."
+                return
+            }
+            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            persistedTree = uri
+            ImportWorkerService.start(context, uri)
+            beginNewPollEpoch()  // restart the status poller for the new run
+            importNotice = "Import started. The selected folder remains read-only."
+        }.onFailure { importNotice = "Import start failed: ${it.message}" }
+    }
+
+    /** Applies one status poll; true when the poller should stop. */
+    fun applyStatus(value: org.json.JSONObject): Boolean {
+        importProgress = ImportProgressPresentation.fromJson(value)
+        importComplete = importProgress.phase == "COMPLETE"
+        dataPreparationEnabled = value.optBoolean("dataPreparationEnabled", true)
+        if (importPhaseBusy(importProgress.phase)) {
+            observedActiveRun = true
+            importNotice = null
+        }
+        if (!importPhaseBusy(importProgress.phase)) importBusyNotice = null
+        if (importProgress.workerPresent &&
+            importBusyNotice == WORKER_STOPPED_NOTICE
+        ) importBusyNotice = null
+        applyWatchdog()
+        // Terminal phase after activity: stop polling (de-vibe A5) — the
+        // screen can stay open long after a finished run.
+        return observedActiveRun && importProgress.phase in TERMINAL_IMPORT_PHASES
+    }
+
+    private fun applyWatchdog() {
+        val now = System.currentTimeMillis()
+        when (importWatchdogAction(ImportWatchdogFacts(
+            phaseBusy = importPhaseBusy(importProgress.phase),
+            workerPresent = importProgress.workerPresent,
+            updatedAgeSeconds = importProgress.updatedAgeSeconds(now),
+            dataPreparationEnabled = dataPreparationEnabled,
+            restartsUsed = watchdogRestarts,
+            msSinceLastRestart = now - lastWatchdogRestartMs,
+            hasSourceUri = importProgress.sourceUri != null,
+        ))) {
+            ImportWatchdogAction.RESTART -> {
+                val sourceUriString = checkNotNull(importProgress.sourceUri)
+                val sourceUri = android.net.Uri.parse(sourceUriString)
+                // The restart target is the worker service; the UI process
+                // cannot verify the worker pid from here, so the next poll's
+                // workerPresent observation is the success signal.
+                watchdogRestarts += 1
+                lastWatchdogRestartMs = now
+                importNotice =
+                    "The system stopped the import worker — restarting it automatically " +
+                        "(${watchdogRestarts}/$MAX_WATCHDOG_RESTARTS)."
+                pendingRestartUri = sourceUri
+            }
+            ImportWatchdogAction.SHOW_MANUAL_RESUME ->
+                importBusyNotice = WORKER_STOPPED_NOTICE
+            ImportWatchdogAction.NONE -> Unit
+        }
+    }
+
+    private var pendingRestartUri: android.net.Uri? = null
+
+    /** Set by applyWatchdog; the poller performs the actual service start. */
+    fun takePendingRestart(): android.net.Uri? {
+        val uri = pendingRestartUri
+        pendingRestartUri = null
+        return uri
     }
 }
 
@@ -323,13 +461,13 @@ private fun ImportDetailPane(
         )
         if (progress.workerPresent) {
             Text(
-                "CPU ${formatImportCpu(progress.cpuPercent)}  •  Memory ${formatImportBytes(progress.rssBytes)}",
+                "Memory ${formatImportBytes(progress.rssBytes)}",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.testTag("client-import-resources"),
             )
             Text(
                 "${progress.processCount} process${if (progress.processCount == 1) "" else "es"}  •  " +
-                    "${progress.threadCount} threads  •  ${progress.cpuSampleWindowMs} ms sample",
+                    "${progress.threadCount} threads",
                 style = MaterialTheme.typography.labelSmall,
             )
         }
@@ -403,7 +541,8 @@ private fun BenchmarkCard(progress: ImportProgressPresentation) {
         progress.device?.let { device ->
             Text("Device", style = MaterialTheme.typography.titleSmall)
             Text(
-                "${device.soc}${if (device.activelyCooled) " • actively cooled" else " • passive cooling"}",
+                "${device.label} • ${device.soc}" +
+                    "${if (device.activelyCooled) " • actively cooled" else " • passive cooling"}",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.testTag("client-benchmark-device"),
             )
@@ -483,4 +622,36 @@ private fun ImportStageRow(stage: ImportStageProgress) {
             fontWeight = if (stage.state == "RUNNING") FontWeight.SemiBold else FontWeight.Normal,
         )
     }
+}
+
+internal enum class ImportWatchdogAction { RESTART, SHOW_MANUAL_RESUME, NONE }
+
+/**
+ * Pure decision for the F2a auto-continue watchdog so the restart policy is
+ * unit-testable independent of Compose: a busy journal phase whose worker
+ * process has been gone for a while was LMK-killed (ActivityManager's
+ * service-restart backoff runs 32-290 s), and the UI restarts it itself —
+ * rate-limited, capped, only with the journal's own source URI.
+ */
+internal data class ImportWatchdogFacts(
+    val phaseBusy: Boolean,
+    val workerPresent: Boolean,
+    val updatedAgeSeconds: Long,
+    val dataPreparationEnabled: Boolean,
+    val restartsUsed: Int,
+    val msSinceLastRestart: Long,
+    val hasSourceUri: Boolean,
+)
+
+internal fun importWatchdogAction(facts: ImportWatchdogFacts): ImportWatchdogAction {
+    if (!facts.phaseBusy || facts.workerPresent ||
+        facts.updatedAgeSeconds <= WORKER_STALLED_AFTER_SECONDS
+    ) {
+        return ImportWatchdogAction.NONE
+    }
+    val restartAllowed = facts.dataPreparationEnabled &&
+        facts.restartsUsed < MAX_WATCHDOG_RESTARTS &&
+        facts.msSinceLastRestart >= WATCHDOG_RESTART_INTERVAL_MS
+    return if (restartAllowed && facts.hasSourceUri) ImportWatchdogAction.RESTART
+    else ImportWatchdogAction.SHOW_MANUAL_RESUME
 }

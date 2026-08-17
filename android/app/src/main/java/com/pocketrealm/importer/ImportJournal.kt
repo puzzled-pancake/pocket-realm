@@ -274,16 +274,17 @@ class ImportJournal(context: Context) : AutoCloseable {
     }
 
     fun latest(): ImportStatus = helper.readableDatabase.rawQuery(
-        "SELECT import_id, phase, source_fingerprint, files_processed, files_total, bytes_copied, " +
+        "SELECT import_id, phase, source_fingerprint, source_uri, files_processed, files_total, bytes_copied, " +
             "bytes_total, last_relative_path, warning_count, last_error, active_generation, updated_at_ms " +
             "FROM imports ORDER BY created_at_ms DESC LIMIT 1", emptyArray(),
     ).use { cursor ->
         if (!cursor.moveToFirst()) ImportStatus() else ImportStatus(
             importId = cursor.getString(0), phase = ImportPhase.valueOf(cursor.getString(1)),
-            sourceFingerprint = cursor.getString(2), filesProcessed = cursor.getInt(3),
-            filesTotal = cursor.getInt(4), bytesCopied = cursor.getLong(5), bytesTotal = cursor.getLong(6),
-            lastRelativePath = cursor.getString(7), warningCount = cursor.getInt(8),
-            lastError = cursor.getString(9), activeGeneration = cursor.getString(10), updatedAtMs = cursor.getLong(11),
+            sourceFingerprint = cursor.getString(2), sourceUri = cursor.getString(3),
+            filesProcessed = cursor.getInt(4),
+            filesTotal = cursor.getInt(5), bytesCopied = cursor.getLong(6), bytesTotal = cursor.getLong(7),
+            lastRelativePath = cursor.getString(8), warningCount = cursor.getInt(9),
+            lastError = cursor.getString(10), activeGeneration = cursor.getString(11), updatedAtMs = cursor.getLong(12),
         )
     }
 

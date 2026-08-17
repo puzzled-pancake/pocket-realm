@@ -104,6 +104,7 @@ data class ImportStatus(
     val importId: String? = null,
     val phase: ImportPhase = ImportPhase.IDLE,
     val sourceFingerprint: String? = null,
+    val sourceUri: String? = null,
     val filesProcessed: Int = 0,
     val filesTotal: Int = 0,
     val bytesCopied: Long = 0,

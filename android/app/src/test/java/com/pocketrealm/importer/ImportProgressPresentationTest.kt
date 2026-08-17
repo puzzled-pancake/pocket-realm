@@ -30,11 +30,10 @@ class ImportProgressPresentationTest {
                 .put("bytesWritten", 585_816_544L)
                 .put("checkpoint", "0")
                 .put("updatedAtMs", 8_500L)))
+            .put("sourceUri", "content://import/tree/primary")
             .put("worker", JSONObject()
                 .put("present", true)
                 .put("state", "working")
-                .put("cpuPercent", 137.5)
-                .put("sampleWindowMs", 1_000L)
                 .put("rssBytes", 128L * 1024L * 1024L)
                 .put("threadCount", 12)
                 .put("processCount", 2))
@@ -45,8 +44,8 @@ class ImportProgressPresentationTest {
         assertTrue(progress.explanation.contains("counter may stay unchanged"))
         assertEquals("Data/large.MPQ", progress.currentPath)
         assertEquals(0.25f, progress.currentFileFraction, 0.0001f)
-        assertEquals(137.5, progress.cpuPercent!!, 0.001)
         assertEquals(2, progress.processCount)
+        assertEquals("content://import/tree/primary", progress.sourceUri)
         assertEquals(1L, progress.updatedAgeSeconds(10_500L))
     }
 
@@ -55,10 +54,9 @@ class ImportProgressPresentationTest {
 
         assertEquals("Import paused", progress.phaseTitle)
         assertFalse(progress.workerPresent)
-        assertNull(progress.cpuPercent)
+        assertNull(progress.sourceUri)
         assertTrue(progress.stages.isEmpty())
         assertEquals(0f, progress.byteFraction, 0f)
-        assertEquals("Sampling…", formatImportCpu(null))
     }
 
     @Test fun formatsBoundedHumanReadableValues() {
@@ -126,6 +124,7 @@ class ImportProgressPresentationTest {
         assertEquals(43, benchmark?.mmapMaps)
         assertEquals(1, presentation.benchmarkHistory.size)
         val device = presentation.device
+        assertEquals("Retroid Pocket 6", device?.label)
         assertEquals("Snapdragon 8 Gen 2", device?.soc)
         assertTrue(device?.activelyCooled == true)
         assertNull(presentation.error)

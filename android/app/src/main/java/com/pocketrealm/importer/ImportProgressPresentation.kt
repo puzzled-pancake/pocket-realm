@@ -57,11 +57,10 @@ data class ImportProgressPresentation(
     val stages: List<ImportStageProgress>,
     val workerPresent: Boolean,
     val workerState: String,
-    val cpuPercent: Double?,
-    val cpuSampleWindowMs: Long,
     val rssBytes: Long,
     val threadCount: Int,
     val processCount: Int,
+    val sourceUri: String?,
     val updatedAtMs: Long,
     val error: String?,
     val benchmark: ImportBenchmarkRun? = null,
@@ -126,11 +125,11 @@ data class ImportProgressPresentation(
                 stages = stages,
                 workerPresent = worker.optBoolean("present"),
                 workerState = worker.optString("state", "absent"),
-                cpuPercent = worker.optionalDouble("cpuPercent"),
-                cpuSampleWindowMs = worker.optLong("sampleWindowMs"),
                 rssBytes = worker.optLong("rssBytes"),
                 threadCount = worker.optInt("threadCount"),
                 processCount = worker.optInt("processCount"),
+                sourceUri = if (value.isNull("sourceUri")) null
+                else value.optionalString("sourceUri"),
                 updatedAtMs = value.optLong("updatedAtMs"),
                 error = value.optionalString("lastError"),
                 benchmark = benchmarkObject?.optJSONObject("latest")?.let { latest ->
@@ -219,9 +218,6 @@ private val ACTIVE_IMPORT_PHASES = setOf(
 fun formatImportPercent(fraction: Float): String =
     String.format(Locale.US, "%.1f%%", fraction.coerceIn(0f, 1f) * 100f)
 
-fun formatImportCpu(percent: Double?): String =
-    percent?.let { String.format(Locale.US, "%.1f%%", it.coerceAtLeast(0.0)) } ?: "Sampling…"
-
 fun importWorkerLabel(state: String, present: Boolean): String = when {
     !present -> "Worker not running"
     state == "working" -> "Working"
@@ -291,5 +287,3 @@ private fun fraction(value: Long, total: Long): Float =
 private fun JSONObject.optionalString(name: String): String? =
     takeIf { has(name) && !isNull(name) }?.optString(name)?.takeIf { it.isNotBlank() && it != "null" }
 
-private fun JSONObject.optionalDouble(name: String): Double? =
-    takeIf { has(name) && !isNull(name) }?.optDouble(name)?.takeIf(Double::isFinite)
