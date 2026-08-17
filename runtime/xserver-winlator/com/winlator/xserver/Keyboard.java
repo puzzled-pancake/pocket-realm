@@ -19,6 +19,9 @@ public class Keyboard {
     private final Bitmask modifiersMask = new Bitmask();
     private final XKeycode[] keycodeMap = createKeycodeMap();
     private final ArraySet<Byte> pressedKeys = new ArraySet<>();
+    // Android key codes whose own ACTION_DOWN synthesized a Shift press, so
+    // the matching ACTION_UP releases exactly the Shift that key pressed.
+    private final ArraySet<Integer> syntheticShiftKeys = new ArraySet<>();
     private final ArrayList<OnKeyboardListener> onKeyboardListeners = new ArrayList<>();
     private final XServer xServer;
 
@@ -99,32 +102,58 @@ public class Keyboard {
         if (ExternalController.isGameController(event.getDevice())) return false;
 
         int action = event.getAction();
-        if (action == KeyEvent.ACTION_DOWN || action == KeyEvent.ACTION_UP) {
-            int keyCode = event.getKeyCode();
-            if (keyCode < 0 || keyCode >= keycodeMap.length) return false; // Ignore unmapped key codes
-            XKeycode xKeycode = keycodeMap[keyCode];
-            if (xKeycode == null) return false;
-
-            if (action == KeyEvent.ACTION_DOWN) {
-                boolean shiftPressed = event.isShiftPressed() || keyCode == KeyEvent.KEYCODE_AT || keyCode == KeyEvent.KEYCODE_STAR || keyCode == KeyEvent.KEYCODE_POUND || keyCode == KeyEvent.KEYCODE_PLUS;
-                if (shiftPressed) xServer.injectKeyPress(XKeycode.KEY_SHIFT_L);
-                xServer.injectKeyPress(xKeycode, xKeycode != XKeycode.KEY_ENTER ? event.getUnicodeChar() : 0);
-            }
-            else if (action == KeyEvent.ACTION_UP) {
-                xServer.injectKeyRelease(XKeycode.KEY_SHIFT_L);
-                xServer.injectKeyRelease(xKeycode);
-            }
-        }
-        else if (action == KeyEvent.ACTION_MULTIPLE) {
+        if (action == KeyEvent.ACTION_MULTIPLE) {
             String chars = event.getCharacters();
             if (chars != null && chars.length() == 1) {
                 int keysym = chars.charAt(0);
                 XKeycode xKeycode = getXKeycodeForKeysym(keysym);
-                xServer.injectKeyPress(xKeycode, keysym);
-                AppUtils.runDelayed(() -> xServer.injectKeyRelease(xKeycode), 30);
+                injectKeyPress(xKeycode, keysym);
+                AppUtils.runDelayed(() -> injectKeyRelease(xKeycode), 30);
             }
+            return true;
+        }
+        return onKeyEvent(action, event.getKeyCode(), event.getUnicodeChar(), event.isShiftPressed());
+    }
+
+    /**
+     * Primitive DOWN/UP core of {@link #onKeyEvent(KeyEvent)} so host-JVM
+     * tests can drive full press/release sequences without the Android
+     * framework classes.
+     */
+    boolean onKeyEvent(int action, int keyCode, int unicodeChar, boolean shiftPressed) {
+        if (action != KeyEvent.ACTION_DOWN && action != KeyEvent.ACTION_UP) return true;
+        if (keyCode < 0 || keyCode >= keycodeMap.length) return false; // Ignore unmapped key codes
+        XKeycode xKeycode = keycodeMap[keyCode];
+        if (xKeycode == null) return false;
+
+        if (action == KeyEvent.ACTION_DOWN) {
+            // 12-key phone pads type shifted symbols without a meta bit.
+            boolean shiftWithKeycode = shiftPressed ||
+                keyCode == KeyEvent.KEYCODE_AT || keyCode == KeyEvent.KEYCODE_STAR ||
+                keyCode == KeyEvent.KEYCODE_POUND || keyCode == KeyEvent.KEYCODE_PLUS;
+            // A shifted key press synthesizes Shift. Release it on this key's
+            // UP only when the DOWN actually pressed it: Shift held by another
+            // source (a physical keyboard key or an injected hold) must
+            // survive this key's release.
+            if (shiftWithKeycode && !pressedKeys.contains(XKeycode.KEY_SHIFT_L.id)) {
+                syntheticShiftKeys.add(keyCode);
+                injectKeyPress(XKeycode.KEY_SHIFT_L, 0);
+            }
+            injectKeyPress(xKeycode, xKeycode != XKeycode.KEY_ENTER ? unicodeChar : 0);
+        }
+        else {
+            if (syntheticShiftKeys.remove(keyCode)) injectKeyRelease(XKeycode.KEY_SHIFT_L);
+            injectKeyRelease(xKeycode);
         }
         return true;
+    }
+
+    protected void injectKeyPress(XKeycode xKeycode, int keysym) {
+        xServer.injectKeyPress(xKeycode, keysym);
+    }
+
+    protected void injectKeyRelease(XKeycode xKeycode) {
+        xServer.injectKeyRelease(xKeycode);
     }
 
     private XKeycode getXKeycodeForKeysym(int keysym) {
