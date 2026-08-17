@@ -632,7 +632,7 @@ private fun OverlayMode.friendlyName(): String = when (this) {
 private fun OverlayMode.explanation(): String = when (this) {
     OverlayMode.AUTO -> "Shows only a compact utility drawer when a controller is active, and full controls for touch-only play."
     OverlayMode.MINIMAL -> "Shows camera or pointer mode, zoom, keyboard and app access without covering gameplay."
-    OverlayMode.FULL -> "Shows movement, Target, Use / loot at pointer, Menu and paged action buttons for touch play."
+    OverlayMode.FULL -> "Shows movement plus the action, look, and click keys of the touch layout chosen below, for touch-only play."
     OverlayMode.OFF -> "Removes every overlay hit area; change this setting here to restore on-screen controls."
 }
 
