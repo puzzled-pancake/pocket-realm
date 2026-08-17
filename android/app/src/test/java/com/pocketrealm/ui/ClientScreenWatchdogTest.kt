@@ -1,6 +1,10 @@
 package com.pocketrealm.ui
 
+import com.pocketrealm.importer.watchdogRestartNotice
+import com.pocketrealm.importer.workerStoppedNotice
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ClientScreenWatchdogTest {
@@ -61,5 +65,33 @@ class ClientScreenWatchdogTest {
             ImportWatchdogAction.SHOW_MANUAL_RESUME,
             importWatchdogAction(facts { copy(dataPreparationEnabled = false) }),
         )
+    }
+
+    // F8 B: the OS-recorded death reason drives the user-visible wording. A
+    // lowmemorykiller storm must tell the user to close other apps instead of
+    // implying a resume tap is all it takes.
+    @Test fun restartNoticeNamesMemoryPressureWhenOsRecordsIt() {
+        val lmk = watchdogRestartNotice("LOW_MEMORY", attempt = 2, maxRestarts = 4)
+        assertTrue(lmk.contains("free memory"))
+        assertTrue(lmk.contains("(2/4)"))
+        assertTrue(lmk.contains("Closing other apps"))
+
+        val generic = watchdogRestartNotice(null, attempt = 1, maxRestarts = 4)
+        assertTrue(generic.contains("(1/4)"))
+        assertFalse(generic.contains("free memory"))
+    }
+
+    @Test fun stoppedNoticeAdvisesClosingAppsOnlyForMemoryKills() {
+        val lmk = workerStoppedNotice("LOW_MEMORY")
+        assertTrue(lmk.contains("Resume"))
+        assertTrue(lmk.contains("closing other apps"))
+        assertTrue(lmk.contains("Nothing already imported is lost"))
+
+        val crash = workerStoppedNotice("CRASH")
+        assertTrue(crash.contains("crashed"))
+        assertTrue(crash.contains("Resume"))
+
+        val generic = workerStoppedNotice(null)
+        assertEquals("Worker was stopped by the system — tap Resume to continue.", generic)
     }
 }

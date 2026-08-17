@@ -738,3 +738,69 @@ All device testing is performed by the user; this phase prepares the hand-off.
 F0 → F1 → F2 → F3 → F4 → F5 → F6 → F7. F1c (native Gladio fix) and F1d can
 land any time inside F1. Each phase: implement → self-check → 3 review agents
 → fix findings → re-verify clean → commit → next phase.
+
+---
+
+## F8 — Import kill-storm recovery and truthful phase feedback
+
+Trigger (device, fresh install of the F7 APK): after the game files copied,
+the screen sat "stuck" for minutes showing "system interrupted — press
+resume", then navmesh generation eventually started. Device evidence (logs
+in local .tmp only): the kernel lowmemorykiller killed the `:import` worker
+13 times in ~3 minutes under critical memory pressure (swap nearly full),
+each life 3–8 s; every restart re-opened all 15 MPQs and re-hashed the
+entire copied prefix (O(5.4 GB) per life) before resuming, so the storm
+made zero forward progress; ActivityManager's crashed-service restart
+backoff (up to ~8 min) plus the F2a watchdog's manual-resume fallback
+produced the "press resume" loop. Root causes and fixes:
+
+- **A1 (amplifier):** resume re-hashed every VERIFIED file. Now a VERIFIED
+  row + fsync marker + unchanged source size/mtime + full-size target is
+  trusted; the end-of-copy VERIFYING pass still re-hashes everything once
+  before publish.
+- **A3 (per-kill cost):** an interrupted `.partial` is appended to (SAF
+  skip; prefix bytes are page-cache durable across a process kill) instead
+  of re-copying the largest file from zero; the file hash is computed at
+  completion from the local file; a kill between rename and journal commit
+  is converted via markVerified instead of re-copied (round 2). Residual,
+  accepted and recorded: a power loss (not a process kill) can zero-fill an
+  unsynced partial tail that hash-at-end then blesses — mitigated (not
+  eliminated) by fsyncing the partial at each 64 MiB progress tick; a
+  same-size same-mtime source swap was already undetectable before F8 (the
+  source fingerprint is metadata-only by design).
+- **B (truthful messaging):** the watchdog now reads
+  `ApplicationExitInfo.getHistoricalProcessExitReasons` for the `:import`
+  process (API 30+, 15-min freshness) and words its notices by reason:
+  LOW_MEMORY notices say Android stopped the import to free memory, that
+  progress is kept, and that closing other apps lets it finish — instead of
+  the generic "tap Resume". Round-1 verification caught a blocker here:
+  `getTimestamp()` is epoch-based, so the elapsedRealtime age math silently
+  disabled the whole feature; fixed to wall clock.
+- **C (phase feedback):** VERIFYING/PUBLISHING journal per-file ticks
+  ("(87/150) Data/terrain.MPQ", time-throttled to 2 s — round 2 fixed the
+  per-file commit cost being quadratic under synchronous=FULL); finite data
+  stages journal unknown totals so the UI shows indeterminate bars instead
+  of a frozen "0/1"; the FGS notification follows data-stage progress
+  (5 s-gated) instead of freezing on the last copied MPQ; the raw
+  "MMAPS:map 169 (20/43)…" journal residue no longer renders as a file
+  path (also on FAILED, round 2); the recover-path re-hash ticks and closes
+  a stale RUNNING MANIFEST row.
+- **D:** 64 MiB journal progress ticks during big copies keep watchdog
+  staleness and post-mortem progress truthful.
+
+Verification: 3 review agents (resume correctness, watchdog/UI, stage
+ticks/notification) found the clock blocker, two notice-lifecycle
+regressions (broadened busy-notice clear wiping the "already running"
+notice; restart wording wiped within ~1 s), the quadratic tick cost, the
+MANIFEST 0/1 freeze, and the recover-path silence — all fixed; the round-2
+recheck verified every fix and found one remaining bypass (startImport
+notices not routed through the sticky window), fixed; final verdict CLEAN.
+Gates green (compile + unit tests + detekt). Device verification is the
+user's: expect memory-pressure wording if the system kills the worker,
+VERIFYING/PUBLISHING file ticking, indeterminate DBC/vmap/manifest bars,
+per-map MMAPS progress in both card and notification, and no "system
+interrupted" loop unless the worker genuinely stops.
+
+Deferred (recorded): supervisor/main-process memory footprint (~376 MB
+combined during import) is a separate optimization; notification fallback
+can still show a raw stage composite briefly between stages (cosmetic).

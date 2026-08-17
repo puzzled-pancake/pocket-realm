@@ -95,6 +95,23 @@ closed under multi-agent verification (plan records each round's outcome):
 - Hand-off: DEVICE_TEST_CHECKLIST.md; world-entry crash bisection is the
   top device task (evidence in .tmp/devibe/rp6_firstboot_crash/).
 
+## Import kill-storm recovery (2026-08-17, F8 of the same plan)
+
+Device evidence from the first fresh-install run (local .tmp only): the
+kernel lowmemorykiller killed the `:import` worker 13 times in ~3 minutes
+while the copy phase re-hashed the whole copied prefix on every restart,
+so the UI fell into the manual-resume loop the user reported as "stuck for
+a few mins / system interrupted press resume" before navmesh generation.
+Fixed: resume trusts journal VERIFIED rows (single VERIFYING pass remains),
+interrupted partials append instead of restarting (hash-at-completion,
+rename-window conversions, 64 MiB tick fsyncs), the watchdog reads
+ApplicationExitInfo so LOW_MEMORY deaths say "Android stopped the import
+to free memory — close other apps" (epoch-clock bug caught in review),
+VERIFYING/PUBLISHING and every data stage now show live progress, the FGS
+notification tracks data stages, and the raw MMAPS checkpoint no longer
+renders as a file path. 3-agent review + round-2 recheck clean; gates
+green. Checklist items 18-22 cover the device verification.
+
 ## Source of truth
 
 - `docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.pdf` is the canonical offline engineering reference; the adjacent DOCX is its editable source.

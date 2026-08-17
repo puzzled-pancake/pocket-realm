@@ -67,12 +67,15 @@ class ClientGenerationStore(context: Context) {
 
     fun publish(
         importId: String,
-        identity: JSONObject,
-        sourceFingerprint: String,
-        journalEntries: List<ImportJournal.JournalEntry>,
-        durationMs: Long,
-        afterRenameBeforeActivate: () -> Unit = {},
+        plan: PublishPlan,
+        callbacks: PublishCallbacks = PublishCallbacks(),
     ): PublishedGeneration {
+        val identity = plan.identity
+        val sourceFingerprint = plan.sourceFingerprint
+        val journalEntries = plan.journalEntries
+        val durationMs = plan.durationMs
+        val afterRenameBeforeActivate = callbacks.afterRenameBeforeActivate
+        val onManifestFile = callbacks.onManifestFile
         val staging = staging(importId)
         val final = generation(importId)
         recoverPublished(importId)?.let { return it }
@@ -80,6 +83,7 @@ class ClientGenerationStore(context: Context) {
         writeManagedConfiguration(staging)
 
         val files = staging.walkTopDown().filter { it.isFile && it.name != "client-manifest.json" }
+            .onEach { file -> onManifestFile(file.relativeTo(staging).invariantSeparatorsPath) }
             .map { file ->
                 val relative = file.relativeTo(staging).invariantSeparatorsPath
                 JSONObject().put("path", relative).put("size", file.length()).put("sha256", sha256(file))
@@ -198,6 +202,19 @@ class ClientGenerationStore(context: Context) {
     private fun sha256(file: File): String = com.pocketrealm.fs.FileDigests.sha256(file)
 
     data class PublishedGeneration(val id: String, val root: File, val manifestSha256: String)
+
+    /** Publish-time callbacks (F8 C: onManifestFile drives PUBLISHING ticks). */
+    data class PublishCallbacks(
+        val afterRenameBeforeActivate: () -> Unit = {},
+        val onManifestFile: (String) -> Unit = {},
+    )
+
+    data class PublishPlan(
+        val identity: JSONObject,
+        val sourceFingerprint: String,
+        val journalEntries: List<ImportJournal.JournalEntry>,
+        val durationMs: Long,
+    )
 
     companion object {
         private val UUID = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")

@@ -95,6 +95,33 @@ class ImportJournal(context: Context) : AutoCloseable {
         update(importId, ImportPhase.COPYING, entry.relativePath)
     }
 
+    /**
+     * F8 A3: re-enter a file whose copy was interrupted mid-way. Unlike
+     * markCopying this keeps bytes_copied and temp_name so the partial file
+     * can be appended to instead of restarted from byte zero.
+     */
+    fun markResumed(importId: String, entry: SafSourceEntry) {
+        helper.writableDatabase.execSQL(
+            "UPDATE files SET state='COPYING', last_error=NULL, attempt=attempt+1 " +
+                "WHERE import_id=? AND relative_path=?",
+            arrayOf(importId, entry.relativePath),
+        )
+        update(importId, ImportPhase.COPYING, entry.relativePath)
+    }
+
+    /**
+     * F8 D: periodic in-file progress so a multi-minute MPQ copy keeps the
+     * journal fresh (watchdog staleness and post-mortem progress both read it).
+     * Rate-limited by the caller.
+     */
+    fun touchCopying(importId: String, entry: SafSourceEntry, copiedBytes: Long) {
+        helper.writableDatabase.execSQL(
+            "UPDATE files SET bytes_copied=? WHERE import_id=? AND relative_path=?",
+            arrayOf<Any?>(copiedBytes, importId, entry.relativePath),
+        )
+        update(importId, ImportPhase.COPYING, entry.relativePath)
+    }
+
     fun markVerified(importId: String, entry: SafSourceEntry, sha256: String, copiedBytes: Long) {
         helper.writableDatabase.execSQL(
             "UPDATE files SET state='VERIFIED', bytes_copied=?, sha256=?, temp_name=NULL, " +

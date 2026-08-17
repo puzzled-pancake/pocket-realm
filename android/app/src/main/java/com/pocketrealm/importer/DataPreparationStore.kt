@@ -27,32 +27,36 @@ class DataPreparationStore(
     private val previous = File(root, "previous.json")
     private val nativeDir = File(app.applicationInfo.nativeLibraryDir)
 
-    suspend fun prepare(importId: String, clientRoot: File): PublishedData = withContext(Dispatchers.IO) {
-        recover(importId)?.let { return@withContext it }
+    suspend fun prepare(
+        importId: String,
+        clientRoot: File,
+        onTick: () -> Unit = {},
+    ): PublishedData = withContext(Dispatchers.IO) {
+        recover(importId, onTick)?.let { return@withContext it }
         val stageRoot = generation(".staging-$importId").apply { mkdirs() }
         check(clientRoot.isDirectory && File(clientRoot, "WoW.exe").isFile)
         requireTools()
 
-        finiteStage(importId, DataStage.DBC_MAPS, stageRoot) {
+        finiteStage(importId, DataStage.DBC_MAPS, stageRoot, onTick) {
             runTool(importId, DataStage.DBC_MAPS, stageRoot, "libpocket_ad.so",
                 listOf("-i", clientRoot.absolutePath, "-o", stageRoot.absolutePath, "-e", "3"))
             requireCount(File(stageRoot, "dbc"), ".dbc", MIN_DBC)
             requireCount(File(stageRoot, "maps"), ".map", MIN_MAP_TILES)
         }
-        finiteStage(importId, DataStage.VMAP_EXTRACT, stageRoot) {
+        finiteStage(importId, DataStage.VMAP_EXTRACT, stageRoot, onTick) {
             runTool(importId, DataStage.VMAP_EXTRACT, stageRoot, "libpocket_vmap_extractor.so",
                 listOf("-s", "-d", File(clientRoot, "Data").absolutePath, "-o", stageRoot.absolutePath))
             requireCount(File(stageRoot, "Buildings"), null, 1)
         }
         repairInterruptedVmapExtraction(importId, clientRoot, stageRoot)
-        finiteStage(importId, DataStage.VMAP_ASSEMBLE, stageRoot) {
+        finiteStage(importId, DataStage.VMAP_ASSEMBLE, stageRoot, onTick) {
             File(stageRoot, "vmaps").mkdirs()
             runTool(importId, DataStage.VMAP_ASSEMBLE, stageRoot, "libpocket_vmap_assembler.so",
                 listOf(File(stageRoot, "Buildings").absolutePath, File(stageRoot, "vmaps").absolutePath))
             requireCount(File(stageRoot, "vmaps"), ".vmtree", 1)
         }
-        prepareMmaps(importId, stageRoot)
-        publish(importId, stageRoot)
+        prepareMmaps(importId, stageRoot, onTick)
+        publish(importId, stageRoot, onTick)
     }
 
     /**
@@ -101,20 +105,25 @@ class DataPreparationStore(
     }
 
     private suspend fun finiteStage(
-        importId: String, stage: DataStage, root: File, body: suspend () -> Unit,
+        importId: String, stage: DataStage, root: File, onTick: () -> Unit, body: suspend () -> Unit,
     ) {
         if (journal.dataStage(importId, stage)?.state == DataStageState.VERIFIED) return
-        journal.startDataStage(importId, stage, 1)
+        // F8 C: total 0 = unknown-length work; the UI renders an honest
+        // indeterminate bar instead of a frozen "0/1" checkpoint for the
+        // minutes these single-shot tools run. Completion records 1/1.
+        journal.startDataStage(importId, stage, 0)
+        onTick()
         try {
             body()
             journal.checkpointDataStage(importId, stage, 1, 1, directoryBytes(root), "complete", true)
+            onTick()
         } catch (error: Throwable) {
             journal.failDataStage(importId, stage, error.message ?: error.javaClass.simpleName)
             throw error
         }
     }
 
-    private suspend fun prepareMmaps(importId: String, root: File) {
+    private suspend fun prepareMmaps(importId: String, root: File, onTick: () -> Unit) {
         val mapsDir = File(root, "maps")
         val vmapsDir = File(root, "vmaps")
         val mapIds = derivedMmapMapIds(mapsDir, vmapsDir)
@@ -127,6 +136,7 @@ class DataPreparationStore(
         val prior = journal.dataStage(importId, DataStage.MMAPS)
         if (prior?.state == DataStageState.VERIFIED) return
         journal.startDataStage(importId, DataStage.MMAPS, mapIds.size, prior?.checkpoint)
+        onTick()
         val mmaps = File(root, "mmaps").apply { mkdirs() }
         atomicWrite(File(root, "config.json"), "{}\n".toByteArray())
         atomicWrite(File(root, "offmesh.txt"), ByteArray(0))
@@ -144,6 +154,7 @@ class DataPreparationStore(
                     "--workdir", root.absolutePath,
                 ), suffix = "%03d".format(mapId), onTick = {
                     reportMmapProgress(importId, mapId, index, mapIds.size, mmaps)
+                    onTick()  // prepareMmaps's notification tick; runTool's label is not a binding
                 })
                 if (!header.isFile) {
                     check(mapId !in terrainBacked) {
@@ -153,6 +164,7 @@ class DataPreparationStore(
                 }
                 journal.checkpointDataStage(importId, DataStage.MMAPS, index + 1, mapIds.size,
                     directoryBytes(mmaps), mmapCheckpointText(mapId, skipped))
+                onTick()
             }
             requireCount(mmaps, ".mmap", terrainBacked.size)
             requireCount(mmaps, ".mmtile", 1)
@@ -229,14 +241,18 @@ class DataPreparationStore(
         }
     }
 
-    private fun publish(importId: String, stageRoot: File): PublishedData {
-        recover(importId)?.let { return it }
-        journal.startDataStage(importId, DataStage.MANIFEST, 1)
+    private fun publish(importId: String, stageRoot: File, onTick: () -> Unit): PublishedData {
+        recover(importId, onTick)?.let { return it }
+        // Round-2 fix: unknown-length like the other finite stages — the full
+        // data hash walk left a frozen "0/1" bar for its entire duration.
+        journal.startDataStage(importId, DataStage.MANIFEST, 0)
+        onTick()
         val required = listOf("dbc", "maps", "vmaps", "mmaps")
         required.forEach { check(File(stageRoot, it).isDirectory) { "required data stage absent: $it" } }
         removeIntermediates(stageRoot)
+        onTick()
         val files = required.asSequence().flatMap { File(stageRoot, it).walkTopDown().asSequence() }
-            .filter { it.isFile }.map { file ->
+            .filter { it.isFile }.onEach { onTick() }.map { file ->
                 JSONObject().put("path", file.relativeTo(stageRoot).invariantSeparatorsPath)
                     .put("size", file.length()).put("sha256", sha256(file))
             }.sortedBy { it.getString("path") }.toList()
@@ -263,20 +279,29 @@ class DataPreparationStore(
         return PublishedData(importId, final, digest)
     }
 
-    private fun recover(importId: String): PublishedData? {
+    /**
+     * Round-2 fixes: the recover re-hash is minutes of silent work, so it now
+     * ticks the notification path, and a crash between the generation rename
+     * and the MANIFEST checkpoint no longer leaves a stale RUNNING row that
+     * pins the "Current work" pane and the completion notification.
+     */
+    private fun recover(importId: String, onTick: () -> Unit = {}): PublishedData? {
         val final = generation(importId)
         val manifestFile = File(final, "data-manifest.json")
         if (!final.isDirectory || !manifestFile.isFile) return null
         val manifest = JSONObject(manifestFile.readText())
         check(manifest.getInt("schema") == 1 && manifest.getBoolean("complete") &&
             manifest.getString("mode") == "NORMAL" && manifest.getInt("clientBuild") == 5875)
+        onTick()
         for (index in 0 until manifest.getJSONArray("files").length()) {
             val record = manifest.getJSONArray("files").getJSONObject(index)
             val file = safeResolve(final, record.getString("path"))
             check(file.isFile && file.length() == record.getLong("size") && sha256(file) == record.getString("sha256"))
+            onTick()
         }
         val digest = sha256(manifestFile)
         activate(importId, digest)
+        journal.checkpointDataStage(importId, DataStage.MANIFEST, 1, 1, directoryBytes(final), "complete", true)
         return PublishedData(importId, final, digest)
     }
 

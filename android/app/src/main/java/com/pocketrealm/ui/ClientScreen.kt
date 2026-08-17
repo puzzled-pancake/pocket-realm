@@ -46,6 +46,8 @@ import com.pocketrealm.importer.formatImportPercent
 import com.pocketrealm.importer.importPhaseBusy
 import com.pocketrealm.importer.importWorkerLabel
 import com.pocketrealm.importer.stageTitle
+import com.pocketrealm.importer.watchdogRestartNotice
+import com.pocketrealm.importer.workerStoppedNotice
 import kotlinx.coroutines.delay
 
 // Terminal phases that stop the status poller once the current epoch has
@@ -57,8 +59,7 @@ private val TERMINAL_IMPORT_PHASES = setOf("COMPLETE", "FAILED", "CANCELLED")
 private const val WORKER_STALLED_AFTER_SECONDS = 25L
 private const val MAX_WATCHDOG_RESTARTS = 4
 private const val WATCHDOG_RESTART_INTERVAL_MS = 60_000L
-private const val WORKER_STOPPED_NOTICE =
-    "Worker was stopped by the system — tap Resume to continue."
+private const val NOTICE_STICKY_MS = 10_000L
 
 /**
  * Managed client import, server-data generation, and the import benchmark.
@@ -134,7 +135,7 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
                 ui.persistedTree?.let {
                     ImportWorkerService.start(context, it)
                     ui.beginNewPollEpoch()  // restart the status poller for the resumed run
-                    ui.importNotice = "Resume requested. Verified files and completed stages are retained."
+                    ui.postImportNotice("Resume requested. Verified files and completed stages are retained.")
                 }
             },
         )
@@ -219,8 +220,8 @@ private class ImportUiState(context: android.content.Context) {
             persistedTree = uri
             ImportWorkerService.start(context, uri)
             beginNewPollEpoch()  // restart the status poller for the new run
-            importNotice = "Import started. The selected folder remains read-only."
-        }.onFailure { importNotice = "Import start failed: ${it.message}" }
+            postImportNotice("Import started. The selected folder remains read-only.")
+        }.onFailure { postImportNotice("Import start failed: ${it.message}") }
     }
 
     /** Applies one status poll; true when the poller should stop. */
@@ -230,17 +231,32 @@ private class ImportUiState(context: android.content.Context) {
         dataPreparationEnabled = value.optBoolean("dataPreparationEnabled", true)
         if (importPhaseBusy(importProgress.phase)) {
             observedActiveRun = true
-            importNotice = null
+            // Round-2 fix: keep a fresh notice on screen long enough to read
+            // (the 1 s poll previously wiped the restart wording within ~1 s).
+            if (System.currentTimeMillis() - importNoticeSetAtMs >= NOTICE_STICKY_MS) importNotice = null
         }
         if (!importPhaseBusy(importProgress.phase)) importBusyNotice = null
-        if (importProgress.workerPresent &&
-            importBusyNotice == WORKER_STOPPED_NOTICE
-        ) importBusyNotice = null
+        // Round-2 fix: only watchdog-originated busy notices clear when the
+        // worker returns — the "already running" notice must persist while a
+        // healthy import works (workerPresent is true throughout).
+        if (importProgress.workerPresent && stoppedNoticeActive) {
+            importBusyNotice = null
+            stoppedNoticeActive = false
+        }
         applyWatchdog()
         // Terminal phase after activity: stop polling (de-vibe A5) — the
         // screen can stay open long after a finished run.
         return observedActiveRun && importProgress.phase in TERMINAL_IMPORT_PHASES
     }
+
+    /** Notices survive the poller's busy-phase wipe for this long (round 2). */
+    fun postImportNotice(text: String) {
+        importNotice = text
+        importNoticeSetAtMs = System.currentTimeMillis()
+    }
+
+    private var importNoticeSetAtMs = 0L
+    private var stoppedNoticeActive = false
 
     private fun applyWatchdog() {
         val now = System.currentTimeMillis()
@@ -261,13 +277,14 @@ private class ImportUiState(context: android.content.Context) {
                 // workerPresent observation is the success signal.
                 watchdogRestarts += 1
                 lastWatchdogRestartMs = now
-                importNotice =
-                    "The system stopped the import worker — restarting it automatically " +
-                        "(${watchdogRestarts}/$MAX_WATCHDOG_RESTARTS)."
+                postImportNotice(watchdogRestartNotice(
+                    importProgress.workerExitReason, watchdogRestarts, MAX_WATCHDOG_RESTARTS))
                 pendingRestartUri = sourceUri
             }
-            ImportWatchdogAction.SHOW_MANUAL_RESUME ->
-                importBusyNotice = WORKER_STOPPED_NOTICE
+            ImportWatchdogAction.SHOW_MANUAL_RESUME -> {
+                importBusyNotice = workerStoppedNotice(importProgress.workerExitReason)
+                stoppedNoticeActive = true
+            }
             ImportWatchdogAction.NONE -> Unit
         }
     }

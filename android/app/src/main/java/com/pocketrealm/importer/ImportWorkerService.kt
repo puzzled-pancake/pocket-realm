@@ -80,19 +80,20 @@ class ImportWorkerService : Service() {
                 importer.run(
                     Uri.parse(rawUri),
                     afterVerified = { verified ->
-                        updateNotification(importer.status())
+                        updateNotification(importer)
                         if (interruptAfter > 0 && verified >= interruptAfter) killTestProcess()
                     },
                     beforePublish = { if (interruptPoint == INTERRUPT_BEFORE_PUBLISH) killTestProcess() },
                     afterRenameBeforeActivate = {
                         if (interruptPoint == INTERRUPT_AFTER_RENAME) killTestProcess()
                     },
+                    onDataStageTick = { notifyDataStageTick(importer) },
                 )
-                updateNotification(importer.status())
+                updateNotification(importer)
             } catch (_: CancellationException) {
                 // The durable journal remains PAUSED and can be resumed safely.
             } catch (_: Throwable) {
-                updateNotification(importer.status())
+                updateNotification(importer)
             } finally {
                 importer.close()
                 ImportProcessMetricsSampler.markStopped(applicationContext)
@@ -120,10 +121,33 @@ class ImportWorkerService : Service() {
         )
     }
 
-    private fun updateNotification(status: ImportStatus) {
-        val checkpoint = status.lastRelativePath?.let { " • $it" }.orEmpty()
-        val text = "${status.phase.name.lowercase().replace('_', ' ')}: " +
-            "${status.filesProcessed}/${status.filesTotal} files$checkpoint"
+    /** F8 C: data-stage ticks fire once a second; throttle notification work. */
+    private fun notifyDataStageTick(importer: ManagedClientImporter) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastDataNotifyMs < DATA_NOTIFY_INTERVAL_MS) return
+        lastDataNotifyMs = now
+        updateNotification(importer)
+    }
+
+    private var lastDataNotifyMs = 0L
+
+    /**
+     * F8 C: the notification previously froze on the last copied MPQ for the
+     * entire (many-minute) server-data phase. Prefer the running data stage;
+     * fall back to the copy-phase file counter.
+     */
+    private fun updateNotification(importer: ManagedClientImporter) {
+        val status = importer.status()
+        val active = importer.dataCheckpoints(status.importId)
+            .firstOrNull { it.state == DataStageState.RUNNING }
+        val text = if (active != null) {
+            val counter = if (active.total > 0) " ${active.processed}/${active.total}" else ""
+            "server data$counter • ${active.checkpoint ?: active.stage.name.lowercase().replace('_', ' ')}"
+        } else {
+            val checkpoint = status.lastRelativePath?.let { " • $it" }.orEmpty()
+            "${status.phase.name.lowercase().replace('_', ' ')}: " +
+                "${status.filesProcessed}/${status.filesTotal} files$checkpoint"
+        }
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(text))
     }
 
@@ -151,6 +175,7 @@ class ImportWorkerService : Service() {
         const val INTERRUPT_AFTER_RENAME = "AFTER_RENAME_BEFORE_ACTIVATE"
         private const val CHANNEL = "client_import"
         private const val NOTIFICATION_ID = 1101
+        private const val DATA_NOTIFY_INTERVAL_MS = 5_000L
 
         fun start(
             context: Context, uri: Uri, testProfile: Boolean = false, interruptAfter: Int = 0,
@@ -201,7 +226,9 @@ class ImportWorkerService : Service() {
                 .put("worker", JSONObject().put("present", metrics.workerPresent)
                     .put("state", metrics.state).put("rssBytes", metrics.rssBytes)
                     .put("threadCount", metrics.threadCount)
-                    .put("processCount", metrics.processCount))
+                    .put("processCount", metrics.processCount)
+                    .put("lastExitReason", metrics.lastExit?.reason ?: JSONObject.NULL)
+                    .put("lastExitAgeMs", metrics.lastExit?.ageMs ?: 0L))
                 .put("device", importer.deviceProfile().let { device ->
                     JSONObject().put("label", device.label).put("soc", device.soc)
                         .put("activelyCooled", device.activelyCooled).put("abi", device.abi)

@@ -129,4 +129,77 @@ class ImportProgressPresentationTest {
         assertTrue(device?.activelyCooled == true)
         assertNull(presentation.error)
     }
+
+    // F8 B: the watchdog words its notices from the OS-recorded death reason,
+    // so the parsed model must carry it through (and stay null when absent).
+    @Test fun parsesWorkerExitReasonForWatchdogWording() {
+        fun progress(exitReason: Any?) = ImportProgressPresentation.fromJson(
+            JSONObject().put("phase", ImportPhase.COPYING.name)
+                .put("worker", JSONObject()
+                    .put("present", false)
+                    .put("lastExitReason", exitReason)
+                    .put("lastExitAgeMs", 4_000L)))
+        assertEquals("LOW_MEMORY", progress("LOW_MEMORY").workerExitReason)
+        assertEquals(4_000L, progress("LOW_MEMORY").workerExitAgeMs)
+        assertNull(progress(JSONObject.NULL).workerExitReason)
+    }
+
+    // F8 C: during data preparation lastRelativePath holds the raw stage
+    // checkpoint ("MMAPS:map 169 (20/43) …"); the stage pane already renders
+    // it, so the copy card must not show it as a file path.
+    @Test fun dataPreparationCheckpointIsNotShownAsCurrentFilePath() {
+        val progress = ImportProgressPresentation.fromJson(
+            JSONObject().put("phase", ImportPhase.PREPARING_DATA.name)
+                .put("lastRelativePath", "MMAPS:map 169 (20/43) tiles 50 gen-cpu 0s")
+                .put("dataStages", JSONArray().put(JSONObject()
+                    .put("stage", DataStage.MMAPS.name)
+                    .put("state", DataStageState.RUNNING.name)
+                    .put("processed", 19)
+                    .put("total", 43)
+                    .put("checkpoint", "map 169 (20/43) tiles 50 gen-cpu 0s"))))
+        assertNull(progress.currentPath)
+        assertEquals("map 169 (20/43) tiles 50 gen-cpu 0s", progress.activeStage?.checkpoint)
+    }
+
+    // F8 C: verify/publish ticks write "(n/total) path" into lastRelativePath;
+    // that phase has no active copy file, so the text must surface as the
+    // current path.
+    @Test fun verifyingTickSurfacesAsCurrentPath() {
+        val progress = ImportProgressPresentation.fromJson(
+            JSONObject().put("phase", ImportPhase.VERIFYING.name)
+                .put("lastRelativePath", "(87/150) Data/terrain.MPQ"))
+        assertEquals("(87/150) Data/terrain.MPQ", progress.currentPath)
+    }
+
+    // F8 C: finite data stages now journal total 0 (unknown length) while
+    // running; the parsed model keeps that so the UI shows an indeterminate
+    // bar instead of a frozen "0/1" checkpoint.
+    @Test fun runningFiniteStageKeepsUnknownTotal() {
+        val progress = ImportProgressPresentation.fromJson(
+            JSONObject().put("phase", ImportPhase.PREPARING_DATA.name)
+                .put("dataStages", JSONArray().put(JSONObject()
+                    .put("stage", DataStage.VMAP_EXTRACT.name)
+                    .put("state", DataStageState.RUNNING.name)
+                    .put("processed", 0)
+                    .put("total", 0))))
+        assertEquals(0, progress.activeStage?.total)
+        assertEquals(DataStage.VMAP_EXTRACT.name, progress.activeStage?.id)
+    }
+
+    // F8 C round 2: a FAILED data stage leaves the raw stage checkpoint in
+    // lastRelativePath; it must not render as a file path, while a FAILED copy
+    // keeps showing the real file that failed.
+    @Test fun failedStageResidueIsSuppressedButFailedCopyPathShows() {
+        val failedStage = ImportProgressPresentation.fromJson(
+            JSONObject().put("phase", ImportPhase.FAILED.name)
+                .put("lastError", "DATA_MMAPS: generator exited 1")
+                .put("lastRelativePath", "MMAPS:map 169 (20/43) tiles 50 gen-cpu 0s"))
+        assertNull(failedStage.currentPath)
+
+        val failedCopy = ImportProgressPresentation.fromJson(
+            JSONObject().put("phase", ImportPhase.FAILED.name)
+                .put("lastError", "SOURCE_CHANGED: Data/terrain.MPQ")
+                .put("lastRelativePath", "Data/terrain.MPQ"))
+        assertEquals("Data/terrain.MPQ", failedCopy.currentPath)
+    }
 }

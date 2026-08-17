@@ -1,6 +1,9 @@
 package com.pocketrealm.importer
 
+import android.app.ActivityManager
+import android.app.ApplicationExitInfo
 import android.content.Context
+import android.os.Build
 import android.os.Process
 import android.os.SystemClock
 import android.system.Os
@@ -17,7 +20,11 @@ internal data class ImportProcessMetrics(
     val threadCount: Int = 0,
     val processCount: Int = 0,
     val state: String = "absent",
-)
+    /** F8 B: most recent OS-recorded death reason of the :import process. */
+    val lastExit: WorkerExit? = null,
+) {
+    data class WorkerExit(val reason: String, val ageMs: Long)
+}
 
 /**
  * Low-overhead, same-UID process telemetry for the user-visible import page.
@@ -44,9 +51,9 @@ internal object ImportProcessMetricsSampler {
     @Synchronized
     fun sample(context: Context): ImportProcessMetrics {
         val rootPid = marker(context).takeIf(File::isFile)?.readText()?.trim()?.toIntOrNull()
-            ?: return absent()
+            ?: return absent(context)
         val root = readProcess(rootPid, requireImportProcess = true, context = context)
-            ?: return absent()
+            ?: return absent(context)
         val records = collectProcessTree(root, context)
         val now = SystemClock.elapsedRealtime()
         val ticks = records.sumOf(ProcRecord::cpuTicks)
@@ -167,10 +174,38 @@ internal object ImportProcessMetricsSampler {
         ProcRecord(pid, state, cpuTicks, Math.multiplyExact(rssKb, 1024L), threads)
     }.getOrNull()
 
-    private fun absent(): ImportProcessMetrics {
+    private fun absent(context: Context): ImportProcessMetrics {
         previous = null
-        return ImportProcessMetrics(workerPresent = false)
+        return ImportProcessMetrics(workerPresent = false, lastExit = lastWorkerExit(context))
     }
+
+    /**
+     * F8 B: ask the OS why the worker died instead of guessing. The watchdog
+     * previously inferred every disappearance as "stopped by the system",
+     * which during a lowmemorykiller storm told the user to press Resume when
+     * the truthful advice was "close other apps". ApplicationExitInfo needs
+     * API 30+; older devices keep the generic wording. Only exits recent
+     * enough to belong to this import are trusted.
+     */
+    fun lastWorkerExit(context: Context): ImportProcessMetrics.WorkerExit? = runCatching {
+        if (Build.VERSION.SDK_INT < MIN_EXIT_INFO_API) return null
+        val manager = context.getSystemService(ActivityManager::class.java) ?: return null
+        val info = manager.getHistoricalProcessExitReasons("${context.packageName}:import", 0, 1)
+            .firstOrNull() ?: return null
+        // ApplicationExitInfo.getTimestamp() is epoch/wall-clock based (it must
+        // survive reboots), NOT elapsedRealtime — comparing clocks here makes
+        // every age negative and silently disables the reason (round-1 blocker).
+        val ageMs = System.currentTimeMillis() - info.timestamp
+        if (ageMs < 0L || ageMs > EXIT_FRESHNESS_MS) return null
+        val reason = when (info.reason) {
+            ApplicationExitInfo.REASON_LOW_MEMORY -> EXIT_REASON_LOW_MEMORY
+            ApplicationExitInfo.REASON_CRASH, ApplicationExitInfo.REASON_CRASH_NATIVE -> EXIT_REASON_CRASH
+            ApplicationExitInfo.REASON_ANR -> EXIT_REASON_ANR
+            ApplicationExitInfo.REASON_SIGNALED -> EXIT_REASON_SIGNALED
+            else -> return null
+        }
+        ImportProcessMetrics.WorkerExit(reason, ageMs)
+    }.getOrNull()
 
     private fun marker(context: Context): File =
         File(context.noBackupFilesDir, "importer/worker.pid")
@@ -179,4 +214,12 @@ internal object ImportProcessMetricsSampler {
 
     private const val MIN_SAMPLE_MS = 400L
     private const val MAX_PROCESSES = 32
+    private const val EXIT_FRESHNESS_MS = 15L * 60L * 1000L
+    private const val MIN_EXIT_INFO_API = 30
+
+    /** Reason tokens shared with the UI watchdog wording. */
+    const val EXIT_REASON_LOW_MEMORY = "LOW_MEMORY"
+    const val EXIT_REASON_CRASH = "CRASH"
+    const val EXIT_REASON_ANR = "ANR"
+    const val EXIT_REASON_SIGNALED = "SIGNALED"
 }

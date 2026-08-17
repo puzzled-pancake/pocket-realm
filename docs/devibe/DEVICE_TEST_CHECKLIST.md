@@ -64,3 +64,25 @@ this is also a live test of the update-preservation requirement.
 - `:client` now runs as a foreground service while the game runs (a second
   notification appears) — backgrounding the app mid-session should no
   longer make the game process cache-killable.
+
+## Import kill-storm recovery (F8 — the "stuck before navmesh" report)
+18. During a fresh import with other apps open (reproduce the memory
+    pressure), if Android stops the import worker the card should say the
+    system stopped it to free memory, that progress is kept, and that
+    closing other apps helps — NOT the old generic "Worker was stopped by
+    the system — tap Resume" (that wording now only appears for unknown
+    stops). The same wording remains readable for ~10 s per restart event.
+19. Restart cycles should visibly make progress now (files/bytes keep
+    advancing between restarts) instead of sitting at the same number for
+    minutes; a partly copied MPQ resumes rather than restarting the whole
+    file.
+20. After the copy finishes, "Verifying managed copy" and "Publishing
+    managed client" show a moving file name like "(87/150)
+    Data/terrain.MPQ" instead of a silent card.
+21. The DBC/vmap/manifest stages show an indeterminate (moving) bar with no
+    fake "0/1" counter; MMAPS counts real maps ("19 / 43"); the import
+    notification in the shade follows the same progress instead of freezing
+    on the last copied MPQ.
+22. The "Current work" pane no longer shows a raw "MMAPS:map 169 (20/43)
+    tiles 50" string as if it were a file path — that detail lives in the
+    stage checkpoint line.

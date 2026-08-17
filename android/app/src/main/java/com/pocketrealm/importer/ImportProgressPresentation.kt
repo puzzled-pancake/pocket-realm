@@ -60,6 +60,9 @@ data class ImportProgressPresentation(
     val rssBytes: Long,
     val threadCount: Int,
     val processCount: Int,
+    /** F8 B: OS-recorded death reason (LOW_MEMORY/CRASH/ANR/SIGNALED) or null. */
+    val workerExitReason: String? = null,
+    val workerExitAgeMs: Long = 0L,
     val sourceUri: String?,
     val updatedAtMs: Long,
     val error: String?,
@@ -118,7 +121,12 @@ data class ImportProgressPresentation(
                 bytesCopied = value.optLong("bytesCopied"),
                 bytesTotal = value.optLong("bytesTotal"),
                 currentPath = activeFile?.optionalString("relativePath")
-                    ?: value.optionalString("lastRelativePath"),
+                    // F8 C: during data preparation lastRelativePath carries the
+                    // raw stage checkpoint ("MMAPS:map 169 (20/43) …"), which
+                    // the stage pane already presents; do not show it as a path.
+                    // A FAILED data stage leaves the same residue behind.
+                    ?: value.optionalString("lastRelativePath")
+                        ?.takeIf { path -> showsAsFilePath(phase, path) },
                 currentFileCopied = activeFile?.optLong("copiedBytes") ?: 0L,
                 currentFileTotal = activeFile?.optLong("expectedBytes") ?: 0L,
                 activeStage = activeStage,
@@ -128,6 +136,8 @@ data class ImportProgressPresentation(
                 rssBytes = worker.optLong("rssBytes"),
                 threadCount = worker.optInt("threadCount"),
                 processCount = worker.optInt("processCount"),
+                workerExitReason = worker.optionalString("lastExitReason"),
+                workerExitAgeMs = worker.optLong("lastExitAgeMs"),
                 sourceUri = if (value.isNull("sourceUri")) null
                 else value.optionalString("sourceUri"),
                 updatedAtMs = value.optLong("updatedAtMs"),
@@ -283,6 +293,16 @@ internal fun stageExplanation(stage: String?): String = when (stage) {
 
 private fun fraction(value: Long, total: Long): Float =
     if (total <= 0L) 0f else (value.toDouble() / total.toDouble()).toFloat().coerceIn(0f, 1f)
+
+/** Stage-composite journal residue, e.g. "MMAPS:map 169 (20/43) tiles 50". */
+private val STAGE_CHECKPOINT_RESIDUE = Regex("^[A-Z][A-Z_]+:.*")
+
+/** True when lastRelativePath is a real file path worth showing (round-2 fix). */
+internal fun showsAsFilePath(phase: String, path: String): Boolean = when {
+    phase == ImportPhase.PREPARING_DATA.name -> false
+    phase == ImportPhase.FAILED.name -> !STAGE_CHECKPOINT_RESIDUE.matches(path)
+    else -> true
+}
 
 private fun JSONObject.optionalString(name: String): String? =
     takeIf { has(name) && !isNull(name) }?.optString(name)?.takeIf { it.isNotBlank() && it != "null" }
