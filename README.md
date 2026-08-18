@@ -70,8 +70,9 @@ Building from source is fully supported as well; see below.
    screen.
 3. Back on Home, press **Start realm** and wait for *Realm online*, create a
    local account in the **Local account** card (**Create & remember**), then
-   launch the game. Later runs can start both together with
-   **Realm + game**.
+   launch the game. The app automatically logs into that account when the
+   game reaches its login screen, so you do not need to type the details in
+   the game. Later runs can start both together with **Realm + game**.
 
 **Known first-launch bug:** logging in straight away after making a character
 can cause a crash. Stay on the character screen for a few minutes first;
