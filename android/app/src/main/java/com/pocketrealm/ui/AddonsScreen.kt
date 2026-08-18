@@ -76,7 +76,7 @@ fun AddonsHubScreen(
             item {
                 AddonHubRow(
                     title = "Recommended for Pocket Realm",
-                    summary = "${catalog.recommended.size} handheld-friendly choices that stay clear of Android Port's controller bars.",
+                    summary = "The three add-ons tested on Pocket Realm hardware.",
                     status = "Android Port is installed by default",
                     onClick = onRecommended,
                     tag = "addon-hub-recommended",
@@ -127,7 +127,8 @@ fun RecommendedAddonsScreen(onOpenAddon: (String) -> Unit) {
 
     AddonPage(repository, state) {
         Text(
-            "These are individual suggestions, not a required pack. Open one to review it before installing.",
+            "Each entry has been tested on Pocket Realm hardware. " +
+                "Open one to review it before installing.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

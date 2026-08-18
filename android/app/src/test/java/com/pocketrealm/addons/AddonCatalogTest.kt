@@ -26,14 +26,11 @@ class AddonCatalogTest {
         assertTrue(catalog.filter("", "Questing").isNotEmpty())
     }
 
-    @Test fun `recommended collection is small stable and entirely optional`() {
+    @Test fun `recommended collection is the tested trio and entirely optional`() {
         val catalog = AddonCatalog.parse(File(assetRoot, "addons/catalog-v1.json").readText())
 
         assertEquals(
-            listOf(
-                "Android Port", "pfQuest", "ShaguTweaks", "Bagnon", "Flyout", "MinimapButtonFrame",
-                "Roid-Macros", "ModifiedPowerAuras", "VanillaGuide-Enhanced", "WoW VoiceOver",
-            ),
+            listOf("Android Port", "pfQuest", "WoW VoiceOver"),
             catalog.recommended.map { it.name },
         )
         assertTrue(catalog.recommended.all { it.installable })

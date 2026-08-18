@@ -64,7 +64,7 @@ class AddonCatalog private constructor(
         .groupBy({ it.first }, { it.second })
 
     val categories: List<String> = addons.map(CatalogAddon::category).distinct().sorted()
-    /** Small product-curated starting set; every item remains individually optional. */
+    /** Tested-on-hardware starting set; every item remains individually optional. */
     val recommended: List<CatalogAddon> = RECOMMENDED_IDS.map { id ->
         checkNotNull(byMatrixId[id]) { "Recommended add-on $id is absent from the catalog" }
     }
@@ -101,18 +101,11 @@ class AddonCatalog private constructor(
     companion object {
         private const val CATALOG_ASSET = "addons/catalog-v1.json"
         private val RECOMMENDED_IDS = listOf(
-            "151", "002", "003", "133", "103", "111", "013", "018", "054", "059",
+            "151", "002", "059",
         )
         private val RECOMMENDATION_REASONS = mapOf(
             "151" to "Optional Vanilla 1.12.1 Android Port UI with 6-inch handheld defaults; Pocket Realm supplies its matching 1-8 face/D-pad, target/use shoulder and LT/RT Winlator control map.",
             "002" to "Standalone quest database that reduces map-search and keyboard friction on a 5.5-inch display.",
-            "003" to "Standalone compact Blizzard-interface tweaks that fit around Android Port's controller bars.",
-            "133" to "Makes the built-in leveling scheme's D-pad Left backpack action open one bag window; disable pfUI Bags if using it.",
-            "103" to "Groups spells and items inside an existing action slot, reducing clutter without taking another RP6 button.",
-            "111" to "Collects minimap buttons into one frame so the pointer can reach them in a single place.",
-            "013" to "Adds useful conditional macro tools for compact controller-friendly action layouts.",
-            "018" to "Shows clear visual alerts for important buffs, debuffs and resources.",
-            "054" to "Structured levelling route with optional pfQuest GPS; disable right-click skip because right-click stays busy on the controller (R2 in the built-in scheme, L3 with Android Port).",
             "059" to "Special two-part install: the player plus about 1.2 GB of Vanilla voice data for less small-screen reading.",
         )
 

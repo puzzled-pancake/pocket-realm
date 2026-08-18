@@ -8,7 +8,7 @@ The Add-ons area manages optional changes to the game interface. Nothing is inst
 
 ### Recommended for Pocket Realm
 
-This is a small set of individual suggestions chosen for handheld play. Each item can be opened and reviewed before installation. The list is not a required pack.
+These are the add-ons tested on Pocket Realm hardware: the built-in **Android Port**, **pfQuest**, and **WoW VoiceOver**. Each item can be opened and reviewed before installation. The list is not a required pack.
 
 ### My add-ons
 
