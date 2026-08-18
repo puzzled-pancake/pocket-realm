@@ -44,6 +44,8 @@ CMaNGOS Playerbots supplies computer-controlled characters. Pocket Realm does no
 
 Current everyday choices include Quiet 25, Typical 50, Balanced 100, Populated 250, Crowded 400, and Busy 600. Launch day 700 is clearly marked experimental. The app also has internal qualification profiles that are not shown as ordinary player choices.
 
+The fresh-install default is Alive Realm, 320 bots. Presets through Crowded 400 are comfortable on the development handheld (a Retroid Pocket 6), and players are encouraged to try different world sizes rather than stay on the smallest options.
+
 ## Gradual population startup
 
 A selected target is not admitted all at once. The world starts with a smaller group and moves toward the target in stages. Login and maintenance work is also split into batches.

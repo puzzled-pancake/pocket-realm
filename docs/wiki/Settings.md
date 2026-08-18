@@ -40,7 +40,7 @@ Population presets control how many computer-controlled residents can enter the 
 | Typical, 50 bots | A quiet world that fills gradually around the player. |
 | Balanced, 100 bots | A busier everyday world with conservative background work. |
 | Populated, 250 bots | A fuller leveling world that still grows in measured steps. |
-| Crowded, 400 bots | A high-population world with a restrained nearby crowd. |
+| Crowded, 400 bots | A high-population world. Runs well on the development handheld. |
 | Busy, 600 bots | A very busy world with conservative startup and local activity limits. |
 | Launch day, 700 bots | An experimental high-density option with automatic load reduction. |
 

@@ -1,6 +1,6 @@
 # Pocket Realm
 
-Pocket Realm turns one Android handheld — primarily the Retroid Pocket 6 — into
+Pocket Realm turns one Android handheld into
 both a World of Warcraft 1.12.1 "private realm" server and its game client,
 fully offline. It builds CMaNGOS (realmd + mangosd) and Playerbots as Android-native
 libraries and MariaDB as a supervised native executable, all in fault-isolated
@@ -16,18 +16,18 @@ computer-controlled companions comes up and shuts down safely.
 ## Devices
 
 Pocket Realm is developed and tested on the Retroid Pocket 6 (Adreno 740
-GPU, 12 GB RAM). Nothing in its design is specific to that device — the
+GPU, 12 GB RAM). Nothing in its design is specific to that device: the
 realm, the client runtime, and the local server all run as ordinary Android
-processes bound to loopback — but whether a given handheld runs it well
-depends mainly on the SoC and its GPU, not on RAM:
+processes bound to loopback. Whether a given handheld runs it well depends
+mainly on the SoC and its GPU, not on RAM:
 
 - **Qualcomm / Adreno** handhelds are the best bet. The game draws through
   DXVK over the device's Vulkan driver (the normal system route), and a
-  packaged Turnip driver is available as an alternative — qualified so far
+  packaged Turnip driver is available as an alternative, qualified so far
   only on the Retroid Pocket 6's Adreno 740.
 - **Mali GPUs** (MediaTek, Exynos, and similar SoCs) have not been tested.
-  The system Vulkan route applies to them too — DXVK needs Vulkan 1.3 (or
-  1.1 with the compatibility package) — but whether a particular Mali
+  The system Vulkan route applies to them too (DXVK needs Vulkan 1.3, or
+  1.1 with the compatibility package), but whether a particular Mali
   device passes the capability check and holds a stable frame rate is
   exactly what reports are needed for.
 - **Phones** may work in landscape with a controller, but they have not been
@@ -35,14 +35,14 @@ depends mainly on the SoC and its GPU, not on RAM:
 
 Memory is secondary: 6 GB should be enough to run the realm and the client
 at the same time, but that has not been measured with real play sessions.
-Reports from any device — especially Mali or 6 GB ones — are welcome (see
+Reports from any device, especially Mali or 6 GB ones, are welcome (see
 [Contributing](#contributing)).
 
 ## What you need
 
 - **Your own copy of the WoW 1.12.1 client (build 5875).** Pocket Realm never
-  bundles or distributes any Blizzard asset — no executables, MPQs, DBCs, maps,
-  models, or textures. You import a client you are entitled to use; Pocket
+  bundles or distributes any Blizzard asset: no executables, MPQs, DBCs,
+  maps, models, or textures. You import a client you are entitled to use; Pocket
   Realm makes a private managed copy and prepares its data on-device.
 - Pocket Realm is a fan project and is not affiliated with, endorsed by, or
   sponsored by Blizzard Entertainment. World of Warcraft is a trademark of
@@ -51,8 +51,8 @@ Reports from any device — especially Mali or 6 GB ones — are welcome (see
 ## Get the app
 
 Prebuilt APKs are published on the project's
-[Releases](https://github.com/puzzled-pancake/pocket-realm/releases) page —
-download the newest APK and install it on your device. Release packages carry
+[Releases](https://github.com/puzzled-pancake/pocket-realm/releases) page.
+Download the newest APK and install it on your device. Release packages carry
 a `THIRD_PARTY_NOTICES.md` with the complete third-party license attribution.
 Building from source is fully supported as well; see below.
 
@@ -100,7 +100,7 @@ cd android
 
 A full APK additionally needs the native providers (Wine, MariaDB, the X
 server, renderer packages) fetched and staged by the Python 3 tooling under
-`tools/` and `scripts/` — see [Build and packaging](docs/wiki/Build-and-Packaging.md).
+`tools/` and `scripts/`; see [Build and packaging](docs/wiki/Build-and-Packaging.md).
 
 ### Developer setup
 
@@ -116,13 +116,13 @@ installing the hook (or commit with `--no-verify`) until both are populated.
 
 ## Contributing
 
-Pocket Realm is a young alpha — the most useful contributions right now are
+Pocket Realm is a young alpha. The most useful contributions right now are
 real-world reports:
 
 - **Device compatibility.** Open an issue with your device model, chipset,
   RAM, Android version, and what worked: whether the realm and the client ran
   at the same time, which graphics package you used, and roughly how long you
-  played. 6 GB devices are especially interesting — there is no concrete data
+  played. 6 GB devices are especially interesting: there is no concrete data
   yet for running the realm and the client together at that size.
 - **Bugs.** A clear issue with the steps to reproduce it, what you expected,
   and what happened instead. Logs from Settings → Diagnostics and logs help
@@ -150,10 +150,10 @@ have explicit owner approval before publishing.
 
 ## License
 
-Pocket Realm's own code is licensed under the GNU General Public License v3.0 —
-see [LICENSE](LICENSE). The repository vendors and builds many third-party
+Pocket Realm's own code is licensed under the GNU General Public License
+v3.0; see [LICENSE](LICENSE). The repository vendors and builds many third-party
 components (CMaNGOS, Playerbots, MariaDB, Wine, Winlator, Box64, DXVK, Turnip,
-VirGL, Gladio, vanilla-tweaks, and more) under their own licenses — see
+VirGL, Gladio, vanilla-tweaks, and more) under their own licenses: see
 `schemas/sources.json`, `docs/patches/`, the in-tree LICENSE files of the
 vendored trees, and `THIRD_PARTY_NOTICES.md` in release packages.
 

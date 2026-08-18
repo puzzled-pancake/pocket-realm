@@ -38,7 +38,7 @@ The default choices are meant to work without deep technical knowledge. Before t
 - **Controls** for the correct input device and layout.
 - **Sound** if game audio should be on.
 
-The Balanced 100-bot population is the general middle choice shown in the current app. Quiet 25 is lighter on the device.
+The default population is Alive Realm, 320 bots. Presets up to Crowded 400 run fine on the development handheld (a Retroid Pocket 6), so pick the world size that sounds good and try them out. Quiet 25 remains the lightest choice for battery life.
 
 ## 3. Start the realm
 
@@ -69,7 +69,7 @@ Do not rely on the desktop-era game Quit button as the main way to close the com
 For a simple first test on a Retroid Pocket 6:
 
 1. Use the Performance display option.
-2. Choose Quiet 25 or Balanced 100 bots.
+2. Keep the default Alive Realm population (320 bots), or try any preset up to Crowded 400.
 3. Use Built-in leveling controls without an add-on.
 4. Keep the on-screen controls visible until the physical controls feel familiar.
 5. Leave LAN play off.
