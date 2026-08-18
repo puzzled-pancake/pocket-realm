@@ -140,9 +140,9 @@ game data) in issues or pull requests.
 
 ## Updates
 
-The app checks for updates from a dedicated public GitHub "updates" repository
-(Settings → App updates). Release packages carry a `THIRD_PARTY_NOTICES.md`
-with the complete third-party license attribution.
+The app checks this repository's [Releases](https://github.com/puzzled-pancake/pocket-realm/releases)
+page for updates (Settings → App updates). Release packages carry a
+`THIRD_PARTY_NOTICES.md` with the complete third-party license attribution.
 
 ## Release checklist (maintainers)
 

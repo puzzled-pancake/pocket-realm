@@ -32,11 +32,11 @@ object AppUpdateCoordinator {
     private const val TAG = "AppUpdate"
 
     /**
-     * The updates repository (owner/name). Activation is gated on the user
-     * creating it: until then a check fails softly with
-     * "update channel unavailable".
+     * The release channel repository (owner/name): this project's own
+     * Releases page. If no release is published yet, a check fails softly
+     * with "update channel unavailable".
      */
-    const val UPDATES_REPO = "pocket-realm-updates/pocket-realm"
+    const val UPDATES_REPO = "puzzled-pancake/pocket-realm"
 
     // Mirrors AddonRepository's GitHub host allowlist.
     internal val allowedHosts = setOf(
