@@ -142,7 +142,7 @@ flags so a second realm generation can start in the same process.
 
 **Why:** the world stop gate is static; after a cooperative stop it stays set
 and a second `WorldRunnable` loop would exit immediately. Resetting it (called
-at the end of `StopEmbedded`) enables the Strategy A in-process re-entrancy the
+at the end of `StopEmbedded`) enables the in-process re-entrancy the
 library-lane acceptance criterion requires ("twice in one process").
 
 ### cmangos — `src/mangosd/Main.cpp` gate `main()`

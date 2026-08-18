@@ -73,8 +73,9 @@ verification archive (they are no longer checked into the repository).
   `eaa2a8d6eda3a1a6af755370ea9fac6cf7792ac3`; built for native x86_64 glibc by
   `tools/build_gladio_client.py` as a 544456-byte `libGL.so.1` (SHA-256
   `7b60dafa5e071e11187c0936840201920e141160f0897609ce530cb6f69b60b6`).
-- **License:** LGPL-2.1 (Winlator is LGPL-2.1; source retained in-tree for the
-  source-offer obligation)
+- **License:** LGPL-2.1 for the Winlator-lineage code (Winlator is LGPL-2.1; source retained in-tree for the
+  source-offer obligation). The vendored `cpp/virglrenderer/` subtree is Red Hat/Mesa MIT under its
+  retained per-file headers — see THIRD_PARTY_NOTICES.md in the APK assets.
 - **schemas/sources.json id:** `xserver-winlator-ca3d735`
 
 ## Vendored Java layer

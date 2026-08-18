@@ -2,8 +2,9 @@
 
 Pocket Realm turns one Android handheld — primarily the Retroid Pocket 6 — into
 both a World of Warcraft 1.12.1 "private realm" server and its game client,
-fully offline. It builds CMaNGOS (realmd + mangosd), Playerbots, and MariaDB as
-Android-native libraries running in fault-isolated processes bound to loopback,
+fully offline. It builds CMaNGOS (realmd + mangosd) and Playerbots as Android-native
+libraries and MariaDB as a supervised native executable, all in fault-isolated
+processes bound to loopback,
 and runs your own copy of the Windows WoW 1.12.1 client under Wine with a
 Winlator-derived X server and pinned graphics stacks (DXVK / Turnip / VirGL /
 Gladio). One app: import your client, press play, and a local world with
@@ -35,7 +36,7 @@ explanation of [how the pieces work together](docs/wiki/How-It-Works.md).
 
 ```bash
 git clone --recursive <this repository>
-cd pocket-realm
+cd <repo-directory>
 ```
 
 The Android app is built with Gradle (JDK 17). The mandatory ABI/lane
