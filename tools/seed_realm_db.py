@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Seed the four SQLite realm databases from the MySQL-format CMaNGOS dumps.
 
-This is the O04 "real bring-up with stub DB" enabler: it translates the
+This is the "real bring-up with stub DB" enabler: it translates the
 MySQL 8.0 dumps (classic-db Full_DB + core sql/base) into the four SQLite
 files the DO_SQLITE backend expects, so DATABASE_OPEN / SCHEMA_COMPATIBLE /
-AUTH_READY can be genuinely green without proprietary client data (O10).
+AUTH_READY can be genuinely green without proprietary client data (supervisor journal).
 
 The dumps are MySQL syntax (ENGINE=, AUTO_INCREMENT, /*!...*/ comments,
 LOCK/UNLOCK, bit(1), COMMENT '...', backtick quoting). SQLite accepts most
@@ -24,7 +24,7 @@ Inputs (resolved relative to the repo root):
     native/cmangos/sql/base/{realmd,characters,logs,mangos}.sql   (schema+base)
     native/classic-db/Full_DB/ClassicDB_1_12_1_z2815.sql.gz        (world content)
 
-Exits non-zero on any real failure (agent.md: no fake success).
+Exits non-zero on any real failure (no fake success).
 """
 from __future__ import annotations
 
@@ -233,7 +233,7 @@ def apply_dump(conn: sqlite3.Connection, source: Path, label: str, verbose: bool
             errors += 1
             if not tolerate_errors:
                 # Fail-loud default: a silently dropped statement is silent
-                # data loss in the seeded realm (de-vibe P2).
+                # data loss in the seeded realm.
                 print(f"  [{label}] sqlite error: {e}\n    on: {preview}", file=sys.stderr)
                 conn.rollback()
                 raise
@@ -266,13 +266,13 @@ def build_one(db_path: Path, sources: list[Path], label: str, verbose: bool, tol
             total_err += err
         # Sanity: the version column must exist for CheckRequiredField.
         ver_ok = verify_version_table(conn, label)
-        status = "PASS" if ver_ok else "BEHIND (O06 migration needed)"
+        status = "PASS" if ver_ok else "BEHIND (migration needed)"
         print(f"OK  {label}: {total} statements applied ({total_err} errors); "
               f"version: {status}")
         # Success requires a fully-applied dump (zero SQL errors); tolerated
         # errors are an explicit --tolerate-sql-errors opt-in and still get
         # counted in the summary. The old "any statement applied" rule
-        # silently seeded partially-built databases (de-vibe P2).
+        # silently seeded partially-built databases.
         return 0 if (total > 0 and (total_err == 0 or tolerate_errors)) else 1
     finally:
         conn.close()
@@ -304,7 +304,7 @@ def verify_version_table(conn: sqlite3.Connection, label: str) -> bool:
     expects — the world (mangos) base snapshot is at z2815 while the core wants
     z2830. We do NOT fake this by renaming: SCHEMA_COMPATIBLE must reflect that
     the migrations between the snapshot and the core revision have not been
-    applied. That migration chain is O06's work. The other three DBs
+    applied. That migration chain belongs to the runtime tooling. The other three DBs
     (realmd/characters/logs) seed at the correct revision and pass cleanly.
     """
     table, col = REQUIRED_VERSIONS.get(label, ("", ""))
@@ -318,7 +318,7 @@ def verify_version_table(conn: sqlite3.Connection, label: str) -> bool:
             return True
         print(f"WARN  {label}: version column {col} not in {table} "
               f"(seeded snapshot is older than core expects — this is the "
-              f"O04/O06 boundary; SCHEMA_COMPATIBLE will honestly report FALSE)",
+              f"library-lane/runtime boundary; SCHEMA_COMPATIBLE will honestly report FALSE)",
               file=sys.stderr)
         return False
     except sqlite3.Error as e:

@@ -8,7 +8,7 @@ import java.io.File
 import java.io.FileOutputStream
 
 /**
- * Optional user-chosen realm account (O23). Unlike [SinglePlayerCredentialStore]
+ * Optional user-chosen realm account. Unlike [SinglePlayerCredentialStore]
  * (a generated random identity used only for the bot/single-player fallback),
  * this stores an account the user typed into the Home screen so the integrated
  * client can auto-login as that identity on launch.

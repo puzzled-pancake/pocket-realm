@@ -2,7 +2,7 @@ package com.pocketrealm.ingame
 
 /**
  * Line-oriented codec for `WTF/Config.wtf` under the merge model
- * (docs/INGAME_SETTINGS_PLAN_2026-08-16.md §5.2):
+ * :
  *
  *  - the base file is the authority for everything the app does not own;
  *    unknown lines round-trip verbatim in content and relative order;

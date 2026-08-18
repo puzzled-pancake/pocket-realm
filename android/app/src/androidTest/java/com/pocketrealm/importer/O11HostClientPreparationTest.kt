@@ -15,7 +15,7 @@ import java.io.File
 
 /**
  * Developer-lane bridge from the debug DocumentsProvider's external staging
- * root to the real O11 managed-client and normal-play data pipelines.
+ * root to the real managed-client and normal-play data pipelines.
  *
  * The host copy is deleted only after the importer has re-inventoried, verified,
  * fsynced, and atomically published the app-private generation. This avoids

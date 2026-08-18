@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Reproducibly build and stage the current Android realm libraries.
 
-The O13 product runtime compiles the pinned Playerbots module but keeps it
+The product runtime compiles the pinned Playerbots module but keeps it
 disabled unless an app-generated measured profile is supplied. AHBot remains
-excluded. Historical O09/O12 zero-bot behavior is therefore still selectable.
+excluded. The historical zero-bot behavior is therefore still selectable.
 """
 from __future__ import annotations
 
@@ -937,7 +937,7 @@ def configure_and_build(force: bool) -> tuple[Path, Path]:
                 deps / "lib" / "libcrypto.a", deps / "lib" / "cmake" / "Boost-1.86.0"]
     if not all(path.exists() for path in required):
         raise RuntimeError(
-            f"O03 {TARGET_ABI} OpenSSL/Boost dependencies are missing; "
+            f"{TARGET_ABI} OpenSSL/Boost dependencies are missing; "
             "run scripts/build_native.py first"
         )
     connector_cache = CONNECTOR_BUILD / "CMakeCache.txt"

@@ -7,7 +7,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
-/** JVM-verifiable contract for the shared digest (de-vibe S3/5c). */
+/** JVM-verifiable contract for the shared digest. */
 class FileDigestsTest {
     @get:Rule val tmp = TemporaryFolder()
 

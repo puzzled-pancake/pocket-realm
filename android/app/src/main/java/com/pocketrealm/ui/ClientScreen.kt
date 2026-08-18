@@ -51,7 +51,7 @@ import com.pocketrealm.importer.workerStoppedNotice
 import kotlinx.coroutines.delay
 
 // Terminal phases that stop the status poller once the current epoch has
-// observed an active run (de-vibe A5; ImportProgressPresentation terminals).
+// observed an active run (ImportProgressPresentation terminals).
 private val TERMINAL_IMPORT_PHASES = setOf("COMPLETE", "FAILED", "CANCELLED")
 
 // F2a watchdog tuning: a busy journal phase whose worker process has been
@@ -99,7 +99,7 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
         )
     }
 
-    // Keyed on the import epoch (de-vibe A5 + verification B1): polling stops
+    // Keyed on the import epoch: polling stops
     // at a terminal phase, and starting another import bumps the epoch so the
     // effect relaunches instead of leaving a frozen progress card.
     LaunchedEffect(ui.importEpoch) {
@@ -176,7 +176,7 @@ private class ImportUiState(context: android.content.Context) {
      * guards reset. Without the observedActiveRun reset, the relaunched
      * poller's first polls still observe the PREVIOUS run's terminal phase
      * and would exit immediately, freezing the card for the new run (the
-     * exact bug the de-vibe round-2 verification fixed for the old local
+     * exact bug the verification round fixed for the old local
      * variable). The watchdog budget also resets: this is a new run, and the
      * >=60 s in-process rate limit plus the 25 s stall requirement bound the
      * reset behavior.
@@ -244,7 +244,7 @@ private class ImportUiState(context: android.content.Context) {
             stoppedNoticeActive = false
         }
         applyWatchdog()
-        // Terminal phase after activity: stop polling (de-vibe A5) — the
+        // Terminal phase after activity: stop polling — the
         // screen can stay open long after a finished run.
         return observedActiveRun && importProgress.phase in TERMINAL_IMPORT_PHASES
     }

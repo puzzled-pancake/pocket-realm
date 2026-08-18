@@ -31,7 +31,7 @@ object WineSpikeNative {
     ): Long
 
     /**
-     * S-5 extended launch with an extra env string ("KEY=VAL;KEY=VAL;...").
+     * Extended launch with an extra env string ("KEY=VAL;KEY=VAL;...").
      * Used to inject GLIBC_TUNABLES (e.g. `glibc.pthread.rseq=0`) for the
      * narrow glibc-startup fallback before reaching for proot.
      */
@@ -59,7 +59,7 @@ object WineSpikeNative {
     external fun errStrNative(code: Int): String
 
     /**
-     * S-5(0): Trace the glibc loader under PTRACE and capture the SIGSYS cause.
+     * Loader trace: run the glibc loader under PTRACE and capture the SIGSYS cause.
      * Returns a structured string (see jni_shim.cpp diagSigsysNative):
      *   "OK|exit=N|sig=N|si_code=N|syscall=M|name=rseq|arch=0xc|cause=C"
      * cause: 0=UNRESOLVED 1=SECCOMP 2=USER 3=KERNEL 4=NONE
@@ -73,31 +73,31 @@ object WineSpikeNative {
     ): String
 
     /**
-     * S-5(a): Launch Wine via the APK-packaged Bionic trampoline PIE
+     * Trampoline launch: start Wine via the APK-packaged Bionic trampoline PIE
      * (libwine_trampoline.so). The trampoline re-execve's the glibc loader.
      * Returns the child PID, or -1 on failure. Evidence from this path is kept
-     * SEPARATE from the PKG-01 control and the direct S-1 path.
+     * SEPARATE from the launcher-experiment control and the direct path.
      */
     external fun launchWineViaTrampolineNative(
         nativeDir: String, wineTarget: String, prefixDir: String,
         display: String, wineArgs: String
     ): Long
 
-    /** S-5(a) extended: trampoline launch with extra_env (GLIBC_TUNABLES etc.). */
+    /** Extended trampoline launch with extra_env (GLIBC_TUNABLES etc.). */
     external fun launchWineViaTrampolineExNative(
         nativeDir: String, wineTarget: String, prefixDir: String,
         display: String, wineArgs: String, extraEnv: String
     ): Long
 
     /**
-     * S-5(b): Launch Wine via proot (syscall interception). proot runs in the
+     * Proot launch: start Wine via proot (syscall interception). proot runs in the
      * Android/Bionic namespace and ptrace-traces the glibc child, translating
      * access(2)->faccessat(2) to work around the seccomp filter. Returns the
      * proot process PID, or -1 on failure. The -b <tmp>:/tmp bind handles
      * wineserver's hardcoded /tmp/.wine-<uid> path.
      *
      * NOTE: this is the async fire-and-forget launch (returns a live PID).
-     * Prefer [runWineViaProotNative] for S-1/S-2 acceptance, which runs to
+     * Prefer [runWineViaProotNative] for acceptance runs, which run to
      * completion and returns exit status + captured output + recursive
      * descendant /proc maps proof.
      */
@@ -107,14 +107,14 @@ object WineSpikeNative {
     ): Long
 
     /**
-     * S-1/S-2 synchronous proot run with logical argv[0] preservation and full
+     * Synchronous proot run with logical argv[0] preservation and full
      * process-tree loader proof. This is the corrected launcher:
      *  - argv0Override preserves the logical Wine command name (wine/wineboot/
      *    winecfg) via glibc-loader --argv0, so Wine dispatches correctly even
      *    though the real ELF is libwine_preloader.so.
      *  - Runs proot to completion (or timeoutMs), capturing stdout + stderr.
      *  - Snapshots EVERY descendant's PID/PPID/comm/cmdline + /proc/<pid>/maps
-     *    proof while the tree is alive — the S-1 acceptance requirement (wine +
+     *    proof while the tree is alive — the acceptance requirement (wine +
      *    wineserver + every native child must map the APK-managed loader).
      *  - On timeout, recursively kills + reaps the whole process tree.
      *
@@ -174,7 +174,7 @@ object WineSpikeNative {
     external fun isTrackedBionicProcessGroupDrainedNative(): Boolean
 
     /**
-     * S-2 tree-aware PE cache materialize: like [materializePeCacheNative] but
+     * Tree-aware PE cache materialize: like [materializePeCacheNative] but
      * additionally symlinks each manifest entry's logical_path into the wine
      * tree, so Wine can find the cached PE modules at their expected paths.
      * Pass treeDir=null for the legacy (cache-files-only) behavior.
@@ -184,7 +184,7 @@ object WineSpikeNative {
     ): Int
 
     /**
-     * S-2 mismatch-repair: resolve the cache path for a PE module asset basename
+     * Cache mismatch-repair: resolve the cache path for a PE module asset basename
      * (e.g. "kernel32.dll"). Returns "" if no match.
      */
     external fun resolveCachePathNative(

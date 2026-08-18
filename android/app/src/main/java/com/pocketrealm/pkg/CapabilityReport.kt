@@ -15,8 +15,8 @@ import java.io.File
 import java.util.UUID
 
 /**
- * The X0 capability snapshot (report §20.1 / §25.7 G0). Captured on-device and
- * compared against `adb` by the host driver. Per the O05 design, fields that are
+ * The capability snapshot. Captured on-device and
+ * compared against `adb` by the host driver. Fields that are
  * not genuinely equivalent between app and adb are recorded SEPARATELY and never
  * forced equal:
  *  - [allocatableBytes] comes from `StorageManager.getAllocatableBytes()`; the
@@ -197,7 +197,7 @@ data class CapabilityReport(
     }
 
     /**
-     * Write the report JSON to a file the host driver can `adb pull`. Returns
+     * Write the capability JSON to a file the host driver can `adb pull`. Returns
      * the file path. Placed under app-private files so it never holds secrets.
      */
     fun writeToFile(context: android.content.Context, name: String = "capability-report.json"): File {

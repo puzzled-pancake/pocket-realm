@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Source-build the pinned x86_64 MariaDB Android/glibc provider for O08.
+"""Source-build the pinned x86_64 MariaDB Android/glibc provider for the database service.
 
 The build deliberately reuses the exact Termux-glibc repository, Termux build
-harness, CGCT image, and 16 KB linker policy already qualified by O06. MariaDB
+harness, CGCT image, and 16 KB linker policy already qualified by the runtime work. MariaDB
 runs natively on the x86_64 CPU in the APK's private glibc namespace; Android's
 Bionic process is only the supervisor/launcher.
 
@@ -173,7 +173,7 @@ def main() -> int:
 
     pin = closure.load_glibc_packages_pin()
     repo = closure.WORK_ROOT / "glibc-packages"
-    print("=== O08 MariaDB x86_64 source build ===")
+    print("=== MariaDB x86_64 source build ===")
     print(f"  source : MariaDB {PACKAGE_VERSION} ({SOURCE_SHA256[:16]}...)")
     print(f"  recipe : termux-pacman/glibc-packages @ {pin['commit']}")
     print(f"  harness: termux/termux-packages @ {closure.TERMUX_PACKAGES_HARNESS_COMMIT}")

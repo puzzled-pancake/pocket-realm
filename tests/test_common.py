@@ -1,4 +1,4 @@
-"""Unit tests for tools/common.py (de-vibe Phase 4)."""
+"""Unit tests for tools/common.py."""
 from __future__ import annotations
 
 import os
@@ -16,7 +16,7 @@ import common  # noqa: E402
 def test_sha256_file_streams_and_matches():
     import hashlib
 
-    scratch = ROOT / ".tmp" / "devibe" / "test_common"
+    scratch = ROOT / ".tmp" / "scratch" / "test_common"
     scratch.mkdir(parents=True, exist_ok=True)
     blob = scratch / "blob.bin"
     payload = os.urandom(3 * 1024 * 1024)  # forces multiple chunks
@@ -42,14 +42,14 @@ def test_exe_suffix():
 
 
 def test_search_env_ignores_empty_string():
-    os.environ["DEVIBE_TEST_EMPTY"] = ""
-    os.environ["DEVIBE_TEST_SET"] = str(ROOT)
+    os.environ["PR_TEST_EMPTY"] = ""
+    os.environ["PR_TEST_SET"] = str(ROOT)
     try:
-        assert common._search_env("DEVIBE_TEST_EMPTY") is None
-        assert common._search_env("DEVIBE_TEST_EMPTY", "DEVIBE_TEST_SET") == ROOT
+        assert common._search_env("PR_TEST_EMPTY") is None
+        assert common._search_env("PR_TEST_EMPTY", "PR_TEST_SET") == ROOT
     finally:
-        del os.environ["DEVIBE_TEST_EMPTY"]
-        del os.environ["DEVIBE_TEST_SET"]
+        del os.environ["PR_TEST_EMPTY"]
+        del os.environ["PR_TEST_SET"]
 
 
 def test_resolve_android_sdk_env(monkeypatch, tmp_path):

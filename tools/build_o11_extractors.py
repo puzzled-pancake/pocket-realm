@@ -82,7 +82,7 @@ def configure(force: bool = False) -> tuple[Path, Path]:
     if actual != o09.CMANGOS_COMMIT:
         raise RuntimeError(f"CMaNGOS pin mismatch: {actual}")
     if subprocess.run(["git", "diff", "--quiet"], cwd=SOURCE).returncode != 0:
-        raise RuntimeError("CMaNGOS submodule is dirty; O11 patches must live in native/patches")
+        raise RuntimeError("CMaNGOS submodule is dirty; extractor patches must live in native/patches")
     source = prepare_source(actual, force)
     ndk, cmake, ninja, llvm = o09.tools()
     deps = ROOT / "native" / ".deps" / ("prefix-x86_64" if TARGET_ABI == "x86_64" else "prefix-arm64")
@@ -91,7 +91,7 @@ def configure(force: bool = False) -> tuple[Path, Path]:
     connector_build = connector_root / "mariadb-connector"
     connector = connector_build / "libmariadb" / "libmariadbclient.a"
     if not connector.is_file():
-        raise RuntimeError("O09 Connector/C build is missing; run tools/build_o09_realm_runtime.py")
+        raise RuntimeError("Connector/C build is missing; run tools/build_o09_realm_runtime.py")
     if force:
         shutil.rmtree(BUILD, ignore_errors=True)
     BUILD.mkdir(parents=True, exist_ok=True)
@@ -162,7 +162,7 @@ def stage(llvm: Path) -> dict:
     record = {
         "schema": 1, "built_at_utc": datetime.now(timezone.utc).isoformat(), "abi": TARGET_ABI,
         "min_api": 26, "elf_max_page_size": "0x4000", "cmangos_commit": o09.CMANGOS_COMMIT,
-        "purpose": "O11 finite on-device DBC/map/vmap/mmap preparation",
+        "purpose": "Finite on-device DBC/map/vmap/mmap preparation",
         "source_patches": [{"path": path.relative_to(ROOT).as_posix(), "sha256": sha256(path)} for path in PATCHES],
         "artifacts": records,
     }

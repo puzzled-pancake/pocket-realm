@@ -2,7 +2,7 @@ package com.pocketrealm.server;
 
 import android.os.IBinder;
 
-/** Fixed app-private O09 control surface for the isolated :world process. */
+/** Fixed app-private control surface for the isolated :world process. */
 interface IWorldControl {
     String claim(String sessionId, String instanceToken, IBinder ownerLease);
     String status();

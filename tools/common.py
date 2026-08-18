@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared toolbox for tools/ and scripts/ (de-vibe plan Phase 4).
+"""Shared toolbox for tools/ and scripts/.
 
 One canonical home for the helpers that were previously copy-pasted per
 script (21 sha256 variants, 14 run/output pairs, 5 adb resolvers, 4
@@ -222,7 +222,7 @@ def wait_for_boot(adb: Path, serial: str, *, timeout_seconds: float = 300.0) -> 
     raise RuntimeError(f"device {serial} did not finish booting within {timeout_seconds:.0f}s")
 
 
-# Shared constants that were copy-pasted per script (DEVIBE_PLAN.md P11).
+# Shared constants that were copy-pasted per script before centralization.
 CGCT_BUILDER_IMAGE = (
     "ghcr.io/termux/package-builder-cgct@"
     "sha256:69ffa5cfe02ca569e7d03d1c99e3a4db3f6f4bcb53a1ea0f2adfa5e6357ce742"

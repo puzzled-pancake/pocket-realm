@@ -8,7 +8,7 @@
   "upstream": "https://github.com/brndd/vanilla-tweaks",
   "upstream_commit": "fbbe31add71b23602d981d70f1a58520fc349b47",
   "license": "MIT",
-  "purpose": "O23 on-device producer of WoW.exe.patched from a pristine managed WoW.exe",
+  "purpose": "On-device producer of WoW.exe.patched from a pristine managed WoW.exe",
   "artifacts": [
     {
       "path": "native/.build-vanilla-tweaks-arm64-v8a/staging/jniLibs/arm64-v8a/libpocket_vanilla_tweaks.so",

@@ -11,7 +11,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 
-/** Explicit live-device bridge for resuming an already checkpointed O11 data
+/** Explicit live-device bridge for resuming an already checkpointed import data
  * preparation after the original host staging copy has been released.
  *
  * It never imports, deletes, or rewrites the managed client. The one existing
@@ -41,7 +41,7 @@ class O11LiveDataResumeTest {
             it.isDirectory && it.name.matches(Regex("\\.staging-[0-9a-f-]{36}"))
         }
         check(staging.size == 1) {
-            "expected exactly one checkpointed O11 staging generation, found ${staging.map { it.name }}"
+            "expected exactly one checkpointed staging generation, found ${staging.map { it.name }}"
         }
         val importId = staging.single().name.removePrefix(".staging-")
         ImportJournal(context).use { journal ->

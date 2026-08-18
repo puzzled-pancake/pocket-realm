@@ -1,7 +1,7 @@
 package com.pocketrealm.supervisor
 
 /**
- * Pure auto-login gate decision (O23). Extracted from
+ * Pure auto-login gate decision. Extracted from
  * `AndroidRuntimeBackend.startClient` so the truth table is unit-testable on the
  * host JVM without loading Android classes.
  *

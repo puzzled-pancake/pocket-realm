@@ -16,21 +16,21 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 
 /**
- * Runs the report's PKG-01/02/06 packaging experiments (report §8.4) and
+ * Runs the packaging experiments and
  * returns typed [ExperimentResult]s. Used both by the in-app Capability screen
  * and (primarily) by the host driver `tools/run_pkg_experiments.py` via the
  * instrumented test that surfaces results to logcat.
  *
  * Design:
- *  - PKG-01 executes the APK-packaged PIE launcher (`libpocket_pkg_launcher.so`,
+ *  - The launcher experiment executes the APK-packaged PIE launcher (`libpocket_pkg_launcher.so`,
  *    renamed so AGP extracts it under the experiment variant) from its
  *    nativeLibraryDir path. It is a real process exec, not System.loadLibrary.
  *    Captures stdout/stderr/exit/resolved-path/dladdr.
- *  - PKG-02 binds the `:pkg` child, has it load the real realm shared object
+ *  - The containment experiment binds the `:pkg` child, has it load the real realm shared object
  *    by SONAME, confirms hello, triggers a deterministic abort(), then proves
  *    containment: :main PID alive, child PID gone, Binder death observed, and a
  *    fresh PID answers hello after restart.
- *  - PKG-06 loads every .so and runs a long heartbeat; the genuine 30-minute
+ *  - The smoke experiment loads every .so and runs a long heartbeat; the genuine 30-minute
  *    acceptance runs are driven by the host driver, not by this UI path.
  *
  * All native code is packaged by the Gradle stageNativeLibs task under
@@ -39,7 +39,7 @@ import java.io.File
 class PackagingExperimentRunner(private val context: Context) {
 
     /**
-     * PKG-01: execute the launcher and capture its structured stdout/stderr.
+     * Launcher experiment: execute the launcher and capture its structured stdout/stderr.
      *
      * All product and qualification variants use the proven extracted
      * packaging model: the launcher is extracted into nativeLibraryDir with
@@ -150,7 +150,7 @@ class PackagingExperimentRunner(private val context: Context) {
         // BuildConfig.DEBUG is true for BOTH debug and pkgExperiment (the latter
         // is initWith(debug)), so it cannot distinguish them — BUILD_TYPE can.
 
-    /** PKG-02: isolated child loads real realm .so, crashes, and survives a restart. */
+    /** Containment experiment: isolated child loads real realm .so, crashes, and survives a restart. */
     suspend fun runPkg02(): ExperimentResult = withContext(Dispatchers.IO) {
         val t0 = SystemClock.elapsedRealtime()
         val runId = currentRunId()
@@ -243,16 +243,16 @@ class PackagingExperimentRunner(private val context: Context) {
     }
 
     /**
-     * PKG-06 smoke: enumerate EVERY native library packaged in the APK and prove
+     * Smoke run: enumerate EVERY native library packaged in the APK and prove
      * each loads (via the :pkg child's RTLD_NOLOAD-then-RTLD_NOW probe), then
      * heartbeat for [durationSeconds]. Each tick is printed to logcat
-     * (PKG-06 TICK ...) so the full per-tick history is captured by the host driver.
+     * (tick lines) so the full per-tick history is captured by the host driver.
      *
      * Enumeration reads the APK's own `lib/<abi>/` `.so` entries directly (not
      * nativeLibraryDir, which is empty under the production variant), so it works
      * under BOTH packaging variants. The launcher (`libpocket_pkg_launcher.so`)
      * is a PIE executable with no DT_SONAME and is LISTED but excluded from the
-     * load set (it is a PKG-01 artifact, not a dlopen target).
+     * load set (it is a launcher artifact, not a dlopen target).
      *
      * The genuine 30-minute run is driven by the host driver with a large
      * durationSeconds; the deterministic instrumented test uses a short one.
@@ -303,7 +303,7 @@ class PackagingExperimentRunner(private val context: Context) {
         }
         evidence["perLibProbeCount"] = perLib.size.toString()
         for ((soname, result) in perLib) evidence["lib:$soname"] = result
-        // Also exercise the realm facade by its dedicated SONAME loader (PKG-02's
+        // Also exercise the realm facade by its dedicated SONAME loader (the containment
         // path) so the realm symbol + base are recorded consistently per lane.
         val realmInfo = svc.loadRealmSoBySoname()
         evidence["realmLoaded"] = realmInfo.loaded.toString()
@@ -409,7 +409,7 @@ private class PkgConnection(private val context: Context) {
         val dr = IBinder.DeathRecipient { onDeath() }
         deathRecipient = dr
         // The proxy's underlying IBinder lives in :pkg; its death == the child
-        // process death (the deterministic PKG-02 abort() tears it down).
+        // process death (the deterministic abort() tears it down).
         boundBinder?.linkToDeath(dr, 0)
     }
 

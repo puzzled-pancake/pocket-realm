@@ -6,9 +6,9 @@ import org.json.JSONObject
 /**
  * Structured logging facade. Emits logcat AND keeps a bounded in-memory ring for
  * the Diagnostics screen. Every entry is a typed event with a stable `kind`
- * string so logs are greppable and the support bundle (O21) can redact them.
+ * string so logs are greppable and the support bundle can redact them.
  *
- * No passwords, credentials, or realm secrets are ever logged (DECISIONS #28).
+ * No passwords, credentials, or realm secrets are ever logged.
  */
 object AppLog {
 

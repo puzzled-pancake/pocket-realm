@@ -1,14 +1,14 @@
-# O06 Wine Runtime and X-Server Provider Provenance
+# Wine Runtime and X-Server Provider Provenance
 
 This document records the Wine 16 KB adaptation plus the source correspondence,
-license obligation, trim list, and O07 Gladio adaptations for the in-app X
+license obligation, trim list, and GLX/Gladio adaptations for the in-app X
 server and WineD3D bridge.
 
 **Status as of this revision:** the Java X11 wire-protocol sources are vendored
 and compile (159 `.java` files; see the refreshed inventory below). The native transport `libwinlator.so` is
-vendored, built, and packaged. O07 additionally vendors and packages the
+vendored, built, and packaged. The client-graphics work additionally vendors and packages the
 source-matched `libgladiorenderer.so` GLX/OpenGL bridge. Both are NDK-built and
-16 KB aligned. S-3 passes end-to-end on the Modern 4 KB and 16 KB lanes. No Java
+16 KB aligned. The end-to-end window proof passes on the Modern 4 KB and 16 KB lanes. No Java
 reimplementation of the native epoll/SCM_RIGHTS layer was written.
 
 ## Wine 11.14 paired 16 KB adaptation
@@ -51,10 +51,8 @@ checks the Unix ELF for 16 KB page compatibility. This closes the source-
 reproduction and mixed-runtime risks rather than treating a manually edited
 binary as a distributable fix.
 
-Final paired-runtime qualification is recorded in:
-
-- `tests/avd/AVD-Modern-x86_64-v1/evidence/pkgExperiment-wine_spike-all-20260802-185902.PASS.log`
-- `tests/avd/AVD-16K-x86_64-v1/evidence/pkgExperiment-wine_spike-all-20260802-185645.PASS.log`
+Final paired-runtime qualification logs are retained in the pre-release
+verification archive (they are no longer checked into the repository).
 
 ## Source pin
 
@@ -82,7 +80,7 @@ Final paired-runtime qualification is recorded in:
 ## Vendored Java layer
 
 159 `.java` files under `runtime/xserver-winlator/com/winlator/` (refreshed
-2026-08-16 during the de-vibe doc pass; earlier revisions said 143):
+2026-08-16; earlier revisions said 143):
 
 | Package | Files | Role |
 |---|---|---|
@@ -119,17 +117,17 @@ Final paired-runtime qualification is recorded in:
    Build: `tools/build_xserver_winlator.py` (NDK, 16 KB-aligned). A force-include
    compatibility header (`include/pocket_ndk_compat.h`) supplies
    `<stdlib.h>`/`<string.h>`/`<time.h>` the upstream Android Studio build
-   provides transitively. O07 adds the missing `IntArray_indexOf`
+   provides transitively. The client-graphics work adds the missing `IntArray_indexOf`
    declaration/body that Gladio at the same pinned commit calls but the
    provider's arrays source omits. The EGL/GLES + jnigraphics deps are retained (the renderer
    needs them; they are part of the same library).
-2. **O07 GLX extension** — `XServer.setupExtensions()` now advertises BigReq,
+2. **GLX extension** — `XServer.setupExtensions()` now advertises BigReq,
    Sync, XComposite, and GLX. GLX is backed by the complete pinned
    `libgladiorenderer.so` source set; DRI3, MIT-SHM, and Present remain omitted
-   because their full native paths are outside the qualified O07 WineD3D path.
+   because their full native paths are outside the qualified WineD3D path.
    Original Winlator wire opcodes are preserved even though optional extensions
    are omitted; extension lookup is by opcode instead of compact array index.
-3. **O07 Gladio client/server pair** — the x86_64 glibc client replaces the
+3. **Gladio client/server pair** — the x86_64 glibc client replaces the
    hard-coded Winlator socket with the absolute app-private
    `POCKET_GLADIO_X11_SOCKET`. Client and server use a private, explicit
    `(attribute index, kind, byte count, bytes)` record format, bounds-check every
@@ -142,13 +140,12 @@ Final paired-runtime qualification is recorded in:
    classification, while unsupported modern instancing/base-vertex, sampler,
    UBO, compute, and tessellation paths are withheld.
 
-   The pbuffer adaptation does not close the current O14 real-client renderer
-   regression. On the strict O12 visual gate, context 7 is created and made
+   The pbuffer adaptation does not close the real-client renderer
+   regression. On the strict visual gate, context 7 is created and made
    current successfully, but the guest emits no `SWAP_DISPLAY_BUFFERS` request
    and the captured display remains unchanged. This is an unresolved FAIL, not
-   new O07 acceptance evidence; the historical O07 qualification remains as
-   recorded.
-4. **S-3 harness** — `WineSpikeRunner.runS3`: creates `<appTmp>/.X11-unix/X0`,
+   new acceptance evidence; the historical qualification remains as recorded.
+4. **Window-proof harness** — `WineSpikeRunner.runS3`: creates `<appTmp>/.X11-unix/X0`,
    starts the X-server (XConnectorEpoll + XClientConnectionHandler +
    XClientRequestHandler, headless for the spike), launches the project-owned
    32-bit self-test PE with DISPLAY=:0 via the qualified direct glibc adapter,
@@ -198,7 +195,7 @@ Compilation and closure checks alone are not claims of broad device support.
 3. **`com.winlator.winhandler.WinHandler`** / **`MouseEventFlags`** — bridge to
    Wine's window management. Stubbed; pass `null` for the spike.
 4. **`com.winlator.inputcontrols.ExternalController`** — input fully stubbed for
-   S-3 (window create+map+paint does not require input events).
+   the window proof (create+map+paint does not require input events).
 5. **`com.winlator.sysvshm.SysVSharedMemory`** — System V shared memory. Stubbed
    at vendoring time; since implemented as a 4-file source-matched JNI bridge
    used by the DRI3 dma-buf transport (see the package inventory above).
@@ -207,7 +204,7 @@ Compilation and closure checks alone are not claims of broad device support.
    `GLRenderer.createRootCursorDrawable` uses a resource-name lookup with a 1x1
    fallback.
 
-## Acceptance mapping (S-3, passed on both lanes)
+## Acceptance mapping (window proof, passed on both lanes)
 
 - **Create + map window:** opcodes CREATE_WINDOW/MAP_WINDOW → `WindowManager`.
   The mapped window's content lives in a `Drawable` (BGRA `ByteBuffer`).
@@ -219,16 +216,15 @@ Compilation and closure checks alone are not claims of broad device support.
   `ByteBuffer` to a GLES2 texture; the harness asserts a valid texture and
   non-background pixels via screenshot/PixelCopy.
 
-## O07 WineD3D acceptance
+## WineD3D acceptance
 
 The fixed API-35 x86_64 4 KB lane launches the hash-verified managed build-5875
 client twice through this exact client/server pair. `ClientBuild5875LoginTest`
 requires a mapped 800x600 `wow.exe` window, samples the `XServerView` framebuffer
 on its owning GLES thread, rejects a more-than-99%-black surface, and then repeats
 the proof after a clean stop. The accepted samples contain 319,606 and 321,732
-non-black pixels. Evidence lives under
-`tests/avd/AVD-Modern-x86_64-v1/evidence/o07-login-{first,relaunch}.png` with the
-paired JSON record.
+non-black pixels. The evidence screenshots and paired JSON record are retained
+in the pre-release verification archive (no longer checked into the repository).
 
 ## Source-offer obligation (LGPL-2.1)
 

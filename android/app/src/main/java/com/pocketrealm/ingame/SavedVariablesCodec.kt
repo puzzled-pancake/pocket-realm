@@ -3,7 +3,7 @@ package com.pocketrealm.ingame
 /**
  * Strict scalar codec for build 5875's account-level
  * `WTF/Account/<name>/SavedVariables.lua` (the on-disk form pinned by
- * docs/INGAME_SETTINGS_GROUND_TRUTH.md: assignments of strings, bare
+ * On-device format ground truth: assignments of strings, bare
  * numbers, booleans, and nil, separated by \r\r\n terminators).
  *
  * Only top-level scalar assignments are understood; every other line

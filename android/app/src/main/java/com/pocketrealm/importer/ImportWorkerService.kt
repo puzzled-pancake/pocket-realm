@@ -71,7 +71,7 @@ class ImportWorkerService : Service() {
             ) else ManagedClientImporter(
                 applicationContext,
                 // The database-only ARM lane verifies and publishes the
-                // managed client but defers memory-heavy O11 extraction to a
+                // managed client but defers memory-heavy extraction to a
                 // later full runtime APK. Full lanes retain the production
                 // preparation contract.
                 prepareData = BuildConfig.ENABLE_CLIENT_DATA_PREPARATION,

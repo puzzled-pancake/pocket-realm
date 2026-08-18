@@ -61,7 +61,7 @@ MariaDB differs by processor lane. The main ARM64 route packages the Termux Andr
 
 Gradle builds the Kotlin application, Compose screens, private services, AIDL control interfaces, tests, native libraries, and staged assets into the Android package.
 
-The current application identity is `com.pocketrealm`. It supports Android API 26 and later and targets API 35. The app is landscape-oriented, disables Android automatic backup, and declares foreground service types for the long-running realm and finite import work.
+The current application identity is `com.pocketrealm`. It supports Android API 26 and later and targets API 27 (a deliberate legacy target: newer targets place the app in a stricter Android security domain that blocks the Wine client runtime's memory-mapping behavior). The app is landscape-oriented, disables Android automatic backup, and declares foreground service types for the long-running realm and finite import work.
 
 ## Checks before packaging
 

@@ -7,7 +7,7 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 
-/** Atomic temp+fsync+rename journal required by report section 18.5. */
+/** Atomic temp+fsync+rename journal for durable supervisor state. */
 class AtomicSupervisorJournal(context: Context) : SupervisorJournal {
     private val lock = Any()
     private val directory = File(context.noBackupFilesDir, "runtime-supervisor").apply { mkdirs() }

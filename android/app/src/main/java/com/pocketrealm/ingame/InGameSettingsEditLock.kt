@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Cross-process mutual exclusion for in-game settings file writes
- * (docs/INGAME_SETTINGS_PLAN_2026-08-16.md §5.3). Taken exclusively by the
+ * (edit-lock design). Taken exclusively by the
  * editor around each read-modify-write and exclusively by
  * `enforceManagedSafeMode` around its Config/uvar/bindings write phase.
  *

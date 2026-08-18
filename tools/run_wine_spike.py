@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""O06 Phase-1 Wine feasibility spike host driver.
+"""Wine feasibility spike host driver.
 
 Builds the pkgExperiment APK (with the Wine + glibc + PE closure), installs it
 on an AVD, runs the WineSpikeTest instrumentation, drains logcat for the
@@ -206,7 +206,7 @@ def main() -> int:
     ap.add_argument("--no-install", action="store_true", help="skip APK install")
     args = ap.parse_args()
 
-    print(f"=== O06 Phase-1 Wine spike ===")
+    print(f"=== Wine spike ===")
     print(f"  lane   : {args.lane} (page={LANES[args.lane]['page']})")
     print(f"  serial : {args.serial}")
 

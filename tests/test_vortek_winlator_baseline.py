@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 VORTEK = ROOT / "native/xserver-winlator/cpp/vortekrenderer-winlator-2.1"
 EXPECTED_SOURCE_COUNT = 41
-# Re-pinned 2026-08-16 (devibe Phase 1): the previous digest captured
+# Re-pinned 2026-08-16: the previous digest captured
 # uncommitted CRLF dirt in the working tree; the tree now byte-matches its
 # committed blobs (deterministic across fresh checkouts).
 EXPECTED_SOURCE_DIGEST = "d74c5269183330ad186a0cf51997c1841aecec1096577e5e885055297fda686b"

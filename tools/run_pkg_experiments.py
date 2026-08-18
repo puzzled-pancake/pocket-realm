@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""O05 G0 packaging experiment host driver (report §8.4 PKG-01/02/06).
+"""Packaging experiment host driver.
 
 Serial-specific AND variant-specific: targets exactly one --serial and one
 --variant, installs the matching APK (and the androidTest APK), runs the
@@ -13,7 +13,7 @@ mask variant-specific failures). Instead it:
   1. builds the requested variant APK (assemble<Variant>) + the androidTest APK,
   2. installs both on --serial only,
   3. runs the experiment class via `am instrument -e` with the right args,
-  4. drains logcat for the PKG_EXPERIMENT/PKG-06 TICK lines,
+  4. drains logcat for the experiment announce/tick lines,
   5. writes evidence to tests/avd/<lane>/evidence/.
 
 Lanes:
@@ -21,7 +21,7 @@ Lanes:
   modern  AVD-Modern-x86_64   API 35  4 KB   PKG-01 (pkgExperiment) + PKG-02 + PKG-06 (debug)
   16k     AVD-16K-x86_64      API 35  16 KB  PKG-01 (pkgExperiment) + PKG-02 + PKG-06 (debug)
 
-The two genuine 30-minute PKG-06 runs use --smoke-seconds 1800.
+The two genuine 30-minute smoke runs use --smoke-seconds 1800.
 
 Prereqs:
   python3 scripts/build_native.py --abi x86_64 --runtime --runtime-tests cmangos
@@ -314,7 +314,7 @@ def main() -> int:
                     help="debug = production (useLegacyPackaging=false); "
                          "pkgExperiment = launcher extraction (useLegacyPackaging=true)")
     ap.add_argument("--smoke-seconds", type=int, default=10,
-                    help="PKG-06 duration; 1800 = genuine 30-min acceptance run")
+                    help="smoke run duration; 1800 = genuine 30-min acceptance run")
     ap.add_argument("--only", default=None,
                     help="single test method suffix, e.g. t2_pkg01_launcher_executes_or_documents_no_path")
     ap.add_argument("--no-build", action="store_true", help="skip gradle assemble")

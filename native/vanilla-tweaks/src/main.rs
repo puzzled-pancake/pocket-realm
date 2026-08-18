@@ -109,7 +109,7 @@ struct Args {
 const MAX_PATCHED_OFFSET_END: usize = 0x467958 + 4;
 
 /// Validate the input is the expected PE32 i386 executable before any write.
-/// Every fixed-offset patch silently corrupts anything else (de-vibe N10):
+/// Every fixed-offset patch silently corrupts anything else :
 /// wrong-version exes, truncated files, and non-PE inputs must fail cleanly,
 /// never panic and never write an output file.
 fn validate_pe32_i386(file: &[u8]) -> Result<(), String> {
@@ -143,7 +143,7 @@ fn validate_pe32_i386(file: &[u8]) -> Result<(), String> {
 }
 
 /// Bounds-checked, already-patched-aware fixed-offset write. Panics were the
-/// old failure mode (de-vibe N10); this returns errors instead.
+/// old failure mode ; this returns errors instead.
 fn patch_range(file: &mut [u8], offset: usize, bytes: &[u8], label: &str) -> Result<(), String> {
     let end = offset.checked_add(bytes.len()).ok_or_else(|| format!("{label}: offset overflow"))?;
     if end > file.len() {
@@ -350,7 +350,7 @@ impl Args {
 fn finish(failure: Option<String>, outfile_path: &OsString, file: Vec<u8>) -> ExitCode {
     if let Some(err) = failure {
         // A failed patch must never leave an output file behind: a partially
-        // patched executable is silent corruption (de-vibe N10).
+        // patched executable is silent corruption .
         println!("{err}");
         println!("No output file was written.");
         return ExitCode::from(3);

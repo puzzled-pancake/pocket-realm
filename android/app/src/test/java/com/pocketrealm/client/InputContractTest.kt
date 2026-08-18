@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit
  * real Android [android.view.KeyEvent]: generation gating, stale rejection,
  * per-source button tracking, wheel atomicity, deterministic release order,
  * source isolation, profile aspect-reset, and the release report. Keyboard
- * make/break and end-to-end Win32 observation are verified by the O14
+ * make/break and end-to-end Win32 observation are verified by the on-device input-contract
  * instrumentation test (real Android framework + Wine probe).
  *
  * The [RecordingSink] records every [SinkEvent] in order so assertions can check
@@ -1737,7 +1737,7 @@ class InputContractTest {
         assertTrue(ClientInputBridge.isAndroidSystemKey(KeyEvent.KEYCODE_WAKEUP))
         // Local Android stubs do not retain KeyEvent instance fields, so the
         // pure-JVM boundary checks exercise the explicit fallback allowlist.
-        // O14 exercises isAndroidSystemEvent with real framework KeyEvents.
+        // The on-device tests exercise isAndroidSystemEvent with real framework KeyEvents.
         assertTrue(ClientInputBridge.isAndroidSystemKey(KeyEvent.KEYCODE_MENU))
         assertTrue(ClientInputBridge.isAndroidSystemKey(KeyEvent.KEYCODE_MEDIA_PLAY))
         assertTrue(ClientInputBridge.isAndroidSystemKey(KeyEvent.KEYCODE_CAMERA))

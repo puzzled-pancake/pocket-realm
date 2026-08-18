@@ -10,7 +10,7 @@ import java.nio.file.LinkOption
 import org.json.JSONObject
 
 /**
- * Orchestrates the O06 Phase-1 Wine feasibility spike measurements (S-1/S-2/S-3).
+ * Orchestrates the Wine feasibility spike measurements (S-1/S-2/S-3).
  *
  * The spike proves:
  *  - S-1: Wine + wineserver + every native child map the APK-managed glibc loader
@@ -256,14 +256,14 @@ class WineSpikeRunner(private val context: Context) {
      * S-1: Prove the effective dynamic loader is the APK-managed glibc loader for
      * wine, wineserver, and every native child — from the production app process.
      *
-     * S-5 fallback sequence (per the approved plan, corrected):
+     * S-5 fallback sequence (corrected ordering):
      *  S-5(0) Run the ptrace SIGSYS diagnostic FIRST. Exit 159 alone only proves
      *         termination *by* SIGSYS; it does not establish the cause. We capture
      *         si_code + syscall nr before classifying. The initial record is
      *         SIGSYS_CAUSE_UNRESOLVED, NOT "SELinux blocks execve".
      *  S-5(a) If the direct path fails, try the APK-packaged Bionic trampoline
      *         (libwine_trampoline.so) which execs the glibc loader from a clean
-     *         execve'd Bionic process. Evidence kept SEPARATE from PKG-01.
+     *         execve'd Bionic process. Evidence kept SEPARATE from the launcher experiment.
      *  narrow If the blocked syscall is a glibc startup feature (rseq/clone3),
      *         try the narrow GLIBC_TUNABLES disable before reaching for proot.
      *
@@ -313,7 +313,7 @@ class WineSpikeRunner(private val context: Context) {
         evidence["wineTarget"] = wineTarget
 
         // =====================================================================
-        // S-5(0): ptrace SIGSYS diagnostic. Corrects a512b71, which recorded the
+        // S-5(0): ptrace SIGSYS diagnostic. Earlier qualification recorded the
         // failure as "SELinux blocks execve" based solely on exit 159. We capture
         // si_code + the triggering syscall before classifying.
         // =====================================================================

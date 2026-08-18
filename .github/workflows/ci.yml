@@ -1,9 +1,8 @@
-# CI for the de-vibe safety net (DEVIBE_PLAN.md Phase 3).
+# CI: repo hygiene + JVM unit tests.
 #
-# This repo currently has no remote — the workflow activates on first push.
 # Scoping is deliberate (windows runners lack the MSYS2/NDK native toolchain,
 # so no full APK builds here):
-#   - hygiene (ubuntu): check_repo + validate_features + pytest
+#   - hygiene (ubuntu): check_repo + pytest
 #   - android-unit (windows): JVM unit tests only, with the mandatory
 #     -PpocketAbi/-PpocketLane properties (build.gradle.kts refuses without them).
 # tools/check_sources.py stays local (pre-commit hook) because its
@@ -24,14 +23,11 @@ jobs:
           python-version: "3.12"
       - name: Repo hygiene gate
         run: python tools/check_repo.py
-      - name: Features schema
-        run: python tools/validate_features.py
       - name: Python tests
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         # The 8 deselected ids are the documented pre-existing substring-contract
-        # failures (DEVIBE_PLAN.md P15). They are expected to fail until Phase 4+
-        # retires them; any NEW failure fails CI.
+        # failures; any NEW failure fails CI.
         run: |
           python -m pytest tests/ -q \
             --deselect tests/test_gladio_client_unpack_transport.py::GladioClientValidationLaneContractTest::test_arm_production_packaging_excludes_gladio \

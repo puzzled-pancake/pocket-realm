@@ -28,7 +28,7 @@ native/.x86_64-*.log
 native/.build.log
 output/
 
-# O06 provider caches (populated by tools/fetch_provider.py; large prebuilt
+# Provider caches (populated by tools/fetch_provider.py; large prebuilt
 # archives + extracted trees, hash-verified, never committed).
 native/.providers/
 native/.providers-extracted/
@@ -41,7 +41,7 @@ native/.glibc-build/
 runtime/wine-x86_64-wow64/selftest/*.exe
 runtime/wine-x86_64-wow64/selftest/*.exe.sha256
 
-# ZCode local session data
+# Local editor/agent session scratch
 .zcode/
 
 # Kotlin / Java
@@ -69,8 +69,8 @@ target/
 Thumbs.db
 
 # ===== Proprietary / user-supplied client data — NEVER commit =====
-# Per DECISIONS.md #1 and PLAN.md: no proprietary WoW executables, MPQs, DBCs,
-# maps, models, textures, or copyrighted addon assets enter source control.
+# No proprietary WoW executables, MPQs, DBCs, maps, models, textures, or
+# copyrighted addon assets enter source control.
 client_import/
 **/WoW*.exe
 **/*.mpq
@@ -109,20 +109,19 @@ logs/
 support_bundle/
 /diagnostics/
 
-# Exception: checked-in AVD experiment evidence (PKG-01/02/06 logcat captures,
-# per tests/avd/*/pkg-experiments.md and ADR-013). These .log/.logcat files are
-# the auditable artifacts the acceptance criteria require, not throwaway logs.
-!tests/avd/**/evidence/*.log
-!tests/avd/**/evidence/*.log.*
+# Local repository hygiene markers (real identifiers stay machine-local; only
+# the committed .example template with placeholder values is shared).
+tools/pii_markers.local.json
 
-# ===== De-vibe hygiene (DEVIBE_PLAN.md Phase 1) =====
-# Root-level image/exe debris (agent screenshots, drops) — never at repo root
+# ===== Hygiene =====
+# Root-level scratch debris (screenshots, drops) — never at repo root
 /.codex-*
 /*.png
 /*.jpg
 /*.jpeg
 /*.exe
 /.pytest_cache/
+.pytest_cache/
 .tmp/
 native/.tmp-*
 CMakeFiles/
@@ -133,4 +132,3 @@ CMakeConfigureLog.yaml
 *.ilk
 *.lastbuildstate
 *.recipe
-build-authority/

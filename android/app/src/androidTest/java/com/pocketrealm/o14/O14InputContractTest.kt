@@ -35,7 +35,7 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * O14 increment-1 acceptance: the versioned [InputContract] routes right/middle
+ * Input-contract acceptance: the versioned [InputContract] routes right/middle
  * mouse buttons, wheel pulses, and relative pointer motion through Android →
  * contract → X server → Wine → the project-owned Win32 self-test probe, and
  * rejects stale-generation input. Existing keyboard, absolute-pointer, and
@@ -123,7 +123,7 @@ class O14InputContractTest {
         }
         delay(200)
 
-        // ---- O14: right-button down/up --------------------------------------
+        // ---- right-button down/up -------------------------------------------
         instrumentation.runOnMainSync {
             host!!.dispatchRightButton(pressed = true)
         }
@@ -133,7 +133,7 @@ class O14InputContractTest {
         }
         delay(200)
 
-        // ---- O14: middle-button down/up -------------------------------------
+        // ---- middle-button down/up ------------------------------------------
         instrumentation.runOnMainSync {
             host!!.dispatchMiddleButton(pressed = true)
         }
@@ -143,7 +143,7 @@ class O14InputContractTest {
         }
         delay(200)
 
-        // ---- O14: wheel up then down ----------------------------------------
+        // ---- wheel up then down ---------------------------------------------
         instrumentation.runOnMainSync {
             host!!.dispatchWheel(vTicks = -1) // up
         }
@@ -153,7 +153,7 @@ class O14InputContractTest {
         }
         delay(200)
 
-        // ---- O14: relative pointer burst (camera-look / captured mouse) -----
+        // ---- relative pointer burst (camera-look / captured mouse) ----------
         instrumentation.runOnMainSync {
             host!!.dispatchRelativePointer(15, 0)
         }
@@ -163,7 +163,7 @@ class O14InputContractTest {
         }
         delay(300)
 
-        // ---- O14: hold right button + a key, trigger focus loss, verify both releases ----
+        // ---- hold right button + a key, trigger focus loss, verify both releases ----
         instrumentation.runOnMainSync {
             host!!.dispatchRightButton(pressed = true)
             host!!.dispatchKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_W))
@@ -175,7 +175,7 @@ class O14InputContractTest {
         assertTrue("key should be in release report", focusReleaseReport.keyCount >= 1)
         delay(300)
 
-        // ---- O14: stale-generation rejection --------------------------------
+        // ---- stale-generation rejection --------------------------------------
         val staleGen = host!!.generation + 999L
         val beforeReject = host!!.inputDiagnostics().rejectedStaleEventCount
         instrumentation.runOnMainSync {
@@ -208,7 +208,7 @@ class O14InputContractTest {
         assertTrue("keyboardSeen (regression)", d.keyboardSeen)
         assertTrue("mouseSeen (regression)", d.mouseSeen)
 
-        // O14 assertions: each new input path observed through the Win32 probe.
+        // Assertions: each new input path observed through the Win32 probe.
         assertTrue("rightButtonSeen\n${d.stdoutTail}", d.rightButtonSeen)
         assertTrue("middleButtonSeen\n${d.stdoutTail}", d.middleButtonSeen)
         assertTrue("wheelSeen\n${d.stdoutTail}", d.wheelSeen)

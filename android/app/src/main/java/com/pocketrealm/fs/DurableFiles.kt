@@ -9,7 +9,7 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
 /**
- * Durable same-filesystem publication (de-vibe A14: the fsync-less
+ * Durable same-filesystem publication (the fsync-less
  * temp+rename pattern was copy-pasted into 7+ files; this is the
  * DatabaseDurability contract generalized for everyone).
  */

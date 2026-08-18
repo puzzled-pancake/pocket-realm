@@ -256,7 +256,7 @@ internal class ArmGraphicsGenerationLease private constructor(
         private const val PARENT_LOCK_FILE_NAME = ".generation-index.lock"
         private const val ACQUIRE_RETRY_MS = 25L
 
-        /** Bounded acquire (de-vibe A6): the old loop spun a Binder thread
+        /** Bounded acquire: the old loop spun a Binder thread
          *  every 25 ms forever when the lease could not be taken. Escalate the
          *  backoff and fail loudly instead of wedging the launch path. */
         private const val ACQUIRE_DEADLINE_SECONDS = 30L
@@ -1408,7 +1408,7 @@ internal class WineRuntimeStore(private val context: Context) {
         com.pocketrealm.fs.FileDigests.sha256(text)
 
     /**
-     * O23 vanilla-tweaks patch step (A.5). Produces a root-level
+     * vanilla-tweaks patch step. Produces a root-level
      * `WoW.exe.patched` sibling of the pristine managed exe only when its full
      * SHA-256 identifies the byte layout supported by the patch model. A valid
      * imported 1.12.1 build-5875 executable does not need to match that one
@@ -2130,7 +2130,7 @@ internal class WineRuntimeStore(private val context: Context) {
 
     /** PE/data caches are immutable and keyed by RUNTIME_BUILD_ID, not by the
      * proprietary client. Prefixes stay isolated; only reproducible caches are
-     * shared. This also migrates the legacy O06 per-selftest cache layout. */
+     * shared. This also migrates the legacy per-selftest cache layout. */
     private fun ensureSharedCaches(p: Prepared) {
         val generationRoot = File(context.noBackupFilesDir, "wine/w11w64-v1")
         val sharedRoot = File(generationRoot, "shared").apply { mkdirs() }

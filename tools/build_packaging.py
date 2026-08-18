@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Build the native/packaging G0 experiment artifacts (O05 PKG-01/02/06).
+"""Build the native/packaging experiment artifacts.
 
 Standalone CMake build of native/packaging against the pinned NDK (same toolchain
 as build_native.py). Outputs land in native/.build-<triple>/packaging-build/:
 
   libpocketpkgtest.so        JNI shim + dlopen-by-soname + crash helper
-  libpocket_pkg_launcher.so  PIE executable (PKG-01), renamed to .so for AGP
+  libpocket_pkg_launcher.so  PIE executable, renamed to .so for AGP
 
 Both are 16 KB-aligned and link only libc/libdl/liblog (platform-supplied).
 

@@ -1,5 +1,5 @@
 /*
- * Versioned O09 component ABI. Each implementation is loaded in its own
+ * Versioned realm-server component ABI. Each implementation is loaded in its own
  * Android process; no C++ object or unbounded caller-owned payload crosses
  * this boundary.
  */

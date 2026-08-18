@@ -30,7 +30,7 @@ import kotlin.math.roundToInt
 /**
  * Shared settings-row primitives, hoisted from BotsScreen/ControlsScreen so
  * the in-game settings screens reuse the same 48 dp anatomy
- * (docs/UI_LANDSCAPE_REFACTOR_BRIEF_2026-08-15.md).
+ * (landscape navigation design).
  */
 internal object SettingsRowDefaults {
     val RowHeight = 48.dp

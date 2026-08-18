@@ -4,7 +4,7 @@
 // These run on the Realm worker thread. Each returns a lifecycle_result that
 // the Realm state machine maps onto (realm_state, health conditions, realm_err).
 //
-// Key principle (DECISIONS #8): nothing here installs a signal handler, reads
+// Key principle: nothing here installs a signal handler, reads
 // stdin, calls exit(), or blocks forever. Stop is driven by setting World::
 // StopNow / the realmd stop flag from request_stop() (cooperative), which the
 // worker observes and drains.
@@ -73,7 +73,7 @@ void stop_world_machinery(world_session* s);
 // re-entrancy path: it resets World::m_stopEvent/m_ExitCode, the four Database
 // globals' delay-thread flags, and re-arms the singleton "not yet created"
 // state. Returns false (with detail) if reset is not safely possible — in which
-// case the caller reports REALM_E_BUSY (Strategy B). Safe to call after a
+// case the caller reports REALM_E_BUSY. Safe to call after a
 // failed/partial start.
 lifecycle_result reset_for_reinit(std::string* detail);
 

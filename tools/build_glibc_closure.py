@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Source-build the x86_64 glibc-side runtime closure for the O06 Wine runtime,
+"""Source-build the x86_64 glibc-side runtime closure for the Wine runtime,
 by driving the REAL Termux build system (not a re-implementation) against the
 pinned commits, then importing + hashing the output packages.
 
@@ -260,7 +260,7 @@ def apply_android_syscall_overlays(repo: Path) -> None:
     print("  applied Android poll(2)->ppoll(2) and x86_64-only glibc recipe overlays")
 
     # These two upstream recipes depend on target bash only for packaged CLI
-    # utilities/scripts. O06 imports the shared libraries exclusively. Keeping
+    # utilities/scripts. The runtime imports the shared libraries exclusively. Keeping
     # that utility-only dependency would make a libbz2/libpng closure rebuild
     # recursively build Bash and (when the mirror lacks gcc-libs 16.1) GCC.
     # Narrow the source recipe to the library dependency surface we distribute.
@@ -567,7 +567,7 @@ def main() -> int:
     order = {name: index for index, name in enumerate(BUILD_ORDER)}
     requested.sort(key=lambda name: order.get(name, len(order)))
 
-    print("=== O06 glibc closure source-build plan ===")
+    print("=== glibc closure source-build plan ===")
     print(f"  repo pin : termux-pacman/glibc-packages @ {pin['commit']}")
     print(f"  glibc    : {pin['glibc_upstream']['version']} from {pin['glibc_upstream']['source_url']}")
     print(f"  image    : {CGCT_IMAGE}")

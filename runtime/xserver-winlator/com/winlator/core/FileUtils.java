@@ -68,7 +68,7 @@ public abstract class FileUtils {
             return sb.toString();
         }
         catch (IOException e) {
-            // De-vibe X3: returning null silently NPE'd callers; log loudly
+            // Hardening: returning null silently NPE'd callers; log loudly
             // and surface an empty string instead (1.12 callers treat blank
             // config as absent either way).
             android.util.Log.w("FileUtils", "readString failed for " + uri, e);

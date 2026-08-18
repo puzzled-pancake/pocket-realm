@@ -9,7 +9,7 @@ Two dep layers are measured, not assumed:
   2. RUNTIME dlopen set — Wine resolves optional libs (freetype, fontconfig,
      libGL, vulkan, libXrandr, ...) via WINE_CHECK_SONAME at first use. The
      set is the union of SONAMEs Wine's build probes; we check the subset the
-     O06 spike needs (freetype, fontconfig) is present in the lockfile, and
+     runtime spike needs (freetype, fontconfig) is present in the lockfile, and
      report the rest as "optional/absent-ok" unless --strict.
 
 The mandatory closure for a windowed X11/GDI PE (wineboot + a window under
@@ -41,7 +41,7 @@ SOURCES = ROOT / "schemas" / "sources.json"
 WINE_ID = "wine-kron4ek-11-14-vanilla-wow64"
 
 # SONAMEs Wine resolves at runtime via WINE_CHECK_SONAME (dlopen), not via
-# DT_NEEDED. Only the ones needed for the O06 spike (wineboot + windowed X11/GDI
+# DT_NEEDED. Only the ones needed for the runtime spike (wineboot + windowed X11/GDI
 # PE, audio off) are MANDATORY here; the rest are OPTIONAL/absent-ok.
 RUNTIME_MANDATORY = {
     "libfreetype.so.6": "font rendering (gdi32); Kron4ek built --with-freetype",

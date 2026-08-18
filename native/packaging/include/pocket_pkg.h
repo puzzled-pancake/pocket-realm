@@ -1,8 +1,8 @@
 /*
- * pocket_pkg.h — Pocket Realm G0 packaging-experiment C ABI (O05).
+ * pocket_pkg.h — Pocket Realm packaging-experiment C ABI.
  *
- * This is the narrow versioned boundary exercised by the report's PKG-01/02/06
- * experiments (report §8.4). It is deliberately separate from the realm
+ * This is the narrow versioned boundary exercised by the packaging experiments.
+ * It is deliberately separate from the realm
  * lifecycle ABI (schemas/abi/pocket_realm.h): packaging experiments must not
  * grow into a second control channel. Two consumers:
  *

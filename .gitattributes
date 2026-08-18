@@ -25,13 +25,12 @@
 *.adt binary
 *.wdt binary
 
-# Unified-diff context markers and captured device output can legitimately end
-# in whitespace; do not treat those immutable evidence/source-patch bytes as
+# Unified-diff context markers in captured output can legitimately end
+# in whitespace; do not treat those immutable source-patch bytes as
 # source-code whitespace errors. Patches are also hash-pinned byte-for-byte
 # by the gladio build pipeline (mixed CRLF/LF context lines are deliberate);
 # -text keeps git from normalizing those bytes away.
 *.patch -text -whitespace
-tests/avd/**/evidence/*.log -text -whitespace
 
 # Generated lockfiles — merge=ours to avoid spurious conflicts
 Cargo.lock merge=ours

@@ -76,7 +76,7 @@
             android:name=".update.AppUpdateInstallReceiver"
             android:exported="false" />
 
-        <!-- O05 PKG-02: an isolated fault domain for the native crash experiment.
+        <!-- Packaging fault-injection experiment: an isolated fault domain for the native crash test.
              The deliberate abort() happens here, never in :main. Not a bound
              service from the UI's perspective; the runner attaches a Binder
              DeathRecipient to observe child death. Exported=false, no FGS. -->
@@ -85,7 +85,7 @@
             android:process=":pkg"
             android:exported="false" />
 
-        <!-- O06: Wine and every native child live in a dedicated fault domain.
+        <!-- Wine and every native child live in a dedicated fault domain.
              Only the same APK can bind; the token-scoped AIDL surface never
              accepts an arbitrary executable, prefix path, or environment.
              specialUse FGS while a session runs: the supervisor promotes the
@@ -104,7 +104,7 @@
             android:name=".client.ClientDisplayService"
             android:exported="false" />
 
-        <!-- O11: finite SAF copy/data preparation lives in its own restartable
+        <!-- Client import: finite SAF copy/data preparation lives in its own restartable
              process; the only long-running capability is user-visible data sync. -->
         <service
             android:name=".importer.ImportWorkerService"
@@ -112,7 +112,7 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <!-- O08: MariaDB owns its datadir in a dedicated fault domain. The
+        <!-- MariaDB owns its datadir in a dedicated fault domain. The
              same-APK Binder API exposes lifecycle/test verbs only; callers
              cannot submit SQL, paths, commands, environment, or credentials. -->
         <service
@@ -120,7 +120,7 @@
             android:process=":database"
             android:exported="false" />
 
-        <!-- O09: CMaNGOS components are library-backed but retain executable-
+        <!-- CMaNGOS components are library-backed but retain executable-
              equivalent failure boundaries. The fixed AIDL APIs accept no
              paths, SQL, environment, or arbitrary server commands. -->
         <service

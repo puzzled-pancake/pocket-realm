@@ -5,7 +5,7 @@ import java.io.FileInputStream
 import java.security.MessageDigest
 
 /**
- * The one SHA-256 implementation for file content (de-vibe S3/A14: 19 files
+ * The one SHA-256 implementation for file content (19 files
  * previously hand-rolled their own MessageDigest loops). String digests keep
  * using their local one-liners only where they delegate here.
  */

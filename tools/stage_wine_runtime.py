@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage the O06 Phase-0 closure (glibc rootfs + Wine ELFs + PE modules) into the
+"""Stage the runtime closure (glibc rootfs + Wine ELFs + PE modules) into the
 APK packaging layout for the Phase-1 feasibility spike.
 
 Outputs two trees under native/.build-x86_64/wine-staging/:
@@ -26,7 +26,7 @@ Naming convention (why rename):
 
 Usage:
   python3 tools/stage_wine_runtime.py              # full stage
-  python3 tools/stage_wine_runtime.py --no-pe      # skip PE assets (faster; S-1/S-2 only)
+  python3 tools/stage_wine_runtime.py --no-pe      # skip PE assets (faster; loader-only lanes)
   python3 tools/stage_wine_runtime.py --check      # report what would be staged, don't write
 """
 from __future__ import annotations
@@ -681,7 +681,7 @@ def stage_selftest_pe(assets_dir: Path) -> None:
             "sha256": h,
             "logical_path": "pocket_selftest.exe",
             "arch": "i386",
-            "role": "O06 self-test (32-bit Win32 PE: window + input + audio probe)",
+            "role": "self-test (32-bit Win32 PE: window + input + audio probe)",
         }],
     }
     guest_manifest_path.write_text(json.dumps(guest_manifest, indent=2) + "\n", encoding="utf-8")
@@ -691,7 +691,7 @@ def stage_selftest_pe(assets_dir: Path) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--no-pe", action="store_true",
-                    help="skip PE assets (faster; for S-1/S-2 which don't need PE cache)")
+                    help="skip PE assets (faster; for lanes that don't need the PE cache)")
     ap.add_argument("--check", action="store_true",
                     help="report what would be staged without writing files")
     args = ap.parse_args()
@@ -703,7 +703,7 @@ def main() -> int:
               file=sys.stderr)
         return 2
 
-    print("=== O06 Phase-1 Wine runtime staging ===")
+    print("=== Wine runtime staging ===")
     print(f"  wine root : {wine_root.relative_to(ROOT)}")
     print(f"  glibc     : {GLIBC_ROOTFS.relative_to(ROOT)}")
     print(f"  output    : {OUTPUT.relative_to(ROOT)}")
@@ -746,7 +746,7 @@ def main() -> int:
 
     # Write a staging manifest (for the on-device code to build the symlink tree).
     staging_manifest = {
-        "description": "O06 Phase-1 staging manifest: maps logical names to APK-managed files.",
+        "description": "Wine staging manifest: maps logical names to APK-managed files.",
         "staged_at_utc": __import__("datetime").datetime.now(
             __import__("datetime").timezone.utc).isoformat(),
         "glibc_rootfs_commit": "c9d4de54797bd6652f797217bf9e4c4050f02798",
@@ -761,7 +761,7 @@ def main() -> int:
     }
 
     # Record proot fallback artifacts if they were built (built separately by
-    # tools/build_proot.py; the proot path is selected only if S-1 direct fails).
+    # tools/build_proot.py; the proot path is selected only if the direct loader path fails).
     # These are APK-managed (+x, immutable) so PROOT_LOADER can point at the
     # libproot_loader.so here instead of proot extracting one to writable storage.
     proot_stage = ROOT / "native" / ".build-x86_64" / "proot-stage"

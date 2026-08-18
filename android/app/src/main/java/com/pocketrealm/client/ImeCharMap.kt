@@ -3,7 +3,7 @@ package com.pocketrealm.client
 import android.view.KeyEvent
 
 /**
- * O14 increment-2 IME committed-text policy.
+ * IME committed-text policy.
  *
  * Maps each supported printable character to the Android keycode + shift state
  * that the existing winlator [com.winlator.xserver.Keyboard] path can prove end
@@ -20,7 +20,7 @@ import android.view.KeyEvent
  * emoji) are rejected with their codepoints reported, so the caller can surface
  * the limitation honestly.
  *
- * Design rule (report §16.6/§16.8): do not map a character to a key the X path
+ * Design rule: do not map a character to a key the X path
  * cannot prove. If Wine's `TranslateMessage` does not produce the expected
  * `WM_CHAR` for a keysym, that character is not in the supported set.
  */

@@ -48,7 +48,7 @@ import kotlinx.coroutines.flow.first
 import org.json.JSONObject
 import java.io.File
 
-/** Binder adapter that preserves the O08/O09 process fault boundaries. */
+/** Binder adapter that preserves the process fault boundaries. */
 class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
     private val appContext = context.applicationContext
     private val ownerLease = Binder()
@@ -393,7 +393,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         component: RuntimeComponent,
         read: suspend () -> JSONObject,
     ): ComponentObservation {
-        // Bounded (de-vibe A5): a component wedged in STARTING used to spin a
+        // Bounded: a component wedged in STARTING used to spin a
         // supervisor coroutine forever; surface a FAILED observation instead.
         val deadline = System.currentTimeMillis() + WAIT_READY_TIMEOUT_MS
         while (true) {
@@ -404,7 +404,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                 return observation(
                     component,
                     // "detail" (not "exitReason"): observation() only surfaces
-                    // detail to the supervisor state (verification C2).
+                    // detail to the supervisor state.
                     value.put("state", "FAILED").put(
                         "detail",
                         "supervisor waitReady timeout after ${WAIT_READY_TIMEOUT_MS / MINUTES_MS}m",
@@ -639,7 +639,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
             val launched = json(client.api().launch(launchRequest.toString()))
             val launchedSessionId = launched.getString("sessionId")
             json(display.api().attachSession(owner.instanceToken, launchedSessionId))
-            // Bounded (de-vibe A5): a client wedged mid-start used to poll
+            // Bounded: a client wedged mid-start used to poll
             // forever while holding the launch path.
             val clientStartDeadline = System.currentTimeMillis() + CLIENT_START_TIMEOUT_MS
             while (true) {
@@ -896,7 +896,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
     }
 
     companion object {
-        // Generous ceilings (de-vibe A5): real starts complete in well under a
+        // Generous ceilings: real starts complete in well under a
         // minute; these exist so a wedged component surfaces as a failure
         // instead of an infinite supervisor poll.
         private const val MINUTES_MS = 60_000L

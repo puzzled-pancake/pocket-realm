@@ -4,7 +4,7 @@ package com.pocketrealm.ingame
  * Versioned, integrity-hashed manifest of the stock WoW 1.12.1 (build 5875)
  * fixed settings — the sibling of `WowVanillaBindingCatalog`.
  *
- * Every entry carries a provenance pin (docs/INGAME_SETTINGS_GROUND_TRUTH.md):
+ * Every entry carries a provenance pin (verified against the vanilla client):
  * interface and sound definitions are pinned to the MOUZU mirror of
  * Blizzard's 1.12.1 FrameXML (commit 776d64e…, `UIOptionsFrame.lua`,
  * `SoundOptionsFrame.lua`, `GlobalStrings.lua`); video names/values and all

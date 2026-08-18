@@ -122,7 +122,7 @@ fun BotsScreen() {
     val settings = remember(context) { Settings(context) }
     val snapshotState: Settings.Snapshot? by settings.flow.collectAsState(initial = null)
     val snapshot = snapshotState ?: Settings.Snapshot()
-    // Installed from a side effect, not during composition (de-vibe A8):
+    // Installed from a side effect, not during composition:
     // install() does a blocking cold load, which used to run on the main
     // thread inside remember{} on every first composition.
     val botsDir = remember(context) { File(context.filesDir, "bots") }

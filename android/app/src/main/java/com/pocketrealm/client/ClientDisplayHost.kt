@@ -88,7 +88,7 @@ class ClientDisplayHost(
     val virtualHeight: Int get() = virtualDisplay.height
     val xServer: XServer
     val view: XServerView
-    /** IME-capable wrapper around [view] for soft-keyboard embedding (O14 increment 2). */
+    /** IME-capable wrapper around [view] for soft-keyboard embedding. */
     val imeView: ClientImeView
     /**
      * The complete attached display surface.  Keeping the X surface and the
@@ -455,7 +455,7 @@ class ClientDisplayHost(
             setInitialOutputBufferCapacity(256)
             setCanReceiveAncillaryMessages(true)
         }
-        // O23 audio: Android-side ALSA server (peer to the Winlator android_aserver
+        // Audio: Android-side ALSA server (peer to the Winlator android_aserver
         // The audio socket is a real blocking endpoint. Keep it entirely absent
         // when Settings says muted so an audio-off session has no idle connector,
         // thread, or stale socket to inherit on the next launch.
@@ -772,10 +772,10 @@ class ClientDisplayHost(
     fun resetOverlayClusterPositions(): InputContract.ReleaseReport =
         switchInputProfile(profile.value.copy(overlayClusterPositions = emptyMap()))
 
-    // ---- O14 increment 1: additional pointer entry points -----------------
+    // ---- Additional pointer entry points -----------------------------------
     // These route through the same [InputContract] generation gate and pressed-
     // state tracking as touch/keyboard. They preserve the verified left-button
-    // path unchanged and add right/middle/wheel/relative for O14.
+    // path unchanged and add right/middle/wheel/relative for controller-free play.
 
     /** Right-button press/release (long-press / secondary). */
     fun dispatchRightButton(pressed: Boolean) {
@@ -809,7 +809,7 @@ class ClientDisplayHost(
     /** Exposed for instrumentation tests that need to drive the contract directly. */
     val inputContract: InputContract get() = contract
 
-    // ---- O14 increment 2: IME ---------------------------------------------
+    // ---- IME ----------------------------------------------------------------
     /**
      * Show the Android soft IME targeting the [imeView]. The IME commits text
      * through the [InputContract]'s generation-gated `imeCommit` path.
@@ -1085,7 +1085,7 @@ class ClientDisplayHost(
 /**
  * Android→[InputContract] adapter. Owns only the Android-view→X letterbox
  * transform (which is view-specific) and the source id; all pressed-state and
- * X-server injection now lives in the contract. Preserves the verified O06/O12
+ * X-server injection now lives in the contract. Preserves the verified
  * touch + keyboard behavior exactly: same transform math, same clamp, same
  * left-button mapping, same `keyboard.onKeyEvent(event)` forward path.
  *

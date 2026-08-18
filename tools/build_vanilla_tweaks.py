@@ -112,7 +112,7 @@ def stage(built: Path, llvm: Path) -> dict:
     if not strip.is_file():
         raise RuntimeError(
             f"llvm-strip not found at {strip}; DT_NEEDED/alignment verification "
-            "must not be skipped silently (de-vibe P7)"
+            "must not be skipped silently"
         )
     run([strip, "--strip-unneeded", target])
     readelf = llvm / "llvm-readelf.exe"
@@ -121,7 +121,7 @@ def stage(built: Path, llvm: Path) -> dict:
     if not readelf.is_file():
         raise RuntimeError(
             f"llvm-readelf not found at {readelf}; DT_NEEDED/alignment verification "
-            "must not be skipped silently (de-vibe P7)"
+            "must not be skipped silently"
         )
     dynamic = output([readelf, "-dW", target])
     needed = sorted(line.split("[")[1].split("]")[0]
@@ -145,7 +145,7 @@ def stage(built: Path, llvm: Path) -> dict:
         "upstream": "https://github.com/brndd/vanilla-tweaks",
         "upstream_commit": "fbbe31add71b23602d981d70f1a58520fc349b47",
         "license": "MIT",
-        "purpose": "O23 on-device producer of WoW.exe.patched from a pristine managed WoW.exe",
+        "purpose": "On-device producer of WoW.exe.patched from a pristine managed WoW.exe",
         "artifacts": [{
             "path": target.relative_to(ROOT).as_posix(),
             "size": target.stat().st_size,

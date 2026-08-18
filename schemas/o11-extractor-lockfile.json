@@ -4,7 +4,7 @@
   "min_api": 26,
   "elf_max_page_size": "0x4000",
   "cmangos_commit": "c096bada9e4ed23ad4ca706c67160a26d7121337",
-  "purpose": "O11 finite on-device DBC/map/vmap/mmap preparation",
+  "purpose": "Finite on-device DBC/map/vmap/mmap preparation",
   "source_patches": [
     {
       "path": "native/patches/o11-cmangos-safe-mpq-listfile.patch",

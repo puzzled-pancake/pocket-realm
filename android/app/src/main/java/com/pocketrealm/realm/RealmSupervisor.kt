@@ -7,9 +7,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Legacy O02 UI-transition model retained for its compatibility tests.
+ * Legacy UI-transition model retained for its compatibility tests.
  * Production lifecycle ownership moved to
- * [com.pocketrealm.supervisor.DurableRuntimeSupervisor] in O10.
+ * [com.pocketrealm.supervisor.DurableRuntimeSupervisor].
  *
  * The legal-transition table is intentionally narrow: it is safer to ignore an
  * out-of-order request than to act on one and corrupt realm state.

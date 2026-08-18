@@ -32,7 +32,7 @@ set(POCKET_RUNTIME_SRCS
 #
 # We deliberately EXCLUDE CliRunnable, RASocket, MaNGOSsoap, soapC/soapServer:
 # they implement console/RA/SOAP control channels that the embedded path does
-# not use (DECISIONS #8: no console-only control). Compiling them would pull
+# not use (no console-only control). Compiling them would pull
 # stdin/signal dependencies back in.
 set(CMANGOS_DIR ${CMAKE_SOURCE_DIR}/src)
 list(APPEND POCKET_RUNTIME_SRCS

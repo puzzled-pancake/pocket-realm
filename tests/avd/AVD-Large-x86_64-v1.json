@@ -1,11 +1,11 @@
 {
   "schema": 1,
-  "reference_document": "docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx",
+  "reference_document": "docs/wiki/README.md",
   "avd_id": "AVD-Large-x86_64-v1",
   "physical_avd_name": "O11-Large-x86_64",
   "system_image": "Android/sdk_phone64_x86_64/emu64x:15/AE3A.240806.019/12368160:userdebug/test-keys",
   "captured_at_utc": "2026-08-05T22:15:00+00:00",
-  "lane_purpose": "Large-storage / 8-GiB API-35 x86_64 4-KiB qualification lane for O11 managed-client import and O13 measured playerbot tiers. Same system image, ABI, page size, and tag as AVD-Modern-x86_64-v1, but with 8 GiB RAM and a 30 GiB data partition so the full O11 normal-play generation and 410-migration bot database fit. It is NOT equivalent to the 2.5-GiB / 10-GiB AVD-Modern-x86_64-v1 capability profile.",
+  "lane_purpose": "Large-storage / 8-GiB API-35 x86_64 4-KiB qualification lane for the managed-client import and measured playerbot tiers. Same system image, ABI, page size, and tag as AVD-Modern-x86_64-v1, but with 8 GiB RAM and a 30 GiB data partition so the full normal-play generation and 410-migration bot database fit. It is NOT equivalent to the 2.5-GiB / 10-GiB AVD-Modern-x86_64-v1 capability profile.",
   "host": {
     "emulator_version": "Android emulator version 36.6.11.0 (build_id 15507667) (CL:N/A)",
     "platform": {
@@ -47,7 +47,7 @@
     "differences_from_avd_modern": [
       "RAM: 8192 MiB vs AVD-Modern 2048 MiB (guest mem_total 8137032 KiB vs 2532436 KiB)",
       "data partition: 30 GiB vs AVD-Modern 10 GiB",
-      "purpose: large-storage lane required for the full O11 generation + bot database"
+      "purpose: large-storage lane required for the full import generation + bot database"
     ],
     "not_a_substitute_for": "AVD-Modern-x86_64-v1 25-bot qualification, which remains unproven on the smaller 2.5-GiB / 10-GiB profile"
   },

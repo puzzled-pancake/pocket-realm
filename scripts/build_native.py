@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Cross-compile the native realm (CMaNGOS + Playerbots) for Android arm64-v8a.
 
-This is the O03 reproducible-build entry point. It builds the external
+This is the reproducible-build entry point for the native realm. It builds the external
 dependencies (OpenSSL, Boost, SQLite) and then CMaNGOS + Playerbots against the
 pinned NDK.
 
 Environment requirements (Windows host):
   - Android NDK (found via ANDROID_SDK_ROOT/ANDROID_HOME under SDK/ndk)
-  - MSYS2 (found via MSYS2_ROOT/MSYS_HOME env, default G:\\msys64). Provides a
+  - MSYS2 (found via MSYS2_ROOT/MSYS_HOME env, default C:/msys64). Provides a
     complete Unix-style perl for OpenSSL and a host gcc for the Boost b2
     bootstrap. Install with:
       pacman -S --noconfirm make gcc
@@ -28,7 +28,7 @@ ABI selection (default arm64-v8a, the product target):
     python3 scripts/build_native.py --abi arm64-v8a list
     python3 scripts/build_native.py --abi x86_64 all     # emulator test target
 
-The arm64-v8a target is the product ABI (.claude/rules/native.md). x86_64 is an
+The arm64-v8a target is the product ABI. x86_64 is an
 emulator-only target so the same native realm can be *executed* (not just
 objdump'd) during development; it is never shipped.
 """

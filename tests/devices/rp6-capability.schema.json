@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "pocket-realm/rp6-capability/1",
   "title": "Pocket Realm Retroid Pocket 6 capability record",
-  "description": "Redacted ADB capability baseline. This record is not O14 acceptance evidence.",
+  "description": "Redacted ADB capability baseline. This record is not feature acceptance evidence.",
   "type": "object",
   "additionalProperties": false,
   "required": [

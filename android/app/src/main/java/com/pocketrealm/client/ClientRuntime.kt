@@ -6,7 +6,7 @@ import java.util.Locale
 import java.util.UUID
 import kotlin.math.abs
 
-/** Report §15.3 runtime boundary. Proprietary client execution remains O07. */
+/** Runtime boundary. Proprietary client execution stays outside the app. */
 interface ClientRuntime {
     suspend fun probe(device: DeviceCaps, client: ClientManifest): ClientCaps
     suspend fun preparePrefix(request: PrefixRequest): PrefixResult

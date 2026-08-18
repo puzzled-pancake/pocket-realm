@@ -48,7 +48,7 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Production-path O14 touch/controller acceptance over the live Wine/X surface.
+ * Production-path touch/controller acceptance over the live Wine/X surface.
  * This intentionally uses Compose semantics to press the actual overlay rather
  * than calling its host methods directly.
  */

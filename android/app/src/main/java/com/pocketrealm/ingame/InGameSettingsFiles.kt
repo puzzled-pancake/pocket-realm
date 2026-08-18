@@ -9,7 +9,7 @@ import java.nio.file.StandardCopyOption
 
 /**
  * File-layout helper over the managed client's WTF tree, pinned to the
- * build-5875 layout verified on device (docs/INGAME_SETTINGS_GROUND_TRUTH.md):
+ * build-5875 layout verified on device:
  * account uvars at `WTF/Account/<name>/SavedVariables.lua`, account bindings
  * at `WTF/Account/<name>/bindings-cache.wtf`, per-character binding
  * overrides at `WTF/Account/<name>/<server>/<char>/bindings-cache.wtf`.

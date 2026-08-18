@@ -3,7 +3,7 @@
  *
  * S-5(0) corrected SIGSYS diagnostic.
  *
- * Previous (a512b71) recorded the S-1 failure as "SELinux blocks execve" based
+ * An earlier revision recorded the S-1 failure as "SELinux blocks execve" based
  * solely on exit code 159 (128 + SIGSYS). That conflates termination *by*
  * SIGSYS with the cause of the signal. Exit 159 only proves the child was
  * killed by signal 31 (SIGSYS); it says nothing about WHICH mechanism raised

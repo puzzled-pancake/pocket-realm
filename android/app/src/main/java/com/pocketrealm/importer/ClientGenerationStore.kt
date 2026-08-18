@@ -220,12 +220,12 @@ class ClientGenerationStore(context: Context) {
         private val UUID = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
         /**
-         * App-written Config.wtf for a fresh generation (ADR-018: this file is
+         * App-written Config.wtf for a fresh generation (this file is
          * app-owned and replaces any WTF/Config.wtf that arrived inside the
          * imported tree). The F3e interface-default keys sit outside
          * ManagedConfigPolicy's enforced set, so the client owns them after
          * the first launch and rewrites them with the player's own values at
-         * exit (round-trip proven in docs/INGAME_SETTINGS_GROUND_TRUTH.md).
+         * exit (round-trip proven on device).
          * MasterSoundEffects "1" = all sounds on (the previous "0" started
          * every fresh import silent).
          */

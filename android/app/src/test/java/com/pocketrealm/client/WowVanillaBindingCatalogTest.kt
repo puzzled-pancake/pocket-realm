@@ -166,7 +166,7 @@ class WowVanillaBindingDefaultsTest {
     @Test
     fun `defaults only reference catalog commands - reserved defaults are the digit bar`() {
         // Commands whose stock default is a reserved key are exactly the
-        // digit-bar family the controller overlay claims; per the plan they
+        // digit-bar family the controller overlay claims; by design they
         // badge as "controller overlay" instead of Modified and reset skips
         // them. Every other default must be freely assignable.
         val digitBar = setOf(

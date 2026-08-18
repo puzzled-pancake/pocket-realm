@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the O06 glibc-side Android path/syscall shim reproducibly.
+"""Build the glibc-side Android path/syscall shim reproducibly.
 
 The shim must be linked against glibc, so the Windows/NDK CMake build cannot
 produce it.  Build it in the same pinned Termux CGCT Linux container used by

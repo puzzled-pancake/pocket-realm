@@ -309,7 +309,7 @@ object BotProfiles {
     private fun compactAdvancedPattern(prefix: String) = Regex(
         "^$prefix-" + List(13) { "([0-9a-z]+)" }.joinToString("-") + "-([0-9a-f]{8})$",
     )
-    /** Report section 13 B1 / SOAK-25 candidate. It is not a default until its soak passes. */
+    /** Soak candidate. It is not a default until its soak run passes. */
     val LOW_25 = BotProfile(
         id = "mobile-low-b1-25-v1",
         displayName = "Validation · 25 bots",
@@ -1038,7 +1038,7 @@ object BotProfiles {
 
     // Test-support surface: no production caller (every profile is installed
     // explicitly by id), but the policy/experience tests assert the public
-    // ladder through these. Kept deliberately (de-vibe 5d judgment).
+    // ladder through these. Kept deliberately.
     fun userSelectable(): List<BotProfile> = profiles.values.filter { it.userSelectable }
         .sortedBy { it.selectedTarget }
     fun forRequestedTarget(target: Int): BotProfile = userSelectable().minBy {

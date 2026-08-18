@@ -42,7 +42,7 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * O14 increment-2 instrumentation: Android IME committed text reaches the Win32
+ * IME instrumentation: Android IME committed text reaches the Win32
  * probe through the [InputContract]'s generation-gated `imeCommit` path.
  *
  * Audit-grade: captures the full raw probe stdout, parses every

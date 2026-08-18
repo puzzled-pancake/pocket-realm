@@ -1,21 +1,21 @@
 package com.pocketrealm.realm
 
 /**
- * JNI shim for the embeddable realm C ABI (native/pocket-runtime, O04).
+ * JNI shim for the embeddable realm C ABI (native/pocket-runtime).
  *
  * This is the Kotlin side of the versioned C boundary defined in
  * `schemas/abi/pocket_realm.h`. The native `libpocketrealm.so` is the
  * embeddable CMaNGOS/Playerbots lifecycle facade: it owns the realm worker
  * thread, drives start/health/save/stop without process exit / signals /
- * console, and reports the six PLAN.md A2 health conditions honestly.
+ * console, and reports the six library-lane health conditions honestly.
  *
- * O04 delivers this shim + a guarded round-trip test. Full supervisor↔native
+ * The library lane delivers this shim + a guarded round-trip test. Full supervisor↔native
  * wiring (health-gated Running promotion, foreground-service native bring-up,
- * loopback enforcement) is O05.
+ * loopback enforcement) belongs to the packaging work.
  *
  * Threading: the native calls are safe to invoke from any thread. `start` is
  * non-blocking (spawns the native worker); `join` blocks. The supervisor will
- * marshal these onto its own scope in O05. Handle lifetime is explicit: each
+ * marshal these onto its own scope. Handle lifetime is explicit: each
  * `create` must be paired with exactly one `destroy`.
  *
  * If the native library is absent (e.g. running in a host JVM unit test without

@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""O06 Phase-1 S-5(b): build termux/proot + libtalloc for Android/Bionic.
+"""Fallback path: build termux/proot + libtalloc for Android/Bionic.
 
-WHY: The S-1 on-device diagnostic (sigsys_diag.c) PROVED the direct glibc-loader
+WHY: the on-device diagnostic (sigsys_diag.c) PROVED the direct glibc-loader
 invocation is killed by Android's untrusted_app seccomp filter on syscall 21
-(access), si_code=1 (SYS_SECCOMP). The S-5(a) Bionic trampoline hit the identical
+(access), si_code=1 (SYS_SECCOMP). A Bionic trampoline first hit the identical
 trap. No GLIBC_TUNABLES suppresses the loader's access() probing. The proot
-fallback (S-5b) intercepts syscalls via ptrace and translates access(2) to
+fallback intercepts syscalls via ptrace and translates access(2) to
 faccessat(2) — the standard Wine-on-Android solution.
 
 This is the FALLBACK path, built only because the spike selected it. The exact
-failure forcing the fallback is recorded in the S-5 correction commit:
+failure forcing the fallback was recorded during qualification:
   si_signo=31, si_code=1 (SYS_SECCOMP), syscall=21 (access), arch=AUDIT_ARCH_X86_64
 
 WHAT THIS BUILDS:

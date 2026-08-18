@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Capture a checked-in AVD/device capability record (report X0 / §20.1 / §C.2).
+"""Capture a checked-in AVD/device capability record.
 
-Runs the report's getprop/getconf/meminfo/df commands via adb against a given
+Runs getprop/getconf/meminfo/df commands via adb against a given
 serial, writes/refreshes tests/avd/<avdId>.json (format mirrors schemas/*.json),
 and (with --compare <app-report.json>) compares ONLY genuinely equivalent fields
 between the adb capture and the in-app CapabilityReport.
@@ -37,7 +37,7 @@ except ImportError:
 
 SDK = common.resolve_android_sdk()
 ADB = common.resolve_android_tool("adb", sdk=SDK)
-REFERENCE = "docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx"
+REFERENCE = "docs/wiki/README.md"
 
 
 def adb(serial: str, shell_cmd: str) -> str:
@@ -95,13 +95,13 @@ def capture(serial: str, avd_id: str, system_image: str | None) -> dict:
         "egl": sh("getprop ro.hardware.egl"),
         "vulkan": sh("getprop ro.hardware.vulkan"),
         "gralloc": sh("getprop ro.hardware.gralloc"),
-        # Emulator GPU mode / transport (report §20.1). Often empty on newer
+        # Emulator GPU mode / transport. Often empty on newer
         # images; recorded as observed, never compared against the app strings.
         "qemu_gles_transport": sh("getprop ro.kernel.qemu.gltransport"),
         "qemu_gles": sh("getprop ro.kernel.qemu.gles"),
         "opengles_version": sh("getprop ro.opengles.version"),
     }
-    # Host platform identity (report §20.1): the guest's view of the virtualized
+    # Host platform identity: the guest's view of the virtualized
     # CPU + the hypervisor backend, so the capability record shows what the AVD
     # actually ran on. These are not compared against the app report.
     virt_backend = (sh("getprop ro.hardware.virtualization.backend")

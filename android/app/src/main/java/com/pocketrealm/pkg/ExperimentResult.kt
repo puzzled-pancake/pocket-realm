@@ -3,7 +3,7 @@ package com.pocketrealm.pkg
 import com.pocketrealm.log.AppLog
 
 /**
- * Typed result of one packaging experiment (report §8.4 PKG-01/02/06). Carried
+ * Typed result of one packaging experiment. Carried
  * out-of-band from the UI: the host driver reads these from the device and
  * checks them into tests/avd/<lane>/evidence/. Honest by construction — a
  * failure sets [ok]=false and keeps the raw evidence rather than being hidden.

@@ -1,4 +1,4 @@
-"""Fail-loud semantics for the realm seeder (de-vibe P2 / Phase 4b).
+"""Fail-loud semantics for the realm seeder.
 
 A silently dropped SQL statement was silent data loss in the seeded realm.
 Default behavior must abort (rollback + raise); --tolerate-sql-errors is the
@@ -75,14 +75,14 @@ def test_build_one_success_requires_zero_errors() -> None:
     # tolerance flag off + errors present -> the failure propagates (even
     # louder than a nonzero return; the old "any statement applied" rule
     # returned 0 and silently seeded a partial database).
-    db = ROOT / ".tmp" / "devibe" / "seed-test" / "bad.sqlite"
+    db = ROOT / ".tmp" / "scratch" / "seed-test" / "bad.sqlite"
     db.parent.mkdir(parents=True, exist_ok=True)
     with pytest.raises(sqlite3.Error):
         seed_realm_db.build_one(db, [FakeDump(BAD_DUMP)], "mangos", verbose=False)
 
 
 def test_build_one_succeeds_with_tolerated_errors() -> None:
-    db = ROOT / ".tmp" / "devibe" / "seed-test" / "tol.sqlite"
+    db = ROOT / ".tmp" / "scratch" / "seed-test" / "tol.sqlite"
     db.parent.mkdir(parents=True, exist_ok=True)
     rc = seed_realm_db.build_one(
         db, [FakeDump(BAD_DUMP)], "mangos", verbose=False, tolerate_errors=True

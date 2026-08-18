@@ -2,7 +2,7 @@
 //
 // Realm owns the embeddable realm lifecycle for one realm generation: it spawns
 // a worker thread that drives CMaNGOS startup (Master::_StartDB, realmd loop)
-// without signals/console/blocking, tracks the six PLAN.md A2 health conditions
+// without signals/console/blocking, tracks the six library-lane health conditions
 // honestly, and tears down cooperatively via World::StopNow / realmd's stop flag.
 //
 // Threading model: realm_* API calls happen on caller threads; Realm guards its

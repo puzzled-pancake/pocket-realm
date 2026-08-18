@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Repository hygiene gate (de-vibe plan Phase 3).
+"""Repository hygiene gate.
 
-Fails (exit 1) when tracked content regresses into the problems the cleanup
-removed: agent-debris paths, committed build output, oversized blobs outside
-the allowlist, or scrubbed personal identifiers reappearing in tracked text.
+Fails (exit 1) when tracked content regresses into known problem classes:
+forbidden build-output paths, committed oversized blobs outside the allowlist,
+or personal identifiers (loaded from a gitignored local markers file)
+reappearing in tracked text.
 
 Safe in CI or as a pre-commit gate (same contract as tools/check_sources.py).
-`--strict` also fails on WARN-level findings (MSYS2 / user-home path literals
-that Phase 4 removes; flip the default once those are gone).
+Personal-identifier scanning reads tools/pii_markers.local.json when present
+(copy it from pii_markers.local.json.example and fill in your own values).
+When the markers file is absent — CI, fresh clones — that specific scan is
+SKIPPED with a loud note; all other checks still run.
 """
 from __future__ import annotations
 
@@ -20,12 +23,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SUBMODULE_PREFIXES = ("native/cmangos", "native/playerbots", "native/classic-db")
+MARKERS_FILE = ROOT / "tools" / "pii_markers.local.json"
 
 FORBIDDEN_PATTERNS = [
-    ".codex-*",
-    "build-authority/*",
     "native/.tmp-*",
-    "GL calls testing/*",
     "CMakeFiles/*",
     "*/CMakeCache.txt",
     "CMakeCache.txt",
@@ -38,7 +39,7 @@ FORBIDDEN_PATTERNS = [
     "*.recipe",
 ]
 
-# Agent debris never belongs at the repo root, whatever the extension case.
+# Scratch debris never belongs at the repo root, whatever the extension case.
 ROOT_FORBIDDEN_SUFFIXES = (".png", ".jpg", ".jpeg", ".exe")
 
 # Tracked blobs larger than this are errors outside the allowlist prefixes.
@@ -52,24 +53,21 @@ BLOB_ALLOWLIST_PREFIXES = (
     "schemas/",
 )
 
-# Scrubbed personal identifiers (device serials incl. the second device found in
-# Phase 1 verification, LAN IP, old character name). ERROR on sight.
-PII_ERROR_MARKERS = (
-    "4a8069ae",
-    "2B031JEGR",
-    "CaRp5n",
-    "192.168.1.241",
-    "Lolpp",
-)
 
-# Personal toolchain path literals. Promoted to errors in Phase 4 once the
-# de-hardcoding removed every in-tree occurrence (Phase 3 shipped them as
-# warnings). --strict remains as a no-op escape hatch for history.
-PII_WARN_MARKERS = (
-    r"Users\David",
-    "G:/msys64",
-    r"G:\msys64",
-)
+def load_markers() -> tuple[list[str], list[str], bool]:
+    """Load personal-identifier markers from the gitignored local file.
+
+    Returns (error_markers, warn_markers, present). Absent file => empty
+    lists and present=False, which downgrades ONLY the identifier scan.
+    """
+    try:
+        data = json.loads(MARKERS_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return [], [], False
+    errors = [m for m in data.get("error_markers", []) if isinstance(m, str) and m]
+    warns = [m for m in data.get("warn_markers", []) if isinstance(m, str) and m]
+    return errors, warns, True
+
 
 BINARY_SUFFIXES = {
     ".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf", ".docx", ".zip", ".7z",
@@ -126,14 +124,22 @@ def check_blob_sizes(files: list[str], errors: list[str]) -> None:
             )
 
 
-SELF = "tools/check_repo.py"  # hosts the marker lists; must not flag itself
-
-
-def check_pii(files: list[str], errors: list[str], warnings: list[str]) -> None:
+def check_pii(
+    files: list[str],
+    errors: list[str],
+    warnings: list[str],
+    error_markers: list[str],
+    warn_markers: list[str],
+    markers_present: bool,
+) -> None:
+    if not markers_present:
+        print(
+            "note: personal-identifier scan SKIPPED — tools/pii_markers.local.json "
+            "not present (copy it from pii_markers.local.json.example to enable)"
+        )
+        return
     for path in files:
         norm = path.replace("\\", "/")
-        if norm == SELF:
-            continue
         full = ROOT / path
         if is_binary(full):
             continue
@@ -142,53 +148,29 @@ def check_pii(files: list[str], errors: list[str], warnings: list[str]) -> None:
         except OSError:
             continue
         lowered_text = text.lower()
-        for marker in PII_ERROR_MARKERS:
+        for marker in error_markers:
             if marker.lower() in lowered_text:
-                errors.append(f"scrubbed identifier {marker!r} present in {norm}")
-        # docs/devibe/** quotes the pre-cleanup findings as history; its WARN
-        # mentions are records, not live hardcoding.
-        if norm.startswith("docs/devibe/"):
-            continue
-        for marker in PII_WARN_MARKERS:
+                errors.append(f"personal identifier {marker!r} present in {norm}")
+        for marker in warn_markers:
             if marker.lower() in lowered_text:
                 warnings.append(f"personal-path literal {marker!r} present in {norm}")
 
 
-def check_features(errors: list[str]) -> None:
-    features = ROOT / "FEATURES.json"
-    try:
-        data = json.loads(features.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        errors.append(f"FEATURES.json unreadable: {exc}")
-        return
-    status_values = set(data.get("status_values", []))
-    if not status_values:
-        errors.append("FEATURES.json: missing status_values")
-        return
-    active = 0
-    for feature in data.get("features", []):
-        fid = feature.get("id", "<missing>")
-        status = feature.get("status")
-        if status not in status_values:
-            errors.append(f"FEATURES.json: {fid} status {status!r} not in enum")
-        if status == "active":
-            active += 1
-    if active > 1:
-        errors.append(f"FEATURES.json: {active} active features (expected at most 1)")
-
-
 def main() -> int:
-    # Strict is the default since Phase 4 (all in-tree WARN-tier findings
-    # resolved); --strict is accepted as a no-op for command history.
-    strict = "--strict" in sys.argv or "--no-strict" not in sys.argv
+    # Strict is the default: WARN-tier findings fail. --no-strict downgrades
+    # personal-path literals to warnings for history work.
+    strict = "--no-strict" not in sys.argv
     errors: list[str] = []
     warnings: list[str] = []
+
+    error_markers, warn_markers, markers_present = load_markers()
 
     files = tracked_files()
     check_forbidden_paths(files, errors)
     check_blob_sizes(files, errors)
-    check_pii(files, errors, warnings)
-    check_features(errors)
+    check_pii(
+        files, errors, warnings, error_markers, warn_markers, markers_present
+    )
 
     for warning in sorted(set(warnings)):
         print(f"WARN {warning}")

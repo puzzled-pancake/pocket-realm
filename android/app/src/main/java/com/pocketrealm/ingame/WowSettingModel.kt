@@ -17,13 +17,13 @@ enum class WowSettingControl { TOGGLE, SLIDER, CHOICE }
 /**
  * Where the setting's value lives. FUNCTION entries have no verified file
  * persistence and render visible-but-disabled ("Change this in the game's
- * own menus") per the plan's Section 5.5 ladder.
+ * own menus") per the staged settings ladder.
  */
 enum class WowSettingBackend { CVAR, UVAR, FUNCTION }
 
 /**
  * How each catalog fact was verified — the provenance split pinned by
- * docs/INGAME_SETTINGS_GROUND_TRUTH.md. FRAMEXML_PIN facts come from the
+ * on-device ground truth. FRAMEXML_PIN facts come from the
  * MOUZU mirror of Blizzard's 1.12.1 FrameXML (commit 776d64e); DEVICE_CAPTURE
  * facts come from the live build-5875 WTF tree pulled from the Retroid
  * Pocket 6 on 2026-08-16.

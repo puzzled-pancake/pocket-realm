@@ -36,10 +36,10 @@ import com.pocketrealm.pkg.PkgRunIds
 import kotlinx.coroutines.launch
 
 /**
- * X0 capability report + PKG experiment console (report §8.4 / §20.1).
+ * Capability report + packaging experiment console.
  *
  * Shows the live device/process capability snapshot and lets the user run the
- * PKG-01/02 experiments interactively. The genuine PKG-06 30-minute runs are
+ * launcher/containment experiments interactively. The genuine 30-minute smoke runs are
  * driven by the host driver, not here; this screen offers a short bounded
  * smoke for quick verification.
  */
@@ -81,7 +81,7 @@ fun CapabilityScreen(contentPadding: PaddingValues = PaddingValues()) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text("Capability (X0)", style = MaterialTheme.typography.headlineSmall)
+            Text("Capability", style = MaterialTheme.typography.headlineSmall)
         }
         report?.let { rep ->
             item {

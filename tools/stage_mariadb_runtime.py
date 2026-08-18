@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage the pinned MariaDB x86_64 ELF/data subset for O08's APK variant."""
+"""Stage the pinned MariaDB x86_64 ELF/data subset for the APK variant."""
 from __future__ import annotations
 
 import hashlib
@@ -28,8 +28,8 @@ JNI = STAGE / "jniLibs" / "x86_64"
 PROVIDER = STAGE / "assets" / "database" / "provider"
 LOCKFILE = ROOT / "schemas" / "mariadb-runtime-lockfile.json"
 REPO_ARCHIVES = ROOT / "native" / ".glibc-build" / "glibc-packages" / "output"
-O06_ARCHIVES = ROOT / "runtime" / "glibc-rootfs-x86_64"
-O06_WINE_JNI = ROOT / "native" / ".build-x86_64" / "wine-staging" / "jniLibs"
+RUNTIME_ARCHIVES = ROOT / "runtime" / "glibc-rootfs-x86_64"
+WINE_JNI = ROOT / "native" / ".build-x86_64" / "wine-staging" / "jniLibs"
 PACKAGE_CACHE = BUILD / "package-cache"
 LIBSTDCXX = BUILD / "libstdc++.so.6.0.35"
 METADATA_URL = "https://sync.termux-pacman.dev/gpkg/x86_64/gpkg.json"
@@ -39,7 +39,7 @@ INITIAL_PACKAGES = {
     "zstd-glibc", "ncurses-glibc", "libbz2-glibc", "libxml2-glibc",
     "liblz4-glibc", "glibc", "gcc-libs-glibc",
 }
-# O08 uses MariaDB's built-in InnoDB/Aria/MyISAM engines only. Do not package
+# The APK uses MariaDB's built-in InnoDB/Aria/MyISAM engines only. Do not package
 # optional audit, PAM, RocksDB, Spider, or replication plugins merely because
 # the upstream source recipe compiled them.
 REQUIRED_PLUGINS: set[str] = set()
@@ -65,20 +65,20 @@ def package_archive(metadata: dict, package: str) -> Path:
     filename = record["FILENAME"]
     expected = record["SHA256SUM"]
     if package == "gcc-libs-glibc":
-        candidates = sorted(O06_ARCHIVES.glob("gcc-libs-glibc-16.1.0-*-x86_64.pkg.tar.*"))
+        candidates = sorted(RUNTIME_ARCHIVES.glob("gcc-libs-glibc-16.1.0-*-x86_64.pkg.tar.*"))
         if len(candidates) != 1:
             raise RuntimeError(f"expected pinned source-built GCC 16.1 runtime, found {candidates}")
         # Mirror metadata currently advertises GCC 14.2, which is ABI-skewed
-        # from the pinned GCC 16.1 compiler. O06 already source-built libgcc_s
+        # from the pinned GCC 16.1 compiler. The runtime build already source-built libgcc_s
         # 16.1 from the recorded GNU tarball; pair it with CGCT's hash-pinned
         # 16.1 libstdc++ instead of accepting the live mirror version.
         return candidates[0]
     if package == "glibc":
-        candidates = sorted(O06_ARCHIVES.glob("glibc-2.43-1-x86_64.pkg.tar.*"))
+        candidates = sorted(RUNTIME_ARCHIVES.glob("glibc-2.43-1-x86_64.pkg.tar.*"))
         if len(candidates) != 1:
-            raise RuntimeError(f"expected O06 source-built loader/libc archive, found {candidates}")
+            raise RuntimeError(f"expected source-built loader/libc archive, found {candidates}")
         return candidates[0]
-    for root in (REPO_ARCHIVES, O06_ARCHIVES, PACKAGE_CACHE):
+    for root in (REPO_ARCHIVES, RUNTIME_ARCHIVES, PACKAGE_CACHE):
         candidate = root / filename
         if candidate.is_file() and digest(candidate) == expected:
             return candidate
@@ -96,7 +96,7 @@ def load_metadata(refresh: bool = False) -> tuple[dict, str]:
     """Fetch the termux gpkg index, PINNED to the committed lockfile.
 
     The index is live upstream metadata: without a pin, any full staging run
-    silently moves package versions (observed twice during the de-vibe
+    silently moves package versions (observed twice during the 2026-08
     Phase 4 window). Default behavior: refuse an index whose hash differs
     from schemas/mariadb-runtime-lockfile.json's metadata_sha256; --refresh
     explicitly accepts the new index and rewrites the lockfile for review.
@@ -180,7 +180,7 @@ def locate_mariadb_archive() -> Path:
 
 
 def all_runtime_packages(metadata: dict) -> set[str]:
-    # Download the declared library graph but intentionally omit perl: O08
+    # Download the declared library graph but intentionally omit perl: the APK
     # performs mariadb-install-db's bootstrap directly and distributes no shell
     # or Perl execution surface.
     selected: set[str] = set()
@@ -345,12 +345,12 @@ def main() -> int:
                 shutil.copy2(source, qualified)
                 if logical == "ld-linux-x86-64.so.2":
                     patch_rtld_access_for_android(qualified)
-                    paired = O06_WINE_JNI / "libld_linux_x86_64.so"
+                    paired = WINE_JNI / "libld_linux_x86_64.so"
                 else:
                     patch_libc_legacy_stat_for_android(qualified)
-                    paired = O06_WINE_JNI / "liblibc.so.6.so"
+                    paired = WINE_JNI / "liblibc.so.6.so"
                 if not paired.is_file() or digest(paired) != digest(qualified):
-                    raise RuntimeError(f"O08 {logical} does not match O06 qualified APK artifact")
+                    raise RuntimeError(f"staged {logical} does not match the qualified APK artifact")
                 apk_name, file_hash = paired.name, digest(paired)
             else:
                 apk_name, file_hash = stage_elf(source)

@@ -96,7 +96,7 @@ function AP:InitializeDatabase()
             -- "VanillaConsolePort" is 18 characters: string.sub(name, 19)
             -- drops the whole prefix (18 kept the trailing "t", producing
             -- junk keys like AndroidPorttLeftCluster and silently losing
-            -- migrated frame positions — fixed by the de-vibe pass, 0.6.0+).
+            -- migrated frame positions, fixed as of addon 0.6.0+).
             if string.find(name, "VanillaConsolePort", 1, true) == 1 and journal["AndroidPort" .. string.sub(name, 19)] == nil then
                 journal["AndroidPort" .. string.sub(name, 19)] = saved
                 journal[name] = nil

@@ -1,54 +1,86 @@
-# Pocket Realm compact Claude Code handoff
+# Pocket Realm
 
-## Plain-language project wiki
+Pocket Realm turns one Android handheld — primarily the Retroid Pocket 6 — into
+both a World of Warcraft 1.12.1 "private realm" server and its game client,
+fully offline. It builds CMaNGOS (realmd + mangosd), Playerbots, and MariaDB as
+Android-native libraries running in fault-isolated processes bound to loopback,
+and runs your own copy of the Windows WoW 1.12.1 client under Wine with a
+Winlator-derived X server and pinned graphics stacks (DXVK / Turnip / VirGL /
+Gladio). One app: import your client, press play, and a local world with
+computer-controlled companions comes up and shuts down safely.
 
-The human-readable project guide, current screenshots, setup help, feature explanations, and troubleshooting pages are in [`docs/wiki/README.md`](docs/wiki/README.md).
+**Status: alpha (0.100.0-alpha).** Screens and wording may change. See the
+[wiki](docs/wiki/README.md) for what works today, with screenshots.
 
-This package replaces the previous oversized handoff. Copy its contents into the root of a clean implementation repository, or remove the old generated handoff/control files first. Do not load both instruction systems: Claude concatenates applicable project memory files.
+## What you need
 
-Claude Code reads `CLAUDE.md`, not `agent.md` directly. `CLAUDE.md` imports the requested `agent.md`, so there is one concise instruction source.
+- A supported Android handheld (Retroid Pocket 6 class; ARM64, 12 GB RAM
+  recommended). An x86_64 emulator lane is used for development.
+- **Your own copy of the WoW 1.12.1 client (build 5875).** Pocket Realm never
+  bundles or distributes any Blizzard asset — no executables, MPQs, DBCs, maps,
+  models, or textures. You import a client you are entitled to use; Pocket
+  Realm makes a private managed copy and prepares its data on-device.
+- Pocket Realm is a fan project and is not affiliated with, endorsed by, or
+  sponsored by Blizzard Entertainment. World of Warcraft is a trademark of
+  Blizzard Entertainment, Inc.
 
-## First run
+## Documentation
+
+The [project wiki](docs/wiki/README.md) is the human-facing guide: getting
+started, game file import, add-ons, controller and touch controls, settings,
+the local server and bots, backups, troubleshooting, and a plain-language
+explanation of [how the pieces work together](docs/wiki/How-It-Works.md).
+
+## Building from source
 
 ```bash
-claude
-/context
+git clone --recursive <this repository>
+cd pocket-realm
 ```
 
-Confirm `CLAUDE.md` is listed under memory files. Then start one autonomous feature with:
+The Android app is built with Gradle (JDK 17). The mandatory ABI/lane
+properties select what the build verifies:
 
-```text
-/goal Follow agent.md. If no feature is active, run python3 scripts/next_feature.py --activate. Fully implement exactly that feature and pass its stated checks, or record a precise external blocker. Update FEATURES.json and PROGRESS.md, commit the coherent result when applicable, and stop after that one feature.
+```bash
+cd android
+./gradlew :app:testDebugUnitTest -PpocketAbi=x86_64 -PpocketLane=full
 ```
 
-Repeat for the next feature. `/goal` requires a current Claude Code release; use `/work-feature` for the same bounded procedure when `/goal` is unavailable or when you prefer manual turn control.
+A full APK additionally needs the native providers (Wine, MariaDB, the X
+server, renderer packages) fetched and staged by the Python 3 tooling under
+`tools/` and `scripts/` — see [Build and packaging](docs/wiki/Build-and-Packaging.md).
 
-## File map
+### Developer setup
 
-- `agent.md`: short always-on instructions.
-- `PROGRESS.md`: **the single current handoff** — current state for the next session.
-- `PLAN.md`: architecture overlay (gates, tracks, constraints); status lives in PROGRESS.md.
-- `DECISIONS.md`: concise adopted decisions and evidence-backed deltas from the report.
-- `FEATURES.json`: dependency-ordered features with report section pointers (`python tools/validate_features.py` validates).
-- `docs/devibe/`: the de-vibe cleanup plan and its execution records.
-- `docs/handoffs/graphics-selection.md`: specialized renderer/GPU-selection handoff (PROGRESS.md is authoritative).
-- `docs/history/`: retired one-time notes (SANITY_CHECK, PROMPTING_REDESIGN).
-- `docs/research/`: dated research reports and the gl-calls investigation archive.
-- `docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx`: canonical offline engineering reference; the adjacent PDF is the fixed-layout reading copy.
-- `.claude/rules/`: path-specific instructions loaded only for relevant files.
-- `.claude/skills/`: on-demand workflows for a feature, runtime qualification, and milestone review.
-- `.claude/hooks/`: one narrow guard against destructive repository commands.
-
-Claim status for any given milestone is whatever `PROGRESS.md` currently says —
-do not rely on summaries (including this one) for gate or feature state.
-
-## One-time clone setup
+Repository hygiene gates run as a pre-commit hook:
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-Enables the pre-commit hygiene gate (repo hygiene + pinned sources + python
-tests). `python` must be a working interpreter; if the ambient environment
-autoloads broken pytest plugins, the hook already sets
-`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` internally.
+Note: `tools/check_sources.py` (part of the hook) needs initialized submodules
+and the local `native/.providers` cache. On a fresh clone without them, defer
+installing the hook (or commit with `--no-verify`) until both are populated.
+
+## Updates
+
+The app checks for updates from a dedicated public GitHub "updates" repository
+(Settings → App updates). Release packages carry a `THIRD_PARTY_NOTICES.md`
+with the complete third-party license attribution.
+
+## Release checklist (maintainers)
+
+Every published release must: attach the notices and name the exact source
+state (this repository's release tag plus the pinned submodule commits on the
+recorded mirrors); confirm conditional components absent from the package are
+actually absent (alsa-lib, proot/talloc) or add their license entries; and
+have explicit owner approval before publishing.
+
+## License
+
+Pocket Realm's own code is licensed under the GNU General Public License v3.0 —
+see [LICENSE](LICENSE). The repository vendors and builds many third-party
+components (CMaNGOS, Playerbots, MariaDB, Wine, Winlator, Box64, DXVK, Turnip,
+VirGL, Gladio, vanilla-tweaks, and more) under their own licenses — see
+`schemas/sources.json`, `docs/patches/`, the in-tree LICENSE files of the
+vendored trees, and `THIRD_PARTY_NOTICES.md` in release packages.

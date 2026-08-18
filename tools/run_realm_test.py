@@ -2,11 +2,11 @@
 """Generate loopback realm configs, seed the SQLite DBs, and run the native
 lifecycle test against the built libpocketrealm.so on a connected device.
 
-This is the O04 self-test driver: it produces a self-contained realm run-root
+This is the realm self-test driver: it produces a self-contained realm run-root
 (configs + seeded DBs + data dir), pushes it + the stripped libpocketrealm.so +
 pocket_lifecycle_test to the emulator, runs the test, and reports PASS/FAIL.
 
-Honesty contract (agent.md): the test exercises the real C ABI against real
+Honesty contract: the test exercises the real C ABI against real
 seeded SQLite databases. It does NOT fake the client-data health conditions:
 those report BLOCKED_ON_CLIENT_DATA. The script exits non-zero if the test
 fails or any prerequisite is missing.
@@ -104,10 +104,10 @@ def main() -> int:
     db = stage / "db"
     content = stage / "content"
     # mangosd.conf — minimal keys. SQLite info strings are bare file paths.
-    # Loopback bind (DECISIONS #9). Console/RA/SOAP off (no console control).
+    # Loopback bind only. Console/RA/SOAP off (no console control).
     # vmaps/mmaps off (client data absent; not needed for DB-layer health).
     mangosd_conf = f"""\
-# Pocket Realm generated mangosd.conf (O04 loopback test). Minimal keys only.
+# Pocket Realm generated mangosd.conf (loopback test). Minimal keys only.
 RealmID = 1
 DataDir = "{dev_content}/"
 # SQLite: the info string is passed straight to sqlite3_open (a file path).
@@ -132,7 +132,7 @@ mmap.enabled = 0
 MaxCoreStuckTime = 0
 """
     realmd_conf = f"""\
-# Pocket Realm generated realmd.conf (O04 loopback test). Minimal keys only.
+# Pocket Realm generated realmd.conf (loopback test). Minimal keys only.
 LoginDatabaseInfo = "{dev_db}/realmd.sqlite"
 RealmServerPort = 3724
 BindIP = "127.0.0.1"

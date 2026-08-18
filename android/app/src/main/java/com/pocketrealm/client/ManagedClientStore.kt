@@ -6,7 +6,7 @@ import org.json.JSONObject
 import java.io.File
 import java.nio.file.Files
 
-/** Fail-closed reader for the app-private O07 client generation. */
+/** Fail-closed reader for the app-private client generation. */
 internal class ManagedClientStore(context: Context) {
     data class ManagedClient(
         val id: String,
@@ -69,7 +69,7 @@ internal class ManagedClientStore(context: Context) {
             check(generation.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")))
             generationIdentity = generation
             File(clientRoot, "generations/$generation")
-        } else File(clientRoot, "active") // O07 debug-generation compatibility
+        } else File(clientRoot, "active") // debug-generation compatibility
         val expectedParent = checkNotNull(expected.absoluteFile.parentFile).canonicalFile
         val root = expected.canonicalFile
         check(root.parentFile == expectedParent && root.isDirectory &&

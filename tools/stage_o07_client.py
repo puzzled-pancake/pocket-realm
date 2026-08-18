@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Validate and stage a user-owned WoW 1.12.1 build 5875 client.
 
-This is the temporary O07 debug import path allowed by report section 20.3.
+This is the temporary debug import path for early client bring-up.
 It never executes or modifies the source directory. Files are streamed into a
 private app staging generation, published per-file through .partial + rename,
 verified on-device, then the complete generation is atomically activated.
@@ -335,7 +335,7 @@ def stage(
     )
     if not ordinary_lane and not exact_arm64_restore:
         raise ImportFailure(
-            "O07 staging requires x86_64/4096, or the explicit exact-hash "
+            "Debug client staging requires x86_64/4096, or the explicit exact-hash "
             f"ARM64 data-loss restore lane; got {props}/{page}"
         )
     free_lines = adb.run_as("df", "-Pk", "no_backup").stdout.decode().splitlines()
@@ -447,7 +447,7 @@ def main() -> int:
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--serial", required=True,
                         help="target device/emulator serial (e.g. emulator-5554); "
-                             "no implicit device default (de-vibe P4)")
+                             "no implicit device default")
     parser.add_argument("--package", default=PACKAGE)
     parser.add_argument("--validate-only", action="store_true")
     parser.add_argument("--replace", action="store_true")

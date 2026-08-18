@@ -18,7 +18,7 @@ import java.nio.ByteOrder
  * client loot lifecycle.
  *
  * Persisted as a single JSON-string DataStore key by [com.pocketrealm.storage.Settings]
- * (DECISIONS.md: no JSON-string precedent existed in Settings; introduced here for
+ * (no JSON-string precedent existed in Settings; introduced here for
  * this composite value).
  */
 data class ClientTweaksConfig(

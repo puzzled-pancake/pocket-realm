@@ -7,7 +7,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
 
-/** Read-only SAF fast scan for the Gate-G1 client identity decision.
+/** Read-only SAF fast scan for the client identity decision.
  *
  * Only the selected root, WoW.exe, and the immediate Data directory are read.
  * Import/copy is deliberately a separate operation so rejecting a selection

@@ -6,7 +6,7 @@ import java.io.RandomAccessFile
 import java.nio.channels.FileLock
 import java.nio.channels.OverlappingFileLockException
 
-/** Fail-closed reader for the immutable O11 normal-play data generation. */
+/** Fail-closed reader for the immutable normal-play data generation. */
 internal class PreparedDataStore(private val root: File) {
     /**
      * Cheap supervisor boundary: authenticate the active pointer and manifest

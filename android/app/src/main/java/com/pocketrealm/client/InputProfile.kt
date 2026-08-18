@@ -273,7 +273,7 @@ enum class OverlayClusterId {
 data class ClusterAnchor(val xFraction: Float, val yFraction: Float)
 
 /**
- * O14 G4 mobile input UX — versioned logical input profile.
+ * Mobile input UX — versioned logical input profile.
  *
  * Report §16.6/§16.8 require a persisted action map with per-device dead zones
  * that resets to a known layout when the screen aspect changes beyond a tested
@@ -285,7 +285,7 @@ data class ClusterAnchor(val xFraction: Float, val yFraction: Float)
  * select it without depending on UI. [InputProfileStore] is the only storage
  * adapter. An aspect mismatch must select the default and report `profileReset`;
  * it must never silently reuse a profile authored against a different aspect
- * (report §16.8).
+ * (IME policy).
  *
  * @param version schema version; bump when the record shape changes
  * @param deadZone neutral stick dead zone in `0f..0.5f`.

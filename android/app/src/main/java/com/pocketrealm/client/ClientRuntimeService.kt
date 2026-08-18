@@ -684,7 +684,7 @@ class ClientRuntimeService : Service() {
             "FONTCONFIG_FILE=${File(rootfs, "etc/fonts/fonts.conf").absolutePath}",
             "FONTCONFIG_PATH=${File(rootfs, "etc/fonts").absolutePath}",
         ) + driverEnv + rendererEnv + (if (audioOn) listOf(
-            // O23 audio: route libasound to the on-device ALSA server (bound by
+            // Audio: route libasound to the on-device ALSA server (bound by
             // ClientDisplayHost at <transportRoot>/.sound/AS0) via the android_aserver
             // plugin. The plugin is installed into the ca3d735 rootfs at
             // usr/lib/alsa-lib/ (libasound's standard plugin dir); the rootfs already

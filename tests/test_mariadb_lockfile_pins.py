@@ -1,6 +1,6 @@
 """Tripwire: the mariadb runtime lockfile must only move deliberately.
 
-The termux gpkg index is live upstream metadata. Twice during the de-vibe
+The termux gpkg index is live upstream metadata. Twice during the 2026-08
 Phase 4 window a full staging run silently moved package versions (bash,
 libicu, liblzma, readline) by trusting it. stage_mariadb_runtime now refuses
 an unpinned index without --refresh; this test pins the four reviewed

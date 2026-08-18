@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "description": "O06 G1 dependency lockfile (SBOM) for the glibc-side runtime closure required by the pinned Kron4ek Wine 11.14 amd64-wow64 archive and its source-rebuilt Android 16 KB dispatcher trio. Every glibc/X11 package is built from source via its pinned gpkg build script, so the loader and libraries come from one glibc 2.43-1 build (no loader/libc ABI skew). tools/build_glibc_closure.py produces 16 KB-congruent ELF segments; tools/check_wine_dtneeded.py verifies the actual closure. tools/build_wine_16k_ntdll.py source-rebuilds Unix ntdll.so plus PE ntdll.dll/win32u.dll as one matched set and rejects mixed dispatcher stubs. This covers the mandatory wineboot + X11/GDI closure; optional/dlopen-disablable dependencies remain outside this qualification.",
+  "description": "Dependency lockfile (SBOM) for the glibc-side runtime closure required by the pinned Kron4ek Wine 11.14 amd64-wow64 archive and its source-rebuilt Android 16 KB dispatcher trio. Every glibc/X11 package is built from source via its pinned gpkg build script, so the loader and libraries come from one glibc 2.43-1 build (no loader/libc ABI skew). tools/build_glibc_closure.py produces 16 KB-congruent ELF segments; tools/check_wine_dtneeded.py verifies the actual closure. tools/build_wine_16k_ntdll.py source-rebuilds Unix ntdll.so plus PE ntdll.dll/win32u.dll as one matched set and rejects mixed dispatcher stubs. This covers the mandatory wineboot + X11/GDI closure; optional/dlopen-disablable dependencies remain outside this qualification.",
   "wine_provider": "wine-kron4ek-11-14-vanilla-wow64",
   "glibc_packages_repo": {
     "upstream_url": "https://github.com/termux-pacman/glibc-packages",
@@ -317,7 +317,7 @@
       "upstream_source_url": "https://www.alsa-project.org/files/pub/lib/alsa-lib-1.2.16.1.tar.bz2",
       "upstream_source_sha256": "f740db7f488255944ffd4428416ee3390a96742856916433df468c281436480e",
       "license": "LGPL-2.1",
-      "role": "O23 OPTIONAL (audio): libasound.so.2 is the DT_NEEDED of winealsa.so and of the android_aserver PCM plugin. Absent is fine for audio-off (the default); present enables the O23 audio backend when audioMode=on. Built on demand: python tools/build_glibc_closure.py --packages alsa-lib",
+      "role": "OPTIONAL (audio): libasound.so.2 is the DT_NEEDED of winealsa.so and of the android_aserver PCM plugin. Absent is fine for audio-off (the default); present enables the audio backend when audioMode=on. Built on demand: python tools/build_glibc_closure.py --packages alsa-lib",
       "provides": [
         "libasound.so.2"
       ],
@@ -331,8 +331,8 @@
     "note": "These are dlopen-disablable or --without-* optional deps. Absent is fine for the WineD3D-safe audio-off spike; Wine degrades silently. Adding any (esp. libGL/libEGL/Mesa for WineD3D, or libvulkan for DXVK) is a deliberate re-planning decision that must extend this lockfile.",
     "libs": [
       "libgnutls.so.30 (TLS; dlopened)",
-      "libvulkan.so.1 (GAP in glibc-packages; --without-vulkan sidesteps for O06)",
-      "libpulse.so.0 (audio off; libasound.so.2 is now O23-conditional — build alsa-lib for the audio backend)",
+      "libvulkan.so.1 (GAP in glibc-packages; --without-vulkan sidesteps this)",
+      "libpulse.so.0 (audio off; libasound.so.2 is now audio-conditional — build alsa-lib for the audio backend)",
       "libGL.so.1 / libEGL.so.1 (WineD3D GL; deferred)",
       "libXrandr/libXrender/libXcomposite/libXinerama/libXi/libXfixes/libXcursor/libXxf86vm (X extensions; degrade silently)",
       "libgphoto2/libgsm/libmpg123/libv4l/libusb/libcups/libSDL2/libFAudio/lcms2/sane/capi20/pcsclite/samba/libxpresent/libjxr (all --without-* disablable)"

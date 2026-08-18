@@ -70,7 +70,7 @@ internal class ServerRuntimeFiles(context: Context) {
         )
     }
 
-    /** O12+ production entry point; refuses normal play unless every O11 artifact verifies. */
+    /** Production entry point; refuses normal play unless every import artifact verifies. */
     fun worldConfigNormal(
         bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS,
         nearbyInteractTriggerGuardMs: Int = NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
@@ -81,7 +81,7 @@ internal class ServerRuntimeFiles(context: Context) {
         nearbyInteractTriggerGuardMs = nearbyInteractTriggerGuardMs,
     )
 
-    /** O13 measured profile entry point. Auction-house automation remains disabled. */
+    /** Measured bot-profile entry point. Auction-house automation remains disabled. */
     fun worldConfigBot(
         profile: BotProfile,
         bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS,

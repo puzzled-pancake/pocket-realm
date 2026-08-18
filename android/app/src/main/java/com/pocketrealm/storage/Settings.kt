@@ -226,7 +226,7 @@ internal fun pocketSettingsStore(context: Context): DataStore<Preferences> =
  * Persistent, generation-independent app settings (the wizard/advanced screens
  * write here). Generation-managed settings (runtime tuples, addon profiles,
  * visual overlays) are NOT stored here — they live under [StorageRoots.runtime]
- * as versioned, rollbackable generations per DECISIONS.md #27.
+ * as versioned, rollbackable generations.
  */
 class Settings(private val context: Context) {
 

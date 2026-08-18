@@ -1,4 +1,4 @@
-/* page_size.c — runtime page-size probe (report §5.5). Never assume 4096. */
+/* page_size.c — runtime page-size probe. Never assume 4096. */
 #include "pocket_pkg.h"
 #include <unistd.h>
 

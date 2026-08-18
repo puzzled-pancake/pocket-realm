@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cross-build the O06 G1 self-test PE with the pinned MinGW toolchain.
+"""Cross-build the runtime self-test PE with the pinned MinGW toolchain.
 
 Produces pocket_selftest.exe — a 32-bit Win32 PE (the same bitness WoW.exe is,
 so it exercises Wine's new-WoW64 thunk path) from runtime/wine-x86_64-wow64/
@@ -114,7 +114,7 @@ def main() -> int:
     print(f"\nBuilt: {OUT_PE.relative_to(ROOT)}")
     print(f"  size: {OUT_PE.stat().st_size} bytes")
     print(f"  sha256: {pe_sha}")
-    print(f"  (32-bit Win32 PE; authorized guest PE for the O06 spike)")
+    print(f"  (32-bit Win32 PE; authorized guest PE for the runtime spike)")
 
     # Record a small provenance sidecar next to the PE.
     sidecar = OUT_DIR / "pocket_selftest.exe.sha256"

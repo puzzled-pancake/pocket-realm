@@ -5,7 +5,7 @@ import org.json.JSONObject
 
 /**
  * Pending, not-yet-delivered edits staged while the client runs
- * (docs/INGAME_SETTINGS_PLAN_2026-08-16.md §4.2). This is a queue, not a
+ * (settings queue design). This is a queue, not a
  * mirror of game state. The global `revisionSequence` counter lives in its
  * own DataStore Long key (see Settings) and never resets, which is what
  * makes apply-once delivery correct for all three queues.

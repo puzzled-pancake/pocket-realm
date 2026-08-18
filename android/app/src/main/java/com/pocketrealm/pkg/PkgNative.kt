@@ -1,7 +1,7 @@
 package com.pocketrealm.pkg
 
 /**
- * JNI shim for the G0 packaging-experiment native library (O05 / report §8.4).
+ * JNI shim for the packaging-experiment native library.
  *
  * `libpocketpkgtest.so` (native/packaging) is a small JNI library driven from
  * the isolated `:pkg` child process. It is deliberately NOT the realm — it
@@ -46,7 +46,7 @@ object PkgNative {
     external fun probePageSizeNative(): Int
 
     /**
-     * PKG-02/06: dlopen("libpocketrealm.so", RTLD_NOW) by SONAME and record the
+     * Containment/smoke: dlopen("libpocketrealm.so", RTLD_NOW) by SONAME and record the
      * dladdr-resolved path/base of a known realm symbol. Never assumes an
      * absolute nativeLibraryDir path (production variant may load from the APK).
      *
@@ -57,7 +57,7 @@ object PkgNative {
     external fun loadRealmSoBySonameNative(): RealmSoInfoParcelable
 
     /**
-     * PKG-06: probe ONE native library by SONAME (RTLD_NOLOAD then RTLD_NOW) and
+     * Smoke: probe ONE native library by SONAME (RTLD_NOLOAD then RTLD_NOW) and
      * record the dl_iterate_phdr-resolved path/base. Used to prove every library
      * packaged in the APK loads under the production variant, not just the ones
      * another lib already pulled in transitively. [soname] e.g. "libc++_shared.so".
@@ -65,7 +65,7 @@ object PkgNative {
     external fun probeSoBySonameNative(soname: String): RealmSoInfoParcelable
 
     /**
-     * PKG-02 deterministic native fault. [kind]: 0=abort(), 1=NULL-deref,
+     * Deterministic native fault. [kind]: 0=abort(), 1=NULL-deref,
      * 2=stack-guard. Never returns for kind 0 (SIGABRT).
      */
     external fun crashNative(kind: Int)

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "reference_document": "docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx",
+  "reference_document": "docs/wiki/README.md",
   "avd_id": "AVD-Modern-x86_64-v1",
   "system_image": "Android/sdk_phone64_x86_64/emu64x:15/AE3A.240806.019/12368160:userdebug/test-keys",
   "captured_at_utc": "2026-08-01T04:11:07.028682+00:00",

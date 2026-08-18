@@ -5,7 +5,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Host-JVM test for the RealmNative JNI shim (O04).
+ * Host-JVM test for the RealmNative JNI shim.
  *
  * The native libpocketrealm.so is NOT present in the host JVM (it's an Android
  * .so, cross-compiled for arm64-v8a/x86_64). So [RealmNative.load] must throw

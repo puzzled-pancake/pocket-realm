@@ -1,6 +1,6 @@
 # native/packaging/CMakeLists.txt
 #
-# G0 packaging experiments (O05 / report §8.4 PKG-01/02/06). Built standalone
+# Packaging experiments. Built standalone
 # against the pinned NDK; outputs are staged into the Android APK by the Gradle
 # stageNativeLibs task.
 #

@@ -39,7 +39,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * O14 input-across-generations regression: proves keyboard, absolute pointer,
+ * Input-across-generations regression: proves keyboard, absolute pointer,
  * and left-click delivery, held-input release, and stale-generation rejection
  * across two genuinely fresh [ClientDisplayHost] / [InputContract] lifecycles.
  *

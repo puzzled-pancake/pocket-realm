@@ -12,7 +12,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * Credential-exclusion contract for realm-data exports (de-vibe A2): the
+ * Credential-exclusion contract for realm-data exports: the
  * account file must appear ONLY when the caller explicitly passes it; the
  * SettingsScreen default passes null.
  */

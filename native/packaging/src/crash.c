@@ -1,5 +1,5 @@
 /* crash.c — the deterministic PKG-02 native fault. Runs in the isolated :pkg
- * child process, never in :main. kind 0 (abort) is the report's named trigger. */
+ * child process, never in :main. kind 0 (abort) is the named deterministic trigger. */
 #include "pocket_pkg.h"
 #include <stdlib.h>
 #include <string.h>
@@ -20,6 +20,6 @@ void pkg_crash(int32_t kind)
     }
     case 0:
     default:
-        abort(); /* SIGABRT — the deterministic, report-named trigger */
+        abort(); /* SIGABRT — the deterministic trigger */
     }
 }

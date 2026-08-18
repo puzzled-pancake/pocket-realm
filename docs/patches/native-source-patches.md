@@ -79,11 +79,11 @@ from a clean checkout at the audited commit. Because the mirror is refreshed
 from the submodule, the source patch above must land in the submodule copy
 (re-running `ensure_playerbots()` propagates it into the mirror).
 
-## O04 — embeddable realm lifecycle facade (POCKET_EMBEDDED)
+## Embeddable realm lifecycle facade (POCKET_EMBEDDED)
 
-O04 makes the CMaNGOS/Playerbots realm controllable in-process via a versioned
+The library lane makes the CMaNGOS/Playerbots realm controllable in-process via a versioned
 C ABI (`schemas/abi/pocket_realm.h`), driven by the Android supervisor without
-process exit, console-only control, or signal-only shutdown (DECISIONS #7/#8).
+process exit, console-only control, or signal-only shutdown.
 The patches below isolate every change to the pinned upstream trees so a re-pin
 re-applies them deliberately.
 
@@ -118,7 +118,7 @@ failure on the SOAP worker thread).
 **Why:** these are exactly the calls that would kill the host app process on bad
 data. Under `POCKET_EMBEDDED` they throw instead, classified by the facade as
 `REALM_E_FATAL_STARTUP` (or `REALM_E_BLOCKED_ON_CLIENT_DATA` for the `.map`/
-`.dbc` gates that indicate the O10 client-data import hasn't run).
+`.dbc` gates that indicate the client-data import hasn't run).
 
 ### cmangos — `src/mangosd/Master.{h,cpp}` embeddable lifecycle hooks
 
@@ -143,7 +143,7 @@ flags so a second realm generation can start in the same process.
 **Why:** the world stop gate is static; after a cooperative stop it stays set
 and a second `WorldRunnable` loop would exit immediately. Resetting it (called
 at the end of `StopEmbedded`) enables the Strategy A in-process re-entrancy the
-O04 acceptance criterion requires ("twice in one process").
+library-lane acceptance criterion requires ("twice in one process").
 
 ### cmangos — `src/mangosd/Main.cpp` gate `main()`
 
@@ -177,7 +177,7 @@ listener with a facade-owned io_context and stop flag instead of signals.
 `#ifndef POCKET_EMBEDDED`. The `ChatHandler::Handle*` command implementations
 above `run()` in the same file are **kept**.
 
-**Why:** the embedded path has no console (DECISIONS #8); commands go through
+**Why:** the embedded path has no console; commands go through
 `realm_command` → `sWorld.QueueCliCommand` directly. But `libgame`'s command
 table references the command implementations (`HandleServerExitCommand`,
 `HandleAccountCreateCommand`, etc.) that live in this TU, so the file must
@@ -201,7 +201,7 @@ executables accept PIC too). The stale-target guard key includes `+pic` so a
 re-run after this change cleans bin.v2. Added `--runtime`/`--runtime-tests`
 flags that pass `-DBUILD_POCKET_RUNTIME=ON -DPOCKET_RUNTIME_DIR=...`.
 
-### O11 extractors — bounded MPQ `(listfile)` parsing
+### Client-import extractors — bounded MPQ `(listfile)` parsing
 
 **Change:** `native/patches/o11-cmangos-safe-mpq-listfile.patch` replaces the
 two extractor copies of `MPQArchive::GetFileListTo` with a transferred-length-
@@ -230,7 +230,7 @@ the world process; the distinct error strings keep overlay cleanup symmetric.
 
 **Why:** the fatal precondition is safe only when every enterable map ships a
 navmesh header. A bot entering Uldaman (map 070, WMO-only, no ADT terrain)
-after the O11 mmap stage skipped it killed `com.pocketrealm:world` with SIGABRT
+after the import mmap stage skipped it killed `com.pocketrealm:world` with SIGABRT
 at `MoveMap.cpp:202` (tombstone 2026-08-16 15:10). The companion import fix
 derives the generation map list from `maps/*.map` union `vmaps/*.vmtree` so
 WMO-only dungeons generate real navmeshes; these guards make any residual gap
@@ -243,7 +243,7 @@ bare assert earlier in the file and `replace_anchor` patches the first match.
 See `scripts/build_native.py` for the full reproducible build (stages:
 openssl, boost, sqlite, cmangos). Most code patches live in the upstream working
 trees (submodules) at the paths above; a clean re-pin requires re-applying them.
-O11 is the exception: its external patch, patch hash, clean source
+The client import is the exception: its external patch, patch hash, clean source
 materialization, and extractor hashes are automated by
 `tools/build_o11_extractors.py` and `schemas/o11-extractor-lockfile.json`. The
 FetchContent integration is automated and needs no manual step.

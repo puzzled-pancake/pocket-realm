@@ -7,8 +7,8 @@ import android.os.Process
 import com.pocketrealm.log.AppLog
 
 /**
- * The isolated `:pkg` child process (report §6.7 / §8.4 PKG-02). The deliberate
- * native abort() happens here, never in `:main`. PKG-02 binds to this service,
+ * The isolated `:pkg` child process. The deliberate
+ * native abort() happens here, never in `:main`. The containment experiment binds to this service,
  * asks it to load the real realm shared object by SONAME, confirms hello, then
  * triggers the crash; the runner observes the child PID disappear and a Binder
  * death notification, then restarts the child to prove a fresh PID answers.
@@ -18,7 +18,7 @@ import com.pocketrealm.log.AppLog
  * via its generated Stub; the platform hands the client a Proxy.
  *
  * This service is NOT a realm component and is NOT part of the production
- * RuntimeSupervisor topology (ADR-013). It exists only to contain the PKG-02
+ * RuntimeSupervisor topology. It exists only to contain the containment
  * fault injection.
  */
 class PkgIsolationService : Service() {

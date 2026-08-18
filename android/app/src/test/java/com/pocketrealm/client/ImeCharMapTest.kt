@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Host-JVM unit tests for [ImeCharMap], the O14 increment-2 IME committed-text
+ * Host-JVM unit tests for [ImeCharMap], the on-device IME committed-text
  * policy. These verify the bounded supported character set, shift handling,
  * punctuation mapping, unsupported-character rejection, commit length limits,
  * and the test fixture phrase.

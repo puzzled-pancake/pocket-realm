@@ -95,7 +95,7 @@ class O09RealmRuntimeTest {
         val worldForDbKill = bind(WorldRuntimeService::class.java) { IWorldControl.Stub.asInterface(it) }
 
         // Kill MariaDB while both listeners are active, then explicitly stop
-        // dependants and invoke O08's dirty recovery. It must never be reported
+        // dependants and invoke the dirty recovery. It must never be reported
         // as a clean database stop.
         assertOk(realm.api.start()); waitStatus(60_000) { JSONObject(realm.api.status()) }
         assertOk(worldForDbKill.api.start()); waitStatus(180_000) { JSONObject(worldForDbKill.api.status()) }

@@ -72,7 +72,7 @@ enum class SaveReason { USER_SAVE_EXIT, FORCED_CHECKPOINT, LOW_STORAGE, UPDATE_R
 /**
  * Explicit health conditions for the running state. The realm is only [Running]
  * once every member of [Running] precondition set that matters has been observed.
- * These map 1:1 to PLAN.md Milestone A2 health conditions.
+ * These map 1:1 to the library-lane health conditions.
  */
 enum class HealthCondition {
     DATABASE_OPEN,

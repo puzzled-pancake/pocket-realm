@@ -17,8 +17,8 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
- * F6: in-app update delivery from a dedicated public GitHub "updates"
- * repository (the source repo stays private; the updates repo contains only
+ * In-app update delivery from a dedicated public GitHub "updates"
+ * repository (the updates repo contains only
  * releases: the signed APK plus an update-manifest.json asset). Two tracks
  * share this coordinator: a check-only card (fetch the manifest, compare
  * version codes) and the full in-place install (resumable download with
@@ -33,7 +33,7 @@ object AppUpdateCoordinator {
 
     /**
      * The updates repository (owner/name). Activation is gated on the user
-     * creating it (DECISIONS entry): until then a check fails softly with
+     * creating it: until then a check fails softly with
      * "update channel unavailable".
      */
     const val UPDATES_REPO = "pocket-realm-updates/pocket-realm"

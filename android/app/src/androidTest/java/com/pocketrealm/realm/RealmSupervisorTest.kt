@@ -12,7 +12,7 @@ import org.junit.runner.RunWith
  * State-machine assertions for [RealmSupervisor]. These pin the legal-transition
  * table that the UI, notification, and (future) native lifecycle all rely on.
  *
- * They directly cover the O02 supervisor contract and the M2 fix (that Saving
+ * They directly cover the supervisor contract and the lifecycle fix (that Saving
  * reaches Stopping rather than short-circuiting to Idle). No Android framework
  * state is touched: this is a pure model test.
  */
@@ -138,7 +138,7 @@ class RealmSupervisorTest {
 
     @Test
     fun can_start_twice_in_one_process() {
-        // O04 acceptance precursor: the lifecycle must repeat without a process
+        // Lifecycle acceptance precursor: the lifecycle must repeat without a process
         // restart. The supervisor must return cleanly to Idle and accept a new
         // start.
         val s = RealmSupervisor()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build O08's deterministic, hash-verified SQL migration asset set.
+"""Build the deterministic, hash-verified SQL migration asset set.
 
 The source repos remain the source of truth. This script selects the exact
 Classic 1.12.1 inputs, records their pinned commits and SQL hashes in the
@@ -117,7 +117,7 @@ def select_inputs() -> list[Input]:
     # original_data/Spell.sql recreates spell_template with the coefficient
     # columns required by the pinned core; the z2815 snapshot alone only has
     # the older 153-column table.  Keep these additions at the tail so the
-    # migration IDs already shipped by O08 remain append-only and an existing
+    # migration IDs already shipped remain append-only and an existing
     # app-private database can repair itself without replaying old entries.
     selected.extend(
         Input("world", p)

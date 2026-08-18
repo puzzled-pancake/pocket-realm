@@ -29,7 +29,7 @@ import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
-/** O13 generation/ramp/SOAK-25 acceptance on a named Android lane. */
+/** Bot generation/ramp/soak acceptance on a named Android lane. */
 @RunWith(AndroidJUnit4::class)
 class O13BotTierTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
@@ -56,7 +56,7 @@ class O13BotTierTest {
             var stopped = JSONObject(database.api.status())
             if (!stopped.getBoolean("cleanMarker")) assertOk(database.api.recover())
             stopped = JSONObject(database.api.status())
-            assertTrue("O13 requires the O08/O12 migrated database baseline", stopped.getBoolean("initialized"))
+            assertTrue("bot tiers require the migrated database baseline", stopped.getBoolean("initialized"))
             if (restoreBaseline) {
                 val snapshotId = restoreNewestO12Baseline(database.api)
                 timeline.put(JSONObject().put("event", "baseline-restored")
@@ -178,7 +178,7 @@ class O13BotTierTest {
             fun attempt(name: String, action: () -> Unit) {
                 try { action() } catch (failure: Throwable) {
                     cleanupFailure?.addSuppressed(failure)
-                        ?: run { cleanupFailure = AssertionError("O13 $name cleanup failed", failure) }
+                        ?: run { cleanupFailure = AssertionError("bot tier $name cleanup failed", failure) }
                 }
             }
             attempt("world") {
@@ -246,7 +246,7 @@ class O13BotTierTest {
         val candidate = (0 until backups.length()).map(backups::getJSONObject)
             .filter { it.getString("snapshotId").startsWith("manual-o12-") }
             .maxByOrNull { it.getLong("createdAt") }
-            ?: throw AssertionError("no manual O12 baseline backup is available")
+            ?: throw AssertionError("no manual baseline backup is available")
         val snapshotId = candidate.getString("snapshotId")
         val restore = assertOk(database.beginRestore(snapshotId))
         val token = restore.getString("restoreToken")

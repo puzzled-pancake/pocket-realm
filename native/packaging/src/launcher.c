@@ -1,5 +1,5 @@
 /*
- * launcher.c — PKG-01 native launcher (report §8.4).
+ * launcher.c — packaging-experiment native launcher.
  *
  * This is a real PIE executable, output as libpocket_pkg_launcher.so so AGP
  * ships it under lib/<abi>/. Under the experiment variant

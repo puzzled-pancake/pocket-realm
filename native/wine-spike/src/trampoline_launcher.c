@@ -24,7 +24,7 @@
  * the APK-managed libld_linux_x86_64.so. The trampoline is just a launch shim;
  * it never links glibc and never runs in the glibc namespace.
  *
- * Evidence from this path is recorded SEPARATELY from PKG-01 (the packaging
+ * Evidence from this path is recorded SEPARATELY from the packaging
  * control that does not exec Wine) and from the direct S-1 path.
  */
 #include "wine_spike.h"

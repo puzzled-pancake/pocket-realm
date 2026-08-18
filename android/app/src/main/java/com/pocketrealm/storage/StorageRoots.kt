@@ -24,7 +24,7 @@ class StorageRoots(context: Context) {
     val realmData: File = File(appContext.filesDir, "realm").apply { mkdirs() }
 
     /**
-     * O08 database ownership boundary. It is excluded from Android backup and
+     * Database ownership boundary. It is excluded from Android backup and
      * owned exclusively by the `:database` service. No other component may
      * copy or edit files below [databaseDatadir] while MariaDB is running.
      */
@@ -33,13 +33,13 @@ class StorageRoots(context: Context) {
     val databaseRun: File = File(databaseRoot, "run").apply { mkdirs() }
     val databaseSnapshots: File = File(databaseRoot, "snapshots").apply { mkdirs() }
 
-    /** Compatibility name for pre-O08 callers; the service remains sole owner. */
+    /** Compatibility name for legacy callers; the service remains sole owner. */
     val realmDatabase: File get() = databaseDatadir
 
-    /** Verified recovery generations (>=2 retained per PLAN.md A3). */
+    /** Verified recovery generations (>=2 retained). */
     val generations: File = File(realmData, "generations").apply { mkdirs() }
 
-    /** Dirty-generation marker + metadata for abrupt-stop recovery (O08). */
+    /** Dirty-generation marker + metadata for abrupt-stop recovery. */
     val recoveryState: File = File(realmData, "recovery.json")
 
     /** Immutable imported content generations (client build, extracted maps/DBC). */

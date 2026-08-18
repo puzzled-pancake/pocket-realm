@@ -31,7 +31,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
-/** Report section 20.3/X3: direct build-5875 login-window and relaunch proof. */
+/** Direct build-5875 login-window and relaunch proof. */
 @RunWith(AndroidJUnit4::class)
 class ClientBuild5875LoginTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()

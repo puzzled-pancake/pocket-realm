@@ -35,7 +35,7 @@ public:
             if (m_state.state() != POCKET_SERVER_STOPPED && m_state.state() != POCKET_SERVER_FAILED)
                 return POCKET_SERVER_WRONG_STATE;
             if (config.empty()) return POCKET_SERVER_INVALID_ARGUMENT;
-            // Signal a leftover worker (de-vibe round 2b: an io-thread fail()
+            // Signal a leftover worker (an io-thread fail()
             // can leave FAILED with the worker still looping). The join must
             // run OUTSIDE the guard: the worker's exit path calls cleanup(),
             // which takes m_lifecycle.
@@ -59,7 +59,7 @@ public:
             std::lock_guard<std::mutex> guard(m_lifecycle);
             auto state = m_state.state();
             if (state == POCKET_SERVER_STOPPED) return POCKET_SERVER_OK;
-            // Signal BOTH exits under the guard (de-vibe round 2b); the join
+            // Signal BOTH exits under the guard; the join
             // and cleanup run OUTSIDE it — the worker's exit path calls
             // cleanup(), which takes m_lifecycle, so joining while holding it
             // deadlocked (round-1/2 finding).
@@ -89,7 +89,7 @@ public:
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         if (m_state.state() == POCKET_SERVER_FAILED)
         {
-            // The worker failed during shutdown (de-vibe N2: was conflated
+            // The worker failed during shutdown (previously conflated
             // with a wedge timeout). Join outside the lock, then finish.
             if (m_worker.joinable()) m_worker.join();
             cleanup();
@@ -140,7 +140,7 @@ private:
                 return fail(POCKET_SERVER_DB_REVISION, "realmd found no valid pinned realm row");
 
             {
-                // N5 (de-vibe): stop() reads m_io under m_lifecycle from Binder
+                // stop() reads m_io under m_lifecycle from Binder
                 // threads; the assignment must hold the same mutex.
                 std::lock_guard<std::mutex> io_guard(m_lifecycle);
                 m_io = std::make_unique<boost::asio::io_context>();
@@ -162,7 +162,7 @@ private:
                     try {
                         m_io->run();
                     } catch (...) {
-                        // N6 (de-vibe): an exception escaping io_context::run()
+                        // An exception escaping io_context::run()
                         // used to std::terminate the whole :realm process;
                         // surface it as a FAILED server instead.
                         fail(POCKET_SERVER_INTERNAL, "realmd io thread exception");
@@ -170,7 +170,7 @@ private:
                 });
             LoginDatabase.AllowAsyncTransactions();
             m_state.transition(POCKET_SERVER_READY);
-            // Also exit on FAILED (de-vibe round 2b): io-thread exceptions
+            // Also exit on FAILED: io-thread exceptions
             // fail the state; the loop must not outlive it or stop()'s join
             // can never complete.
             while (!m_stop.load(std::memory_order_acquire) &&

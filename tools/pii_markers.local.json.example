@@ -1,0 +1,11 @@
+{
+  "_comment": "Template for tools/pii_markers.local.json (copy to that exact filename and fill in your own values). The local file is gitignored; this template ships placeholders only. error_markers fail the hygiene gate on sight; warn_markers fail in strict mode (the default). Use identifiers you never want committed to this repository (device serials, LAN IPs, account or character names, personal home paths).",
+  "error_markers": [
+    "00000000",
+    "192.0.2.10"
+  ],
+  "warn_markers": [
+    "Users\\YourName",
+    "X:/toolchain"
+  ]
+}

@@ -8,7 +8,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 
-/** Report sections 6.4 and 18 implemented as the single durable state owner. */
+/** Durable supervisor state machine implemented as the single state owner. */
 class DurableRuntimeSupervisor(
     private val backend: RuntimeBackend,
     private val journal: SupervisorJournal,

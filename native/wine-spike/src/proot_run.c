@@ -363,7 +363,7 @@ int wine_spike_enum_descendants_recursive(int64_t root_pid,
 
     /* Collect (pid, ppid) pairs. */
     struct pair { int64_t pid, ppid; };
-    struct pair pairs[512]; /* stack-local (de-vibe N9: was static) */
+    struct pair pairs[512]; /* stack-local (was static) */
     int npairs = 0;
     struct dirent *de;
     while ((de = readdir(proc)) != NULL && npairs < 512) {
@@ -382,7 +382,7 @@ int wine_spike_enum_descendants_recursive(int64_t root_pid,
     int fhead = 0, ftail = 0;
     frontier[ftail++] = root_pid;
     /* Track visited to defend against any cycle (PPID loops shouldn't happen
-     * but be defensive). Stack-local since the de-vibe N9 fix: the old
+     * but be defensive). Stack-local now: the old
      * `static` arrays were shared across concurrent invocations. */
     int64_t visited[512];
     int nvisited = 0;
@@ -423,7 +423,7 @@ int wine_spike_kill_tree_recursive(int64_t root_pid) {
         kill((pid_t)pids[i], SIGKILL);
     }
     kill((pid_t)root_pid, SIGKILL);
-    /* Reap only the tree we killed (de-vibe N8: waitpid(-1) reaped ANY child
+    /* Reap only the tree we killed (waitpid(-1) reaped ANY child
      * of this process, stealing exit statuses from unrelated supervisors). */
     int reaped = 0;
     for (int t = 0; t < 50; t++) {
@@ -986,7 +986,7 @@ int wine_spike_run_wine_via_proot(const char *native_dir,
                     if (out_pipe[0] < 0 && err_pipe[0] < 0) break;
                     usleep(10000);
                 }
-                /* Blocking reap of the direct child (de-vibe N9): the single
+                /* Blocking reap of the direct child: the single
                  * WNOHANG probe left a zombie whenever SIGKILL had not landed
                  * yet. Bounded wait, then a final non-blocking attempt. */
                 for (int t = 0; t < 50; t++) {
@@ -998,7 +998,7 @@ int wine_spike_run_wine_via_proot(const char *native_dir,
                 break;
             }
         }
-        /* (de-vibe N9) dead branch removed: `if (got_status && pipes_open)`
+        /* Dead branch removed: `if (got_status && pipes_open)`
          * had an empty body; the surrounding drain loop already bounds the
          * wait. */
     }
@@ -1415,7 +1415,7 @@ int wine_spike_run_wine_direct(const char *native_dir,
                 snapshot_tree((int64_t)pid, out, native_dir);
                 kill_recorded_processes(out, (int64_t)pid);
                 wine_spike_kill_tree_recursive((int64_t)pid);
-                /* Blocking reap of the direct child (de-vibe N9): the single
+                /* Blocking reap of the direct child: the single
                  * WNOHANG probe left a zombie whenever SIGKILL had not landed
                  * yet. Bounded wait, then a final non-blocking attempt. */
                 for (int t = 0; t < 50; t++) {

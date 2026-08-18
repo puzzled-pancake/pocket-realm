@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Pure host-JVM model tests for the O05 capability/packaging result types.
+ * Pure host-JVM model tests for the capability/packaging result types.
  * No Android framework; mirrors the RealmNativeTest pattern.
  */
 class CapabilityReportModelTest {
@@ -37,7 +37,7 @@ class CapabilityReportModelTest {
 
     @Test
     fun `crash kind constants are stable`() {
-        // Pinned: 0=abort (the report-named PKG-02 trigger).
+        // Pinned: 0=abort (the deterministic fault-injection trigger).
         assertEquals(0, PkgNative.CRASH_ABORT)
         assertEquals(1, PkgNative.CRASH_NULL_DEREF)
         assertEquals(2, PkgNative.CRASH_STACK_GUARD)

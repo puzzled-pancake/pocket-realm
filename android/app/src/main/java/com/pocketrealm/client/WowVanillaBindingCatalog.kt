@@ -122,7 +122,7 @@ object WowVanillaBindingCatalog {
      * keys in the capture); the 9/0/-/= row continuing the pattern and
      * LegacyControllerBindingRepair's stock map corroborate them. Provenance
      * is DEVICE_CAPTURE, not the FrameXML pin - `Bindings.xml` carries no
-     * default keys (docs/INGAME_SETTINGS_GROUND_TRUTH.md).
+     * default keys (verified on-device against the vanilla client).
      */
     val stockKeyBindings: Map<String, WowBindingDefaultKeys> = linkedMapOf(
             "MOVEANDSTEER" to WowBindingDefaultKeys("BUTTON3"),

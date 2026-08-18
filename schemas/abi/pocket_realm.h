@@ -3,15 +3,14 @@
  *
  * This is the versioned boundary between the Kotlin/Compose Android supervisor
  * (and, later, the connected Rust Realm Kernel) and the native CMaNGOS/Playerbots
- * realm. It is the only crossing point for the historical O04 embedded-library
- * path. G0 has now decided the production topology (ADR-013, 2026-08-01):
- * long-lived realm components use Production Lane A (library-backed, supervised,
+ * realm. It is the only crossing point for the historical embedded-library
+ * path. The production topology decision (2026-08-01) is that long-lived
+ * realm components use Production Lane A (library-backed, supervised,
  * fault-isolated), NOT this in-process facade. This ABI and libpocketrealm.so
- * remain as reusable library-lane/control evidence (DECISIONS #8) for any future
+ * remain as reusable library-lane/control evidence for any future
  * in-process consumer; they are not the production world-server crossing.
  *
- * Hard invariants enforced by the implementation (.claude/rules/native.md and
- * DECISIONS.md #7/#8):
+ * Hard invariants enforced by the implementation:
  *   - Opaque handles (realm_t*). The caller never dereferences realm internals.
  *   - Explicit ownership: realm_create allocates, realm_destroy frees. No aliasing.
  *   - Error codes, never errno/exceptions. No C++ exception, STL type, or thread
@@ -76,7 +75,7 @@ typedef void (*realm_log_fn)(void* user, realm_log_level level,
 /*
  * Mirrors com.pocketrealm.realm.RealmState. The supervisor on the Kotlin side
  * owns the authoritative state machine; this is the native projection used for
- * health/state queries for the O04 experiment. Do not renumber.
+ * health/state queries for the library-lane experiment. Do not renumber.
  */
 typedef enum {
     REALM_STATE_CREATED = 0,
@@ -91,7 +90,7 @@ typedef enum {
 /* --------------------------------------------------------------- health */
 
 /*
- * The six O04 experimental health conditions. Mirrors
+ * The six library-lane experimental health conditions. Mirrors
  * com.pocketrealm.realm.HealthCondition. Indices are stable; do not renumber.
  */
 typedef enum {
@@ -108,7 +107,7 @@ typedef enum {
  * Per-condition status. UNKNOWN means "not yet evaluated" (e.g. queried mid-
  * startup before the condition is reached). BLOCKED_ON_CLIENT_DATA is the
  * honest status for conditions that hard-fail on missing proprietary client
- * data (.dbc/.map, now prepared by O11); the runtime never reports TRUE for a
+ * data (.dbc/.map, prepared by the managed client import); the runtime never reports TRUE for a
  * condition it has not genuinely observed. Do not renumber.
  */
 typedef enum {
@@ -120,8 +119,8 @@ typedef enum {
 
 /*
  * Health snapshot. `conditions[i]` corresponds to realm_condition i.
- * `all_ready` is 1 iff every condition is TRUE. For O04 the world-loop triad
- * reports BLOCKED_ON_CLIENT_DATA, so all_ready is honestly 0 until O11; the
+ * `all_ready` is 1 iff every condition is TRUE. For the library lane the world-loop triad
+ * reports BLOCKED_ON_CLIENT_DATA, so all_ready is honestly 0 until client data is prepared; the
  * `blocker_text` (a caller-owned buffer of `blocker_cap` bytes, NUL-terminated)
  * explains why. The runtime copies the current blocker text into `blocker_text`
  * under the health lock, so the caller owns the buffer for as long as it needs
@@ -146,9 +145,9 @@ typedef enum {
     REALM_E_WRONG_STATE = 2,          /* call not legal for current realm_state */
     REALM_E_FATAL_STARTUP = 3,        /* native startup threw (exit() rerouted); detail in log */
     REALM_E_DB = 4,                   /* database open/schema/version check failed */
-    REALM_E_BLOCKED_ON_CLIENT_DATA = 5,/* reached a hard client-data gate (O11) */
+    REALM_E_BLOCKED_ON_CLIENT_DATA = 5,/* reached a hard client-data gate */
     REALM_E_TIMEOUT = 6,              /* realm_join deadline elapsed before teardown finished */
-    REALM_E_BUSY = 7,                 /* re-init blocked (see DECISIONS.md if Strategy B) */
+    REALM_E_BUSY = 7,                 /* re-init blocked while a prior realm is tearing down */
     REALM_E_INTERNAL = 8              /* unchecked native exception caught at the boundary */
 } realm_err;
 
@@ -159,13 +158,13 @@ typedef enum {
  * and copied by the runtime; the caller may free/reuse them after realm_create
  * returns. Paths use '/' separators.
  *
- *   data_dir      immutable content root (the realm's DataDir). For O04 this
- *                 is where O11 will later place dbc/ and maps/; its absence is
+ *   data_dir      immutable content root (the realm's DataDir). This is
+ *                 where the managed client import places dbc/ and maps/; its absence is
  *                 what makes the world-loop health conditions report
  *                 BLOCKED_ON_CLIENT_DATA rather than the process exiting.
- *   db_dir        directory for the four SQLite databases used only by the O04
- *                 exploratory lane. Production G2 uses DatabaseService/MariaDB
- *                 outside this ABI unless a superseding ADR says otherwise.
+ *   db_dir        directory for the four SQLite databases used only by the
+ *                 exploratory library lane. The production database service
+ *                 (MariaDB) lives outside this ABI.
  *   world_conf    path to a generated mangosd.conf (loopback bind, etc.).
  *   realmd_conf   path to a generated realmd.conf.
  *   playerbot_conf path to a generated aiplayerbot.conf (may be NULL to skip).

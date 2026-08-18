@@ -68,7 +68,7 @@ class XServerInputSink(private val xServer: XServer) : InputSink {
 }
 
 /**
- * O14 G4 mobile input UX — versioned logical input contract v1.
+ * Mobile input UX — versioned logical input contract v1.
  *
  * Sits between Android input events (translated by [ClientInputBridge]) and the
  * existing in-process winlator [XServer] injection methods. It owns all pressed
@@ -80,14 +80,14 @@ class XServerInputSink(private val xServer: XServer) : InputSink {
  * Boundary: pure UI-process state, like the prior [ClientInputBridge] sets. It
  * only calls XServer primitives that already exist (`injectPointerMove`,
  * `injectPointerMoveDelta`, `injectPointerButtonPress/Release`,
- * `keyboard.onKeyEvent`). No AIDL, no native change, no Wine change. ADR-014's
+ * `keyboard.onKeyEvent`). No AIDL, no native change, no Wine change. The topology decision's
  * "UI process owns input translation" invariant is preserved.
  *
  * Generation ownership: each [ClientDisplayHost] instance is one display/client
  * generation. A fresh host (surface recreate or client relaunch) constructs a
  * fresh contract with a new [generation]; events whose generation differs from
  * the active one are rejected before injection, so a stale touch from a recycled
- * surface cannot reach the new WoW window. This hardens the O12 renderer-restart
+ * surface cannot reach the new WoW window. This hardens the renderer-restart
  * fix without inventing a second lifecycle authority.
  *
  * IME composition, gamepad axes/buttons, pointer capture, and profile storage
@@ -426,7 +426,7 @@ class InputContract(
     /**
      * Keyboard make/break from a real Android [KeyEvent]. The forward path
      * injects the actual event (preserving modifiers, repeat count, and device
-     * state exactly as the verified O06/O12 path did); the contract tracks only
+     * state exactly as the verified legacy path did); the contract tracks only
      * the keycode per source so [releaseAll] can synthesize an UP later. Enforces
      * DOWN-before-UP per source; an unmatched UP is dropped (idempotent cleanup)
      * without synthesizing a phantom DOWN. A duplicate DOWN for an already-held

@@ -91,7 +91,7 @@ The repository also contains an x86-64 validation route. It uses a separate Wine
 
 ## Versions and licences
 
-The repository pins exact versions, source revisions, file hashes, and licence files for packaged components. This protects the build from silently changing underneath the app. The short version names on this page help people understand the system, but the source manifests and licence files remain the authority for release preparation.
+The repository pins exact versions, source revisions, and file hashes for packaged components, keeps licence texts in-tree for vendored code, and ships a full third-party notice (THIRD_PARTY_NOTICES.md) inside the app package. This protects the build from silently changing underneath the app. The short version names on this page help people understand the system, but the source manifests and licence files remain the authority for release preparation.
 
 Pocket Realm does not include the proprietary game client. A player must provide a supported copy they are entitled to use. Open-source licences for the bundled projects also remain in force. Anyone distributing a build must review the repository's current licence material rather than treating this page as legal advice.
 

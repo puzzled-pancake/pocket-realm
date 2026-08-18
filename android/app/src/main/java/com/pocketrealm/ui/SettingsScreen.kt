@@ -122,7 +122,7 @@ fun SettingsScreen(
     var pendingImport by remember { mutableStateOf<Pair<Uri, RealmDataArchive.ArchiveInfo>?>(null) }
 
     suspend fun awaitBackupCompletion(): Boolean {
-        // Bounded (de-vibe A5): a backup whose phase never settles used to
+        // Bounded: a backup whose phase never settles used to
         // spin this coroutine forever with a busy status line.
         val deadline = System.currentTimeMillis() + BACKUP_AWAIT_TIMEOUT_MS
         while (true) {
@@ -158,7 +158,7 @@ fun SettingsScreen(
                 return
             }
             val snapshotDir = java.io.File(roots.databaseSnapshots, snapshotId)
-            // Credentials are excluded by default (de-vibe A2): an exported ZIP
+            // Credentials are excluded by default: an exported ZIP
             // travels wherever the user sends it; re-entering a password on
             // import is cheap, un-leaking a credentials file is not.
             val accountFile = if (exportIncludesAccount) {

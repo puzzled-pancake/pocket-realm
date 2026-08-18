@@ -10,7 +10,7 @@ import org.junit.runner.RunWith
 import org.junit.runners.MethodSorters
 
 /**
- * O06 Phase-1 Wine feasibility spike measurements (S-1/S-2/S-3), run on-device
+ * Wine feasibility spike measurements (S-1/S-2/S-3), run on-device
  * by the host driver tools/run_wine_spike.py on each AVD lane (Modern 4KB, 16K).
  *
  * Each test runs one measurement and announces structured logcat lines the host
@@ -23,7 +23,7 @@ import org.junit.runners.MethodSorters
  *   variant       pkgExperiment|debug
  *   smokeSeconds  (reserved for S-3 timeout)
  *
- * All runtime variants use the PKG-01-qualified extracted packaging model;
+ * All runtime variants use the qualified extracted packaging model;
  * pkgExperiment remains the historical regression lane.
  */
 @RunWith(AndroidJUnit4::class)

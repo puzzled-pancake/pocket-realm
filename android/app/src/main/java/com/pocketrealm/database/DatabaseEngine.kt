@@ -161,7 +161,7 @@ internal class DatabaseEngine(private val context: Context) {
             )
             check(result.ok) { "DB-INIT: bootstrap failed exit=${result.exitCode}: ${result.stderr.takeLast(1200)}" }
             // mysql_install_db writes this exact marker after a successful
-            // bootstrap. Preserve that contract even though O08 feeds the pinned
+            // bootstrap. Preserve that contract even though the service feeds the pinned
             // bootstrap SQL directly instead of executing the Perl shell wrapper.
             atomicWrite(File(datadir, "mariadb_upgrade_info"), "$providerVersion-MariaDB")
             val secrets = createSecrets()

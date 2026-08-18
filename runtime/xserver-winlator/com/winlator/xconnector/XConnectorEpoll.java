@@ -144,7 +144,7 @@ public class XConnectorEpoll {
 
     @Keep
     private void killAllConnections() {
-        // De-vibe X2: every other access synchronizes on connectedClients
+        // Thread-safety: every other access synchronizes on connectedClients
         // (the native callback thread mutates it); this removal loop and the
         // getClients() snapshot must not race those writers.
         List<ConnectedClient> snapshot;

@@ -76,7 +76,7 @@ abstract class ValidateConnectedAndroidTestTargetTask : DefaultTask() {
 
     @TaskAction
     fun validateTarget() {
-        // Configuration-cache cross-check (de-vibe B2): taskSerialOptionPresent
+        // Configuration-cache cross-check: taskSerialOptionPresent
         // was captured from gradle.startParameter at configuration time, which a
         // cached configuration can serve stale. Under a Gradle daemon the
         // launcher JVM is the daemon itself, so its command line carries no
@@ -400,7 +400,7 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
                 virglServerProvenance["adapted_source_sha256"] ==
                     // Re-pinned 2026-08-17: the F1c xserver rebuild regenerated
                     // the provenance with a new adapted_source_sha256 because
-                    // the build script self-hashes into it and the de-vibe
+                    // the build script self-hashes into it and the tooling
                     // phase-4 toolbox refactor changed the script. The
                     // libvirglrenderer.so binary itself is byte-identical
                     // (sha/size pins above unchanged).
@@ -653,7 +653,7 @@ plugins {
     alias(libs.plugins.detekt)
 }
 
-// De-vibe Phase 3: static analysis, non-blocking (baseline captures existing
+// Static analysis, non-blocking (baseline captures existing
 // findings; tighten over time instead of starting from zero).
 detekt {
     buildUponDefaultConfig = true
@@ -748,9 +748,9 @@ android {
         // the app in the legacy permissive domain, matching how Winlator and
         // other on-device emulators ship.
         targetSdk = (project.findProperty("pocketTargetSdk") as String?)?.toInt() ?: 27
-        // F6: bump-on-release discipline (update manifests compare codes).
-        versionCode = 2
-        versionName = "0.2.0"
+        // Bump-on-release discipline (update manifests compare codes).
+        versionCode = 3
+        versionName = "0.100.0-alpha"
         buildConfigField(
             "boolean", "ENABLE_CLIENT_DATA_PREPARATION", (pocketLane == "full").toString(),
         )
@@ -765,7 +765,7 @@ android {
         }
     }
 
-    // PKG-01 (report §8.4) requires executing an APK-packaged PIE launcher from
+    // The packaging experiment requires executing an APK-packaged PIE launcher from
     // nativeLibraryDir. PKG-01 proved that AGP must extract native libraries to
     // disk with executable permissions. The historical pkgExperiment build
     // type remains for regression qualification; every product build type now
@@ -776,10 +776,10 @@ android {
         }
         getByName("release") {
             isMinifyEnabled = false
-            // F6 signature continuity: the installed builds are debug-signed,
+            // Signature continuity: the installed builds are debug-signed,
             // and an in-place update must carry the same signature or Android
             // refuses it (the refusal protects the app's data). A dedicated
-            // release keystore is an open DECISIONS item; until adopted,
+            // release keystore is an open owner decision; until adopted,
             // release builds sign with the debug keystore (path overridable
             // via POCKET_RELEASE_KEYSTORE etc.). No keystore material is
             // committed.

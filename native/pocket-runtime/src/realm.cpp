@@ -309,7 +309,7 @@ realm_err Realm::command(const char* cmd, int len)
     // O04: the world command processor (sWorld.QueueCliCommand) is wired in O05.
     // Until then, reject commands honestly rather than fake-OK-ing them: a
     // degraded realm without the world loop running has no command processor.
-    // (agent.md: no fake success.) O05 replaces this with the real queue path.
+    // (No fake success.) The packaging work replaces this with the real queue path.
     return REALM_E_BLOCKED_ON_CLIENT_DATA;
 }
 

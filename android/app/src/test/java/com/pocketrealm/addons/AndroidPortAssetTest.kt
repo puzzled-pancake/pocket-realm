@@ -23,7 +23,7 @@ class AndroidPortAssetTest {
         // 0.5.x -> 0.6.0 migration: "VanillaConsolePort" is 18 characters, so
         // the re-key must slice from 19. An earlier build sliced from 18
         // (keeping the trailing "t"), silently losing migrated frame positions
-        // (de-vibe AD1). Pin the corrected slice and forbid the off-by-one.
+        // Pin the corrected slice and forbid the off-by-one.
         val core = File(addon, "Core.lua").readText()
         assertTrue(
             "re-key must use string.sub(name, 19)",

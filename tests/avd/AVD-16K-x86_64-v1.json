@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "reference_document": "docs/SPP_Classics_WoW_1.12.1_Android_Port_Report.docx",
+  "reference_document": "docs/wiki/README.md",
   "avd_id": "AVD-16K-x86_64-v1",
   "system_image": "google/sdk_gphone16k_x86_64/emu64xa16k:15/AE3A.240806.043/12960925:userdebug/dev-keys",
   "captured_at_utc": "2026-08-01T04:13:02.627783+00:00",

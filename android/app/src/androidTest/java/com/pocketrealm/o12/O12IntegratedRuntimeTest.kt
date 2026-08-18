@@ -43,7 +43,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 
-/** Device acceptance for the O12 one-tap server + real client integration. */
+/** Device acceptance for the one-tap server + real client integration. */
 @RunWith(AndroidJUnit4::class)
 class O12IntegratedRuntimeTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
@@ -101,7 +101,7 @@ class O12IntegratedRuntimeTest {
             assertTrue(displayStatus.toString(), displayStatus.getBoolean("windowVisible"))
 
             // SurfaceView pixels are absent from UiAutomation screenshots.
-            // Read the integrated renderer on its owning GLES thread so O12's
+            // Read the integrated renderer on its owning GLES thread so the
             // real login surface is proved rather than represented as black.
             // Large-client cold starts can map the X window before WineD3D's
             // first non-black swap. Keep the mapped-window proof separate and
@@ -724,7 +724,7 @@ class O12IntegratedRuntimeTest {
                 val status = JSONObject(api.status())
                 assertTrue("player disconnected during zero-bot soak: $status",
                     status.getLong("onlinePlayers") > 0 && status.getLong("activeSessions") > 0)
-                assertTrue("the O13-capable runtime was not packaged", status.getBoolean("compiledPlayerbots"))
+                assertTrue("the playerbot-capable runtime was not packaged", status.getBoolean("compiledPlayerbots"))
                 assertFalse("playerbots were enabled during the zero-bot soak", status.getBoolean("playerbotsEnabled"))
                 assertFalse("AHBot was enabled during the zero-bot soak", status.getBoolean("auctionHouseBot"))
                 val tick = status.getLong("tickCount")

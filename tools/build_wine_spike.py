@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the native/wine-spike O06 Phase-1 artifacts.
+"""Build the native/wine-spike runtime spike artifacts.
 
 Standalone CMake build of native/wine-spike against the pinned NDK (same
 toolchain as build_packaging.py). Output lands in

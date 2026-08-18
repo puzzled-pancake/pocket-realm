@@ -851,7 +851,7 @@ private fun gamePreparationFailureMessage(detail: String?): String {
     // First-boot guidance: the observed RP6 crash pattern is the WoW client
     // dying on the first world entry while the freshly started world is
     // still settling; waiting a minute or two at the login screen made the
-    // next entry succeed (2026-08-17 evidence in .tmp/devibe/rp6_firstboot_crash).
+    // next entry succeed (verified 2026-08-17 on device).
     val firstBootHint = " If this realm was started for the first time, the world may" +
         " still be preparing — wait a minute or two at the login screen before retrying."
     return when {

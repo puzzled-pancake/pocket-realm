@@ -5,7 +5,7 @@
 // just the listener setup here, on a facade-owned io_context, with a facade-
 // owned stop flag instead of signals. This makes AUTH_READY genuinely green:
 // a real AuthSocket listener is bound on loopback, ready to accept the test
-// login that PLAN.md A2's exit criterion requires.
+// login that the lifecycle acceptance requires.
 //
 // realmd's LoginDatabase global is distinct from mangosd's; both point at the
 // same SQLite realmd.db file (read/write). The realm's _StartDB already opened
@@ -38,7 +38,7 @@ namespace pocket_realm {
 
 struct realmd_state
 {
-    // shared (de-vibe N7): listener threads capture the io_context by value;
+    // shared: listener threads capture the io_context by value;
     // unique_ptr here would dangle with the raw state ownership below.
     std::shared_ptr<boost::asio::io_context> io;
     std::unique_ptr<MaNGOS::AsyncListener<AuthSocket>> listener;
@@ -66,7 +66,7 @@ lifecycle_result start_realmd(realmd_state** out)
 {
     lifecycle_result r;
     // Raw state ownership stays with the facade (stop_realmd deletes it);
-    // only the io_context is shared (de-vibe N7: the listener threads
+    // only the io_context is shared (the listener threads
     // previously captured this stack-local pointer BY REFERENCE, dangling the
     // moment start_realmd returned on every successful start; the throw path
     // additionally destroyed a joinable std::thread at `delete st`,

@@ -2,7 +2,7 @@
 // record the APK-backed path actually resolved by the dynamic linker; plus the
 // PKG-06 per-lib probe used to prove every APK-packaged .so loads.
 //
-// Per the report and DECISIONS.md: under the production packaging variant
+// Under the production packaging variant
 // (useLegacyPackaging=false) the .so may be loaded directly from the APK with
 // no nativeLibraryDir filesystem path; we therefore resolve by SONAME and
 // report whatever dladdr returns rather than assuming a path.
