@@ -1,0 +1,134 @@
+# ===== Build outputs =====
+# Gradle / Android
+**/build/
+.local.properties
+*.apk
+*.aab
+*.ap_
+*.dex
+.cxx/
+.gradle/
+
+# Native (CMake/NDK)
+build/
+*.o
+*.obj
+*.so
+*.a
+*.dylib
+cmake-build-*/
+native/*/build/
+native/.deps/
+native/.build-*/
+native/.smoke-stage-*/
+native/.o4-stage-*/
+native/.o4-*.so
+native/.o04-*.log
+native/.x86_64-*.log
+native/.build.log
+output/
+
+# Provider caches (populated by tools/fetch_provider.py; large prebuilt
+# archives + extracted trees, hash-verified, never committed).
+native/.providers/
+native/.providers-extracted/
+runtime/glibc-rootfs-x86_64/
+runtime/wine-x86/
+# The glibc build workspace (termux-pacman checkout + vendored harness).
+native/.glibc-build/
+# The self-test PE is a deterministic build artifact of build_selftest_pe.py
+# (regenerated from pocket_selftest.c); its hash is recorded by the build.
+runtime/wine-x86_64-wow64/selftest/*.exe
+runtime/wine-x86_64-wow64/selftest/*.exe.sha256
+
+# Local editor/agent session scratch
+.zcode/
+
+# Kotlin / Java
+*.class
+hs_err_pid*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Rust
+target/
+**/Cargo.lock
+# (Cargo.lock is committed for connected binaries later; ignore until then)
+!native/vanilla-tweaks/Cargo.lock
+
+# ===== IDE / OS =====
+.idea/
+*.iml
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ===== Proprietary / user-supplied client data — NEVER commit =====
+# No proprietary WoW executables, MPQs, DBCs, maps, models, textures, or
+# copyrighted addon assets enter source control.
+client_import/
+**/WoW*.exe
+**/*.mpq
+**/*.MPQ
+**/*.dbc
+*.adt
+*.wdt
+*.m2
+*.blp
+*.wmo
+extracted_data/
+data_packs/
+generations/content/
+generations/runtime/
+generations/prefix/
+
+# ===== Runtime state (never commit live realm data) =====
+*.db
+*.db-wal
+*.db-shm
+realm_data/
+backups/
+generations/realm/
+*.sqlite
+*.sqlite3
+
+# ===== Local scratch / investigation dir =====
+# tmp/ holds ephemeral screenshots, MPQ-extracted Lua/XML, and on-device pulls
+# produced while investigating a gate. None of it is source; much of it is
+# proprietary client data. Keep it strictly local.
+tmp/
+
+# ===== Diagnostics / logs =====
+logs/
+*.log
+support_bundle/
+/diagnostics/
+
+# Local repository hygiene markers (real identifiers stay machine-local; only
+# the committed .example template with placeholder values is shared).
+tools/pii_markers.local.json
+
+# ===== Hygiene =====
+# Root-level scratch debris (screenshots, drops) — never at repo root
+/.codex-*
+/*.png
+/*.jpg
+/*.jpeg
+/*.exe
+/.pytest_cache/
+.pytest_cache/
+.tmp/
+native/.tmp-*
+CMakeFiles/
+CMakeCache.txt
+CMakeConfigureLog.yaml
+*.tlog
+*.pdb
+*.ilk
+*.lastbuildstate
+*.recipe

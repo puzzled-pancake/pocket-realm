@@ -1,0 +1,45 @@
+<Bindings>
+  <Binding name="AP_ACTION_1" header="ANDROID_PORT" runOnUp="true">AndroidPort_Action(1, keystate)</Binding>
+  <Binding name="AP_ACTION_2" runOnUp="true">AndroidPort_Action(2, keystate)</Binding>
+  <Binding name="AP_ACTION_3" runOnUp="true">AndroidPort_Action(3, keystate)</Binding>
+  <Binding name="AP_ACTION_4" runOnUp="true">AndroidPort_Action(4, keystate)</Binding>
+  <Binding name="AP_ACTION_5" runOnUp="true">AndroidPort_Action(5, keystate)</Binding>
+  <Binding name="AP_ACTION_6" runOnUp="true">AndroidPort_Action(6, keystate)</Binding>
+  <Binding name="AP_ACTION_7" runOnUp="true">AndroidPort_Action(7, keystate)</Binding>
+  <Binding name="AP_ACTION_8" runOnUp="true">AndroidPort_Action(8, keystate)</Binding>
+  <Binding name="AP_ACTION_9" runOnUp="true">AndroidPort_Action(9, keystate)</Binding>
+  <Binding name="AP_ACTION_10" runOnUp="true">AndroidPort_Action(10, keystate)</Binding>
+  <Binding name="AP_ACTION_11" runOnUp="true">AndroidPort_Action(11, keystate)</Binding>
+  <Binding name="AP_ACTION_12" runOnUp="true">AndroidPort_Action(12, keystate)</Binding>
+  <Binding name="AP_ACTION_13" runOnUp="true">AndroidPort_Action(13, keystate)</Binding>
+  <Binding name="AP_ACTION_14" runOnUp="true">AndroidPort_Action(14, keystate)</Binding>
+  <Binding name="AP_ACTION_15" runOnUp="true">AndroidPort_Action(15, keystate)</Binding>
+  <Binding name="AP_ACTION_16" runOnUp="true">AndroidPort_Action(16, keystate)</Binding>
+  <Binding name="AP_ACTION_17" runOnUp="true">AndroidPort_Action(17, keystate)</Binding>
+  <Binding name="AP_ACTION_18" runOnUp="true">AndroidPort_Action(18, keystate)</Binding>
+  <Binding name="AP_ACTION_19" runOnUp="true">AndroidPort_Action(19, keystate)</Binding>
+  <Binding name="AP_ACTION_20" runOnUp="true">AndroidPort_Action(20, keystate)</Binding>
+  <Binding name="AP_ACTION_21" runOnUp="true">AndroidPort_Action(21, keystate)</Binding>
+  <Binding name="AP_ACTION_22" runOnUp="true">AndroidPort_Action(22, keystate)</Binding>
+  <Binding name="AP_ACTION_23" runOnUp="true">AndroidPort_Action(23, keystate)</Binding>
+  <Binding name="AP_ACTION_24" runOnUp="true">AndroidPort_Action(24, keystate)</Binding>
+  <Binding name="AP_ACTION_25" runOnUp="true">AndroidPort_Action(25, keystate)</Binding>
+  <Binding name="AP_ACTION_26" runOnUp="true">AndroidPort_Action(26, keystate)</Binding>
+  <Binding name="AP_ACTION_27" runOnUp="true">AndroidPort_Action(27, keystate)</Binding>
+  <Binding name="AP_ACTION_28" runOnUp="true">AndroidPort_Action(28, keystate)</Binding>
+  <Binding name="AP_ACTION_29" runOnUp="true">AndroidPort_Action(29, keystate)</Binding>
+  <Binding name="AP_ACTION_30" runOnUp="true">AndroidPort_Action(30, keystate)</Binding>
+  <Binding name="AP_ACTION_31" runOnUp="true">AndroidPort_Action(31, keystate)</Binding>
+  <Binding name="AP_ACTION_32" runOnUp="true">AndroidPort_Action(32, keystate)</Binding>
+  <Binding name="AP_ACTION_33" runOnUp="true">AndroidPort_Action(33, keystate)</Binding>
+  <Binding name="AP_ACTION_34" runOnUp="true">AndroidPort_Action(34, keystate)</Binding>
+  <Binding name="AP_ACTION_35" runOnUp="true">AndroidPort_Action(35, keystate)</Binding>
+  <Binding name="AP_ACTION_36" runOnUp="true">AndroidPort_Action(36, keystate)</Binding>
+  <Binding name="AP_ACTION_37" runOnUp="true">AndroidPort_Action(37, keystate)</Binding>
+  <Binding name="AP_ACTION_38" runOnUp="true">AndroidPort_Action(38, keystate)</Binding>
+  <Binding name="AP_ACTION_39" runOnUp="true">AndroidPort_Action(39, keystate)</Binding>
+  <Binding name="AP_ACTION_40" runOnUp="true">AndroidPort_Action(40, keystate)</Binding>
+  <Binding name="AP_TOGGLE_RADIAL">AndroidPort_ToggleRadial()</Binding>
+  <Binding name="AP_MOVE_UI">AndroidPort_ToggleMoveUI()</Binding>
+  <Binding name="AP_NEARBY_INTERACT">AndroidPort_NearbyInteract()</Binding>
+</Bindings>

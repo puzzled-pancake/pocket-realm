@@ -1,0 +1,453 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pocket-realm/rp6-capability/1",
+  "title": "Pocket Realm Retroid Pocket 6 capability record",
+  "description": "Redacted ADB capability baseline. This record is not feature acceptance evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "record_kind",
+    "record_state",
+    "scope",
+    "o14_acceptance",
+    "captured_at_utc",
+    "capture",
+    "preflight",
+    "device",
+    "android",
+    "cpu",
+    "memory",
+    "storage",
+    "display",
+    "gpu",
+    "input_devices",
+    "battery",
+    "thermal"
+  ],
+  "properties": {
+    "schema_id": { "const": "pocket-realm/rp6-capability/1" },
+    "schema_version": { "const": 1 },
+    "record_kind": { "const": "rp6_device_capability" },
+    "record_state": { "enum": ["template", "captured"] },
+    "scope": { "const": "capability_baseline_only" },
+    "o14_acceptance": { "const": "not_evaluated" },
+    "captured_at_utc": { "type": "string", "format": "date-time" },
+    "capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "tool_sha256", "adb_version", "selection", "redaction"],
+      "properties": {
+        "tool": { "const": "tools/capture_rp6.py" },
+        "tool_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "adb_version": { "type": "string" },
+        "selection": { "const": "exact ro.product.model match across online adb devices" },
+        "redaction": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["serial_persisted", "excluded"],
+          "properties": {
+            "serial_persisted": { "const": false },
+            "excluded": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string" },
+              "uniqueItems": true
+            }
+          }
+        }
+      }
+    },
+    "preflight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expected_model",
+        "model_match",
+        "expected_primary_abi",
+        "abi_match",
+        "expected_page_size_bytes",
+        "page_size_match"
+      ],
+      "properties": {
+        "expected_model": { "const": "Retroid Pocket 6" },
+        "model_match": { "type": "boolean" },
+        "expected_primary_abi": { "const": "arm64-v8a" },
+        "abi_match": { "type": "boolean" },
+        "expected_page_size_bytes": { "const": 4096 },
+        "page_size_match": { "type": "boolean" }
+      }
+    },
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manufacturer",
+        "model",
+        "product",
+        "device",
+        "hardware",
+        "soc_manufacturer",
+        "soc_model",
+        "board_platform"
+      ],
+      "properties": {
+        "manufacturer": { "type": "string" },
+        "model": { "const": "Retroid Pocket 6" },
+        "product": { "type": "string" },
+        "device": { "type": "string" },
+        "hardware": { "type": "string" },
+        "soc_manufacturer": { "type": "string" },
+        "soc_model": { "type": "string" },
+        "board_platform": { "type": "string" }
+      }
+    },
+    "android": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api_level", "release", "security_patch", "build_id", "build_fingerprint", "kernel_release"],
+      "properties": {
+        "api_level": { "type": "integer", "minimum": 1 },
+        "release": { "type": "string" },
+        "security_patch": { "type": "string" },
+        "build_id": { "type": "string" },
+        "build_fingerprint": { "type": "string" },
+        "kernel_release": { "type": "string" }
+      }
+    },
+    "cpu": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary_abi", "abilist", "abilist32", "abilist64", "page_size_bytes", "page_size_source"],
+      "properties": {
+        "primary_abi": { "const": "arm64-v8a" },
+        "abilist": {
+          "type": "array",
+          "contains": { "const": "arm64-v8a" },
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "abilist32": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "abilist64": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "page_size_bytes": { "const": 4096 },
+        "page_size_source": { "const": "getconf PAGE_SIZE" }
+      }
+    },
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total_bytes", "zram"],
+      "properties": {
+        "total_bytes": { "$ref": "#/$defs/nonNegativeInteger" },
+        "available_bytes": { "$ref": "#/$defs/nonNegativeInteger" },
+        "swap_total_bytes": { "$ref": "#/$defs/nonNegativeInteger" },
+        "swap_free_bytes": { "$ref": "#/$defs/nonNegativeInteger" },
+        "zram": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "disksize_bytes", "mm_stat_bytes_or_counts"],
+            "properties": {
+              "name": { "type": "string", "pattern": "^zram[0-9]+$" },
+              "disksize_bytes": { "$ref": "#/$defs/nonNegativeInteger" },
+              "mm_stat_bytes_or_counts": {
+                "type": "object",
+                "additionalProperties": { "$ref": "#/$defs/nonNegativeInteger" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["data"],
+      "properties": { "data": { "$ref": "#/$defs/storageVolume" } }
+    },
+    "display": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size", "density_dpi", "built_in"],
+      "properties": {
+        "size": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["physical", "landscape_width", "landscape_height"],
+          "properties": {
+            "physical": { "$ref": "#/$defs/pixelSize" },
+            "override": { "$ref": "#/$defs/pixelSize" },
+            "landscape_width": { "type": "integer", "minimum": 1 },
+            "landscape_height": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "density_dpi": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["physical"],
+          "properties": {
+            "physical": { "type": "integer", "minimum": 1 },
+            "override": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "built_in": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["modes"],
+          "properties": {
+            "modes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "width", "height", "refresh_hz"],
+                "properties": {
+                  "id": { "type": "integer", "minimum": 0 },
+                  "width": { "type": "integer", "minimum": 1 },
+                  "height": { "type": "integer", "minimum": 1 },
+                  "refresh_hz": { "type": "number", "exclusiveMinimum": 0 }
+                }
+              }
+            },
+            "current_mode_id": { "type": "integer", "minimum": 0 },
+            "default_mode_id": { "type": "integer", "minimum": 0 },
+            "rotation": { "type": "integer", "minimum": 0 },
+            "state": { "type": "string" }
+          }
+        }
+      }
+    },
+    "gpu": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "soc_model",
+        "egl_driver",
+        "vulkan_driver",
+        "opengles_version_property",
+        "opengles_version_decoded",
+        "surfaceflinger_gles"
+      ],
+      "properties": {
+        "soc_model": { "type": "string" },
+        "egl_driver": { "type": "string" },
+        "vulkan_driver": { "type": "string" },
+        "opengles_version_property": { "type": "string" },
+        "opengles_version_decoded": { "type": "string" },
+        "surfaceflinger_gles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["vendor", "renderer", "version"],
+          "properties": {
+            "vendor": { "type": "string" },
+            "renderer": { "type": "string" },
+            "version": { "type": "string" }
+          }
+        }
+      }
+    },
+    "input_devices": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/inputDevice" }
+    },
+    "battery": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ac_powered": { "$ref": "#/$defs/nullableBoolean" },
+        "usb_powered": { "$ref": "#/$defs/nullableBoolean" },
+        "wireless_powered": { "$ref": "#/$defs/nullableBoolean" },
+        "present": { "$ref": "#/$defs/nullableBoolean" },
+        "status_code": { "$ref": "#/$defs/nullableInteger" },
+        "health_code": { "$ref": "#/$defs/nullableInteger" },
+        "level_percent": { "$ref": "#/$defs/nullableInteger" },
+        "scale": { "$ref": "#/$defs/nullableInteger" },
+        "voltage_millivolts": { "$ref": "#/$defs/nullableInteger" },
+        "temperature_deci_celsius": { "$ref": "#/$defs/nullableInteger" },
+        "temperature_celsius": { "type": "number" },
+        "technology": { "type": "string" },
+        "charge_counter_microamp_hours": { "$ref": "#/$defs/nullableInteger" },
+        "max_charging_current_microamps": { "$ref": "#/$defs/nullableInteger" },
+        "max_charging_voltage_microvolts": { "$ref": "#/$defs/nullableInteger" }
+      }
+    },
+    "thermal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["service", "sysfs_snapshot"],
+      "properties": {
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status_code", "hal_ready", "temperatures"],
+          "properties": {
+            "status_code": { "$ref": "#/$defs/nullableInteger" },
+            "hal_ready": { "$ref": "#/$defs/nullableBoolean" },
+            "temperatures": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["value_celsius", "type_code", "name", "status_code"],
+                "properties": {
+                  "value_celsius": { "type": "number" },
+                  "type_code": { "type": "integer" },
+                  "name": { "type": "string" },
+                  "status_code": { "type": "integer" }
+                }
+              }
+            }
+          }
+        },
+        "sysfs_snapshot": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["zone", "type", "raw_millicelsius", "value_celsius"],
+            "properties": {
+              "zone": { "type": "string", "pattern": "^thermal_zone[0-9]+$" },
+              "type": { "type": "string" },
+              "raw_millicelsius": { "type": "integer" },
+              "value_celsius": { "type": "number" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "nonNegativeInteger": { "type": "integer", "minimum": 0 },
+    "nullableInteger": { "type": ["integer", "null"] },
+    "nullableBoolean": { "type": ["boolean", "null"] },
+    "pixelSize": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height"],
+      "properties": {
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "storageVolume": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requested_path",
+        "filesystem",
+        "total_bytes",
+        "used_bytes",
+        "available_bytes",
+        "used_percent",
+        "mounted_on",
+        "source"
+      ],
+      "properties": {
+        "requested_path": { "const": "/data/data" },
+        "filesystem": { "type": "string" },
+        "total_bytes": { "$ref": "#/$defs/nonNegativeInteger" },
+        "used_bytes": { "$ref": "#/$defs/nonNegativeInteger" },
+        "available_bytes": { "$ref": "#/$defs/nonNegativeInteger" },
+        "used_percent": { "type": "string", "pattern": "^[0-9]+%$" },
+        "mounted_on": { "type": "string" },
+        "source": { "const": "adb shell df -k" }
+      }
+    },
+    "inputDevice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "classes": { "$ref": "#/$defs/stringSet" },
+        "enabled": { "type": "boolean" },
+        "descriptor_sha1": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "controller_number": { "type": "integer", "minimum": 0 },
+        "identifier": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["bus", "vendor", "product", "version"],
+          "properties": {
+            "bus": { "$ref": "#/$defs/nonNegativeInteger" },
+            "vendor": { "$ref": "#/$defs/nonNegativeInteger" },
+            "product": { "$ref": "#/$defs/nonNegativeInteger" },
+            "version": { "$ref": "#/$defs/nonNegativeInteger" }
+          }
+        },
+        "is_external": { "type": "boolean" },
+        "sources": { "$ref": "#/$defs/stringSet" },
+        "keyboard_type": { "type": "integer", "minimum": 0 },
+        "motion_ranges": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/motionRange" }
+        },
+        "linux_capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["event_codes", "absolute_axes"],
+          "properties": {
+            "event_codes": {
+              "type": "object",
+              "additionalProperties": { "$ref": "#/$defs/stringSet" }
+            },
+            "absolute_axes": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/absoluteAxis" }
+            },
+            "input_properties": { "$ref": "#/$defs/stringSet" }
+          }
+        }
+      }
+    },
+    "motionRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["axis", "source", "min", "max", "flat", "fuzz", "resolution"],
+      "properties": {
+        "axis": { "type": "string" },
+        "source": { "type": "string" },
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "flat": { "type": "number" },
+        "fuzz": { "type": "number" },
+        "resolution": { "type": "number" }
+      }
+    },
+    "absoluteAxis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "min", "max", "fuzz", "flat", "resolution"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^ABS_[A-Z0-9_]+$" },
+        "min": { "type": "integer" },
+        "max": { "type": "integer" },
+        "fuzz": { "type": "integer" },
+        "flat": { "type": "integer" },
+        "resolution": { "type": "integer" }
+      }
+    },
+    "stringSet": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "record_state": { "const": "captured" } } },
+      "then": {
+        "properties": {
+          "preflight": {
+            "properties": {
+              "model_match": { "const": true },
+              "abi_match": { "const": true },
+              "page_size_match": { "const": true }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

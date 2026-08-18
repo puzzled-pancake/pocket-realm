@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "abi": "arm64-v8a",
+  "min_api": 26,
+  "elf_max_page_size": "0x4000",
+  "cmangos_commit": "c096bada9e4ed23ad4ca706c67160a26d7121337",
+  "purpose": "Finite on-device DBC/map/vmap/mmap preparation",
+  "source_patches": [
+    {
+      "path": "native/patches/o11-cmangos-safe-mpq-listfile.patch",
+      "sha256": "54963ecc0e0c319cc65d3ea5daa9887eed5f23d648d73e4ca7ebdc3bce86d4cb"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "native/.build-o11-arm64-v8a/extractor-staging/jniLibs/arm64-v8a/libpocket_ad.so",
+      "size": 171192,
+      "sha256": "6894b7237f7655d4d6fa9a8d3fdbc2a4ab51852cc34a84d1f45d3789a6c7aea9",
+      "needed": [
+        "libc.so",
+        "libdl.so",
+        "libm.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
+    },
+    {
+      "path": "native/.build-o11-arm64-v8a/extractor-staging/jniLibs/arm64-v8a/libpocket_vmap_extractor.so",
+      "size": 451592,
+      "sha256": "9f0e64a2f1f39e5a56ec7173789e00c3d4b7996a9ba21300f0610bd0656e5d55",
+      "needed": [
+        "libc.so",
+        "libdl.so",
+        "libm.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
+    },
+    {
+      "path": "native/.build-o11-arm64-v8a/extractor-staging/jniLibs/arm64-v8a/libpocket_vmap_assembler.so",
+      "size": 353696,
+      "sha256": "3a9eb9424fc51185d480cb258fe45845d419f35fdd2d0ca1b7b435946b42704c",
+      "needed": [
+        "libc.so",
+        "libdl.so",
+        "libm.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
+    },
+    {
+      "path": "native/.build-o11-arm64-v8a/extractor-staging/jniLibs/arm64-v8a/libpocket_movemapgen.so",
+      "size": 1908776,
+      "sha256": "78fbc72bde59bb708d49f19aa8020268315777faa79b564881ed8c0ac161f55c",
+      "needed": [
+        "libc.so",
+        "libdl.so",
+        "libm.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
+    }
+  ]
+}

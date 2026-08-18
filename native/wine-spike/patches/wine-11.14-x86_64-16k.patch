@@ -1,0 +1,118 @@
+diff --git a/dlls/ntdll/unix/signal_x86_64.c b/dlls/ntdll/unix/signal_x86_64.c
+index 68a4afa..649d84b 100644
+--- a/dlls/ntdll/unix/signal_x86_64.c
++++ b/dlls/ntdll/unix/signal_x86_64.c
+@@ -550,7 +550,7 @@ static pthread_mutex_t instrumentation_callback_mutex = PTHREAD_MUTEX_INITIALIZE
+ 
+ void set_process_instrumentation_callback( void *callback )
+ {
+-    void *ptr = (char *)user_shared_data + page_size;
++    void *ptr = (void *)0x7ffe4000;
+     sigset_t sigset;
+     void *old;
+ 
+@@ -2788,16 +2788,21 @@ void signal_init_process( TEB *teb )
+ {
+     struct sigaction sig_act;
+     WOW_TEB *wow_teb = get_wow_teb( teb );
++    const UINT_PTR host_page_size = get_host_page_size();
+     void *ptr;
+ 
+     if (user_shared_data->XState.Size) xstate_size = user_shared_data->XState.Size - sizeof(XSAVE_FORMAT);
+     frame_size = offsetof( struct syscall_frame, xstate ) + xstate_size;
+     xstate_extended_features = user_shared_data->XState.EnabledFeatures & ~(UINT64)3;
+ 
+-    /* sneak in a syscall dispatcher pointer at a fixed address (7ffe1000) */
+-    ptr = (char *)user_shared_data + page_size;
+-    anon_mmap_fixed( ptr, page_size, PROT_READ | PROT_WRITE, 0 );
++    /* Keep the process-local syscall dispatcher outside the host page that
++     * contains KUSER_SHARED_DATA.  On a 16K host, 0x7ffe1000 is part of the
++     * same MAP_SHARED page as 0x7ffe0000; storing an ASLR-relative function
++     * pointer there lets processes overwrite one another's dispatcher. */
++    ptr = (void *)0x7ffe4000;
++    anon_mmap_fixed( ptr, host_page_size, PROT_READ | PROT_WRITE, 0 );
+     *(void **)ptr = __wine_syscall_dispatcher;
++    mprotect( ptr, host_page_size, PROT_READ );
+ 
+     __asm__( "movw %%cs,%0" : "=m" (cs64_sel) );
+     __asm__( "movw %%ss,%0" : "=m" (ds64_sel) );
+diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
+index db820a8..6200279 100644
+--- a/dlls/ntdll/unix/virtual.c
++++ b/dlls/ntdll/unix/virtual.c
+@@ -173,7 +173,7 @@ static const UINT page_shift = 12;
+ static const UINT_PTR page_mask = 0xfff;
+ static const UINT_PTR granularity_mask = 0xffff;
+ 
+-#ifdef __aarch64__
++#if defined(__aarch64__) || defined(__x86_64__)
+ static UINT_PTR host_page_size;
+ static UINT_PTR host_page_mask;
+ #else
+@@ -2687,7 +2687,13 @@ static NTSTATUS allocate_dos_memory( struct file_view **view, unsigned int vprot
+     if (mmap_is_in_reserved_area( low_64k, dosmem_size - 0x10000 ) != 1)
+     {
+         addr = anon_mmap_tryfixed( low_64k, dosmem_size - 0x10000, unix_prot, 0 );
+-        if (addr == MAP_FAILED) return map_view( view, NULL, dosmem_size, 0, vprot, 0, 0, 0 );
++        /* Android app domains cannot map the traditional low DOS range.  A
++         * 64-bit unrestricted fallback can then land above 4 GB, which is
++         * truncated when the WoW64 process consumes the returned pointer.
++         * Keep the fallback representable by the 32-bit guest. */
++        if (addr == MAP_FAILED)
++            return map_view( view, NULL, dosmem_size, 0, vprot,
++                             0, limit_4g - 1, 0 );
+     }
+ 
+     /* now try to allocate the low 64K too */
+@@ -3670,7 +3670,7 @@ void virtual_init(void)
+     pthread_mutex_init( &virtual_mutex, &attr );
+     pthread_mutexattr_destroy( &attr );
+ 
+-#ifdef __aarch64__
++#if defined(__aarch64__) || defined(__x86_64__)
+     host_page_size = sysconf( _SC_PAGESIZE );
+     host_page_mask = host_page_size - 1;
+     TRACE( "host page size: %uk\n", (UINT)host_page_size / 1024 );
+@@ -4465,14 +4465,25 @@ void virtual_map_user_shared_data(void)
+     unsigned int status;
+     HANDLE section;
+     int res, fd, needs_close;
++    size_t map_size = page_size;
++    int prot = PROT_READ;
+ 
+     if ((status = NtOpenSection( &section, SECTION_ALL_ACCESS, &attr )))
+     {
+         ERR( "failed to open the USD section: %08x\n", status );
+         exit(1);
+     }
+-    if ((res = server_get_unix_fd( section, 0, &fd, &needs_close, NULL, NULL )) ||
+-        (user_shared_data != mmap( user_shared_data, page_size, PROT_READ, MAP_SHARED|MAP_FIXED, fd, 0 )))
++    if (!(res = server_get_unix_fd( section, 0, &fd, &needs_close, NULL, NULL )) &&
++        host_page_size > page_size)
++    {
++        /* A 16K host must map a complete host page at 0x7ffe0000.  Extend the
++         * shared backing file accordingly; the process-local syscall
++         * dispatcher is kept on a separate page at 0x7ffe4000. */
++        if (ftruncate( fd, host_page_size )) res = errno;
++        else map_size = host_page_size;
++    }
++    if (res ||
++        (user_shared_data != mmap( user_shared_data, map_size, prot, MAP_SHARED|MAP_FIXED, fd, 0 )))
+     {
+         ERR( "failed to remap the process USD: %d\n", res );
+         exit(1);
+diff --git a/include/wine/asm.h b/include/wine/asm.h
+index 3cb2125..b0db10c 100644
+--- a/include/wine/asm.h
++++ b/include/wine/asm.h
+@@ -299,8 +299,8 @@
+                        ".byte 0xc3\n\t"           /* 14: ret */ \
+                        ".byte 0xeb,0x01\n\t"      /* 15: jmp 18 */ \
+                        ".byte 0xc3\n\t"           /* 17: ret */ \
+-                       ".byte 0xff,0x14,0x25\n\t" /* 18: callq *(0x7ffe1000) */ \
+-                       ".long 0x7ffe1000\n\t" \
++                       ".byte 0xff,0x14,0x25\n\t" /* 18: callq *(0x7ffe4000) */ \
++                       ".long 0x7ffe4000\n\t" \
+                        ".byte 0xc3" )             /* 1f: ret */
+ #elif defined __arm__
+ # define __ASM_SYSCALL_FUNC(id,name,args) \

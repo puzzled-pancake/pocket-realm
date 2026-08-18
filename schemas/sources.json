@@ -1,0 +1,352 @@
+{
+  "schema": 1,
+  "reference_document": "docs/wiki/README.md",
+  "description": "Pinned upstream source manifest for the Pocket Realm offline build. Every active entry has an exact commit, license, and redistribution verdict. This file governs source selection only.",
+  "updated": "2026-08-18 (alpha 0.100.0-alpha cleanup)",
+  "toolchain": {
+    "android_sdk_root_env": "ANDROID_SDK_ROOT / ANDROID_HOME (machine-local; not pinned here)",
+    "ndk": {
+      "version": "30.0.15729638",
+      "release": "r30-beta2",
+      "page_size_16k_compatible": true
+    },
+    "cmake": {
+      "version": "4.1.2",
+      "bundled_in_sdk": true
+    },
+    "build_tools": "36.0.0",
+    "gradle": "9.5.0",
+    "android_gradle_plugin": "9.3.1",
+    "jdk": "Eclipse Temurin 17.0.20 (JDK 17)",
+    "python": "3.13.12",
+    "native_build_host": {
+      "msys2_env": "MSYS2_ROOT / MSYS_HOME (machine-local; default C:/msys64). Complete Unix-style perl for OpenSSL, gcc for Boost b2 bootstrap.",
+      "ndk_junction": "SDK\\ndk-link -> currently-selected SDK\\ndk\\<version>, recreated if stale (avoids Windows 8.3 short-name path mismatch in OpenSSL toolchain detection)",
+      "dependencies_built": {
+        "openssl": "3.4.3 (libcrypto.a, libssl.a; static, no-asm)",
+        "boost": "1.86.0 (program_options, thread, regex, serialization, filesystem, system; static runtime)",
+        "sqlite": "3.46.1 amalgamation (historical exploratory backend; not the production database baseline)"
+      },
+      "playerbots_integration": "BUILD_PLAYERBOTS=ON; cmangos FetchContent (SOURCE_DIR form) reads native/playerbots mirrored into native/cmangos/src/modules/PlayerBots by build_native.py ensure_playerbots()",
+      "emulator_test_abi": "x86_64 is the required development and integration ABI via the fixed Android AVD lanes. arm64-v8a remains the physical release ABI; any distributed x86 artifact must be explicitly declared by the release matrix.",
+      "patches": "docs/patches/native-source-patches.md",
+      "database_dependency": "MariaDB 11.5.2 is source-built for the x86_64 glibc runtime by tools/build_mariadb_android.py; its exact provider and SQL ledgers are staged by the database tooling."
+    }
+  },
+  "sources": [
+    {
+      "id": "cmangos-core",
+      "path": "native/cmangos",
+      "kind": "git-submodule",
+      "upstream_url": "https://github.com/cmangos/mangos-classic.git",
+      "branch": "pocket-realm",
+      "commit": "082afd606f8e37ea939df6fdfcd4af81f8085e6e",
+      "commit_date": "2026-08-18 (upstream base plus Pocket Realm Android, FetchContent, lifecycle, and comment-scrub commits)",
+      "role": "Vanilla 1.12 game server core (mangosd + realmd). Built for x86_64 development and arm64-v8a release. The embeddable lifecycle is retained as library-lane evidence for the production component topology.",
+      "o09_source_overlays": [
+        {
+          "id": "mmap-disabled-load-guard",
+          "path": "native/cmangos/src/game/Maps/GridMap.cpp",
+          "reason": "Honor mmap.enabled=0 before entering the mmap tile loader; the realm runtime packages verified DBC/maps and deliberately leaves vmaps/mmaps disabled."
+        }
+      ],
+      "o11_extractor_overlay": {
+        "patch": "native/patches/o11-cmangos-safe-mpq-listfile.patch",
+        "lockfile": "schemas/o11-extractor-lockfile.json",
+        "purpose": "Finite on-device DBC/maps/vmaps/mmaps preparation; fixes non-NUL-terminated MPQ listfile parsing without dirtying the pinned submodule."
+      },
+      "license": "GPL-2.0-or-later",
+      "license_file": "native/cmangos/LICENSE",
+      "redistribution": {
+        "verdict": "source-redistributable",
+        "notes": "GPL-2.0 source may be redistributed. Compiled server binaries are linked by the Android app under GPL terms. The server is never translated; only the user-supplied client runs under translation."
+      }
+    },
+    {
+      "id": "cmangos-db",
+      "path": "native/classic-db",
+      "kind": "git-submodule",
+      "upstream_url": "https://github.com/cmangos/classic-db.git",
+      "branch": "master",
+      "commit": "be1a5206bedccc8dc088b7c79dae31fcf3dbbfce",
+      "commit_date": "2026-07-26",
+      "role": "Pinned Classic-DB schemas/content used with the native MariaDB baseline, compatibility manifest, and migration ledger.",
+      "license": "GPL-3.0-or-later (code); content is Blizzard copyrighted material",
+      "license_file": "native/classic-db/LICENSE.md",
+      "copyright_file": "native/classic-db/COPYRIGHT.md",
+      "redistribution": {
+        "verdict": "source-redistributable-as-fair-use-claim",
+        "notes": "The SQL/code is GPL-3.0. The game content has separate copyright risk and redistribution of that content is not relied on: client-derived DBC/maps/vmaps/mmaps come only from the user's managed client import and are never bundled."
+      }
+    },
+    {
+      "id": "playerbots",
+      "path": "native/playerbots",
+      "kind": "git-submodule",
+      "upstream_url": "https://github.com/cmangos/playerbots.git",
+      "branch": "pocket-realm",
+      "commit": "3b77c5f423a6139d69930bcee9643af7f198df1e",
+      "commit_date": "2026-07-31 (+ Pocket Realm Android patch)",
+      "role": "Bot subsystem enabled only after the MariaDB-backed zero-bot gate; measured tiers and admission control are tracked with the bot feature.",
+      "license": "GPL-2.0-or-later",
+      "license_file": "native/playerbots/CMakeLists.txt (header)",
+      "redistribution": {
+        "verdict": "source-redistributable",
+        "notes": "GPL-2.0, inherits CMaNGOS licensing. Linked into the native world component of the production topology."
+      }
+    },
+    {
+      "id": "wine-kron4ek-11-14-vanilla-wow64",
+      "kind": "prebuilt-archive",
+      "upstream_url": "https://github.com/Kron4ek/Wine-Builds",
+      "release_tag": "11.14",
+      "artifact": "wine-11.14-amd64-wow64.tar.xz",
+      "artifact_url": "https://github.com/Kron4ek/Wine-Builds/releases/download/11.14/wine-11.14-amd64-wow64.tar.xz",
+      "artifact_sha256": "707956fa1574ad1660c4d7f2cfd9c024e0f437ad0a2d501a53b717adb1288222",
+      "kron4ek_build_commit": "fe137c65b411ff3079d1b26573dcb70bf16814a5",
+      "upstream_wine": {
+        "project": "wine",
+        "version": "11.14",
+        "source_url": "https://gitlab.winehq.org/wine/wine.git",
+        "commit": "1012f3d99507b80d4869eabf0853567660a7ecbb",
+        "vanilla": true
+      },
+      "android_16k_adaptation": {
+        "reason": "Wine x86_64's process-local syscall dispatcher at 0x7ffe1000 shares the 0x7ffe0000 KUSER_SHARED_DATA host page on 16 KB kernels, allowing cross-process overwrite of an ASLR-relative pointer. The patch also constrains Android's rejected low-DOS mapping fallback below 4 GiB so a WoW64 guest cannot receive a truncated pointer.",
+        "dispatcher_address": "0x7ffe4000",
+        "patch": "native/wine-spike/patches/wine-11.14-x86_64-16k.patch",
+        "build_script": "tools/build_wine_16k_ntdll.py",
+        "builder_image": "ghcr.io/termux/package-builder-cgct@sha256:69ffa5cfe02ca569e7d03d1c99e3c9a0f79390ad6bf11a3629d048c29c6ccb61",
+        "paired_outputs": [
+          "dlls/ntdll/ntdll.so",
+          "dlls/ntdll/x86_64-windows/ntdll.dll",
+          "dlls/win32u/x86_64-windows/win32u.dll"
+        ],
+        "reviewed_build_provenance": "native/wine-spike/patches/wine-11.14-x86_64-16k.provenance.json",
+        "generated_build_provenance": "native/.build-x86_64/wine-ntdll-16k-multiarch/BUILD_PROVENANCE.json",
+        "qualification": "Qualification passes on API 35 Modern 4 KB and 16 KB lanes; evidence retained in the pre-release archive."
+      },
+      "build_recipe": [
+        "build_wine.sh",
+        "create_ubuntu_bootstraps.sh",
+        ".github/workflows/wine.yml"
+      ],
+      "patches_vs_upstream": [
+        "native/wine-spike/patches/wine-11.14-x86_64-16k.patch (x86_64 Android 16 KB host-page separation plus below-4-GiB low-DOS fallback; source-rebuilds the paired Unix ntdll + PE ntdll/win32u set)"
+      ],
+      "role": "x86 client runtime provider. The provider is the amd64-wow64 variant with lib/wine/i386-unix stripped, relying on Wine 11.0+ new-WoW64 for 32-bit PE. The pinned PRoot fallback is used when Android app-domain seccomp blocks direct glibc-loader access(2); the glibc adapter/shim path runs after bootstrap. Wine-owned builtin PE modules are canonical APK assets. The source-rebuilt 16 KB dispatcher trio is staged atomically over the provider counterparts; glibc + X11/freetype/fontconfig come from the pinned lockfile closure.",
+      "license": {
+        "wine_binaries": "LGPL-2.1-or-later",
+        "build_scripts": "MIT (Copyright Kron4ek)"
+      },
+      "redistribution": {
+        "verdict": "binary-redistributable-under-LGPL-2.1-source-traceable",
+        "notes": "Wine binaries are LGPL-2.1. Source correspondence is traceable through the Kron4ek build commit, MIT build scripts, and pinned upstream Wine commit. The Android 16 KB adaptation is reproduced from that pinned upstream source by the checked-in patch and build script; output/toolchain hashes are generated in BUILD_PROVENANCE.json. No formal written LGPL source-offer is relied on. This provider supplies Wine's own ELF + PE closure only; glibc, the X server, and APK execution placement remain separately pinned."
+      },
+      "runtime_scope_notes": "Provides Wine's own ELF closure + builtin PE modules only. The glibc/X11/font closure comes from termux-glibc-packages-c9d4de5; the X server from xserver-winlator-ca3d735; the loader is the glibc build's ld-linux-x86-64.so.2."
+    },
+    {
+      "id": "termux-glibc-packages-c9d4de5",
+      "kind": "source-built-archive",
+      "upstream_url": "https://github.com/termux-pacman/glibc-packages",
+      "commit": "c9d4de54797bd6652f797217bf9e4c4050f02798",
+      "commit_date": "2026-07-31",
+      "role": "The ENTIRE glibc-side runtime closure for the Wine runtime: glibc 2.43-1 (loader ld-linux-x86-64.so.2 + libc/libpthread/libdl/libm/librt) AND libX11 (+ libxcb/libxau/libxdmcp/libXext) AND freetype/fontconfig and their locked transitive libraries. This is the mandatory DT_NEEDED/dlopen set Kron4ek Wine 11.14 requires for wineboot + a windowed PE. The loader and libc come from the same glibc 2.43-1 build (no loader/libc ABI skew), and every distributed ELF is linked with 0x4000 maximum-page-size segments for both Android page-size lanes.\n\nGCC-LIBS RECIPE DIVERGENCE (recorded honestly): the c9d4de5 main pin's gcc-libs 14.2.1 recipe cannot build against the cgct image's gcc 16.1.0 cross-compiler (C++20 char8_t incompatibility in libcody), and its git+sourceware.org clone is persistently HTTP-429 rate-limited. We adopt upstream's open 'upd-gcc' branch (commit 845d0e313f53535de28abba0fb42b07e960cc031, authored 2026-07-14 by Maxython) for the gcc-libs package ONLY: it bumps gcc-libs to 16.1.0 via the official GNU tarball (https://ftp.gnu.org/gnu/gcc/gcc-16.1.0/gcc-16.1.0.tar.xz, SHA-256 50efb4d94c3397aff3b0d61a5abd748b4dd31d9d3f2ab7be05b171d36a510f79), which resolves both issues. Every other package remains on the c9d4de5 pin.",
+      "termux_packages_harness_commit": "d9188dcf2517ec5f2ed82e021b3cd14c402c74ec",
+      "glibc_upstream": {
+        "source_url": "https://ftp.gnu.org/gnu/libc/glibc-2.43.tar.xz",
+        "source_sha256": "d9c86c6b5dbddb43a3e08270c5844fc5177d19442cf5b8df4be7c07cd5fa3831",
+        "version": "2.43-1"
+      },
+      "build_recipe": "gpkg/<package>/build.sh per package (see schemas/wine-runtime-lockfile.json for the per-package source hashes/versions/licenses)",
+      "license": {
+        "build_scripts": "MIT",
+        "glibc": "GPL-3.0-or-later / LGPL-3.0-or-later",
+        "x11_font_libs": "per-package (MIT/X11/BSD-3-Clause) - see lockfile"
+      },
+      "redistribution": {
+        "verdict": "source-redistributable (built from public Termux/glibc upstream)",
+        "notes": "All packages are built from source via pinned gpkg recipes and the pinned Termux build harness. Project overlays add Android poll(2)-to-ppoll(2) compatibility, omit the unused i386 glibc subpackage, and set -Wl,-z,max-page-size=0x4000 across the closure. Imported package hashes are recorded in runtime/glibc-rootfs-x86_64/BUILD_PROVENANCE.json."
+      }
+    },
+    {
+      "id": "mariadb-11-5-2-termux-glibc",
+      "kind": "source-built-archive",
+      "upstream_url": "https://github.com/MariaDB/server",
+      "version": "11.5.2",
+      "source_tarball": "mariadb-11.5.2.tar.gz",
+      "source_tarball_url": "https://archive.mariadb.org/mariadb-11.5.2/source/mariadb-11.5.2.tar.gz",
+      "source_tarball_sha256": "e25fac00aeb34610faf62182836a14e3310c0ca5d882e9109f63bd8dfdc3542d",
+      "build_recipe": "gpkg/mariadb/build.sh at termux-pacman/glibc-packages c9d4de54797bd6652f797217bf9e4c4050f02798, driven by tools/build_mariadb_android.py in the pinned CGCT image",
+      "recipe_overlay": "The retired NetCologne mirror URL is replaced with MariaDB's official archive URL; the recipe's exact source SHA-256 is unchanged. Existing source-built output archives seed dependency resolution so the unavailable mirror gcc-libs package is not rebuilt. CMake 4.4 receives its documented 3.5 policy floor, glibc's void signal-handler fact is supplied after GCC 16 rejects MariaDB's K&R probe, and GCC 16's removed evex512 target alias is dropped while every explicit AVX-512 feature and MariaDB's runtime dispatch remain unchanged. Target-native build generators receive the pinned CGCT x86_64 library directory only as CMake's build-tree RPATH, which is removed on install; staging rejects any leaked builder path.",
+      "termux_packages_harness_commit": "d9188dcf2517ec5f2ed82e021b3cd14c402c74ec",
+      "builder_image": "ghcr.io/termux/package-builder-cgct@sha256:69ffa5cfe02ca569e7d03d1c99e3c9a0f79390ad6bf11a3629d048c29c6ccb61",
+      "elf_max_page_size": "0x4000",
+      "role": "Native x86_64 database service. mariadbd and the fixed mariadb client execute from immutable APK nativeLibraryDir through the qualified glibc/PRoot syscall adapter. The service owns an app-private Unix socket and datadir with TCP disabled.",
+      "license": "GPL-2.0-only",
+      "redistribution": {
+        "verdict": "source-redistributable-under-GPL-2.0",
+        "notes": "GPL-2.0-only MariaDB runs as an isolated process behind an app-private socket and is never linked into the app or the GPL-3.0 original code (mere aggregation at process boundary). The exact public release source, checked-in build/staging recipes, build-image pin, and generated output/runtime hashes provide source correspondence for the distributed MariaDB ELF subset. The compiler-matched libstdc++.so.6.0.35 is extracted from that exact CGCT image, pinned by SHA-256, and corresponds to the recorded GCC 16.1.0 GNU source tarball under the GCC Runtime Library Exception. Dependency licenses and closure use are recorded separately in the generated runtime lockfile."
+      }
+    },
+    {
+      "id": "mariadb-12-3-2-termux-bionic-arm64",
+      "kind": "verified-package-converted",
+      "upstream_url": "https://packages.termux.dev/apt/termux-main/",
+      "version": "12.3.2",
+      "package": "mariadb_2:12.3.2_aarch64.deb",
+      "package_url": "https://packages.termux.dev/apt/termux-main/pool/main/m/mariadb/mariadb_2%3A12.3.2_aarch64.deb",
+      "package_sha256": "ffda12fad7d55748e4f8d7e40fe37fd2de67a79e9cb00a5fd7adf3a4948a3fdc",
+      "package_index_url": "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages.gz",
+      "package_index_sha256": "3ab450fe66bff3161759183e6f061f31c81a0a3459242a810cf21ac133d5b5c2",
+      "build_script": "tools/stage_mariadb_android_arm.py",
+      "runtime_lockfile": "schemas/mariadb-runtime-lockfile-arm64-v8a.json",
+      "role": "ARM64/Bionic MariaDB provider for the Retroid Pocket 6 live-device lane. The official Termux aarch64 package is converted into an APK-native executable and a hash-verified private SONAME closure; Android platform libc/libm/libdl remain platform dependencies. Like the x86_64 build, this GPL-2.0-only component is process-isolated behind an app-private socket and never linked into the app or the GPL-3.0 original code.",
+      "license": "GPL-2.0-only",
+      "redistribution": {
+        "verdict": "package-redistributable-under-GPL-2.0-with-dependency-review",
+        "notes": "The package hash, package-index hash, exact dependency closure, staged ELF hashes, and normalized provider assets are recorded in the generated ARM lockfile and BUILD_PROVENANCE.json. The package is not redistributed as a Termux installation; only the MariaDB runtime subset and required private libraries are staged."
+      }
+    },
+    {
+      "id": "mariadb-connector-c-de630591",
+      "kind": "source-built-static-library",
+      "upstream_url": "https://github.com/MariaDB/mariadb-connector-c.git",
+      "commit": "de6305915f86bb33c83b1fe782a2b8a76920aec1",
+      "role": "Android/Bionic client library statically linked into the isolated CMaNGOS realmd/world components. It connects only to the app-private MariaDB Unix socket; no database TCP listener or Connector/C shared object is packaged.",
+      "build_script": "tools/build_o09_realm_runtime.py",
+      "source_overlays": [
+        "Correct the upstream uint/ushort type-probe typo exposed during Android cross-compilation.",
+        "Remove const from the TLS fingerprint output buffer, required by Clang 21 and consistent with EVP_DigestFinal_ex's writable output contract."
+      ],
+      "license": "LGPL-2.1-or-later",
+      "redistribution": {
+        "verdict": "source-redistributable-under-LGPL-2.1-or-later",
+        "notes": "The exact public commit, deterministic source overlays, Android toolchain inputs, static archive build, and resulting server-library hashes are recorded by the checked-in build script and schemas/realm-runtime-lockfile.json."
+      }
+    },
+    {
+      "id": "vortek-guest-ab7329c",
+      "kind": "source-built-archive",
+      "upstream_url": "https://github.com/brunodev85/Vortek.git",
+      "commit": "ab7329c4b445a4abd9b9af91b8148e1ca41464fa",
+      "commit_date": "2026-04-15",
+      "role": "Source-matched AArch64 glibc Vulkan guest for the System/Vortek route. It preserves Winlator 2.1 wire behavior, uses Pocket Realm's app-private socket and RUNPATH, and emits at most 32 process-scoped recvmsg/fstat/mmap records so map-memory failures identify the exact guest errno without sustained hot-path logging.",
+      "build_script": "tools/build_vortek_guest.py",
+      "builder_image": "ubuntu@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea",
+      "generated_build_provenance": "native/.build-arm64/vortek-guest/BUILD_PROVENANCE.json",
+      "license": "LGPL-2.1",
+      "redistribution": {
+        "verdict": "source-redistributable-under-LGPL-2.1",
+        "notes": "The public commit, signature-locked source adaptations, exact Ubuntu cross-toolchain inputs, 16 KB ELF alignment, and reviewed output size/SHA-256 are recorded by the checked-in builder."
+      }
+    },
+    {
+      "id": "xserver-winlator-ca3d735",
+      "kind": "vendored-source",
+      "upstream_url": "https://github.com/brunodev85/winlator-app",
+      "commit": "ca3d735a60d653a787daf16d14fafef28d9c2c23",
+      "commit_date": "2026-07-27 (author) / 2026-07-28 (committer)",
+      "role": "In-app X server, display, and input transport. The pinned Java X11 layer and native epoll/SCM_RIGHTS transport are vendored, NDK-built, 16 KB-aligned, and packaged. DXVK keeps the DRI3/Present route with GLX disabled. The explicit ARM Legacy OpenGL lane enables the source-matched GLX/Gladio lifecycle, while the explicit Mesa VirGL lane advertises the pinned Fake-GLX negotiation bases and renders through the generation-local virpipe server. Neither experimental lane is a silent fallback.",
+      "license": "LGPL-2.1 for the Winlator-lineage Java and native code (verified from the provider's root LICENSE at this commit). The vendored cpp/virglrenderer subtree is Red Hat/Mesa MIT under its retained per-file headers; see THIRD_PARTY_NOTICES.md in the APK assets.",
+      "redistribution": {
+        "verdict": "source-redistributable-under-LGPL-2.1",
+        "notes": "Vendored as an adapted, attributed fork. Java and native C source are retained at runtime/xserver-winlator/ and native/xserver-winlator/cpp/ for the LGPL-2.1 source-offer obligation. The app-shell trim list and GLX adaptations are recorded in docs/patches/wine-provider-provenance.md."
+      }
+    },
+    {
+      "id": "gladio-eaa2a8d",
+      "kind": "source-built-archive",
+      "upstream_url": "https://github.com/brunodev85/gladio",
+      "commit": "eaa2a8d6eda3a1a6af755370ea9fac6cf7792ac3",
+      "commit_date": "2026-04-15",
+      "role": "Source-matched glibc libGL client paired with the Winlator-derived Android/GLES Gladio server. The recovered ARM64 experimental lane is built by tools/build_gladio_client.py in the pinned CGCT image with 16 KB ELF alignment and staged generation-locally; its output is 530400 bytes with SHA-256 1d9663bb23ffe6083cf94925e6ffde4523888d52051c9bf934c87aad4bae4680. Adaptations are signature-locked: app-private X11 socket selection, explicit bounded transient vertex attributes, bound-BGRA offset preservation, GLX pbuffer lifetime, and the qualified OpenGL/GLSL profile.",
+      "build_script": "tools/build_gladio_client.py",
+      "builder_image": "ghcr.io/termux/package-builder-cgct@sha256:69ffa5cfe02ca569e7d03d1c99e3c9a0f79390ad6bf11a3629d048c29c6ccb61",
+      "generated_build_provenance": "native/.build-arm64/gladio-client/BUILD_PROVENANCE.json",
+      "license": "LGPL-2.1",
+      "redistribution": {
+        "verdict": "source-redistributable-under-LGPL-2.1",
+        "notes": "The exact public source commit, deterministic build recipe, paired server adaptations, and output hash are recorded. The APK distributes the resulting library with the complete corresponding adapted source and build scripts retained in-tree."
+      },
+      "qualification": "Experimental ARM64 route; compile, closure, and exact live-context/frame proof are required, and build success alone is not a device-compatibility claim."
+    },
+    {
+      "id": "mesa-custom-virpipe-23-1-9-ca3d735",
+      "kind": "vendored-prebuilt-from-source",
+      "upstream_url": "https://github.com/brunodev85/mesa3d-custom",
+      "commit": "71c57a2def7db3eb45cde5ee520f112de0fa6ec0",
+      "version": "23.1.9",
+      "role": "Exact AArch64 glibc Mesa virpipe client paired with Winlator ca3d735's source-matched Android VirGL GLES server. The pinned ca3d735 archive SHA-256 is 614b1edc8e47c57b2cbb2d96f9c7ab5f5b1a89038de618a58b2faf9c64380e09; its sole libGL.so.1.7.0 payload is 14379544 bytes with SHA-256 531e3dc809281feadcc2120abc6d9f88025d92d567ac32eed9c376bd9e4e04f6. tools/stage_virgl_renderer.py verifies and stages it generation-locally with loader aliases; the ARM-only native server is built from the retained ca3d735 source.",
+      "build_script": "tools/stage_virgl_renderer.py",
+      "generated_build_provenance": "native/.build-arm64/wine-staging/assets/arm-translated/renderer-packages/box64-virgl-23.1.9/BUILD_PROVENANCE.json",
+      "license": "MIT and component licenses recorded by Mesa upstream",
+      "redistribution": {
+        "verdict": "binary-redistributable-with-source-traceability",
+        "notes": "The exact public source commit, provider commit, archive/member hashes, retained VirGL server source, and deterministic staging recipe identify the distributed experimental pair. Device compatibility still requires the live shared-context and validated-flush proof."
+      }
+    },
+    {
+      "id": "winlator-arm-runtime-rootfs-ca3d735",
+      "kind": "vendored-prebuilt-from-source",
+      "upstream_url": "https://github.com/brunodev85/winlator-app",
+      "commit": "ca3d735a60d653a787daf16d14fafef28d9c2c23",
+      "role": "ARM64 production client runtime trio REDISTRIBUTED AS RECEIVED from the winlator-app ca3d735 provider (an Ubuntu-based prebuilt image containing Box64 0.4.0 and Wine 10.10 plus the Ubuntu userspace), not rebuilt by this project. The provider repository and commit are the corresponding-source reference for image assembly. Sizes and SHA-256s are enforced at packaging time (android/app/build.gradle.kts): rootfs.tzst 65251198 bytes / 8b5110f248e84f2aee4df37dab8bac4c4bf2bdc7b400c0643a0778ca8e7e40c2; rootfs_patches.tzst 4173700 bytes / 44b73e37587ea827a12a34753632feb6e2a9c127089e342774167dd91aba8210; container_pattern.tzst 7399363 bytes / 8ae3a4fee33e86da26826395650bb07c6f49ce94629ea4b9442bc633b6b8ca33.",
+      "license": "Wine LGPL-2.1-or-later; Box64 MIT; Ubuntu userspace under its recorded per-package licenses (see schemas/wine-runtime-lockfile.json and THIRD_PARTY_NOTICES.md in the APK assets)",
+      "redistribution": {
+        "verdict": "binary-redistributable-as-received-with-provider-provenance",
+        "notes": "The archives are passed through byte-for-byte from the public provider APK at the pinned commit; no local rebuild, modification, or re-licensing occurs. License texts and the source-offer statement ship in the APK as THIRD_PARTY_NOTICES.md."
+      }
+    },
+    {
+      "id": "proot-termux-v5-1-107-89",
+      "kind": "source-built-archive",
+      "upstream_url": "https://github.com/termux/proot",
+      "tag": "v5.1.107.89",
+      "commit": "a89b3732ec6ae1db674510f0843b2f3db54d0a2f",
+      "role": "Fallback ONLY. Built and added to the exec set if the runtime spike proves native-glibc loader invocation fails for some native child. The exact failure that triggered the fallback is recorded. termux/proot publishes no binary releases; this is source-only.",
+      "license": "GPL-2.0-or-later",
+      "redistribution": {
+        "verdict": "source-redistributable",
+        "notes": "Built from source only if the spike selects the proot path. Not built by default."
+      }
+    },
+    {
+      "id": "talloc-samba-2-4-2",
+      "kind": "source-built-archive",
+      "upstream_url": "https://www.samba.org/talloc/",
+      "version": "2.4.2",
+      "source_tarball": "talloc-2.4.2.tar.gz",
+      "source_tarball_url": "https://www.samba.org/ftp/talloc/talloc-2.4.2.tar.gz",
+      "source_tarball_sha256": "85ecf9e465e20f98f9950a52e9a411e14320bc555fa257d87697b7e7a9b1d8a6",
+      "role": "Hard runtime dependency of proot (termux/proot@a89b3732 links -ltalloc unconditionally). Built as a single Bionic .so (libtalloc.so) for the same x86_64 target as proot. Built ONLY when the proot fallback path is selected.",
+      "license": "LGPL-3.0-or-later",
+      "redistribution": {
+        "verdict": "source-redistributable-under-LGPL-3.0",
+        "notes": "talloc.c is a single translation unit from the samba talloc library. Built with a synthesized minimal config.h declaring the features Bionic provides (no glibc-specific code). Source retained for the LGPL-3.0 source-offer obligation."
+      }
+    },
+    {
+      "id": "mingw-w64-i686-gcc-selftest",
+      "kind": "host-toolchain",
+      "package": "mingw-w64-i686-gcc",
+      "version": "16.1.0-5",
+      "release_date": "2026-05-17",
+      "source_tarball": "mingw-w64-gcc-16.1.0-5.src.tar.zst",
+      "source_tarball_url": "https://repo.msys2.org/mingw/sources/mingw-w64-gcc-16.1.0-5.src.tar.zst",
+      "source_tarball_sha256": "947166ed372d28ab8ffa25a66bc5e37a60a42e96a686424ce58cad304fcaea15",
+      "package_sha256": "c945e6fa308b6077ec50c1c628990e24d719af872daf484884668efc21dcfbde",
+      "role": "Host cross-toolchain for the runtime self-test PE (32-bit Win32). Produces pocket_selftest.exe via tools/build_selftest_pe.py. The source-archive SHA-256 is computed and recorded at fetch time (MSYS2 publishes only a PGP .sig for source archives, not a hash).",
+      "license": "GPL-3.0-or-later with GCC runtime exception; MinGW-w64 ZPL/public-domain headers",
+      "redistribution": {
+        "verdict": "host-toolchain-not-redistributed",
+        "notes": "Used on the build host only; its output (pocket_selftest.exe) is project-owned LGPL-clean code and is redistributed as an authorized guest PE."
+      }
+    }
+  ],
+  "verification": {
+    "commit_pin_command": "git submodule status",
+    "sources_check_command": "python3 tools/check_sources.py",
+    "rule": "A firmware, driver, NDK, or upstream change invalidates affected qualification and requires a new reviewed entry with re-verification."
+  }
+}

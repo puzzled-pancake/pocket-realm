@@ -1,0 +1,6 @@
+Android Port (installed folder: AndroidPort) is a clean-room Pocket Realm
+add-on for WoW 1.12.1.
+
+Its controller experience was informed by public behavior and documentation from
+ConsolePortLK and ConsoleExperienceClassic. No source code or binary assets from
+those repositories are redistributed in this package.

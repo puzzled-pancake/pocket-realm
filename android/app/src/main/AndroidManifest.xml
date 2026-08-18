@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- INTERNET is used for loopback realm traffic and explicit, user-started
+         downloads from public GitHub repositories. Gameplay remains local. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- F6: in-app update installs. The system installer's signature check
+         is the data-preservation guard; this permission only allows
+         OFFERING the session to the user for confirmation. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <application
+        android:allowBackup="false"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.PocketRealm"
+        android:enableOnBackInvokedCallback="true"
+        tools:targetApi="34">
+
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation|uiMode"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/Theme.PocketRealm">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+          <activity
+              android:name=".ui.ClientActivity"
+              android:exported="false"
+              android:launchMode="singleTask"
+              android:taskAffinity="com.pocketrealm.client"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|density|uiMode"
+            android:windowLayoutInDisplayCutoutMode="shortEdges"
+            android:theme="@style/Theme.PocketRealm" />
+
+        <service
+            android:name=".service.RealmService"
+            android:process=":supervisor"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Hosts a long-running local game realm server (offline PvE) that must persist across multi-hour play sessions for the duration the user is playing." />
+        </service>
+
+        <receiver
+            android:name=".service.SaveExitReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.pocketrealm.action.SAVE_EXIT" />
+            </intent-filter>
+        </receiver>
+
+        <!-- F6: PackageInstaller session status sink. Registered in the
+             manifest so the system can deliver the commit status through
+             the app-created PendingIntent while the process may be gone. -->
+        <receiver
+            android:name=".update.AppUpdateInstallReceiver"
+            android:exported="false" />
+
+        <!-- Packaging fault-injection experiment: an isolated fault domain for the native crash test.
+             The deliberate abort() happens here, never in :main. Not a bound
+             service from the UI's perspective; the runner attaches a Binder
+             DeathRecipient to observe child death. Exported=false, no FGS. -->
+        <service
+            android:name=".pkg.PkgIsolationService"
+            android:process=":pkg"
+            android:exported="false" />
+
+        <!-- Wine and every native child live in a dedicated fault domain.
+             Only the same APK can bind; the token-scoped AIDL surface never
+             accepts an arbitrary executable, prefix path, or environment.
+             specialUse FGS while a session runs: the supervisor promotes the
+             service when it binds so the game process tree is not
+             cache-priority whenever the UI is backgrounded. -->
+        <service
+            android:name=".client.ClientRuntimeService"
+            android:process=":client"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Hosts the translated Wine game client process tree for the duration of a play session; killing it terminates the user's game." />
+        </service>
+        <service
+            android:name=".client.ClientDisplayService"
+            android:exported="false" />
+
+        <!-- Client import: finite SAF copy/data preparation lives in its own restartable
+             process; the only long-running capability is user-visible data sync. -->
+        <service
+            android:name=".importer.ImportWorkerService"
+            android:process=":import"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- MariaDB owns its datadir in a dedicated fault domain. The
+             same-APK Binder API exposes lifecycle/test verbs only; callers
+             cannot submit SQL, paths, commands, environment, or credentials. -->
+        <service
+            android:name=".database.DatabaseService"
+            android:process=":database"
+            android:exported="false" />
+
+        <!-- CMaNGOS components are library-backed but retain executable-
+             equivalent failure boundaries. The fixed AIDL APIs accept no
+             paths, SQL, environment, or arbitrary server commands. -->
+        <service
+            android:name=".server.RealmRuntimeService"
+            android:process=":realm"
+            android:exported="false" />
+        <service
+            android:name=".server.WorldRuntimeService"
+            android:process=":world"
+            android:exported="false" />
+        <!-- F6: shares the downloaded update APK with the system
+             installer when a session-based install is not usable. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.update-files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_file_paths" />
+        </provider>
+    </application>
+</manifest>

@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "wine_source_commit": "1012f3d99507b80d4869eabf0853567660a7ecbb",
+  "source_date_epoch": "1784925752",
+  "patch": "native/wine-spike/patches/wine-11.14-x86_64-16k.patch",
+  "patch_sha256": "5eeed6412a0930e74c8d5b5a556263ea3c59d9107fc454dfa849602207c0f0d7",
+  "builder_image": "ghcr.io/termux/package-builder-cgct@sha256:69ffa5cfe02ca569e7d03d1c99e3c9a0f79390ad6bf11a3629d048c29c6ccb61",
+  "dispatcher_address": "0x7ffe4000",
+  "dispatcher_stub_counts": {
+    "ntdll.dll": 264,
+    "win32u.dll": 1540
+  },
+  "verified_provider_modules_replaced": [
+    "ntdll.dll",
+    "win32u.dll"
+  ],
+  "outputs": {
+    "ntdll.so": {
+      "size": 4278008,
+      "sha256": "d944a515e809db6fc59b31581b992b8b1cedbf76e86d4521a837d61b1f3230c1"
+    },
+    "ntdll.dll": {
+      "size": 4757234,
+      "sha256": "e6524701ad8fbd432fa83a21292ee8f89b129a952748c59044731db45d50f0d1"
+    },
+    "win32u.dll": {
+      "size": 501914,
+      "sha256": "9cfdeef2d336bea602df510cd02ca2b33552c430d253e8e965e48999e6273da4"
+    }
+  },
+  "toolchain": [
+    "gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0",
+    "x86_64-w64-mingw32-gcc (GCC) 13-win32",
+    "gcc-mingw-w64-i686 13.2.0-6ubuntu1+26.1",
+    "gcc-mingw-w64-x86-64 13.2.0-6ubuntu1+26.1"
+  ],
+  "qualified_evidence": [
+    "tests/avd/AVD-Modern-x86_64-v1/evidence/pkgExperiment-wine_spike-all-20260802-185902.PASS.log",
+    "tests/avd/AVD-16K-x86_64-v1/evidence/pkgExperiment-wine_spike-all-20260802-185645.PASS.log"
+  ]
+}

@@ -1,0 +1,204 @@
+{
+  "schema": 1,
+  "metadata_url": "https://sync.termux-pacman.dev/gpkg/x86_64/gpkg.json",
+  "metadata_sha256": "22d47e564bbe2810aead33f5763787dd4a18f53e8727a80141e91b24729c9bb2",
+  "mariadb_archive": {
+    "path": "native/.build-x86_64/mariadb/mariadb-glibc-11.5.2-0-x86_64.pkg.tar.xz",
+    "sha256": "a8b91dc430673327f8a49ddcbedcfd2c6624b6859614098bb2cf8c65e702e726"
+  },
+  "toolchain_runtime": {
+    "filename": "libstdc++.so.6.0.35",
+    "sha256": "5a8695ed68f47c5bd087ee374a1ea0ed542b9c4dfc9eb3e870668ba8f6889bfa",
+    "soname": "libstdc++.so.6",
+    "source": "pinned CGCT builder image; GCC 16.1.0 source correspondence",
+    "license": "GPL-3.0-or-later WITH GCC-exception-3.1",
+    "used_by_elf_closure": true
+  },
+  "packages": {
+    "bash-glibc": {
+      "filename": "bash-glibc-5.2.37-0-x86_64.pkg.tar.xz",
+      "sha256": "17f0eeb93c73fe87f5a7cdbfc2bfc10bb5ebdc65a73fe5157ac2557bc39503ce",
+      "license": "GPL-3.0",
+      "used_by_elf_closure": false
+    },
+    "ca-certificates-glibc": {
+      "filename": "ca-certificates-glibc-2026.07.16-0-any.pkg.tar.xz",
+      "sha256": "67f66b2fe4c39bccb2913121d306b27c97f3c1346d68f4a58519348d0b0f6b2c",
+      "license": "GPL-3.0",
+      "used_by_elf_closure": false
+    },
+    "gcc-libs-glibc": {
+      "filename": "gcc-libs-glibc-16.1.0-0-x86_64.pkg.tar.xz",
+      "sha256": "09894c8aa79c41c59f0f04ca13f235b6daf0175d94583d456d1546168e9a92b9",
+      "license": "GPL-3.0",
+      "used_by_elf_closure": true
+    },
+    "glibc": {
+      "filename": "glibc-2.43-1-x86_64.pkg.tar.xz",
+      "sha256": "cac9827d9801c9318dcf235d0a7e45d2583fba7287df970fefd75336d49cc097",
+      "license": [
+        "GPL-3.0",
+        "LGPL-3.0"
+      ],
+      "used_by_elf_closure": true
+    },
+    "libbz2-glibc": {
+      "filename": "libbz2-glibc-1.0.8-3-x86_64.pkg.tar.xz",
+      "sha256": "2f212cc621415acbbf0d93042a7c764d99d98ec468cf3c262713db9d17abd9b2",
+      "license": "BSD",
+      "used_by_elf_closure": false
+    },
+    "libicu-glibc": {
+      "filename": "libicu-glibc-76.1-0-x86_64.pkg.tar.xz",
+      "sha256": "70527fcca5f7268da7364c580f3df7050da1395968a5be84583e4ccc711cfc2f",
+      "license": "BSD",
+      "used_by_elf_closure": false
+    },
+    "liblz4-glibc": {
+      "filename": "liblz4-glibc-1.10.0-0-x86_64.pkg.tar.xz",
+      "sha256": "92f1957c596a367fabcb50455ba6a0aeefb91e1a5a283e6ae43235562a06cf2a",
+      "license": "GPL-2.0",
+      "used_by_elf_closure": false
+    },
+    "liblzma-glibc": {
+      "filename": "liblzma-glibc-5.6.4-0-x86_64.pkg.tar.xz",
+      "sha256": "71a726edcda6065b9b1a21664239303e64a10bb3a6b14d93f8b38a9cb991116d",
+      "license": [
+        "LGPL-2.1",
+        "GPL-2.0",
+        "GPL-3.0"
+      ],
+      "used_by_elf_closure": false
+    },
+    "libxcrypt-glibc": {
+      "filename": "libxcrypt-glibc-4.4.38-0-x86_64.pkg.tar.xz",
+      "sha256": "be9bb94eb9748305679ce3fe8d30b061753ab2939a659de1ebaf2906e34fee0b",
+      "license": "LGPL-3.0",
+      "used_by_elf_closure": true
+    },
+    "libxml2-glibc": {
+      "filename": "libxml2-glibc-2.13.6-0-x86_64.pkg.tar.xz",
+      "sha256": "1969f427c3fa911d2f0769f3ec81dafdc611b79a47fbe6c8cd3aae518607e600",
+      "license": "MIT",
+      "used_by_elf_closure": false
+    },
+    "ncurses-glibc": {
+      "filename": "ncurses-glibc-6.6.20260725-0-x86_64.pkg.tar.xz",
+      "sha256": "e1339602e0ea6acb5995da3d81183b9ae95d2b2cdf0a33677881eb70b90ad95c",
+      "license": "MIT",
+      "used_by_elf_closure": true
+    },
+    "openssl-glibc": {
+      "filename": "openssl-glibc-3.6.3-0-x86_64.pkg.tar.xz",
+      "sha256": "ab20db6f556c0ad243bcce486a3c7d69402b46c1fe2a2a61074b9152c669c545",
+      "license": "Apache-2.0",
+      "used_by_elf_closure": true
+    },
+    "pcre2-glibc": {
+      "filename": "pcre2-glibc-10.47-0-x86_64.pkg.tar.xz",
+      "sha256": "e9a81bda449862500ba866c4e0f8d8bec258a2c90ffc1522dcc1e1f3f4ccd83a",
+      "license": "BSD 3-Clause",
+      "used_by_elf_closure": true
+    },
+    "readline-glibc": {
+      "filename": "readline-glibc-8.2.13-0-x86_64.pkg.tar.xz",
+      "sha256": "b617f6e75a9366216724b0adf409f315cf967c8bdab600f30e66845ed9ec10cd",
+      "license": "GPL-3.0",
+      "used_by_elf_closure": false
+    },
+    "zlib-glibc": {
+      "filename": "zlib-glibc-1.3.2-0-x86_64.pkg.tar.xz",
+      "sha256": "aea6ba84be3801808bd5bd06fddf6e304ceaea75a5e73d5248bf99406b0b88bb",
+      "license": "ZLIB",
+      "used_by_elf_closure": true
+    },
+    "zstd-glibc": {
+      "filename": "zstd-glibc-1.5.7-0-x86_64.pkg.tar.xz",
+      "sha256": "9e4863e4d6ab6f25b167e3163eb2b42c941f756a71277b0ea4a5fee79efc3f80",
+      "license": "GPL-2.0",
+      "used_by_elf_closure": false
+    }
+  },
+  "runtime": {
+    "schema": 1,
+    "provider": "mariadb-11.5.2-termux-glibc",
+    "abi": "x86_64",
+    "executables": {
+      "mariadbd": {
+        "apk_name": "libpocket_mariadbd.so",
+        "sha256": "84347b262b20727de7d1c57147b95677ba1a754c31f7bd7853ff33e050c6bdbd"
+      },
+      "mariadb": {
+        "apk_name": "libpocket_mariadb_client.so",
+        "sha256": "55a4928eb06fa4568999a3cdd0c510d083c78d6b43e1d07966a540d5367f507a"
+      }
+    },
+    "links": [
+      {
+        "logical": "ld-linux-x86-64.so.2",
+        "apk_name": "libld_linux_x86_64.so",
+        "sha256": "21785cdd8e7a33e1a8d6ddab71d2262122c7e5b246b953be1bbd799fd5f47ba1"
+      },
+      {
+        "logical": "libc.so.6",
+        "apk_name": "liblibc.so.6.so",
+        "sha256": "65e44a5ed93e1016d20973c1ff8b132f644aa549fe1235bb8f0db68d62ae2348"
+      },
+      {
+        "logical": "libcrypt.so.2",
+        "apk_name": "libdb_libcrypt_so_2_0_0_e809d80cfd.so",
+        "sha256": "e809d80cfd036bc01fce8c1b96192b93711cba458fa0f48d96bfef6248883cd1"
+      },
+      {
+        "logical": "libcrypto.so.3",
+        "apk_name": "libdb_libcrypto_so_3_2faa2c00b3.so",
+        "sha256": "2faa2c00b339eb13a26d280e17f1fc22bef0894a1613caba83fdf08d47cdc0d0"
+      },
+      {
+        "logical": "libgcc_s.so.1",
+        "apk_name": "libdb_libgcc_s_so_1_eb769c5d95.so",
+        "sha256": "eb769c5d9551dead1711e6754335729b246d3ec2b7c37bcc7f8a0f80db6ad9d6"
+      },
+      {
+        "logical": "libm.so.6",
+        "apk_name": "libdb_libm_so_6_1aa3837f97.so",
+        "sha256": "1aa3837f97ceefda4b270d14c956730f694e6659e5c4494a013674912230d3e9"
+      },
+      {
+        "logical": "libncursesw.so.6",
+        "apk_name": "libdb_libncursesw_so_6_6_fb9958cb22.so",
+        "sha256": "fb9958cb22a770cf13c7e659dbc2e7d52e3d6c785a057dd567e1aa1690ef9574"
+      },
+      {
+        "logical": "libpcre2-8.so.0",
+        "apk_name": "libdb_libpcre2_8_so_0_15_0_4327b3bfa1.so",
+        "sha256": "4327b3bfa153f74f35a1c7ac3489523c17c8466b54f7d517383b1e855c4468cb"
+      },
+      {
+        "logical": "libssl.so.3",
+        "apk_name": "libdb_libssl_so_3_7a0878d8e4.so",
+        "sha256": "7a0878d8e480856512a14877ab99e30d88fffc4aa3451c22cd4235bfae5ac8df"
+      },
+      {
+        "logical": "libstdc++.so.6",
+        "apk_name": "libdb_libstdc_so_6_5a8695ed68.so",
+        "sha256": "5a8695ed68f47c5bd087ee374a1ea0ed542b9c4dfc9eb3e870668ba8f6889bfa"
+      },
+      {
+        "logical": "libz.so.1",
+        "apk_name": "libdb_libz_so_1_3_2_f859bdcf5e.so",
+        "sha256": "f859bdcf5e226c1ab81a55e2e9912582ce12bf4afc7d62234d436444c592224e"
+      }
+    ],
+    "plugins": [],
+    "bootstrap_inputs": [
+      "mariadb_system_tables.sql",
+      "mariadb_performance_tables.sql",
+      "mariadb_system_tables_data.sql",
+      "fill_help_tables.sql",
+      "maria_add_gis_sp_bootstrap.sql",
+      "mariadb_sys_schema.sql"
+    ],
+    "bootstrap_sha256": "ce5e0d7b5c6552980546a1b7d821c2227ab294852c26024bb497dd0cc89348f9"
+  }
+}

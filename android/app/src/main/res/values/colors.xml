@@ -1,0 +1,8 @@
+<resources>
+    <color name="pocket_primary">#1F6FEB</color>
+    <color name="pocket_dark">#0D1117</color>
+    <color name="pocket_accent">#F0B429</color>
+    <color name="pocket_ok">#2EA043</color>
+    <color name="pocket_warn">#D29922</color>
+    <color name="pocket_bad">#DA3633</color>
+</resources>

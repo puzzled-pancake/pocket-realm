@@ -1,0 +1,1143 @@
+{
+  "schema_id": "pocket-realm/rp6-capability/1",
+  "schema_version": 1,
+  "record_kind": "rp6_device_capability",
+  "record_state": "captured",
+  "scope": "capability_baseline_only",
+  "o14_acceptance": "not_evaluated",
+  "captured_at_utc": "2026-08-09T00:12:49.711635+00:00",
+  "capture": {
+    "tool": "tools/capture_rp6.py",
+    "tool_sha256": "f6b1b449adceb045328dbf147297ba61ef92c50e08eab01adeccdcb412d627cd",
+    "adb_version": "1.0.41",
+    "selection": "exact ro.product.model match across online adb devices",
+    "redaction": {
+      "serial_persisted": false,
+      "excluded": [
+        "adb serial and transport id",
+        "Android/input unique ids and device paths",
+        "network addresses and email-like text",
+        "unrelated active-window state"
+      ]
+    }
+  },
+  "preflight": {
+    "expected_model": "Retroid Pocket 6",
+    "model_match": true,
+    "expected_primary_abi": "arm64-v8a",
+    "abi_match": true,
+    "expected_page_size_bytes": 4096,
+    "page_size_match": true
+  },
+  "device": {
+    "manufacturer": "Moorechip",
+    "model": "Retroid Pocket 6",
+    "product": "kalama",
+    "device": "kalama",
+    "hardware": "qcom",
+    "soc_manufacturer": "QTI",
+    "soc_model": "QCS8550",
+    "board_platform": "kalama"
+  },
+  "android": {
+    "api_level": 33,
+    "release": "13",
+    "security_patch": "2024-01-01",
+    "build_id": "TKQ1.231222.001",
+    "build_fingerprint": "qti/kalama/kalama:13/TKQ1.231222.001/eng.RP6.20260616.144355:user/release-keys",
+    "kernel_release": "5.15.123-android13-8-gf93164c6c8cf-dirty"
+  },
+  "cpu": {
+    "primary_abi": "arm64-v8a",
+    "abilist": [
+      "arm64-v8a",
+      "armeabi-v7a",
+      "armeabi"
+    ],
+    "abilist32": [
+      "armeabi-v7a",
+      "armeabi"
+    ],
+    "abilist64": [
+      "arm64-v8a"
+    ],
+    "page_size_bytes": 4096,
+    "page_size_source": "getconf PAGE_SIZE"
+  },
+  "memory": {
+    "total_bytes": 11812225024,
+    "available_bytes": 6777421824,
+    "swap_total_bytes": 4294963200,
+    "swap_free_bytes": 3172749312,
+    "zram": [
+      {
+        "name": "zram0",
+        "disksize_bytes": 4294967296,
+        "mm_stat_bytes_or_counts": {
+          "original_data_size": 1121009664,
+          "compressed_size": 313580453,
+          "memory_used_total": 333029376,
+          "memory_limit": 0,
+          "memory_max_used": 1355370496,
+          "same_pages": 10533,
+          "pages_compacted": 409636,
+          "huge_pages": 7076,
+          "huge_pages_since": 654930
+        }
+      }
+    ]
+  },
+  "storage": {
+    "data": {
+      "requested_path": "/data/data",
+      "filesystem": "/dev/block/dm-14",
+      "total_bytes": 108270530560,
+      "used_bytes": 67316203520,
+      "available_bytes": 40820109312,
+      "used_percent": "63%",
+      "mounted_on": "/mnt/installer/0/emulated/0/Android/obb",
+      "source": "adb shell df -k"
+    }
+  },
+  "display": {
+    "size": {
+      "physical": {
+        "width": 1080,
+        "height": 1920
+      },
+      "landscape_width": 1920,
+      "landscape_height": 1080
+    },
+    "density_dpi": {
+      "physical": 369
+    },
+    "built_in": {
+      "modes": [
+        {
+          "id": 1,
+          "width": 1080,
+          "height": 1920,
+          "refresh_hz": 60.000004
+        },
+        {
+          "id": 2,
+          "width": 1080,
+          "height": 1920,
+          "refresh_hz": 120.00001
+        }
+      ],
+      "current_mode_id": 1,
+      "default_mode_id": 2,
+      "rotation": 0,
+      "state": "OFF"
+    }
+  },
+  "gpu": {
+    "soc_model": "QCS8550",
+    "egl_driver": "adreno",
+    "vulkan_driver": "adreno",
+    "opengles_version_property": "196610",
+    "opengles_version_decoded": "3.2",
+    "surfaceflinger_gles": {
+      "vendor": "Qualcomm",
+      "renderer": "Adreno (TM) 740",
+      "version": "OpenGL ES 3.2 V@0676.53 (GIT@69e13475cb, I1df7ad3aa9, 1703680572) (Date:12/27/23)"
+    }
+  },
+  "input_devices": [
+    {
+      "name": "fts_ts",
+      "classes": [
+        "KEYBOARD",
+        "TOUCH",
+        "TOUCH_MT"
+      ],
+      "enabled": true,
+      "descriptor_sha1": "a1cc21cba608c55d28d6dd2b1939004df0e0c756",
+      "controller_number": 0,
+      "identifier": {
+        "bus": 24,
+        "vendor": 0,
+        "product": 0,
+        "version": 0
+      },
+      "is_external": false,
+      "sources": [
+        "KEYBOARD",
+        "TOUCHSCREEN"
+      ],
+      "keyboard_type": 1,
+      "linux_capabilities": {
+        "event_codes": {
+          "KEY": [
+            "KEY_W",
+            "KEY_E",
+            "KEY_U",
+            "KEY_O",
+            "KEY_S",
+            "KEY_L",
+            "KEY_Z",
+            "KEY_C",
+            "KEY_V",
+            "KEY_M",
+            "KEY_UP",
+            "KEY_LEFT",
+            "KEY_RIGHT",
+            "KEY_DOWN",
+            "KEY_POWER",
+            "BTN_TOUCH"
+          ],
+          "ABS": [
+            "ABS_MT_SLOT",
+            "ABS_MT_TOUCH_MAJOR",
+            "ABS_MT_POSITION_X",
+            "ABS_MT_POSITION_Y",
+            "ABS_MT_TRACKING_ID"
+          ]
+        },
+        "absolute_axes": [
+          {
+            "code": "ABS_MT_SLOT",
+            "min": 0,
+            "max": 21,
+            "fuzz": 0,
+            "flat": 0,
+            "resolution": 0
+          },
+          {
+            "code": "ABS_MT_TOUCH_MAJOR",
+            "min": 0,
+            "max": 255,
+            "fuzz": 0,
+            "flat": 0,
+            "resolution": 0
+          },
+          {
+            "code": "ABS_MT_POSITION_X",
+            "min": 0,
+            "max": 1080,
+            "fuzz": 0,
+            "flat": 0,
+            "resolution": 0
+          },
+          {
+            "code": "ABS_MT_POSITION_Y",
+            "min": 0,
+            "max": 1920,
+            "fuzz": 0,
+            "flat": 0,
+            "resolution": 0
+          },
+          {
+            "code": "ABS_MT_TRACKING_ID",
+            "min": 0,
+            "max": 65535,
+            "fuzz": 0,
+            "flat": 0,
+            "resolution": 0
+          }
+        ],
+        "input_properties": [
+          "INPUT_PROP_DIRECT"
+        ]
+      }
+    },
+    {
+      "name": "gpio-keys",
+      "classes": [
+        "KEYBOARD"
+      ],
+      "enabled": true,
+      "descriptor_sha1": "485d69228e24f5e46da1598745890b214130dbc4",
+      "controller_number": 0,
+      "identifier": {
+        "bus": 25,
+        "vendor": 1,
+        "product": 1,
+        "version": 256
+      },
+      "is_external": false,
+      "sources": [
+        "KEYBOARD"
+      ],
+      "keyboard_type": 1,
+      "linux_capabilities": {
+        "event_codes": {
+          "KEY": [
+            "KEY_VOLUMEUP"
+          ]
+        },
+        "absolute_axes": [],
+        "input_properties": []
+      }
+    },
+    {
+      "name": "kalama-qrd-snd-card Button Jack",
+      "classes": [
+        "KEYBOARD"
+      ],
+      "enabled": true,
+      "descriptor_sha1": "84a5d4163d298e00b555398061b1ec6c6e6de819",
+      "controller_number": 0,
+      "identifier": {
+        "bus": 0,
+        "vendor": 0,
+        "product": 0,
+        "version": 0
+      },
+      "is_external": false,
+      "sources": [
+        "KEYBOARD"
+      ],
+      "keyboard_type": 1,
+      "linux_capabilities": {
+        "event_codes": {
+          "KEY": [
+            "KEY_VOLUMEDOWN",
+            "KEY_VOLUMEUP",
+            "KEY_MEDIA",
+            "BTN_4",
+            "BTN_5",
+            "KEY_VOICECOMMAND"
+          ]
+        },
+        "absolute_axes": [],
+        "input_properties": []
+      }
+    },
+    {
+      "name": "kalama-qrd-snd-card Headset Jack",
+      "classes": [
+        "SWITCH"
+      ],
+      "enabled": true,
+      "descriptor_sha1": "8c86e21b8da5f6d4157a5396db5a622575e3e7a3",
+      "controller_number": 0,
+      "identifier": {
+        "bus": 0,
+        "vendor": 0,
+        "product": 0,
+        "version": 0
+      },
+      "is_external": false,
+      "sources": [
+        "0x80000000"
+      ],
+      "keyboard_type": 0,
+      "linux_capabilities": {
+        "event_codes": {
+          "SW": [
+            "SW_HEADPHONE_INSERT",
+            "SW_MICROPHONE_INSERT",
+            "SW_LINEOUT_INSERT",
+            "SW_JACK_PHYSICAL_INS"
+          ]
+        },
+        "absolute_axes": [],
+        "input_properties": []
+      }
+    },
+    {
+      "name": "pmic_pwrkey",
+      "classes": [
+        "KEYBOARD"
+      ],
+      "enabled": true,
+      "descriptor_sha1": "39f0cc2fda6f8287fd99ffa0db53ae80f4837e18",
+      "controller_number": 0,
+      "identifier": {
+        "bus": 0,
+        "vendor": 0,
+        "product": 0,
+        "version": 0
+      },
+      "is_external": false,
+      "sources": [
+        "KEYBOARD"
+      ],
+      "keyboard_type": 1,
+      "linux_capabilities": {
+        "event_codes": {
+          "KEY": [
+            "KEY_POWER"
+          ]
+        },
+        "absolute_axes": [],
+        "input_properties": []
+      }
+    },
+    {
+      "name": "pmic_resin",
+      "classes": [
+        "KEYBOARD"
+      ],
+      "enabled": true,
+      "descriptor_sha1": "653e1ca6257fe659881d6f71b799cb02b0d69ace",
+      "controller_number": 0,
+      "identifier": {
+        "bus": 0,
+        "vendor": 0,
+        "product": 0,
+        "version": 0
+      },
+      "is_external": false,
+      "sources": [
+        "KEYBOARD"
+      ],
+      "keyboard_type": 1,
+      "linux_capabilities": {
+        "event_codes": {
+          "KEY": [
+            "KEY_VOLUMEDOWN"
+          ]
+        },
+        "absolute_axes": [],
+        "input_properties": []
+      }
+    },
+    {
+      "name": "qcom-hv-haptics",
+      "linux_capabilities": {
+        "event_codes": {
+          "FF": [
+            "FF_RUMBLE",
+            "FF_PERIODIC",
+            "FF_CONSTANT",
+            "FF_CUSTOM",
+            "FF_GAIN"
+          ]
+        },
+        "absolute_axes": [],
+        "input_properties": []
+      }
+    },
+    {
+      "name": "Retroid Pocket Controller",
+      "classes": [
+        "KEYBOARD",
+        "GAMEPAD",
+        "JOYSTICK",
+        "VIBRATOR",
+        "EXTERNAL"
+      ],
+      "enabled": true,
+      "descriptor_sha1": "dc75afea56e3c3a269b97967aa26b8c93c0bd3fb",
+      "controller_number": 1,
+      "identifier": {
+        "bus": 3,
+        "vendor": 8226,
+        "product": 12289,
+        "version": 0
+      },
+      "is_external": true,
+      "sources": [
+        "KEYBOARD",
+        "GAMEPAD",
+        "JOYSTICK"
+      ],
+      "keyboard_type": 1,
+      "motion_ranges": [
+        {
+          "axis": "HAT_Y",
+          "source": "JOYSTICK",
+          "min": -1.0,
+          "max": 1.0,
+          "flat": 0.0,
+          "fuzz": 0.0,
+          "resolution": 0.0
+        },
+        {
+          "axis": "BRAKE",
+          "source": "JOYSTICK",
+          "min": 0.0,
+          "max": 1.0,
+          "flat": 0.0,
+          "fuzz": 0.0,
+          "resolution": 0.0
+        },
+        {
+          "axis": "GAS",
+          "source": "JOYSTICK",
+          "min": 0.0,
+          "max": 1.0,
+          "flat": 0.0,
+          "fuzz": 0.0,
+          "resolution": 0.0
+        },
+        {
+          "axis": "Z",
+          "source": "JOYSTICK",
+          "min": -1.0,
+          "max": 1.0,
+          "flat": 0.0,
+          "fuzz": 0.0,
+          "resolution": 0.0
+        },
+        {
+          "axis": "Y",
+          "source": "JOYSTICK",
+          "min": -1.0,
+          "max": 1.0,
+          "flat": 0.0,
+          "fuzz": 0.0,
+          "resolution": 0.0
+        },
+        {
+          "axis": "HAT_X",
+          "source": "JOYSTICK",
+          "min": -1.0,
+          "max": 1.0,
+          "flat": 0.0,
+          "fuzz": 0.0,
+          "resolution": 0.0
+        },
+        {
+          "axis": "RZ",
+          "source": "JOYSTICK",
+          "min": -1.0,
+          "max": 1.0,
+          "flat": 0.0,
+          "fuzz": 0.0,
+          "resolution": 0.0
+        },
+        {
+          "axis": "X",
+          "source": "JOYSTICK",
+          "min": -1.0,
+          "max": 1.0,
+          "flat": 0.0,
+          "fuzz": 0.0,
+          "resolution": 0.0
+        }
+      ],
+      "linux_capabilities": {
+        "event_codes": {
+          "KEY": [
+            "KEY_HOME",
+            "KEY_VOLUMEDOWN",
+            "KEY_VOLUMEUP",
+            "KEY_BACK",
+            "KEY_F24",
+            "BTN_GAMEPAD",
+            "BTN_EAST",
+            "BTN_C",
+            "BTN_NORTH",
+            "BTN_WEST",
+            "BTN_Z",
+            "BTN_TL",
+            "BTN_TR",
+            "BTN_TL2",
+            "BTN_TR2",
+            "BTN_SELECT",
+            "BTN_START",
+            "BTN_MODE",
+            "BTN_THUMBL",
+            "BTN_THUMBR",
+            "BTN_DPAD_UP",
+            "BTN_DPAD_DOWN",
+            "BTN_DPAD_LEFT",
+            "BTN_DPAD_RIGHT",
+            "KEY_APPSELECT"
+          ],
+          "ABS": [
+            "ABS_X",
+            "ABS_Y",
+            "ABS_Z",
+            "ABS_RZ",
+            "ABS_GAS",
+            "ABS_BRAKE",
+            "ABS_HAT0X",
+            "ABS_HAT0Y"
+          ]
+        },
+        "absolute_axes": [
+          {
+            "code": "ABS_X",
+            "min": -32767,
+            "max": 32767,
+            "fuzz": 0,
+            "flat": 15,
+            "resolution": 0
+          },
+          {
+            "code": "ABS_Y",
+            "min": -32767,
+            "max": 32767,
+            "fuzz": 0,
+            "flat": 15,
+            "resolution": 0
+          },
+          {
+            "code": "ABS_Z",
+            "min": -32767,
+            "max": 32767,
+            "fuzz": 0,
+            "flat": 15,
+            "resolution": 0
+          },
+          {
+            "code": "ABS_RZ",
+            "min": -32767,
+            "max": 32767,
+            "fuzz": 0,
+            "flat": 15,
+            "resolution": 0
+          },
+          {
+            "code": "ABS_GAS",
+            "min": 0,
+            "max": 32767,
+            "fuzz": 0,
+            "flat": 0,
+            "resolution": 0
+          },
+          {
+            "code": "ABS_BRAKE",
+            "min": 0,
+            "max": 32767,
+            "fuzz": 0,
+            "flat": 0,
+            "resolution": 0
+          },
+          {
+            "code": "ABS_HAT0X",
+            "min": -1,
+            "max": 1,
+            "fuzz": 0,
+            "flat": 0,
+            "resolution": 0
+          },
+          {
+            "code": "ABS_HAT0Y",
+            "min": -1,
+            "max": 1,
+            "fuzz": 0,
+            "flat": 0,
+            "resolution": 0
+          }
+        ],
+        "input_properties": []
+      }
+    },
+    {
+      "name": "Retroid Pocket Virtual Mouse",
+      "classes": [
+        "CURSOR_ICON",
+        "EXTERNAL"
+      ],
+      "enabled": true,
+      "descriptor_sha1": "c575e892a6bb353df4b1327e81beedf84b540eb4",
+      "controller_number": 0,
+      "identifier": {
+        "bus": 3,
+        "vendor": 8226,
+        "product": 12289,
+        "version": 200
+      },
+      "is_external": true,
+      "sources": [
+        "MOUSE"
+      ],
+      "keyboard_type": 0,
+      "motion_ranges": [
+        {
+          "axis": "X",
+          "source": "MOUSE",
+          "min": 0.0,
+          "max": 1919.0,
+          "flat": 0.0,
+          "fuzz": 0.0,
+          "resolution": 0.0
+        },
+        {
+          "axis": "Y",
+          "source": "MOUSE",
+          "min": 0.0,
+          "max": 1079.0,
+          "flat": 0.0,
+          "fuzz": 0.0,
+          "resolution": 0.0
+        },
+        {
+          "axis": "PRESSURE",
+          "source": "MOUSE",
+          "min": 0.0,
+          "max": 1.0,
+          "flat": 0.0,
+          "fuzz": 0.0,
+          "resolution": 0.0
+        }
+      ],
+      "linux_capabilities": {
+        "event_codes": {
+          "KEY": [
+            "BTN_MOUSE",
+            "BTN_RIGHT",
+            "BTN_MIDDLE",
+            "BTN_FORWARD",
+            "BTN_BACK"
+          ],
+          "REL": [
+            "REL_RX",
+            "REL_RY",
+            "REL_MISC"
+          ]
+        },
+        "absolute_axes": [],
+        "input_properties": []
+      }
+    },
+    {
+      "name": "Virtual",
+      "classes": [
+        "KEYBOARD",
+        "ALPHAKEY",
+        "DPAD",
+        "VIRTUAL"
+      ],
+      "enabled": true,
+      "descriptor_sha1": "a718a782d34bc767f4689c232d64d527998ea7fd",
+      "controller_number": 0,
+      "identifier": {
+        "bus": 0,
+        "vendor": 0,
+        "product": 0,
+        "version": 0
+      },
+      "is_external": false,
+      "sources": [
+        "KEYBOARD",
+        "DPAD"
+      ],
+      "keyboard_type": 2
+    }
+  ],
+  "battery": {
+    "ac_powered": false,
+    "usb_powered": false,
+    "wireless_powered": false,
+    "present": true,
+    "status_code": 3,
+    "health_code": 2,
+    "level_percent": 85,
+    "scale": 100,
+    "voltage_millivolts": 4124,
+    "temperature_deci_celsius": 220,
+    "technology": "Li-ion",
+    "charge_counter_microamp_hours": 5516835,
+    "max_charging_current_microamps": 0,
+    "max_charging_voltage_microvolts": 0,
+    "temperature_celsius": 22.0
+  },
+  "thermal": {
+    "service": {
+      "status_code": 0,
+      "hal_ready": false,
+      "temperatures": []
+    },
+    "sysfs_snapshot": [
+      {
+        "zone": "thermal_zone0",
+        "type": "pa",
+        "raw_millicelsius": 26600,
+        "value_celsius": 26.6
+      },
+      {
+        "zone": "thermal_zone10",
+        "type": "mmw3",
+        "raw_millicelsius": 25400,
+        "value_celsius": 25.4
+      },
+      {
+        "zone": "thermal_zone30",
+        "type": "aoss-0",
+        "raw_millicelsius": 26100,
+        "value_celsius": 26.1
+      },
+      {
+        "zone": "thermal_zone31",
+        "type": "cpuss-0",
+        "raw_millicelsius": 28100,
+        "value_celsius": 28.1
+      },
+      {
+        "zone": "thermal_zone32",
+        "type": "cpuss-1",
+        "raw_millicelsius": 28500,
+        "value_celsius": 28.5
+      },
+      {
+        "zone": "thermal_zone33",
+        "type": "cpuss-2",
+        "raw_millicelsius": 28100,
+        "value_celsius": 28.1
+      },
+      {
+        "zone": "thermal_zone34",
+        "type": "cpuss-3",
+        "raw_millicelsius": 27700,
+        "value_celsius": 27.7
+      },
+      {
+        "zone": "thermal_zone35",
+        "type": "cpu-1-0",
+        "raw_millicelsius": 27300,
+        "value_celsius": 27.3
+      },
+      {
+        "zone": "thermal_zone36",
+        "type": "cpu-1-1",
+        "raw_millicelsius": 27300,
+        "value_celsius": 27.3
+      },
+      {
+        "zone": "thermal_zone37",
+        "type": "cpu-1-2",
+        "raw_millicelsius": 27700,
+        "value_celsius": 27.7
+      },
+      {
+        "zone": "thermal_zone38",
+        "type": "cpu-1-3",
+        "raw_millicelsius": 27700,
+        "value_celsius": 27.7
+      },
+      {
+        "zone": "thermal_zone39",
+        "type": "cpu-1-4",
+        "raw_millicelsius": 27300,
+        "value_celsius": 27.3
+      },
+      {
+        "zone": "thermal_zone40",
+        "type": "cpu-1-5",
+        "raw_millicelsius": 27300,
+        "value_celsius": 27.3
+      },
+      {
+        "zone": "thermal_zone41",
+        "type": "cpu-1-6",
+        "raw_millicelsius": 26500,
+        "value_celsius": 26.5
+      },
+      {
+        "zone": "thermal_zone42",
+        "type": "cpu-1-7",
+        "raw_millicelsius": 27300,
+        "value_celsius": 27.3
+      },
+      {
+        "zone": "thermal_zone43",
+        "type": "cpu-1-8",
+        "raw_millicelsius": 27300,
+        "value_celsius": 27.3
+      },
+      {
+        "zone": "thermal_zone44",
+        "type": "cpu-1-9",
+        "raw_millicelsius": 26900,
+        "value_celsius": 26.9
+      },
+      {
+        "zone": "thermal_zone45",
+        "type": "cpu-1-10",
+        "raw_millicelsius": 27700,
+        "value_celsius": 27.7
+      },
+      {
+        "zone": "thermal_zone46",
+        "type": "aoss-1",
+        "raw_millicelsius": 25400,
+        "value_celsius": 25.4
+      },
+      {
+        "zone": "thermal_zone47",
+        "type": "cpu-0-0",
+        "raw_millicelsius": 27400,
+        "value_celsius": 27.4
+      },
+      {
+        "zone": "thermal_zone48",
+        "type": "cpu-0-1",
+        "raw_millicelsius": 27000,
+        "value_celsius": 27.0
+      },
+      {
+        "zone": "thermal_zone49",
+        "type": "cpu-0-2",
+        "raw_millicelsius": 29000,
+        "value_celsius": 29.0
+      },
+      {
+        "zone": "thermal_zone50",
+        "type": "nspss-0",
+        "raw_millicelsius": 25800,
+        "value_celsius": 25.8
+      },
+      {
+        "zone": "thermal_zone51",
+        "type": "nspss-1",
+        "raw_millicelsius": 25800,
+        "value_celsius": 25.8
+      },
+      {
+        "zone": "thermal_zone52",
+        "type": "nspss-2",
+        "raw_millicelsius": 25400,
+        "value_celsius": 25.4
+      },
+      {
+        "zone": "thermal_zone53",
+        "type": "nspss-3",
+        "raw_millicelsius": 25400,
+        "value_celsius": 25.4
+      },
+      {
+        "zone": "thermal_zone54",
+        "type": "video",
+        "raw_millicelsius": 27800,
+        "value_celsius": 27.8
+      },
+      {
+        "zone": "thermal_zone55",
+        "type": "ddr",
+        "raw_millicelsius": 26600,
+        "value_celsius": 26.6
+      },
+      {
+        "zone": "thermal_zone56",
+        "type": "mdmss-0",
+        "raw_millicelsius": 25400,
+        "value_celsius": 25.4
+      },
+      {
+        "zone": "thermal_zone57",
+        "type": "mdmss-1",
+        "raw_millicelsius": 25400,
+        "value_celsius": 25.4
+      },
+      {
+        "zone": "thermal_zone58",
+        "type": "mdmss-2",
+        "raw_millicelsius": 25400,
+        "value_celsius": 25.4
+      },
+      {
+        "zone": "thermal_zone59",
+        "type": "mdmss-3",
+        "raw_millicelsius": 25400,
+        "value_celsius": 25.4
+      },
+      {
+        "zone": "thermal_zone60",
+        "type": "camera-0",
+        "raw_millicelsius": 25800,
+        "value_celsius": 25.8
+      },
+      {
+        "zone": "thermal_zone61",
+        "type": "camera-1",
+        "raw_millicelsius": 25800,
+        "value_celsius": 25.8
+      },
+      {
+        "zone": "thermal_zone62",
+        "type": "aoss-2",
+        "raw_millicelsius": 24600,
+        "value_celsius": 24.6
+      },
+      {
+        "zone": "thermal_zone63",
+        "type": "gpuss-0",
+        "raw_millicelsius": 24600,
+        "value_celsius": 24.6
+      },
+      {
+        "zone": "thermal_zone64",
+        "type": "gpuss-1",
+        "raw_millicelsius": 25000,
+        "value_celsius": 25.0
+      },
+      {
+        "zone": "thermal_zone65",
+        "type": "gpuss-2",
+        "raw_millicelsius": 24600,
+        "value_celsius": 24.6
+      },
+      {
+        "zone": "thermal_zone66",
+        "type": "gpuss-3",
+        "raw_millicelsius": 24600,
+        "value_celsius": 24.6
+      },
+      {
+        "zone": "thermal_zone67",
+        "type": "gpuss-4",
+        "raw_millicelsius": 24600,
+        "value_celsius": 24.6
+      },
+      {
+        "zone": "thermal_zone68",
+        "type": "gpuss-5",
+        "raw_millicelsius": 24600,
+        "value_celsius": 24.6
+      },
+      {
+        "zone": "thermal_zone69",
+        "type": "gpuss-6",
+        "raw_millicelsius": 25400,
+        "value_celsius": 25.4
+      },
+      {
+        "zone": "thermal_zone70",
+        "type": "gpuss-7",
+        "raw_millicelsius": 25400,
+        "value_celsius": 25.4
+      },
+      {
+        "zone": "thermal_zone71",
+        "type": "pm8550_tz",
+        "raw_millicelsius": 28175,
+        "value_celsius": 28.175
+      },
+      {
+        "zone": "thermal_zone72",
+        "type": "pm8550-bcl-lvl0",
+        "raw_millicelsius": 0,
+        "value_celsius": 0.0
+      },
+      {
+        "zone": "thermal_zone73",
+        "type": "pm8550-bcl-lvl1",
+        "raw_millicelsius": 0,
+        "value_celsius": 0.0
+      },
+      {
+        "zone": "thermal_zone74",
+        "type": "pm8550-bcl-lvl2",
+        "raw_millicelsius": 0,
+        "value_celsius": 0.0
+      },
+      {
+        "zone": "thermal_zone75",
+        "type": "pm8550b_tz",
+        "raw_millicelsius": 22690,
+        "value_celsius": 22.69
+      },
+      {
+        "zone": "thermal_zone76",
+        "type": "pm8550b_lite_tz",
+        "raw_millicelsius": 58670,
+        "value_celsius": 58.67
+      },
+      {
+        "zone": "thermal_zone77",
+        "type": "pm8550b-ibat-lvl0",
+        "raw_millicelsius": 93,
+        "value_celsius": 0.093
+      },
+      {
+        "zone": "thermal_zone78",
+        "type": "pm8550b-ibat-lvl1",
+        "raw_millicelsius": 93,
+        "value_celsius": 0.093
+      },
+      {
+        "zone": "thermal_zone79",
+        "type": "pm8550b-bcl-lvl0",
+        "raw_millicelsius": 0,
+        "value_celsius": 0.0
+      },
+      {
+        "zone": "thermal_zone80",
+        "type": "pm8550b-bcl-lvl1",
+        "raw_millicelsius": 0,
+        "value_celsius": 0.0
+      },
+      {
+        "zone": "thermal_zone81",
+        "type": "pm8550b-bcl-lvl2",
+        "raw_millicelsius": 0,
+        "value_celsius": 0.0
+      },
+      {
+        "zone": "thermal_zone82",
+        "type": "socd",
+        "raw_millicelsius": 15,
+        "value_celsius": 0.015
+      },
+      {
+        "zone": "thermal_zone83",
+        "type": "pm8550ve_f_tz",
+        "raw_millicelsius": 23593,
+        "value_celsius": 23.593
+      },
+      {
+        "zone": "thermal_zone84",
+        "type": "pm8550vs_c_tz",
+        "raw_millicelsius": 23793,
+        "value_celsius": 23.793
+      },
+      {
+        "zone": "thermal_zone85",
+        "type": "pm8550vs_d_tz",
+        "raw_millicelsius": 23660,
+        "value_celsius": 23.66
+      },
+      {
+        "zone": "thermal_zone86",
+        "type": "pm8550vs_e_tz",
+        "raw_millicelsius": 23593,
+        "value_celsius": 23.593
+      },
+      {
+        "zone": "thermal_zone87",
+        "type": "pm8550vs_g_tz",
+        "raw_millicelsius": 23192,
+        "value_celsius": 23.192
+      },
+      {
+        "zone": "thermal_zone88",
+        "type": "usb-therm",
+        "raw_millicelsius": 25035,
+        "value_celsius": 25.035
+      },
+      {
+        "zone": "thermal_zone89",
+        "type": "wls-therm",
+        "raw_millicelsius": -40960,
+        "value_celsius": -40.96
+      },
+      {
+        "zone": "thermal_zone90",
+        "type": "xo-therm",
+        "raw_millicelsius": 25574,
+        "value_celsius": 25.574
+      },
+      {
+        "zone": "thermal_zone91",
+        "type": "vbat",
+        "raw_millicelsius": 4085,
+        "value_celsius": 4.085
+      },
+      {
+        "zone": "thermal_zone92",
+        "type": "usb",
+        "raw_millicelsius": 24000,
+        "value_celsius": 24.0
+      },
+      {
+        "zone": "thermal_zone93",
+        "type": "wireless",
+        "raw_millicelsius": -40000,
+        "value_celsius": -40.0
+      },
+      {
+        "zone": "thermal_zone94",
+        "type": "battery",
+        "raw_millicelsius": 22000,
+        "value_celsius": 22.0
+      }
+    ]
+  }
+}

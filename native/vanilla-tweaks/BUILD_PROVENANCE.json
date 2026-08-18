@@ -1,0 +1,14 @@
+{
+  "component": "vanilla-tweaks",
+  "version": "1.6.0",
+  "upstream": "https://github.com/brndd/vanilla-tweaks",
+  "upstream_commit": "fbbe31add71b23602d981d70f1a58520fc349b47",
+  "license": "MIT",
+  "vendored_files": ["src/main.rs", "Cargo.toml", "Cargo.lock", "LICENSE.txt", "README.md"],
+  "purpose": "On-device patcher that produces a root-level WoW.exe.patched sibling from a pristine managed WoW.exe (build 5875, enUS). Driven by ClientTweaksConfig.toFlags().",
+  "notes": [
+    "Upstream CLI: vanilla-tweaks <WoW.exe> [-o <out>] [--fov F] [--farclip F] [--frilldistance F] [--nameplatedistance F] [--soundchannels N] [--maxcameradistance F] [--no-fov|--no-farclip|--no-frilldistance|--no-sound-in-background|--no-quickloot|--no-nameplatedistance|--no-soundchannels|--no-largeaddressaware|--no-cameraskipfix].",
+    "Native library name after staging: libpocket_vanilla_tweaks.so (renamed binary; ELF, not a dlopen module).",
+    "Patcher offsets (enUS 5875) are retained as a qualified sparse diagnostic signature. Runtime publication is stricter: ClientTweaksConfig requires the complete pristine SHA-256 b4756d38ef207c02ed651f4952bd89a70b4857b73a33413339e1b285b28d2dc7 and compares every byte of native patcher output with its independent expected-output model before atomically publishing WoW.exe.patched."
+  ]
+}

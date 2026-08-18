@@ -1,0 +1,94 @@
+{
+  "schema_id": "pocket-realm/rp6-capability/1",
+  "schema_version": 1,
+  "record_kind": "rp6_device_capability",
+  "record_state": "template",
+  "scope": "capability_baseline_only",
+  "o14_acceptance": "not_evaluated",
+  "captured_at_utc": "1970-01-01T00:00:00Z",
+  "capture": {
+    "tool": "tools/capture_rp6.py",
+    "tool_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "adb_version": "",
+    "selection": "exact ro.product.model match across online adb devices",
+    "redaction": {
+      "serial_persisted": false,
+      "excluded": [
+        "replace this template by running tools/capture_rp6.py; do not hand-edit it into evidence"
+      ]
+    }
+  },
+  "preflight": {
+    "expected_model": "Retroid Pocket 6",
+    "model_match": false,
+    "expected_primary_abi": "arm64-v8a",
+    "abi_match": false,
+    "expected_page_size_bytes": 4096,
+    "page_size_match": false
+  },
+  "device": {
+    "manufacturer": "",
+    "model": "Retroid Pocket 6",
+    "product": "",
+    "device": "",
+    "hardware": "",
+    "soc_manufacturer": "",
+    "soc_model": "",
+    "board_platform": ""
+  },
+  "android": {
+    "api_level": 33,
+    "release": "",
+    "security_patch": "",
+    "build_id": "",
+    "build_fingerprint": "",
+    "kernel_release": ""
+  },
+  "cpu": {
+    "primary_abi": "arm64-v8a",
+    "abilist": ["arm64-v8a"],
+    "abilist32": [],
+    "abilist64": ["arm64-v8a"],
+    "page_size_bytes": 4096,
+    "page_size_source": "getconf PAGE_SIZE"
+  },
+  "memory": {
+    "total_bytes": 0,
+    "zram": []
+  },
+  "storage": {
+    "data": {
+      "requested_path": "/data/data",
+      "filesystem": "",
+      "total_bytes": 0,
+      "used_bytes": 0,
+      "available_bytes": 0,
+      "used_percent": "0%",
+      "mounted_on": "",
+      "source": "adb shell df -k"
+    }
+  },
+  "display": {
+    "size": {
+      "physical": { "width": 1080, "height": 1920 },
+      "landscape_width": 1920,
+      "landscape_height": 1080
+    },
+    "density_dpi": { "physical": 1 },
+    "built_in": { "modes": [] }
+  },
+  "gpu": {
+    "soc_model": "",
+    "egl_driver": "",
+    "vulkan_driver": "",
+    "opengles_version_property": "",
+    "opengles_version_decoded": "",
+    "surfaceflinger_gles": { "vendor": "", "renderer": "", "version": "" }
+  },
+  "input_devices": [],
+  "battery": {},
+  "thermal": {
+    "service": { "status_code": null, "hal_ready": null, "temperatures": [] },
+    "sysfs_snapshot": []
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "abi": "x86_64",
+  "min_api": 26,
+  "elf_max_page_size": "0x4000",
+  "cmangos_commit": "c096bada9e4ed23ad4ca706c67160a26d7121337",
+  "purpose": "Finite on-device DBC/map/vmap/mmap preparation",
+  "source_patches": [
+    {
+      "path": "native/patches/o11-cmangos-safe-mpq-listfile.patch",
+      "sha256": "54963ecc0e0c319cc65d3ea5daa9887eed5f23d648d73e4ca7ebdc3bce86d4cb"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "native/.build-o11-x86_64/extractor-staging/jniLibs/x86_64/libpocket_ad.so",
+      "size": 180040,
+      "sha256": "8d7335972a9bd2022035f9a992ab01bcfa46ea0745a05b46c8dabf2f9e1cf7ce",
+      "needed": [
+        "libc.so",
+        "libdl.so",
+        "libm.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
+    },
+    {
+      "path": "native/.build-o11-x86_64/extractor-staging/jniLibs/x86_64/libpocket_vmap_extractor.so",
+      "size": 470272,
+      "sha256": "66c6476753846d5234b7a35af02c689d66d07d652e6a880113cf620f9144bd38",
+      "needed": [
+        "libc.so",
+        "libdl.so",
+        "libm.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
+    },
+    {
+      "path": "native/.build-o11-x86_64/extractor-staging/jniLibs/x86_64/libpocket_vmap_assembler.so",
+      "size": 359368,
+      "sha256": "3cceaa995ab8002bc8e210c43ddd848d5f2692d7efe90b2988da11f8fc21f584",
+      "needed": [
+        "libc.so",
+        "libdl.so",
+        "libm.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
+    },
+    {
+      "path": "native/.build-o11-x86_64/extractor-staging/jniLibs/x86_64/libpocket_movemapgen.so",
+      "size": 1970704,
+      "sha256": "83d339565c2ff43ad35163156f7209db0e18348f769855d3cd8ec99d9f528619",
+      "needed": [
+        "libc.so",
+        "libdl.so",
+        "libm.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
+    }
+  ]
+}

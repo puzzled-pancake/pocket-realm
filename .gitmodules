@@ -1,0 +1,12 @@
+[submodule "native/cmangos"]
+	path = native/cmangos
+	url = https://github.com/puzzled-pancake/mangos-classic.git
+	branch = pocket-realm
+[submodule "native/classic-db"]
+	path = native/classic-db
+	url = https://github.com/cmangos/classic-db.git
+	branch = master
+[submodule "native/playerbots"]
+	path = native/playerbots
+	url = https://github.com/puzzled-pancake/playerbots.git
+	branch = pocket-realm

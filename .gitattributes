@@ -1,0 +1,36 @@
+# Normalize text files to LF in the repo; OS-native on checkout.
+* text=auto eol=lf
+
+# Windows-native scripts keep CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary types — never diff/merge
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.icns binary
+*.apk binary
+*.jar binary
+*.so binary
+*.a binary
+*.db binary
+*.db-wal binary
+*.db-shm binary
+*.mpq binary
+*.dbc binary
+*.m2 binary
+*.blp binary
+*.wmo binary
+*.adt binary
+*.wdt binary
+
+# Unified-diff context markers in captured output can legitimately end
+# in whitespace; do not treat those immutable source-patch bytes as
+# source-code whitespace errors. Patches are also hash-pinned byte-for-byte
+# by the gladio build pipeline (mixed CRLF/LF context lines are deliberate);
+# -text keeps git from normalizing those bytes away.
+*.patch -text -whitespace
+
+# Generated lockfiles — merge=ours to avoid spurious conflicts
+Cargo.lock merge=ours

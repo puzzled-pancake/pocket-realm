@@ -1,0 +1,183 @@
+#ifndef GLADIO_GL_CLIENT_STATE_H
+#define GLADIO_GL_CLIENT_STATE_H
+
+#include "gladio.h"
+#include "gl_vao.h"
+
+#ifdef GL_SERVER
+#include "gl_texture.h"
+#include "gl_framebuffer.h"
+#endif
+
+typedef struct GLClientState {
+    uint8_t activeTexture;
+    uint8_t activeTexCoord;
+    int indexStart;
+    GLVertexArrayObject defaultVAO;
+    GLVertexArrayObject* vao;
+    SparseArray vertexArrays;
+    SparseArray* buffers;
+
+#ifdef GL_SERVER
+    ShaderProgram* program;
+    GLTexture* texture[MAX_TEXTURE_TARGETS];
+    GLuint framebuffer[MAX_FRAMEBUFFER_TARGETS];
+    ARBProgram* arbProgram[MAX_ARB_PROGRAM_TARGETS];
+    /* ARB program environment parameters are context state, not program
+     * object state.  Programs created after an env write must observe the
+     * same values as programs that already existed at the time. */
+    GLfloat arbProgramEnv[MAX_ARB_PROGRAM_TARGETS][MAX_ARB_PROGRAM_ENV_PARAMS][4];
+    GLuint renderbuffer;
+
+    SparseArray* textures;
+    SparseArray* arbPrograms;
+    SparseArray* programs;
+    SparseArray* shaders;
+    SparseArray* framebuffers;
+    SparseArray* queries;
+#else
+    ArrayList persistentBuffers;
+    GLuint program;
+    GLuint arbProgram[MAX_ARB_PROGRAM_TARGETS];
+
+    struct {
+        short unpackRowLength;
+        short unpackImageHeight;
+    } pixelStore;
+#endif
+
+    /* Heap object groups shared across a GLX share list.  Wine destroys
+     * share-group owners before their children (glX allows any order), so
+     * the containers must be reference-counted: the context that allocates
+     * them is not necessarily the one that outlives the group.  Freeing
+     * them on the owner's destruction left every remaining child aliasing
+     * freed SparseArray containers during rendering, corrupting the heap
+     * (observed as an MTE "Pointer tag ... was truncated" abort inside
+     * SparseArray_free on 2026-08-15 when the guest disconnected). */
+    struct GLSharedObjectState* sharedObjects;
+    bool usingSharedState;
+} GLClientState;
+
+typedef struct GLSharedObjectState {
+    unsigned int refs;
+    SparseArray* buffers;
+#ifdef GL_SERVER
+    SparseArray* textures;
+    SparseArray* arbPrograms;
+    SparseArray* programs;
+    SparseArray* shaders;
+    SparseArray* framebuffers;
+    SparseArray* queries;
+#endif
+} GLSharedObjectState;
+
+static inline void GLClientState_init(GLClientState* clientState, GLClientState* sharedState) {
+    GLSharedObjectState* sharedObjects;
+    if (sharedState && sharedState->sharedObjects) {
+        sharedObjects = sharedState->sharedObjects;
+        sharedObjects->refs++;
+        clientState->usingSharedState = true;
+    }
+    else {
+        sharedObjects = calloc(1, sizeof(GLSharedObjectState));
+        sharedObjects->refs = 1;
+        sharedObjects->buffers = calloc(1, sizeof(SparseArray));
+#ifdef GL_SERVER
+        sharedObjects->textures = calloc(1, sizeof(SparseArray));
+        sharedObjects->arbPrograms = calloc(1, sizeof(SparseArray));
+        sharedObjects->programs = calloc(1, sizeof(SparseArray));
+        sharedObjects->shaders = calloc(1, sizeof(SparseArray));
+        sharedObjects->queries = calloc(1, sizeof(SparseArray));
+        sharedObjects->framebuffers = calloc(1, sizeof(SparseArray));
+#endif
+        clientState->usingSharedState = false;
+    }
+    clientState->sharedObjects = sharedObjects;
+    clientState->buffers = sharedObjects->buffers;
+#ifdef GL_SERVER
+    clientState->textures = sharedObjects->textures;
+    clientState->arbPrograms = sharedObjects->arbPrograms;
+    clientState->programs = sharedObjects->programs;
+    clientState->shaders = sharedObjects->shaders;
+    clientState->queries = sharedObjects->queries;
+    clientState->framebuffers = sharedObjects->framebuffers;
+#endif
+}
+
+static inline void GLClientState_destroy(GLClientState* clientState) {
+    SparseArray_free(&clientState->vertexArrays, true);
+
+#ifndef GL_SERVER
+    ArrayList_free(&clientState->persistentBuffers, false);
+#endif
+
+    if (clientState->sharedObjects) {
+        GLSharedObjectState* sharedObjects = clientState->sharedObjects;
+        /* The last context in the share group releases the containers;
+         * children destroyed before the owner merely drop their
+         * reference, and the owner destroyed first leaves the containers
+         * alive for its children. */
+        if (--sharedObjects->refs == 0) {
+            GLBuffer_onDestroy(clientState);
+            SparseArray_free(sharedObjects->buffers, false);
+            MEMFREE(sharedObjects->buffers);
+
+#ifdef GL_SERVER
+            SparseArray_free(sharedObjects->textures, true);
+            MEMFREE(sharedObjects->textures);
+
+            ARBProgram_onDestroy(clientState);
+            SparseArray_free(sharedObjects->arbPrograms, false);
+            MEMFREE(sharedObjects->arbPrograms);
+
+            ShaderConverter_onDestroy(clientState);
+            SparseArray_free(sharedObjects->programs, false);
+            MEMFREE(sharedObjects->programs);
+            SparseArray_free(sharedObjects->shaders, false);
+            MEMFREE(sharedObjects->shaders);
+
+            SparseArray_free(sharedObjects->framebuffers, true);
+            MEMFREE(sharedObjects->framebuffers);
+
+            SparseArray_free(sharedObjects->queries, true);
+            MEMFREE(sharedObjects->queries);
+#endif
+            free(sharedObjects);
+        }
+        clientState->sharedObjects = NULL;
+        clientState->buffers = NULL;
+#ifdef GL_SERVER
+        clientState->textures = NULL;
+        clientState->arbPrograms = NULL;
+        clientState->programs = NULL;
+        clientState->shaders = NULL;
+        clientState->queries = NULL;
+        clientState->framebuffers = NULL;
+#endif
+    }
+}
+
+static inline bool GLClientState_isLegacyEnabledWithProgram(GLClientState* clientState, int arrayIdx) {
+    bool hasBoundProgram = clientState->program || clientState->arbProgram[0] || clientState->arbProgram[1];
+    return clientState->vao->attribs[arrayIdx].state == VERTEX_ATTRIB_LEGACY_ENABLED && hasBoundProgram;
+}
+
+static inline int GLClientState_getArrayIndex(GLenum array) {
+    switch (array) {
+        case GL_VERTEX_ARRAY:
+            return POSITION_ARRAY_INDEX;
+        case GL_COLOR_ARRAY:
+            return COLOR_ARRAY_INDEX;
+            break;
+        case GL_NORMAL_ARRAY:
+            return NORMAL_ARRAY_INDEX;
+        case GL_TEXTURE_COORD_ARRAY:
+            return TEXCOORD_ARRAY_INDEX;
+        case GL_GENERIC_VERTEX_ARRAY:
+            return GENERIC_VERTEX_ARRAY_INDEX;
+        default:
+            return -1;
+    }
+}
+
+#endif

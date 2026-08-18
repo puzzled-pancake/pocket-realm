@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "abi": "x86_64",
+  "min_api": 26,
+  "elf_max_page_size": "0x4000",
+  "component": "vanilla-tweaks",
+  "version": "1.6.0",
+  "upstream": "https://github.com/brndd/vanilla-tweaks",
+  "upstream_commit": "fbbe31add71b23602d981d70f1a58520fc349b47",
+  "license": "MIT",
+  "purpose": "On-device producer of WoW.exe.patched from a pristine managed WoW.exe",
+  "artifacts": [
+    {
+      "path": "native/.build-vanilla-tweaks-x86_64/staging/jniLibs/x86_64/libpocket_vanilla_tweaks.so",
+      "size": 984296,
+      "sha256": "75d8c312d0bbb75e61f2468e7c8824c240225b035a914ab16c6ad9ebf1ae47a5",
+      "needed": [
+        "libc.so",
+        "libdl.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
+    }
+  ]
+}

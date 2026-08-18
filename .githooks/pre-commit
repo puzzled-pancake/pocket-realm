@@ -1,0 +1,30 @@
+#!/bin/sh
+# Pre-commit gate. Install once per clone:
+#   git config core.hooksPath .githooks
+# Runs the repo hygiene gate, the pinned-sources verifier, and the Python
+# test suite (~4s). Gradle unit tests stay in CI / manual runs (too slow here).
+#
+# Note: tools/check_sources.py needs initialized submodules and the local
+# native/.providers cache. On a fresh clone without them, defer installing
+# this hook (or commit with --no-verify) until both are populated.
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+echo "[pre-commit] repo hygiene gate"
+python tools/check_repo.py
+
+echo "[pre-commit] pinned sources"
+python tools/check_sources.py
+
+echo "[pre-commit] python tests"
+# The 8 deselected ids are the documented pre-existing substring-contract
+# failures; any NEW failure fails the hook.
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/ -q \
+  --deselect tests/test_gladio_client_unpack_transport.py::GladioClientValidationLaneContractTest::test_arm_production_packaging_excludes_gladio \
+  --deselect tests/test_gladio_client_unpack_transport.py::GladioClientValidationLaneContractTest::test_build_script_is_x86_validation_only \
+  --deselect tests/test_vortek_lifecycle_hardening.py::test_java_control_plane_rejects_ambiguous_ownership_and_unknown_requests \
+  --deselect tests/test_vortek_lifecycle_hardening.py::test_production_dispatch_opens_only_in_reviewed_bridge_target \
+  --deselect tests/test_vortek_lifecycle_hardening.py::test_window_authority_is_generation_instance_and_lifetime_bound \
+  --deselect tests/test_vortek_lifecycle_hardening.py::test_window_operations_revalidate_and_swapchain_creation_is_transactional \
+  --deselect tests/test_vortek_winlator_baseline.py::test_source_built_guest_is_pinned_and_reports_receiver_map_errno \
+  --deselect tests/test_vortek_winlator_baseline.py::test_idle_ring_wait_uses_peer_loss_and_progressive_backoff

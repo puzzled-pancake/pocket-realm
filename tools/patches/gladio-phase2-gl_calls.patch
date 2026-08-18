@@ -1,0 +1,408 @@
+--- a/src/gl_calls.c
++++ b/src/gl_calls.c
+@@ -5,6 +5,19 @@
+ 
+ pthread_mutex_t gl_call_mutex = PTHREAD_MUTEX_INITIALIZER;
+ 
++/*
++ * OpenGL 2.1, table 2.9: signed integer color/normal components map as
++ * (2*c + 1) / (2^b - 1); unsigned components map as c / (2^b - 1).
++ * Use double intermediates so the GLint case cannot overflow before the cast.
++ */
++static inline GLfloat gladioSignedNormalizedToFloat(int64_t value, uint64_t unsignedMax) {
++    return (GLfloat)(((2.0 * (double)value) + 1.0) / (double)unsignedMax);
++}
++
++static inline GLfloat gladioUnsignedNormalizedToFloat(uint64_t value, uint64_t unsignedMax) {
++    return (GLfloat)((double)value / (double)unsignedMax);
++}
++
+ void glAccum(GLenum op, GLfloat value) {
+     GL_CALL_LOCK();
+     ArrayBuffer_rewind(&outputBuffer);
+@@ -35,7 +48,11 @@
+ }
+ 
+ GLboolean glAreTexturesResident(GLsizei n, const GLuint* textures, GLboolean* residences) {
+-    return true;
++    (void)textures;
++    if (n > 0 && residences) {
++        for (GLsizei i = 0; i < n; i++) residences[i] = GL_TRUE;
++    }
++    return GL_TRUE;
+ }
+ 
+ GLboolean glAreTexturesResidentEXT(GLsizei n, const GLuint* textures, GLboolean* residences) {
+@@ -694,11 +711,11 @@
+ }
+ 
+ void glColor3b(GLbyte red, GLbyte green, GLbyte blue) {
+-    glColor4f((GLfloat)red / INT8_MAX, (GLfloat)green / INT8_MAX, (GLfloat)blue / INT8_MAX, 1.0f);
++    glColor4f(gladioSignedNormalizedToFloat(red, UINT8_MAX), gladioSignedNormalizedToFloat(green, UINT8_MAX), gladioSignedNormalizedToFloat(blue, UINT8_MAX), 1.0f);
+ }
+ 
+ void glColor3bv(const GLbyte* v) {
+-    glColor4f((GLfloat)v[0] / INT8_MAX, (GLfloat)v[1] / INT8_MAX, (GLfloat)v[2] / INT8_MAX, 1.0f);
++    glColor4f(gladioSignedNormalizedToFloat(v[0], UINT8_MAX), gladioSignedNormalizedToFloat(v[1], UINT8_MAX), gladioSignedNormalizedToFloat(v[2], UINT8_MAX), 1.0f);
+ }
+ 
+ void glColor3d(GLdouble red, GLdouble green, GLdouble blue) {
+@@ -718,51 +735,51 @@
+ }
+ 
+ void glColor3i(GLint red, GLint green, GLint blue) {
+-    glColor4f((GLfloat)red / INT32_MAX, (GLfloat)green / INT32_MAX, (GLfloat)blue / INT32_MAX, 1.0f);
++    glColor4f(gladioSignedNormalizedToFloat(red, UINT32_MAX), gladioSignedNormalizedToFloat(green, UINT32_MAX), gladioSignedNormalizedToFloat(blue, UINT32_MAX), 1.0f);
+ }
+ 
+ void glColor3iv(const GLint* v) {
+-    glColor4f((GLfloat)v[0] / INT32_MAX, (GLfloat)v[1] / INT32_MAX, (GLfloat)v[2] / INT32_MAX, 1.0f);
++    glColor4f(gladioSignedNormalizedToFloat(v[0], UINT32_MAX), gladioSignedNormalizedToFloat(v[1], UINT32_MAX), gladioSignedNormalizedToFloat(v[2], UINT32_MAX), 1.0f);
+ }
+ 
+ void glColor3s(GLshort red, GLshort green, GLshort blue) {
+-    glColor4f((GLfloat)red / INT16_MAX, (GLfloat)green / INT16_MAX, (GLfloat)blue / INT16_MAX, 1.0f);
++    glColor4f(gladioSignedNormalizedToFloat(red, UINT16_MAX), gladioSignedNormalizedToFloat(green, UINT16_MAX), gladioSignedNormalizedToFloat(blue, UINT16_MAX), 1.0f);
+ }
+ 
+ void glColor3sv(const GLshort* v) {
+-    glColor4f((GLfloat)v[0] / INT16_MAX, (GLfloat)v[1] / INT16_MAX, (GLfloat)v[2] / INT16_MAX, 1.0f);
++    glColor4f(gladioSignedNormalizedToFloat(v[0], UINT16_MAX), gladioSignedNormalizedToFloat(v[1], UINT16_MAX), gladioSignedNormalizedToFloat(v[2], UINT16_MAX), 1.0f);
+ }
+ 
+ void glColor3ub(GLubyte red, GLubyte green, GLubyte blue) {
+-    glColor4f((GLfloat)red / UINT8_MAX, (GLfloat)green / UINT8_MAX, (GLfloat)blue / UINT8_MAX, 1.0f);
++    glColor4f(gladioUnsignedNormalizedToFloat(red, UINT8_MAX), gladioUnsignedNormalizedToFloat(green, UINT8_MAX), gladioUnsignedNormalizedToFloat(blue, UINT8_MAX), 1.0f);
+ }
+ 
+ void glColor3ubv(const GLubyte* v) {
+-    glColor4f((GLfloat)v[0] / UINT8_MAX, (GLfloat)v[1] / UINT8_MAX, (GLfloat)v[2] / UINT8_MAX, 1.0f);
++    glColor4f(gladioUnsignedNormalizedToFloat(v[0], UINT8_MAX), gladioUnsignedNormalizedToFloat(v[1], UINT8_MAX), gladioUnsignedNormalizedToFloat(v[2], UINT8_MAX), 1.0f);
+ }
+ 
+ void glColor3ui(GLuint red, GLuint green, GLuint blue) {
+-    glColor4f((GLfloat)red / UINT32_MAX, (GLfloat)green / UINT32_MAX, (GLfloat)blue / UINT32_MAX, 1.0f);
++    glColor4f(gladioUnsignedNormalizedToFloat(red, UINT32_MAX), gladioUnsignedNormalizedToFloat(green, UINT32_MAX), gladioUnsignedNormalizedToFloat(blue, UINT32_MAX), 1.0f);
+ }
+ 
+ void glColor3uiv(const GLuint* v) {
+-    glColor4f((GLfloat)v[0] / UINT32_MAX, (GLfloat)v[1] / UINT32_MAX, (GLfloat)v[2] / UINT32_MAX, 1.0f);
++    glColor4f(gladioUnsignedNormalizedToFloat(v[0], UINT32_MAX), gladioUnsignedNormalizedToFloat(v[1], UINT32_MAX), gladioUnsignedNormalizedToFloat(v[2], UINT32_MAX), 1.0f);
+ }
+ 
+ void glColor3us(GLushort red, GLushort green, GLushort blue) {
+-    glColor4f((GLfloat)red / UINT16_MAX, (GLfloat)green / UINT16_MAX, (GLfloat)blue / UINT16_MAX, 1.0f);
++    glColor4f(gladioUnsignedNormalizedToFloat(red, UINT16_MAX), gladioUnsignedNormalizedToFloat(green, UINT16_MAX), gladioUnsignedNormalizedToFloat(blue, UINT16_MAX), 1.0f);
+ }
+ 
+ void glColor3usv(const GLushort* v) {
+-    glColor4f((GLfloat)v[0] / UINT16_MAX, (GLfloat)v[1] / UINT16_MAX, (GLfloat)v[2] / UINT16_MAX, 1.0f);
++    glColor4f(gladioUnsignedNormalizedToFloat(v[0], UINT16_MAX), gladioUnsignedNormalizedToFloat(v[1], UINT16_MAX), gladioUnsignedNormalizedToFloat(v[2], UINT16_MAX), 1.0f);
+ }
+ 
+ void glColor4b(GLbyte red, GLbyte green, GLbyte blue, GLbyte alpha) {
+-    glColor4f((GLfloat)red / INT8_MAX, (GLfloat)green / INT8_MAX, (GLfloat)blue / INT8_MAX, (GLfloat)alpha / INT8_MAX);
++    glColor4f(gladioSignedNormalizedToFloat(red, UINT8_MAX), gladioSignedNormalizedToFloat(green, UINT8_MAX), gladioSignedNormalizedToFloat(blue, UINT8_MAX), gladioSignedNormalizedToFloat(alpha, UINT8_MAX));
+ }
+ 
+ void glColor4bv(const GLbyte* v) {
+-    glColor4f((GLfloat)v[0] / INT8_MAX, (GLfloat)v[1] / INT8_MAX, (GLfloat)v[2] / INT8_MAX, (GLfloat)v[3] / INT8_MAX);
++    glColor4f(gladioSignedNormalizedToFloat(v[0], UINT8_MAX), gladioSignedNormalizedToFloat(v[1], UINT8_MAX), gladioSignedNormalizedToFloat(v[2], UINT8_MAX), gladioSignedNormalizedToFloat(v[3], UINT8_MAX));
+ }
+ 
+ void glColor4d(GLdouble red, GLdouble green, GLdouble blue, GLdouble alpha) {
+@@ -792,43 +809,43 @@
+ }
+ 
+ void glColor4i(GLint red, GLint green, GLint blue, GLint alpha) {
+-    glColor4f((GLfloat)red / INT32_MAX, (GLfloat)green / INT32_MAX, (GLfloat)blue / INT32_MAX, (GLfloat)alpha / INT32_MAX);
++    glColor4f(gladioSignedNormalizedToFloat(red, UINT32_MAX), gladioSignedNormalizedToFloat(green, UINT32_MAX), gladioSignedNormalizedToFloat(blue, UINT32_MAX), gladioSignedNormalizedToFloat(alpha, UINT32_MAX));
+ }
+ 
+ void glColor4iv(const GLint* v) {
+-    glColor4f((GLfloat)v[0] / INT32_MAX, (GLfloat)v[1] / INT32_MAX, (GLfloat)v[2] / INT32_MAX, (GLfloat)v[3] / INT32_MAX);
++    glColor4f(gladioSignedNormalizedToFloat(v[0], UINT32_MAX), gladioSignedNormalizedToFloat(v[1], UINT32_MAX), gladioSignedNormalizedToFloat(v[2], UINT32_MAX), gladioSignedNormalizedToFloat(v[3], UINT32_MAX));
+ }
+ 
+ void glColor4s(GLshort red, GLshort green, GLshort blue, GLshort alpha) {
+-    glColor4f((GLfloat)red / INT16_MAX, (GLfloat)green / INT16_MAX, (GLfloat)blue / INT16_MAX, (GLfloat)alpha / INT16_MAX);
++    glColor4f(gladioSignedNormalizedToFloat(red, UINT16_MAX), gladioSignedNormalizedToFloat(green, UINT16_MAX), gladioSignedNormalizedToFloat(blue, UINT16_MAX), gladioSignedNormalizedToFloat(alpha, UINT16_MAX));
+ }
+ 
+ void glColor4sv(const GLshort* v) {
+-    glColor4f((GLfloat)v[0] / INT16_MAX, (GLfloat)v[1] / INT16_MAX, (GLfloat)v[2] / INT16_MAX, (GLfloat)v[3] / INT16_MAX);
++    glColor4f(gladioSignedNormalizedToFloat(v[0], UINT16_MAX), gladioSignedNormalizedToFloat(v[1], UINT16_MAX), gladioSignedNormalizedToFloat(v[2], UINT16_MAX), gladioSignedNormalizedToFloat(v[3], UINT16_MAX));
+ }
+ 
+ void glColor4ub(GLubyte red, GLubyte green, GLubyte blue, GLubyte alpha) {
+-    glColor4f((GLfloat)red / UINT8_MAX, (GLfloat)green / UINT8_MAX, (GLfloat)blue / UINT8_MAX, (GLfloat)alpha / UINT8_MAX);
++    glColor4f(gladioUnsignedNormalizedToFloat(red, UINT8_MAX), gladioUnsignedNormalizedToFloat(green, UINT8_MAX), gladioUnsignedNormalizedToFloat(blue, UINT8_MAX), gladioUnsignedNormalizedToFloat(alpha, UINT8_MAX));
+ }
+ 
+ void glColor4ubv(const GLubyte* v) {
+-    glColor4f((GLfloat)v[0] / UINT8_MAX, (GLfloat)v[1] / UINT8_MAX, (GLfloat)v[2] / UINT8_MAX, (GLfloat)v[3] / UINT8_MAX);
++    glColor4f(gladioUnsignedNormalizedToFloat(v[0], UINT8_MAX), gladioUnsignedNormalizedToFloat(v[1], UINT8_MAX), gladioUnsignedNormalizedToFloat(v[2], UINT8_MAX), gladioUnsignedNormalizedToFloat(v[3], UINT8_MAX));
+ }
+ 
+ void glColor4ui(GLuint red, GLuint green, GLuint blue, GLuint alpha) {
+-    glColor4f((GLfloat)red / UINT32_MAX, (GLfloat)green / UINT32_MAX, (GLfloat)blue / UINT32_MAX, (GLfloat)alpha / UINT32_MAX);
++    glColor4f(gladioUnsignedNormalizedToFloat(red, UINT32_MAX), gladioUnsignedNormalizedToFloat(green, UINT32_MAX), gladioUnsignedNormalizedToFloat(blue, UINT32_MAX), gladioUnsignedNormalizedToFloat(alpha, UINT32_MAX));
+ }
+ 
+ void glColor4uiv(const GLuint* v) {
+-    glColor4f((GLfloat)v[0] / UINT32_MAX, (GLfloat)v[1] / UINT32_MAX, (GLfloat)v[2] / UINT32_MAX, (GLfloat)v[3] / UINT32_MAX);
++    glColor4f(gladioUnsignedNormalizedToFloat(v[0], UINT32_MAX), gladioUnsignedNormalizedToFloat(v[1], UINT32_MAX), gladioUnsignedNormalizedToFloat(v[2], UINT32_MAX), gladioUnsignedNormalizedToFloat(v[3], UINT32_MAX));
+ }
+ 
+ void glColor4us(GLushort red, GLushort green, GLushort blue, GLushort alpha) {
+-    glColor4f((GLfloat)red / UINT16_MAX, (GLfloat)green / UINT16_MAX, (GLfloat)blue / UINT16_MAX, (GLfloat)alpha / UINT16_MAX);
++    glColor4f(gladioUnsignedNormalizedToFloat(red, UINT16_MAX), gladioUnsignedNormalizedToFloat(green, UINT16_MAX), gladioUnsignedNormalizedToFloat(blue, UINT16_MAX), gladioUnsignedNormalizedToFloat(alpha, UINT16_MAX));
+ }
+ 
+ void glColor4usv(const GLushort* v) {
+-    glColor4f((GLfloat)v[0] / UINT16_MAX, (GLfloat)v[1] / UINT16_MAX, (GLfloat)v[2] / UINT16_MAX, (GLfloat)v[3] / UINT16_MAX);
++    glColor4f(gladioUnsignedNormalizedToFloat(v[0], UINT16_MAX), gladioUnsignedNormalizedToFloat(v[1], UINT16_MAX), gladioUnsignedNormalizedToFloat(v[2], UINT16_MAX), gladioUnsignedNormalizedToFloat(v[3], UINT16_MAX));
+ }
+ 
+ void glColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha) {
+@@ -1398,11 +1415,17 @@
+ }
+ 
+ void glDisableClientStateIndexedEXT(GLenum array, GLuint index) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glDisableClientStateIndexedEXT");
++    if (array != GL_TEXTURE_COORD_ARRAY) return;
++    GL_CALL_LOCK();
++    int oldIndex = currentGLContext->clientState->activeTexCoord;
++    if (oldIndex != index) glClientActiveTexture(GL_TEXTURE0 + index);
++    glDisableClientState(array);
++    if (oldIndex != index) glClientActiveTexture(GL_TEXTURE0 + oldIndex);
++    GL_CALL_UNLOCK();
+ }
+ 
+ void glDisableClientStateiEXT(GLenum array, GLuint index) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glDisableClientStateiEXT");
++    glDisableClientStateIndexedEXT(array, index);
+ }
+ 
+ void glDisableVertexArrayAttribEXT(GLuint vaobj, GLuint index) {
+@@ -1661,11 +1684,17 @@
+ }
+ 
+ void glEnableClientStateIndexedEXT(GLenum array, GLuint index) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glEnableClientStateIndexedEXT");
++    if (array != GL_TEXTURE_COORD_ARRAY) return;
++    GL_CALL_LOCK();
++    int oldIndex = currentGLContext->clientState->activeTexCoord;
++    if (oldIndex != index) glClientActiveTexture(GL_TEXTURE0 + index);
++    glEnableClientState(array);
++    if (oldIndex != index) glClientActiveTexture(GL_TEXTURE0 + oldIndex);
++    GL_CALL_UNLOCK();
+ }
+ 
+ void glEnableClientStateiEXT(GLenum array, GLuint index) {
+-    println(MSG_DEBUG_UNIMPLEMENTED_GLCALL, "glEnableClientStateiEXT");
++    glEnableClientStateIndexedEXT(array, index);
+ }
+ 
+ void glEnableVertexArrayAttribEXT(GLuint vaobj, GLuint index) {
+@@ -2716,9 +2745,16 @@
+     GL_RECV_CHECKED();
+ 
+     int strSize = ArrayBuffer_getInt(&inputBuffer);
+-    memcpy(infoLog, inputBuffer.buffer + inputBuffer.position, strSize);
+-    infoLog[strSize] = '\0';
+-    if (length) *length = strSize;
++    int available = inputBuffer.size - inputBuffer.position;
++    if (strSize < 0) strSize = 0;
++    if (strSize > available) strSize = available;
++    int copySize = (bufSize > 0 && strSize >= bufSize) ? bufSize - 1 : strSize;
++    if (copySize < 0) copySize = 0;
++    if (infoLog && bufSize > 0) {
++        if (copySize > 0) memcpy(infoLog, inputBuffer.buffer + inputBuffer.position, copySize);
++        infoLog[copySize] = '\0';
++    }
++    if (length) *length = copySize;
+     GL_CALL_UNLOCK();
+ }
+ 
+@@ -2869,9 +2905,16 @@
+     GL_RECV_CHECKED();
+ 
+     int strSize = ArrayBuffer_getInt(&inputBuffer);
+-    memcpy(infoLog, inputBuffer.buffer + inputBuffer.position, strSize);
+-    infoLog[strSize] = '\0';
+-    if (length) *length = strSize;
++    int available = inputBuffer.size - inputBuffer.position;
++    if (strSize < 0) strSize = 0;
++    if (strSize > available) strSize = available;
++    int copySize = (bufSize > 0 && strSize >= bufSize) ? bufSize - 1 : strSize;
++    if (copySize < 0) copySize = 0;
++    if (infoLog && bufSize > 0) {
++        if (copySize > 0) memcpy(infoLog, inputBuffer.buffer + inputBuffer.position, copySize);
++        infoLog[copySize] = '\0';
++    }
++    if (length) *length = copySize;
+     GL_CALL_UNLOCK();
+ }
+ 
+@@ -4080,9 +4123,12 @@
+ }
+ 
+ void glMultiTexCoordPointerEXT(GLenum texunit, GLint size, GLenum type, GLsizei stride, const void* pointer) {
+-    GL_DSA_SAVE_ACTIVE_TEXTURE(texunit);
++    GL_CALL_LOCK();
++    GLenum oldTexunit = GL_TEXTURE0 + currentGLContext->clientState->activeTexCoord;
++    if (oldTexunit != texunit) glClientActiveTexture(texunit);
+     glTexCoordPointer(size, type, stride, pointer);
+-    GL_DSA_RESTORE_ACTIVE_TEXTURE();
++    if (oldTexunit != texunit) glClientActiveTexture(oldTexunit);
++    GL_CALL_UNLOCK();
+ }
+ 
+ void glMultiTexEnvfEXT(GLenum texunit, GLenum target, GLenum pname, GLfloat param) {
+@@ -4303,11 +4349,11 @@
+ }
+ 
+ void glNormal3b(GLbyte nx, GLbyte ny, GLbyte nz) {
+-    glNormal3f((GLfloat)nx, (GLfloat)ny, (GLfloat)nz);
++    glNormal3f(gladioSignedNormalizedToFloat(nx, UINT8_MAX), gladioSignedNormalizedToFloat(ny, UINT8_MAX), gladioSignedNormalizedToFloat(nz, UINT8_MAX));
+ }
+ 
+ void glNormal3bv(const GLbyte* v) {
+-    glNormal3f((GLfloat)v[0], (GLfloat)v[1], (GLfloat)v[2]);
++    glNormal3f(gladioSignedNormalizedToFloat(v[0], UINT8_MAX), gladioSignedNormalizedToFloat(v[1], UINT8_MAX), gladioSignedNormalizedToFloat(v[2], UINT8_MAX));
+ }
+ 
+ void glNormal3d(GLdouble nx, GLdouble ny, GLdouble nz) {
+@@ -4337,19 +4383,19 @@
+ }
+ 
+ void glNormal3i(GLint nx, GLint ny, GLint nz) {
+-    glNormal3f((GLfloat)nx, (GLfloat)ny, (GLfloat)nz);
++    glNormal3f(gladioSignedNormalizedToFloat(nx, UINT32_MAX), gladioSignedNormalizedToFloat(ny, UINT32_MAX), gladioSignedNormalizedToFloat(nz, UINT32_MAX));
+ }
+ 
+ void glNormal3iv(const GLint* v) {
+-    glNormal3f((GLfloat)v[0], (GLfloat)v[1], (GLfloat)v[2]);
++    glNormal3f(gladioSignedNormalizedToFloat(v[0], UINT32_MAX), gladioSignedNormalizedToFloat(v[1], UINT32_MAX), gladioSignedNormalizedToFloat(v[2], UINT32_MAX));
+ }
+ 
+ void glNormal3s(GLshort nx, GLshort ny, GLshort nz) {
+-    glNormal3f((GLfloat)nx, (GLfloat)ny, (GLfloat)nz);
++    glNormal3f(gladioSignedNormalizedToFloat(nx, UINT16_MAX), gladioSignedNormalizedToFloat(ny, UINT16_MAX), gladioSignedNormalizedToFloat(nz, UINT16_MAX));
+ }
+ 
+ void glNormal3sv(const GLshort* v) {
+-    glNormal3f((GLfloat)v[0], (GLfloat)v[1], (GLfloat)v[2]);
++    glNormal3f(gladioSignedNormalizedToFloat(v[0], UINT16_MAX), gladioSignedNormalizedToFloat(v[1], UINT16_MAX), gladioSignedNormalizedToFloat(v[2], UINT16_MAX));
+ }
+ 
+ void glNormalPointer(GLenum type, GLsizei stride, const void* pointer) {
+@@ -5157,7 +5203,7 @@
+ }
+ 
+ void glSecondaryColor3b(GLbyte red, GLbyte green, GLbyte blue) {
+-    glSecondaryColor3f((GLfloat)red, (GLfloat)green, (GLfloat)blue);
++    glSecondaryColor3f(gladioSignedNormalizedToFloat(red, UINT8_MAX), gladioSignedNormalizedToFloat(green, UINT8_MAX), gladioSignedNormalizedToFloat(blue, UINT8_MAX));
+ }
+ 
+ void glSecondaryColor3bEXT(GLbyte red, GLbyte green, GLbyte blue) {
+@@ -5165,7 +5211,7 @@
+ }
+ 
+ void glSecondaryColor3bv(const GLbyte* v) {
+-    glSecondaryColor3f((GLfloat)v[0], (GLfloat)v[1], (GLfloat)v[2]);
++    glSecondaryColor3f(gladioSignedNormalizedToFloat(v[0], UINT8_MAX), gladioSignedNormalizedToFloat(v[1], UINT8_MAX), gladioSignedNormalizedToFloat(v[2], UINT8_MAX));
+ }
+ 
+ void glSecondaryColor3bvEXT(const GLbyte* v) {
+@@ -5211,7 +5257,7 @@
+ }
+ 
+ void glSecondaryColor3i(GLint red, GLint green, GLint blue) {
+-    glSecondaryColor3f((GLfloat)red, (GLfloat)green, (GLfloat)blue);
++    glSecondaryColor3f(gladioSignedNormalizedToFloat(red, UINT32_MAX), gladioSignedNormalizedToFloat(green, UINT32_MAX), gladioSignedNormalizedToFloat(blue, UINT32_MAX));
+ }
+ 
+ void glSecondaryColor3iEXT(GLint red, GLint green, GLint blue) {
+@@ -5219,7 +5265,7 @@
+ }
+ 
+ void glSecondaryColor3iv(const GLint* v) {
+-    glSecondaryColor3f((GLfloat)v[0], (GLfloat)v[1], (GLfloat)v[2]);
++    glSecondaryColor3f(gladioSignedNormalizedToFloat(v[0], UINT32_MAX), gladioSignedNormalizedToFloat(v[1], UINT32_MAX), gladioSignedNormalizedToFloat(v[2], UINT32_MAX));
+ }
+ 
+ void glSecondaryColor3ivEXT(const GLint* v) {
+@@ -5227,7 +5273,7 @@
+ }
+ 
+ void glSecondaryColor3s(GLshort red, GLshort green, GLshort blue) {
+-    glSecondaryColor3f((GLfloat)red, (GLfloat)green, (GLfloat)blue);
++    glSecondaryColor3f(gladioSignedNormalizedToFloat(red, UINT16_MAX), gladioSignedNormalizedToFloat(green, UINT16_MAX), gladioSignedNormalizedToFloat(blue, UINT16_MAX));
+ }
+ 
+ void glSecondaryColor3sEXT(GLshort red, GLshort green, GLshort blue) {
+@@ -5235,7 +5281,7 @@
+ }
+ 
+ void glSecondaryColor3sv(const GLshort* v) {
+-    glSecondaryColor3f((GLfloat)v[0], (GLfloat)v[1], (GLfloat)v[2]);
++    glSecondaryColor3f(gladioSignedNormalizedToFloat(v[0], UINT16_MAX), gladioSignedNormalizedToFloat(v[1], UINT16_MAX), gladioSignedNormalizedToFloat(v[2], UINT16_MAX));
+ }
+ 
+ void glSecondaryColor3svEXT(const GLshort* v) {
+@@ -5243,7 +5289,7 @@
+ }
+ 
+ void glSecondaryColor3ub(GLubyte red, GLubyte green, GLubyte blue) {
+-    glSecondaryColor3f((GLfloat)red, (GLfloat)green, (GLfloat)blue);
++    glSecondaryColor3f(gladioUnsignedNormalizedToFloat(red, UINT8_MAX), gladioUnsignedNormalizedToFloat(green, UINT8_MAX), gladioUnsignedNormalizedToFloat(blue, UINT8_MAX));
+ }
+ 
+ void glSecondaryColor3ubEXT(GLubyte red, GLubyte green, GLubyte blue) {
+@@ -5251,7 +5297,7 @@
+ }
+ 
+ void glSecondaryColor3ubv(const GLubyte* v) {
+-    glSecondaryColor3f((GLfloat)v[0], (GLfloat)v[1], (GLfloat)v[2]);
++    glSecondaryColor3f(gladioUnsignedNormalizedToFloat(v[0], UINT8_MAX), gladioUnsignedNormalizedToFloat(v[1], UINT8_MAX), gladioUnsignedNormalizedToFloat(v[2], UINT8_MAX));
+ }
+ 
+ void glSecondaryColor3ubvEXT(const GLubyte* v) {
+@@ -5259,7 +5305,7 @@
+ }
+ 
+ void glSecondaryColor3ui(GLuint red, GLuint green, GLuint blue) {
+-    glSecondaryColor3f((GLfloat)red, (GLfloat)green, (GLfloat)blue);
++    glSecondaryColor3f(gladioUnsignedNormalizedToFloat(red, UINT32_MAX), gladioUnsignedNormalizedToFloat(green, UINT32_MAX), gladioUnsignedNormalizedToFloat(blue, UINT32_MAX));
+ }
+ 
+ void glSecondaryColor3uiEXT(GLuint red, GLuint green, GLuint blue) {
+@@ -5267,7 +5313,7 @@
+ }
+ 
+ void glSecondaryColor3uiv(const GLuint* v) {
+-    glSecondaryColor3f((GLfloat)v[0], (GLfloat)v[1], (GLfloat)v[2]);
++    glSecondaryColor3f(gladioUnsignedNormalizedToFloat(v[0], UINT32_MAX), gladioUnsignedNormalizedToFloat(v[1], UINT32_MAX), gladioUnsignedNormalizedToFloat(v[2], UINT32_MAX));
+ }
+ 
+ void glSecondaryColor3uivEXT(const GLuint* v) {
+@@ -5275,7 +5321,7 @@
+ }
+ 
+ void glSecondaryColor3us(GLushort red, GLushort green, GLushort blue) {
+-    glSecondaryColor3f((GLfloat)red, (GLfloat)green, (GLfloat)blue);
++    glSecondaryColor3f(gladioUnsignedNormalizedToFloat(red, UINT16_MAX), gladioUnsignedNormalizedToFloat(green, UINT16_MAX), gladioUnsignedNormalizedToFloat(blue, UINT16_MAX));
+ }
+ 
+ void glSecondaryColor3usEXT(GLushort red, GLushort green, GLushort blue) {
+@@ -5283,7 +5329,7 @@
+ }
+ 
+ void glSecondaryColor3usv(const GLushort* v) {
+-    glSecondaryColor3f((GLfloat)v[0], (GLfloat)v[1], (GLfloat)v[2]);
++    glSecondaryColor3f(gladioUnsignedNormalizedToFloat(v[0], UINT16_MAX), gladioUnsignedNormalizedToFloat(v[1], UINT16_MAX), gladioUnsignedNormalizedToFloat(v[2], UINT16_MAX));
+ }
+ 
+ void glSecondaryColor3usvEXT(const GLushort* v) {

@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "reference_document": "docs/wiki/README.md",
+  "avd_id": "AVD-Large-x86_64-v1",
+  "physical_avd_name": "O11-Large-x86_64",
+  "system_image": "Android/sdk_phone64_x86_64/emu64x:15/AE3A.240806.019/12368160:userdebug/test-keys",
+  "captured_at_utc": "2026-08-05T22:15:00+00:00",
+  "lane_purpose": "Large-storage / 8-GiB API-35 x86_64 4-KiB qualification lane for the managed-client import and measured playerbot tiers. Same system image, ABI, page size, and tag as AVD-Modern-x86_64-v1, but with 8 GiB RAM and a 30 GiB data partition so the full normal-play generation and 410-migration bot database fit. It is NOT equivalent to the 2.5-GiB / 10-GiB AVD-Modern-x86_64-v1 capability profile.",
+  "host": {
+    "emulator_version": "Android emulator version 36.6.11.0 (build_id 15507667) (CL:N/A)",
+    "platform": {
+      "guest_cpu": "x86_64",
+      "hw_accel": "WHPX",
+      "virtualization_backend": "whpx",
+      "qemu_hardware": "ranchu"
+    }
+  },
+  "guest": {
+    "api_level": 35,
+    "abilist": "x86_64",
+    "abilist32": "",
+    "abilist64": "x86_64",
+    "page_size_bytes": 4096,
+    "page_size_source": "getconf",
+    "mem_total_kb": 8137032,
+    "df_data_line": "/dev/block/dm-43  30787580 22536260   8103864  74% /data/user/0",
+    "gl_host": {
+      "egl": "emulation",
+      "vulkan": "ranchu",
+      "gralloc": "ranchu",
+      "qemu_gles_transport": "",
+      "qemu_gles": "",
+      "opengles_version": "196609"
+    },
+    "build_id": "AE3A.240806.019",
+    "avd_name": "O11-Large-x86_64"
+  },
+  "avd_config": {
+    "image.sysdir.1": "system-images\\android-35\\default\\x86_64\\",
+    "tag.id": "default",
+    "abi.type": "x86_64",
+    "hw.ramSize": 8192,
+    "disk.dataPartition.size": "30G"
+  },
+  "relationship_to_other_lanes": {
+    "same_api_abi_page_tag_as": "AVD-Modern-x86_64-v1",
+    "differences_from_avd_modern": [
+      "RAM: 8192 MiB vs AVD-Modern 2048 MiB (guest mem_total 8137032 KiB vs 2532436 KiB)",
+      "data partition: 30 GiB vs AVD-Modern 10 GiB",
+      "purpose: large-storage lane required for the full import generation + bot database"
+    ],
+    "not_a_substitute_for": "AVD-Modern-x86_64-v1 25-bot qualification, which remains unproven on the smaller 2.5-GiB / 10-GiB profile"
+  },
+  "comparison": {
+    "status": "PASS",
+    "fields": [
+      {"field": "sdkInt", "adb": "35", "ok": true},
+      {"field": "pageSizeBytes", "adb": "4096", "ok": true},
+      {"field": "abilist", "adb": "x86_64", "ok": true},
+      {"field": "abilist32", "adb": "", "ok": true},
+      {"field": "abilist64", "adb": "x86_64", "ok": true},
+      {"field": "totalRamBytes", "adb": "8332188800", "ok": true}
+    ],
+    "note": "Allocatable storage (StorageManager vs df) and GL strings (app EGL vs host/emulator) are recorded separately during qualification runs. GL host GPU is the same NVIDIA GeForce RTX 5060 Ti used by AVD-Modern-x86_64-v1."
+  }
+}
