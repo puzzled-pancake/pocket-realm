@@ -2,8 +2,6 @@
 
 The Add-ons area manages optional changes to the game interface. Nothing is installed automatically.
 
-![Pocket Realm Add-ons screen](images/add-ons.png)
-
 ## The four starting points
 
 ### Recommended for Pocket Realm

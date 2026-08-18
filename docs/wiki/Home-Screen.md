@@ -2,8 +2,6 @@
 
 Home is the everyday launcher. It answers three questions: Is the realm running, what setup will be used, and is a local game account ready?
 
-![Pocket Realm Home screen](images/home.png)
-
 ## Realm card
 
 The large card at the top shows the current state.

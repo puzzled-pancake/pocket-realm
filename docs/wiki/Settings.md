@@ -2,8 +2,6 @@
 
 Settings holds choices that do not belong on the everyday Home screen. Many of them apply only when the realm or game starts again.
 
-![Pocket Realm runtime settings](images/settings-runtime.png)
-
 ## ARM client runtime
 
 On an ARM device such as the Retroid Pocket 6, Pocket Realm runs the Windows game client through Box64 and Wine. DXVK translates the game's Direct3D graphics into Vulkan for Android.
@@ -81,8 +79,6 @@ Game audio is supported through the Android audio bridge on the ARM64 route. The
 ## Setup shortcuts
 
 The final Settings card keeps the maintenance screens together.
-
-![Pocket Realm Setup shortcuts](images/settings-setup.png)
 
 - **Game files and import** manages the private client copy and server-data preparation.
 - **Device capability report** shows hardware and process details used during device testing.

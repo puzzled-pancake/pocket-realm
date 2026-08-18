@@ -6,8 +6,6 @@ This wiki describes the project as it exists now. It is written for players, tes
 
 > Pocket Realm is still being developed. Screens and wording may change. The wiki records the current result, not a promise that every planned feature is finished.
 
-![Pocket Realm Home screen](images/home.png)
-
 ## Start here
 
 - [What Pocket Realm is](Overview.md)
@@ -28,7 +26,6 @@ This wiki describes the project as it exists now. It is written for players, tes
 - [Build and packaging](Build-and-Packaging.md)
 - [Troubleshooting](Troubleshooting.md)
 - [Glossary](Glossary.md)
-- [Screenshot gallery](Screenshot-Gallery.md)
 
 ## A quick description
 
@@ -38,4 +35,4 @@ The normal experience is offline. An optional experimental LAN mode can let anot
 
 ## Current documentation date
 
-The screenshots and screen descriptions were checked on 14 August 2026 using the current app installed on a Retroid Pocket 6.
+These pages were last checked on 14 August 2026 using the current app installed on a Retroid Pocket 6.
