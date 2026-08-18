@@ -156,3 +156,9 @@ components (CMaNGOS, Playerbots, MariaDB, Wine, Winlator, Box64, DXVK, Turnip,
 VirGL, Gladio, vanilla-tweaks, and more) under their own licenses — see
 `schemas/sources.json`, `docs/patches/`, the in-tree LICENSE files of the
 vendored trees, and `THIRD_PARTY_NOTICES.md` in release packages.
+
+## AI-coded notice
+
+Pocket Realm was developed with heavy use of AI coding. The work was done
+through the ZCode agent harness, using the open GLM models GLM 5.2 and
+GLM 5.3, with human direction and review throughout the project.
