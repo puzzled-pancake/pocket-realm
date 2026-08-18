@@ -17,7 +17,6 @@
     <ID>ComplexCondition:InputContract.kt$InputContract$epoch == imePulseEpoch &amp;&amp; acceptingInput &amp;&amp; generation == activeGeneration &amp;&amp; imeActive</ID>
     <ID>ComplexCondition:InputProfile.kt$InputProfile.Companion$legacyDefault || (repairedScheme == ControlScheme.CLASSIC_CAMERA &amp;&amp; v5CameraLockDefault) || (repairedScheme == ControlScheme.CLASSIC_CAMERA &amp;&amp; v7ClassicDefault) || retiredAddonScheme || retiredGeneratedProfile || v10GeneratedDefault || v11PreRefinementDefault || v11RearButtonDefault</ID>
     <ID>ComplexCondition:InputProfile.kt$InputProfile.Companion$legacyDefault || v5CameraLockDefault || v7ClassicDefault || retiredAddonScheme || retiredGeneratedProfile</ID>
-    <ID>ComplexCondition:ManagedClientImporter.kt$ManagedClientImporter$prior?.state == ImportFileState.VERIFIED &amp;&amp; prior.fsyncMarker &amp;&amp; prior.expectedSize == entry.size &amp;&amp; prior.expectedMtime == entry.lastModified &amp;&amp; target.isFile &amp;&amp; target.length() == entry.size &amp;&amp; sha256(target) == prior.sha256</ID>
     <ID>ComplexCondition:PackagingExperimentRunner.kt$PackagingExperimentRunner$!timedOut &amp;&amp; exit == 0 &amp;&amp; sawHello &amp;&amp; sawOk</ID>
     <ID>ComplexCondition:SafClientScanner.kt$SafClientScanner$bytes[offset] != 0xbd.toByte() || bytes[offset + 1] != 0x04.toByte() || bytes[offset + 2] != 0xef.toByte() || bytes[offset + 3] != 0xfe.toByte()</ID>
     <ID>ComplexCondition:SinglePlayerAutoLogin.kt$SinglePlayerAutoLoginController$!bridge.isActive(generation) || !bridge.isRendererReady() || !bridge.isInputNeutral(generation) || !topologyMatches()</ID>
@@ -70,7 +69,6 @@
     <ID>CyclomaticComplexMethod:LanScreen.kt$@Composable fun LanScreen()</ID>
     <ID>CyclomaticComplexMethod:LegacyControllerBindingRepair.kt$LegacyControllerBindingRepair$fun repair(clientRoot: File): Int</ID>
     <ID>CyclomaticComplexMethod:LegacyControllerBindingRepair.kt$LegacyControllerBindingRepair$private fun repairFile(file: File, previous: Map&lt;String, String?&gt;?): Boolean</ID>
-    <ID>CyclomaticComplexMethod:ManagedClientImporter.kt$ManagedClientImporter$suspend fun run( treeUri: Uri, afterVerified: (Int) -&gt; Unit = {}, beforePublish: () -&gt; Unit = {}, afterRenameBeforeActivate: () -&gt; Unit = {}, ): ImportResult</ID>
     <ID>CyclomaticComplexMethod:ManagedClientStore.kt$ManagedClientStore$private fun loadUnlocked(clientId: String): ManagedClient</ID>
     <ID>CyclomaticComplexMethod:PackagingExperimentRunner.kt$PackagingExperimentRunner$suspend fun runPkg01(launcherRelName: String = "libpocket_pkg_launcher.so"): ExperimentResult</ID>
     <ID>CyclomaticComplexMethod:PackagingExperimentRunner.kt$PackagingExperimentRunner$suspend fun runPkg06(durationSeconds: Long): ExperimentResult</ID>
@@ -85,6 +83,7 @@
     <ID>CyclomaticComplexMethod:SettingsScreen.kt$@Composable fun SettingsScreen( contentPadding: PaddingValues = PaddingValues(), onBots: (() -&gt; Unit)? = null, onClientSetup: (() -&gt; Unit)? = null, onCapability: (() -&gt; Unit)? = null, onDiagnostics: (() -&gt; Unit)? = null, onInGameSettings: (() -&gt; Unit)? = null, )</ID>
     <ID>CyclomaticComplexMethod:SinglePlayerAutoLogin.kt$Build5875LoginTopology$fun matches( windows: List&lt;AutoLoginWindow&gt;, lane: AutoLoginWindowLane, expectedWidth: Int = 1920, expectedHeight: Int = 1080, ): Boolean</ID>
     <ID>CyclomaticComplexMethod:SinglePlayerAutoLogin.kt$SinglePlayerAutoLoginController$@Synchronized private fun poll()</ID>
+    <ID>CyclomaticComplexMethod:TouchOverlay.kt$@Composable private fun BoxScope.MovableCluster( clusterId: OverlayClusterId, host: ClientDisplayHost, profile: InputProfile, containerSize: IntSize, moveMode: Boolean, stockAlignment: Alignment, stockPadding: PaddingValues, stockZIndex: Float, content: @Composable () -&gt; Unit, )</ID>
     <ID>CyclomaticComplexMethod:TouchOverlay.kt$private fun ControllerAction.shortLabel(fallback: String): String</ID>
     <ID>CyclomaticComplexMethod:WineRuntimeStore.kt$ArmGraphicsGenerationIdentity$private fun values(): List&lt;String&gt;</ID>
     <ID>CyclomaticComplexMethod:WineRuntimeStore.kt$WineRuntimeStore$fun attestForLaunch(p: Prepared)</ID>
@@ -92,15 +91,9 @@
     <ID>CyclomaticComplexMethod:WineRuntimeStore.kt$WineRuntimeStore$private fun enforceManagedSafeMode( p: Prepared, renderer: String, displayProfile: ClientDisplayProfile, inputSafeMode: Boolean, audioMode: String, realmEndpoint: RealmEndpoint, ): Prepared</ID>
     <ID>CyclomaticComplexMethod:WineRuntimeStore.kt$WineRuntimeStore$private fun patchWinlatorPackagePaths(rootfs: File)</ID>
     <ID>CyclomaticComplexMethod:WineRuntimeStore.kt$WineRuntimeStore$private fun prepareArm( clientId: String, renderer: String, audioMode: String, translator: ArmTranslationBackend, inputSafeMode: Boolean, rendererPackageId: String?, vulkanDriverId: String?, displayProfileId: String, frameCap: Int, tweaksJson: String = "", realmEndpoint: RealmEndpoint, ): Prepared</ID>
-    <ID>CyclomaticComplexMethod:WineSpikeRunner.kt$WineSpikeRunner$private fun classifyProcess(comm: String, cmdline: String, maps: String): String</ID>
-    <ID>CyclomaticComplexMethod:WineSpikeRunner.kt$WineSpikeRunner$private fun parseProotRunResult(s: String): ProotRunResult</ID>
-    <ID>CyclomaticComplexMethod:WineSpikeRunner.kt$WineSpikeRunner$suspend fun runS1(): ExperimentResult</ID>
-    <ID>CyclomaticComplexMethod:WineSpikeRunner.kt$WineSpikeRunner$suspend fun runS2(): ExperimentResult</ID>
-    <ID>CyclomaticComplexMethod:WineSpikeRunner.kt$WineSpikeRunner$suspend fun runS3(): ExperimentResult</ID>
     <ID>CyclomaticComplexMethod:WorldRuntimeService.kt$WorldRuntimeService$private fun addBotStatus(value: JSONObject)</ID>
     <ID>CyclomaticComplexMethod:WorldRuntimeService.kt$WorldRuntimeService$private fun runAdmissionMonitor( controller: BotAdmissionController, startedAt: Long, generation: Long, )</ID>
     <ID>CyclomaticComplexMethod:WowGameSettings.kt$GameSettingsDeliveryPlanner$fun plan( config: WowGameSettingsConfig, enforcedCvarKeys: Set&lt;String&gt;, uvarScopeExists: (scope: String) -&gt; Boolean, bindingScopeExists: (scope: String) -&gt; Boolean, previousDelivered: List&lt;GameSettingsDeliveryEntry&gt;, ): Plan</ID>
-    <ID>EmptyElseBlock:DataPreparationStore.kt$DataPreparationStore$if (size &lt; 0) break</ID>
     <ID>ForEachOnRange:AndroidPortMigrator.kt$AndroidPortMigrator$1..40</ID>
     <ID>ForEachOnRange:InGameBindingsScreen.kt$0..1</ID>
     <ID>ForEachOnRange:LegacyControllerBindingRepair.kt$LegacyControllerBindingRepair$1..8</ID>
@@ -198,14 +191,15 @@
     <ID>FunctionNaming:Theme.kt$@Composable fun PocketRealmTheme( darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -&gt; Unit, )</ID>
     <ID>FunctionNaming:TouchOverlay.kt$@Composable fun TouchOverlay(host: ClientDisplayHost, modifier: Modifier = Modifier)</ID>
     <ID>FunctionNaming:TouchOverlay.kt$@Composable private fun ActionKey( host: ClientDisplayHost, profile: InputProfile, control: OverlayControl, fallbackLabel: String, opacity: Float, targetSize: androidx.compose.ui.unit.Dp, wide: Boolean = false, )</ID>
-    <ID>FunctionNaming:TouchOverlay.kt$@Composable private fun BoxScope.FullTouchControls( host: ClientDisplayHost, profile: InputProfile, opacity: Float, )</ID>
+    <ID>FunctionNaming:TouchOverlay.kt$@Composable private fun BoxScope.ConsoleTouchControls( host: ClientDisplayHost, profile: InputProfile, opacity: Float, moveMode: Boolean, containerSize: IntSize, )</ID>
+    <ID>FunctionNaming:TouchOverlay.kt$@Composable private fun BoxScope.FullTouchControls( host: ClientDisplayHost, profile: InputProfile, opacity: Float, moveMode: Boolean, containerSize: IntSize, )</ID>
+    <ID>FunctionNaming:TouchOverlay.kt$@Composable private fun BoxScope.MovableCluster( clusterId: OverlayClusterId, host: ClientDisplayHost, profile: InputProfile, containerSize: IntSize, moveMode: Boolean, stockAlignment: Alignment, stockPadding: PaddingValues, stockZIndex: Float, content: @Composable () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:TouchOverlay.kt$@Composable private fun BoxScope.TouchCameraRegion(host: ClientDisplayHost, profile: InputProfile)</ID>
     <ID>FunctionNaming:TouchOverlay.kt$@Composable private fun DirectActionKey( host: ClientDisplayHost, action: ControllerAction, label: String, tag: String, opacity: Float, )</ID>
     <ID>FunctionNaming:TouchOverlay.kt$@Composable private fun OverlayButton( label: String, tag: String, opacity: Float, modifier: Modifier = Modifier, onClick: () -&gt; Unit, )</ID>
-    <ID>FunctionNaming:TouchOverlay.kt$@Composable private fun UtilityDrawer( host: ClientDisplayHost, cameraLocked: Boolean, opacity: Float, expanded: Boolean, onExpandedChange: (Boolean) -&gt; Unit, onHide: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>FunctionNaming:TouchOverlay.kt$@Composable private fun UtilityDrawer( host: ClientDisplayHost, cameraLocked: Boolean, opacity: Float, expanded: Boolean, onExpandedChange: (Boolean) -&gt; Unit, onHide: () -&gt; Unit, onToggleMoveMode: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>InstanceOfCheckForException:ManagedClientImporter.kt$ManagedClientImporter$error !is ImportInterrupted</ID>
     <ID>InstanceOfCheckForException:ManagedClientImporter.kt$ManagedClientImporter$error !is kotlinx.coroutines.CancellationException</ID>
-    <ID>InstanceOfCheckForException:ManagedClientImporter.kt$ManagedClientImporter$error is ImportInterrupted</ID>
-    <ID>InstanceOfCheckForException:ManagedClientImporter.kt$ManagedClientImporter$error is kotlinx.coroutines.CancellationException</ID>
     <ID>InstanceOfCheckForException:RealmService.kt$RealmService$error is CancellationException</ID>
     <ID>InstanceOfCheckForException:RealmService.kt$ServiceOperationCoordinator$error is CancellationException</ID>
     <ID>InvalidPackageDeclaration:AlsaResidualDiagnosticsTest.kt$package com.winlator.alsaserver</ID>
@@ -218,7 +212,6 @@
     <ID>LargeClass:InputContract.kt$InputContract</ID>
     <ID>LargeClass:InputContractTest.kt$InputContractTest</ID>
     <ID>LargeClass:WineRuntimeStore.kt$WineRuntimeStore</ID>
-    <ID>LargeClass:WineSpikeRunner.kt$WineSpikeRunner</ID>
     <ID>LargeClass:WowVanillaSettingsCatalog.kt$WowVanillaSettingsCatalog</ID>
     <ID>LongMethod:AddonArchiveValidator.kt$AddonArchiveValidator$fun validate( archive: File, @Suppress("UNUSED_PARAMETER") repositoryName: String, policy: Policy = Policy.VANILLA, checkpoint: () -&gt; Unit = {}, ): Validated</ID>
     <ID>LongMethod:AddonCatalog.kt$AddonCatalog.Companion$internal fun parse(text: String): AddonCatalog</ID>
@@ -277,7 +270,6 @@
     <ID>LongMethod:InputProfile.kt$InputProfile.Companion$fun fromJson(value: JSONObject): InputProfile</ID>
     <ID>LongMethod:IntegratedClientDisplay.kt$ClientDisplayService.&lt;no name provided&gt;$override fun prepare( runtimeRoot: String, instanceToken: String, autoLoginUsername: String, autoLoginPassword: String, autoLoginTimingJson: String, audioMode: String, clientId: String, renderer: String, vulkanDriverId: String, rendererPackageId: String, displayProfileId: String, frameCap: Int, ): String</ID>
     <ID>LongMethod:LanScreen.kt$@Composable fun LanScreen()</ID>
-    <ID>LongMethod:ManagedClientImporter.kt$ManagedClientImporter$suspend fun run( treeUri: Uri, afterVerified: (Int) -&gt; Unit = {}, beforePublish: () -&gt; Unit = {}, afterRenameBeforeActivate: () -&gt; Unit = {}, ): ImportResult</ID>
     <ID>LongMethod:ManagedClientStore.kt$ManagedClientStore$private fun loadUnlocked(clientId: String): ManagedClient</ID>
     <ID>LongMethod:PackagingExperimentRunner.kt$PackagingExperimentRunner$suspend fun runPkg01(launcherRelName: String = "libpocket_pkg_launcher.so"): ExperimentResult</ID>
     <ID>LongMethod:PackagingExperimentRunner.kt$PackagingExperimentRunner$suspend fun runPkg02(): ExperimentResult</ID>
@@ -289,17 +281,15 @@
     <ID>LongMethod:Settings.kt$Settings$suspend fun update(transform: (Snapshot) -&gt; Snapshot)</ID>
     <ID>LongMethod:SettingsScreen.kt$@Composable fun SettingsScreen( contentPadding: PaddingValues = PaddingValues(), onBots: (() -&gt; Unit)? = null, onClientSetup: (() -&gt; Unit)? = null, onCapability: (() -&gt; Unit)? = null, onDiagnostics: (() -&gt; Unit)? = null, onInGameSettings: (() -&gt; Unit)? = null, )</ID>
     <ID>LongMethod:TouchOverlay.kt$@Composable fun TouchOverlay(host: ClientDisplayHost, modifier: Modifier = Modifier)</ID>
-    <ID>LongMethod:TouchOverlay.kt$@Composable private fun BoxScope.FullTouchControls( host: ClientDisplayHost, profile: InputProfile, opacity: Float, )</ID>
+    <ID>LongMethod:TouchOverlay.kt$@Composable private fun BoxScope.ConsoleTouchControls( host: ClientDisplayHost, profile: InputProfile, opacity: Float, moveMode: Boolean, containerSize: IntSize, )</ID>
+    <ID>LongMethod:TouchOverlay.kt$@Composable private fun BoxScope.FullTouchControls( host: ClientDisplayHost, profile: InputProfile, opacity: Float, moveMode: Boolean, containerSize: IntSize, )</ID>
+    <ID>LongMethod:TouchOverlay.kt$@Composable private fun BoxScope.MovableCluster( clusterId: OverlayClusterId, host: ClientDisplayHost, profile: InputProfile, containerSize: IntSize, moveMode: Boolean, stockAlignment: Alignment, stockPadding: PaddingValues, stockZIndex: Float, content: @Composable () -&gt; Unit, )</ID>
     <ID>LongMethod:WineRuntimeStore.kt$WineRuntimeStore$fun attestForLaunch(p: Prepared)</ID>
     <ID>LongMethod:WineRuntimeStore.kt$WineRuntimeStore$fun prepare( clientId: String, renderer: String, audioMode: String, armTranslator: ArmTranslationBackend = ArmTranslationBackend.BOX64, inputSafeMode: Boolean = false, armRendererPackageId: String? = null, armVulkanDriverId: String? = null, displayProfileId: String = ClientDisplayProfile.BALANCED.id, frameCap: Int = ClientFrameCap.FPS_30.fps, tweaksJson: String = "", realmEndpoint: RealmEndpoint = RealmEndpoint.LOCAL, ): Prepared</ID>
     <ID>LongMethod:WineRuntimeStore.kt$WineRuntimeStore$private fun applyTweaks(p: Prepared, tweaks: ClientTweaksConfig): Prepared</ID>
     <ID>LongMethod:WineRuntimeStore.kt$WineRuntimeStore$private fun armPaths( clientId: String, translator: ArmTranslationBackend, renderer: String, rendererPackageId: String?, vulkanDriverId: String?, ): Prepared</ID>
     <ID>LongMethod:WineRuntimeStore.kt$WineRuntimeStore$private fun enforceManagedSafeMode( p: Prepared, renderer: String, displayProfile: ClientDisplayProfile, inputSafeMode: Boolean, audioMode: String, realmEndpoint: RealmEndpoint, ): Prepared</ID>
     <ID>LongMethod:WineRuntimeStore.kt$WineRuntimeStore$private fun prepareArm( clientId: String, renderer: String, audioMode: String, translator: ArmTranslationBackend, inputSafeMode: Boolean, rendererPackageId: String?, vulkanDriverId: String?, displayProfileId: String, frameCap: Int, tweaksJson: String = "", realmEndpoint: RealmEndpoint, ): Prepared</ID>
-    <ID>LongMethod:WineSpikeRunner.kt$WineSpikeRunner$private fun verifyLoaderChainEx( nativeDir: String, wineTarget: String, prefixDir: java.io.File, treeDir: java.io.File, tunables: String, useTrampoline: Boolean = false ): LoaderProof</ID>
-    <ID>LongMethod:WineSpikeRunner.kt$WineSpikeRunner$suspend fun runS1(): ExperimentResult</ID>
-    <ID>LongMethod:WineSpikeRunner.kt$WineSpikeRunner$suspend fun runS2(): ExperimentResult</ID>
-    <ID>LongMethod:WineSpikeRunner.kt$WineSpikeRunner$suspend fun runS3(): ExperimentResult</ID>
     <ID>LongMethod:WorldRuntimeService.kt$WorldRuntimeService$private fun addBotStatus(value: JSONObject)</ID>
     <ID>LongMethod:WorldRuntimeService.kt$WorldRuntimeService$private fun runAdmissionMonitor( controller: BotAdmissionController, startedAt: Long, generation: Long, )</ID>
     <ID>LongMethod:WowGameSettings.kt$GameSettingsDeliveryPlanner$fun plan( config: WowGameSettingsConfig, enforcedCvarKeys: Set&lt;String&gt;, uvarScopeExists: (scope: String) -&gt; Boolean, bindingScopeExists: (scope: String) -&gt; Boolean, previousDelivered: List&lt;GameSettingsDeliveryEntry&gt;, ): Plan</ID>
@@ -315,7 +305,6 @@
     <ID>LongParameterList:BotsScreen.kt$( target: EditorTarget?, working: BotCustomConfiguration, dirty: Boolean, section: EditorSection, onSection: (EditorSection) -&gt; Unit, running: Boolean, savedPreset: BotPresetStore.SavedPreset?, applied: Boolean, onApply: () -&gt; Unit, onSave: () -&gt; Unit, onReset: () -&gt; Unit, onWorking: (BotCustomConfiguration) -&gt; Unit, presetSelector: (@Composable () -&gt; Unit)? = null, modifier: Modifier = Modifier, )</ID>
     <ID>LongParameterList:BotsScreen.kt$( target: EditorTarget?, working: BotCustomConfiguration, running: Boolean, savedPreset: BotPresetStore.SavedPreset?, applied: Boolean, onWorking: (BotCustomConfiguration) -&gt; Unit, )</ID>
     <ID>LongParameterList:ClientDisplayHost.kt$ClientDisplayHost$( context: Context, runtimeRoot: String, /** Single-ABI selection preserves x86 Balanced and enables ARM64 Quality. */ val displayProfile: ClientDisplayProfile = ClientDisplayProfile.forDevice(Build.SUPPORTED_ABIS.asList(), Build.MODEL), /** * Panel-resolved virtual desktop. The X screen, the input mapping, and the * auto-login topology all use this size; the profile enum only fixes the * height class and 16:9 reference geometry. */ val virtualDisplay: ClientVirtualDisplay = ClientDisplayCapabilities.physicalLandscapeBounds(context) .let { (width, height) -&gt; displayProfile.resolveFor(width, height) }, val frameCap: Int = ClientFrameCap.FPS_30.fps, val renderer: String = if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") { "dxvk" } else "wined3d", val vulkanDriverId: String? = null, val rendererPackageId: String? = null, autoLoginCredentials: SinglePlayerAutoLoginCredentials? = null, private val timings: Settings.AutoLoginTimings = Settings.AutoLoginTimings(), private val audioEnabled: Boolean = false, private val onWindowVisible: () -&gt; Unit, )</ID>
-    <ID>LongParameterList:ClientGenerationStore.kt$ClientGenerationStore$( importId: String, identity: JSONObject, sourceFingerprint: String, journalEntries: List&lt;ImportJournal.JournalEntry&gt;, durationMs: Long, afterRenameBeforeActivate: () -&gt; Unit = {}, )</ID>
     <ID>LongParameterList:ClientScreen.kt$( progress: ImportProgressPresentation, notice: String?, dataPreparationEnabled: Boolean, canResume: Boolean, onSelect: () -&gt; Unit, onResume: () -&gt; Unit, )</ID>
     <ID>LongParameterList:ClientScreen.kt$( progress: ImportProgressPresentation, notice: String?, dataPreparationEnabled: Boolean, canResume: Boolean, onSelect: () -&gt; Unit, onResume: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>LongParameterList:ControlsScreen.kt$( label: String, value: Float, range: ClosedFloatingPointRange&lt;Float&gt;, formattedValue: String, explanation: String, onValueChange: (Float) -&gt; Unit, onValueChangeFinished: () -&gt; Unit, )</ID>
@@ -342,7 +331,7 @@
     <ID>LongParameterList:InputContract.kt$InputContract$( src: Int, state: SourceState, value: Float, onThreshold: Float, offThreshold: Float, chord: ExternalSelectChord, mode: ExternalSelectMode, defaultBinding: GamepadBinding?, )</ID>
     <ID>LongParameterList:InputContract.kt$InputContract$( state: SourceState, axis: GamepadAxis, value: Float, deadZone: Float, negativeKey: Int?, positiveKey: Int?, )</ID>
     <ID>LongParameterList:InputContract.kt$InputContract$( username: String, password: String, generation: Long, loginWindowX: Int = 0, loginWindowY: Int = 0, loginWindowWidth: Int = 1920, loginWindowHeight: Int = 1080, )</ID>
-    <ID>LongParameterList:InputProfile.kt$ControllerAction$( val displayName: String, val keyCode: Int? = null, val pointer: ControlPointer? = null, val cameraLockToggle: Boolean = false, val targetPulse: Boolean = false, val useLootClick: Boolean = false, val nearbyUsePulse: Boolean = false, val autoRunPulse: Boolean = false, val wheelTicks: Int? = null, val radialMenuPulse: Boolean = false, )</ID>
+    <ID>LongParameterList:InputProfile.kt$ControllerAction$( val displayName: String, val keyCode: Int? = null, val pointer: ControlPointer? = null, val cameraLockToggle: Boolean = false, val targetPulse: Boolean = false, val useLootClick: Boolean = false, val nearbyUsePulse: Boolean = false, val autoRunPulse: Boolean = false, val wheelTicks: Int? = null, val radialMenuPulse: Boolean = false, val moveUiPulse: Boolean = false, )</ID>
     <ID>LongParameterList:LanScreen.kt$( lanAddress: String, onLanAddress: (String) -&gt; Unit, onJoinLan: () -&gt; Unit, lanError: String?, joined: Boolean, joinedAddress: String?, enabled: Boolean, clientUnavailableReason: String? = null, modifier: Modifier = Modifier, )</ID>
     <ID>LongParameterList:LanScreen.kt$( state: RealmState, settingsReady: Boolean, allowLanPlayers: Boolean, onAllowLanPlayers: (Boolean) -&gt; Unit, onStartHost: () -&gt; Unit, onSaveExit: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>LongParameterList:ManagedClientImporter.kt$ManagedClientImporter$( private val context: Context, private val limits: ImportLimits = ImportLimits(), private val journal: ImportJournal = ImportJournal(context), private val storagePlanner: ImportStoragePlanner = ImportStoragePlanner(context), private val generations: ClientGenerationStore = ClientGenerationStore(context), private val prepareData: Boolean = true, private val dataStore: DataPreparationStore = DataPreparationStore(context, journal), )</ID>
@@ -353,7 +342,8 @@
     <ID>LongParameterList:SettingsScreen.kt$( contentPadding: PaddingValues = PaddingValues(), onBots: (() -&gt; Unit)? = null, onClientSetup: (() -&gt; Unit)? = null, onCapability: (() -&gt; Unit)? = null, onDiagnostics: (() -&gt; Unit)? = null, onInGameSettings: (() -&gt; Unit)? = null, )</ID>
     <ID>LongParameterList:SettingsScreen.kt$( label: String, valueText: (Float) -&gt; String, value: Float, range: ClosedFloatingPointRange&lt;Float&gt;, steps: Int, tag: String, onCommit: (Float) -&gt; Unit, )</ID>
     <ID>LongParameterList:SinglePlayerAutoLogin.kt$SinglePlayerAutoLoginController$( username: String, password: String, private val generation: Long, private val lane: AutoLoginWindowLane, private val expectedWidth: Int = 1920, private val expectedHeight: Int = 1080, private val bridge: AutoLoginBridge, private val scheduler: AutoLoginScheduler, private val onDiagnostic: (String) -&gt; Unit = {}, private val onTerminal: () -&gt; Unit = {}, private val timings: Settings.AutoLoginTimings = Settings.AutoLoginTimings(), )</ID>
-    <ID>LongParameterList:TouchOverlay.kt$( host: ClientDisplayHost, cameraLocked: Boolean, opacity: Float, expanded: Boolean, onExpandedChange: (Boolean) -&gt; Unit, onHide: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>LongParameterList:TouchOverlay.kt$( clusterId: OverlayClusterId, host: ClientDisplayHost, profile: InputProfile, containerSize: IntSize, moveMode: Boolean, stockAlignment: Alignment, stockPadding: PaddingValues, stockZIndex: Float, content: @Composable () -&gt; Unit, )</ID>
+    <ID>LongParameterList:TouchOverlay.kt$( host: ClientDisplayHost, cameraLocked: Boolean, opacity: Float, expanded: Boolean, onExpandedChange: (Boolean) -&gt; Unit, onHide: () -&gt; Unit, onToggleMoveMode: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>LongParameterList:TouchOverlay.kt$( host: ClientDisplayHost, profile: InputProfile, control: OverlayControl, fallbackLabel: String, opacity: Float, targetSize: androidx.compose.ui.unit.Dp, wide: Boolean = false, )</ID>
     <ID>LongParameterList:WineRuntimeStore.kt$WineRuntimeStore$( clientId: String, renderer: String, audioMode: String, armTranslator: ArmTranslationBackend = ArmTranslationBackend.BOX64, inputSafeMode: Boolean = false, armRendererPackageId: String? = null, armVulkanDriverId: String? = null, displayProfileId: String = ClientDisplayProfile.BALANCED.id, frameCap: Int = ClientFrameCap.FPS_30.fps, tweaksJson: String = "", realmEndpoint: RealmEndpoint = RealmEndpoint.LOCAL, )</ID>
     <ID>LongParameterList:WineRuntimeStore.kt$WineRuntimeStore$( clientId: String, renderer: String, audioMode: String, translator: ArmTranslationBackend, inputSafeMode: Boolean, rendererPackageId: String?, vulkanDriverId: String?, displayProfileId: String, frameCap: Int, tweaksJson: String = "", realmEndpoint: RealmEndpoint, )</ID>
@@ -362,9 +352,6 @@
     <ID>LongParameterList:WineSpikeNative.kt$WineSpikeNative$( nativeDir: String, peTarget: String, prefixDir: String, workingDir: String, display: String, wineArgs: String, extraEnv: String, timeoutMs: Int )</ID>
     <ID>LongParameterList:WineSpikeNative.kt$WineSpikeNative$( nativeDir: String, wineTarget: String, argv0Override: String, prefixDir: String, display: String, wineArgs: String, extraEnv: String, timeoutMs: Int )</ID>
     <ID>LongParameterList:WineSpikeNative.kt$WineSpikeNative$( nativeDir: String, wineTarget: String, prefixDir: String, display: String, wineArgs: String, extraEnv: String )</ID>
-    <ID>LongParameterList:WineSpikeRunner.kt$WineSpikeRunner$( nativeDir: String, wineTarget: String, argv0: String, prefixDir: String, display: String, wineArgs: String, extraEnv: String, timeoutMs: Int, evidence: LinkedHashMap&lt;String, String&gt;, key: String )</ID>
-    <ID>LongParameterList:WineSpikeRunner.kt$WineSpikeRunner$( nativeDir: String, wineTarget: String, prefixDir: java.io.File, treeDir: java.io.File, tunables: String, useNoSeccomp: Boolean = false )</ID>
-    <ID>LongParameterList:WineSpikeRunner.kt$WineSpikeRunner$( nativeDir: String, wineTarget: String, prefixDir: java.io.File, treeDir: java.io.File, tunables: String, useTrampoline: Boolean = false )</ID>
     <ID>LongParameterList:WowVanillaBindingCatalog.kt$WowVanillaBindingCatalog$( idPrefix: String, labelPrefix: String, descriptionPrefix: String, count: Int, category: WowBindingCategory, advanced: Boolean, )</ID>
     <ID>LoopWithTooManyJumpStatements:AndroidPortMigrator.kt$AndroidPortMigrator$for</ID>
     <ID>LoopWithTooManyJumpStatements:ArmRootfsProvisioner.kt$ArmRootfsProvisioner$while</ID>
@@ -372,11 +359,9 @@
     <ID>LoopWithTooManyJumpStatements:DiagnosticsScreen.kt$while</ID>
     <ID>LoopWithTooManyJumpStatements:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$for</ID>
     <ID>LoopWithTooManyJumpStatements:ImportProcessMetrics.kt$ImportProcessMetricsSampler$for</ID>
-    <ID>LoopWithTooManyJumpStatements:ManagedClientImporter.kt$ManagedClientImporter$for</ID>
     <ID>LoopWithTooManyJumpStatements:RealmDataArchive.kt$RealmDataArchive$while</ID>
     <ID>LoopWithTooManyJumpStatements:RealmService.kt$RealmService$while</ID>
     <ID>LoopWithTooManyJumpStatements:SafClientScanner.kt$SafClientScanner$for</ID>
-    <ID>LoopWithTooManyJumpStatements:WineSpikeRunner.kt$WineSpikeRunner$for</ID>
     <ID>LoopWithTooManyJumpStatements:WorldRuntimeService.kt$WorldRuntimeService$while</ID>
     <ID>MagicNumber:AddonArchiveValidator.kt$AddonArchiveValidator$0x8000</ID>
     <ID>MagicNumber:AddonArchiveValidator.kt$AddonArchiveValidator$0xF000</ID>
@@ -569,8 +554,6 @@
     <ID>MagicNumber:ClientDisplayHost.kt$ClientInputBridge$16</ID>
     <ID>MagicNumber:ClientDisplayHost.kt$ClientInputBridge$24</ID>
     <ID>MagicNumber:ClientDisplayHost.kt$ClientInputBridge$48</ID>
-    <ID>MagicNumber:ClientDisplayProfile.kt$ClientDisplayProfile$16</ID>
-    <ID>MagicNumber:ClientDisplayProfile.kt$ClientDisplayProfile$9</ID>
     <ID>MagicNumber:ClientDisplayProfile.kt$ClientDisplayProfile.BALANCED$1280</ID>
     <ID>MagicNumber:ClientDisplayProfile.kt$ClientDisplayProfile.BALANCED$720</ID>
     <ID>MagicNumber:ClientDisplayProfile.kt$ClientDisplayProfile.QUALITY$1080</ID>
@@ -579,7 +562,6 @@
     <ID>MagicNumber:ClientDisplayProfile.kt$ClientFrameCap.FPS_40$40</ID>
     <ID>MagicNumber:ClientDisplayProfile.kt$ClientFrameCap.FPS_45$45</ID>
     <ID>MagicNumber:ClientDisplayProfile.kt$ClientFrameCap.FPS_60$60</ID>
-    <ID>MagicNumber:ClientGenerationStore.kt$ClientGenerationStore$1024</ID>
     <ID>MagicNumber:ClientGenerationStore.kt$ClientGenerationStore$30</ID>
     <ID>MagicNumber:ClientImeView.kt$ClientImeView.ClientInputConnection$4</ID>
     <ID>MagicNumber:ClientRuntime.kt$ClientRuntimeContract$4</ID>
@@ -659,7 +641,6 @@
     <ID>MagicNumber:ControlsScreen.kt$100</ID>
     <ID>MagicNumber:ControlsScreen.kt$4f</ID>
     <ID>MagicNumber:DataPreparationStore.kt$3</ID>
-    <ID>MagicNumber:DataPreparationStore.kt$DataPreparationStore$20</ID>
     <ID>MagicNumber:DataPreparationStore.kt$DataPreparationStore$2048</ID>
     <ID>MagicNumber:DataPreparationStore.kt$DataPreparationStore$5</ID>
     <ID>MagicNumber:DataPreparationStore.kt$DataPreparationStore$5875</ID>
@@ -800,7 +781,6 @@
     <ID>MagicNumber:ManagedClientImporter.kt$ManagedClientImporter$0x14c</ID>
     <ID>MagicNumber:ManagedClientStore.kt$ManagedClientStore$0x10b</ID>
     <ID>MagicNumber:ManagedClientStore.kt$ManagedClientStore$0x14c</ID>
-    <ID>MagicNumber:ManagedClientStore.kt$ManagedClientStore$1024</ID>
     <ID>MagicNumber:ManagedClientStore.kt$ManagedClientStore$5875</ID>
     <ID>MagicNumber:ManagedClientStore.kt$ManagedClientStore$64</ID>
     <ID>MagicNumber:PackagingExperimentRunner.kt$PackagingExperimentRunner$100</ID>
@@ -811,7 +791,6 @@
     <ID>MagicNumber:PackagingExperimentRunner.kt$PkgConnection$50</ID>
     <ID>MagicNumber:PocketRealmApp.kt$600f</ID>
     <ID>MagicNumber:PreparedDataStore.kt$PreparedDataStore$100</ID>
-    <ID>MagicNumber:PreparedDataStore.kt$PreparedDataStore$20</ID>
     <ID>MagicNumber:PreparedDataStore.kt$PreparedDataStore$5875</ID>
     <ID>MagicNumber:RealmRuntimeService.kt$RealmRuntimeService$5</ID>
     <ID>MagicNumber:RealmRuntimeService.kt$RealmRuntimeService$512</ID>
@@ -909,9 +888,6 @@
     <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings$60_000</ID>
     <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings$900_000</ID>
     <ID>MagicNumber:Settings.kt$Settings.AutoLoginTimings.Companion$4_096</ID>
-    <ID>MagicNumber:Settings.kt$Settings.FpsProfile.FPS_30$30</ID>
-    <ID>MagicNumber:Settings.kt$Settings.FpsProfile.FPS_40$40</ID>
-    <ID>MagicNumber:Settings.kt$Settings.FpsProfile.FPS_60$60</ID>
     <ID>MagicNumber:SettingsScreen.kt$10</ID>
     <ID>MagicNumber:SettingsScreen.kt$100</ID>
     <ID>MagicNumber:SettingsScreen.kt$1000</ID>
@@ -970,7 +946,10 @@
     <ID>MagicNumber:TouchOverlay.kt$0.72f</ID>
     <ID>MagicNumber:TouchOverlay.kt$0xFF081019</ID>
     <ID>MagicNumber:TouchOverlay.kt$0xFF101720</ID>
+    <ID>MagicNumber:TouchOverlay.kt$0xFF6EC1FF</ID>
     <ID>MagicNumber:TouchOverlay.kt$3</ID>
+    <ID>MagicNumber:TouchOverlay.kt$4f</ID>
+    <ID>MagicNumber:TouchOverlay.kt$5f</ID>
     <ID>MagicNumber:TouchOverlay.kt$TouchCameraScaler$0.15f</ID>
     <ID>MagicNumber:UserAccountStore.kt$UserAccountStore$3</ID>
     <ID>MagicNumber:UserAccountStore.kt$UserAccountStore.Companion$128</ID>
@@ -997,37 +976,6 @@
     <ID>MagicNumber:WineRuntimeStore.kt$WineRuntimeStore$6</ID>
     <ID>MagicNumber:WineRuntimeStore.kt$WineRuntimeStore$60_000</ID>
     <ID>MagicNumber:WineRuntimeStore.kt$WineRuntimeStore$800</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$10</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$1000</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$120</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$120_000</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$1280</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$15</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$15_000</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$160</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$20</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$240</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$25</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$250</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$3</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$30</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$3000</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$30_000</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$4</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$40</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$4096</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$500</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$6</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$60</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$60_000</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$65536</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$720</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$8</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$80</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner$800</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner.ProotRunResult$0x7f</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner.ProotRunResult$0xff</ID>
-    <ID>MagicNumber:WineSpikeRunner.kt$WineSpikeRunner.ProotRunResult$8</ID>
     <ID>MagicNumber:WorldRuntimeService.kt$WorldRuntimeService$10</ID>
     <ID>MagicNumber:WorldRuntimeService.kt$WorldRuntimeService$11</ID>
     <ID>MagicNumber:WorldRuntimeService.kt$WorldRuntimeService$12</ID>
@@ -1063,10 +1011,7 @@
     <ID>MaxLineLength:AddonArchiveValidator.kt$AddonArchiveValidator$require</ID>
     <ID>MaxLineLength:AddonArchiveValidatorTest.kt$AddonArchiveValidatorTest$assertThrows(IllegalArgumentException::class.java) { GitHubRepoRef.parse("https://github.com/owner/repo/issues") }</ID>
     <ID>MaxLineLength:AddonCatalog.kt$AddonCatalog$fun</ID>
-    <ID>MaxLineLength:AddonCatalog.kt$AddonCatalog.Companion$"054" to "Structured levelling route with optional pfQuest GPS; disable right-click skip because right-click stays busy on the controller (R2 in the built-in scheme, L3 with Android Port)."</ID>
     <ID>MaxLineLength:AddonCatalog.kt$AddonCatalog.Companion$"059" to "Special two-part install: the player plus about 1.2 GB of Vanilla voice data for less small-screen reading."</ID>
-    <ID>MaxLineLength:AddonCatalog.kt$AddonCatalog.Companion$"103" to "Groups spells and items inside an existing action slot, reducing clutter without taking another RP6 button."</ID>
-    <ID>MaxLineLength:AddonCatalog.kt$AddonCatalog.Companion$"133" to "Makes the built-in leveling scheme's D-pad Left backpack action open one bag window; disable pfUI Bags if using it."</ID>
     <ID>MaxLineLength:AddonCatalog.kt$AddonCatalog.Companion$"151" to "Optional Vanilla 1.12.1 Android Port UI with 6-inch handheld defaults; Pocket Realm supplies its matching 1-8 face/D-pad, target/use shoulder and LT/RT Winlator control map."</ID>
     <ID>MaxLineLength:AddonCatalogTest.kt$AddonCatalogTest$val addon = requireNotNull(AddonCatalog.parse(File(assetRoot, "addons/catalog-v1.json").readText()).addon("151"))</ID>
     <ID>MaxLineLength:AddonRepository.kt$AddonRepository$else -&gt; error("GitHub request failed (${response.code}) for ${URI(url).path}; remaining=${remaining ?: "unknown"}")</ID>
@@ -1075,7 +1020,6 @@
     <ID>MaxLineLength:AddonsScreen.kt$"Advanced option for a public Vanilla-compatible project not yet in the catalog. Use the repository's main URL, not a download link."</ID>
     <ID>MaxLineLength:AddonsScreen.kt$"Pocket Realm downloads from GitHub, records the exact commit and checksum, rejects oversized or unsafe archives, and requires Vanilla Interface 11200 metadata."</ID>
     <ID>MaxLineLength:AddonsScreen.kt$"This add-on was installed from a repository outside the researched catalog. It remains visible here so it can always be removed."</ID>
-    <ID>MaxLineLength:AddonsScreen.kt$summary = "${catalog.recommended.size} handheld-friendly choices that stay clear of Android Port's controller bars."</ID>
     <ID>MaxLineLength:AndroidPortAssetTest.kt$AndroidPortAssetTest$Layout</ID>
     <ID>MaxLineLength:AndroidPortAssetTest.kt$AndroidPortAssetTest$assertEquals(listOf("Core.lua", "ActionBars.lua", "Radial.lua", "Bags.lua", "FrameMover.lua", "Hud.lua"), declared)</ID>
     <ID>MaxLineLength:AndroidPortAssetTest.kt$AndroidPortAssetTest$assertFalse(core.contains("db.bindingBackup[\"F7\"] = GetBindingAction(\"F7\") or \"\"\n mayClaimF7 = true"))</ID>
@@ -1117,6 +1061,7 @@
     <ID>MaxLineLength:ControlsScreen.kt$"face and D-pad inputs activate the shown item. Select + R3 toggles camera/pointer; in Pointer "</ID>
     <ID>MaxLineLength:ControlsScreen.kt$"mode, hold R3 and move the right stick to drag movable add-on frames. Select + R1 sends stock "</ID>
     <ID>MaxLineLength:ControlsScreen.kt$OverlayMode.AUTO -&gt; "Shows only a compact utility drawer when a controller is active, and full controls for touch-only play."</ID>
+    <ID>MaxLineLength:ControlsScreen.kt$OverlayMode.FULL -&gt; "Shows movement plus the action, look, and click keys of the touch layout chosen below, for touch-only play."</ID>
     <ID>MaxLineLength:ControlsScreen.kt$if (showAdvanced) SupportingText("Separate press and release points prevent trigger flicker near the threshold.")</ID>
     <ID>MaxLineLength:DataPreparationStore.kt$DataPreparationStore$"This app build does not include the server-data preparation tools. Install the complete Pocket Realm build."</ID>
     <ID>MaxLineLength:DatabaseEngine.kt$DatabaseEngine$check</ID>
@@ -1151,13 +1096,11 @@
     <ID>MaxLineLength:InputProfile.kt$ControllerFamily$KEYBOARD_MOUSE : ControllerFamily</ID>
     <ID>MaxLineLength:InputProfile.kt$ControllerFamily$RETROID_POCKET_6 : ControllerFamily</ID>
     <ID>MaxLineLength:InputProfile.kt$InputProfile.Companion$/** Exact uncustomized map shipped when nearby Use/Open replaced direct L1 use, before L3 became pointer right. */</ID>
-    <ID>MaxLineLength:InputProfile.kt$InputProfileStore.Companion$"profile_v10"</ID>
+    <ID>MaxLineLength:InputProfile.kt$InputProfileStore.Companion$"profile_v11"</ID>
     <ID>MaxLineLength:LanScreen.kt$"Connected players: no remote player tracking yet; this section appears when the realm reports sessions."</ID>
-    <ID>MaxLineLength:ManagedClientImporter.kt$ManagedClientImporter$check</ID>
     <ID>MaxLineLength:ManagedClientImporter.kt$ManagedClientImporter$check(source.inventory().fingerprint == inventory.fingerprint) { "SOURCE_CHANGED: tree changed during import" }</ID>
     <ID>MaxLineLength:ManagedClientImporter.kt$ManagedClientImporter$if</ID>
     <ID>MaxLineLength:ManagedClientImporter.kt$ManagedClientImporter$journal.latest().phase != ImportPhase.FAILED</ID>
-    <ID>MaxLineLength:ManagedClientImporter.kt$ManagedClientImporter$journal.markSkipped(importId, entry, "safe-mode excludes non-primary root executable or injected DLL")</ID>
     <ID>MaxLineLength:ManagedClientImporter.kt$ManagedClientImporter$throw ImportRejected("STORAGE_PREFLIGHT: need=${storage.requiredBytes} allocatable=${storage.allocatableBytes}")</ID>
     <ID>MaxLineLength:PackagingExperimentRunner.kt$PackagingExperimentRunner$evidence["excludedLibsNote"] = "${excluded.joinToString()} are PIE executables with no DT_SONAME; loadable libraries are probed, not these."</ID>
     <ID>MaxLineLength:PackagingExperimentRunner.kt$PackagingExperimentRunner$listOf("dlopen(\"${info.soname}\") did not load (err=${info.err})")</ID>
@@ -1179,7 +1122,6 @@
     <ID>MaxLineLength:SettingsScreen.kt$"Auto-loot opened corpses" to "Takes every available slot after you right-click a corpse; hold Shift for the original manual loot window."</ID>
     <ID>MaxLineLength:SettingsScreen.kt$"Bot population, presets, behaviour, scheduling and custom realms are configured in the dedicated Bots destination."</ID>
     <ID>MaxLineLength:SettingsScreen.kt$"Filters accidental duplicate presses; it does not split selection and opening into two actions. Applies when the realm next starts."</ID>
-    <ID>MaxLineLength:SettingsScreen.kt$"Import, device information, and troubleshooting are kept here so the Home screen stays focused on play."</ID>
     <ID>MaxLineLength:SettingsScreen.kt$"L1 chooses the nearest eligible corpse, chest, or ordinary usable loot object and opens it as one realm action. "</ID>
     <ID>MaxLineLength:SettingsScreen.kt$"On by default for ARM64 devices. Changes take effect on the next client launch through the provider-matched Android ALSA backend."</ID>
     <ID>MaxLineLength:SettingsScreen.kt$"Repeated-press guard" to "Raise this on slower or high-latency realms if one physical press is reported more than once."</ID>
@@ -1192,7 +1134,6 @@
     <ID>MaxLineLength:VoiceOverReleaseResolverTest.kt$VoiceOverReleaseResolverTest$body = "[Vanilla Sounds](https://github.com/mrthinger/wow-voiceover/releases/download/v1.3.1/AI_VoiceOverData_Vanilla-v1.0.0.zip)"</ID>
     <ID>MaxLineLength:VoiceOverReleaseResolverTest.kt$VoiceOverReleaseResolverTest$val dataUrl = "https://github.com/mrthinger/wow-voiceover/releases/download/data/AI_VoiceOverData_Vanilla-v1.zip"</ID>
     <ID>MaxLineLength:WineRuntimeStore.kt$WineRuntimeStore$"payload=${generationIdentity.rendererPackageId ?: generationIdentity.gladioPackageId ?: generationIdentity.virglPackageId}"</ID>
-    <ID>MaxLineLength:WineSpikeRunner.kt$WineSpikeRunner$evidence["s1_bootstrapStderrTail"] = bootstrapRun.stderr.lineSequence().toList().takeLast(15).joinToString(" | ")</ID>
     <ID>MaxLineLength:WowVanillaBindingCatalog.kt$WowVanillaBindingCatalog$addAll</ID>
     <ID>MaxLineLength:X86DirectWineRuntime.kt$X86DirectWineRuntime$ClientSession(UUID.fromString(response.getString("sessionId")), ClientState.valueOf(response.getString("state")))</ID>
     <ID>MaxLineLength:X86DirectWineRuntime.kt$X86DirectWineRuntime$if</ID>
@@ -1206,20 +1147,15 @@
     <ID>NestedBlockDepth:AndroidPortBindingRepair.kt$AndroidPortBindingRepair$fun captureBeforeLaunch(clientRoot: File, journal: File)</ID>
     <ID>NestedBlockDepth:ArmRootfsProvisioner.kt$ArmRootfsProvisioner$fun ensure(root: File): File</ID>
     <ID>NestedBlockDepth:ArmRootfsProvisioner.kt$ArmRootfsProvisioner$private fun extractArchive(assetPath: String, destination: File)</ID>
-    <ID>NestedBlockDepth:DataPreparationStore.kt$DataPreparationStore$private fun sha256(file: File): String</ID>
     <ID>NestedBlockDepth:DatabaseEngine.kt$DatabaseEngine$private fun materializeMigration(entry: JSONObject): File</ID>
     <ID>NestedBlockDepth:ImportJournal.kt$ImportJournal$fun beginOrResume(uri: Uri, inventory: SourceInventory): String</ID>
     <ID>NestedBlockDepth:InGameSettingsScreens.kt$@Composable private fun SettingDefinitionRow( definition: WowSettingDefinition, snap: Settings.Snapshot, state: InGameSettingsState, )</ID>
     <ID>NestedBlockDepth:InputContract.kt$InputContract$private fun gamepadActionLocked( src: Int, owner: ControlOwner, binding: GamepadBinding, pressed: Boolean, ): Boolean</ID>
     <ID>NestedBlockDepth:InputProfile.kt$InputProfile.Companion$fun fromJson(value: JSONObject): InputProfile</ID>
-    <ID>NestedBlockDepth:PreparedDataStore.kt$PreparedDataStore$private fun sha256(file: File): String</ID>
     <ID>NestedBlockDepth:RealmDataArchive.kt$RealmDataArchive$fun extractSnapshot(input: InputStream, snapshotRoot: File): Pair&lt;ArchiveInfo, ByteArray?&gt;</ID>
-    <ID>NestedBlockDepth:RealmDataArchive.kt$RealmDataArchive$private fun sha256(file: File): String</ID>
     <ID>NestedBlockDepth:SafTreeSource.kt$SafTreeSource$fun inventory(): SourceInventory</ID>
     <ID>NestedBlockDepth:WineRuntimeStore.kt$WineRuntimeStore$private fun enforceManagedSafeMode( p: Prepared, renderer: String, displayProfile: ClientDisplayProfile, inputSafeMode: Boolean, audioMode: String, realmEndpoint: RealmEndpoint, ): Prepared</ID>
     <ID>NestedBlockDepth:WineRuntimeStore.kt$WineRuntimeStore$private fun patchWinlatorPackagePaths(rootfs: File)</ID>
-    <ID>NestedBlockDepth:WineSpikeRunner.kt$WineSpikeRunner$private fun extractAssetsToDir(assetPrefix: String, destDir: File)</ID>
-    <ID>NestedBlockDepth:WineSpikeRunner.kt$WineSpikeRunner$private fun prepareWineData( treeDir: File, evidence: LinkedHashMap&lt;String, String&gt; ): Boolean</ID>
     <ID>NestedBlockDepth:WorldRuntimeService.kt$WorldRuntimeService$private fun runAdmissionMonitor( controller: BotAdmissionController, startedAt: Long, generation: Long, )</ID>
     <ID>ReturnCount:AndroidPortAssetTest.kt$AndroidPortAssetTest.AddonLifecycleModel$private fun initializeBars(failureStage: Int?): Boolean</ID>
     <ID>ReturnCount:AndroidPortAssetTest.kt$AndroidPortAssetTest.AddonLifecycleModel$private fun initializeRadial(failureStage: Int?): Boolean</ID>
@@ -1299,10 +1235,8 @@
     <ID>ReturnCount:VulkanDriverCatalog.kt$VulkanDriverCatalog$fun compatibility( driver: VulkanDriverPackage, renderer: RendererPackage, system: SystemVulkanCapabilities? = null, ): VulkanRendererCompatibility</ID>
     <ID>ReturnCount:WineRuntimeStore.kt$WineRuntimeStore$private fun applyTweaks(p: Prepared, tweaks: ClientTweaksConfig): Prepared</ID>
     <ID>ReturnCount:WineRuntimeStore.kt$WineRuntimeStore$private fun containsBytes(value: ByteArray, needle: ByteArray): Boolean</ID>
-    <ID>ReturnCount:WineSpikeRunner.kt$WineSpikeRunner$fun dField(key: String): String</ID>
     <ID>SwallowedException:ClientRealmEndpointProjection.kt$ClientRealmEndpointProjection$error: java.nio.file.AtomicMoveNotSupportedException</ID>
     <ID>SwallowedException:RealmNativeTest.kt$RealmNativeTest$e: UnsatisfiedLinkError</ID>
-    <ID>SwallowedException:WineSpikeRunner.kt$WineSpikeRunner$e: Exception</ID>
     <ID>ThrowingExceptionFromFinally:ClientRuntimeService.kt$ClientRuntimeService.&lt;no name provided&gt;$throw error</ID>
     <ID>ThrowsCount:AddonRuntimeProjector.kt$AddonRuntimeProjector$fun project(clientRoot: File, safeMode: Boolean): List&lt;String&gt;</ID>
     <ID>ThrowsCount:ImportPathPolicy.kt$ImportPathPolicy$fun normalize(rawRelative: String): String</ID>
@@ -1336,7 +1270,6 @@
     <ID>TooGenericExceptionCaught:SettingsScreen.kt$failure: Throwable</ID>
     <ID>TooGenericExceptionCaught:WineRuntimeStore.kt$ArmGraphicsGenerationLease.Companion$error: Throwable</ID>
     <ID>TooGenericExceptionCaught:WineRuntimeStore.kt$WineRuntimeStore$error: Throwable</ID>
-    <ID>TooGenericExceptionCaught:WineSpikeRunner.kt$WineSpikeRunner$e: Exception</ID>
     <ID>TooGenericExceptionCaught:WorldRuntimeService.kt$WorldRuntimeService$error: Throwable</ID>
     <ID>TooGenericExceptionCaught:WorldRuntimeService.kt$WorldRuntimeService$failure: Throwable</ID>
     <ID>TooGenericExceptionCaught:X86DirectWineRuntime.kt$X86DirectWineRuntime$failure: Throwable</ID>
@@ -1378,7 +1311,6 @@
     <ID>TooManyFunctions:VulkanDriverCatalog.kt$VulkanDriverCatalog</ID>
     <ID>TooManyFunctions:WineRuntimeStore.kt$WineRuntimeStore</ID>
     <ID>TooManyFunctions:WineSpikeNative.kt$WineSpikeNative</ID>
-    <ID>TooManyFunctions:WineSpikeRunner.kt$WineSpikeRunner</ID>
     <ID>TooManyFunctions:WorldNative.kt$WorldNative</ID>
     <ID>TooManyFunctions:WorldRuntimeService.kt$WorldRuntimeService : Service</ID>
     <ID>TooManyFunctions:WorldRuntimeService.kt$WorldRuntimeService$&lt;no name provided&gt; : Stub</ID>
@@ -1392,7 +1324,6 @@
     <ID>UnusedParameter:InputContract.kt$InputContract$src: Int</ID>
     <ID>UnusedParameter:InputProfile.kt$InputProfile.Companion$cameraLock: Boolean</ID>
     <ID>UnusedPrivateMember:ClientRuntimeService.kt$ClientRuntimeService$private fun readTail(file: File): String</ID>
-    <ID>UnusedPrivateMember:WineSpikeRunner.kt$WineSpikeRunner$private fun verifyLoaderChain( nativeDir: String, wineTarget: String, prefixDir: java.io.File, treeDir: java.io.File ): LoaderProof</ID>
     <ID>UnusedPrivateProperty:BotsScreen.kt$val selection = BotSelection.resolve( savedPresetId = snapshot.botSavedPresetId, advancedEnabled = snapshot.botAdvancedEnabled, advancedTarget = snapshot.botPopulationTarget, advanced = snapshot.botAdvanced, profileId = snapshot.botProfileId, )</ID>
     <ID>UnusedPrivateProperty:DatabaseEngine.kt$DatabaseEngine.Companion$private const val TAG = "DatabaseEngine"</ID>
     <ID>UnusedPrivateProperty:InputContractTest.kt$InputContractTest$val sink2 = (c.lastReport)</ID>
@@ -1410,9 +1341,5 @@
     <ID>UseCheckOrError:RuntimeTopology.kt$LanInterfacePolicy$throw IllegalStateException("No active private IPv4 LAN interface is available")</ID>
     <ID>UseCheckOrError:SettingsScreen.kt$throw IllegalStateException("could not open archive")</ID>
     <ID>UseCheckOrError:SettingsScreen.kt$throw IllegalStateException("could not open export target")</ID>
-    <ID>UseCheckOrError:WineSpikeRunner.kt$WineSpikeRunner$throw IllegalStateException( "Wine DATADIR alias exists but is not the expected symlink: $alias")</ID>
-    <ID>UseCheckOrError:WineSpikeRunner.kt$WineSpikeRunner$throw IllegalStateException( "explicit wineboot failed: exit=${initRun.exitCode} timeout=${initRun.timedOut}")</ID>
-    <ID>UseCheckOrError:WineSpikeRunner.kt$WineSpikeRunner$throw IllegalStateException("wineboot prefix did not become ready and stop cleanly")</ID>
-    <ID>UseCheckOrError:WineSpikeRunner.kt$WineSpikeRunner$throw IllegalStateException("wineboot setup incomplete: kernel32.dll absent after wineserver barrier")</ID>
   </CurrentIssues>
 </SmellBaseline>
