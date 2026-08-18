@@ -15,18 +15,28 @@ computer-controlled companions comes up and shuts down safely.
 
 ## Devices
 
-Pocket Realm is developed and tested on the Retroid Pocket 6. Nothing in its
-design is specific to that device — the realm, the client runtime, and the
-local server all run as ordinary Android processes bound to loopback — so any
-ARM64 Android handheld with comparable specs should run it as-is; individual
-models just have not each been verified. Phones may also work, but they have
-not been heavily tested.
+Pocket Realm is developed and tested on the Retroid Pocket 6 (Adreno 740
+GPU, 12 GB RAM). Nothing in its design is specific to that device — the
+realm, the client runtime, and the local server all run as ordinary Android
+processes bound to loopback — but whether a given handheld runs it well
+depends mainly on the SoC and its GPU, not on RAM:
 
-Memory is the main open question. 12 GB (the development device) is
-comfortable; 6 GB may be enough to run the realm and the game client at the
-same time, but that boundary has not been measured with real play sessions.
-If you try Pocket Realm on a device not mentioned above — especially a 6 GB
-phone — please report what worked (see [Contributing](#contributing)).
+- **Qualcomm / Adreno** handhelds are the best bet. The game draws through
+  DXVK over the device's Vulkan driver (the normal system route), and a
+  packaged Turnip driver is available as an alternative — qualified so far
+  only on the Retroid Pocket 6's Adreno 740.
+- **Mali GPUs** (MediaTek, Exynos, and similar SoCs) have not been tested.
+  The system Vulkan route applies to them too — DXVK needs Vulkan 1.3 (or
+  1.1 with the compatibility package) — but whether a particular Mali
+  device passes the capability check and holds a stable frame rate is
+  exactly what reports are needed for.
+- **Phones** may work in landscape with a controller, but they have not been
+  heavily tested.
+
+Memory is secondary: 6 GB should be enough to run the realm and the client
+at the same time, but that has not been measured with real play sessions.
+Reports from any device — especially Mali or 6 GB ones — are welcome (see
+[Contributing](#contributing)).
 
 ## What you need
 
@@ -45,6 +55,26 @@ Prebuilt APKs are published on the project's
 download the newest APK and install it on your device. Release packages carry
 a `THIRD_PARTY_NOTICES.md` with the complete third-party license attribution.
 Building from source is fully supported as well; see below.
+
+## First boot
+
+1. Open **Settings → Setup → Game files and import** and pick your WoW 1.12.1
+   (build 5875) client folder with Android's folder picker. The folder is
+   treated as read-only; Pocket Realm copies and verifies what it needs into
+   private app storage and then prepares the server data on the device.
+2. **Expect the import to take a while.** Depending on the device, storage
+   speed, and the size of the client folder, copying, verifying, and data
+   preparation can run for a long time on slower devices. Keep the device on
+   a charger; the import screen shows the current phase, file counts, and
+   progress, and if Android interrupts the work you can resume from the same
+   screen.
+3. Back on Home, press **Start realm** and wait for *Realm online*, create a
+   local account in the **Local account** card (**Create & remember**), then
+   launch the game. Later runs can start both together with
+   **Realm + game**.
+
+The [Getting started](docs/wiki/Getting-Started.md) page walks through the
+whole path with more detail.
 
 ## Documentation
 
