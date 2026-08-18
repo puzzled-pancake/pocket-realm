@@ -73,6 +73,10 @@ Building from source is fully supported as well; see below.
    launch the game. Later runs can start both together with
    **Realm + game**.
 
+**Known first-launch bug:** logging in straight away after making a character
+can cause a crash. Stay on the character screen for a few minutes first;
+this only happens once, on the first launch.
+
 The [Getting started](docs/wiki/Getting-Started.md) page walks through the
 whole path with more detail.
 
