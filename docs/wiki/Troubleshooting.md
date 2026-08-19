@@ -14,6 +14,14 @@ Common reasons are:
 
 Open **Game files and import** and check its current phase. If the client is ready, start the realm by itself and check the Local account card.
 
+## The side rail ends at Controls and Settings is missing
+
+On short landscape phones (for example a Samsung Galaxy S25FE), especially with an enlarged font size, the side rail in 0.100.0-alpha (versionCode 3) cannot fit every destination. The last item — **Settings** — is cut off, so the rail appears to end at **Controls**.
+
+This is fixed after 0.100.0-alpha: the side rail scrolls, and a settings gear was added to the top bar.
+
+On an affected version, open Settings from Home instead: the **Active setup** card's **Graphics** button opens the full Settings screen. That path works before any client is imported.
+
 ## The import was rejected as unsupported
 
 The selection is checked before anything is copied. A `VAL-01` rejection means the picked folder is not the game client itself — typical causes:

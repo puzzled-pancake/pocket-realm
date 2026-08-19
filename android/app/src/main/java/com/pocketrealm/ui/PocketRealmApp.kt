@@ -1,15 +1,24 @@
 package com.pocketrealm.ui
 
 import android.net.Uri
-import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BugReport
@@ -48,6 +57,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavType
@@ -137,6 +147,7 @@ fun PocketRealmApp() {
                     topLevel = topLevel,
                     realmState = realmState,
                     onBack = { navController.popBackStack() },
+                    onSettings = { navigateTop(navController, Screen.Settings.route) },
                 )
             },
             bottomBar = {
@@ -161,17 +172,28 @@ fun PocketRealmApp() {
             Row(Modifier.fillMaxSize().padding(inner)) {
                 if (wide) {
                     NavigationRail(Modifier.width(88.dp)) {
-                        topDestinations.forEach { destination ->
-                            val selected =
-                                current?.hierarchy?.any { it.route == destination.route } == true
-                            NavigationRailItem(
-                                selected = selected,
-                                onClick = { navigateTop(navController, destination.route) },
-                                icon = {
-                                    Icon(destination.icon, contentDescription = destination.label)
-                                },
-                                label = { Text(destination.label) },
-                            )
+                        // The weight bounds the scroll viewport to the remaining
+                        // rail height, so short landscape screens scroll to the
+                        // last destination instead of clipping it. spacedBy
+                        // mirrors material3's internal NavigationRailVerticalPadding
+                        // (4.dp, an internal token) so spacing is unchanged.
+                        Column(
+                            Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            topDestinations.forEach { destination ->
+                                val selected =
+                                    current?.hierarchy?.any { it.route == destination.route } == true
+                                NavigationRailItem(
+                                    selected = selected,
+                                    onClick = { navigateTop(navController, destination.route) },
+                                    icon = {
+                                        Icon(destination.icon, contentDescription = destination.label)
+                                    },
+                                    label = { Text(destination.label) },
+                                )
+                            }
                         }
                     }
                 }
@@ -307,8 +329,8 @@ fun PocketRealmApp() {
 
 /**
  * Compact landscape app header (brief §2): 52 dp tall, route title left,
- * short realm status right. The side rail already communicates location, so
- * no large decorative title band is spent.
+ * short realm status and a settings gear right. The side rail already
+ * communicates location, so no large decorative title band is spent.
  */
 @Composable
 private fun PocketRealmTopBar(
@@ -316,11 +338,19 @@ private fun PocketRealmTopBar(
     topLevel: Boolean,
     realmState: RealmState,
     onBack: () -> Unit,
+    onSettings: () -> Unit,
 ) {
     Surface(color = MaterialTheme.colorScheme.surface) {
         Box(Modifier.fillMaxWidth().height(52.dp).testTag("app-top-bar")) {
+            // The weighted, single-line title keeps long titles from colliding
+            // with the status badge and gear on narrow windows. The horizontal
+            // safe-drawing inset keeps the gear clear of the edge-to-edge
+            // navigation-bar strip (the shell window spans the full display).
             Row(
-                Modifier.align(Alignment.CenterStart).padding(horizontal = 4.dp),
+                Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                    .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (!topLevel) {
@@ -332,18 +362,25 @@ private fun PocketRealmTopBar(
                     title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(start = if (topLevel) 12.dp else 0.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = if (topLevel) 12.dp else 0.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                Text(
+                    realmStatusBadge(realmState),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .padding(end = 12.dp)
+                        .testTag("top-bar-realm-status"),
+                    maxLines = 1,
+                )
+                IconButton(onClick = onSettings, modifier = Modifier.testTag("top-bar-settings")) {
+                    Icon(Icons.Filled.Settings, contentDescription = "Open settings")
+                }
             }
-            Text(
-                realmStatusBadge(realmState),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 16.dp)
-                    .testTag("top-bar-realm-status"),
-            )
             HorizontalDivider(Modifier.align(Alignment.BottomCenter))
         }
     }

@@ -2,6 +2,8 @@
 
 Settings holds choices that do not belong on the everyday Home screen. Many of them apply only when the realm or game starts again.
 
+Settings opens from the top-bar gear or from the navigation menu — the side rail on wide screens, the bottom bar on narrow ones (such as split-screen).
+
 ## ARM client runtime
 
 On an ARM device such as the Retroid Pocket 6, Pocket Realm runs the Windows game client through Box64 and Wine. DXVK translates the game's Direct3D graphics into Vulkan for Android.

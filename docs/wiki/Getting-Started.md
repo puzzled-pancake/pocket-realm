@@ -26,6 +26,8 @@ setup guide**.
 
 Open **Settings**, scroll to **Setup**, and choose **Game files and import**. Select the client folder when Android opens the folder picker: the extracted client itself (directly containing `WoW.exe` and `Data`), never an installer, launcher, or archive.
 
+If **Settings** is missing from the side rail on your device, see Troubleshooting for another way to open it.
+
 Pocket Realm treats the selected folder as read-only. It copies and verifies the required files into private app storage. The original folder is not used as the live game folder.
 
 The import screen shows:

@@ -177,7 +177,7 @@
     <ID>FunctionNaming:LanScreen.kt$@Composable private fun LanJoinPane( lanAddress: String, onLanAddress: (String) -&gt; Unit, onJoinLan: () -&gt; Unit, lanError: String?, joined: Boolean, joinedAddress: String?, enabled: Boolean, clientUnavailableReason: String? = null, modifier: Modifier = Modifier, )</ID>
     <ID>FunctionNaming:LanScreen.kt$@Composable private fun PlannedCard(title: String, tag: String, body: String)</ID>
     <ID>FunctionNaming:LanScreen.kt$@Composable private fun PlannedLanSection(modifier: Modifier = Modifier)</ID>
-    <ID>FunctionNaming:PocketRealmApp.kt$@Composable private fun PocketRealmTopBar( title: String, topLevel: Boolean, realmState: RealmState, onBack: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:PocketRealmApp.kt$@Composable private fun PocketRealmTopBar( title: String, topLevel: Boolean, realmState: RealmState, onBack: () -&gt; Unit, onSettings: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:PocketRealmApp.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun PocketRealmApp()</ID>
     <ID>FunctionNaming:SettingsRows.kt$@Composable internal fun ChoiceRow( label: String, selectedId: String?, choices: List&lt;Pair&lt;String, String&gt;&gt;, tag: String, support: String? = null, enabled: Boolean = true, onSelect: (String) -&gt; Unit, )</ID>
     <ID>FunctionNaming:SettingsRows.kt$@Composable internal fun FloatSteppedSlider( label: String, value: Float?, valueText: String, range: ClosedFloatingPointRange&lt;Float&gt;, step: Float, tag: String, enabled: Boolean = true, onCommit: (Float) -&gt; Unit, )</ID>
