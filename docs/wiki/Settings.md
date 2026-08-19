@@ -2,6 +2,8 @@
 
 Settings holds choices that do not belong on the everyday Home screen. Many of them apply only when the realm or game starts again.
 
+Settings opens from the top-bar gear or from the navigation menu — the side rail on wide screens, the bottom bar on narrow ones (such as split-screen).
+
 ## ARM client runtime
 
 On an ARM device such as the Retroid Pocket 6, Pocket Realm runs the Windows game client through Box64 and Wine. DXVK translates the game's Direct3D graphics into Vulkan for Android.
@@ -81,5 +83,6 @@ Game audio is supported through the Android audio bridge on the ARM64 route. The
 The final Settings card keeps the maintenance screens together.
 
 - **Game files and import** manages the private client copy and server-data preparation.
+- **Show first-run setup guide** replays the tutorial that opens on a fresh install, including the rules for selecting an already-extracted WoW 1.12.1 client folder.
 - **Device capability report** shows hardware and process details used during device testing.
 - **Diagnostics and logs** provides backups, restore, storage checks, support bundles, and recent logs.

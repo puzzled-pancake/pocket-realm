@@ -75,6 +75,15 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
         if (uri != null) ui.onFolderPicked(context, uri)
     }
 
+    // The first-run tutorial's final call-to-action arms a one-shot so
+    // arriving here opens the picker immediately. Consume before launching
+    // so a recreated composition cannot launch it twice.
+    LaunchedEffect(Unit) {
+        if (ClientPickerAutoOpen.consumeOnce()) {
+            folderPicker.launch(null)
+        }
+    }
+
     ui.pendingImport?.let { uri ->
         AlertDialog(
             onDismissRequest = { ui.pendingImport = null },
@@ -84,7 +93,9 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
                     "This copies and verifies the WoW 1.12.1 client, then builds the " +
                         "server's maps, collision and navmesh data. Depending on the " +
                         "device this can take over 30 minutes. Keep the device plugged " +
-                        "in and awake. The selected folder is only read, never modified.",
+                        "in and awake. The selected folder is only read, never modified. " +
+                        "The folder must be the plain, already-extracted (uncompressed) " +
+                        "WoW 1.12.1 client itself — not an installer, launcher, or archive.",
                 )
             },
             confirmButton = {
@@ -433,7 +444,9 @@ private fun ImportPrimaryPane(
             ) { Text("Resume") }
         }
         Text(
-            "The selected folder is read-only. Pocket Realm works from its verified private copy.",
+            "The selected folder is read-only. Pocket Realm works from its verified private copy. " +
+                "Select the extracted client folder itself — the one directly containing WoW.exe " +
+                "and Data — not an installer, launcher, or archive.",
             style = MaterialTheme.typography.labelSmall,
         )
     }

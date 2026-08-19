@@ -156,6 +156,7 @@
     <ID>FunctionNaming:ControlsScreen.kt$@Composable private fun ToggleRow( label: String, explanation: String, checked: Boolean, onCheckedChange: (Boolean) -&gt; Unit, )</ID>
     <ID>FunctionNaming:ControlsScreen.kt$@Composable private fun ValueSlider( label: String, value: Float, range: ClosedFloatingPointRange&lt;Float&gt;, formattedValue: String, explanation: String, onValueChange: (Float) -&gt; Unit, onValueChangeFinished: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:DiagnosticsScreen.kt$@Composable fun DiagnosticsScreen(contentPadding: PaddingValues = PaddingValues())</ID>
+    <ID>FunctionNaming:FirstRunTutorial.kt$@Composable internal fun FirstRunTutorialOverlay(onFinish: (chooseFolder: Boolean) -&gt; Unit)</ID>
     <ID>FunctionNaming:HomeScreen.kt$@Composable fun HomeScreen( contentPadding: PaddingValues = PaddingValues(), onOpenBots: () -&gt; Unit = {}, onOpenSettings: () -&gt; Unit = {}, )</ID>
     <ID>FunctionNaming:HomeScreen.kt$@Composable private fun AccountCard( username: String, onUsername: (String) -&gt; Unit, password: String, onPassword: (String) -&gt; Unit, gmAccount: Boolean, onGmAccount: (Boolean) -&gt; Unit, accountStatus: String, storedAccount: String?, onCreate: () -&gt; Unit, onClear: () -&gt; Unit, landscape: Boolean, creationEnabled: Boolean, operationPending: Boolean, modifier: Modifier = Modifier, )</ID>
     <ID>FunctionNaming:HomeScreen.kt$@Composable private fun AccountFields( username: String, onUsername: (String) -&gt; Unit, password: String, onPassword: (String) -&gt; Unit, enabled: Boolean, modifier: Modifier, )</ID>
@@ -176,7 +177,7 @@
     <ID>FunctionNaming:LanScreen.kt$@Composable private fun LanJoinPane( lanAddress: String, onLanAddress: (String) -&gt; Unit, onJoinLan: () -&gt; Unit, lanError: String?, joined: Boolean, joinedAddress: String?, enabled: Boolean, clientUnavailableReason: String? = null, modifier: Modifier = Modifier, )</ID>
     <ID>FunctionNaming:LanScreen.kt$@Composable private fun PlannedCard(title: String, tag: String, body: String)</ID>
     <ID>FunctionNaming:LanScreen.kt$@Composable private fun PlannedLanSection(modifier: Modifier = Modifier)</ID>
-    <ID>FunctionNaming:PocketRealmApp.kt$@Composable private fun PocketRealmTopBar( title: String, topLevel: Boolean, realmState: RealmState, onBack: () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:PocketRealmApp.kt$@Composable private fun PocketRealmTopBar( title: String, topLevel: Boolean, realmState: RealmState, onBack: () -&gt; Unit, onSettings: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:PocketRealmApp.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun PocketRealmApp()</ID>
     <ID>FunctionNaming:SettingsRows.kt$@Composable internal fun ChoiceRow( label: String, selectedId: String?, choices: List&lt;Pair&lt;String, String&gt;&gt;, tag: String, support: String? = null, enabled: Boolean = true, onSelect: (String) -&gt; Unit, )</ID>
     <ID>FunctionNaming:SettingsRows.kt$@Composable internal fun FloatSteppedSlider( label: String, value: Float?, valueText: String, range: ClosedFloatingPointRange&lt;Float&gt;, step: Float, tag: String, enabled: Boolean = true, onCommit: (Float) -&gt; Unit, )</ID>

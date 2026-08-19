@@ -48,6 +48,7 @@ private val vulkanMigrationNoticePreference =
 private val rendererPreference = stringPreferencesKey("renderer")
 internal val tweaksPreference = stringPreferencesKey("client_tweaks")
 internal val tweaksSchemaPreference = intPreferencesKey("client_tweaks_schema")
+internal val setupCompletePreference = intPreferencesKey("setup_complete")
 private val rendererSelectionSchemaPreference =
     intPreferencesKey("arm_renderer_selection_schema")
 
@@ -552,7 +553,7 @@ class Settings(private val context: Context) {
         val BOTS_GROUP_NEARBY = intPreferencesKey("bot_group_nearby")
         val BOTS_WANDER = intPreferencesKey("bot_wander")
         val BOTS_OFF_SPEC = intPreferencesKey("bot_off_spec")
-        val SETUP_DONE = intPreferencesKey("setup_complete")
+        val SETUP_DONE = setupCompletePreference
         val GENERATION = intPreferencesKey("last_active_generation")
         val INPUT_SAFE_MODE = intPreferencesKey("input_safe_mode")
         val AUTO_LOGIN_ON_LAUNCH = intPreferencesKey("auto_login_on_launch")

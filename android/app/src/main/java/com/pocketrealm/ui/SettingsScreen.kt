@@ -769,6 +769,12 @@ fun SettingsScreen(
                     Text("Game files and import")
                 }
             }
+            OutlinedButton(
+                onClick = { TutorialReplayRequests.bump() },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Show first-run setup guide")
+            }
             onCapability?.let { action ->
                 OutlinedButton(onClick = action, modifier = Modifier.fillMaxWidth()) {
                     Text("Device capability report")
@@ -780,11 +786,13 @@ fun SettingsScreen(
                 }
             }
             Text(
-                "Setup covers three tools: importing the WoW 1.12.1 game files and " +
-                    "generating the server's world data, a report of what this " +
-                    "device's hardware can run, and diagnostics with logs for " +
-                    "investigating problems. Start here on a new install. Character " +
-                    "backups and restores live in the Realm data section below.",
+                "Setup covers the game-files import for the WoW 1.12.1 client " +
+                    "and the server's world data, a report of what this " +
+                    "device's hardware can run, diagnostics with logs for " +
+                    "investigating problems, and the first-run setup guide, " +
+                    "which you can replay anytime. Start here on a new install. " +
+                    "Character backups and restores live in the Realm data " +
+                    "section below.",
                 style = MaterialTheme.typography.bodySmall,
             )
         }

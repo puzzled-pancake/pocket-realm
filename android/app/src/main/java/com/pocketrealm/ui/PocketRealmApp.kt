@@ -1,15 +1,24 @@
 package com.pocketrealm.ui
 
 import android.net.Uri
-import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BugReport
@@ -33,15 +42,22 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavType
@@ -54,7 +70,13 @@ import androidx.navigation.navigation
 import com.pocketrealm.ingame.WowSettingSection
 import com.pocketrealm.log.AppLog
 import com.pocketrealm.realm.RealmState
+import com.pocketrealm.storage.Settings
 import com.pocketrealm.supervisor.RuntimeSupervisorClient
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Responsive product shell: bottom navigation on phones, controller-friendly
@@ -82,6 +104,39 @@ fun PocketRealmApp() {
         supervisorClient.observeRealmState()
     }.collectAsState(initial = RealmState.Idle)
 
+    // First-run tutorial gate. Null until DataStore's first emission and
+    // until the managed-client pointer probe resolves: deciding on the
+    // default snapshot (setupComplete=false) in that cold-start window
+    // would flash the dialog at returning users on every launch.
+    val settings = remember(context) { Settings(context) }
+    val settingsSnapshot by settings.flow.collectAsState(initial = null)
+    val hasImportedClient by produceState<Boolean?>(initialValue = null, context) {
+        value = withContext(Dispatchers.IO) {
+            managedClientImported(
+                pointerFileExists = File(context.noBackupFilesDir, "client/active.json").isFile,
+                legacyDirExists = File(context.noBackupFilesDir, "client/active").isDirectory,
+            )
+        }
+    }
+    val replayRequest by TutorialReplayRequests.requests.collectAsState()
+    var tutorialDismissed by rememberSaveable { mutableStateOf(false) }
+    val tutorialScope = rememberCoroutineScope()
+
+    // A replay request re-opens the guide even after an earlier dismissal;
+    // reset as a side effect so the flag is never written during composition.
+    LaunchedEffect(replayRequest) {
+        if (replayRequest > 0) tutorialDismissed = false
+    }
+
+    // Returning users: an already-imported client seals setup once, silently
+    // (the tutorial is for first-run only). Guarded so sealed installs never
+    // rewrite the whole preferences snapshot on every launch.
+    LaunchedEffect(settingsSnapshot?.setupComplete, hasImportedClient) {
+        if (settingsSnapshot?.setupComplete == false && hasImportedClient == true) {
+            settings.update { it.copy(setupComplete = true) }
+        }
+    }
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = paneLayout(maxWidth.value, maxHeight.value) == PaneLayout.WIDE
         val contentWidth = if (wide) maxWidth - 88.dp else maxWidth
@@ -92,6 +147,7 @@ fun PocketRealmApp() {
                     topLevel = topLevel,
                     realmState = realmState,
                     onBack = { navController.popBackStack() },
+                    onSettings = { navigateTop(navController, Screen.Settings.route) },
                 )
             },
             bottomBar = {
@@ -116,17 +172,28 @@ fun PocketRealmApp() {
             Row(Modifier.fillMaxSize().padding(inner)) {
                 if (wide) {
                     NavigationRail(Modifier.width(88.dp)) {
-                        topDestinations.forEach { destination ->
-                            val selected =
-                                current?.hierarchy?.any { it.route == destination.route } == true
-                            NavigationRailItem(
-                                selected = selected,
-                                onClick = { navigateTop(navController, destination.route) },
-                                icon = {
-                                    Icon(destination.icon, contentDescription = destination.label)
-                                },
-                                label = { Text(destination.label) },
-                            )
+                        // The weight bounds the scroll viewport to the remaining
+                        // rail height, so short landscape screens scroll to the
+                        // last destination instead of clipping it. spacedBy
+                        // mirrors material3's internal NavigationRailVerticalPadding
+                        // (4.dp, an internal token) so spacing is unchanged.
+                        Column(
+                            Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            topDestinations.forEach { destination ->
+                                val selected =
+                                    current?.hierarchy?.any { it.route == destination.route } == true
+                                NavigationRailItem(
+                                    selected = selected,
+                                    onClick = { navigateTop(navController, destination.route) },
+                                    icon = {
+                                        Icon(destination.icon, contentDescription = destination.label)
+                                    },
+                                    label = { Text(destination.label) },
+                                )
+                            }
                         }
                     }
                 }
@@ -228,13 +295,42 @@ fun PocketRealmApp() {
                 }
             }
         }
+
+        if (tutorialVisible(
+                settingsSnapshot?.setupComplete,
+                hasImportedClient,
+                replayRequest,
+            ) && !tutorialDismissed
+        ) {
+            FirstRunTutorialOverlay(
+                onFinish = { chooseFolder ->
+                    TutorialReplayRequests.consume()
+                    tutorialDismissed = true
+                    val snapshotSetupComplete = settingsSnapshot?.setupComplete
+                    // NonCancellable: a rotation right after the tap must not
+                    // cancel the persisted seal (the local flag alone dies
+                    // with the process), or the tutorial would return.
+                    tutorialScope.launch {
+                        withContext(NonCancellable) {
+                            if (tutorialSealWrite(snapshotSetupComplete, dismissed = true)) {
+                                settings.update { it.copy(setupComplete = true) }
+                            }
+                        }
+                    }
+                    if (chooseFolder) {
+                        ClientPickerAutoOpen.pending = true
+                        navigatePush(navController, Screen.Client.route)
+                    }
+                },
+            )
+        }
     }
 }
 
 /**
  * Compact landscape app header (brief §2): 52 dp tall, route title left,
- * short realm status right. The side rail already communicates location, so
- * no large decorative title band is spent.
+ * short realm status and a settings gear right. The side rail already
+ * communicates location, so no large decorative title band is spent.
  */
 @Composable
 private fun PocketRealmTopBar(
@@ -242,11 +338,19 @@ private fun PocketRealmTopBar(
     topLevel: Boolean,
     realmState: RealmState,
     onBack: () -> Unit,
+    onSettings: () -> Unit,
 ) {
     Surface(color = MaterialTheme.colorScheme.surface) {
         Box(Modifier.fillMaxWidth().height(52.dp).testTag("app-top-bar")) {
+            // The weighted, single-line title keeps long titles from colliding
+            // with the status badge and gear on narrow windows. The horizontal
+            // safe-drawing inset keeps the gear clear of the edge-to-edge
+            // navigation-bar strip (the shell window spans the full display).
             Row(
-                Modifier.align(Alignment.CenterStart).padding(horizontal = 4.dp),
+                Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                    .padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (!topLevel) {
@@ -258,18 +362,25 @@ private fun PocketRealmTopBar(
                     title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(start = if (topLevel) 12.dp else 0.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = if (topLevel) 12.dp else 0.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                Text(
+                    realmStatusBadge(realmState),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .padding(end = 12.dp)
+                        .testTag("top-bar-realm-status"),
+                    maxLines = 1,
+                )
+                IconButton(onClick = onSettings, modifier = Modifier.testTag("top-bar-settings")) {
+                    Icon(Icons.Filled.Settings, contentDescription = "Open settings")
+                }
             }
-            Text(
-                realmStatusBadge(realmState),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 16.dp)
-                    .testTag("top-bar-realm-status"),
-            )
             HorizontalDivider(Modifier.align(Alignment.BottomCenter))
         }
     }

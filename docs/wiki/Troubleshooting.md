@@ -14,6 +14,24 @@ Common reasons are:
 
 Open **Game files and import** and check its current phase. If the client is ready, start the realm by itself and check the Local account card.
 
+## The side rail ends at Controls and Settings is missing
+
+On short landscape phones (for example a Samsung Galaxy S25FE), especially with an enlarged font size, the side rail in 0.100.0-alpha (versionCode 3) cannot fit every destination. The last item — **Settings** — is cut off, so the rail appears to end at **Controls**.
+
+This is fixed after 0.100.0-alpha: the side rail scrolls, and a settings gear was added to the top bar.
+
+On an affected version, open Settings from Home instead: the **Active setup** card's **Graphics** button opens the full Settings screen. That path works before any client is imported.
+
+## The import was rejected as unsupported
+
+The selection is checked before anything is copied. A `VAL-01` rejection means the picked folder is not the game client itself — typical causes:
+
+- An installer or setup program was selected instead of the installed client.
+- A downloader/launcher folder was selected (the message says `launcher-only` because a direct `WoW.exe` is absent).
+- A `.zip`/`.7z`/`.rar` archive or a shortcut was selected instead of a folder.
+
+Pocket Realm cannot run installers and cannot open archives. Extract the client first (on a PC or with a file manager app), then choose the folder again and select the extracted client itself — the folder that directly contains `WoW.exe` and a `Data` folder. A `VAL-03` rejection instead means the client is the wrong version: exactly WoW 1.12.1 build 5875 is required. Replay the guide with **Settings → Setup → Show first-run setup guide** if you want the full requirements again.
+
 ## Import stopped or looks frozen
 
 Look for a changing file, byte count, checkpoint, worker state, or journal age. Some verification steps do not change the main progress bar every second.

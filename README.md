@@ -10,7 +10,7 @@ Winlator-derived X server and pinned graphics stacks (DXVK / Turnip / VirGL /
 Gladio). One app: import your client, press play, and a local world with
 computer-controlled companions comes up and shuts down safely.
 
-**Status: alpha (0.100.0-alpha).** Screens and wording may change. See the
+**Status: alpha (0.100.1-alpha).** Screens and wording may change. See the
 [wiki](docs/wiki/README.md) for what works today.
 
 ## Devices
@@ -43,7 +43,12 @@ Reports from any device, especially Mali or 6 GB ones, are welcome (see
 - **Your own copy of the WoW 1.12.1 client (build 5875).** Pocket Realm never
   bundles or distributes any Blizzard asset: no executables, MPQs, DBCs,
   maps, models, or textures. You import a client you are entitled to use; Pocket
-  Realm makes a private managed copy and prepares its data on-device.
+  Realm makes a private managed copy and prepares its data on-device. The
+  client must be a plain, already-extracted (uncompressed) folder — the one
+  that directly contains `WoW.exe` and a `Data` folder — **not** an installer,
+  downloader/launcher, or `.zip`/`.7z`/`.rar` archive: Pocket Realm cannot run
+  installers or open archives, so extract a compressed copy first and select
+  the extracted folder itself.
 - Pocket Realm is a fan project and is not affiliated with, endorsed by, or
   sponsored by Blizzard Entertainment. World of Warcraft is a trademark of
   Blizzard Entertainment, Inc.
@@ -58,8 +63,16 @@ Building from source is fully supported as well; see below.
 
 ## First boot
 
+On a fresh install the app opens with a short first-run tutorial. It explains
+exactly what to select — a plain, already-extracted (uncompressed) WoW 1.12.1
+client folder, never an installer or an archive — and its final button takes
+you straight to the import screen with the folder picker already open. You
+can replay it anytime from **Settings → Setup → Show first-run setup guide**.
+
 1. Open **Settings → Setup → Game files and import** and pick your WoW 1.12.1
-   (build 5875) client folder with Android's folder picker. The folder is
+   (build 5875) client folder with Android's folder picker. The folder must
+   be the extracted client itself (the one containing `WoW.exe` and `Data`),
+   not an installer, launcher, or archive. The folder is
    treated as read-only; Pocket Realm copies and verifies what it needs into
    private app storage and then prepares the server data on the device.
 2. **Expect the import to take a while.** Depending on the device, storage
