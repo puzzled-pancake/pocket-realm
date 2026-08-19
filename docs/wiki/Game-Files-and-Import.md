@@ -15,9 +15,13 @@ The selected source folder stays read-only. Pocket Realm works from private app 
 
 ## Opening the import screen
 
-Go to **Settings**, find **Setup**, and choose **Game files and import**.
+Go to **Settings**, find **Setup**, and choose **Game files and import**. On a fresh install, the first-run tutorial opens this path automatically and its final button opens the folder picker for you; replay it anytime with **Show first-run setup guide** in the same card.
 
 Choose **Choose client folder** and select the folder that contains the supported client. Android controls which folders are visible and which one the app can read.
+
+The selection must be a plain, already-extracted (uncompressed) WoW 1.12.1 build 5875 client folder — the folder that directly contains `WoW.exe` and a `Data` folder with the base `.MPQ` files. An installer or setup program, a downloader/launcher folder, or a `.zip`/`.7z`/`.rar` archive is not a valid selection: Pocket Realm cannot run installers or open archives. Extract a compressed copy first (on a PC or with a file manager app), then select the extracted folder itself — not the archive, and not a parent folder.
+
+If you pick the wrong kind of folder, the import rejects it with a `VAL-01` message (for example a launcher-only selection with no direct `WoW.exe`). Nothing is copied or changed in that case: choose the folder again and point at the extracted client itself.
 
 ## Reading the progress display
 

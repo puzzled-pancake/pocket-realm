@@ -31,6 +31,11 @@ class SettingsDataStoreTest {
     }
 
     @Test
+    fun setupCompletionKeepsItsOwnIntegerKey() {
+        assertEquals("setup_complete", setupCompletePreference.name)
+    }
+
+    @Test
     fun gameSettingsKeysFollowTheTweaksPatternWithAnIndependentCounterKey() {
         val queue = stringPreferencesKey("game_settings_queue")
         val queueSchema = intPreferencesKey("game_settings_queue_schema")

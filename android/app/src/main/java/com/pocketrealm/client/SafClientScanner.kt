@@ -7,6 +7,15 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
 
+/**
+ * Launcher-only selections (an installer/downloader folder) are the most
+ * common wrong pick. Named constant so the JVM suite can pin the "VAL-01: "
+ * prefix and the "launcher-only" phrase the instrumented suite asserts.
+ */
+internal const val VAL01_LAUNCHER_ONLY_SELECTION: String =
+    "VAL-01: launcher-only selection; direct WoW.exe is absent — " +
+        "choose the extracted 1.12.1 client folder itself, not the installer/launcher"
+
 /** Read-only SAF fast scan for the client identity decision.
  *
  * Only the selected root, WoW.exe, and the immediate Data directory are read.
@@ -36,7 +45,7 @@ internal class SafClientScanner(private val resolver: ContentResolver) {
         val wow = root.singleOrNull { !it.directory && it.name.equals("WoW.exe", true) }
         if (wow == null) {
             failures += if (root.any { it.name.contains("launcher", true) })
-                "VAL-01: launcher-only selection; direct WoW.exe is absent"
+                VAL01_LAUNCHER_ONLY_SELECTION
             else "VAL-01: direct WoW.exe is absent"
         }
 

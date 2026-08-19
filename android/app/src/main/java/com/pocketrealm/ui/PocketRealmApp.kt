@@ -33,9 +33,15 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -54,7 +60,13 @@ import androidx.navigation.navigation
 import com.pocketrealm.ingame.WowSettingSection
 import com.pocketrealm.log.AppLog
 import com.pocketrealm.realm.RealmState
+import com.pocketrealm.storage.Settings
 import com.pocketrealm.supervisor.RuntimeSupervisorClient
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Responsive product shell: bottom navigation on phones, controller-friendly
@@ -81,6 +93,39 @@ fun PocketRealmApp() {
     val realmState by remember(supervisorClient) {
         supervisorClient.observeRealmState()
     }.collectAsState(initial = RealmState.Idle)
+
+    // First-run tutorial gate. Null until DataStore's first emission and
+    // until the managed-client pointer probe resolves: deciding on the
+    // default snapshot (setupComplete=false) in that cold-start window
+    // would flash the dialog at returning users on every launch.
+    val settings = remember(context) { Settings(context) }
+    val settingsSnapshot by settings.flow.collectAsState(initial = null)
+    val hasImportedClient by produceState<Boolean?>(initialValue = null, context) {
+        value = withContext(Dispatchers.IO) {
+            managedClientImported(
+                pointerFileExists = File(context.noBackupFilesDir, "client/active.json").isFile,
+                legacyDirExists = File(context.noBackupFilesDir, "client/active").isDirectory,
+            )
+        }
+    }
+    val replayRequest by TutorialReplayRequests.requests.collectAsState()
+    var tutorialDismissed by rememberSaveable { mutableStateOf(false) }
+    val tutorialScope = rememberCoroutineScope()
+
+    // A replay request re-opens the guide even after an earlier dismissal;
+    // reset as a side effect so the flag is never written during composition.
+    LaunchedEffect(replayRequest) {
+        if (replayRequest > 0) tutorialDismissed = false
+    }
+
+    // Returning users: an already-imported client seals setup once, silently
+    // (the tutorial is for first-run only). Guarded so sealed installs never
+    // rewrite the whole preferences snapshot on every launch.
+    LaunchedEffect(settingsSnapshot?.setupComplete, hasImportedClient) {
+        if (settingsSnapshot?.setupComplete == false && hasImportedClient == true) {
+            settings.update { it.copy(setupComplete = true) }
+        }
+    }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = paneLayout(maxWidth.value, maxHeight.value) == PaneLayout.WIDE
@@ -227,6 +272,35 @@ fun PocketRealmApp() {
                     composable(Screen.Diagnostics.route) { DiagnosticsScreen() }
                 }
             }
+        }
+
+        if (tutorialVisible(
+                settingsSnapshot?.setupComplete,
+                hasImportedClient,
+                replayRequest,
+            ) && !tutorialDismissed
+        ) {
+            FirstRunTutorialOverlay(
+                onFinish = { chooseFolder ->
+                    TutorialReplayRequests.consume()
+                    tutorialDismissed = true
+                    val snapshotSetupComplete = settingsSnapshot?.setupComplete
+                    // NonCancellable: a rotation right after the tap must not
+                    // cancel the persisted seal (the local flag alone dies
+                    // with the process), or the tutorial would return.
+                    tutorialScope.launch {
+                        withContext(NonCancellable) {
+                            if (tutorialSealWrite(snapshotSetupComplete, dismissed = true)) {
+                                settings.update { it.copy(setupComplete = true) }
+                            }
+                        }
+                    }
+                    if (chooseFolder) {
+                        ClientPickerAutoOpen.pending = true
+                        navigatePush(navController, Screen.Client.route)
+                    }
+                },
+            )
         }
     }
 }
