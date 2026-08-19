@@ -749,8 +749,8 @@ android {
         // other on-device emulators ship.
         targetSdk = (project.findProperty("pocketTargetSdk") as String?)?.toInt() ?: 27
         // Bump-on-release discipline (update manifests compare codes).
-        versionCode = 4
-        versionName = "0.100.1-alpha"
+        versionCode = 5
+        versionName = "0.100.2-alpha"
         buildConfigField(
             "boolean", "ENABLE_CLIENT_DATA_PREPARATION", (pocketLane == "full").toString(),
         )
@@ -1474,6 +1474,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.service)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

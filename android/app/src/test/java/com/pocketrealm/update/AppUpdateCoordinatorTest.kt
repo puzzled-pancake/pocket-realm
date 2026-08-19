@@ -206,5 +206,72 @@ class AppUpdateCoordinatorTest {
         }
     }
 
+    @Test
+    fun downloadReusesVerifiedApkWithoutNetwork() {
+        MockWebServer().use { server ->
+            server.start()
+            val apkBytes = byteArrayOf(5, 4, 3, 2, 1)
+            val manifest = AppUpdateCoordinator.UpdateManifest(
+                versionCode = 99,
+                versionName = "9.9.9",
+                apkUrl = server.url("/apk").toString(),
+                size = apkBytes.size.toLong(),
+                sha256 = sha256(apkBytes),
+                minSupportedVersionCode = 1,
+                notes = "",
+            )
+            // A prior completed download is already verified on disk.
+            val cache = tmp.newFolder()
+            File(cache, "update-download").writeBytes(apkBytes)
+            val file = ApkDownloader(setOf(server.hostName))
+                .download(File(cache, "update-download"), manifest) { }
+            assertTrue(file.readBytes().contentEquals(apkBytes))
+            assertEquals(0, server.requestCount)
+        }
+    }
+
+    @Test
+    fun downloadReplacesStaleFileOnMismatch() {
+        MockWebServer().use { server ->
+            server.start()
+            val apkBytes = byteArrayOf(1, 2, 3, 4, 5)
+            val manifest = AppUpdateCoordinator.UpdateManifest(
+                versionCode = 99,
+                versionName = "9.9.9",
+                apkUrl = server.url("/apk").toString(),
+                size = apkBytes.size.toLong(),
+                sha256 = sha256(apkBytes),
+                minSupportedVersionCode = 1,
+                notes = "",
+            )
+            // Same length, wrong bytes: only the checksum gate catches it.
+            val cache = tmp.newFolder()
+            File(cache, "update-download").writeBytes(byteArrayOf(9, 9, 9, 9, 9))
+            server.enqueue(
+                MockResponse.Builder().code(200)
+                    .body(okio.Buffer().write(apkBytes)).build(),
+            )
+            val file = ApkDownloader(setOf(server.hostName))
+                .download(File(cache, "update-download"), manifest) { }
+            assertTrue(file.readBytes().contentEquals(apkBytes))
+            assertEquals(1, server.requestCount)
+        }
+    }
+
+    @Test
+    fun clearDownloadedApkInDirsRemovesAllNames() {
+        val updates = tmp.newFolder()
+        val legacy = tmp.newFolder()
+        for (suffix in listOf("", ".part", ".etag")) {
+            File(updates, "update-download$suffix").writeBytes(byteArrayOf(1))
+            File(legacy, "update-download$suffix").writeBytes(byteArrayOf(1))
+        }
+        clearDownloadedApkInDirs(legacy, updates)
+        for (suffix in listOf("", ".part", ".etag")) {
+            assertTrue(File(legacy, "update-download$suffix").isNullSafeAbsent())
+            assertTrue(File(updates, "update-download$suffix").isNullSafeAbsent())
+        }
+    }
+
     private fun File.isNullSafeAbsent(): Boolean = !exists()
 }

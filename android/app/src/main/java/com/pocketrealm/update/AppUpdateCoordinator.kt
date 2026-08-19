@@ -38,6 +38,10 @@ object AppUpdateCoordinator {
      */
     const val UPDATES_REPO = "puzzled-pancake/pocket-realm"
 
+    /** Browser URL of the latest release (the Settings "Release page" button). */
+    const val RELEASES_PAGE_URL: String =
+        "https://github.com/$UPDATES_REPO/releases/latest"
+
     // Mirrors AddonRepository's GitHub host allowlist.
     internal val allowedHosts = setOf(
         "api.github.com",
@@ -102,19 +106,45 @@ object AppUpdateCoordinator {
     )
 
     /**
-     * Track 2: resumable, checksum-verified APK download into the app's
-     * cache dir. Returns the verified file.
+     * Track 2: resumable, checksum-verified APK download into persistent
+     * app storage (not cacheDir — the OS must not trim a staged update).
+     * Returns the verified file, reusing an already-verified download
+     * without any network traffic.
      */
     fun downloadApk(context: Context, manifest: UpdateManifest, onProgress: (Long) -> Unit = {}): File {
+        downloadedApkIfVerified(context, manifest)?.let { verified ->
+            onProgress(verified.length())
+            return verified
+        }
+        val dir = File(context.filesDir, "updates")
+        // mkdirs before the usableSpace read: a nonexistent path reports 0.
+        dir.mkdirs()
         // Storage preflight (ensureVoiceOverStorage pattern): the partial
         // plus headroom for the PackageInstaller session write.
         val required = manifest.size * DOWNLOAD_HEADROOM_NUMERATOR /
             DOWNLOAD_HEADROOM_DENOMINATOR
-        check(context.cacheDir.usableSpace >= required) {
+        check(dir.usableSpace >= required) {
             "Not enough free storage: need about ${required / MIB} MB for the update"
         }
         return ApkDownloader(allowedHosts + extraAllowedHosts)
-            .download(File(context.cacheDir, "update-download"), manifest, onProgress)
+            .download(File(dir, DOWNLOAD_BASE_NAME), manifest, onProgress)
+    }
+
+    /** The staged APK for [manifest] when a complete verified copy is on disk. */
+    fun downloadedApkIfVerified(context: Context, manifest: UpdateManifest): File? {
+        val target = File(File(context.filesDir, "updates"), DOWNLOAD_BASE_NAME)
+        return if (isVerifiedUpdate(target, manifest)) target else null
+    }
+
+    /**
+     * Reclaims a staged update download (after a committed install, or for
+     * a superseded release). Never called right after commit — a user
+     * cancelling the confirmation dialog must still retry from disk. The
+     * cacheDir pass covers artifacts left by versions that staged updates
+     * there.
+     */
+    fun clearDownloadedApk(context: Context) {
+        clearDownloadedApkInDirs(context.cacheDir, File(context.filesDir, "updates"))
     }
 
     fun canRequestPackageInstalls(context: Context): Boolean =
@@ -136,17 +166,32 @@ object AppUpdateCoordinator {
         val params = PackageInstaller.SessionParams(
             PackageInstaller.SessionParams.MODE_FULL_INSTALL,
         )
+        // A prior attempt that stalled before its confirmation dialog
+        // leaves the session pending; drop leftovers so this commit is the
+        // only live one. Abandoning an already-finalizing session throws,
+        // which is not fatal here.
+        installer.mySessions.forEach { stale ->
+            runCatching { installer.abandonSession(stale.sessionId) }
+        }
         val sessionId = installer.createSession(params)
         installer.openSession(sessionId).use { session ->
             session.openWrite("apk", 0, apk.length()).use { output ->
                 apk.inputStream().use { input -> input.copyTo(output) }
                 session.fsync(output)
             }
+            // The status must reach an ACTIVITY, not a broadcast receiver:
+            // the system launches this activity itself (reviving the
+            // process if it was killed), so the installer's confirmation
+            // UI is then started from a foreground activity — a receiver's
+            // startActivity is silently blocked as a background activity
+            // launch whenever the app is not visible at commit time.
+            // Mutable so the system can fill in the status extras.
             session.commit(
-                android.app.PendingIntent.getBroadcast(
+                android.app.PendingIntent.getActivity(
                     context,
                     sessionId,
-                    Intent(context, AppUpdateInstallReceiver::class.java),
+                    Intent(context, AppUpdateInstallActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                     android.app.PendingIntent.FLAG_UPDATE_CURRENT or
                         android.app.PendingIntent.FLAG_MUTABLE,
                 ).intentSender,
@@ -174,9 +219,46 @@ private const val INSTALL_PERMISSION_API_FLOOR = 26
 private const val DOWNLOAD_HEADROOM_NUMERATOR = 2L
 private const val DOWNLOAD_HEADROOM_DENOMINATOR = 1L
 private const val MIB = 1024L * 1024
+private const val STREAM_BUFFER_BYTES = 64 * 1024
+private const val DOWNLOAD_BASE_NAME = "update-download"
+private val DOWNLOAD_FILE_SUFFIXES = arrayOf("", ".part", ".etag")
 
 private fun allowedFetchHosts(): Set<String> =
     AppUpdateCoordinator.allowedHosts + AppUpdateCoordinator.extraAllowedHosts
+
+/**
+ * Reclaims staged update artifacts in [dirs]: the complete download plus
+ * its .part/.etag sidecars (older versions staged these in cacheDir;
+ * current ones live in filesDir/updates). Contents-only — the directory
+ * itself is kept so a download never races a missing parent.
+ */
+internal fun clearDownloadedApkInDirs(vararg dirs: File) {
+    for (dir in dirs) {
+        for (suffix in DOWNLOAD_FILE_SUFFIXES) {
+            File(dir, DOWNLOAD_BASE_NAME + suffix).delete()
+        }
+    }
+}
+
+/** True when [file] holds a complete, checksum-verified copy of [manifest]. */
+internal fun isVerifiedUpdate(
+    file: File,
+    manifest: AppUpdateCoordinator.UpdateManifest,
+): Boolean = file.isFile && file.length() == manifest.size &&
+    sha256File(file).equals(manifest.sha256, ignoreCase = true)
+
+private fun sha256File(file: File): String {
+    val digest = java.security.MessageDigest.getInstance("SHA-256")
+    file.inputStream().use { input ->
+        val buffer = ByteArray(STREAM_BUFFER_BYTES)
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            digest.update(buffer, 0, read)
+        }
+    }
+    return digest.digest().joinToString("") { "%02x".format(it) }
+}
 
 /** okhttp's JVM-pure URL type (android.net.Uri is stubbed in unit tests). */
 private fun hostOf(url: String): String =
@@ -275,6 +357,17 @@ internal class ApkDownloader(private val allowedHosts: Set<String>) {
         manifest: AppUpdateCoordinator.UpdateManifest,
         onProgress: (Long) -> Unit = {},
     ): File {
+        // A previously verified download is reused as-is — no network, no
+        // delete-and-redownload. This must precede both the start==0
+        // cleanup below (which would delete the verified file) and the
+        // redirect resolution (which HEAD-probes github.com). A complete
+        // baseName and a stale .part cannot coexist — the rename that
+        // produces baseName atomically consumes .part — so skipping
+        // sidecar cleanup here is safe.
+        if (isVerifiedUpdate(baseName, manifest)) {
+            onProgress(baseName.length())
+            return baseName
+        }
         val partial = File(baseName.parentFile, baseName.name + ".part")
         val etagFile = File(baseName.parentFile, baseName.name + ".etag")
         if (partial.isFile && partial.length() >= manifest.size) partial.delete()
@@ -365,21 +458,7 @@ internal class ApkDownloader(private val allowedHosts: Set<String>) {
         }
     }
 
-    private fun sha256File(file: File): String {
-        val digest = java.security.MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input ->
-            val buffer = ByteArray(STREAM_BUFFER_BYTES)
-            while (true) {
-                val read = input.read(buffer)
-                if (read < 0) break
-                digest.update(buffer, 0, read)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
-    }
-
     private companion object {
         const val APPLIED_RANGE_CODE = 206
-        const val STREAM_BUFFER_BYTES = 64 * 1024
     }
 }

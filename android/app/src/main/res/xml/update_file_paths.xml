@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- F6: only the update download cache dir is shareable with the installer. -->
+<!-- F6: only the update download dir is shareable with the installer. -->
 <paths>
-    <cache-path name="update-downloads" path="." />
+    <files-path name="update-downloads" path="updates/" />
 </paths>

@@ -27,12 +27,14 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -41,6 +43,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.pocketrealm.BuildConfig
 import com.pocketrealm.client.ArmTranslationBackend
 import com.pocketrealm.client.ArmRendererAuto
@@ -61,7 +66,6 @@ import com.pocketrealm.client.VulkanDriverCatalog
 import com.pocketrealm.server.NearbyInteractPolicy
 import com.pocketrealm.storage.Settings
 import com.pocketrealm.update.AppUpdateCoordinator
-import com.pocketrealm.update.AppUpdateInstallReceiver
 import com.pocketrealm.storage.StorageRoots
 import com.pocketrealm.supervisor.RuntimeSupervisorClient
 import com.pocketrealm.supervisor.UserAccountStore
@@ -822,7 +826,11 @@ fun SettingsScreen(
                                     "(${result.manifest.size / MIB} MB). " +
                                     result.manifest.notes
                             }
-                            is AppUpdateCoordinator.CheckResult.UpToDate -> "You are up to date."
+                            is AppUpdateCoordinator.CheckResult.UpToDate -> {
+                                // A superseded staged download is dead weight.
+                                AppUpdateCoordinator.clearDownloadedApk(context)
+                                "You are up to date."
+                            }
                             is AppUpdateCoordinator.CheckResult.Unavailable -> result.reason
                         }
                         updateStatus = message
@@ -832,7 +840,7 @@ fun SettingsScreen(
                     context.startActivity(
                         android.content.Intent(
                             android.content.Intent.ACTION_VIEW,
-                            android.net.Uri.parse(AppUpdateInstallReceiver.RELEASES_PAGE_URL),
+                            android.net.Uri.parse(AppUpdateCoordinator.RELEASES_PAGE_URL),
                         ),
                     )
                 }) { Text("Release page") }
@@ -841,49 +849,97 @@ fun SettingsScreen(
             if (manifest != null) {
                 var installBusy by remember { mutableStateOf(false) }
                 var meteredWarningShown by remember { mutableStateOf(false) }
-                Button(
-                    enabled = !installBusy,
-                    onClick = {
+                var waitingForInstallPermission by remember { mutableStateOf(false) }
+                val startInstallFn: () -> Unit = {
+                    // Re-entry guard: the button's enabled state only takes
+                    // effect after recomposition, and the ON_RESUME
+                    // auto-continue below adds a second entry point.
+                    if (!installBusy) {
                         if (!AppUpdateCoordinator.canRequestPackageInstalls(context)) {
+                            waitingForInstallPermission = true
                             updateStatus =
                                 "Allow installing from this app in the system settings that " +
-                                    "just opened, then tap Install again."
-                            context.startActivity(AppUpdateCoordinator.manageUnknownSourcesIntent())
-                            return@Button
-                        }
-                        val connectivity = context.getSystemService(
-                            android.net.ConnectivityManager::class.java)
-                        val metered = connectivity != null && connectivity.isActiveNetworkMetered
-                        if (metered && !meteredWarningShown) {
-                            meteredWarningShown = true
-                            updateStatus =
-                                "This looks like a metered connection — the update is " +
-                                    "${manifest.size / MIB} MB. Tap Install again to proceed " +
-                                    "on mobile data."
-                            return@Button
-                        }
-                        meteredWarningShown = false
-                        installBusy = true
-                        updateStatus = "Downloading ${manifest.versionName}..."
-                        scope.launch(Dispatchers.IO) {
-                            runCatching {
-                                AppUpdateCoordinator.downloadApk(context, manifest) { progress ->
-                                    updateStatus =
-                                        "Downloading... ${progress / MIB} / " +
-                                            "${manifest.size / MIB} MB"
+                                    "just opened — the install continues when you return."
+                            context.startActivity(
+                                AppUpdateCoordinator.manageUnknownSourcesIntent(),
+                            )
+                        } else {
+                            val connectivity = context.getSystemService(
+                                android.net.ConnectivityManager::class.java)
+                            val metered =
+                                connectivity != null && connectivity.isActiveNetworkMetered
+                            if (metered && !meteredWarningShown) {
+                                meteredWarningShown = true
+                                updateStatus =
+                                    "This looks like a metered connection — the update is " +
+                                        "${manifest.size / MIB} MB. Tap Install again to " +
+                                        "proceed on mobile data."
+                            } else {
+                                meteredWarningShown = false
+                                installBusy = true
+                                val reuse = AppUpdateCoordinator
+                                    .downloadedApkIfVerified(context, manifest) != null
+                                updateStatus = if (reuse) {
+                                    "Using the previously downloaded update..."
+                                } else {
+                                    "Downloading ${manifest.versionName}..."
                                 }
-                            }.onSuccess { apk ->
-                                AppUpdateCoordinator.install(context, apk)
-                                updateStatus =
-                                    "Install offered to the system — confirm in the installer " +
-                                        "dialog. The new version starts on the next launch."
-                            }.onFailure { failure ->
-                                updateStatus =
-                                    "Update failed: ${failure.message ?: failure.javaClass.simpleName}"
+                                scope.launch(Dispatchers.IO) {
+                                    runCatching {
+                                        val apk = AppUpdateCoordinator.downloadApk(
+                                            context, manifest,
+                                        ) { progress ->
+                                            // The final ==size callback is skipped so a
+                                            // reused download keeps its status line.
+                                            if (progress < manifest.size) {
+                                                updateStatus =
+                                                    "Downloading... ${progress / MIB} / " +
+                                                        "${manifest.size / MIB} MB"
+                                            }
+                                        }
+                                        AppUpdateCoordinator.install(context, apk)
+                                    }.onSuccess {
+                                        updateStatus =
+                                            "Install offered to the system — confirm in the " +
+                                                "installer dialog. The new version starts on " +
+                                                "the next launch."
+                                    }.onFailure { failure ->
+                                        updateStatus =
+                                            "Update failed: " +
+                                                "${failure.message ?: failure.javaClass.simpleName}"
+                                    }
+                                    installBusy = false
+                                }
                             }
-                            installBusy = false
                         }
-                    },
+                    }
+                }
+                val startInstall by rememberUpdatedState(startInstallFn)
+                // Auto-continue after the unknown-sources grant. The wait
+                // flag is cleared as soon as the permission is confirmed —
+                // before invoking the install — so the metered-connection
+                // early return above can never leave it armed to
+                // auto-install on a later resume without consent.
+                val lifecycleOwner = LocalLifecycleOwner.current
+                DisposableEffect(lifecycleOwner) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_RESUME &&
+                            waitingForInstallPermission
+                        ) {
+                            waitingForInstallPermission = false
+                            if (availableUpdate != null &&
+                                AppUpdateCoordinator.canRequestPackageInstalls(context)
+                            ) {
+                                startInstall()
+                            }
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+                }
+                Button(
+                    enabled = !installBusy,
+                    onClick = { startInstall() },
                 ) { Text("Install update") }
             }
         }

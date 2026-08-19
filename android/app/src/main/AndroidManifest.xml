@@ -69,12 +69,22 @@
             </intent-filter>
         </receiver>
 
-        <!-- F6: PackageInstaller session status sink. Registered in the
-             manifest so the system can deliver the commit status through
-             the app-created PendingIntent while the process may be gone. -->
-        <receiver
-            android:name=".update.AppUpdateInstallReceiver"
-            android:exported="false" />
+        <!-- F6: PackageInstaller session status sink. The system launches
+             this activity to deliver the commit status (reviving the
+             process if needed); the installer's confirmation UI is then
+             started from this foreground activity. A receiver-context
+             startActivity is silently blocked as a background activity
+             launch whenever the app is not visible at commit time. The
+             class name is a forward-compat contract: in-flight installs
+             resolve it after the package is replaced. -->
+        <activity
+            android:name=".update.AppUpdateInstallActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!-- Packaging fault-injection experiment: an isolated fault domain for the native crash test.
              The deliberate abort() happens here, never in :main. Not a bound

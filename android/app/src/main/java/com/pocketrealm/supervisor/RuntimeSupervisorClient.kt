@@ -136,8 +136,11 @@ class RuntimeSupervisorClient(context: Context) {
                     )
                     else RealmState.Failed("Previous runtime was interrupted. Tap Start to recover safely.")
                 }
-                RuntimePhase.STOPPING -> RealmState.Stopping(false)
-                RuntimePhase.RECOVERING -> RealmState.Recovering(value.optString("lastDurableAction"))
+                RuntimePhase.STOPPING -> if (generationActive) RealmState.Stopping(false)
+                else RealmState.Failed("The previous stop was interrupted. Tap Start to recover safely.")
+                RuntimePhase.RECOVERING -> if (generationActive)
+                    RealmState.Recovering(value.optString("lastDurableAction"))
+                else RealmState.Failed("The previous recovery was interrupted. Tap Start to recover safely.")
                 RuntimePhase.ERROR -> RealmState.Failed(lastError ?: "runtime failed")
             }
         }

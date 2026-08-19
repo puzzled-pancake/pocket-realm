@@ -90,6 +90,55 @@ class RuntimeSupervisorClientTest {
         assertTrue(decoded is RealmState.Starting)
     }
 
+    @Test fun interruptedStopJournalDoesNotTrapTheStopButton() {
+        val interrupted = RuntimeSnapshot(
+            phase = RuntimePhase.STOPPING,
+            clean = false,
+            lastDurableAction = "stop-requested",
+            recoverability = Recoverability.RECOVERY_REQUIRED,
+        )
+
+        val decoded = RuntimeSupervisorClient.decodeRealmState(
+            encoded(interrupted, generationActive = false),
+        )
+
+        assertTrue(decoded is RealmState.Failed)
+        assertEquals(
+            "The previous stop was interrupted. Tap Start to recover safely.",
+            (decoded as RealmState.Failed).message,
+        )
+    }
+
+    @Test fun liveStoppingGenerationStillShowsStopping() {
+        val decoded = RuntimeSupervisorClient.decodeRealmState(encoded(RuntimeSnapshot(
+            phase = RuntimePhase.STOPPING,
+            clean = false,
+            lastDurableAction = "stop-requested",
+            recoverability = Recoverability.RECOVERY_REQUIRED,
+        ), generationActive = true))
+
+        assertTrue(decoded is RealmState.Stopping)
+    }
+
+    @Test fun interruptedRecoveryJournalDoesNotRemainRecoveringForever() {
+        val interrupted = RuntimeSnapshot(
+            phase = RuntimePhase.RECOVERING,
+            clean = false,
+            lastDurableAction = "dirty-journal-recovery-started",
+            recoverability = Recoverability.RECOVERY_REQUIRED,
+        )
+
+        val decoded = RuntimeSupervisorClient.decodeRealmState(
+            encoded(interrupted, generationActive = false),
+        )
+
+        assertTrue(decoded is RealmState.Failed)
+        assertEquals(
+            "The previous recovery was interrupted. Tap Start to recover safely.",
+            (decoded as RealmState.Failed).message,
+        )
+    }
+
     private fun encoded(snapshot: RuntimeSnapshot, generationActive: Boolean = false): String =
         RuntimeSnapshotJson.encode(snapshot)
             .put("supervisorGenerationActive", generationActive)
