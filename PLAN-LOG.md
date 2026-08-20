@@ -328,3 +328,30 @@ artifacts in `tmp/turnip-audit/` — untracked scratch).
   the same HEAD 7d7b73a — 788 tests, 0 failures). `check_sources.py` and
   `check_repo.py` both OK.
 - Plan document committed.
+
+## Phase B — meta.json import support
+
+**Outcome: complete, green, committed.**
+
+- `UserVulkanDriverValidator.validateMeta` (`MetaOutcome`): untrusted display
+  metadata only — `name` (≤64 chars, the import label) and `driverVersion`
+  (literal "Vulkan " prefix stripped → api_version); junk fields never
+  reject; malformed JSON = exact rejection string.
+- `UserVulkanDriverRegistry`: zip acceptance widened by the meta.json
+  carve-out only (≤1 ICD json, ≤1 `meta.json`, still exactly one `.so`,
+  nothing else); ICD api_version stays authoritative, meta fills the gap;
+  warn-only floor recomputed from the effective version; meta deleted after
+  parsing so the stored layout stays `driver.so` + `icd.json`.
+- Tests: +12 (validator 12→15, registry 17→26), including the real K11MCH1
+  `Turnip_v26.0.0_R8` meta.json verbatim as a fixture; oversized meta + ICD
+  exact reasons; case-insensitive `META.JSON`; updated allowed-set wording
+  pinned. Suite 800/0.
+- Reviewer: 0 BLOCKER, 1 MAJOR (oversized-meta string untested), 1 MINOR
+  (stale allowed-set wording) — both fixed, suite re-verified green.
+- **Observation (logged per §1):** the pre-existing llama dirt is *growing* —
+  during this phase `android/app/build.gradle.kts`,
+  `schemas/realm-runtime-lockfile*.json`, and `android/.../llm/` Kotlin
+  sources appeared (a parallel session is working in this tree). Staging
+  stays surgical: explicit paths only; Phase C will need a partial-hunk
+  stage for `build.gradle.kts` because the parallel session has uncommitted
+  edits there.

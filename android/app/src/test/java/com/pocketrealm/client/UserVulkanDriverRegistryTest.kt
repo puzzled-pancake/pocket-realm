@@ -178,6 +178,40 @@ class UserVulkanDriverValidatorTest {
         assertNull(bare.apiVersion)
         assertNull(bare.warning)
     }
+
+    // --- AdrenoTools meta.json -------------------------------------------------
+
+    @Test
+    fun metaHarvestsLabelAndDriverVersionWithTheVulkanPrefixStripped() {
+        val accepted = UserVulkanDriverValidator.validateMeta(
+            """{"schemaVersion":1,"name":"Mesa Turnip driver v26.0.0 - R8","author":"KIMCHI",""" +
+                """"packageVersion":"1","vendor":"Mesa","driverVersion":"Vulkan 1.4.335","minApi":27,""" +
+                """"libraryName":"vulkan.ad07xx.so"}""",
+        ) as UserVulkanDriverValidator.MetaOutcome.Accepted
+        assertEquals("Mesa Turnip driver v26.0.0 - R8", accepted.label)
+        assertEquals("1.4.335", accepted.apiVersion)
+    }
+
+    @Test
+    fun metaIsDisplayMetadataOnlyAndJunkFieldsNeverReject() {
+        val accepted = UserVulkanDriverValidator.validateMeta(
+            """{"driverVersion":"1.3.290","libraryName":"mismatch.so","minApi":99}""",
+        ) as UserVulkanDriverValidator.MetaOutcome.Accepted
+        assertNull(accepted.label)
+        assertEquals("1.3.290", accepted.apiVersion)
+
+        val bare = UserVulkanDriverValidator.validateMeta("""{}""")
+            as UserVulkanDriverValidator.MetaOutcome.Accepted
+        assertNull(bare.label)
+        assertNull(bare.apiVersion)
+    }
+
+    @Test
+    fun malformedMetaIsRejectedWithTheExactReason() {
+        val rejected = UserVulkanDriverValidator.validateMeta("{ not json")
+            as UserVulkanDriverValidator.MetaOutcome.Rejected
+        assertTrue(rejected.reason.contains("meta.json could not be parsed"))
+    }
 }
 
 class UserVulkanDriverRegistryTest {
@@ -337,6 +371,8 @@ class UserVulkanDriverRegistryTest {
             "Extra", zipOf("lib.so" to elf64(), "readme.md" to "hi".toByteArray()),
         ) as UserVulkanDriverImport.Rejected
         assertTrue(extra.reason.contains("unexpected: readme.md"))
+        // The allowed-set wording must name the meta.json carve-out (C9).
+        assertTrue(extra.reason.contains("optional AdrenoTools meta.json"))
 
         val traversal = registry.import(
             "Evil", zipOf("../evil.so" to elf64()),
@@ -466,5 +502,165 @@ class UserVulkanDriverRegistryTest {
         ) as UserVulkanDriverValidator.IcdOutcome.Accepted
         assertEquals("99999999999999999999.1", outcome.apiVersion)
         assertNull(outcome.warning)
+    }
+
+    // --- AdrenoTools meta.json pack import (Eden/K11MCH1 format) ---------------
+
+    private fun adrenoToolsPack(meta: ByteArray, library: String = "vulkan.ad07xx.so"): File = zipOf(
+        "meta.json" to meta,
+        library to elf64(),
+    )
+
+    @Test
+    fun adrenoToolsMetaOnlyZipImportsWithLabelAndVersionFromMeta() {
+        val (registry, root) = newRegistry()
+        // The real K11MCH1 Turnip_v26.0.0_R8 pack: meta.json + one .so, no ICD.
+        val meta = (
+            """{"schemaVersion":1,"name":"Mesa Turnip driver v26.0.0 - R8",""" +
+                """"description":"Compiled from Source + unsupported gpu hacks","author":"KIMCHI",""" +
+                """"packageVersion":"1","vendor":"Mesa","driverVersion":"Vulkan 1.4.335",""" +
+                """"minApi":27,"libraryName":"vulkan.ad07xx.so"}"""
+            ).toByteArray()
+        val imported = registry.import("Turnip_v26.0.0_R8", adrenoToolsPack(meta))
+            as UserVulkanDriverImport.Imported
+        // meta.name wins over the caller's display name; slug derives from it.
+        assertEquals("Mesa Turnip driver v26.0.0 - R8", imported.driver.label)
+        assertEquals("user-mesa-turnip-driver-v26-0-0-r8", imported.driver.id)
+        assertEquals("1.4.335", imported.driver.vulkanApiVersion)
+        assertNull(imported.warning)
+        // No ICD in the pack → synthetic ICD; the metadata never lingers on disk.
+        val dir = File(root, "mesa-turnip-driver-v26-0-0-r8")
+        assertTrue(File(dir, "driver.so").isFile)
+        assertTrue(File(dir, "icd.json").isFile)
+        assertFalse(File(dir, "meta.json").exists())
+        assertEquals(
+            "driver.so",
+            org.json.JSONObject(File(dir, "icd.json").readText())
+                .getJSONObject("ICD").getString("library_path"),
+        )
+    }
+
+    @Test
+    fun metaApiVersionBelow13CarriesTheExistingWarnOnlyFloor() {
+        val (registry, _) = newRegistry()
+        val meta = """{"name":"Old turnip","driverVersion":"Vulkan 1.1.262"}""".toByteArray()
+        val imported = registry.import("Whatever", adrenoToolsPack(meta))
+            as UserVulkanDriverImport.Imported
+        assertEquals("1.1.262", imported.driver.vulkanApiVersion)
+        assertTrue(imported.warning!!.contains("1.1.262"))
+        assertTrue(imported.warning.contains("1.10.3"))
+    }
+
+    @Test
+    fun icdApiVersionStaysAuthoritativeOverMeta() {
+        val (registry, _) = newRegistry()
+        val zip = zipOf(
+            "libvulkan_freedreno.so" to elf64(),
+            "freedreno_icd.aarch64.json" to icdJson("1.3.290"),
+            "meta.json" to """{"name":"Meta name","driverVersion":"Vulkan 1.1.0"}""".toByteArray(),
+        )
+        val imported = registry.import("Display name", zip) as UserVulkanDriverImport.Imported
+        assertEquals("Meta name", imported.driver.label)
+        assertEquals("1.3.290", imported.driver.vulkanApiVersion)
+        assertNull(imported.warning)
+    }
+
+    @Test
+    fun metaNameMissingOrBlankFallsBackToTheDisplayName() {
+        val (registry, _) = newRegistry()
+        val noName = registry.import(
+            "Fallback label",
+            adrenoToolsPack("""{"driverVersion":"1.3.290"}""".toByteArray()),
+        ) as UserVulkanDriverImport.Imported
+        assertEquals("Fallback label", noName.driver.label)
+
+        val blank = registry.import(
+            "Fallback 2",
+            adrenoToolsPack("""{"name":"   "}""".toByteArray()),
+        ) as UserVulkanDriverImport.Imported
+        assertEquals("Fallback 2", blank.driver.label)
+    }
+
+    @Test
+    fun metaNameLongerThan64CharsIsTruncatedLikeAnyLabel() {
+        val (registry, _) = newRegistry()
+        val imported = registry.import(
+            "Display",
+            adrenoToolsPack("""{"name":"${"x".repeat(80)}"}""".toByteArray()),
+        ) as UserVulkanDriverImport.Imported
+        assertEquals(64, imported.driver.label.length)
+    }
+
+    @Test
+    fun malformedMetaRejectsTheWholeImportAndLeavesNoPartialEntry() {
+        val (registry, root) = newRegistry()
+        val result = registry.import("Bad meta", adrenoToolsPack("{ not json".toByteArray()))
+        val reason = (result as UserVulkanDriverImport.Rejected).reason
+        assertTrue(reason.contains("meta.json could not be parsed"))
+        assertEquals(0, registry.list().size)
+        assertTrue(root.listFiles { f -> f.isDirectory && !f.name.startsWith(".") }.isNullOrEmpty())
+        assertFalse(File(root, "registry.json").exists())
+    }
+
+    @Test
+    fun metaJsonAndIcdJsonCountsAreEachCappedAtOneWithExactReasons() {
+        val (registry, _) = newRegistry()
+        val twoMetas = registry.import(
+            "Two metas",
+            zipOf(
+                "meta.json" to """{"name":"A"}""".toByteArray(),
+                "nested/meta.json" to """{"name":"B"}""".toByteArray(),
+                "lib.so" to elf64(),
+            ),
+        ) as UserVulkanDriverImport.Rejected
+        assertTrue(twoMetas.reason.contains("at most one AdrenoTools meta.json"))
+
+        val twoIcds = registry.import(
+            "Two ICDs",
+            zipOf(
+                "lib.so" to elf64(),
+                "a.json" to icdJson(),
+                "b.json" to icdJson(),
+            ),
+        ) as UserVulkanDriverImport.Rejected
+        assertTrue(twoIcds.reason.contains("at most one ICD JSON manifest"))
+    }
+
+    @Test
+    fun oversizedMetaAndIcdAreRejectedWithExactReasonsAndNoPartialEntry() {
+        val (registry, root) = newRegistry()
+        val pad = "x".repeat(UserVulkanDriverRegistry.MAX_ICD_BYTES.toInt())
+        val hugeMeta = registry.import(
+            "Huge meta",
+            adrenoToolsPack("""{"name":"$pad"}""".toByteArray()),
+        ) as UserVulkanDriverImport.Rejected
+        assertTrue(hugeMeta.reason.contains("driver metadata"))
+        assertTrue(hugeMeta.reason.contains("is tiny"))
+        assertTrue(hugeMeta.reason.contains("not a meta.json"))
+
+        val hugeIcd = registry.import(
+            "Huge ICD",
+            zipOf(
+                "lib.so" to elf64(),
+                "freedreno_icd.aarch64.json" to
+                    """{"ICD":{"library_path":"$pad"}}""".toByteArray(),
+            ),
+        ) as UserVulkanDriverImport.Rejected
+        assertTrue(hugeIcd.reason.contains("manifests are tiny"))
+        assertTrue(hugeIcd.reason.contains("not an ICD"))
+
+        assertEquals(0, registry.list().size)
+        assertTrue(root.listFiles { f -> f.isDirectory && !f.name.startsWith(".") }.isNullOrEmpty())
+        assertFalse(File(root, "registry.json").exists())
+    }
+
+    @Test
+    fun metaDetectionIsCaseInsensitiveOnTheBaseName() {
+        val (registry, _) = newRegistry()
+        val imported = registry.import(
+            "Upper",
+            zipOf("META.JSON" to """{"name":"Upper name"}""".toByteArray(), "lib.so" to elf64()),
+        ) as UserVulkanDriverImport.Imported
+        assertEquals("Upper name", imported.driver.label)
     }
 }

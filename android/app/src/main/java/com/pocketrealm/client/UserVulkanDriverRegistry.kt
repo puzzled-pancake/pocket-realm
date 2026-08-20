@@ -44,6 +44,7 @@ data class UserVulkanDriver(
         const val ID_PREFIX = "user-"
         const val LIBRARY_FILE_NAME = "driver.so"
         const val ICD_FILE_NAME = "icd.json"
+        const val META_FILE_NAME = "meta.json"
         private val ID = Regex("user-[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?")
         private val SHA256 = Regex("[0-9a-f]{64}")
 
@@ -96,15 +97,17 @@ class UserVulkanDriverRegistry(private val root: File) {
     /**
      * Import a payload already copied to app-private storage (the SAF copy is
      * done by the caller — no document URI is ever retained here). [payload]
-     * is either a bare `.so` or a `.zip` archive containing exactly one `.so`
-     * and optionally one ICD JSON.
+     * is either a bare `.so` or a `.zip` archive containing exactly one `.so`,
+     * optionally one ICD JSON, and optionally an AdrenoTools `meta.json`
+     * (the Eden/K11MCH1 pack format) whose `name`/`driverVersion` become the
+     * label and the Vulkan version when the zip carries no ICD api_version.
      */
     fun import(
         displayName: String,
         payload: File,
         maxImportBytes: Long = UserVulkanDriverValidator.DEFAULT_MAX_IMPORT_BYTES,
     ): UserVulkanDriverImport {
-        val label = displayName.trim().take(64).ifBlank { "Imported driver" }
+        val fallbackLabel = displayName.trim().take(64).ifBlank { "Imported driver" }
         val incoming = File(root, ".incoming-${UUID.randomUUID()}")
         try {
             root.mkdirs()
@@ -121,7 +124,6 @@ class UserVulkanDriverRegistry(private val root: File) {
                 ?: return UserVulkanDriverImport.Rejected(
                     (elf as UserVulkanDriverValidator.ElfOutcome.Rejected).reason)
             var apiVersion: String? = null
-            var warning: String? = null
             if (icd.isFile) {
                 if (icd.length() > MAX_ICD_BYTES) {
                     return UserVulkanDriverImport.Rejected(
@@ -130,16 +132,36 @@ class UserVulkanDriverRegistry(private val root: File) {
                     )
                 }
                 when (val outcome = UserVulkanDriverValidator.validateIcd(icd.readText())) {
-                    is UserVulkanDriverValidator.IcdOutcome.Accepted -> {
-                        apiVersion = outcome.apiVersion
-                        warning = outcome.warning
-                    }
+                    is UserVulkanDriverValidator.IcdOutcome.Accepted -> apiVersion = outcome.apiVersion
                     is UserVulkanDriverValidator.IcdOutcome.Rejected ->
                         return UserVulkanDriverImport.Rejected(outcome.reason)
                 }
             } else {
                 writeSyntheticIcd(icd)
             }
+            var metaLabel: String? = null
+            val meta = File(incoming, UserVulkanDriver.META_FILE_NAME)
+            if (meta.isFile) {
+                if (meta.length() > MAX_ICD_BYTES) {
+                    return UserVulkanDriverImport.Rejected(
+                        "The AdrenoTools meta.json is ${meta.length()} bytes; driver metadata " +
+                            "is tiny — this file is not a meta.json.",
+                    )
+                }
+                when (val outcome = UserVulkanDriverValidator.validateMeta(meta.readText())) {
+                    is UserVulkanDriverValidator.MetaOutcome.Accepted -> {
+                        metaLabel = outcome.label
+                        // A real ICD api_version stays authoritative; meta only fills the gap.
+                        if (apiVersion == null) apiVersion = outcome.apiVersion
+                    }
+                    is UserVulkanDriverValidator.MetaOutcome.Rejected ->
+                        return UserVulkanDriverImport.Rejected(outcome.reason)
+                }
+                // Display metadata only — it never lingers in the stored layout.
+                meta.delete()
+            }
+            val label = metaLabel ?: fallbackLabel
+            val warning = apiVersion?.let(UserVulkanDriverValidator::apiVersionWarning)
             val driver = withRegistryMutationLock {
                 val current = readRegistry()
                 val candidate = UserVulkanDriver(
@@ -212,6 +234,7 @@ class UserVulkanDriverRegistry(private val root: File) {
         ZipInputStream(payload.inputStream().buffered()).use { zip ->
             val libraries = mutableListOf<String>()
             val manifests = mutableListOf<String>()
+            val metas = mutableListOf<String>()
             val others = mutableListOf<String>()
             var unsafePath: String? = null
             // nextEntry() must inflate each entry to find the next header, so
@@ -225,6 +248,7 @@ class UserVulkanDriverRegistry(private val root: File) {
                 val base = entry.name.substringAfterLast('/')
                 when {
                     base.endsWith(".so", ignoreCase = true) -> libraries += base
+                    base.equals(UserVulkanDriver.META_FILE_NAME, ignoreCase = true) -> metas += base
                     base.endsWith(".json", ignoreCase = true) -> manifests += base
                     else -> others += base
                 }
@@ -251,9 +275,14 @@ class UserVulkanDriverRegistry(private val root: File) {
             if (manifests.size > 1) {
                 return "The archive may contain at most one ICD JSON manifest (found ${manifests.size})."
             }
+            if (metas.size > 1) {
+                return "The archive may contain at most one AdrenoTools meta.json " +
+                    "(found ${metas.size})."
+            }
             if (others.isNotEmpty()) {
-                return "The archive must contain only the driver library and its optional ICD " +
-                    "manifest (unexpected: ${others.joinToString(", ")})."
+                return "The archive must contain only the driver library, its optional ICD " +
+                    "manifest, and an optional AdrenoTools meta.json " +
+                    "(unexpected: ${others.joinToString(", ")})."
             }
         }
         // Second pass writes the accepted entries under their canonical names.
@@ -264,6 +293,8 @@ class UserVulkanDriverRegistry(private val root: File) {
                 val base = entry.name.substringAfterLast('/')
                 val target = when {
                     base.endsWith(".so", ignoreCase = true) -> File(incoming, UserVulkanDriver.LIBRARY_FILE_NAME)
+                    base.equals(UserVulkanDriver.META_FILE_NAME, ignoreCase = true) ->
+                        File(incoming, UserVulkanDriver.META_FILE_NAME)
                     base.endsWith(".json", ignoreCase = true) -> File(incoming, UserVulkanDriver.ICD_FILE_NAME)
                     else -> null
                 } ?: continue

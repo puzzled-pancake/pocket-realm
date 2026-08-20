@@ -24,6 +24,11 @@ object UserVulkanDriverValidator {
         data class Rejected(val reason: String) : IcdOutcome()
     }
 
+    sealed class MetaOutcome {
+        data class Accepted(val label: String?, val apiVersion: String?) : MetaOutcome()
+        data class Rejected(val reason: String) : MetaOutcome()
+    }
+
     /** Size cap + ELF64/aarch64 identity + the 16 KB PT_LOAD alignment rule. */
     fun validateElf(
         library: File,
@@ -125,6 +130,29 @@ object UserVulkanDriverValidator {
         val apiVersion = icd.optString("api_version").takeIf { it.isNotBlank() }
         val warning = apiVersion?.let(::apiVersionWarning)
         return IcdOutcome.Accepted(apiVersion, warning)
+    }
+
+    /**
+     * AdrenoTools `meta.json` (the format Eden/K11MCH1-class driver packs
+     * ship): untrusted *display metadata* only. Harvests `name` (the import
+     * label) and `driverVersion` ("Vulkan 1.4.335" → "1.4.335"); every other
+     * field (`libraryName`, `minApi`, …) is ignored because validation is
+     * name-agnostic and the staged ICD is always rewritten. Nothing here is
+     * ever treated as a path, URL, or command.
+     */
+    fun validateMeta(json: String): MetaOutcome {
+        val document = try {
+            org.json.JSONObject(json)
+        } catch (error: Exception) {
+            return MetaOutcome.Rejected(
+                "The AdrenoTools meta.json could not be parsed: " +
+                    "${error.message ?: error.javaClass.simpleName}.",
+            )
+        }
+        val label = document.optString("name").trim().take(64).takeIf { it.isNotBlank() }
+        val apiVersion = document.optString("driverVersion").trim().takeIf { it.isNotBlank() }
+            ?.let { version -> if (version.startsWith("Vulkan ")) version.removePrefix("Vulkan ") else version }
+        return MetaOutcome.Accepted(label, apiVersion)
     }
 
     /**
