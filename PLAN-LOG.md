@@ -418,3 +418,18 @@ artifacts in `tmp/turnip-audit/` — untracked scratch).
   bodies, now funneled to the exact "The download failed: …" string), and
   `download()`'s https guard (unreachable through the validated model).
   A TLS-capable trusted mock would be needed to exercise them.
+
+## Phase E — Docs + qualification
+
+**Outcome: complete, green, committed.**
+
+- `docs/wiki/Choosing-a-Vulkan-Driver.md`: import rule 3 now names the
+  optional AdrenoTools `meta.json`; new "Known-good community builds"
+  section (pinned-download explainer, the two verified seed builds with
+  full digests, the exclusion policy, the replaced-asset failure mode).
+- `DEVICE_QUALIFICATION_CHECKLIST.md`: section 7 — the on-device community
+  list pass (dialog, meta.json import, chip + "Imported" mark, launch,
+  bare-`.so` fallback, offline failure honesty, toggle-OFF absence) plus
+  the 0.102.0-alpha release-note line.
+- Wiki already indexed in `docs/wiki/README.md`; no pytest contract reads
+  these docs.

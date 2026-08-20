@@ -71,3 +71,31 @@ executable tonight (plan §1.2, §11). Work top to bottom on the target lane
 - [ ] Decide flipping "Allow imported drivers" default ON (it ships OFF in
       0.101.0-alpha — the feature lands dark by design).
 - [ ] Re-check the wiki page copy against any UI wording drift.
+
+## 7. Community driver list on-device pass (community-turnip-list plan §9)
+
+Written by the community-list run (branch `feature/community-turnip-list`,
+0.102.0-alpha). Exercises the pinned-download path end to end on the RP6:
+
+- [ ] Toggle "Allow imported drivers" ON → "Community drivers…" button is
+      visible and opens the dialog with both seed entries (label, version,
+      MiB size, source repo, MIT, disclaimer).
+- [ ] Import `Mesa Turnip 26.0.0 R8 (K11MCH1)`: progress bar + status line
+      advance, the AdrenoTools zip imports via meta.json (label from
+      `meta.name`, Vulkan 1.4.335 shown on the chip), a normal user chip
+      `vulkan-driver-user-mesa-turnip-driver-v26-0-0-r8` appears, and the
+      dialog row now shows "Imported".
+- [ ] Select it, launch: session reaches RUNNING with the DXVK log naming
+      the driver; crash-guard semantics unchanged (a healthy launch resets
+      any streak).
+- [ ] Import `Mesa Turnip 25.1.0 R2 (K11MCH1)` (bare `.so`): imports and is
+      selectable; switching between the two and back to Auto works per
+      section 4's smoke.
+- [ ] Failure honesty: with networking off, tapping an entry shows the exact
+      download-failure line and no partial file remains (re-enable, retry,
+      succeed).
+- [ ] With the toggle OFF: no "Community drivers…" UI at all; suite of
+      section 5's toggle-OFF rows still holds.
+- [ ] Release note for 0.102.0-alpha: "Community Turnip driver list —
+      pinned downloads in Settings; AdrenoTools meta.json packs import
+      cleanly."

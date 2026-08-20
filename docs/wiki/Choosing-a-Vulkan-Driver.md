@@ -35,14 +35,39 @@ rejected with the exact reason shown in Settings:
    libraries and a 4 KB-aligned build crashes on load. Most CI builds are
    fine; if yours is rejected, rebuild with
    `-Wl,-z,max-page-size=0x4000`.
-3. **One driver per import** — the archive must contain exactly one `.so`
-   and at most one ICD JSON manifest; anything else (readmes, extra
+3. **One driver per import** — the archive must contain exactly one `.so`,
+   at most one ICD JSON manifest, and at most one AdrenoTools `meta.json`
+   (the pack format Eden-class emulators distribute; its name/version become
+   the driver label and Vulkan version). Anything else (readmes, extra
    libraries) is rejected.
 4. **Size cap** — 256 MiB.
 
 A Vulkan version below 1.3 is only a warning: DXVK 2.4.1 needs Vulkan 1.3,
 so pair an older build with the DXVK 1.10.3 compatibility package or expect
 DXVK to fail to initialize.
+
+### Known-good community builds
+
+Since 0.102.0-alpha the same import path also accepts the AdrenoTools pack
+format (one `.so` + `meta.json`), and Settings → "Community drivers…" offers
+a small reviewed list of pinned downloads: the size and SHA-256 recorded in
+`schemas/community-vulkan-drivers.json` are verified before anything is
+imported, the download only ever resolves through GitHub release hosts, and
+the ordinary import rules plus the crash guard still apply — a community
+download is just an import with fewer steps. The list changes only through
+repo review (it is compiled into the app, never fetched).
+
+Builds verified against the import rules when this list was seeded:
+
+| Build | Source | Format | SHA-256 | Notes |
+|---|---|---|---|---|
+| Turnip 26.0.0 R8 | K11MCH1/AdrenoToolsDrivers `v26.0.0-rc08` | adrenotools zip | `e634db0f929e2205e95511c769071817d0390180ec72c8e690bc76375e813715` | reports Vulkan 1.4.335; ships "unsupported gpu hacks" per its release notes |
+| Turnip 25.1.0 R2 | K11MCH1/WinlatorTurnipDrivers `winlator_v25.1_r2` | bare `.so` | `fe222ea204d5ac312eae2955da4a7b78c087009f28403edceec73e4ed1ae64da` | conservative fallback that predates the pack format |
+
+Not accepted, by policy: Qualcomm-extracted vendor blobs (not Mesa, murky
+licensing) and Winlator `.tzst`/`.wcp` component packages (wrong container —
+extract the `.so` first). If an upstream asset is replaced after review, the
+digest check fails with the exact reason and nothing is imported.
 
 ## Adreno only
 
