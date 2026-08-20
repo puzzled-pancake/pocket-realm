@@ -66,6 +66,10 @@ class ClientRuntimeService : Service() {
         var processTreeStarted: Boolean = false,
         var processTreeDrained: Boolean = false,
         val runtimeFinishedSignal: CountDownLatch = CountDownLatch(1),
+        /** Monotonic launch timestamp used by the user-driver crash guard. */
+        val launchedAtElapsedMs: Long = SystemClock.elapsedRealtime(),
+        /** Env variable names emitted for the user Vulkan lane this session. */
+        var userVulkanEnvNames: List<String> = emptyList(),
     )
 
     private fun userVulkanRegistry(): UserVulkanDriverRegistry =
@@ -625,6 +629,7 @@ class ClientRuntimeService : Service() {
                 ?.takeIf(UserVulkanDriver::isUserId)
                 ?.let { UserVulkanDriver.ICD_FILE_NAME },
         )
+        r.userVulkanEnvNames = driverEnv.map { it.substringBefore('=') }
         val rendererEnv = ArmSessionEnvironment.rendererEnv(
             renderer, dxvkConfig, r.prepared.cache,
             File(r.prepared.root, "sessions/${r.id}"), rootfs,
@@ -728,6 +733,7 @@ class ClientRuntimeService : Service() {
                 r.stderr = "${t.javaClass.simpleName}: ${t.message}"
                 if (!r.forced) transition(r, ClientState.FAILED, "ARM Box64 launcher threw")
             }
+            recordUserVulkanSessionOutcome(r, failed = true)
             return
         }
         val result = parseWineRunResult(raw)
@@ -749,6 +755,59 @@ class ClientRuntimeService : Service() {
             // has arrived yet.
             stopSessionForeground()
         }
+        recordUserVulkanSessionOutcome(r, failed = !r.cleanExit)
+    }
+
+    /**
+     * Crash guard + diagnostics hook for the user Vulkan lane (Phase E).
+     * SYSTEM/PACKAGED lanes are qualified and never reach this. Runs after
+     * the session reached a terminal state, outside the session lock.
+     */
+    private fun recordUserVulkanSessionOutcome(r: SessionRecord, failed: Boolean) {
+        val driverId = r.prepared.armVulkanDriverId ?: return
+        if (!UserVulkanDriver.isUserId(driverId)) return
+        val uptimeMs = SystemClock.elapsedRealtime() - r.launchedAtElapsedMs
+        val earlyDeath = UserVulkanCrashGuard.isEarlyDeath(failed, r.forced, uptimeMs)
+        runCatching {
+            val registry = userVulkanRegistry()
+            val driver = registry.find(driverId) ?: return
+            val updated = UserVulkanCrashGuard.onSessionOutcome(
+                driver, failed, r.forced, uptimeMs,
+            )
+            // Last-session diagnostics record: identity, emitted env names
+            // (never absolute paths — the support bundle rejects them), and
+            // the post-outcome quarantine state.
+            val record = UserVulkanCrashGuard.sessionRecordJson(
+                updated, r.prepared.armRenderer ?: "dxvk",
+                r.userVulkanEnvNames, uptimeMs, earlyDeath,
+            )
+            val recordDir = UserVulkanDriverRegistry.registryRoot(applicationContext.filesDir)
+            recordDir.mkdirs()
+            com.pocketrealm.fs.DurableFiles.atomicWrite(
+                java.io.File(recordDir, USER_VULKAN_SESSION_RECORD_FILE), record,
+            )
+            if (updated != driver) {
+                registry.update(updated)
+            }
+            if (updated.quarantined && !driver.quarantined) {
+                // Auto-revert the persisted selection to Auto (multi-process
+                // DataStore); the Settings picker row carries the exact
+                // quarantine reason.
+                runCatching {
+                    kotlinx.coroutines.runBlocking {
+                        com.pocketrealm.storage.Settings(applicationContext).update { current ->
+                            current.copy(armVulkanDriverId = VulkanDriverCatalog.AUTO_ID)
+                        }
+                    }
+                }.onFailure {
+                    AppLog.e(TAG, "user-driver quarantine selection reset failed", it)
+                }
+                AppLog.w(
+                    TAG,
+                    "user Vulkan driver $driverId ${UserVulkanCrashGuard.QUARANTINE_REASON}",
+                )
+            }
+        }.onFailure { AppLog.e(TAG, "user-driver crash-guard update failed", it) }
     }
 
     private fun cancelActiveRuntime(r: SessionRecord): Boolean =
@@ -1085,6 +1144,7 @@ class ClientRuntimeService : Service() {
 
     companion object {
         private const val TAG = "ClientRuntime"
+        private const val USER_VULKAN_SESSION_RECORD_FILE = "session-record.json"
         private const val FORCE_DRAIN_TIMEOUT_MS = 15_000L
         private const val FORCE_DRAIN_POLL_MS = 50L
         const val ACTION_START_SESSION_FOREGROUND =

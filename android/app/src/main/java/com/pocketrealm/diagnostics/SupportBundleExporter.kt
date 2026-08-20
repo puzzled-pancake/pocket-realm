@@ -44,6 +44,12 @@ class SupportBundleExporter(private val context: Context) {
             ?.let { entries["supervisor-journal.json"] = it }
         fixedFile("content/o11-server/active.json")?.let { entries["data-active.json"] = it }
         fixedFile("clients/active.json")?.let { entries["client-active.json"] = it }
+        // User-imported Vulkan lane: registry (ids/labels/digests/streaks,
+        // no paths) and the last session record written by the crash guard.
+        fixedFile("drivers/registry.json")
+            ?.let { entries["user-vulkan-registry.json"] = it }
+        fixedFile("drivers/session-record.json")
+            ?.let { entries["user-vulkan-session.json"] = it }
         entries.putAll(testEntries)
 
         val redacted = entries.mapValues { (_, value) -> redactor.redact(value).take(MAX_ENTRY_CHARS) }

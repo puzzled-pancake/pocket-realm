@@ -166,3 +166,35 @@ equal-or-stronger, not weakened (I11 respected).
   no further Vulkan-less subcase exists for this lane).
 
 ---
+
+## Phase E — Crash guard + diagnostics
+
+**Outcome: complete, green, committed (single reviewer round, no BLOCKERs).**
+
+- New `client/UserVulkanCrashGuard.kt` (pure): `isEarlyDeath` (<10 s FAILED,
+  forced excluded), the outcome fold (streak reset only on a clean exit or
+  surviving past the window; quarantine at 2 consecutive early deaths with
+  the exact reason; quarantine sticky), full-facts overload where a forced
+  stop inside the window is streak-NEUTRAL (hang-then-kill must not wipe an
+  ongoing streak), and `sessionRecordJson` (driver identity/sha/version,
+  renderer, emitted Vulkan env as NAMES only — never absolute paths, uptime,
+  outcome, quarantine state).
+- `ClientRuntimeService`: SessionRecord gains the monotonic launch timestamp
+  + the emitted env names; both ARM terminal paths call
+  `recordUserVulkanSessionOutcome` outside the session lock; the hook no-ops
+  for non-user ids (SYSTEM/PACKAGED exempt), folds via the guard, atomically
+  writes `drivers/session-record.json`, and on a fresh quarantine resets the
+  persisted selection to Auto via a guarded runBlocking multi-process
+  DataStore write — quarantine can never brick launch (seam still explains
+  if a stale attempt is made).
+- `SupportBundleExporter`: `drivers/registry.json` +
+  `drivers/session-record.json` entries (path-bounded, redacted,
+  verify-safe).
+- Tests: `UserVulkanCrashGuardTest` (7). Reviewer round: no BLOCKER/MAJOR;
+  1 MINOR (forced-stop-under-10s reset the streak) — fixed with the neutral
+  semantics + matrix test, closure confirmed by the same reviewer.
+- **Deviation (logged):** P4.3 self-test-first is not wired — the ARM lane
+  authorizes only the build-5875 client, so the self-test PE route is
+  unreachable for driver switches; deferred to checklist §11.5.
+
+---
