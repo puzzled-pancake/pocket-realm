@@ -63,6 +63,10 @@ import com.pocketrealm.client.RendererPackageCatalog
 import com.pocketrealm.client.SystemVulkanCapabilities
 import com.pocketrealm.client.GladioCapability
 import com.pocketrealm.client.VulkanDriverCatalog
+import com.pocketrealm.client.UserVulkanDriver
+import com.pocketrealm.client.UserVulkanDriverImport
+import com.pocketrealm.client.UserVulkanDriverRegistry
+import com.pocketrealm.client.UserVulkanDriverValidator
 import com.pocketrealm.server.NearbyInteractPolicy
 import com.pocketrealm.storage.Settings
 import com.pocketrealm.update.AppUpdateCoordinator
@@ -407,6 +411,178 @@ fun SettingsScreen(
                     },
                     style = MaterialTheme.typography.labelMedium,
                 )
+            }
+            HorizontalDivider()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = snap.allowUserVulkanDrivers,
+                    onCheckedChange = { enabled ->
+                        scope.launch {
+                            settings.update { it.copy(allowUserVulkanDrivers = enabled) }
+                        }
+                    },
+                    modifier = Modifier.testTag("allow-user-vulkan-drivers"),
+                )
+                Text("  Allow imported drivers", style = MaterialTheme.typography.titleSmall)
+            }
+            Text(
+                UserVulkanDriverPresentation.SECTION_NOTE,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (snap.allowUserVulkanDrivers) {
+                val userVulkanRegistry = remember(context) {
+                    UserVulkanDriverRegistry(
+                        UserVulkanDriverRegistry.registryRoot(context.filesDir),
+                    )
+                }
+                var userDriverRefresh by remember { mutableStateOf(0) }
+                var userVulkanStatus by rememberSaveable { mutableStateOf<String?>(null) }
+                var pendingDriverDelete by remember { mutableStateOf<String?>(null) }
+                val userDrivers by produceState<List<UserVulkanDriver>>(
+                    emptyList(), userDriverRefresh,
+                ) {
+                    value = withContext(Dispatchers.IO) {
+                        runCatching { userVulkanRegistry.list() }.getOrElse { failure ->
+                            userVulkanStatus =
+                                "Imported drivers could not be read: " +
+                                    "${failure.message ?: failure.javaClass.simpleName}"
+                            emptyList()
+                        }
+                    }
+                }
+                val adrenoGpu = remember { ArmRendererAuto.isAdrenoGpu() }
+                val userDriverPicker = rememberLauncherForActivityResult(
+                    ActivityResultContracts.OpenDocument(),
+                ) { uri ->
+                    if (uri != null) {
+                        scope.launch(Dispatchers.IO) {
+                            // A failed import is a status line, never a crash (I2).
+                            val outcome = runCatching {
+                                importUserVulkanDriverFromUri(context, uri)
+                            }.getOrElse { failure ->
+                                UserVulkanDriverImport.Rejected(
+                                    "Import failed: " +
+                                        "${failure.message ?: failure.javaClass.simpleName}",
+                                )
+                            }
+                            userVulkanStatus =
+                                UserVulkanDriverPresentation.importResultNotice(outcome)
+                            userDriverRefresh++
+                        }
+                    }
+                }
+                if (!adrenoGpu) {
+                    Text(
+                        "This device has a non-Adreno GPU: imported drivers are Mesa Turnip " +
+                            "builds and cannot run here. They stay listed for reference only.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                OutlinedButton(
+                    onClick = {
+                        userDriverPicker.launch(
+                            arrayOf(
+                                "application/zip",
+                                "application/octet-stream",
+                                "application/x-sharedlib",
+                            ),
+                        )
+                    },
+                    modifier = Modifier.testTag("import-user-vulkan-driver"),
+                ) { Text("Import driver (.so / .zip)") }
+                UserVulkanDriverPresentation.rows(
+                    userDrivers, snap.selectedVulkanDriverId(), adrenoGpu,
+                ).forEach { row ->
+                    FilterChip(
+                        selected = row.selected,
+                        enabled = row.enabled,
+                        onClick = {
+                            scope.launch {
+                                settings.update { current ->
+                                    current.copy(armVulkanDriverId = row.id)
+                                }
+                            }
+                        },
+                        label = { Text(row.label) },
+                        modifier = Modifier.fillMaxWidth().testTag("vulkan-driver-${row.id}"),
+                    )
+                    Text(row.importedLine, style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        row.statusLine,
+                        color = if (row.enabled) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    TextButton(onClick = { pendingDriverDelete = row.id }) { Text("Delete") }
+                }
+                if (userDrivers.isEmpty()) {
+                    Text(
+                        "No imported drivers yet.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                userVulkanStatus?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                pendingDriverDelete?.let { pendingId ->
+                    val driver = userDrivers.firstOrNull { it.id == pendingId }
+                    AlertDialog(
+                        onDismissRequest = { pendingDriverDelete = null },
+                        title = { Text("Delete imported driver?") },
+                        text = {
+                            Text(
+                                if (driver != null) {
+                                    "Remove \"${driver.label}\" from app storage. The packaged " +
+                                        "drivers are unaffected."
+                                } else {
+                                    "This driver is no longer registered."
+                                },
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    scope.launch(Dispatchers.IO) {
+                                        pendingDriverDelete = null
+                                        if (driver != null) {
+                                            val wasSelected =
+                                                snap.selectedVulkanDriverId() == driver.id
+                                            runCatching { userVulkanRegistry.remove(driver.id) }
+                                                .onSuccess {
+                                                    if (wasSelected) {
+                                                        settings.update { current ->
+                                                            current.copy(
+                                                                armVulkanDriverId =
+                                                                    VulkanDriverCatalog.AUTO_ID,
+                                                            )
+                                                        }
+                                                    }
+                                                    userVulkanStatus =
+                                                        UserVulkanDriverPresentation
+                                                            .deletionNotice(driver, wasSelected)
+                                                }
+                                                .onFailure {
+                                                    userVulkanStatus =
+                                                        "Delete failed: ${it.message}"
+                                                }
+                                            userDriverRefresh++
+                                        }
+                                    }
+                                },
+                            ) { Text("Delete") }
+                        },
+                        dismissButton = {
+                            TextButton(
+                                onClick = { pendingDriverDelete = null },
+                            ) { Text("Cancel") }
+                        },
+                    )
+                }
             }
             HorizontalDivider()
             Text("DXVK version", style = MaterialTheme.typography.titleSmall)
@@ -1185,3 +1361,53 @@ internal val advancedSettingExplanations: Map<String, String> = mapOf(
 
 internal fun advancedExplanation(label: String): String =
     advancedSettingExplanations.getValue(label)
+
+/** Copy the picked document into app-private cache immediately (I6: the URI is never retained), then import through the registry. */
+private suspend fun importUserVulkanDriverFromUri(
+    context: android.content.Context,
+    uri: Uri,
+): UserVulkanDriverImport = withContext(Dispatchers.IO) {
+    val staged = java.io.File(
+        context.cacheDir, "user-vulkan-import-${System.currentTimeMillis()}",
+    )
+    try {
+        val opened = runCatching { context.contentResolver.openInputStream(uri) }.getOrNull()
+        if (opened == null) {
+            return@withContext UserVulkanDriverImport.Rejected(
+                "The selected document could not be opened.",
+            )
+        }
+        // Bounded staging: the size cap applies while copying, not after the
+        // whole document has hit internal storage.
+        val cap = UserVulkanDriverValidator.DEFAULT_MAX_IMPORT_BYTES
+        opened.use { input ->
+            staged.outputStream().use { output ->
+                var copied = 0L
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    copied += read
+                    if (copied > cap) {
+                        return@withContext UserVulkanDriverImport.Rejected(
+                            UserVulkanDriverValidator.sizeRejection(copied, cap),
+                        )
+                    }
+                    output.write(buffer, 0, read)
+                }
+            }
+        }
+        val displayName = runCatching {
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val index = cursor.getColumnIndex(
+                    android.provider.OpenableColumns.DISPLAY_NAME,
+                )
+                if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null
+            }
+        }.getOrNull()?.substringBeforeLast('.') ?: "Imported driver"
+        UserVulkanDriverRegistry(UserVulkanDriverRegistry.registryRoot(context.filesDir))
+            .import(displayName, staged)
+    } finally {
+        staged.delete()
+    }
+}

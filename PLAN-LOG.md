@@ -127,3 +127,42 @@ equal-or-stronger, not weakened (I11 respected).
   applies-on-next-launch note) instead of inventing new machinery.
 
 ---
+
+## Phase D — UI
+
+**Outcome: complete, green, committed (after one reviewer round).**
+
+- New `ui/UserVulkanDriverPresentation.kt` (pure, tested): picker rows
+  (newest-first, label + parsed Vulkan version, imported-today/date,
+  selected/enabled, exact status strings), import-result notices (exact
+  validator rejection strings verbatim), deletion notices (active-driver
+  reset explanation), section copy. Canonical strings are owned by the
+  seam/validator (`ADRENO_ONLY_REASON`, `quarantinedDriverReason`,
+  `apiVersionWarning`) and delegated — no UI-side duplicates.
+- `SettingsScreen`: "Allow imported drivers" Switch (default off), section
+  note, non-Adreno informative note (picker stays visible, rows carry the
+  exact Adreno-only reason), "Import driver (.so / .zip)" SAF import
+  (OpenDocument; copy-immediate with a bounded 64 KiB-chunk 256 MiB cap;
+  URI never retained; cache file deleted in finally; any import throw
+  becomes a status line, never a crash), user FilterChips
+  (`vulkan-driver-user-<slug>`), per-row Delete with confirm dialog that
+  resets the selection to Auto when the active driver is deleted and says
+  so, empty state, registry-read-failure status line.
+- `HomeScreen` setup card: the dxvk chip resolves the user-driver label
+  through a produceState/IO registry lookup behind the catalog lookup.
+- Tests: `UserVulkanDriverPresentationTest` (8) + the delegation keeps the
+  Phase-B exact-string pins meaningful. Full suite green; packaged surface
+  clean; Python 94 passed (documented deselects only).
+- **Reviewer round 1: no BLOCKERs; 1 MAJOR (import-path throws could crash
+  the app instead of surfacing a line) + 4 MINORs (uncapped SAF staging,
+  silent registry-read failures, canonical-string duplication, main-thread
+  HomeScreen I/O).** All five fixed and verified by a fresh reviewer pass:
+  **no open defects; gate passed.**
+- Logged deviations: "disable the picker while the realm runs" is presented
+  as the applies-on-next-launch section note (matches how every other
+  restart-required setting in this codebase presents; no new machinery);
+  the Vulkan-less-device honesty requirement is covered by the non-Adreno
+  note (imported Turnip ICDs are Adreno-only and bring their own Vulkan, so
+  no further Vulkan-less subcase exists for this lane).
+
+---

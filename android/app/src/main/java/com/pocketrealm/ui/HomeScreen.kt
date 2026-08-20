@@ -56,6 +56,8 @@ import com.pocketrealm.client.ClientAudioPolicy
 import com.pocketrealm.client.ClientRuntimeSelector
 import com.pocketrealm.client.RendererPackageCatalog
 import com.pocketrealm.client.VulkanDriverCatalog
+import com.pocketrealm.client.UserVulkanDriver
+import com.pocketrealm.client.UserVulkanDriverRegistry
 import com.pocketrealm.realm.RealmState
 import com.pocketrealm.realm.ClientLaunchState
 import com.pocketrealm.service.RealmService
@@ -642,7 +644,20 @@ private fun CurrentSetupCard(
         "dxvk" -> {
             val dxvk = RendererPackageCatalog.find(settings.selectedDxvkPackageId())?.dxvkVersion
                 ?: "pinned"
-            val vulkan = VulkanDriverCatalog.find(settings.effectiveVulkanDriverId())?.label
+            val driverId = settings.effectiveVulkanDriverId()
+            val userVulkanLabel by produceState<String?>(null, context, driverId) {
+                if (UserVulkanDriver.isUserId(driverId)) {
+                    value = withContext(Dispatchers.IO) {
+                        runCatching {
+                            UserVulkanDriverRegistry(
+                                UserVulkanDriverRegistry.registryRoot(context.filesDir),
+                            ).find(driverId)?.label
+                        }.getOrNull()
+                    }
+                }
+            }
+            val vulkan = VulkanDriverCatalog.find(driverId)?.label
+                ?: userVulkanLabel
                 ?: "Vulkan"
             "$vulkan / DXVK $dxvk"
         }

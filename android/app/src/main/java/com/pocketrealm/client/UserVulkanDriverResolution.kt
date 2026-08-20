@@ -11,6 +11,14 @@ import java.io.File
  */
 object UserVulkanDriverResolution {
 
+    /** Canonical user-lane status strings (I8): the seam and the UI share these. */
+    const val ADRENO_ONLY_REASON =
+        "Imported Turnip drivers are Adreno-only and cannot run on this GPU; " +
+            "the system Vortek bridge is the automatic choice here."
+
+    fun quarantinedDriverReason(driver: UserVulkanDriver): String =
+        "Imported driver ${driver.label} is quarantined: ${driver.quarantineReason}"
+
     /** What a validated request id resolved to, catalog or user lane. */
     sealed interface SessionDriver {
         val id: String
@@ -63,10 +71,7 @@ object UserVulkanDriverResolution {
                 "in Settings to use the selected driver."
         }
         val driver = requireRegisteredDriver(userId, registry)
-        require(adrenoGpu) {
-            "Imported Turnip drivers are Adreno-only and cannot run on this GPU; " +
-                "the system Vortek bridge is the automatic choice here."
-        }
+        require(adrenoGpu) { ADRENO_ONLY_REASON }
         return SessionDriver.UserDriver(driver)
     }
 
@@ -97,9 +102,7 @@ object UserVulkanDriverResolution {
                 "Imported Vulkan driver $requestedId is not registered; " +
                     "it may have been deleted. Choose another driver.",
             )
-        require(!driver.quarantined) {
-            "Imported driver ${driver.label} is quarantined: ${driver.quarantineReason}"
-        }
+        require(!driver.quarantined) { quarantinedDriverReason(driver) }
         return driver
     }
 
