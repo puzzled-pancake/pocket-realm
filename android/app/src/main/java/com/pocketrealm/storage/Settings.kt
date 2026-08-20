@@ -26,6 +26,7 @@ import com.pocketrealm.client.ClientDisplayProfile
 import com.pocketrealm.client.ClientDisplaySelection
 import com.pocketrealm.client.ClientFrameCap
 import com.pocketrealm.client.RendererPackageCatalog
+import com.pocketrealm.client.UserVulkanDriver
 import com.pocketrealm.client.VulkanDriverCatalog
 import com.pocketrealm.ingame.WowGameSettingsConfig
 import com.pocketrealm.server.NearbyInteractPolicy
@@ -45,6 +46,8 @@ private val vulkanSelectionSchemaPreference =
     intPreferencesKey("arm_vulkan_driver_selection_schema")
 private val vulkanMigrationNoticePreference =
     intPreferencesKey("arm_vulkan_driver_migration_notice")
+private val allowUserVulkanDriversPreference =
+    intPreferencesKey("allow_user_vulkan_drivers")
 private val rendererPreference = stringPreferencesKey("renderer")
 internal val tweaksPreference = stringPreferencesKey("client_tweaks")
 internal val tweaksSchemaPreference = intPreferencesKey("client_tweaks_schema")
@@ -120,6 +123,19 @@ internal fun resolvesWidescreenVirtualDisplay(context: Context): Boolean {
     return display.width * WIDESCREEN_WIDTH_MULTIPLIER ==
         display.height * WIDESCREEN_HEIGHT_MULTIPLIER
 }
+
+/**
+ * A persisted user-driver selection only stays effective while the
+ * user-driver lane is enabled; disabled lanes resolve to Auto (with the
+ * visible Settings notice) instead of a launch-time silent swap.
+ */
+internal fun resolveEffectiveVulkanSelection(
+    persistedDriverId: String,
+    allowUserVulkanDrivers: Boolean,
+): String =
+    if (UserVulkanDriver.isUserId(persistedDriverId) && !allowUserVulkanDrivers) {
+        VulkanDriverCatalog.AUTO_ID
+    } else persistedDriverId
 
 internal fun pocketSettingsDataFile(context: Context): File =
     context.applicationContext.preferencesDataStoreFile(POCKET_SETTINGS_STORE_NAME)
@@ -327,6 +343,8 @@ class Settings(private val context: Context) {
         val armRendererId: String = ArmClientRendererCatalog.DEFAULT_ID,
         val box64DxvkPackageId: String = RendererPackageCatalog.BOX64_DEFAULT,
         val armVulkanDriverId: String = VulkanDriverCatalog.AUTO_ID,
+        /** Opt-in lane for user-imported Vulkan drivers; default off. */
+        val allowUserVulkanDrivers: Boolean = false,
         val rendererSelectionNotice: String? = null,
         val displaySelectionNotice: String? = null,
         val botProfileId: String = BotProfiles.defaultProfile.id,
@@ -401,7 +419,15 @@ class Settings(private val context: Context) {
             // to Wine. Do not reinterpret its FPS_40 default as user intent.
             prefs.remove(Keys.FPS)
             prefs[Keys.DXVK_BOX64] = next.box64DxvkPackageId
-            prefs[Keys.VULKAN_DRIVER] = next.armVulkanDriverId
+            // Turning the lane off visibly resets a user-driver selection to
+            // Auto (I1: never a launch-time silent swap); toSnapshot keeps
+            // enforcing the rule for stale persisted values regardless.
+            prefs[Keys.VULKAN_DRIVER] = if (
+                !next.allowUserVulkanDrivers &&
+                UserVulkanDriver.isUserId(next.armVulkanDriverId)
+            ) VulkanDriverCatalog.AUTO_ID else next.armVulkanDriverId
+            prefs[Keys.ALLOW_USER_VULKAN_DRIVERS] =
+                if (next.allowUserVulkanDrivers) 1 else 0
             prefs[Keys.VULKAN_SELECTION_SCHEMA] = VulkanDriverCatalog.SELECTION_SCHEMA
             prefs.remove(Keys.VULKAN_MIGRATION_NOTICE)
             prefs[Keys.RENDERER] = next.armRendererId
@@ -529,6 +555,7 @@ class Settings(private val context: Context) {
         val VULKAN_DRIVER = vulkanDriverPreference
         val VULKAN_SELECTION_SCHEMA = vulkanSelectionSchemaPreference
         val VULKAN_MIGRATION_NOTICE = vulkanMigrationNoticePreference
+        val ALLOW_USER_VULKAN_DRIVERS = allowUserVulkanDriversPreference
         val DXVK_FEX = stringPreferencesKey("dxvk_fex_package")
         val BOTS = intPreferencesKey("bot_population_target")
         val BOT_PROFILE_ID = stringPreferencesKey("bot_profile_id")
@@ -680,7 +707,11 @@ class Settings(private val context: Context) {
             selectionSchema = this[Keys.VULKAN_SELECTION_SCHEMA] ?: 0,
             adrenoGpu = adrenoGpu,
         )
-        val vulkanDriver = persistedVulkan.driverId
+        val allowUserVulkanDrivers =
+            (this[Keys.ALLOW_USER_VULKAN_DRIVERS] ?: 0) == 1
+        val vulkanDriver = resolveEffectiveVulkanSelection(
+            persistedVulkan.driverId, allowUserVulkanDrivers,
+        )
         val vulkanAvailability = VulkanDriverCatalog.availability(vulkanDriver, adrenoGpu)
         val rendererSchema = this[Keys.RENDERER_SCHEMA] ?: 0
         val persistedRendererId = ArmClientRendererCatalog.resolvePersisted(
@@ -703,11 +734,20 @@ class Settings(private val context: Context) {
                 "A removed client runtime selection was migrated to Box64 + DXVK ($box64Package)."
             packageChanged != null ->
                 "The saved DXVK package is unavailable; using $box64Package."
+            rendererId == ArmClientRenderer.DXVK.id && !allowUserVulkanDrivers &&
+                UserVulkanDriver.isUserId(persistedVulkan.driverId) ->
+                "Imported Vulkan drivers are turned off; the driver selection was reset to Auto."
             rendererId == ArmClientRenderer.DXVK.id &&
                 vulkanDriver != VulkanDriverCatalog.AUTO_ID &&
+                !UserVulkanDriver.isUserId(vulkanDriver) &&
                 VulkanDriverCatalog.find(vulkanDriver) == null ->
                 "The saved Vulkan driver is unknown. Choose an available packaged driver before launch."
-            rendererId == ArmClientRenderer.DXVK.id && !vulkanAvailability.available ->
+            // User-lane ids are registry-backed, not catalog-backed: their
+            // availability/quarantine state is gated at launch with its own
+            // exact reasons, never the catalog's unknown-package notice.
+            rendererId == ArmClientRenderer.DXVK.id &&
+                !UserVulkanDriver.isUserId(vulkanDriver) &&
+                !vulkanAvailability.available ->
                 vulkanAvailability.reason
             else -> null
         }
@@ -729,6 +769,7 @@ class Settings(private val context: Context) {
         armRendererId = rendererId,
         box64DxvkPackageId = box64Package,
         armVulkanDriverId = vulkanDriver,
+        allowUserVulkanDrivers = allowUserVulkanDrivers,
         rendererSelectionNotice = selectionNotice,
         displaySelectionNotice = displaySelectionNotice,
         botProfileId = selectedProfile.id,

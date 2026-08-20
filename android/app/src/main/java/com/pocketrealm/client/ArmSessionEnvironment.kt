@@ -14,22 +14,23 @@ object ArmSessionEnvironment {
      * Vulkan driver variables for the DXVK route only; virgl/opengl carry no
      * driver environment. The ICD path always points into the app-owned
      * rootfs icd.d directory (see WineRuntimeStore.installPinnedArmGraphics).
+     *
+     * [userIcdFileName] is non-null only for the user-imported lane, which
+     * stages its ICD under that name; the loader-era `VK_DRIVER_FILES` alias
+     * is emitted for the user lane only — packaged lanes stay byte-identical.
      */
     fun driverEnv(
         renderer: String,
         vulkanDriverId: String?,
         rootfs: File,
         deviceModel: String,
+        userIcdFileName: String? = null,
     ): List<String> = if (renderer == "dxvk") {
-        val driver = checkNotNull(VulkanDriverCatalog.find(vulkanDriverId)) {
-            "ARM Vulkan driver identity missing"
-        }
-        when (driver.kind) {
-            VulkanDriverKind.SYSTEM -> listOf(
-                "VK_ICD_FILENAMES=${icdPath(rootfs, driver.icdFileName)}",
-            )
-            VulkanDriverKind.TURNIP -> buildList {
-                add("VK_ICD_FILENAMES=${icdPath(rootfs, driver.icdFileName)}")
+        if (userIcdFileName != null) {
+            val icd = icdPath(rootfs, userIcdFileName)
+            buildList {
+                add("VK_ICD_FILENAMES=$icd")
+                add("VK_DRIVER_FILES=$icd")
                 add("MESA_VK_WSI_PRESENT_MODE=mailbox")
                 add("MESA_VK_WSI_USE_HWBUF=1")
                 add(if (deviceModel.trim().equals("Retroid Pocket 6", ignoreCase = true)) {
@@ -37,6 +38,25 @@ object ArmSessionEnvironment {
                 } else {
                     "TU_DEBUG=noconform"
                 })
+            }
+        } else {
+            val driver = checkNotNull(VulkanDriverCatalog.find(vulkanDriverId)) {
+                "ARM Vulkan driver identity missing"
+            }
+            when (driver.kind) {
+                VulkanDriverKind.SYSTEM -> listOf(
+                    "VK_ICD_FILENAMES=${icdPath(rootfs, driver.icdFileName)}",
+                )
+                VulkanDriverKind.TURNIP -> buildList {
+                    add("VK_ICD_FILENAMES=${icdPath(rootfs, driver.icdFileName)}")
+                    add("MESA_VK_WSI_PRESENT_MODE=mailbox")
+                    add("MESA_VK_WSI_USE_HWBUF=1")
+                    add(if (deviceModel.trim().equals("Retroid Pocket 6", ignoreCase = true)) {
+                        "TU_DEBUG=noconform,sysmem"
+                    } else {
+                        "TU_DEBUG=noconform"
+                    })
+                }
             }
         }
     } else emptyList()

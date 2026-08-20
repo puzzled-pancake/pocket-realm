@@ -374,6 +374,9 @@ class UserVulkanDriverRegistry(private val root: File) {
         /** Real ICD manifests are a few hundred bytes; anything large is not one. */
         const val MAX_ICD_BYTES: Long = 64L * 1024
 
+        /** App-private storage root for the registry (normally `<filesDir>/drivers`). */
+        fun registryRoot(filesDir: File): File = File(filesDir, "drivers")
+
         /**
          * Charset `[a-z0-9-]` only: the slug becomes a directory name and an
          * id fragment, so path traversal and catalog-id shapes are unreachable

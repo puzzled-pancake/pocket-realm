@@ -179,7 +179,7 @@ class ClientDisplayHost(
     val virglSuccessfulFlushCount: Long get() = virglComponent?.successfulFlushCount ?: 0L
     val vulkanBridgeReady: Boolean get() = resolveVulkanBridgeReady(
         componentReady = vortekComponent?.isReady,
-        driverKind = VulkanDriverCatalog.find(vulkanDriverId)?.kind,
+        driverKind = UserVulkanDriverResolution.kindOf(vulkanDriverId),
     )
     @Volatile var presentationFrameRateHint: Float = 0f
         private set
@@ -208,12 +208,18 @@ class ClientDisplayHost(
             require(renderer == "wined3d") { "x86 display requires WineD3D" }
             null
         }
-        val vulkanDriver = if (rendererSelection == ArmClientRenderer.DXVK) {
-            VulkanDriverCatalog.requireForRequest(vulkanDriverId)
+        val sessionDriver = if (rendererSelection == ArmClientRenderer.DXVK) {
+            UserVulkanDriverResolution.requireDisplayDriver(
+                vulkanDriverId,
+                UserVulkanDriverRegistry(UserVulkanDriverRegistry.registryRoot(context.filesDir)),
+            )
         } else {
             require(vulkanDriverId == null) { "$renderer display does not accept a Vulkan driver" }
             null
         }
+        // Only the SYSTEM bridge needs the catalog package below; user and
+        // packaged Turnip lanes have no Vortek component.
+        val vulkanDriver = (sessionDriver as? UserVulkanDriverResolution.SessionDriver.CatalogDriver)?.driver
         val rendererPackage = if (rendererSelection == ArmClientRenderer.DXVK) {
             RendererPackageCatalog.requireForRequest(
                 ArmTranslationBackend.BOX64, renderer, rendererPackageId,

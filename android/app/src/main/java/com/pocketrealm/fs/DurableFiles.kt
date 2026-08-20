@@ -33,6 +33,32 @@ object DurableFiles {
         }
     }
 
+    /** Binary atomic publication with the same durability contract as [atomicWrite]. */
+    fun atomicCopy(source: File, target: File) {
+        val parent = requireNotNull(target.parentFile).apply { mkdirs() }
+        val temp = File(parent, ".${target.name}.${java.util.UUID.randomUUID()}.tmp")
+        try {
+            source.inputStream().use { input ->
+                FileOutputStream(temp).use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        output.write(buffer, 0, read)
+                    }
+                    output.fd.sync()
+                }
+            }
+            Files.move(
+                temp.toPath(), target.toPath(),
+                StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING,
+            )
+            syncDirectory(parent)
+        } finally {
+            temp.delete()
+        }
+    }
+
     fun syncDirectory(directory: File) {
         val openFlags = OsConstants.O_RDONLY or
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) OsConstants.O_CLOEXEC else 0

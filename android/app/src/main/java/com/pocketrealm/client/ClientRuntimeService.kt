@@ -68,6 +68,11 @@ class ClientRuntimeService : Service() {
         val runtimeFinishedSignal: CountDownLatch = CountDownLatch(1),
     )
 
+    private fun userVulkanRegistry(): UserVulkanDriverRegistry =
+        UserVulkanDriverRegistry(
+            UserVulkanDriverRegistry.registryRoot(applicationContext.filesDir),
+        )
+
     override fun onCreate() {
         super.onCreate()
         store = WineRuntimeStore(applicationContext)
@@ -185,6 +190,7 @@ class ClientRuntimeService : Service() {
             val renderer = request.optString("renderer", "wined3d")
             val rendererPackageId = request.optionalString("rendererPackageId")
             val vulkanDriverId = request.optionalString("vulkanDriverId")
+            val allowUserVulkanDrivers = request.optBoolean("allowUserVulkanDrivers", false)
             val displaySelection = ClientDisplayCapabilities.requireSelection(
                 applicationContext,
                 request.getString("displayProfileId"),
@@ -202,15 +208,26 @@ class ClientRuntimeService : Service() {
                     val rendererPackage = requireNotNull(RendererPackageCatalog.requireForRequest(
                         translator, renderer, rendererPackageId,
                     ))
-                    val requestedDriver = VulkanDriverCatalog.requireForRequest(vulkanDriverId)
-                    VulkanDriverCatalog.requireAvailableCompatiblePair(
-                        vulkanDriverId,
-                        rendererPackage,
-                        ArmRendererAuto.isAdrenoGpu(),
-                        if (requestedDriver.kind == VulkanDriverKind.SYSTEM) {
-                            AndroidSystemVulkanProbe.probe()
-                        } else null,
-                    )
+                    if (UserVulkanDriver.isUserId(vulkanDriverId)) {
+                        // User lane: registry + toggle + Adreno gate; a Turnip
+                        // ICD pair needs no Vortek capability probe.
+                        UserVulkanDriverResolution.requireSessionDriver(
+                            vulkanDriverId,
+                            userVulkanRegistry(),
+                            allowUserDrivers = allowUserVulkanDrivers,
+                            adrenoGpu = ArmRendererAuto.isAdrenoGpu(),
+                        )
+                    } else {
+                        val requestedDriver = VulkanDriverCatalog.requireForRequest(vulkanDriverId)
+                        VulkanDriverCatalog.requireAvailableCompatiblePair(
+                            vulkanDriverId,
+                            rendererPackage,
+                            ArmRendererAuto.isAdrenoGpu(),
+                            if (requestedDriver.kind == VulkanDriverKind.SYSTEM) {
+                                AndroidSystemVulkanProbe.probe()
+                            } else null,
+                        )
+                    }
                 } else {
                     require(rendererPackageId == null && vulkanDriverId == null) {
                         "$renderer does not accept Vulkan/DXVK package identities"
@@ -242,6 +259,7 @@ class ClientRuntimeService : Service() {
                     frameCap = displaySelection.frameCap.fps,
                     tweaksJson = tweaksJson,
                     realmEndpoint = realmEndpoint,
+                    allowUserVulkanDrivers = allowUserVulkanDrivers,
                 )
             } finally {
                 prepareInFlight = false
@@ -603,6 +621,9 @@ class ClientRuntimeService : Service() {
         val audioOn = r.prepared.audioMode == "on"
         val driverEnv = ArmSessionEnvironment.driverEnv(
             renderer, r.prepared.armVulkanDriverId, rootfs, Build.MODEL,
+            userIcdFileName = r.prepared.armVulkanDriverId
+                ?.takeIf(UserVulkanDriver::isUserId)
+                ?.let { UserVulkanDriver.ICD_FILE_NAME },
         )
         val rendererEnv = ArmSessionEnvironment.rendererEnv(
             renderer, dxvkConfig, r.prepared.cache,
@@ -893,20 +914,21 @@ class ClientRuntimeService : Service() {
             "unsupported ARM renderer readiness route: ${r.prepared.armRenderer}"
         }
         val rendererPackage = RendererPackageCatalog.find(r.prepared.armRendererPackageId)
-        val driver = VulkanDriverCatalog.find(r.prepared.armVulkanDriverId)
+        val driverKind = UserVulkanDriverResolution.kindOf(r.prepared.armVulkanDriverId)
         val executableName = r.prepared.executable.name
         val proof = readPrefix(File(
             r.prepared.root,
             "sessions/${r.id}/${ClientRuntimeContract.armDxvkLogFileName(executableName)}",
         ))
-        if (rendererPackage != null && driver != null &&
+        if (rendererPackage != null && driverKind != null &&
             ClientRuntimeContract.isArmDxvkLogAttested(
-                proof, rendererPackage.dxvkVersion, driver, executableName,
+                proof, rendererPackage.dxvkVersion, driverKind, executableName,
             )) {
             transition(
                 r,
                 ClientState.RUNNING,
-                "mapped client window with ${driver.id} and DXVK ${rendererPackage.dxvkVersion}",
+                "mapped client window with ${r.prepared.armVulkanDriverId} " +
+                    "and DXVK ${rendererPackage.dxvkVersion}",
             )
         } else if (r.rendererProofDeadlineElapsedMs > 0L &&
             SystemClock.elapsedRealtime() >= r.rendererProofDeadlineElapsedMs) {

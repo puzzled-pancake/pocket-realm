@@ -88,10 +88,12 @@ object ArmRendererAuto {
      * Effective Vulkan driver id for a possibly-"auto" persisted selection.
      * "auto"/null resolve to the vendor default; an unknown manual id returns
      * null so the launch gates fail closed instead of substituting a driver.
+     * User-lane ids pass through unresolved — their registry gates decide.
      */
     fun resolveVulkanDriverId(requestedId: String?): String? = when {
         requestedId == null || requestedId == VulkanDriverCatalog.AUTO_ID ->
             VulkanDriverCatalog.autoDriverId(isAdrenoGpu())
         else -> VulkanDriverCatalog.find(requestedId)?.id
+            ?: requestedId.takeIf(UserVulkanDriver::isUserId)
     }
 }

@@ -466,10 +466,12 @@ internal class WineRuntimeStore(private val context: Context) {
         armRenderer: String = "dxvk",
         armRendererPackageId: String? = null,
         armVulkanDriverId: String? = null,
+        allowUserVulkanDrivers: Boolean = false,
     ): Prepared {
         if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
             return armPaths(
-                clientId, armTranslator, armRenderer, armRendererPackageId, armVulkanDriverId,
+                clientId, armTranslator, armRenderer, armRendererPackageId,
+                armVulkanDriverId, allowUserVulkanDrivers,
             )
         }
         val selfTest = clientId == ClientRuntimeContract.SELF_TEST_ID
@@ -520,6 +522,7 @@ internal class WineRuntimeStore(private val context: Context) {
         frameCap: Int = ClientFrameCap.FPS_30.fps,
         tweaksJson: String = "",
         realmEndpoint: RealmEndpoint = RealmEndpoint.LOCAL,
+        allowUserVulkanDrivers: Boolean = false,
     ): Prepared {
         if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
             return prepareArm(
@@ -534,6 +537,7 @@ internal class WineRuntimeStore(private val context: Context) {
                 frameCap,
                 tweaksJson,
                 realmEndpoint,
+                allowUserVulkanDrivers,
             )
         }
         val displayProfile = ClientDisplayProfile.requireId(displayProfileId)
@@ -646,6 +650,7 @@ internal class WineRuntimeStore(private val context: Context) {
         renderer: String,
         rendererPackageId: String?,
         vulkanDriverId: String?,
+        allowUserVulkanDrivers: Boolean = false,
     ): Prepared {
         check(clientId == ClientRuntimeContract.WOW_5875_ID) {
             "ARM translated runtime currently authorizes only the imported build-5875 client"
@@ -685,8 +690,24 @@ internal class WineRuntimeStore(private val context: Context) {
             require(rendererPackageId == null) { "$renderer does not accept a DXVK package" }
             null
         }
+        val userDriverRecord = if (rendererSelection == ArmClientRenderer.DXVK &&
+            UserVulkanDriver.isUserId(vulkanDriverId)
+        ) {
+            val session = UserVulkanDriverResolution.requireSessionDriver(
+                vulkanDriverId, userRegistry(),
+                allowUserDrivers = allowUserVulkanDrivers,
+                adrenoGpu = ArmRendererAuto.isAdrenoGpu(),
+            ) as UserVulkanDriverResolution.SessionDriver.UserDriver
+            session.driver
+        } else {
+            null
+        }
         val vulkanDriver = if (rendererSelection == ArmClientRenderer.DXVK) {
-            VulkanDriverCatalog.requireForRequest(vulkanDriverId)
+            if (userDriverRecord != null) {
+                null
+            } else {
+                VulkanDriverCatalog.requireForRequest(vulkanDriverId)
+            }
         } else {
             require(vulkanDriverId == null) { "$renderer does not accept a Vulkan driver" }
             null
@@ -697,7 +718,7 @@ internal class WineRuntimeStore(private val context: Context) {
                 translator,
                 renderer,
                 rendererPackage?.id,
-                vulkanDriver?.id,
+                vulkanDriver?.id ?: userDriverRecord?.id,
             ),
             prefixSchema = ClientRuntimeContract.PREFIX_SCHEMA,
             translatorId = translator.id,
@@ -711,10 +732,12 @@ internal class WineRuntimeStore(private val context: Context) {
             rendererPackageDxvkVersion = rendererPackage?.dxvkVersion,
             rendererPackageSystem32Sha256 = rendererPackage?.system32Sha256,
             rendererPackageSyswow64Sha256 = rendererPackage?.syswow64Sha256,
-            vulkanDriverId = vulkanDriver?.id,
-            vulkanDriverBuildId = vulkanDriver?.buildId,
-            vulkanDriverLibrarySha256 = vulkanDriver?.librarySha256,
-            vulkanDriverIcdSha256 = vulkanDriver?.icdSha256,
+            vulkanDriverId = vulkanDriver?.id ?: userDriverRecord?.id,
+            vulkanDriverBuildId = vulkanDriver?.buildId ?: userDriverRecord?.id,
+            vulkanDriverLibrarySha256 = vulkanDriver?.librarySha256 ?: userDriverRecord?.sha256,
+            vulkanDriverIcdSha256 = vulkanDriver?.icdSha256 ?: userDriverRecord?.let {
+                sha256(userRootfsIcdText(it))
+            },
             gladioPackageId = ArmClientRendererCatalog.GLADIO_PACKAGE_ID.takeIf {
                 rendererSelection == ArmClientRenderer.LEGACY_GLADIO
             },
@@ -740,10 +763,7 @@ internal class WineRuntimeStore(private val context: Context) {
                 rendererSelection == ArmClientRenderer.MESA_VIRGL
             },
         )
-        val root = File(
-            context.noBackupFilesDir,
-            "arm-translated/winlator-ca3d735",
-        )
+        val root = File(context.noBackupFilesDir, ARM_RUNTIME_ROOT_NAME)
         val rootfs = File(root, "rootfs")
         val generations = File(root, "generations")
         requirePlainDirectory(File(context.noBackupFilesDir, "arm-translated"))
@@ -780,7 +800,7 @@ internal class WineRuntimeStore(private val context: Context) {
             armTranslator = translator,
             armRenderer = renderer,
             armRendererPackageId = rendererPackage?.id,
-            armVulkanDriverId = vulkanDriver?.id,
+            armVulkanDriverId = vulkanDriver?.id ?: userDriverRecord?.id,
             managedClient = managed,
             clientLease = leased.lease,
             armGenerationIdentity = generationIdentity,
@@ -807,6 +827,7 @@ internal class WineRuntimeStore(private val context: Context) {
         frameCap: Int,
         tweaksJson: String = "",
         realmEndpoint: RealmEndpoint,
+        allowUserVulkanDrivers: Boolean = false,
     ): Prepared {
         val displayProfile = ClientDisplayProfile.requireId(displayProfileId)
         val selectedFrameCap = ClientFrameCap.requireFps(frameCap)
@@ -826,15 +847,29 @@ internal class WineRuntimeStore(private val context: Context) {
             require(rendererPackageId == null) { "$renderer does not accept a DXVK package" }
             null
         }
+        val userDriver = if (renderer == "dxvk" && UserVulkanDriver.isUserId(vulkanDriverId)) {
+            (UserVulkanDriverResolution.requireSessionDriver(
+                vulkanDriverId, userRegistry(),
+                allowUserDrivers = allowUserVulkanDrivers,
+                adrenoGpu = ArmRendererAuto.isAdrenoGpu(),
+            ) as UserVulkanDriverResolution.SessionDriver.UserDriver).driver
+        } else {
+            null
+        }
         val vulkanDriver = if (renderer == "dxvk") {
-            VulkanDriverCatalog.requireForRequest(vulkanDriverId)
+            if (userDriver != null) {
+                null
+            } else {
+                VulkanDriverCatalog.requireForRequest(vulkanDriverId)
+            }
         } else {
             require(vulkanDriverId == null) { "$renderer does not accept a Vulkan driver" }
             null
         }
         val tweaks = ClientTweaksConfig.fromControlJson(tweaksJson)
         val p = armPaths(
-            clientId, translator, renderer, rendererPackage?.id, vulkanDriver?.id,
+            clientId, translator, renderer, rendererPackage?.id,
+            vulkanDriver?.id ?: userDriver?.id, allowUserVulkanDrivers,
         ).copy(
             audioMode = audioMode,
             tweaksJson = tweaks.toJson(),
@@ -856,9 +891,11 @@ internal class WineRuntimeStore(private val context: Context) {
         ensureBox64RendererPrefix(p)
         linkArmBuiltins(p)
         when (renderer) {
-            "dxvk" -> installPinnedArmGraphics(
-                p, checkNotNull(rendererPackage), checkNotNull(vulkanDriver),
-            )
+            "dxvk" -> if (vulkanDriver != null) {
+                installPinnedArmGraphics(p, checkNotNull(rendererPackage), vulkanDriver)
+            } else {
+                installUserArmGraphics(p, checkNotNull(rendererPackage), checkNotNull(userDriver))
+            }
             "opengl" -> installPinnedArmGladio(p)
             "virgl" -> installPinnedArmVirgl(p)
         }
@@ -903,7 +940,7 @@ internal class WineRuntimeStore(private val context: Context) {
                 translator,
                 renderer,
                 rendererPackage?.id,
-                vulkanDriver?.id,
+                vulkanDriver?.id ?: userDriver?.id,
             ))
             .put("provider", ClientRuntimeProvider.ARM_TRANSLATED_WINE.id)
             .put("translator", translator.id)
@@ -919,7 +956,7 @@ internal class WineRuntimeStore(private val context: Context) {
             .put("resolution", resolveVirtualDisplay(displayProfile).resolution)
             .put("fps_cap", selectedFrameCap.fps)
             .put("graphics_driver", when (renderer) {
-                "dxvk" -> checkNotNull(vulkanDriver).buildId
+                "dxvk" -> vulkanDriver?.buildId ?: userDriver?.id
                 "opengl" -> ArmClientRendererCatalog.GLADIO_BUILD_ID
                 else -> ArmClientRendererCatalog.VIRGL_BUILD_ID
             })
@@ -934,11 +971,16 @@ internal class WineRuntimeStore(private val context: Context) {
             .put("working_directory", "app-private-managed-client")
         if (renderer == "dxvk") {
             val dxvkPackage = checkNotNull(rendererPackage)
-            val driver = checkNotNull(vulkanDriver)
             manifest.put("renderer_package_id", dxvkPackage.id)
                 .put("renderer_package_qualification", dxvkPackage.qualification)
-                .put("vulkan_driver_id", driver.id)
-                .put("vulkan_driver_qualification", driver.qualification)
+                .put("vulkan_driver_id", vulkanDriver?.id ?: userDriver?.id)
+                .put(
+                    "vulkan_driver_qualification",
+                    vulkanDriver?.qualification ?: run {
+                        "User-imported Turnip driver (${userDriver?.label}); " +
+                            "validated at import, quarantined on repeated early crashes."
+                    },
+                )
                 .put("cache_layout", JSONObject()
                     .put("dxvk_state", "$ARM_CACHE_DIRECTORY/dxvk")
                     .put("mesa_shader", "$ARM_CACHE_DIRECTORY/mesa")
@@ -1196,6 +1238,99 @@ internal class WineRuntimeStore(private val context: Context) {
         }
     }
 
+    private fun userRegistry(): UserVulkanDriverRegistry =
+        UserVulkanDriverRegistry(UserVulkanDriverRegistry.registryRoot(context.filesDir))
+
+    /**
+     * Deterministic ICD text this user driver installs into the shared rootfs
+     * (stored manifest + library_path rewritten to the staged library). The
+     * generation identity digests exactly these bytes.
+     */
+    private fun userRootfsIcdText(driver: UserVulkanDriver): String {
+        val rootfs = File(File(context.noBackupFilesDir, ARM_RUNTIME_ROOT_NAME), "rootfs")
+        val stored = userRegistry().icdFile(driver.id).readText()
+        return UserVulkanDriverResolution.icdForRootfs(
+            stored,
+            UserVulkanDriverResolution.rootfsLibraryFile(rootfs).absolutePath,
+        )
+    }
+
+    /** Install a user-imported Turnip ICD pair plus the matching DXVK D3D9 DLLs.
+     *
+     * The app-private registry is the source (never APK assets; I4). Staging
+     * replaces, never mutates, the packaged driver files (I3): every packaged
+     * library/manifest is retired first, then the user pair is published
+     * atomically and verified after publication.
+     */
+    private fun installUserArmGraphics(
+        p: Prepared,
+        rendererPackage: RendererPackage,
+        driver: UserVulkanDriver,
+    ) {
+        check(rendererPackage.translator == ArmTranslationBackend.BOX64) {
+            "Box64 graphics installer received ${rendererPackage.translator.id} package"
+        }
+        val registry = userRegistry()
+        val librarySource = registry.libraryFile(driver.id)
+        val icdSource = registry.icdFile(driver.id)
+        check(librarySource.isFile && !Files.isSymbolicLink(librarySource.toPath())) {
+            "imported Vulkan driver library is absent or unsafe"
+        }
+        check(icdSource.isFile && !Files.isSymbolicLink(icdSource.toPath())) {
+            "imported Vulkan driver manifest is absent or unsafe"
+        }
+        check(sha256(librarySource) == driver.sha256) {
+            "imported Vulkan driver library changed after import"
+        }
+        listOf(
+            File(p.tree, "usr/lib/libvulkan_vortek.so"),
+            File(p.tree, "usr/lib/libvulkan_freedreno.so"),
+            File(p.tree, "usr/share/vulkan/icd.d/vortek_icd.aarch64.json"),
+            File(p.tree, "usr/share/vulkan/icd.d/freedreno_icd.aarch64.json"),
+        ).forEach { stale ->
+            if (Files.exists(stale.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+                check(stale.delete()) { "stale Vulkan driver asset could not be retired: ${stale.name}" }
+            }
+        }
+        val libraryTarget = UserVulkanDriverResolution.rootfsLibraryFile(p.tree)
+        com.pocketrealm.fs.DurableFiles.atomicCopy(librarySource, libraryTarget)
+        check(!Files.isSymbolicLink(libraryTarget.toPath()) &&
+            File(p.tree, "usr/lib/${UserVulkanDriver.LIBRARY_FILE_NAME}").let { target ->
+                target.canonicalFile == libraryTarget.canonicalFile
+            } &&
+            sha256(libraryTarget) == driver.sha256) {
+            "imported Vulkan driver library failed staged-publication verification"
+        }
+        val icdText = UserVulkanDriverResolution.icdForRootfs(
+            icdSource.readText(), libraryTarget.absolutePath,
+        )
+        val icdTarget = UserVulkanDriverResolution.rootfsIcdFile(p.tree)
+        writeAtomic(icdTarget, icdText)
+        check(!Files.isSymbolicLink(icdTarget.toPath()) && sha256(icdTarget) == sha256(icdText)) {
+            "imported Vulkan driver manifest failed staged-publication verification"
+        }
+        val system32Asset = requireNotNull(rendererPackage.system32Asset) {
+            "renderer package lacks the system32 D3D9 asset"
+        }
+        val system32Sha256 = requireNotNull(rendererPackage.system32Sha256)
+        val syswow64Asset = requireNotNull(rendererPackage.syswow64Asset) {
+            "renderer package lacks the syswow64 D3D9 asset"
+        }
+        val syswow64Sha256 = requireNotNull(rendererPackage.syswow64Sha256)
+        listOf(
+            PinnedAsset(
+                system32Asset,
+                File(p.prefix, "drive_c/windows/system32/d3d9.dll"),
+                system32Sha256,
+            ),
+            PinnedAsset(
+                syswow64Asset,
+                File(p.prefix, "drive_c/windows/syswow64/d3d9.dll"),
+                syswow64Sha256,
+            ),
+        ).forEach(::installPinnedAsset)
+    }
+
     /** Install the pinned Adreno Vulkan ICD and the matching DXVK D3D9 DLLs.
      *
      * The signed APK is the immutable source. Each destination is replaced
@@ -1223,6 +1358,10 @@ internal class WineRuntimeStore(private val context: Context) {
             File(p.tree, "usr/lib/libvulkan_freedreno.so"),
             File(p.tree, "usr/share/vulkan/icd.d/vortek_icd.aarch64.json"),
             File(p.tree, "usr/share/vulkan/icd.d/freedreno_icd.aarch64.json"),
+            // Leftover user-lane files must retire when a catalog driver is
+            // selected again (the user installer mirrors this for ours).
+            UserVulkanDriverResolution.rootfsLibraryFile(p.tree),
+            UserVulkanDriverResolution.rootfsIcdFile(p.tree),
         )
         val selectedDriverFiles = setOf(vulkanDriver.libraryName, vulkanDriver.icdFileName)
         knownDriverFiles.filterNot { it.name in selectedDriverFiles }.forEach { stale ->
@@ -1622,14 +1761,28 @@ internal class WineRuntimeStore(private val context: Context) {
                     val rendererPackage = requireNotNull(
                         RendererPackageCatalog.find(p.armRendererPackageId),
                     ) { "prepared renderer package is unavailable" }
-                    val driver = requireNotNull(VulkanDriverCatalog.find(p.armVulkanDriverId)) {
-                        "prepared Vulkan driver package is unavailable"
+                    val userDriverId = p.armVulkanDriverId?.takeIf(UserVulkanDriver::isUserId)
+                    val driverPinned = if (userDriverId != null) {
+                        listOf(
+                            Triple(UserVulkanDriverResolution.rootfsLibraryFile(p.tree),
+                                checkNotNull(identity.vulkanDriverLibrarySha256),
+                                "imported Vulkan driver library"),
+                            Triple(UserVulkanDriverResolution.rootfsIcdFile(p.tree),
+                                checkNotNull(identity.vulkanDriverIcdSha256),
+                                "imported Vulkan driver manifest"),
+                        )
+                    } else {
+                        val driver = requireNotNull(VulkanDriverCatalog.find(p.armVulkanDriverId)) {
+                            "prepared Vulkan driver package is unavailable"
+                        }
+                        listOf(
+                            Triple(File(p.tree, "usr/lib/${driver.libraryName}"),
+                                driver.librarySha256, "Vulkan driver library"),
+                            Triple(File(p.tree, "usr/share/vulkan/icd.d/${driver.icdFileName}"),
+                                driver.icdSha256, "Vulkan driver manifest"),
+                        )
                     }
-                    val pinned = listOf(
-                        Triple(File(p.tree, "usr/lib/${driver.libraryName}"),
-                            driver.librarySha256, "Vulkan driver library"),
-                        Triple(File(p.tree, "usr/share/vulkan/icd.d/${driver.icdFileName}"),
-                            driver.icdSha256, "Vulkan driver manifest"),
+                    val pinned = driverPinned + listOf(
                         Triple(File(p.prefix, "drive_c/windows/system32/d3d9.dll"),
                             requireNotNull(rendererPackage.system32Sha256), "DXVK system32 D3D9"),
                         Triple(File(p.prefix, "drive_c/windows/syswow64/d3d9.dll"),
@@ -1646,7 +1799,7 @@ internal class WineRuntimeStore(private val context: Context) {
                         "prepared DXVK frame limiter changed after preparation"
                     }
                     check(manifest.getString("renderer_package_id") == rendererPackage.id &&
-                        manifest.getString("vulkan_driver_id") == driver.id &&
+                        manifest.getString("vulkan_driver_id") == p.armVulkanDriverId &&
                         cacheLayout.length() == 3 &&
                         cacheLayout.getString("dxvk_state") == "$ARM_CACHE_DIRECTORY/dxvk" &&
                         cacheLayout.getString("mesa_shader") == "$ARM_CACHE_DIRECTORY/mesa" &&
@@ -1746,6 +1899,7 @@ internal class WineRuntimeStore(private val context: Context) {
 
     companion object {
         private const val TAG = "WineRuntimeStore"
+        private const val ARM_RUNTIME_ROOT_NAME = "arm-translated/winlator-ca3d735"
         private const val ARM_PREFIX_MANIFEST_SCHEMA = 2
         private const val ARM_GENERATIONS_DIRECTORY = "generations"
         private const val ARM_RETIRED_GENERATIONS_DIRECTORY = "retired-generations"

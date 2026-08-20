@@ -26,6 +26,9 @@ import com.pocketrealm.client.IClientDisplayControl
 import com.pocketrealm.client.IClientRuntimeControl
 import com.pocketrealm.client.ManagedClientStore
 import com.pocketrealm.client.RendererPackageCatalog
+import com.pocketrealm.client.UserVulkanDriver
+import com.pocketrealm.client.UserVulkanDriverRegistry
+import com.pocketrealm.client.UserVulkanDriverResolution
 import com.pocketrealm.client.VulkanDriverCatalog
 import com.pocketrealm.client.VulkanDriverKind
 import com.pocketrealm.database.DatabaseService
@@ -71,6 +74,11 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
     private val display = ServiceHandle(appContext, ClientDisplayService::class.java) {
         IClientDisplayControl.Stub.asInterface(it)
     }
+
+    private fun userVulkanRegistry(): UserVulkanDriverRegistry =
+        UserVulkanDriverRegistry(
+            UserVulkanDriverRegistry.registryRoot(appContext.filesDir),
+        )
 
     override suspend fun preflight(spec: RuntimeLaunchSpec): RuntimeActionResult = withContext(Dispatchers.IO) {
         val profileId = spec.profileId
@@ -122,15 +130,24 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                                 effective.runtimeRenderer,
                                 requestedPackageId,
                             )
-                            val driver = VulkanDriverCatalog.requireForRequest(resolvedDriverId)
-                            VulkanDriverCatalog.requireAvailableCompatiblePair(
-                                resolvedDriverId,
-                                renderer,
-                                ArmRendererAuto.isAdrenoGpu(),
-                                if (driver.kind == VulkanDriverKind.SYSTEM) {
-                                    AndroidSystemVulkanProbe.probe()
-                                } else null,
-                            )
+                            if (UserVulkanDriver.isUserId(resolvedDriverId)) {
+                                UserVulkanDriverResolution.requireSessionDriver(
+                                    resolvedDriverId,
+                                    userVulkanRegistry(),
+                                    allowUserDrivers = runtimeSettings.allowUserVulkanDrivers,
+                                    adrenoGpu = ArmRendererAuto.isAdrenoGpu(),
+                                )
+                            } else {
+                                val driver = VulkanDriverCatalog.requireForRequest(resolvedDriverId)
+                                VulkanDriverCatalog.requireAvailableCompatiblePair(
+                                    resolvedDriverId,
+                                    renderer,
+                                    ArmRendererAuto.isAdrenoGpu(),
+                                    if (driver.kind == VulkanDriverKind.SYSTEM) {
+                                        AndroidSystemVulkanProbe.probe()
+                                    } else null,
+                                )
+                            }
                         }
                         else -> ArmClientRendererCatalog.requireRuntimeRenderer(
                             effective.runtimeRenderer,
@@ -463,21 +480,30 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         val vulkanDriverId = ArmRendererAuto.resolveVulkanDriverId(
             runtimeSettings.selectedVulkanDriverId()
         ).takeIf { armRenderer == ArmClientRenderer.DXVK }
-        if (armRenderer == ArmClientRenderer.DXVK) {
-            val rendererPackage = RendererPackageCatalog.requireForRequest(
-                translator,
-                renderer,
-                rendererPackageId,
-            )
-            val requestedDriver = VulkanDriverCatalog.requireForRequest(vulkanDriverId)
-            VulkanDriverCatalog.requireAvailableCompatiblePair(
-                vulkanDriverId,
-                rendererPackage,
-                ArmRendererAuto.isAdrenoGpu(),
-                if (requestedDriver.kind == VulkanDriverKind.SYSTEM) {
-                    AndroidSystemVulkanProbe.probe()
-                } else null,
-            )
+        if (armRenderer == ArmClientRenderer.DXVK && vulkanDriverId != null) {
+            if (UserVulkanDriver.isUserId(vulkanDriverId)) {
+                UserVulkanDriverResolution.requireSessionDriver(
+                    vulkanDriverId,
+                    userVulkanRegistry(),
+                    allowUserDrivers = runtimeSettings.allowUserVulkanDrivers,
+                    adrenoGpu = ArmRendererAuto.isAdrenoGpu(),
+                )
+            } else {
+                val rendererPackage = RendererPackageCatalog.requireForRequest(
+                    translator,
+                    renderer,
+                    rendererPackageId,
+                )
+                val requestedDriver = VulkanDriverCatalog.requireForRequest(vulkanDriverId)
+                VulkanDriverCatalog.requireAvailableCompatiblePair(
+                    vulkanDriverId,
+                    rendererPackage,
+                    ArmRendererAuto.isAdrenoGpu(),
+                    if (requestedDriver.kind == VulkanDriverKind.SYSTEM) {
+                        AndroidSystemVulkanProbe.probe()
+                    } else null,
+                )
+            }
         }
         var clientClaimed = false
         var clientReady = false
@@ -509,6 +535,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                 .put("displayProfileId", displaySelection.profile.id)
                 .put("frameCap", displaySelection.frameCap.fps)
                 .put("tweaks", requestedTweaksJson)
+                .put("allowUserVulkanDrivers", runtimeSettings.allowUserVulkanDrivers)
             rendererPackageId?.let { prepareRequest.put("rendererPackageId", it) }
             vulkanDriverId?.let { prepareRequest.put("vulkanDriverId", it) }
             val prepared = json(client.api().preparePrefix(prepareRequest.toString()))
@@ -613,8 +640,11 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                     displayPrepared.getString("rendererPackageId") == rendererPackageId) {
                     "client runtime and Android display selected different renderer packages"
                 }
-                val driver = VulkanDriverCatalog.requireForRequest(vulkanDriverId)
-                check(driver.kind != VulkanDriverKind.SYSTEM ||
+                // kindOf covers both lanes; a null means a genuinely unknown
+                // id, and requireForRequest supplies the exact failure.
+                val driverKind = UserVulkanDriverResolution.kindOf(vulkanDriverId)
+                    ?: VulkanDriverCatalog.requireForRequest(vulkanDriverId).kind
+                check(driverKind != VulkanDriverKind.SYSTEM ||
                     displayPrepared.getBoolean("vulkanBridgeReady")) {
                     "Android system Vulkan bridge is not ready"
                 }

@@ -109,8 +109,14 @@ object ClientRuntimeContract {
                 val dxvk = requireNotNull(RendererPackageCatalog.requireForRequest(
                     translator, renderer, rendererPackageId,
                 ))
-                val driver = VulkanDriverCatalog.requireForRequest(vulkanDriverId)
-                "${driver.buildId}-${dxvk.buildId}"
+                // The user lane's build identity is its registry id; catalog
+                // ids keep the exact fail-closed package gate.
+                val driverBuildId = if (UserVulkanDriver.isUserId(vulkanDriverId)) {
+                    checkNotNull(vulkanDriverId)
+                } else {
+                    VulkanDriverCatalog.requireForRequest(vulkanDriverId).buildId
+                }
+                "$driverBuildId-${dxvk.buildId}"
             }
             "opengl" -> {
                 require(rendererPackageId == null) { "Legacy OpenGL does not accept a DXVK package" }
@@ -169,6 +175,14 @@ object ClientRuntimeContract {
         dxvkVersion: String,
         driver: VulkanDriverPackage,
         executableName: String = "WoW.exe",
+    ): Boolean = isArmDxvkLogAttested(text, dxvkVersion, driver.kind, executableName)
+
+    /** Kind-based form used by the user lane, which has no catalog package. */
+    fun isArmDxvkLogAttested(
+        text: String,
+        dxvkVersion: String,
+        driverKind: VulkanDriverKind,
+        executableName: String = "WoW.exe",
     ): Boolean {
         if (executableName.isBlank() || executableName.any {
                 it == '/' || it == '\\' || it == '\r' || it == '\n'
@@ -180,7 +194,7 @@ object ClientRuntimeContract {
         }
         return hasInfoLine("Game: $executableName") &&
             hasInfoLine("DXVK: v$dxvkVersion") &&
-            when (driver.kind) {
+            when (driverKind) {
                 VulkanDriverKind.SYSTEM -> text.contains("Vortek (")
                 VulkanDriverKind.TURNIP -> text.contains("Turnip Adreno")
             }

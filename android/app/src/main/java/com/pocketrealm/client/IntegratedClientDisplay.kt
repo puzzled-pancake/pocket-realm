@@ -98,7 +98,10 @@ class ClientDisplayService : Service() {
                 null
             }
             val driver = if (rendererSelection == ArmClientRenderer.DXVK) {
-                VulkanDriverCatalog.requireForRequest(driverId)
+                UserVulkanDriverResolution.requireDisplayDriver(
+                    driverId,
+                    UserVulkanDriverRegistry(UserVulkanDriverRegistry.registryRoot(filesDir)),
+                )
             } else {
                 require(driverId == null) { "$renderer display does not accept a Vulkan driver" }
                 null
@@ -113,12 +116,14 @@ class ClientDisplayService : Service() {
                 }
                 null
             }
-            if (driver != null && rendererPackage != null) {
+            if (driver is UserVulkanDriverResolution.SessionDriver.CatalogDriver &&
+                rendererPackage != null
+            ) {
                 VulkanDriverCatalog.requireAvailableCompatiblePair(
-                    driver.id,
+                    driver.driver.id,
                     rendererPackage,
                     ArmRendererAuto.isAdrenoGpu(),
-                    if (driver.kind == VulkanDriverKind.SYSTEM) {
+                    if (driver.driver.kind == VulkanDriverKind.SYSTEM) {
                         AndroidSystemVulkanProbe.probe()
                     } else null,
                 )

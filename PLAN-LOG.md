@@ -78,3 +78,52 @@ equal-or-stronger, not weakened (I11 respected).
 - Full suite green; `git diff --stat native/ schemas/` empty.
 
 ---
+
+## Phase C — Runtime integration behind the opt-in toggle
+
+**Outcome: complete, green, committed (after one reviewer round).**
+
+- New `client/UserVulkanDriverResolution.kt` — the single seam: catalog ids
+  delegate to the unchanged fail-closed catalog gates; `user-` ids resolve
+  through the app-private registry only behind the toggle, with Adreno and
+  quarantine gates and exact failure strings; `kindOf` for display/readiness;
+  deterministic `icdForRootfs` rewrite; rootfs layout helpers.
+- Env: `ArmSessionEnvironment.driverEnv` gained the user lane —
+  `VK_ICD_FILENAMES` + `VK_DRIVER_FILES` alias (user lane only) + the Turnip
+  MESA/TU_DEBUG set; packaged lanes byte-identical (Phase-0 pins green).
+- Wiring: `ArmRendererAuto` passes user ids through; `ClientRuntimeContract`
+  armRendererBuildId + kind-based DXVK log attestation;
+  `ClientRuntimeService.preparePrefix` (toggle flag from the request JSON,
+  seam gate, env, readiness) ; `WineRuntimeStore` (user-aware prepare/paths,
+  generation identity fields, `installUserArmGraphics` staging into the
+  shared rootfs with packaged-file retirement + digest verification, attest
+  branch); `DurableFiles.atomicCopy`; `Settings.allowUserVulkanDrivers`
+  (default false) with the disabled-lane reset-to-Auto rule in both
+  `update()` and `toSnapshot` + visible notice; supervisor preflight/launch
+  gates + request flag; display host/integrated display registry gate.
+- **Reviewer round 1: 6 BLOCKERs + 1 MAJOR** — all in ARM-only paths the JVM
+  suite cannot reach (null driver id reaching `armRendererBuildId`/manifest
+  blocks; `userRootfsIcdText` missing the `/rootfs` segment so identity and
+  install digests could never match; `startClient`'s catalog lookup after
+  prepare; a false "unknown driver" Settings notice for valid user
+  selections). All fixed and re-verified by the same reviewer: **no open
+  defects; gate passed.** Added `UserVulkanGenerationIdentityTest` (3)
+  pinning the identity + guest-path/ICD-rewrite consistency (the B5 class).
+- Tests: 19 new JVM tests (12 resolution + 4 settings rule + 3 identity);
+  full suite green; Python 94 passed (8 documented deselects only);
+  `git diff --stat native/ schemas/` empty.
+- **Deviation (mechanism, goal intact):** the plan sketched per-launch
+  staging into a session tmp + cleanup on stop. Repo reality: the packaged
+  lane installs driver files into the *shared rootfs* at prepare time under
+  the generation lease, replacing/retiring whatever driver was resident —
+  so the user lane mirrors that proven mechanism (staging at prepare, stale
+  retirement both directions). Interrupted-stop safety rides the existing
+  0.100.2 drain/recovery paths unchanged; nothing new is cleaned at stop
+  because nothing user-lane-specific outlives the next prepare. Guest-path
+  on-device proof deferred to the checklist (§11.2).
+- **Deviation (minor):** "disable the picker while the realm runs" — no
+  other restart-required setting in this codebase disables itself while
+  running; Phase D matches the existing presentation (static
+  applies-on-next-launch note) instead of inventing new machinery.
+
+---
