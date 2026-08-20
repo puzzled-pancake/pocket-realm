@@ -355,3 +355,32 @@ artifacts in `tmp/turnip-audit/` — untracked scratch).
   stays surgical: explicit paths only; Phase C will need a partial-hunk
   stage for `build.gradle.kts` because the parallel session has uncommitted
   edits there.
+
+## Phase C — Manifest, generator, runtime object
+
+**Outcome: complete, green, committed.**
+
+- `schemas/community-vulkan-drivers.json` (schema 1,
+  `pinned-digest-download-only`) seeded with the two audit-verified builds:
+  - `community-turnip-26.0.0-r8`: K11MCH1 AdrenoTools zip,
+    size 3,478,359, sha256 `e634db0f929e2205e95511c769071817d0390180ec72c8e690bc76375e813715`,
+    librarySha256 `fdd378520022f88b0363dd1f77f6989332730271712621523075fe4eb4de2a09`.
+  - `community-turnip-25.1.0-r2`: K11MCH1 bare `libvulkan_freedreno.so`,
+    size 10,593,080, sha256 = librarySha256 `fe222ea204d5ac312eae2955da4a7b78c087009f28403edceec73e4ed1ae64da`.
+- `tools/generate_community_vulkan_drivers.py` (+ `--check`), Gradle
+  `verifyGeneratedCommunityVulkanDrivers` Exec task wired to every compile
+  task (mirrors the catalog task), `client/CommunityVulkanDrivers.kt`
+  (validated model + find/forLibrarySha256), generated projection.
+- Tests: `CommunityVulkanDriversTest` (5) + new pytest contract
+  `tests/test_community_vulkan_drivers_tool.py` (30: freshness, drift
+  detection, 26 rejection cases incl. trailing-newline ids/digests and
+  UTF-16 label length). Suite 810/0; pytest hook-style run shows only the 8
+  documented pre-existing deselects.
+- Reviewer: 0 BLOCKER, 1 MAJOR (python/Kotlin validator drift — trailing
+  `$` newline semantics + code-point vs UTF-16 label length), 2 MINOR
+  (URL/release binding + query strings; missing python self-test) — all
+  fixed: `fullmatch` everywhere, UTF-16 label count, dot-segment repo ban,
+  release-segment binding (both sides), 26-case pytest rejection matrix.
+- Staging: `build.gradle.kts` staged as HEAD + the Phase C hunk only
+  (`tmp/stage_gradle.py`) because the parallel llama session holds
+  uncommitted edits in the same file.

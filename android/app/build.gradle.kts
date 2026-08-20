@@ -1016,6 +1016,30 @@ tasks.matching { task ->
     dependsOn(verifyGeneratedVulkanDriverCatalog)
 }
 
+val verifyGeneratedCommunityVulkanDrivers = tasks.register<Exec>(
+    "verifyGeneratedCommunityVulkanDrivers",
+) {
+    group = "verification"
+    description =
+        "Verify the community driver list is generated from the reviewed manifest."
+    val repoRoot = layout.projectDirectory.dir("../..").asFile
+    workingDir(repoRoot)
+    commandLine("python", "tools/generate_community_vulkan_drivers.py", "--check")
+    inputs.files(
+        File(repoRoot, "schemas/community-vulkan-drivers.json"),
+        File(repoRoot, "tools/generate_community_vulkan_drivers.py"),
+        File(repoRoot,
+            "android/app/src/main/java/com/pocketrealm/client/GeneratedCommunityVulkanDrivers.kt"),
+    )
+}
+
+tasks.matching { task ->
+    task.name.startsWith("compile") &&
+        (task.name.endsWith("Kotlin") || task.name.endsWith("JavaWithJavac"))
+}.configureEach {
+    dependsOn(verifyGeneratedCommunityVulkanDrivers)
+}
+
 val buildVortekGuest = if (pocketAbi == "arm64-v8a" && pocketLane == "full") {
     tasks.register<Exec>("buildVortekGuest") {
         group = "pocket realm"
