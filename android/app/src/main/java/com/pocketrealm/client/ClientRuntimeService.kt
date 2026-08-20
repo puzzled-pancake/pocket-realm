@@ -601,50 +601,13 @@ class ClientRuntimeService : Service() {
         }
         File(r.prepared.tmp, "shm").mkdirs()
         val audioOn = r.prepared.audioMode == "on"
-        val driverEnv = if (renderer == "dxvk") {
-            val driver = checkNotNull(VulkanDriverCatalog.find(r.prepared.armVulkanDriverId)) {
-                "ARM Vulkan driver identity missing"
-            }
-            when (driver.kind) {
-                VulkanDriverKind.SYSTEM -> listOf(
-                    "VK_ICD_FILENAMES=${File(rootfs, "usr/share/vulkan/icd.d/${driver.icdFileName}").absolutePath}",
-                )
-                VulkanDriverKind.TURNIP -> buildList {
-                    add("VK_ICD_FILENAMES=${File(rootfs, "usr/share/vulkan/icd.d/${driver.icdFileName}").absolutePath}")
-                    add("MESA_VK_WSI_PRESENT_MODE=mailbox")
-                    add("MESA_VK_WSI_USE_HWBUF=1")
-                    add(if (Build.MODEL.trim().equals("Retroid Pocket 6", ignoreCase = true)) {
-                        "TU_DEBUG=noconform,sysmem"
-                    } else {
-                        "TU_DEBUG=noconform"
-                    })
-                }
-            }
-        } else emptyList()
-        val rendererEnv = when (renderer) {
-            "dxvk" -> listOf(
-                "DXVK_STATE_CACHE_PATH=${File(r.prepared.cache, "dxvk").absolutePath}",
-                "MESA_SHADER_CACHE_DIR=${File(r.prepared.cache, "mesa").absolutePath}",
-                "DXVK_CONFIG_FILE=${dxvkConfig.absolutePath}",
-                "DXVK_LOG_PATH=${File(r.prepared.root, "sessions/${r.id}").absolutePath}",
-                "DXVK_LOG_LEVEL=info",
-                "vblank_mode=0",
-            )
-            "opengl" -> listOf(
-                "POCKET_GLADIO_X11_SOCKET=${File(rootfs, "tmp/.X11-unix/X0").absolutePath}",
-            )
-            "virgl" -> listOf(
-                "GALLIUM_DRIVER=virpipe",
-                "VIRGL_NO_READBACK=true",
-                "VIRGL_SERVER_PATH=${File(rootfs, "tmp/.virgl/V0").absolutePath}",
-                "MESA_DEBUG=silent",
-                "MESA_NO_ERROR=1",
-                "MESA_EXTENSION_OVERRIDE=-GL_KHR_debug -GL_EXT_vertex_array_bgra",
-                "MESA_GL_VERSION_OVERRIDE=3.1",
-                "MESA_SHADER_CACHE_DIR=${File(r.prepared.cache, "virgl").absolutePath}",
-            )
-            else -> error("unsupported Box64 ARM renderer: $renderer")
-        }
+        val driverEnv = ArmSessionEnvironment.driverEnv(
+            renderer, r.prepared.armVulkanDriverId, rootfs, Build.MODEL,
+        )
+        val rendererEnv = ArmSessionEnvironment.rendererEnv(
+            renderer, dxvkConfig, r.prepared.cache,
+            File(r.prepared.root, "sessions/${r.id}"), rootfs,
+        )
         val env = listOf(
             "HOME=${home.absolutePath}",
             "USER=xuser",

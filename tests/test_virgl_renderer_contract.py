@@ -59,6 +59,12 @@ def test_arm_only_build_and_runtime_have_no_renderer_fallback():
     service = text(
         "android/app/src/main/java/com/pocketrealm/client/ClientRuntimeService.kt"
     )
+    # The session env literals live in ArmSessionEnvironment since the
+    # Phase-0 extraction; the service must keep wiring them into the Box64
+    # session env with no renderer fallback.
+    session_env = text(
+        "android/app/src/main/java/com/pocketrealm/client/ArmSessionEnvironment.kt"
+    )
     assert 'if(ANDROID_ABI STREQUAL "arm64-v8a")\n    add_subdirectory(virglrenderer)' in cmake
     for setting in (
         "GALLIUM_DRIVER=virpipe",
@@ -66,7 +72,9 @@ def test_arm_only_build_and_runtime_have_no_renderer_fallback():
         "VIRGL_SERVER_PATH=",
         "MESA_GL_VERSION_OVERRIDE=3.1",
     ):
-        assert setting in service
+        assert setting in session_env
+    assert "ArmSessionEnvironment.driverEnv(" in service
+    assert "ArmSessionEnvironment.rendererEnv(" in service
     assert '"VirGL readiness timed out:' in service
 
 
