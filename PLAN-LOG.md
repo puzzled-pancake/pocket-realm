@@ -374,7 +374,8 @@ artifacts in `tmp/turnip-audit/` — untracked scratch).
 - Tests: `CommunityVulkanDriversTest` (5) + new pytest contract
   `tests/test_community_vulkan_drivers_tool.py` (30: freshness, drift
   detection, 26 rejection cases incl. trailing-newline ids/digests and
-  UTF-16 label length). Suite 810/0; pytest hook-style run shows only the 8
+  UTF-16 label length). Suite 805/0 (corrected in Phase F; was mislogged
+  as 810); pytest hook-style run shows only the 8
   documented pre-existing deselects.
 - Reviewer: 0 BLOCKER, 1 MAJOR (python/Kotlin validator drift — trailing
   `$` newline semantics + code-point vs UTF-16 label length), 2 MINOR
@@ -433,3 +434,36 @@ artifacts in `tmp/turnip-audit/` — untracked scratch).
   the 0.102.0-alpha release-note line.
 - Wiki already indexed in `docs/wiki/README.md`; no pytest contract reads
   these docs.
+
+## Phase F — Final gate, version, regression
+
+**Outcome: complete, green, committed.**
+
+- Whole-feature reviewer round over 7d7b73a..a8dd529 + the version bump:
+  **gate PASS**, no BLOCKER/MAJOR. Confirmed: catalog/native untouched, no
+  runtime list fetch, no vendor blobs or foreign containers, exactly two
+  `registry.import` call sites with no bypass, crash-guard/resolution/
+  settings/diagnostics parity for downloaded drivers, tmp/ untrackable.
+  2 MINORs fixed here: wiki MIT attribution sentence; this log's Phase C
+  suite total corrected 810→805 (820 only after Phase D's +15).
+- Full regression: `:app:testDebugUnitTest` + `:app:assembleDebug` on the
+  x86_64 full lane BUILD SUCCESSFUL; `generate_community_vulkan_drivers.py
+  --check` OK; `git diff --stat native/` = the recorded llama snapshot
+  only; `schemas/vulkan-driver-catalog.json` diff empty; hook-style pytest
+  124 passed + the 8 documented deselects.
+- Version: `versionCode 7`, `versionName "0.102.0-alpha"` (staged as HEAD +
+  this hunk only, `tmp/stage_version.py` — the parallel llama session still
+  holds its own uncommitted build.gradle.kts edits).
+
+### Run totals
+
+- 6 commits (26eeb92, 283eba8, e24a0b3, ac545e5, a8dd529, Phase F).
+- New: 2 source files + 1 generated file + 1 schema + 1 generator + 1 pytest
+  contract + 3 test files/sections; meta.json support in registry/validator;
+  Settings community dialog + downloader wiring; wiki + checklist sections.
+- Suite 788 → 820 (12 meta.json, 5 manifest, 11 downloader, 4 presentation)
+  — 820/0 at HEAD; pytest 94 → 124 with the 8 pre-existing deselects.
+- Reviewer verdicts across the run: Phase B 0B/1Maj/1Min, Phase C
+  0B/1Maj/2Min, Phase D 0B/2Maj/3Min, Final 0B/0Maj/2Min — all fixed.
+- Deferred to the user (checklist §7): the on-device community-list pass on
+  the RP6.

@@ -749,8 +749,8 @@ android {
         // other on-device emulators ship.
         targetSdk = (project.findProperty("pocketTargetSdk") as String?)?.toInt() ?: 27
         // Bump-on-release discipline (update manifests compare codes).
-        versionCode = 6
-        versionName = "0.101.0-alpha"
+        versionCode = 7
+        versionName = "0.102.0-alpha"
         buildConfigField(
             "boolean", "ENABLE_CLIENT_DATA_PREPARATION", (pocketLane == "full").toString(),
         )

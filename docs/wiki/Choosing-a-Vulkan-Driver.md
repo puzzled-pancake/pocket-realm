@@ -55,7 +55,9 @@ a small reviewed list of pinned downloads: the size and SHA-256 recorded in
 imported, the download only ever resolves through GitHub release hosts, and
 the ordinary import rules plus the crash guard still apply — a community
 download is just an import with fewer steps. The list changes only through
-repo review (it is compiled into the app, never fetched).
+repo review (it is compiled into the app, never fetched). All listed builds
+are MIT-licensed Mesa builds; their source repos and releases are pinned in
+the manifest.
 
 Builds verified against the import rules when this list was seeded:
 
