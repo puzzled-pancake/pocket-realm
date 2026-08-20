@@ -46,3 +46,35 @@ additionally assert the service still wires
 equal-or-stronger, not weakened (I11 respected).
 
 ---
+
+## Phase B — Model, registry, validator
+
+**Outcome: complete, green, committed.**
+
+- New `client/UserVulkanDriverRegistry.kt`: `UserVulkanDriver` model (ids in
+  the `user-` namespace, quarantined/reason invariants), app-private registry
+  (`registry.json` schema 1, temp + atomic rename), staged imports into
+  `.incoming-<uuid>` renamed into `<slug>/{driver.so,icd.json}` only after
+  validation (failed/cancelled imports leave no partial entry), zip + bare
+  `.so` unpacking (exactly one `.so`, at most one ICD JSON, unsafe entry
+  paths rejected, per-entry size caps), synthetic ICD when the archive has
+  none, `remove`/`update` for the picker and the crash guard.
+- New `client/UserVulkanDriverValidator.kt`: ELF64/aarch64/16 KB PT_LOAD
+  validation (bounded 4 MiB prefix read, overflow-safe bounds checks), ICD
+  JSON sanity (`ICD.library_path` non-empty), warn-only Vulkan < 1.3 note,
+  256 MiB default cap, one owner for the exact size-cap string.
+- Tests: 26 new (12 validator + 14 registry) — synthetic ELF fixtures
+  (truncated / wrong magic / x86_64 machine / 4 KB / mixed aligns /
+  overflowing e_phoff), registry round-trip + restart, failed-import
+  cleanliness, slug sanitization incl. the trailing-hyphen edge, duplicate
+  labels, remove/update, quarantine model invariants, unknown-schema
+  fail-closed.
+- Reviewer gate round 1: 2 MAJOR (overflowing `e_phoff` could throw
+  ArrayIndexOutOfBounds instead of rejecting; `slugify` could emit a
+  trailing hyphen that fails the id regex out of `import()`), 3 MINOR.
+  Both MAJORs fixed with regression tests + reviewer re-verification pass:
+  **no open BLOCKER/MAJOR; gate passed.** Residual nits also addressed
+  post-gate (exact-bytes size message; 64 KiB staged-ICD read cap).
+- Full suite green; `git diff --stat native/ schemas/` empty.
+
+---
