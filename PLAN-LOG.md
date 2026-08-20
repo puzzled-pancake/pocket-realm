@@ -305,3 +305,26 @@ sub-threshold nits (persist-throw-after-clean-exit fold, boundary
 over-rejection of total-inflated cap) are fail-closed and documented.
 
 ---
+
+# PLAN-LOG — Community Turnip driver list run
+
+Plan: `docs/plans/community-turnip-list.md`. Branch
+`feature/community-turnip-list` off `feature/user-vulkan-drivers @ 7d7b73a`
+(0.101.0-alpha, unmerged), started 2026-08-21. Machine: Windows, Git Bash.
+Provenance: same-day ecosystem research (Eden/Winlator/K11MCH1 audit,
+artifacts in `tmp/turnip-audit/` — untracked scratch).
+
+---
+
+## Phase 0 — Baseline lock
+
+**Outcome: complete, green, committed.**
+
+- Pre-existing dirt recorded (never staged by this run): modified
+  `native/realm-runtime/CMakeLists.txt` + `tools/build_o09_realm_runtime.py`,
+  untracked `native/llm/` + `native/patches/playerbots/` (in-progress llama
+  playerbot backend, not ours).
+- Baseline suite green (Gradle up-to-date from this morning's executed run at
+  the same HEAD 7d7b73a — 788 tests, 0 failures). `check_sources.py` and
+  `check_repo.py` both OK.
+- Plan document committed.
