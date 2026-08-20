@@ -1,10 +1,12 @@
 package com.pocketrealm.ui
 
+import com.pocketrealm.client.CommunityVulkanDrivers
 import com.pocketrealm.client.UserVulkanDriver
 import com.pocketrealm.client.UserVulkanDriverImport
 import com.pocketrealm.client.UserVulkanDriverValidator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -133,6 +135,75 @@ class UserVulkanDriverPresentationTest {
         assertTrue(
             UserVulkanDriverPresentation.importedLine(0L, nowMs = 1_800_000_000_000L)
                 .matches(Regex("Imported \\d{4}-\\d{2}-\\d{2}")),
+        )
+    }
+
+    // --- Community driver dialog (Phase D of the community-list plan) --------
+
+    @Test
+    fun communityRowsShowPinnedDetailLinesAndTheImportedMark() {
+        val r8 = CommunityVulkanDrivers.find("community-turnip-26.0.0-r8")!!
+        val r2 = CommunityVulkanDrivers.find("community-turnip-25.1.0-r2")!!
+        val rows = UserVulkanDriverPresentation.communityDriverRows(
+            listOf(r8, r2),
+            importedLibrarySha256s = setOf(r2.librarySha256!!),
+        )
+        assertEquals(listOf(r8.id, r2.id), rows.map { it.id })
+        assertEquals("Mesa Turnip 26.0.0 R8 (K11MCH1)", rows[0].label)
+        assertTrue(rows[0].detailLine.contains("v26.0.0"))
+        assertTrue(rows[0].detailLine.contains("3.3 MB"))
+        assertTrue(rows[0].detailLine.contains("K11MCH1/AdrenoToolsDrivers"))
+        assertTrue(rows[0].detailLine.contains("MIT"))
+        assertNull(rows[0].importedMark)
+        assertEquals(UserVulkanDriverPresentation.COMMUNITY_IMPORTED_MARK, rows[1].importedMark)
+    }
+
+    @Test
+    fun communityDialogCopyIsExactAndCarriesTheDisclaimer() {
+        assertEquals("Community drivers…", UserVulkanDriverPresentation.COMMUNITY_BUTTON_LABEL)
+        assertEquals("Community Turnip builds", UserVulkanDriverPresentation.COMMUNITY_DIALOG_TITLE)
+        assertTrue(
+            UserVulkanDriverPresentation.COMMUNITY_DIALOG_NOTE
+                .contains("Not qualified by Pocket Realm"),
+        )
+        assertTrue(
+            UserVulkanDriverPresentation.COMMUNITY_DIALOG_NOTE
+                .contains("import validation and crash guard"),
+        )
+        assertEquals("Close", UserVulkanDriverPresentation.COMMUNITY_DIALOG_CLOSE)
+    }
+
+    @Test
+    fun communityDownloadStatusIsExact() {
+        assertEquals(
+            "Downloading Mesa Turnip 26.0.0 R8 (K11MCH1)… 1 / 3 MB",
+            UserVulkanDriverPresentation.communityDownloadStatus(
+                "Mesa Turnip 26.0.0 R8 (K11MCH1)",
+                bytes = 1_500_000,
+                totalBytes = 3_478_359,
+            ),
+        )
+    }
+
+    @Test
+    fun communityFailureNoticesUseTheThrowableMessageOrClass() {
+        assertEquals(
+            "The download failed: connection reset.",
+            UserVulkanDriverPresentation.communityDownloadFailureNotice(
+                IllegalStateException("connection reset"),
+            ),
+        )
+        assertEquals(
+            "The download failed: IllegalStateException.",
+            UserVulkanDriverPresentation.communityDownloadFailureNotice(
+                IllegalStateException(),
+            ),
+        )
+        assertEquals(
+            "Import failed: disk full",
+            UserVulkanDriverPresentation.communityImportFailureNotice(
+                RuntimeException("disk full"),
+            ),
         )
     }
 }

@@ -1,5 +1,6 @@
 package com.pocketrealm.ui
 
+import com.pocketrealm.client.CommunityVulkanDriver
 import com.pocketrealm.client.UserVulkanDriver
 import com.pocketrealm.client.UserVulkanDriverImport
 import com.pocketrealm.client.UserVulkanDriverResolution
@@ -16,6 +17,14 @@ internal data class UserVulkanDriverRow(
     val selected: Boolean,
     val enabled: Boolean,
     val statusLine: String,
+)
+
+/** One Settings dialog row for a curated community driver download. */
+internal data class CommunityDriverRow(
+    val id: String,
+    val label: String,
+    val detailLine: String,
+    val importedMark: String?,
 )
 
 /**
@@ -78,6 +87,53 @@ internal object UserVulkanDriverPresentation {
             "twice early is quarantined automatically. Changes apply on the next " +
             "realm launch. The project wiki page \"Choosing a Vulkan Driver\" " +
             "(docs/wiki/) explains where builds come from and the exact import rules."
+
+    // --- Curated community downloads -----------------------------------------
+
+    /** Rows for the "Community drivers…" dialog, newest-manifest-first order. */
+    fun communityDriverRows(
+        drivers: List<CommunityVulkanDriver>,
+        importedLibrarySha256s: Set<String>,
+    ): List<CommunityDriverRow> = drivers.map { driver ->
+        CommunityDriverRow(
+            id = driver.id,
+            label = driver.label,
+            detailLine = communityDetailLine(driver),
+            importedMark = driver.librarySha256
+                ?.takeIf { it in importedLibrarySha256s }
+                ?.let { COMMUNITY_IMPORTED_MARK },
+        )
+    }
+
+    private fun communityDetailLine(driver: CommunityVulkanDriver): String =
+        "v${driver.version} · " +
+            String.format(Locale.ROOT, "%.1f", driver.size / (1024f * 1024f)) +
+            " MB · ${driver.repo} · ${driver.license}"
+
+    /** Progress line while a pinned download streams (updated per chunk). */
+    fun communityDownloadStatus(label: String, bytes: Long, totalBytes: Long): String =
+        "Downloading $label… ${bytes / (1024L * 1024L)} / ${totalBytes / (1024L * 1024L)} MB"
+
+    /** A pinned download that failed at the network/IO layer (exact format). */
+    fun communityDownloadFailureNotice(failure: Throwable): String =
+        "The download failed: ${failure.message ?: failure.javaClass.simpleName}."
+
+    /** An import that failed after a verified download (exact format). */
+    fun communityImportFailureNotice(failure: Throwable): String =
+        "Import failed: ${failure.message ?: failure.javaClass.simpleName}"
+
+    const val COMMUNITY_BUTTON_LABEL = "Community drivers…"
+
+    const val COMMUNITY_DIALOG_TITLE = "Community Turnip builds"
+
+    const val COMMUNITY_DIALOG_NOTE =
+        "Digest-pinned downloads of community Mesa Turnip builds (MIT). Not " +
+            "qualified by Pocket Realm — the same import validation and crash " +
+            "guard apply as for any imported driver."
+
+    const val COMMUNITY_IMPORTED_MARK = "Imported"
+
+    const val COMMUNITY_DIALOG_CLOSE = "Close"
 
     private fun meetsVulkan13(driver: UserVulkanDriver): Boolean =
         driver.vulkanApiVersion?.let { UserVulkanDriverValidator.apiVersionWarning(it) == null }

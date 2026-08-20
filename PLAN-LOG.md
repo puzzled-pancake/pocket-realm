@@ -384,3 +384,37 @@ artifacts in `tmp/turnip-audit/` — untracked scratch).
 - Staging: `build.gradle.kts` staged as HEAD + the Phase C hunk only
   (`tmp/stage_gradle.py`) because the parallel llama session holds
   uncommitted edits in the same file.
+
+## Phase D — Downloader + Settings UI
+
+**Outcome: complete, green, committed.**
+
+- `client/CommunityVulkanDriverDownload.kt`: OkHttp pinned downloader —
+  shared `AppUpdateCoordinator` GitHub host allowlist checked per hop,
+  https-only redirect targets, ≤3 redirects, Content-Length preflight vs the
+  pinned size, cap-during-copy, SHA-256 via `FileDigests`; every failure
+  deletes the temp and returns its exact reason; mid-stream IO failures are
+  caught and funneled through the same cleanup.
+- `ui/SettingsScreen.kt`: "Community drivers…" button (testTag
+  `community-vulkan-drivers`) + dialog inside the `allowUserVulkanDrivers`
+  block; per-entry rows (label, v/version, MiB, repo, MIT, "Imported" mark
+  via librarySha256); tap → download with status line + determinate
+  `LinearProgressIndicator` → the ordinary `registry.import()` path; busy
+  flag with a synchronous frame-gap guard; temp deleted on every path via
+  `finally`.
+- `ui/UserVulkanDriverPresentation.kt`: `communityDriverRows`,
+  `communityDownloadStatus`, failure notices, dialog copy consts — all
+  exact-string tested.
+- Tests: downloader 11 (verified content, digest mismatch, size lie, 404,
+  foreign-host redirect, cleartext redirect, unresolvable Location,
+  unparseable URL, transport refusal, missing Content-Length via chunked
+  body, default-allowlist refusal), presentation 12. Suite 820/0.
+- Reviewer: 0 BLOCKER, 2 MAJOR (mid-stream IO temp leak; missing
+  synchronous re-entry guard), 3 MINOR (C9 string gaps + tautological
+  assertion + undeclared deviations) — all fixed and re-verified.
+- **Deviations (logged per §1.5, same class — unreachable-by-seam
+  defense-in-depth kept):** redirect-loop cap, mid-copy over-stream cap,
+  post-copy length mismatch (OkHttp throws first on truncated fixed-length
+  bodies, now funneled to the exact "The download failed: …" string), and
+  `download()`'s https guard (unreachable through the validated model).
+  A TLS-capable trusted mock would be needed to exercise them.

@@ -19,6 +19,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
@@ -59,6 +60,8 @@ import com.pocketrealm.client.ClientDisplayProfile
 import com.pocketrealm.client.ClientFrameCap
 import com.pocketrealm.client.ClientRuntimeSelector
 import com.pocketrealm.client.ClientTweaksConfig
+import com.pocketrealm.client.CommunityVulkanDriverDownload
+import com.pocketrealm.client.CommunityVulkanDrivers
 import com.pocketrealm.client.RendererPackageCatalog
 import com.pocketrealm.client.SystemVulkanCapabilities
 import com.pocketrealm.client.GladioCapability
@@ -77,6 +80,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import kotlin.math.roundToInt
 
 /**
@@ -490,6 +494,146 @@ fun SettingsScreen(
                     },
                     modifier = Modifier.testTag("import-user-vulkan-driver"),
                 ) { Text("Import driver (.so / .zip)") }
+                var showCommunityDrivers by remember { mutableStateOf(false) }
+                var communityDownloadId by remember { mutableStateOf<String?>(null) }
+                var communityProgress by remember { mutableStateOf(0f) }
+                OutlinedButton(
+                    onClick = { showCommunityDrivers = true },
+                    enabled = communityDownloadId == null,
+                    modifier = Modifier.testTag("community-vulkan-drivers"),
+                ) { Text(UserVulkanDriverPresentation.COMMUNITY_BUTTON_LABEL) }
+                if (communityDownloadId != null) {
+                    LinearProgressIndicator(
+                        progress = { communityProgress.coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                if (showCommunityDrivers) {
+                    AlertDialog(
+                        onDismissRequest = {
+                            if (communityDownloadId == null) showCommunityDrivers = false
+                        },
+                        title = {
+                            Text(UserVulkanDriverPresentation.COMMUNITY_DIALOG_TITLE)
+                        },
+                        text = {
+                            Column {
+                                Text(
+                                    UserVulkanDriverPresentation.COMMUNITY_DIALOG_NOTE,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                UserVulkanDriverPresentation.communityDriverRows(
+                                    CommunityVulkanDrivers.all(),
+                                    importedLibrarySha256s =
+                                        userDrivers.map { it.sha256 }.toSet(),
+                                ).forEach { row ->
+                                    val entry =
+                                        CommunityVulkanDrivers.find(row.id) ?: return@forEach
+                                    TextButton(
+                                        onClick = {
+                                            // enabled only takes effect after
+                                            // recomposition; guard the frame gap
+                                            // synchronously (updates-card pattern).
+                                            if (communityDownloadId != null) {
+                                                return@TextButton
+                                            }
+                                            showCommunityDrivers = false
+                                            communityDownloadId = row.id
+                                            communityProgress = 0f
+                                            userVulkanStatus =
+                                                UserVulkanDriverPresentation
+                                                    .communityDownloadStatus(
+                                                        row.label, 0, entry.size,
+                                                    )
+                                            scope.launch(Dispatchers.IO) {
+                                                // Pinned download → digest verify → the
+                                                // ordinary import path; no bypass (C2/C3).
+                                                val staged = File(
+                                                    context.cacheDir,
+                                                    "community-driver-" +
+                                                        "${System.currentTimeMillis()}",
+                                                )
+                                                val outcome = runCatching {
+                                                    CommunityVulkanDriverDownload.download(
+                                                        entry, staged,
+                                                    ) { bytes ->
+                                                        communityProgress =
+                                                            bytes.toFloat() / entry.size
+                                                        userVulkanStatus =
+                                                            UserVulkanDriverPresentation
+                                                                .communityDownloadStatus(
+                                                                    row.label,
+                                                                    bytes,
+                                                                    entry.size,
+                                                                )
+                                                    }
+                                                }.getOrElse { failure ->
+                                                    CommunityVulkanDriverDownload
+                                                        .Outcome
+                                                        .Failed(
+                                                            UserVulkanDriverPresentation
+                                                                .communityDownloadFailureNotice(
+                                                                    failure,
+                                                                ),
+                                                        )
+                                                }
+                                                val importOutcome = try {
+                                                    when (outcome) {
+                                                        is CommunityVulkanDriverDownload
+                                                        .Outcome.Downloaded ->
+                                                            runCatching {
+                                                                userVulkanRegistry.import(
+                                                                    entry.label, staged,
+                                                                )
+                                                            }.getOrElse { failure ->
+                                                                UserVulkanDriverImport.Rejected(
+                                                                    UserVulkanDriverPresentation
+                                                                        .communityImportFailureNotice(
+                                                                            failure,
+                                                                        ),
+                                                                )
+                                                            }
+                                                        is CommunityVulkanDriverDownload
+                                                        .Outcome.Failed ->
+                                                            UserVulkanDriverImport.Rejected(
+                                                                outcome.reason,
+                                                            )
+                                                    }
+                                                } finally {
+                                                    // Every path consumes or discards the
+                                                    // temp; cacheDir keeps no partials (C2).
+                                                    staged.delete()
+                                                }
+                                                communityDownloadId = null
+                                                userVulkanStatus =
+                                                    UserVulkanDriverPresentation
+                                                        .importResultNotice(importOutcome)
+                                                userDriverRefresh++
+                                            }
+                                        },
+                                        enabled = communityDownloadId == null,
+                                    ) {
+                                        Column {
+                                            Text(row.label)
+                                            Text(
+                                                row.detailLine +
+                                                    (row.importedMark?.let { " — $it" }
+                                                        ?: ""),
+                                                style =
+                                                    MaterialTheme.typography.bodySmall,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = { showCommunityDrivers = false },
+                            ) { Text(UserVulkanDriverPresentation.COMMUNITY_DIALOG_CLOSE) }
+                        },
+                    )
+                }
                 UserVulkanDriverPresentation.rows(
                     userDrivers, snap.selectedVulkanDriverId(), adrenoGpu,
                 ).forEach { row ->
