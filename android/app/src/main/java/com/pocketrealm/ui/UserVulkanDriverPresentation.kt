@@ -76,7 +76,8 @@ internal object UserVulkanDriverPresentation {
         "User drivers are Mesa Turnip builds you import yourself. They run only on " +
             "Adreno GPUs, must be built for 16 KB pages, and a driver that crashes " +
             "twice early is quarantined automatically. Changes apply on the next " +
-            "realm launch."
+            "realm launch. The project wiki page \"Choosing a Vulkan Driver\" " +
+            "(docs/wiki/) explains where builds come from and the exact import rules."
 
     private fun meetsVulkan13(driver: UserVulkanDriver): Boolean =
         driver.vulkanApiVersion?.let { UserVulkanDriverValidator.apiVersionWarning(it) == null }

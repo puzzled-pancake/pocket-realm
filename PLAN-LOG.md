@@ -198,3 +198,52 @@ equal-or-stronger, not weakened (I11 respected).
   unreachable for driver switches; deferred to checklist §11.5.
 
 ---
+
+## Phase F — Docs, licensing, version, final regression
+
+**Outcome: complete, green, committed.**
+
+- `docs/wiki/Choosing-a-Vulkan-Driver.md`: the three lanes, where Turnip
+  builds come from (mesa GitLab CI artifacts), the exact import rules
+  (ELF64 aarch64, 16 KB pages with the `-Wl,-z,max-page-size=0x4000`
+  remediation, one `.so` + at most one ICD JSON, 256 MiB cap), the
+  warn-only Vulkan 1.3/DXVK 1.10.3 pairing, Adreno-only applicability,
+  crash-quarantine semantics, and how to report results via the diagnostics
+  bundle. Cross-linked from `Game-Client-Graphics-and-Sound.md` and indexed
+  in the wiki README; the Settings section copy points at the wiki page.
+- Licensing posture (I4): user drivers are user data — zero changes to
+  `schemas/sources.json` / `THIRD_PARTY_NOTICES.md` anywhere in the branch;
+  `tools/check_sources.py` OK; `tools/check_repo.py` OK (943 tracked
+  files, 0 errors/warnings — 16 new files over the 927 baseline).
+- Version (P5.3): `versionCode 6`, `versionName "0.101.0-alpha"`
+  (`build.gradle.kts`). Toggle default OFF at both the Snapshot default and
+  the absent persisted key — the feature lands dark; the GA flip is
+  checklist §11.6.
+- Final regression (P5.4, offline form): full unit suite
+  `:app:testDebugUnitTest -PpocketAbi=x86_64 -PpocketLane=full` → BUILD
+  SUCCESSFUL (**785 tests, 0 failures** across 106 classes; 73 new tests
+  tonight); `:app:assembleDebug` same lane → BUILD SUCCESSFUL (38 s);
+  `git diff --stat native/ schemas/` empty; Phase-0 characterization tests
+  and the Phase-0-updated Python contract byte-identical to their Phase-0
+  commit (`git diff --stat c290eb2..HEAD -- <files>` empty).
+- `DEVICE_QUALIFICATION_CHECKLIST.md` written (§11 items as human steps).
+- **Reviewer gate (Phase F + branch-wide posture): no BLOCKERs.** 1 MAJOR
+  (this Phase F entry was missing at review time) + 2 MINOR (Settings copy
+  said "in-app wiki" though the wiki is repo docs; the wiki README index
+  omitted the new page) — all three fixed in this commit. Git-level checks
+  the reviewer could not run were verified by the runner: `native/` +
+  `schemas/` untouched across the branch, licensing files untouched,
+  characterization net untouched since Phase 0.
+
+### Night totals
+
+- 7 commits on `feature/user-vulkan-drivers` (Phase 0/B/C/D/E/F +
+  regression fixes folded into their phases).
+- New runtime code: registry + validator + resolution seam + crash guard +
+  presentation (5 new client/ui files), integrations across 12 existing
+  files; 8 new test files (73 tests); 2 docs; checklist; this log.
+- Reviewer verdicts: Phase 0 clean; B 2 MAJOR fixed+verified; C 6 BLOCKER +
+  1 MAJOR fixed+verified; D 1 MAJOR + 4 MINOR fixed+verified; E 1 MINOR
+  fixed+verified; F 1 MAJOR + 2 MINOR fixed in-commit. No open findings.
+
+---

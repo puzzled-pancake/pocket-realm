@@ -20,6 +20,7 @@ This wiki describes the project as it exists now. It is written for players, tes
 - [Projects and technologies used](Projects-and-Technologies.md)
 - [Runtime supervision and recovery](Runtime-Supervision-and-Recovery.md)
 - [Game client, graphics, display, and sound](Game-Client-Graphics-and-Sound.md)
+- [Choosing a Vulkan driver](Choosing-a-Vulkan-Driver.md)
 - [Local server, world, and bots](Local-Server-World-and-Bots.md)
 - [Data, storage, and privacy](Data-Storage-and-Privacy.md)
 - [Accounts, security, and network boundaries](Accounts-Security-and-Networking.md)

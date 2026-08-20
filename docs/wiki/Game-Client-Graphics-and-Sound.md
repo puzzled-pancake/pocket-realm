@@ -51,6 +51,7 @@ DXVK places a Direct3D 9 replacement inside the isolated Wine environment. It co
 
 - **System Vulkan driver** uses the Vulkan driver supplied by Android through the hardened Vortek bridge. This is the normal default when the required capabilities are present.
 - **Turnip 26.1.0** is a packaged Mesa driver. The current app qualifies it only for the Retroid Pocket 6 with Adreno 740.
+- **Imported drivers** (off by default, Settings → "Allow imported drivers") are your own Mesa Turnip builds, validated at import and quarantined automatically after two early crashes. See [Choosing a Vulkan Driver](Choosing-a-Vulkan-Driver.md) for where builds come from and the exact import rules.
 
 The app keeps these identities separate because a DXVK version and a Vulkan driver solve different parts of the graphics path. It verifies the exact selected pair and does not silently replace it during launch.
 
