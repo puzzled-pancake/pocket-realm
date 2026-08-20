@@ -73,7 +73,7 @@ class UserVulkanDriverResolutionTest {
         val registry = registryWith()
         for (id in listOf(VulkanDriverCatalog.SYSTEM_DEFAULT, VulkanDriverCatalog.TURNIP_26_1)) {
             val resolved = UserVulkanDriverResolution.requireSessionDriver(
-                id, registry, allowUserDrivers = false,
+                id, registry, allowUserDrivers = false, adrenoGpu = true,
             ) as UserVulkanDriverResolution.SessionDriver.CatalogDriver
             assertEquals(id, resolved.driver.id)
         }
@@ -85,11 +85,12 @@ class UserVulkanDriverResolutionTest {
         val failure = runCatching {
             UserVulkanDriverResolution.requireSessionDriver(
                 "future-driver", registry, allowUserDrivers = true,
-            )
+                adrenoGpu = true)
         }.exceptionOrNull()
         assertEquals("unknown Vulkan driver package: future-driver", failure?.message)
         val missing = runCatching {
-            UserVulkanDriverResolution.requireSessionDriver(null, registry, allowUserDrivers = true)
+            UserVulkanDriverResolution.requireSessionDriver(null, registry, allowUserDrivers = true,
+                adrenoGpu = true)
         }.exceptionOrNull()
         assertEquals("ARM DXVK requires an explicit Vulkan driver package", missing?.message)
     }
@@ -99,7 +100,7 @@ class UserVulkanDriverResolutionTest {
         val registry = registryWith(userDriver())
         val failure = runCatching {
             UserVulkanDriverResolution.requireSessionDriver(
-                "user-turnip-26-3", registry, allowUserDrivers = false,
+                "user-turnip-26-3", registry, allowUserDrivers = false, adrenoGpu = true,
             )
         }.exceptionOrNull()
         assertTrue(failure is IllegalArgumentException)
@@ -115,7 +116,7 @@ class UserVulkanDriverResolutionTest {
         val registry = registryWith(userDriver())
         val resolved = UserVulkanDriverResolution.requireSessionDriver(
             "user-turnip-26-3", registry, allowUserDrivers = true,
-        ) as UserVulkanDriverResolution.SessionDriver.UserDriver
+                adrenoGpu = true) as UserVulkanDriverResolution.SessionDriver.UserDriver
         assertEquals("user-turnip-26-3", resolved.id)
         assertEquals(VulkanDriverKind.TURNIP, resolved.kind)
         assertEquals(UserVulkanDriver.ICD_FILE_NAME, resolved.icdFileName)
@@ -131,7 +132,7 @@ class UserVulkanDriverResolutionTest {
         val gone = runCatching {
             UserVulkanDriverResolution.requireSessionDriver(
                 "user-missing", registry, allowUserDrivers = true,
-            )
+                adrenoGpu = true)
         }.exceptionOrNull()
         assertEquals(
             "Imported Vulkan driver user-missing is not registered; " +
@@ -141,7 +142,7 @@ class UserVulkanDriverResolutionTest {
         val quarantined = runCatching {
             UserVulkanDriverResolution.requireSessionDriver(
                 "user-bad", registry, allowUserDrivers = true,
-            )
+                adrenoGpu = true)
         }.exceptionOrNull()
         assertEquals(
             "Imported driver Turnip 26.3 is quarantined: quarantined after 2 early crashes",
@@ -154,7 +155,8 @@ class UserVulkanDriverResolutionTest {
         val emptyRoot = temp.newFolder("empty-${System.nanoTime()}")
         val failure = runCatching {
             UserVulkanDriverResolution.requireSessionDriver(
-                "user-any", UserVulkanDriverRegistry(emptyRoot), allowUserDrivers = true,
+                "user-any", UserVulkanDriverRegistry(emptyRoot),
+                allowUserDrivers = true, adrenoGpu = true,
             )
         }.exceptionOrNull()
         assertTrue(failure?.message!!.contains("is not registered"))

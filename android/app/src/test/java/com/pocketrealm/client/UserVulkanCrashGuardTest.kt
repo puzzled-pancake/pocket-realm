@@ -137,7 +137,7 @@ class UserVulkanCrashGuardTest {
         val failure = runCatching {
             UserVulkanDriverResolution.requireSessionDriver(
                 "user-turnip-26-3", registry, allowUserDrivers = true,
-            )
+                adrenoGpu = true)
         }.exceptionOrNull()
         assertEquals(
             "Imported driver Turnip 26.3 is quarantined: quarantined after 2 early crashes",

@@ -237,13 +237,71 @@ equal-or-stronger, not weakened (I11 respected).
 
 ### Night totals
 
-- 7 commits on `feature/user-vulkan-drivers` (Phase 0/B/C/D/E/F +
-  regression fixes folded into their phases).
+- 6 commits on `feature/user-vulkan-drivers` (Phase 0/B/C/D/E/F;
+  regression fixes were folded into their phase commits).
 - New runtime code: registry + validator + resolution seam + crash guard +
   presentation (5 new client/ui files), integrations across 12 existing
   files; 8 new test files (73 tests); 2 docs; checklist; this log.
 - Reviewer verdicts: Phase 0 clean; B 2 MAJOR fixed+verified; C 6 BLOCKER +
   1 MAJOR fixed+verified; D 1 MAJOR + 4 MINOR fixed+verified; E 1 MINOR
   fixed+verified; F 1 MAJOR + 2 MINOR fixed in-commit. No open findings.
+
+---
+
+## Post-night review round (4 independent reviewers, user-requested)
+
+**Outcome: 0 BLOCKERs, 3 MAJORs + several MINORs found → all MAJORs and the
+cheap MINORs fixed, re-verified by the finding reviewers, committed. Suite
+788/0.**
+
+Reviewers and verdicts:
+- **Security/fail-closed**: no blockers; 1 MAJOR (zip-bomb CPU — pass-1
+  unpack inflated unbounded bytes before any cap), 3 MINOR. Clean: zip-slip
+  (fixed canonical targets + traversal rejection + slug regex), crafted ELF
+  (overflow-safe bounded parser), fail-closed integrity (4 independent
+  gates), ICD digest chain (single pure path function).
+- **Concurrency/lifecycle**: no blockers; 1 MAJOR (cross-process
+  read-modify-write lost-update on registry.json between the UI and :client
+  processes) + 4 MINOR. Clean: shared-rootfs staging safety (single-process
+  store + prepareLaunchLock + checkNoActiveSession, symmetric retirement),
+  torn reads (atomic rename), double-fold, runBlocking deadlock risk.
+- **Parity/regression**: all six mechanical checks PASS — native//schemas/
+  licensing untouched, catalog call-site semantics byte-identical for
+  non-user ids (generation identity gained no field), env parity pinned,
+  no test weakening (the one Python contract update is equal-or-stronger),
+  settings parity for non-opt-in users, default-off darkness. 2 doc nits.
+- **Fresh-eyes whole-branch**: approve with follow-ups — 1 MAJOR (no digest
+  early-out: every launch re-copied the multi-MiB driver library) + 7 MINOR;
+  design judged a consistent extension of local idioms, docs accurate.
+
+Fixes landed (this round):
+1. Zip pass-1 now drains entries with a cumulative inflated-bytes cap
+   (total inflation bounded at cap + 64 KiB); regression test added.
+2. `withRegistryMutationLock`: per-root JVM monitor + OS FileLock on
+   `<root>/.registry.lock` held across import-tail/remove/update
+   read-modify-writes; `uniqueIdFor` now takes the taken-id set from the
+   locked read. (Both MAJOR-owning reviewers verified the lock and the
+   fold-once guard.)
+3. `installUserArmGraphics` gained the pinned-asset digest early-out
+   (repeat launches of the same driver skip the copy); retirement lists
+   extracted to one `residentVulkanAssets` helper shared by both installers.
+4. Crash guard: fold-once flag claimed under the session lock with the
+   `forced` snapshot captured there; the executor-level catch now folds
+   too (under-count hole); quarantine selection reset is conditional (only
+   reverts the quarantined id) and bounded by a 5 s withTimeout.
+5. `apiVersionWarning` uses toIntOrNull (absurd ICD versions never throw);
+   corrupt registry.json fails with an exact re-import message; stale
+   "session location" comment fixed; `adrenoGpu` is now a required seam
+   argument (fail-closed); tautological presentation assertion now sources
+   real validator output; PLAN-LOG commit-count corrected (6, not 7).
+
+Accepted as-is (logged): the quarantine reset key materializes on every
+settings write (matches the file's write-everything pattern; absent ≡ false
+everywhere); launcher-throw sessions with a user driver count as early
+deaths (ambiguous by nature, conservative direction, self-healing);
+`SessionDriver` sum-type ceremony noted; WineRuntimeStore user paths remain
+device-deferred coverage (checklist §2 is the net). Reviewers' residual
+sub-threshold nits (persist-throw-after-clean-exit fold, boundary
+over-rejection of total-inflated cap) are fail-closed and documented.
 
 ---

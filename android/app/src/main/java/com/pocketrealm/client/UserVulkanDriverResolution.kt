@@ -58,7 +58,7 @@ object UserVulkanDriverResolution {
         requestedId: String?,
         registry: UserVulkanDriverRegistry,
         allowUserDrivers: Boolean,
-        adrenoGpu: Boolean = true,
+        adrenoGpu: Boolean,
     ): SessionDriver {
         val userId = requestedId?.takeIf(UserVulkanDriver::isUserId)
         if (userId == null) {

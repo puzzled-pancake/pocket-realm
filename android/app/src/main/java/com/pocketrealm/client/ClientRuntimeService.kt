@@ -70,6 +70,8 @@ class ClientRuntimeService : Service() {
         val launchedAtElapsedMs: Long = SystemClock.elapsedRealtime(),
         /** Env variable names emitted for the user Vulkan lane this session. */
         var userVulkanEnvNames: List<String> = emptyList(),
+        /** Set under the session lock once the crash-guard fold has run. */
+        var userVulkanOutcomeRecorded: Boolean = false,
     )
 
     private fun userVulkanRegistry(): UserVulkanDriverRegistry =
@@ -361,6 +363,11 @@ class ClientRuntimeService : Service() {
                                     }
                             }
                         }
+                        // runSession threw before (or inside) its own terminal
+                        // hook — fold the user-driver outcome here. The hook
+                        // is fold-once, so a throw after a completed fold is
+                        // a no-op.
+                        recordUserVulkanSessionOutcome(record, failed = true)
                     } finally {
                         try {
                             record.prepared.close()
@@ -766,13 +773,20 @@ class ClientRuntimeService : Service() {
     private fun recordUserVulkanSessionOutcome(r: SessionRecord, failed: Boolean) {
         val driverId = r.prepared.armVulkanDriverId ?: return
         if (!UserVulkanDriver.isUserId(driverId)) return
+        // Fold exactly once per session, and capture the volatile forced flag
+        // under the same lock its Binder-thread writers hold.
+        val forced = synchronized(lock) {
+            if (r.userVulkanOutcomeRecorded) return
+            r.userVulkanOutcomeRecorded = true
+            r.forced
+        }
         val uptimeMs = SystemClock.elapsedRealtime() - r.launchedAtElapsedMs
-        val earlyDeath = UserVulkanCrashGuard.isEarlyDeath(failed, r.forced, uptimeMs)
+        val earlyDeath = UserVulkanCrashGuard.isEarlyDeath(failed, forced, uptimeMs)
         runCatching {
             val registry = userVulkanRegistry()
             val driver = registry.find(driverId) ?: return
             val updated = UserVulkanCrashGuard.onSessionOutcome(
-                driver, failed, r.forced, uptimeMs,
+                driver, failed, forced, uptimeMs,
             )
             // Last-session diagnostics record: identity, emitted env names
             // (never absolute paths — the support bundle rejects them), and
@@ -795,8 +809,19 @@ class ClientRuntimeService : Service() {
                 // quarantine reason.
                 runCatching {
                     kotlinx.coroutines.runBlocking {
-                        com.pocketrealm.storage.Settings(applicationContext).update { current ->
-                            current.copy(armVulkanDriverId = VulkanDriverCatalog.AUTO_ID)
+                        // Bounded so a wedged DataStore write cannot stall the
+                        // session executor's drain proof indefinitely.
+                        kotlinx.coroutines.withTimeout(QUARANTINE_RESET_TIMEOUT_MS) {
+                            com.pocketrealm.storage.Settings(applicationContext).update { current ->
+                                // Only revert the quarantined selection — a
+                                // concurrent switch to a different driver
+                                // must survive.
+                                if (current.armVulkanDriverId == driverId) {
+                                    current.copy(armVulkanDriverId = VulkanDriverCatalog.AUTO_ID)
+                                } else {
+                                    current
+                                }
+                            }
                         }
                     }
                 }.onFailure {
@@ -1145,6 +1170,7 @@ class ClientRuntimeService : Service() {
     companion object {
         private const val TAG = "ClientRuntime"
         private const val USER_VULKAN_SESSION_RECORD_FILE = "session-record.json"
+        private const val QUARANTINE_RESET_TIMEOUT_MS = 5_000L
         private const val FORCE_DRAIN_TIMEOUT_MS = 15_000L
         private const val FORCE_DRAIN_POLL_MS = 50L
         const val ACTION_START_SESSION_FOREGROUND =

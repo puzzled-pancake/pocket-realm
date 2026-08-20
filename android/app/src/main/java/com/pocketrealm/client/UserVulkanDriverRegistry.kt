@@ -4,8 +4,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.InputStream
+import java.io.RandomAccessFile
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.ZipInputStream
 
 /** One user-imported Mesa Turnip ICD pair stored under the app's private files. */
@@ -138,26 +140,30 @@ class UserVulkanDriverRegistry(private val root: File) {
             } else {
                 writeSyntheticIcd(icd)
             }
-            val driver = UserVulkanDriver(
-                id = uniqueIdFor(label),
-                label = label,
-                libraryFileName = UserVulkanDriver.LIBRARY_FILE_NAME,
-                sha256 = sha256,
-                vulkanApiVersion = apiVersion,
-                addedAt = System.currentTimeMillis(),
-            )
-            val destination = driverDirectory(driver.id)
-            check(!destination.exists()) { "user driver directory already exists" }
-            java.nio.file.Files.move(
-                incoming.toPath(), destination.toPath(),
-                java.nio.file.StandardCopyOption.ATOMIC_MOVE,
-            )
-            try {
-                saveRegistry(readRegistry() + driver)
-            } catch (error: Throwable) {
-                // Never leave a payload directory no registry entry points at.
-                destination.deleteRecursively()
-                throw error
+            val driver = withRegistryMutationLock {
+                val current = readRegistry()
+                val candidate = UserVulkanDriver(
+                    id = uniqueIdFor(label, current.map { it.id }.toSet()),
+                    label = label,
+                    libraryFileName = UserVulkanDriver.LIBRARY_FILE_NAME,
+                    sha256 = sha256,
+                    vulkanApiVersion = apiVersion,
+                    addedAt = System.currentTimeMillis(),
+                )
+                val destination = driverDirectory(candidate.id)
+                check(!destination.exists()) { "user driver directory already exists" }
+                java.nio.file.Files.move(
+                    incoming.toPath(), destination.toPath(),
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                )
+                try {
+                    saveRegistry(current + candidate)
+                } catch (error: Throwable) {
+                    // Never leave a payload directory no registry entry points at.
+                    destination.deleteRecursively()
+                    throw error
+                }
+                candidate
             }
             return UserVulkanDriverImport.Imported(driver, warning)
         } finally {
@@ -166,19 +172,27 @@ class UserVulkanDriverRegistry(private val root: File) {
     }
 
     fun remove(id: String) {
-        val current = readRegistry()
-        val driver = current.firstOrNull { it.id == id }
-            ?: throw IllegalArgumentException("unknown user Vulkan driver: $id")
-        driverDirectory(id).deleteRecursively()
-        saveRegistry(current - driver)
+        withRegistryMutationLock {
+            val current = readRegistry()
+            val driver = current.firstOrNull { it.id == id }
+                ?: throw IllegalArgumentException("unknown user Vulkan driver: $id")
+            driverDirectory(id).deleteRecursively()
+            saveRegistry(current - driver)
+        }
     }
 
-    /** Atomically replace one entry (crash-streak and quarantine updates). */
+    /**
+     * Atomically replace one entry (crash-streak and quarantine updates).
+     * The whole read-modify-write runs under the registry mutation lock so a
+     * concurrent import/remove in another process cannot interleave.
+     */
     fun update(driver: UserVulkanDriver) {
-        val current = readRegistry()
-        val index = current.indexOfFirst { it.id == driver.id }
-        if (index < 0) throw IllegalArgumentException("unknown user Vulkan driver: ${driver.id}")
-        saveRegistry(current.toMutableList().apply { set(index, driver) })
+        withRegistryMutationLock {
+            val current = readRegistry()
+            val index = current.indexOfFirst { it.id == driver.id }
+            if (index < 0) throw IllegalArgumentException("unknown user Vulkan driver: ${driver.id}")
+            saveRegistry(current.toMutableList().apply { set(index, driver) })
+        }
     }
 
     /** Unpacks the payload into [incoming]; returns the rejection reason, or null on success. */
@@ -200,6 +214,11 @@ class UserVulkanDriverRegistry(private val root: File) {
             val manifests = mutableListOf<String>()
             val others = mutableListOf<String>()
             var unsafePath: String? = null
+            // nextEntry() must inflate each entry to find the next header, so
+            // drain with a cumulative cap — a hostile archive otherwise burns
+            // unbounded CPU before the write-side caps are ever consulted.
+            var inflatedBytes = 0L
+            val drain = ByteArray(64 * 1024)
             while (true) {
                 val entry = zip.nextEntry ?: break
                 if (entry.isDirectory) continue
@@ -211,6 +230,14 @@ class UserVulkanDriverRegistry(private val root: File) {
                 }
                 if (unsafePath == null && (entry.name.contains("..") || entry.name.startsWith("/"))) {
                     unsafePath = entry.name
+                }
+                while (true) {
+                    val read = zip.read(drain)
+                    if (read < 0) break
+                    inflatedBytes += read
+                    if (inflatedBytes > maxImportBytes) {
+                        return sizeRejection(inflatedBytes, maxImportBytes)
+                    }
                 }
             }
             unsafePath?.let { return "The archive contains an unsafe entry path ($it)." }
@@ -283,8 +310,8 @@ class UserVulkanDriverRegistry(private val root: File) {
     }
 
     private fun writeSyntheticIcd(target: File) {
-        // Mirrors the packaged manifests' shape; the staged copy used at
-        // launch rewrites library_path to the session location (Phase C).
+        // Mirrors the packaged manifests' shape; the rootfs install rewrites
+        // library_path to the installed library path at prepare time.
         target.writeText(
             JSONObject()
                 .put("ICD", JSONObject().put("library_path", UserVulkanDriver.LIBRARY_FILE_NAME))
@@ -293,9 +320,8 @@ class UserVulkanDriverRegistry(private val root: File) {
         )
     }
 
-    private fun uniqueIdFor(label: String): String {
+    private fun uniqueIdFor(label: String, taken: Set<String>): String {
         val base = slugify(label)
-        val taken = readRegistry().map { it.id }.toSet()
         var candidate = "${UserVulkanDriver.ID_PREFIX}$base"
         var suffix = 2
         while (candidate in taken || driverDirectory(candidate).exists()) {
@@ -305,10 +331,34 @@ class UserVulkanDriverRegistry(private val root: File) {
         return candidate
     }
 
+    /**
+     * Serialize read-modify-write mutations. The UI process (import/remove)
+     * and the :client process (crash-guard update) both take the same
+     * OS file lock on `<root>/.registry.lock`; a per-root JVM monitor keeps
+     * same-process instances from overlapping on the channel.
+     */
+    private fun <T> withRegistryMutationLock(block: () -> T): T {
+        root.mkdirs()
+        val monitor = MUTATION_MONITORS.computeIfAbsent(root.canonicalFile.absolutePath) { Any() }
+        synchronized(monitor) {
+            RandomAccessFile(File(root, REGISTRY_LOCK_FILE_NAME), "rw").use { lockFile ->
+                lockFile.channel.lock().use { _ -> return block() }
+            }
+        }
+    }
+
     private fun readRegistry(): List<UserVulkanDriver> {
         val file = registryFile()
         if (!file.isFile) return emptyList()
-        val document = JSONObject(file.readText())
+        val document = try {
+            JSONObject(file.readText())
+        } catch (error: org.json.JSONException) {
+            throw IllegalStateException(
+                "The imported-driver registry is unreadable (registry.json is corrupt); " +
+                    "delete and re-import the driver.",
+                error,
+            )
+        }
         val schema = document.optInt("schema", 0)
         check(schema == SCHEMA) {
             "user Vulkan driver registry schema $schema is not supported (expected $SCHEMA)"
@@ -376,6 +426,9 @@ class UserVulkanDriverRegistry(private val root: File) {
 
         /** App-private storage root for the registry (normally `<filesDir>/drivers`). */
         fun registryRoot(filesDir: File): File = File(filesDir, "drivers")
+
+        private const val REGISTRY_LOCK_FILE_NAME = ".registry.lock"
+        private val MUTATION_MONITORS = ConcurrentHashMap<String, Any>()
 
         /**
          * Charset `[a-z0-9-]` only: the slug becomes a directory name and an

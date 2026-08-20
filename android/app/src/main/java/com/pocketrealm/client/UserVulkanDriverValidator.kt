@@ -135,7 +135,10 @@ object UserVulkanDriverValidator {
     fun apiVersionWarning(apiVersion: String): String? {
         val match = Regex("^(\\d+)\\.(\\d+)").find(apiVersion) ?: return null
         val (major, minor) = match.destructured
-        val meets13 = major.toInt() > 1 || (major.toInt() == 1 && minor.toInt() >= 3)
+        // Absurd components stay warn-free rather than throwing NumberFormat.
+        val majorInt = major.toIntOrNull() ?: return null
+        val minorInt = minor.toIntOrNull() ?: return null
+        val meets13 = majorInt > 1 || (majorInt == 1 && minorInt >= 3)
         return if (meets13) null else {
             "This build reports Vulkan $apiVersion, below the Vulkan 1.3 that DXVK 2.4.1 " +
                 "requires — pair it with the DXVK 1.10.3 compatibility package or expect " +

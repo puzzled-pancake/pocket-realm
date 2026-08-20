@@ -435,4 +435,36 @@ class UserVulkanDriverRegistryTest {
         assertTrue(failure is IllegalStateException)
         assertTrue(failure!!.message!!.contains("schema 99 is not supported"))
     }
+
+    @Test
+    fun corruptRegistryJsonFailsClosedWithAnActionableMessage() {
+        val (_, root) = newRegistry()
+        root.mkdirs()
+        File(root, "registry.json").writeText("""{"schema":1,"drivers":[{""")
+        val failure = runCatching { UserVulkanDriverRegistry(root).list() }.exceptionOrNull()
+        assertTrue(failure is IllegalStateException)
+        assertTrue(failure!!.message!!.contains("registry is unreadable"))
+        assertTrue(failure.message!!.contains("re-import"))
+    }
+
+    @Test
+    fun zipBombDecompressionIsCappedDuringThePrescan() {
+        val (registry, _) = newRegistry()
+        // A highly-compressible archive whose inflated size far exceeds a tiny
+        // cap: the prescan must reject on inflated bytes, not after staging.
+        val bomb = zipOf("libvulkan_freedreno.so" to ByteArray(1_000_000))
+        val result = registry.import("Bomb", bomb, maxImportBytes = 64_000)
+        val reason = (result as UserVulkanDriverImport.Rejected).reason
+        assertTrue(reason.contains("import cap"))
+        assertEquals(0, registry.list().size)
+    }
+
+    @Test
+    fun absurdIcdApiVersionComponentsAreWarnFreeNeverThrown() {
+        val outcome = UserVulkanDriverValidator.validateIcd(
+            """{"ICD":{"library_path":"driver.so","api_version":"99999999999999999999.1"}}""",
+        ) as UserVulkanDriverValidator.IcdOutcome.Accepted
+        assertEquals("99999999999999999999.1", outcome.apiVersion)
+        assertNull(outcome.warning)
+    }
 }

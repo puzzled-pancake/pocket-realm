@@ -1255,6 +1255,28 @@ internal class WineRuntimeStore(private val context: Context) {
         )
     }
 
+    /**
+     * Resident Vulkan asset names in the shared rootfs: the closed catalog's
+     * driver libraries/manifests plus the user lane's fixed names. One list,
+     * used by both installers, so a future catalog entry cannot drift.
+     */
+    private fun residentVulkanAssets(tree: File): List<File> = listOf(
+        File(tree, "usr/lib/libvulkan_vortek.so"),
+        File(tree, "usr/lib/libvulkan_freedreno.so"),
+        File(tree, "usr/share/vulkan/icd.d/vortek_icd.aarch64.json"),
+        File(tree, "usr/share/vulkan/icd.d/freedreno_icd.aarch64.json"),
+        UserVulkanDriverResolution.rootfsLibraryFile(tree),
+        UserVulkanDriverResolution.rootfsIcdFile(tree),
+    )
+
+    private fun retireStaleVulkanAssets(tree: File, selected: List<String>) {
+        residentVulkanAssets(tree).filterNot { it.name in selected.toSet() }.forEach { stale ->
+            if (Files.exists(stale.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+                check(stale.delete()) { "stale Vulkan driver asset could not be retired: ${stale.name}" }
+            }
+        }
+    }
+
     /** Install a user-imported Turnip ICD pair plus the matching DXVK D3D9 DLLs.
      *
      * The app-private registry is the source (never APK assets; I4). Staging
@@ -1282,24 +1304,30 @@ internal class WineRuntimeStore(private val context: Context) {
         check(sha256(librarySource) == driver.sha256) {
             "imported Vulkan driver library changed after import"
         }
-        listOf(
-            File(p.tree, "usr/lib/libvulkan_vortek.so"),
-            File(p.tree, "usr/lib/libvulkan_freedreno.so"),
-            File(p.tree, "usr/share/vulkan/icd.d/vortek_icd.aarch64.json"),
-            File(p.tree, "usr/share/vulkan/icd.d/freedreno_icd.aarch64.json"),
-        ).forEach { stale ->
-            if (Files.exists(stale.toPath(), LinkOption.NOFOLLOW_LINKS)) {
-                check(stale.delete()) { "stale Vulkan driver asset could not be retired: ${stale.name}" }
-            }
-        }
+        // Keep the user lane's two files; retire every packaged driver file.
+        retireStaleVulkanAssets(
+            p.tree,
+            selected = listOf(
+                UserVulkanDriver.LIBRARY_FILE_NAME,
+                UserVulkanDriver.ICD_FILE_NAME,
+            ),
+        )
         val libraryTarget = UserVulkanDriverResolution.rootfsLibraryFile(p.tree)
-        com.pocketrealm.fs.DurableFiles.atomicCopy(librarySource, libraryTarget)
-        check(!Files.isSymbolicLink(libraryTarget.toPath()) &&
-            File(p.tree, "usr/lib/${UserVulkanDriver.LIBRARY_FILE_NAME}").let { target ->
-                target.canonicalFile == libraryTarget.canonicalFile
-            } &&
-            sha256(libraryTarget) == driver.sha256) {
-            "imported Vulkan driver library failed staged-publication verification"
+        // Repeat launches of the same driver skip the multi-MiB copy, exactly
+        // like the pinned-asset early-out; any change falls through to a
+        // fresh atomic publication.
+        val libraryCurrent = libraryTarget.isFile &&
+            !Files.isSymbolicLink(libraryTarget.toPath()) &&
+            sha256(libraryTarget) == driver.sha256
+        if (!libraryCurrent) {
+            com.pocketrealm.fs.DurableFiles.atomicCopy(librarySource, libraryTarget)
+            check(!Files.isSymbolicLink(libraryTarget.toPath()) &&
+                File(p.tree, "usr/lib/${UserVulkanDriver.LIBRARY_FILE_NAME}").let { target ->
+                    target.canonicalFile == libraryTarget.canonicalFile
+                } &&
+                sha256(libraryTarget) == driver.sha256) {
+                "imported Vulkan driver library failed staged-publication verification"
+            }
         }
         val icdText = UserVulkanDriverResolution.icdForRootfs(
             icdSource.readText(), libraryTarget.absolutePath,
@@ -1353,22 +1381,12 @@ internal class WineRuntimeStore(private val context: Context) {
             "renderer package lacks the syswow64 D3D9 asset"
         }
         val syswow64Sha256 = requireNotNull(rendererPackage.syswow64Sha256)
-        val knownDriverFiles = listOf(
-            File(p.tree, "usr/lib/libvulkan_vortek.so"),
-            File(p.tree, "usr/lib/libvulkan_freedreno.so"),
-            File(p.tree, "usr/share/vulkan/icd.d/vortek_icd.aarch64.json"),
-            File(p.tree, "usr/share/vulkan/icd.d/freedreno_icd.aarch64.json"),
-            // Leftover user-lane files must retire when a catalog driver is
-            // selected again (the user installer mirrors this for ours).
-            UserVulkanDriverResolution.rootfsLibraryFile(p.tree),
-            UserVulkanDriverResolution.rootfsIcdFile(p.tree),
+        // Retire every resident Vulkan asset the selection does not use:
+        // the closed catalog's file names plus any leftover user-lane files.
+        retireStaleVulkanAssets(
+            p.tree,
+            selected = listOf(vulkanDriver.libraryName, vulkanDriver.icdFileName),
         )
-        val selectedDriverFiles = setOf(vulkanDriver.libraryName, vulkanDriver.icdFileName)
-        knownDriverFiles.filterNot { it.name in selectedDriverFiles }.forEach { stale ->
-            if (Files.exists(stale.toPath(), LinkOption.NOFOLLOW_LINKS)) {
-                check(stale.delete()) { "stale Vulkan driver asset could not be retired: ${stale.name}" }
-            }
-        }
         val files = listOf(
             PinnedAsset(
                 vulkanDriver.libraryAsset,

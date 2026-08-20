@@ -2,6 +2,7 @@ package com.pocketrealm.ui
 
 import com.pocketrealm.client.UserVulkanDriver
 import com.pocketrealm.client.UserVulkanDriverImport
+import com.pocketrealm.client.UserVulkanDriverValidator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -83,17 +84,14 @@ class UserVulkanDriverPresentationTest {
     }
 
     @Test
-    fun importNoticesUseTheExactValidatorStringsAndSurfaceWarnings() {
+    fun importNoticesPassValidatorOutputThroughVerbatim() {
+        // The presentation contract is verbatim pass-through: a rejection
+        // produced by the real validator must surface byte-identical.
+        val realRejection = UserVulkanDriverValidator.elfRejection(ByteArray(32))!!
         assertEquals(
-            "This build has a PT_LOAD segment with p_align=0x1000, but the RP6 " +
-                "kernel uses 16 KB pages and this build will crash on load. " +
-                "Use a build made with `-Wl,-z,max-page-size=0x4000`.",
+            realRejection,
             UserVulkanDriverPresentation.importResultNotice(
-                UserVulkanDriverImport.Rejected(
-                    "This build has a PT_LOAD segment with p_align=0x1000, but the RP6 " +
-                        "kernel uses 16 KB pages and this build will crash on load. " +
-                        "Use a build made with `-Wl,-z,max-page-size=0x4000`.",
-                ),
+                UserVulkanDriverImport.Rejected(realRejection),
             ),
         )
         assertEquals(
@@ -102,16 +100,13 @@ class UserVulkanDriverPresentationTest {
                 UserVulkanDriverImport.Imported(driver(), warning = null),
             ),
         )
+        val realWarning = UserVulkanDriverValidator.apiVersionWarning("1.1.262")!!
         assertEquals(
-            "Imported Turnip 26.3 (Vulkan 1.1.262). This build reports Vulkan 1.1.262, " +
-                "below the Vulkan 1.3 that DXVK 2.4.1 requires — pair it with the " +
-                "DXVK 1.10.3 compatibility package or expect DXVK to fail to initialize.",
+            "Imported Turnip 26.3 (Vulkan 1.1.262). $realWarning",
             UserVulkanDriverPresentation.importResultNotice(
                 UserVulkanDriverImport.Imported(
                     driver(version = "1.1.262"),
-                    warning = "This build reports Vulkan 1.1.262, below the Vulkan 1.3 " +
-                        "that DXVK 2.4.1 requires — pair it with the DXVK 1.10.3 " +
-                        "compatibility package or expect DXVK to fail to initialize.",
+                    warning = realWarning,
                 ),
             ),
         )
