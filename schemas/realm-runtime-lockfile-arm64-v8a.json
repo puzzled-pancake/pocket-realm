@@ -5,8 +5,8 @@
   "elf_max_page_size": "0x4000",
   "playerbots": true,
   "auction_house_bot": false,
-  "cmangos_commit": "c096bada9e4ed23ad4ca706c67160a26d7121337",
-  "playerbots_commit": "1abeac646f4be02bfb47abcc779f3f9089d67f3e",
+  "cmangos_commit": "082afd606f8e37ea939df6fdfcd4af81f8085e6e",
+  "playerbots_commit": "3b77c5f423a6139d69930bcee9643af7f198df1e",
   "cmangos_source_overlays": [
     {
       "id": "authenticated-nearby-use-open",
@@ -80,6 +80,23 @@
         "playerbot/RandomPlayerbotMgr.cpp"
       ],
       "reason": "Sample bot locality and operation rates once per ten seconds instead of scanning the full population on every manager pass."
+    },
+    {
+      "id": "in-process-llama-backend",
+      "paths": [
+        "playerbot/PlayerbotAIConfig.h",
+        "playerbot/PlayerbotAIConfig.cpp",
+        "playerbot/PlayerbotLLMInterface.h",
+        "playerbot/PlayerbotLLMInterface.cpp",
+        "playerbot/PlayerbotLlamaRuntime.h",
+        "playerbot/PlayerbotLlamaRuntime.cpp",
+        "playerbot/strategy/actions/SayAction.h",
+        "playerbot/strategy/actions/SayAction.cpp",
+        "playerbot/strategy/actions/RpgSubActions.cpp",
+        "playerbot/strategy/actions/DebugAction.cpp",
+        "playerbot/PlayerbotAI.cpp"
+      ],
+      "reason": "Link the vendored llama.cpp kai build into the world runtime behind PlayerbotLLMInterface: pinned mid-core worker, watchdog abort, per-bot warm slots, hard-trigger gate, and delayed-packet session-lifetime guards."
     }
   ],
   "mariadb_connector_c": {
@@ -106,11 +123,16 @@
     },
     {
       "path": "native/.build-o09-arm64-v8a/realm-staging/jniLibs/arm64-v8a/libpocket_world_runtime.so",
-      "size": 32789128,
-      "sha256": "41eb1712ed4393cc585e2c54d74d9748725d28c33d2e5c06a6771547fa7a1806",
+      "size": 32251448,
+      "sha256": "77252ccf4815f5e361e8baf85fbab00fa2774af6955f4cc20272a2deff81dee2",
       "needed": [
         "libc.so",
         "libdl.so",
+        "libggml-base.so",
+        "libggml-cpu.so",
+        "libggml.so",
+        "libllama-common.so",
+        "libllama.so",
         "libm.so",
         "libz.so"
       ],
@@ -119,6 +141,45 @@
         16384,
         16384
       ]
+    },
+    {
+      "path": "native/.build-o09-arm64-v8a/realm-staging/jniLibs/arm64-v8a/libggml-base.so",
+      "size": 1140464,
+      "sha256": "6d901cacc60873a0218cae5b407ac30aa7b618f2889a0be3b391e6d33f757496",
+      "needed": [],
+      "load_alignments": []
+    },
+    {
+      "path": "native/.build-o09-arm64-v8a/realm-staging/jniLibs/arm64-v8a/libggml-cpu.so",
+      "size": 1601152,
+      "sha256": "eab6c71e0cba93e1da745b2a3201fcb9789d3f2ad9b90ade85f5d15e301d02a6",
+      "needed": [],
+      "load_alignments": []
+    },
+    {
+      "path": "native/.build-o09-arm64-v8a/realm-staging/jniLibs/arm64-v8a/libggml.so",
+      "size": 121848,
+      "sha256": "63d25ad462e30b506e533a558523197d76b4102638742786ecb6bda450b09454",
+      "needed": [],
+      "load_alignments": []
+    },
+    {
+      "path": "native/.build-o09-arm64-v8a/realm-staging/jniLibs/arm64-v8a/libllama-common.so",
+      "size": 4648120,
+      "sha256": "488edb5155235f7055b212a407bff59dfd2769cceeb62a3496c24a6a934ed485",
+      "needed": [],
+      "load_alignments": []
+    },
+    {
+      "path": "native/.build-o09-arm64-v8a/realm-staging/jniLibs/arm64-v8a/libllama.so",
+      "size": 3084736,
+      "sha256": "ebdddbf08658c81d7a6866a7d5f4bbf516d1cb78ba1ff2143eaa39a4d3dc24f9",
+      "needed": [],
+      "load_alignments": []
     }
-  ]
+  ],
+  "llama_cpp": {
+    "commit": "6d05498314db1b57f81c271080018aa2d0b89be9",
+    "vendored": "native/llm/prebuilt/arm64-v8a"
+  }
 }

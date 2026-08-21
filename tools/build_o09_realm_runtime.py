@@ -34,8 +34,8 @@ PROVENANCE = BUILD / "realm-staging" / "BUILD_PROVENANCE.json"
 LOCKFILE = ROOT / "schemas" / "realm-runtime-lockfile.json"
 CONNECTOR_URL = "https://github.com/MariaDB/mariadb-connector-c.git"
 CONNECTOR_COMMIT = "de6305915f86bb33c83b1fe782a2b8a76920aec1"
-CMANGOS_COMMIT = "c096bada9e4ed23ad4ca706c67160a26d7121337"
-PLAYERBOTS_COMMIT = "1abeac646f4be02bfb47abcc779f3f9089d67f3e"
+CMANGOS_COMMIT = "082afd606f8e37ea939df6fdfcd4af81f8085e6e"
+PLAYERBOTS_COMMIT = "3b77c5f423a6139d69930bcee9643af7f198df1e"
 MAX_PAGE = 0x4000
 
 
@@ -206,6 +206,23 @@ PLAYERBOTS_OVERLAYS = [
             "playerbot/RandomPlayerbotMgr.cpp",
         ],
         "reason": "Sample bot locality and operation rates once per ten seconds instead of scanning the full population on every manager pass.",
+    },
+    {
+        "id": "in-process-llama-backend",
+        "paths": [
+            "playerbot/PlayerbotAIConfig.h",
+            "playerbot/PlayerbotAIConfig.cpp",
+            "playerbot/PlayerbotLLMInterface.h",
+            "playerbot/PlayerbotLLMInterface.cpp",
+            "playerbot/PlayerbotLlamaRuntime.h",
+            "playerbot/PlayerbotLlamaRuntime.cpp",
+            "playerbot/strategy/actions/SayAction.h",
+            "playerbot/strategy/actions/SayAction.cpp",
+            "playerbot/strategy/actions/RpgSubActions.cpp",
+            "playerbot/strategy/actions/DebugAction.cpp",
+            "playerbot/PlayerbotAI.cpp",
+        ],
+        "reason": "Link the vendored llama.cpp kai build into the world runtime behind PlayerbotLLMInterface: pinned mid-core worker, watchdog abort, per-bot warm slots, hard-trigger gate, and delayed-packet session-lifetime guards.",
     },
 ]
 MMAP_GUARD_UPSTREAM = """    if (!MMAP::MMapFactory::createOrGetMMapManager()->IsMMapIsLoaded(m_mapId, x, y))
@@ -692,6 +709,290 @@ PB_MGR_LOGIN_UPSTREAM = """void RandomPlayerbotMgr::OnBotLoginInternal(Player * 
 {
     sLog.outDetail("%u/%d Bot %s logged in", GetPlayerbotsAmount(), sRandomPlayerbotMgr.GetMaxAllowedBotCount(), bot->GetName());
 """
+
+# --- LLM in-process backend overlays ---------------------------------------
+PB_LLM_CONFIG_HEADER_UPSTREAM = """    ParsedUrl llmEndPointUrl;
+    std::set<uint32> llmBlockedReplyChannels;
+"""
+PB_LLM_CONFIG_HEADER_ANDROID = """    ParsedUrl llmEndPointUrl;
+    std::set<uint32> llmBlockedReplyChannels;
+
+    // in-process llama.cpp backend (arm64-v8a only; compiled out elsewhere)
+    enum { LLM_BACKEND_HTTP = 0, LLM_BACKEND_LLAMA = 1 };
+    uint32 llmBackend, llmThreads, llmCpuFirstCore, llmCtxSize, llmSlots, llmTopK, llmMaxNewTokens;
+    std::string llmModelPath;
+    float llmTemp, llmTopP, llmRepeatPenalty;
+"""
+PB_LLM_CONFIG_CPP_UPSTREAM = """    //LLM START
+    llmEnabled = config.GetIntDefault("AiPlayerbot.LLMEnabled", 1);
+    llmApiEndpoint = config.GetStringDefault("AiPlayerbot.LLMApiEndpoint", "http://127.0.0.1:5001/api/v1/generate");
+"""
+PB_LLM_CONFIG_CPP_ANDROID = """    //LLM START
+    llmEnabled = config.GetIntDefault("AiPlayerbot.LLMEnabled", 1);
+    llmBackend = config.GetIntDefault("AiPlayerbot.LLMBackend", 0); // 0 = http, 1 = in-process llama
+    llmModelPath = config.GetStringDefault("AiPlayerbot.LLMModelPath", "");
+    llmThreads = config.GetIntDefault("AiPlayerbot.LLMThreads", 3);
+    llmCpuFirstCore = config.GetIntDefault("AiPlayerbot.LLMCpuFirstCore", 3);
+    llmCtxSize = config.GetIntDefault("AiPlayerbot.LLMCtxSize", 4096);
+    llmSlots = config.GetIntDefault("AiPlayerbot.LLMSlots", 4);
+    llmTopK = config.GetIntDefault("AiPlayerbot.LLMTopK", 64);
+    llmMaxNewTokens = config.GetIntDefault("AiPlayerbot.LLMMaxNewTokens", 120);
+    llmTemp = config.GetFloatDefault("AiPlayerbot.LLMTemp", 0.8f);
+    llmTopP = config.GetFloatDefault("AiPlayerbot.LLMTopP", 0.95f);
+    llmRepeatPenalty = config.GetFloatDefault("AiPlayerbot.LLMRepeatPenalty", 1.1f);
+    llmApiEndpoint = config.GetStringDefault("AiPlayerbot.LLMApiEndpoint", "http://127.0.0.1:5001/api/v1/generate");
+"""
+PB_LLM_IFACE_HEADER_UPSTREAM = """#include <atomic>
+#include <string>
+#include <vector>
+
+class PlayerbotLLMInterface
+{
+public:
+    PlayerbotLLMInterface() {}
+    static std::string SanitizeForJson(const std::string& input);
+
+    static std::string Generate(const std::string& prompt, int timeOutSeconds, int maxGenerations, std::vector<std::string>& debugLines);
+"""
+PB_LLM_IFACE_HEADER_ANDROID = """#include <atomic>
+#include <string>
+#include <vector>
+
+#include "PlayerbotLlamaRuntime.h"
+
+class PlayerbotLLMInterface
+{
+public:
+    PlayerbotLLMInterface() {}
+    static std::string SanitizeForJson(const std::string& input);
+
+    // routes to the in-process llama runtime when AiPlayerbot.LLMBackend = 1,
+    // otherwise to the HTTP endpoint. botGuid/source identify the caller for
+    // per-bot warm slots and the duty-cycle governor.
+    static std::string Generate(const std::string& prompt, uint32 botGuid, PlayerbotLlamaRuntime::LlmCallSource source, int timeOutSeconds, int maxGenerations, std::vector<std::string>& debugLines);
+"""
+PB_LLM_IFACE_PRIVATE_UPSTREAM = """    static void LimitContext(std::string& context, int currentLength);
+private:
+"""
+PB_LLM_IFACE_PRIVATE_ANDROID = """    static void LimitContext(std::string& context, int currentLength);
+private:
+    static std::string GenerateHttp(const std::string& prompt, int timeOutSeconds, int maxGenerations, std::vector<std::string>& debugLines);
+"""
+PB_LLM_IFACE_CPP_UPSTREAM = """std::string PlayerbotLLMInterface::Generate(const std::string& prompt, int timeOutSeconds, int maxGenerations, std::vector<std::string> & debugLines) {
+    bool debug = !debugLines.empty();
+"""
+PB_LLM_IFACE_CPP_ANDROID = """std::string PlayerbotLLMInterface::Generate(const std::string& prompt, uint32 botGuid, PlayerbotLlamaRuntime::LlmCallSource source, int timeOutSeconds, int maxGenerations, std::vector<std::string> & debugLines) {
+    if (sPlayerbotAIConfig.llmBackend == PlayerbotAIConfig::LLM_BACKEND_LLAMA)
+        return PlayerbotLlamaRuntime::Generate(prompt, botGuid, source, timeOutSeconds, debugLines);
+
+    return GenerateHttp(prompt, timeOutSeconds, maxGenerations, debugLines);
+}
+
+std::string PlayerbotLLMInterface::GenerateHttp(const std::string& prompt, int timeOutSeconds, int maxGenerations, std::vector<std::string> & debugLines) {
+    bool debug = !debugLines.empty();
+"""
+PB_SAY_HEADER_UPSTREAM = """#pragma once
+
+#include "playerbot/strategy/Action.h"
+#include "QuestAction.h"
+"""
+PB_SAY_HEADER_ANDROID = """#pragma once
+
+#include "playerbot/strategy/Action.h"
+#include "QuestAction.h"
+#include "playerbot/PlayerbotLlamaRuntime.h"
+"""
+PB_SAY_GEN_DECL_UPSTREAM = """        static delayedPackets GenerateResponsePackets(const std::string json
+            , const WorldPacket chatTemplate, const WorldPacket emoteTemplate, const WorldPacket systemTemplate, const std::string startPattern, const std::string endPattern, const std::string deletePattern, const std::string splitPattern, bool debug = false);
+"""
+PB_SAY_GEN_DECL_ANDROID = """        static delayedPackets GenerateResponsePackets(const std::string json
+            , uint32 botGuid, PlayerbotLlamaRuntime::LlmCallSource source
+            , const WorldPacket chatTemplate, const WorldPacket emoteTemplate, const WorldPacket systemTemplate, const std::string startPattern, const std::string endPattern, const std::string deletePattern, const std::string splitPattern, bool debug = false);
+"""
+PB_SAY_GEN_DEF_UPSTREAM = """delayedPackets ChatReplyAction::GenerateResponsePackets(const std::string json
+    , const WorldPacket chatTemplate, const WorldPacket emoteTemplate, const WorldPacket systemTemplate, const std::string startPattern, const std::string endPattern, const std::string deletePattern, const std::string splitPattern, bool debug)
+{
+    std::vector<std::string> debugLines;
+
+    if (debug)
+        debugLines = { json };
+
+    auto startTime = time(nullptr);
+
+    std::string response = PlayerbotLLMInterface::Generate(json, sPlayerbotAIConfig.llmGenerationTimeout, sPlayerbotAIConfig.llmMaxSimultaniousGenerations, debugLines);
+"""
+PB_SAY_GEN_DEF_ANDROID = """delayedPackets ChatReplyAction::GenerateResponsePackets(const std::string json
+    , uint32 botGuid, PlayerbotLlamaRuntime::LlmCallSource source
+    , const WorldPacket chatTemplate, const WorldPacket emoteTemplate, const WorldPacket systemTemplate, const std::string startPattern, const std::string endPattern, const std::string deletePattern, const std::string splitPattern, bool debug)
+{
+    std::vector<std::string> debugLines;
+
+    if (debug)
+        debugLines = { json };
+
+    // M1 gate: autonomous RPG chatter stays off the in-process backend until
+    // the M3 duty-cycle governor lands; only player-facing conversation runs
+    if (source == PlayerbotLlamaRuntime::LLM_SRC_RPG_CHAT && sPlayerbotAIConfig.llmBackend == PlayerbotAIConfig::LLM_BACKEND_LLAMA)
+        return {};
+
+    auto startTime = time(nullptr);
+
+    std::string response = PlayerbotLLMInterface::Generate(json, botGuid, source, sPlayerbotAIConfig.llmGenerationTimeout, sPlayerbotAIConfig.llmMaxSimultaniousGenerations, debugLines);
+"""
+PB_SAY_GATE_UPSTREAM = """    if (bot->GetPlayerbotAI() && sPlayerbotAIConfig.llmEnabled > 0 && (bot->GetPlayerbotAI()->HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3) && chatChannelSource != ChatChannelSource::SRC_UNDEFINED && sPlayerbotAIConfig.llmBlockedReplyChannels.find(chatChannelSource) == sPlayerbotAIConfig.llmBlockedReplyChannels.end()
+        )
+"""
+PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBackend == PlayerbotAIConfig::LLM_BACKEND_LLAMA;
+
+    // hard-trigger gate: the in-process backend only ever answers direct
+    // conversation (whisper / party / raid). Everything else is a non-trigger.
+    // The full event allowlist and duty-cycle governor arrive with M3.
+    bool hardTriggerAllowed = !useLlamaBackend ||
+        chatChannelSource == ChatChannelSource::SRC_WHISPER ||
+        chatChannelSource == ChatChannelSource::SRC_PARTY ||
+        chatChannelSource == ChatChannelSource::SRC_RAID;
+
+    if (bot->GetPlayerbotAI() && sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed && (bot->GetPlayerbotAI()->HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3) && chatChannelSource != ChatChannelSource::SRC_UNDEFINED && sPlayerbotAIConfig.llmBlockedReplyChannels.find(chatChannelSource) == sPlayerbotAIConfig.llmBlockedReplyChannels.end()
+        )
+"""
+PB_SAY_PROMPT_UPSTREAM = """                for (auto& prompt : jsonFill)
+                {
+                    prompt.second = PlayerbotLLMInterface::SanitizeForJson(prompt.second);
+                }
+
+                for (auto& prompt : placeholders) //Sanitize now instead of earlier to prevent double Sanitation
+                {
+                    prompt.second = PlayerbotLLMInterface::SanitizeForJson(prompt.second);
+                }
+"""
+PB_SAY_PROMPT_ANDROID = """                std::string json;
+
+                if (useLlamaBackend)
+                {
+                    // raw completion prompt - the in-process backend takes
+                    // plain text, no JSON envelope and no escaping
+                    json = jsonFill["<pre prompt>"] + " " + jsonFill["<context>"] + " " + jsonFill["<prompt>"] + " " + jsonFill["<post prompt>"];
+                }
+                else
+                {
+                    for (auto& prompt : jsonFill)
+                    {
+                        prompt.second = PlayerbotLLMInterface::SanitizeForJson(prompt.second);
+                    }
+
+                    for (auto& prompt : placeholders) //Sanitize now instead of earlier to prevent double Sanitation
+                    {
+                        prompt.second = PlayerbotLLMInterface::SanitizeForJson(prompt.second);
+                    }
+                }
+"""
+PB_SAY_JSON_DUP_UPSTREAM = """                splitPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseSplitPattern, placeholders);
+
+                std::string json = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmApiJson, jsonFill);
+
+                json = PlayerbotTextMgr::GetReplacePlaceholders(json, placeholders);
+"""
+PB_SAY_JSON_DUP_ANDROID = """                splitPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseSplitPattern, placeholders);
+
+                if (useLlamaBackend)
+                {
+                    // raw completion output: no JSON markers to cut around,
+                    // let only the delete/split patterns shape the reply
+                    startPattern.clear();
+                    endPattern.clear();
+                }
+                else
+                {
+                    json = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmApiJson, jsonFill);
+
+                    json = PlayerbotTextMgr::GetReplacePlaceholders(json, placeholders);
+                }
+"""
+PB_SAY_ASYNC_UPSTREAM = """                futurePackets futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug);
+"""
+PB_SAY_ASYNC_ANDROID = """                futurePackets futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, bot->GetGUIDLow(), PlayerbotLlamaRuntime::LLM_SRC_CHAT_REPLY, chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug);
+"""
+PB_RPG_ASYNC_UPSTREAM = """    futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug);
+"""
+PB_RPG_ASYNC_ANDROID = """    futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, bot->GetGUIDLow(), PlayerbotLlamaRuntime::LLM_SRC_RPG_CHAT, chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug);
+"""
+PB_DEBUG_GEN_UPSTREAM = """    std::string response = PlayerbotLLMInterface::Generate(json, sPlayerbotAIConfig.llmGenerationTimeout, sPlayerbotAIConfig.llmMaxSimultaniousGenerations, debugLines);
+"""
+PB_DEBUG_GEN_ANDROID = """    std::string response = PlayerbotLLMInterface::Generate(json, bot->GetGUIDLow(), PlayerbotLlamaRuntime::LLM_SRC_DEBUG, sPlayerbotAIConfig.llmGenerationTimeout, sPlayerbotAIConfig.llmMaxSimultaniousGenerations, debugLines);
+"""
+PB_SESSION_LIFETIME_UPSTREAM = """void PlayerbotAI::SendDelayedPacket(WorldSession* session, futurePackets futPackets)
+{
+    std::thread t([session, futPacket = std::move(futPackets)]() mutable {
+        for (auto& delayedPacket : futPacket.get())
+        {
+            if (delayedPacket.second)
+                std::this_thread::sleep_for(std::chrono::milliseconds(delayedPacket.second));
+
+            std::unique_ptr<WorldPacket> packetPtr(new WorldPacket(delayedPacket.first));
+            session->QueuePacket(std::move(packetPtr));
+        }
+    });
+
+    t.detach();
+}
+
+void PlayerbotAI::ReceiveDelayedPacket(futurePackets futPackets)
+{
+    PacketHandlingHelper* handler = &botOutgoingPacketHandlers;
+    std::thread t([handler, futPackets = std::move(futPackets)]() mutable {
+        for (auto& delayedPacket : futPackets.get())
+        {            
+            handler->AddPacket(delayedPacket.first);
+            if(delayedPacket.second)
+                std::this_thread::sleep_for(std::chrono::milliseconds(delayedPacket.second));
+        }
+        });
+
+    t.detach();
+}"""
+PB_SESSION_LIFETIME_ANDROID = """void PlayerbotAI::SendDelayedPacket(WorldSession* session, futurePackets futPackets)
+{
+    uint32 accountId = session->GetAccountId();
+    std::thread t([session, accountId, futPacket = std::move(futPackets)]() mutable {
+        for (auto& delayedPacket : futPacket.get())
+        {
+            // a multi-second LLM generation can outlive the session: re-validate
+            // against the session registry before every packet we queue
+            if (sWorld.FindSession(accountId) != session)
+                return;
+
+            if (delayedPacket.second)
+                std::this_thread::sleep_for(std::chrono::milliseconds(delayedPacket.second));
+
+            std::unique_ptr<WorldPacket> packetPtr(new WorldPacket(delayedPacket.first));
+            session->QueuePacket(std::move(packetPtr));
+        }
+    });
+
+    t.detach();
+}
+
+void PlayerbotAI::ReceiveDelayedPacket(futurePackets futPackets)
+{
+    PacketHandlingHelper* handler = &botOutgoingPacketHandlers;
+    ObjectGuid botGuid = bot->GetObjectGuid();
+    std::thread t([handler, botGuid, futPacket = std::move(futPackets)]() mutable {
+        for (auto& delayedPacket : futPacket.get())
+        {
+            // the bot (and with it this PlayerbotAI and its packet handlers)
+            // may be gone by the time the generation finishes
+            Player* player = sObjectAccessor.FindPlayer(botGuid);
+            if (!player || !player->GetPlayerbotAI() || &player->GetPlayerbotAI()->botOutgoingPacketHandlers != handler)
+                return;
+
+            handler->AddPacket(delayedPacket.first);
+            if(delayedPacket.second)
+                std::this_thread::sleep_for(std::chrono::milliseconds(delayedPacket.second));
+        }
+        });
+
+    t.detach();
+}"""
 PB_MGR_LOGIN_ANDROID = """void RandomPlayerbotMgr::OnBotLoginInternal(Player * const bot)
 {
     lowCpuLoginEvents.push_back(time(nullptr));
@@ -862,6 +1163,24 @@ def prepare_cmangos_source() -> None:
     replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_TELEPORT_UPSTREAM, PB_MGR_TELEPORT_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_RANDOMIZE_UPSTREAM, PB_MGR_RANDOMIZE_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_LOGIN_UPSTREAM, PB_MGR_LOGIN_ANDROID)
+    # LLM in-process backend overlays
+    (bot_root / "PlayerbotLlamaRuntime.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlamaRuntime.h").read_bytes())
+    (bot_root / "PlayerbotLlamaRuntime.cpp").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlamaRuntime.cpp").read_bytes())
+    replace_anchor(bot_root / "PlayerbotAIConfig.h", PB_LLM_CONFIG_HEADER_UPSTREAM, PB_LLM_CONFIG_HEADER_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAIConfig.cpp", PB_LLM_CONFIG_CPP_UPSTREAM, PB_LLM_CONFIG_CPP_ANDROID)
+    replace_anchor(bot_root / "PlayerbotLLMInterface.h", PB_LLM_IFACE_HEADER_UPSTREAM, PB_LLM_IFACE_HEADER_ANDROID)
+    replace_anchor(bot_root / "PlayerbotLLMInterface.h", PB_LLM_IFACE_PRIVATE_UPSTREAM, PB_LLM_IFACE_PRIVATE_ANDROID)
+    replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_LLM_IFACE_CPP_UPSTREAM, PB_LLM_IFACE_CPP_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.h", PB_SAY_HEADER_UPSTREAM, PB_SAY_HEADER_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.h", PB_SAY_GEN_DECL_UPSTREAM, PB_SAY_GEN_DECL_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_GEN_DEF_UPSTREAM, PB_SAY_GEN_DEF_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_GATE_UPSTREAM, PB_SAY_GATE_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_PROMPT_UPSTREAM, PB_SAY_PROMPT_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_JSON_DUP_UPSTREAM, PB_SAY_JSON_DUP_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_ASYNC_UPSTREAM, PB_SAY_ASYNC_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "RpgSubActions.cpp", PB_RPG_ASYNC_UPSTREAM, PB_RPG_ASYNC_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "DebugAction.cpp", PB_DEBUG_GEN_UPSTREAM, PB_DEBUG_GEN_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAI.cpp", PB_SESSION_LIFETIME_UPSTREAM, PB_SESSION_LIFETIME_ANDROID)
 
 
 def restore_cmangos_source() -> None:
@@ -971,11 +1290,21 @@ def configure_and_build(force: bool) -> tuple[Path, Path]:
 
     cmangos = NATIVE / "cmangos"
     CMANGOS_BUILD.mkdir(parents=True, exist_ok=True)
+    llama_flags = []
+    if TARGET_ABI == "arm64-v8a":
+        # in-process llama.cpp backend: vendored kai-build prebuilts, linked
+        # into pocket_world_runtime only on arm64 (compiled out on x86_64)
+        llama_flags = [
+            "-DPOCKETREALM_LLAMA=ON",
+            f"-DPOCKETREALM_LLAMA_PREBUILT={ROOT / 'native/llm/prebuilt/arm64-v8a'}",
+            f"-DPOCKETREALM_LLAMA_INCLUDE={ROOT / 'native/llm/include'}",
+        ]
     run([cmake, "-S", cmangos, "-B", CMANGOS_BUILD, *common,
          "-DBUILD_GAME_SERVER=ON", "-DBUILD_LOGIN_SERVER=ON", "-DBUILD_SCRIPTDEV=ON",
          "-DBUILD_EXTRACTORS=OFF", "-DBUILD_PLAYERBOTS=ON", "-DBUILD_AHBOT=OFF",
          "-DBUILD_DEPRECATED_PLAYERBOT=OFF", "-DBUILD_POCKET_RUNTIME=ON",
          f"-DPOCKET_RUNTIME_DIR={NATIVE / 'realm-runtime'}", "-DDO_MYSQL=ON", "-DDO_SQLITE=OFF",
+         *llama_flags,
          f"-DBOOST_ROOT={deps}", f"-DBoost_DIR={deps / 'lib' / 'cmake' / 'Boost-1.86.0'}",
          f"-DCMAKE_PREFIX_PATH={deps}",
          f"-Dboost_headers_DIR={deps / 'lib' / 'cmake' / 'boost_headers-1.86.0'}",
@@ -1005,6 +1334,8 @@ def stage(llvm: Path) -> dict:
     readelf = llvm / "llvm-readelf.exe"
     strip = llvm / "llvm-strip.exe"
     allowed = {"libz.so", "libdl.so", "libm.so", "libc++_shared.so", "libc.so"}
+    if TARGET_ABI == "arm64-v8a":
+        allowed |= {"libllama.so", "libllama-common.so", "libggml.so", "libggml-base.so", "libggml-cpu.so"}
     for name in ("libpocket_realmd_runtime.so", "libpocket_world_runtime.so"):
         source = CMANGOS_BUILD / "pocket-runtime-build" / name
         target = STAGE / name
@@ -1021,6 +1352,14 @@ def stage(llvm: Path) -> dict:
             raise RuntimeError(f"{name} is not 16 KB page-compatible: {aligns}")
         records.append({"path": target.relative_to(ROOT).as_posix(), "size": target.stat().st_size,
                         "sha256": sha256(target), "needed": needed, "load_alignments": aligns})
+    if TARGET_ABI == "arm64-v8a":
+        # vendored llama.cpp runtime ships as staged shared libraries so the
+        # Gradle jniLibs Sync picks them up with the world runtime
+        for source in sorted((ROOT / "native/llm/prebuilt/arm64-v8a").glob("*.so")):
+            target = STAGE / source.name
+            shutil.copy2(source, target)
+            records.append({"path": target.relative_to(ROOT).as_posix(), "size": target.stat().st_size,
+                            "sha256": sha256(target), "needed": [], "load_alignments": []})
     record = {
         "schema": 1, "built_at_utc": datetime.now(timezone.utc).isoformat(), "abi": TARGET_ABI,
         "min_api": 26, "elf_max_page_size": "0x4000", "playerbots": True,
@@ -1032,6 +1371,9 @@ def stage(llvm: Path) -> dict:
                                 "license": "LGPL-2.1-or-later"},
         "artifacts": records,
     }
+    if TARGET_ABI == "arm64-v8a":
+        record["llama_cpp"] = {"commit": "6d05498314db1b57f81c271080018aa2d0b89be9",
+                               "vendored": "native/llm/prebuilt/arm64-v8a"}
     PROVENANCE.parent.mkdir(parents=True, exist_ok=True)
     PROVENANCE.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
     lock_record = {key: value for key, value in record.items() if key != "built_at_utc"}

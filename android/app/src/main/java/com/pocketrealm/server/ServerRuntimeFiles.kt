@@ -3,7 +3,9 @@ package com.pocketrealm.server
 import android.content.Context
 import android.system.Os
 import android.system.OsConstants
+import com.pocketrealm.BuildConfig
 import com.pocketrealm.bots.BotProfile
+import com.pocketrealm.llm.LlmModelCoordinator
 import com.pocketrealm.storage.StorageRoots
 import com.pocketrealm.supervisor.RealmEndpoint
 import org.json.JSONObject
@@ -106,7 +108,8 @@ internal class ServerRuntimeFiles(context: Context) {
         val socket = roots.databaseRun.resolve("mariadb.sock").absolutePath
         fun db(name: String) = ".;$socket;pocket_core;$secret;$name"
         val botConfig = botProfile?.let {
-            secureWrite(File(run, "aiplayerbot-${it.id}.conf"), it.playerbotConfig())
+            secureWrite(File(run, "aiplayerbot-${it.id}.conf"),
+                it.playerbotConfig() + (debugLlmConfigOverrides() ?: ""))
         } ?: secureWrite(File(run, "aiplayerbot-disabled.conf"), """
             AiPlayerbot.Enabled = 0
             AiPlayerbot.RandomBotAutologin = 0
@@ -161,6 +164,29 @@ internal class ServerRuntimeFiles(context: Context) {
             PocketRealm.PlayerbotConfig = "${botConfig.absolutePath}"
             PocketRealm.BotTarget = ${botProfile?.initialTarget ?: 0}
         """.trimIndent() + "\n")
+    }
+
+    /**
+     * Debug-build-only playerbot LLM overrides. The in-process llama backend
+     * is opt-in for testing: it turns itself on exactly when the model GGUF
+     * has been pushed to filesDir/models (adb push + run-as on a debuggable
+     * build), so an ADB session can drive the whole feature without touching
+     * the UI. Release builds never emit these keys and the profile conf keeps
+     * its reviewed LLMEnabled = 0.
+     */
+    private fun debugLlmConfigOverrides(): String? {
+        if (!BuildConfig.DEBUG) return null
+        val model = LlmModelCoordinator.modelPath(appContext)
+        if (!model.isFile) return null
+        return """
+            AiPlayerbot.LLMEnabled = 2
+            AiPlayerbot.LLMBackend = 1
+            AiPlayerbot.LLMModelPath = "${model.absolutePath}"
+            AiPlayerbot.LLMThreads = 3
+            AiPlayerbot.LLMCpuFirstCore = 3
+            AiPlayerbot.LLMCtxSize = 4096
+            AiPlayerbot.LLMSlots = 4
+        """.trimIndent() + "\n"
     }
 
     fun writeLifecycle(component: String, clean: Boolean, operation: String, detail: String = "") {

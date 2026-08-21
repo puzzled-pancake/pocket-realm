@@ -62,5 +62,27 @@ if(BUILD_PLAYERBOTS)
     )
 endif()
 
+# In-process llama.cpp backend for playerbot LLM chat. The playerbots sources
+# compile against the vendored headers (the static target is created by the
+# CMaNGOS build from the pristine-submodule mirror); the prebuilt shared
+# libraries link only into the final world runtime so the symbols resolve at
+# the last possible link step. arm64-v8a only: the backend is compiled out on
+# every other ABI and falls back to the HTTP path.
+if(POCKETREALM_LLAMA)
+    if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
+        message(FATAL_ERROR "POCKETREALM_LLAMA is only supported on aarch64 builds")
+    endif()
+    target_compile_definitions(playerbots PRIVATE POCKETREALM_LLAMA)
+    target_include_directories(playerbots PRIVATE ${POCKETREALM_LLAMA_INCLUDE})
+    target_link_directories(pocket_world_runtime PRIVATE ${POCKETREALM_LLAMA_PREBUILT})
+    target_link_libraries(pocket_world_runtime PRIVATE
+        llama
+        llama-common
+        ggml
+        ggml-base
+        ggml-cpu
+    )
+endif()
+
 set_target_properties(pocket_realmd_runtime PROPERTIES OUTPUT_NAME pocket_realmd_runtime)
 set_target_properties(pocket_world_runtime PROPERTIES OUTPUT_NAME pocket_world_runtime)

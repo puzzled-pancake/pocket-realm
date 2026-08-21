@@ -1,0 +1,26 @@
+{
+  "abi": "arm64-v8a",
+  "llama_cpp_commit": "6d05498314db1b57f81c271080018aa2d0b89be9",
+  "libs": {
+    "libggml-base.so": {
+      "sha256": "6d901cacc60873a0218cae5b407ac30aa7b618f2889a0be3b391e6d33f757496",
+      "bytes": 1140464
+    },
+    "libggml-cpu.so": {
+      "sha256": "eab6c71e0cba93e1da745b2a3201fcb9789d3f2ad9b90ade85f5d15e301d02a6",
+      "bytes": 1601152
+    },
+    "libggml.so": {
+      "sha256": "63d25ad462e30b506e533a558523197d76b4102638742786ecb6bda450b09454",
+      "bytes": 121848
+    },
+    "libllama-common.so": {
+      "sha256": "488edb5155235f7055b212a407bff59dfd2769cceeb62a3496c24a6a934ed485",
+      "bytes": 4648120
+    },
+    "libllama.so": {
+      "sha256": "ebdddbf08658c81d7a6866a7d5f4bbf516d1cb78ba1ff2143eaa39a4d3dc24f9",
+      "bytes": 3084736
+    }
+  }
+}

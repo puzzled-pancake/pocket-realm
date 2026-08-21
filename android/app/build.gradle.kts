@@ -294,6 +294,13 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
                 if (abi == "arm64-v8a") {
                     add(File(nativeBuildRoot, "xserver-winlator-build/libvortekrenderer.so"))
                     add(File(nativeBuildRoot, "xserver-winlator-build/libvirglrenderer.so"))
+                    // Vendored llama.cpp runtime staged by O09 alongside the
+                    // world runtime it links into (in-process LLM backend).
+                    for (name in listOf("libllama.so", "libllama-common.so", "libggml.so",
+                            "libggml-base.so", "libggml-cpu.so")) {
+                        add(File(repoRoot,
+                            "native/.build-o09-$abi/realm-staging/jniLibs/$abi/$name"))
+                    }
                 }
             }
             // The glibc access(2) shim belongs only to the x86_64 direct-Wine
@@ -374,6 +381,26 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
             check((artifact["size"] as Number).toLong() == patcher.length() &&
                 artifact["sha256"] == sha256(patcher)) {
                 "vanilla-tweaks artifact differs from its pinned size/SHA-256"
+            }
+        }
+        if (abi == "arm64-v8a" && selectedLane == "full") {
+            // The vendored llama.cpp shared libraries must byte-match the
+            // pinned kai build in native/llm/prebuilt before they ride the
+            // realm staging dir into the APK.
+            val llamaLock = File(repoRoot, "native/llm/lockfile-arm64-v8a.json")
+            check(llamaLock.isFile) { "Missing vendored llama lockfile: $llamaLock" }
+            val llamaRecord = JsonSlurper().parse(llamaLock) as Map<*, *>
+            check(llamaRecord["abi"] == "arm64-v8a") { "Vendored llama lockfile ABI mismatch" }
+            val llamaLibs = llamaRecord["libs"] as Map<*, *>
+            check(llamaLibs.size == 5) { "Unexpected vendored llama lib set: ${llamaLibs.keys}" }
+            for ((name, metaAny) in llamaLibs) {
+                val meta = metaAny as Map<*, *>
+                val staged = File(repoRoot,
+                    "native/.build-o09-$abi/realm-staging/jniLibs/$abi/$name")
+                check((meta["bytes"] as Number).toLong() == staged.length() &&
+                    meta["sha256"] == sha256(staged)) {
+                    "Vendored llama library $name differs from its pinned size/SHA-256"
+                }
             }
         }
         if (abi == "arm64-v8a" && selectedLane == "full") {
