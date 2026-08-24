@@ -13,7 +13,7 @@ computer-controlled companions comes up and shuts down safely.
 **Status: alpha (0.100.2-alpha).** Screens and wording may change. See the
 [wiki](docs/wiki/README.md) for what works today.
 
-**Community:** join the [Discord server](https://discord.gg/gSwPgQUtbQ) for
+**Community:** join the [Discord server](https://discord.gg/zaWt96MrMY) for
 release announcements, troubleshooting help, and feature discussion.
 
 ## Devices
