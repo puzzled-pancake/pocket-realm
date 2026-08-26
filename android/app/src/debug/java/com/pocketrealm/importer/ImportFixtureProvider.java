@@ -20,6 +20,7 @@ public final class ImportFixtureProvider extends DocumentsProvider {
     private static final String VALID = "valid";
     private static final String WRONG = "wrong";
     private static final String HOST = "host";
+    private static final String ARCHIVES = "archives";
     private static final List<String> MPQS = Arrays.asList(
         "base.MPQ", "dbc.MPQ", "fonts.MPQ", "interface.MPQ", "misc.MPQ", "model.MPQ",
         "sound.MPQ", "speech.MPQ", "terrain.MPQ", "texture.MPQ", "wmo.MPQ");
@@ -39,6 +40,13 @@ public final class ImportFixtureProvider extends DocumentsProvider {
             .add(DocumentsContract.Root.COLUMN_DOCUMENT_ID, VALID)
             .add(DocumentsContract.Root.COLUMN_TITLE, "O11 fixture")
             .add(DocumentsContract.Root.COLUMN_FLAGS, 0);
+        File archives = archivesRoot();
+        if (archives.isDirectory()) {
+            cursor.newRow().add(DocumentsContract.Root.COLUMN_ROOT_ID, ARCHIVES)
+                .add(DocumentsContract.Root.COLUMN_DOCUMENT_ID, ARCHIVES)
+                .add(DocumentsContract.Root.COLUMN_TITLE, "O11 archive fixtures")
+                .add(DocumentsContract.Root.COLUMN_FLAGS, 0);
+        }
         File host = hostRoot();
         if (host.isDirectory()) {
             cursor.newRow().add(DocumentsContract.Root.COLUMN_ROOT_ID, HOST)
@@ -64,6 +72,11 @@ public final class ImportFixtureProvider extends DocumentsProvider {
     @Override public ParcelFileDescriptor openDocument(String id, String mode, CancellationSignal signal)
         throws java.io.FileNotFoundException {
         if (!"r".equals(mode)) throw new java.io.FileNotFoundException("fixture is read-only");
+        if (isArchive(id)) {
+            File file = archiveFile(id);
+            if (!file.isFile()) throw new java.io.FileNotFoundException(id);
+            return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
+        }
         if (isHost(id)) {
             File file = hostFile(id);
             if (!file.isFile()) throw new java.io.FileNotFoundException(id);
@@ -88,6 +101,14 @@ public final class ImportFixtureProvider extends DocumentsProvider {
 
     private List<String> children(String parent) {
         List<String> values = new ArrayList<>();
+        if (isArchive(parent)) {
+            File[] files = archivesRoot().listFiles();
+            if (files != null) {
+                Arrays.sort(files, (left, right) -> left.getName().compareToIgnoreCase(right.getName()));
+                for (File file : files) values.add(parent + ":" + file.getName());
+            }
+            return values;
+        }
         if (isHost(parent)) {
             File directory = hostFile(parent);
             File[] files = directory.listFiles();
@@ -107,6 +128,18 @@ public final class ImportFixtureProvider extends DocumentsProvider {
     }
 
     private void addDocument(MatrixCursor cursor, String id) {
+        if (isArchive(id)) {
+            File file = archiveFile(id);
+            cursor.newRow().add(DocumentsContract.Document.COLUMN_DOCUMENT_ID, id)
+                .add(DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                    ARCHIVES.equals(id) ? "O11 archive fixtures" : file.getName())
+                .add(DocumentsContract.Document.COLUMN_MIME_TYPE, ARCHIVES.equals(id)
+                    ? DocumentsContract.Document.MIME_TYPE_DIR : "application/octet-stream")
+                .add(DocumentsContract.Document.COLUMN_SIZE, file.isFile() ? file.length() : 0L)
+                .add(DocumentsContract.Document.COLUMN_LAST_MODIFIED, file.lastModified())
+                .add(DocumentsContract.Document.COLUMN_FLAGS, 0);
+            return;
+        }
         if (isHost(id)) {
             File file = hostFile(id);
             cursor.newRow().add(DocumentsContract.Document.COLUMN_DOCUMENT_ID, id)
@@ -153,6 +186,27 @@ public final class ImportFixtureProvider extends DocumentsProvider {
 
     private static boolean isHost(String id) {
         return HOST.equals(id) || id.startsWith(HOST + ":");
+    }
+
+    private static boolean isArchive(String id) {
+        return ARCHIVES.equals(id) || id.startsWith(ARCHIVES + ":");
+    }
+
+    private File archivesRoot() {
+        return new File(getContext().getExternalFilesDir(null), "archives");
+    }
+
+    private File archiveFile(String id) {
+        try {
+            File root = archivesRoot().getCanonicalFile();
+            if (ARCHIVES.equals(id)) return root;
+            String name = id.substring((ARCHIVES + ":").length());
+            File file = new File(root, name).getCanonicalFile();
+            if (!file.toPath().startsWith(root.toPath())) throw new SecurityException("archive escaped root");
+            return file;
+        } catch (java.io.IOException error) {
+            throw new IllegalStateException(error);
+        }
     }
 
     private File hostRoot() {

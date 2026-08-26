@@ -178,7 +178,23 @@ class ImportJournal(context: Context) : AutoCloseable {
                 "attempt=attempt+1, last_error=NULL, fsync_marker=0 WHERE import_id=? AND relative_path=?",
             arrayOf(tempName, importId, entry.relativePath),
         )
-        update(importId, ImportPhase.COPYING, entry.relativePath)
+        update(importId, copyPhaseFor(importId), entry.relativePath)
+    }
+
+    /** Archive lanes surface the copy loop as EXTRACTING; folder lanes keep COPYING. */
+    private fun copyPhaseFor(importId: String): ImportPhase {
+        val kind = helper.readableDatabase.rawQuery(
+            "SELECT source_kind FROM imports WHERE import_id=?", arrayOf(importId),
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+        return if (kind == ImportSourceKind.ARCHIVE.name) ImportPhase.EXTRACTING else ImportPhase.COPYING
+    }
+
+    /** Archive lane: adopt the classified inventory's totals after detection. */
+    fun commitInventory(importId: String, fileCount: Int, totalBytes: Long, fingerprint: String) {
+        helper.writableDatabase.execSQL(
+            "UPDATE imports SET files_total=?, bytes_total=?, source_fingerprint=?, updated_at_ms=? WHERE import_id=?",
+            arrayOf<Any?>(fileCount, totalBytes, fingerprint, System.currentTimeMillis(), importId),
+        )
     }
 
     /**
@@ -192,7 +208,7 @@ class ImportJournal(context: Context) : AutoCloseable {
                 "WHERE import_id=? AND relative_path=?",
             arrayOf(importId, entry.relativePath),
         )
-        update(importId, ImportPhase.COPYING, entry.relativePath)
+        update(importId, copyPhaseFor(importId), entry.relativePath)
     }
 
     /**
@@ -205,7 +221,7 @@ class ImportJournal(context: Context) : AutoCloseable {
             "UPDATE files SET bytes_copied=? WHERE import_id=? AND relative_path=?",
             arrayOf<Any?>(copiedBytes, importId, entry.relativePath),
         )
-        update(importId, ImportPhase.COPYING, entry.relativePath)
+        update(importId, copyPhaseFor(importId), entry.relativePath)
     }
 
     fun markVerified(importId: String, entry: ImportSourceEntry, sha256: String, copiedBytes: Long) {
@@ -214,7 +230,7 @@ class ImportJournal(context: Context) : AutoCloseable {
                 "last_error=NULL, fsync_marker=1 WHERE import_id=? AND relative_path=?",
             arrayOf<Any?>(copiedBytes, sha256, importId, entry.relativePath),
         )
-        update(importId, ImportPhase.COPYING, entry.relativePath)
+        update(importId, copyPhaseFor(importId), entry.relativePath)
     }
 
     fun markSkipped(importId: String, entry: ImportSourceEntry, reason: String) {
@@ -223,7 +239,7 @@ class ImportJournal(context: Context) : AutoCloseable {
                 "fsync_marker=1 WHERE import_id=? AND relative_path=?",
             arrayOf(reason.take(512), importId, entry.relativePath),
         )
-        update(importId, ImportPhase.COPYING, entry.relativePath)
+        update(importId, copyPhaseFor(importId), entry.relativePath)
     }
 
     fun markFileFailed(importId: String, entry: ImportSourceEntry, error: Throwable) {
@@ -388,7 +404,7 @@ class ImportJournal(context: Context) : AutoCloseable {
 
     fun latest(): ImportStatus = helper.readableDatabase.rawQuery(
         "SELECT import_id, phase, source_kind, source_fingerprint, source_uri, files_processed, files_total, bytes_copied, " +
-            "bytes_total, last_relative_path, warning_count, last_error, active_generation, updated_at_ms " +
+            "bytes_total, last_relative_path, staged_bytes, warning_count, last_error, active_generation, updated_at_ms " +
             "FROM imports ORDER BY created_at_ms DESC LIMIT 1", emptyArray(),
     ).use { cursor ->
         if (!cursor.moveToFirst()) ImportStatus() else ImportStatus(
@@ -397,8 +413,9 @@ class ImportJournal(context: Context) : AutoCloseable {
             sourceFingerprint = cursor.getString(3), sourceUri = cursor.getString(4),
             filesProcessed = cursor.getInt(5),
             filesTotal = cursor.getInt(6), bytesCopied = cursor.getLong(7), bytesTotal = cursor.getLong(8),
-            lastRelativePath = cursor.getString(9), warningCount = cursor.getInt(10),
-            lastError = cursor.getString(11), activeGeneration = cursor.getString(12), updatedAtMs = cursor.getLong(13),
+            lastRelativePath = cursor.getString(9), stagedBytes = cursor.getLong(10),
+            warningCount = cursor.getInt(11),
+            lastError = cursor.getString(12), activeGeneration = cursor.getString(13), updatedAtMs = cursor.getLong(14),
         )
     }
 

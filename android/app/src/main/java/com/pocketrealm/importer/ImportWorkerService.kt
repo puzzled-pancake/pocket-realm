@@ -49,7 +49,9 @@ class ImportWorkerService : Service() {
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action != ACTION_IMPORT || task?.isActive == true) return START_REDELIVER_INTENT
+        if (task?.isActive == true) return START_REDELIVER_INTENT
+        if (intent?.action == ACTION_IMPORT_ARCHIVE) return startArchiveImport(intent, startId)
+        if (intent?.action != ACTION_IMPORT) return START_REDELIVER_INTENT
         val rawUri = intent.getStringExtra(EXTRA_TREE_URI) ?: return START_NOT_STICKY
         val testProfile = intent.getBooleanExtra(EXTRA_TEST_PROFILE, false) && BuildConfig.DEBUG
         val interruptAfter = if (testProfile) intent.getIntExtra(EXTRA_INTERRUPT_AFTER, 0) else 0
@@ -114,6 +116,64 @@ class ImportWorkerService : Service() {
         super.onDestroy()
     }
 
+    private fun startArchiveImport(intent: Intent, startId: Int): Int {
+        val rawUri = intent.getStringExtra(EXTRA_TREE_URI) ?: return START_NOT_STICKY
+        val expectedBytes = intent.getLongExtra(EXTRA_ARCHIVE_BYTES, -1L)
+        if (expectedBytes <= 0L) return START_NOT_STICKY
+        val testProfile = intent.getBooleanExtra(EXTRA_TEST_PROFILE, false) && BuildConfig.DEBUG
+        val interruptAfter = if (testProfile) intent.getIntExtra(EXTRA_INTERRUPT_AFTER, 0) else 0
+        val interruptPoint = if (testProfile) intent.getStringExtra(EXTRA_INTERRUPT_POINT) else null
+        startForegroundCompat("Copying archive into Pocket Realm…")
+        ImportProcessMetricsSampler.markStarted(applicationContext)
+        wakeLock = getSystemService(PowerManager::class.java)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:o11-import")
+            .apply { acquire(8L * 60L * 60L * 1000L) }
+        task = scope.launch {
+            val importer = if (testProfile) ManagedClientImporter(
+                applicationContext,
+                ImportLimits(minFiles = 3, minTotalBytes = 1, maxFiles = 128, maxTotalBytes = 64L shl 20),
+                storagePlanner = ImportStoragePlanner(
+                    applicationContext, extractedEstimate = 0, wineEstimate = 0,
+                    minimumReserve = 16L shl 20,
+                ),
+                prepareData = false,
+            ) else ManagedClientImporter(
+                applicationContext,
+                prepareData = BuildConfig.ENABLE_CLIENT_DATA_PREPARATION,
+            )
+            try {
+                importer.runArchive(
+                    Uri.parse(rawUri),
+                    expectedBytes,
+                    afterStaging = { if (interruptPoint == INTERRUPT_AFTER_STAGING) killTestProcess() },
+                    afterDetection = { if (interruptPoint == INTERRUPT_AFTER_DETECTION) killTestProcess() },
+                    afterVerified = { verified ->
+                        updateNotification(importer)
+                        if (interruptAfter > 0 && verified >= interruptAfter) killTestProcess()
+                    },
+                    beforePublish = { if (interruptPoint == INTERRUPT_BEFORE_PUBLISH) killTestProcess() },
+                    afterRenameBeforeActivate = {
+                        if (interruptPoint == INTERRUPT_AFTER_RENAME) killTestProcess()
+                    },
+                    onDataStageTick = { notifyDataStageTick(importer) },
+                )
+                updateNotification(importer)
+            } catch (_: CancellationException) {
+                // The durable journal remains PAUSED and can be resumed safely.
+            } catch (_: Throwable) {
+                updateNotification(importer)
+            } finally {
+                importer.close()
+                ImportProcessMetricsSampler.markStopped(applicationContext)
+                wakeLock?.let { if (it.isHeld) it.release() }
+                wakeLock = null
+                ServiceCompat.stopForeground(this@ImportWorkerService, ServiceCompat.STOP_FOREGROUND_DETACH)
+                stopSelf(startId)
+            }
+        }
+        return if (testProfile) START_NOT_STICKY else START_REDELIVER_INTENT
+    }
+
     private fun startForegroundCompat(text: String) {
         ServiceCompat.startForeground(
             this, NOTIFICATION_ID, notification(text),
@@ -167,10 +227,14 @@ class ImportWorkerService : Service() {
 
     companion object {
         private const val ACTION_IMPORT = "com.pocketrealm.action.IMPORT_CLIENT"
+        private const val ACTION_IMPORT_ARCHIVE = "com.pocketrealm.action.IMPORT_CLIENT_ARCHIVE"
         private const val EXTRA_TREE_URI = "tree_uri"
+        private const val EXTRA_ARCHIVE_BYTES = "archive_bytes"
         private const val EXTRA_TEST_PROFILE = "test_profile"
         private const val EXTRA_INTERRUPT_AFTER = "interrupt_after"
         private const val EXTRA_INTERRUPT_POINT = "interrupt_point"
+        const val INTERRUPT_AFTER_STAGING = "AFTER_STAGING"
+        const val INTERRUPT_AFTER_DETECTION = "AFTER_DETECTION"
         const val INTERRUPT_BEFORE_PUBLISH = "BEFORE_PUBLISH"
         const val INTERRUPT_AFTER_RENAME = "AFTER_RENAME_BEFORE_ACTIVATE"
         private const val CHANNEL = "client_import"
@@ -187,6 +251,39 @@ class ImportWorkerService : Service() {
             if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
         }
 
+        fun startArchive(
+            context: Context, uri: Uri, expectedBytes: Long, testProfile: Boolean = false,
+            interruptAfter: Int = 0, interruptPoint: String? = null,
+        ) {
+            val intent = Intent(context, ImportWorkerService::class.java).setAction(ACTION_IMPORT_ARCHIVE)
+                .putExtra(EXTRA_TREE_URI, uri.toString()).putExtra(EXTRA_ARCHIVE_BYTES, expectedBytes)
+                .putExtra(EXTRA_TEST_PROFILE, testProfile)
+                .putExtra(EXTRA_INTERRUPT_AFTER, interruptAfter).putExtra(EXTRA_INTERRUPT_POINT, interruptPoint)
+            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
+        }
+
+        /**
+         * Watchdog/resume routing: restart whichever lane the durable journal
+         * describes — the archive lane's staged file anchors the restart size.
+         */
+        fun resumeActive(context: Context, uri: String, testProfile: Boolean = false): Boolean {
+            ManagedClientImporter(context).use { importer ->
+                val status = importer.status()
+                if (status.sourceUri != uri) return false
+                return when (status.sourceKind) {
+                    ImportSourceKind.ARCHIVE -> {
+                        val size = if (status.stagedBytes > 0) status.stagedBytes else status.bytesTotal
+                        if (size <= 0) false else {
+                            startArchive(context, Uri.parse(uri), size, testProfile); true
+                        }
+                    }
+                    ImportSourceKind.TREE -> {
+                        start(context, Uri.parse(uri), testProfile); true
+                    }
+                }
+            }
+        }
+
         private fun killTestProcess(): Nothing {
             android.os.Process.killProcess(android.os.Process.myPid())
             throw AssertionError("killProcess returned")
@@ -198,6 +295,7 @@ class ImportWorkerService : Service() {
             val activeFile = importer.activeFile(value.importId)
             val metrics = ImportProcessMetricsSampler.sample(context.applicationContext)
             JSONObject().put("schema", 2).put("phase", value.phase.name)
+                .put("sourceKind", value.sourceKind.name).put("stagedBytes", value.stagedBytes)
                 .put("filesProcessed", value.filesProcessed).put("filesTotal", value.filesTotal)
                 .put("bytesCopied", value.bytesCopied).put("bytesTotal", value.bytesTotal)
                 .put("lastRelativePath", value.lastRelativePath).put("warningCount", value.warningCount)

@@ -21,7 +21,9 @@ class ImportExtractionPolicy(
         data class ExcludeRoot(val reason: String) : Decision
     }
 
-    data class RawEntry(val rawName: String, val directory: Boolean, val size: Long)
+    /** [rawName] is client-root-relative (pre-normalization); [rawKey] is the
+     *  original archive entry name (wrapper included) the source opens by. */
+    data class RawEntry(val rawName: String, val directory: Boolean, val size: Long, val rawKey: String = rawName)
 
     data class Excluded(val relativePath: String, val reason: String)
 
@@ -41,6 +43,7 @@ class ImportExtractionPolicy(
         var fileCount = 0
         var totalBytes = 0L
         for (raw in entries.sortedBy { it.rawName }) {
+            val rawKey = raw.rawKey
             val normalized = normalizeEntry(raw.rawName)
             val key = paths.caseFoldKey(normalized)
             val previous = folded.putIfAbsent(key, normalized to raw.directory)
@@ -62,7 +65,7 @@ class ImportExtractionPolicy(
                     excluded += Excluded(normalized, "non-client root directory")
                     continue
                 }
-                copy += ImportSourceEntry(normalized, normalized, true, 0, 0, "dir")
+                copy += ImportSourceEntry(rawKey, normalized, true, 0, 0, "dir")
                 continue
             }
             if (raw.size < 0) throw ImportRejected("VAL-08: archive entry omitted size: $normalized")
@@ -73,7 +76,7 @@ class ImportExtractionPolicy(
             if (raw.size > limits.maxFileBytes) {
                 throw ImportRejected("VAL-08: file exceeds ${limits.maxFileBytes} bytes: $normalized")
             }
-            copy += ImportSourceEntry(normalized, normalized, false, raw.size, 0, "file")
+            copy += ImportSourceEntry(rawKey, normalized, false, raw.size, 0, "file")
             fileCount++
             if (fileCount > limits.maxFiles) throw ImportRejected("VAL-08: file count exceeds ${limits.maxFiles}")
             totalBytes = Math.addExact(totalBytes, raw.size)

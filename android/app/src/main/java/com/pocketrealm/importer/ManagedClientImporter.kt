@@ -76,6 +76,163 @@ class ManagedClientImporter(
         }
     }
 
+    /**
+     * Archive lane: stage the picked archive into app storage (resumable,
+     * journal row first), detect the client inside, then run the same
+     * copy/verify/publish pipeline against an [ImportSource] over the staged
+     * file. The staged `.pkg` anchors crash resume (path + digest) and is
+     * deleted immediately after publish, before data preparation, so the
+     * staged copy never stacks on the prepared-server-data footprint.
+     */
+    suspend fun runArchive(
+        archiveUri: Uri,
+        expectedBytes: Long,
+        afterStaging: () -> Unit = {},
+        afterDetection: () -> Unit = {},
+        afterVerified: (Int) -> Unit = {},
+        beforePublish: () -> Unit = {},
+        afterRenameBeforeActivate: () -> Unit = {},
+        onDataStageTick: () -> Unit = {},
+    ): ImportResult = withContext(Dispatchers.IO) {
+        val started = android.os.SystemClock.elapsedRealtime()
+        val importLease = ClientGenerationLease.acquireImportOperation(
+            File(context.noBackupFilesDir, "client"),
+        )
+        val stagedStore = StagedArchiveStore(context)
+        try {
+            stagedStore.reconcile(activeImportIds = emptySet())
+            val staging = journal.beginStagingOrResume(archiveUri, expectedBytes)
+            val importId = staging.importId
+            val stagedFile = stagedStore.stagedFile(importId)
+            val partial = stagedStore.partialFor(importId)
+            try {
+                val alreadyStaged = stagedFile.isFile && stagedFile.length() == expectedBytes
+                val sourceFile = if (alreadyStaged) {
+                    stagedFile
+                } else {
+                    val resumeFrom = stagedStore.resumableBytes(importId, expectedBytes)
+                    if (resumeFrom == 0L) partial.delete()
+                    val copied = StagedArchiveCopier().copy(
+                        partial, expectedBytes, resumeFrom,
+                        {
+                            context.contentResolver.openInputStream(archiveUri)
+                                ?: throw ImportRejected("VAL-13: selected archive is unreadable")
+                        },
+                        { journal.touchStaging(importId, it) },
+                        { coroutineContext.ensureActive() },
+                    )
+                    check(copied == expectedBytes) { "SOURCE_CHANGED: staged $copied bytes, expected $expectedBytes" }
+                    stagedStore.promotePartial(importId)
+                    afterStaging()
+                    stagedFile
+                }
+
+                val header = java.io.RandomAccessFile(stagedFile, "r").use { raf ->
+                    ByteArray(ArchiveFormatSniffer.HEADER_BYTES).also { raf.readFully(it) }
+                }
+                var format = ArchiveFormatSniffer.sniff(header)
+                if (format == ArchiveFormat.UNKNOWN) {
+                    val probe = java.io.RandomAccessFile(stagedFile, "r").use { raf ->
+                        raf.seek(0x8001)
+                        ByteArray(5).also { raf.readFully(it) }
+                    }
+                    if (ArchiveFormatSniffer.isIso(probe)) format = ArchiveFormat.ISO
+                }
+                val rawEntries = when (format) {
+                    ArchiveFormat.ZIP -> listZipEntries(stagedFile)
+                    ArchiveFormat.SEVEN_ZIP -> listSevenZipEntries(stagedFile)
+                    else -> null
+                }
+                val quick = ArchiveQuickCheck.evaluate(format, rawEntries?.map { it.name })
+                if (quick is ArchiveQuickCheck.Verdict.Reject) throw ImportRejected(quick.failure)
+                if (rawEntries != null && rawEntries.any { it.encrypted }) {
+                    throw ImportRejected(
+                        "VAL-13: the archive is password-protected — Pocket Realm cannot open encrypted archives; " +
+                            "re-pack it without a password (or extract on a PC and import the folder)",
+                    )
+                }
+
+                val reader: ArchiveClientScanner.EntryReader = when (format) {
+                    ArchiveFormat.ZIP -> ArchiveClientScanner.EntryReader { name, maxBytes ->
+                        readZipEntry(stagedFile, name, maxBytes)
+                    }
+                    ArchiveFormat.SEVEN_ZIP -> ArchiveClientScanner.EntryReader { name, maxBytes ->
+                        readSevenZipEntry(stagedFile, name, maxBytes)
+                    }
+                    else -> throw ImportRejected(ArchiveQuickCheck.VAL13_UNSUPPORTED)
+                }
+                val detection = ArchiveClientScanner(limits).scan(rawEntries!!, reader)
+                if (!detection.scan.supported || detection.scan.clientId != ClientRuntimeContract.WOW_5875_ID) {
+                    throw ImportRejected(detection.scan.failures.joinToString("; ").ifBlank { "unsupported client archive" })
+                }
+                afterDetection()
+                journal.finishStaging(
+                    importId, stagedFile.absolutePath, expectedBytes,
+                    com.pocketrealm.fs.FileDigests.sha256(stagedFile),
+                )
+                journal.update(
+                    importId, ImportPhase.DISCOVERING,
+                    "detected ${detection.scan.version} · ${detection.variant ?: "flat client"}" +
+                        (detection.locale?.let { " · $it" } ?: "") +
+                        (detection.excluded.takeIf { it.isNotEmpty() }?.let { " · ${it.size} entries excluded" } ?: ""),
+                )
+
+                val source: ImportSource = when (format) {
+                    ArchiveFormat.ZIP -> ZipArchiveSource(stagedFile, detection.classified)
+                    ArchiveFormat.SEVEN_ZIP -> SevenZipArchiveSource(stagedFile, detection.classified)
+                    else -> throw ImportRejected(ArchiveQuickCheck.VAL13_UNSUPPORTED)
+                }
+                source.use {
+                    val inventory = it.inventory()
+                    val storage = storagePlanner.plan(inventory.totalBytes, expectedBytes)
+                    if (!storage.canProceed) {
+                        throw ImportRejected("STORAGE_PREFLIGHT: need=${storage.requiredBytes} allocatable=${storage.allocatableBytes}")
+                    }
+                    recoverAndFinish(importId, inventory, storage, detection.scan, onDataStageTick)?.let { result ->
+                        stagedStore.delete(importId)
+                        return@withContext result
+                    }
+                    journal.commitInventory(importId, inventory.fileCount, inventory.totalBytes, inventory.fingerprint)
+                    journal.recordInventory(importId, inventory.entries)
+                    val stagingDir = generations.prepare(importId)
+                    try {
+                        val copy = CopyContext(importId, ByteArray(COPY_BUFFER))
+                        copyAllEntries(copy, it, inventory, stagingDir, afterVerified)
+                        verifyManagedCopy(importId, stagingDir)
+                        check(it.inventory().fingerprint == inventory.fingerprint) {
+                            "SOURCE_CHANGED: staged archive changed during import"
+                        }
+                        val published = publishManaged(
+                            PublishInputs(importId, detection.scan, inventory, started), beforePublish, afterRenameBeforeActivate,
+                        )
+                        stagedStore.delete(importId) // free the staged bytes before data preparation
+                        if (prepareData) dataStore.prepare(importId, published.root, onDataStageTick)
+                        journal.complete(importId, published.id)
+                        recordBenchmark(importId)
+                        ImportResult(importId, published.id, inventory, storage, detection.scan.warnings)
+                    } catch (error: Throwable) {
+                        if (error !is ImportInterrupted && error !is kotlinx.coroutines.CancellationException &&
+                            journal.latest().phase != ImportPhase.FAILED) {
+                            journal.fail(importId, error.message ?: error.javaClass.simpleName)
+                        }
+                        throw error
+                    }
+                }
+            } catch (error: Throwable) {
+                if (error is kotlinx.coroutines.CancellationException) {
+                    journal.update(importId, ImportPhase.PAUSED, null, error.message)
+                } else if (error is ImportRejected) {
+                    // A permanent validation rejection never resumes: drop the
+                    // staged copy now so multi-GB orphans cannot linger.
+                    stagedStore.delete(importId)
+                }
+                throw error
+            }
+        } finally {
+            importLease.close()
+        }
+    }
+
     /** An already-published generation for this import finishes immediately. */
     private suspend fun recoverAndFinish(
         importId: String,

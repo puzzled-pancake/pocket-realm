@@ -103,6 +103,7 @@ data class ImportStatus(
     val bytesCopied: Long = 0,
     val bytesTotal: Long = 0,
     val lastRelativePath: String? = null,
+    val stagedBytes: Long = 0,
     val warningCount: Int = 0,
     val lastError: String? = null,
     val activeGeneration: String? = null,

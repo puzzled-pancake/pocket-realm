@@ -16,7 +16,7 @@ internal class ArchiveClientScanner(
     private val policy: ImportExtractionPolicy = ImportExtractionPolicy(limits),
 ) {
     /** Raw archive entry: name exactly as stored (may use backslashes). */
-    data class RawEntry(val name: String, val directory: Boolean, val size: Long)
+    data class RawEntry(val name: String, val directory: Boolean, val size: Long, val encrypted: Boolean = false)
 
     /** Reads up to [maxBytes] of a raw entry (random access for the folder of entries). */
     fun interface EntryReader {
@@ -42,7 +42,7 @@ internal class ArchiveClientScanner(
             val unified = entry.name.replace('\\', '/').trimEnd('/')
             val relative = rebase(entry.name, rootPrefix)
             when {
-                relative != null -> rebased += ImportExtractionPolicy.RawEntry(relative, entry.directory, entry.size)
+                relative != null -> rebased += ImportExtractionPolicy.RawEntry(relative, entry.directory, entry.size, entry.name)
                 unified.equals(wrapperItself, true) || unified.isEmpty() -> Unit // the wrapper entry itself
                 else -> outsideRoot += ImportExtractionPolicy.Excluded(unified, "outside client root")
             }

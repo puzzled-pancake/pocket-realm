@@ -61,6 +61,12 @@ private const val MAX_WATCHDOG_RESTARTS = 4
 private const val WATCHDOG_RESTART_INTERVAL_MS = 60_000L
 private const val NOTICE_STICKY_MS = 10_000L
 
+/** SAF providers label client archives inconsistently; octet-stream is the practical catch-all. */
+private val ARCHIVE_MIME_TYPES = arrayOf(
+    "application/zip", "application/x-zip-compressed", "application/x-7z-compressed",
+    "application/x-rar-compressed", "application/vnd.rar", "application/octet-stream",
+)
+
 /**
  * Managed client import, server-data generation, and the import benchmark.
  * Picking the client folder again after a completed import starts a fresh
@@ -74,6 +80,9 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) ui.onFolderPicked(context, uri)
     }
+    val archivePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) ui.onArchivePicked(context, uri)
+    }
 
     // The first-run tutorial's final call-to-action arms a one-shot so
     // arriving here opens the picker immediately. Consume before launching
@@ -84,25 +93,35 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
         }
     }
 
-    ui.pendingImport?.let { uri ->
+    ui.pendingImport?.let { pending ->
         AlertDialog(
             onDismissRequest = { ui.pendingImport = null },
-            title = { Text("Import the game files?") },
+            title = { Text(if (pending.isArchive) "Install from this archive?" else "Import the game files?") },
             text = {
                 Text(
-                    "This copies and verifies the WoW 1.12.1 client, then builds the " +
-                        "server's maps, collision and navmesh data. Depending on the " +
-                        "device this can take over 30 minutes. Keep the device plugged " +
-                        "in and awake. The selected folder is only read, never modified. " +
-                        "The folder must be the plain, already-extracted (uncompressed) " +
-                        "WoW 1.12.1 client itself — not an installer, launcher, or archive.",
+                    if (pending.isArchive) {
+                        val gigabytes = pending.expectedBytes / 1_000_000_000.0
+                        "Pocket Realm copies the ${"%.1f".format(gigabytes)} GB archive into app storage, " +
+                            "detects the WoW 1.12.1 client inside, extracts and verifies it, then builds " +
+                            "the server's maps, collision and navmesh data. Plan for well over 30 minutes " +
+                            "and roughly twice the archive size in free space during install; keep the " +
+                            "device plugged in and awake. The archive itself is only read, never modified, " +
+                            "and the staged copy is deleted after the client is published."
+                    } else {
+                        "This copies and verifies the WoW 1.12.1 client, then builds the " +
+                            "server's maps, collision and navmesh data. Depending on the " +
+                            "device this can take over 30 minutes. Keep the device plugged " +
+                            "in and awake. The selected folder is only read, never modified. " +
+                            "The folder must be the plain, already-extracted (uncompressed) " +
+                            "WoW 1.12.1 client itself — not an installer or launcher."
+                    },
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     ui.pendingImport = null
-                    ui.startImport(context, uri)
-                }) { Text("Start import") }
+                    ui.startImport(context, pending)
+                }) { Text(if (pending.isArchive) "Install" else "Start import") }
             },
             dismissButton = {
                 TextButton(onClick = { ui.pendingImport = null }) { Text("Cancel") }
@@ -123,7 +142,7 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
                 if (ui.applyStatus(value)) return@LaunchedEffect
             }
             ui.takePendingRestart()?.let { restartUri ->
-                runCatching { ImportWorkerService.start(context, restartUri) }
+                runCatching { ImportWorkerService.resumeActive(context, restartUri.toString()) }
             }
             delay(1_000)
         }
@@ -136,6 +155,9 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
     ) {
         Text("Game setup", style = MaterialTheme.typography.headlineSmall)
         Text("Import the WoW 1.12.1 client and generate the server's world data")
+        OutlinedButton(onClick = { archivePicker.launch(ARCHIVE_MIME_TYPES) }) {
+            Text("Import from archive (.zip / .7z / .rar)")
+        }
         ImportProgressCard(
             progress = ui.importProgress,
             notice = ui.importNotice ?: ui.importBusyNotice,
@@ -144,7 +166,7 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
             onSelect = { folderPicker.launch(null) },
             onResume = {
                 ui.persistedTree?.let {
-                    ImportWorkerService.start(context, it)
+                    ImportWorkerService.resumeActive(context, it.toString())
                     ui.beginNewPollEpoch()  // restart the status poller for the resumed run
                     ui.postImportNotice("Resume requested. Verified files and completed stages are retained.")
                 }
@@ -159,6 +181,7 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
  * composable stays a thin shell).
  */
 private class ImportUiState(context: android.content.Context) {
+    private val appContext = context.applicationContext
     var importProgress by mutableStateOf(ImportProgressPresentation.idle())
     var importNotice by mutableStateOf<String?>(null)
     var importBusyNotice by mutableStateOf<String?>(null)
@@ -170,7 +193,14 @@ private class ImportUiState(context: android.content.Context) {
     var importEpoch by mutableStateOf(0)
     // F2d: the pick is staged behind a confirmation dialog; the persistable
     // permission is only taken on confirm so a cancel leaves no grant behind.
-    var pendingImport by mutableStateOf<android.net.Uri?>(null)
+    var pendingImport by mutableStateOf<PendingImportPick?>(null)
+
+    /** The pick staged behind the confirm dialog (folder or archive lane). */
+    data class PendingImportPick(
+        val uri: android.net.Uri,
+        val isArchive: Boolean,
+        val expectedBytes: Long = 0,
+    )
 
     // Poller/watchdog bookkeeping (not composable state).
     private var observedActiveRun = false
@@ -200,19 +230,37 @@ private class ImportUiState(context: android.content.Context) {
     }
 
     fun onFolderPicked(context: android.content.Context, uri: android.net.Uri) {
-        val phase = runCatching {
-            ImportProgressPresentation.fromJson(ImportWorkerService.readStatus(context)).phase
-        }.getOrNull()
-        if (phase != null && importPhaseBusy(phase)) {
-            // The worker ignores new starts mid-import; do not claim one
-            // started or silently swap the folder under it.
-            importBusyNotice = "An import is already running. Choose the folder again after it finishes."
-        } else {
-            pendingImport = uri
-        }
+        if (refuseWhenBusy()) return
+        pendingImport = PendingImportPick(uri, isArchive = false)
     }
 
-    fun startImport(context: android.content.Context, uri: android.net.Uri) {
+    fun onArchivePicked(context: android.content.Context, uri: android.net.Uri) {
+        if (refuseWhenBusy()) return
+        val size = runCatching {
+            context.contentResolver.query(
+                uri, arrayOf(android.provider.OpenableColumns.SIZE), null, null, null,
+            )?.use { cursor -> if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else -1L } ?: -1L
+        }.getOrDefault(-1L)
+        if (size <= 0L) {
+            postImportNotice("Could not read the archive size — finish downloading/copying it first, then pick it again.")
+            return
+        }
+        pendingImport = PendingImportPick(uri, isArchive = true, expectedBytes = size)
+    }
+
+    /** The worker ignores new starts mid-import; do not claim one started or swap the source under it. */
+    private fun refuseWhenBusy(): Boolean {
+        val phase = runCatching {
+            ImportProgressPresentation.fromJson(ImportWorkerService.readStatus(appContext)).phase
+        }.getOrNull()
+        if (phase != null && importPhaseBusy(phase)) {
+            importBusyNotice = "An import is already running. Choose the source again after it finishes."
+            return true
+        }
+        return false
+    }
+
+    fun startImport(context: android.content.Context, pick: PendingImportPick) {
         // Process death between pick and confirm discards the dialog (plain
         // remember, not saveable) and usually the SAF grant with it; a stale
         // grant that somehow survives surfaces here as the runCatching
@@ -224,14 +272,20 @@ private class ImportUiState(context: android.content.Context) {
                 ImportWorkerService.readStatus(context),
             ).phase
             if (importPhaseBusy(phase)) {
-                importBusyNotice = "An import is already running. Choose the folder again after it finishes."
+                importBusyNotice = "An import is already running. Choose the source again after it finishes."
                 return
             }
-            context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            persistedTree = uri
-            ImportWorkerService.start(context, uri)
-            beginNewPollEpoch()  // restart the status poller for the new run
-            postImportNotice("Import started. The selected folder remains read-only.")
+            context.contentResolver.takePersistableUriPermission(pick.uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            persistedTree = pick.uri
+            if (pick.isArchive) {
+                ImportWorkerService.startArchive(context, pick.uri, pick.expectedBytes)
+                beginNewPollEpoch()
+                postImportNotice("Archive import started. The archive remains read-only; the staged copy is deleted after install.")
+            } else {
+                ImportWorkerService.start(context, pick.uri)
+                beginNewPollEpoch()  // restart the status poller for the new run
+                postImportNotice("Import started. The selected folder remains read-only.")
+            }
         }.onFailure { postImportNotice("Import start failed: ${it.message}") }
     }
 

@@ -584,3 +584,46 @@ Gradle suite (the actual gate for these files) runs green per phase below.
   extended for the archive term. Full suite
   `:app:testDebugUnitTest -PpocketAbi=x86_64 -PpocketLane=full` →
   BUILD SUCCESSFUL (912 tests).
+
+## Phase C — ZIP/7z end-to-end + UI
+
+**Outcome: complete, green, committed (instrumented execution deferred to Phase F — no device in this session).**
+
+- `importer/ArchiveSources.kt`: `ZipArchiveSource` (random access; strict
+  UTF-8 with IBM866 reopen on replacement-char names; symlink-entry and
+  declared-size re-verification) and `SevenZipArchiveSource` (sequential;
+  inventory order IS archive order so the copy loop is one forward pass;
+  resume-by-skip; anti-item rejection). Shared fingerprint = name+type+size
+  (container mtimes are not stable). Entry readers + `listZipEntries`
+  (carries the encrypted flag) / `listSevenZipEntries` for detection.
+- `ManagedClientImporter.runArchive(uri, expectedBytes, …)`: reconcile GC →
+  `beginStagingOrResume` → resumable staged copy (journal-row-first) →
+  sniff (magic + ISO probe from the staged file) → quick check + encrypted
+  VAL-13 → `ArchiveClientScanner` detection (summary journaled to the
+  progress card) → lane-appropriate source → preflight WITH the staging term
+  → same copyAllEntries/verify/publish/data pipeline → staged `.pkg`
+  deleted after publish and before data preparation. Permanent rejections
+  (`ImportRejected`) delete the staged copy immediately (no multi-GB
+  orphans); cancellation journals PAUSED with the staged anchor retained.
+- Journal: entry ops emit EXTRACTING for archive rows (`copyPhaseFor`),
+  `commitInventory` adopts detection totals; `latest()`/`ImportStatus`
+  expose `sourceKind` + `stagedBytes`.
+- `ImportWorkerService`: `ACTION_IMPORT_ARCHIVE` + `startArchive`;
+  `resumeActive` routes the watchdog/Resume restart by journal kind and
+  derives the archive size from the staged anchor; interrupt points
+  `AFTER_STAGING` / `AFTER_DETECTION`; `readStatus` JSON gains `sourceKind`
+  and `stagedBytes`.
+- `ui/ClientScreen.kt`: second picker lane (OpenDocument with
+  archive+octet-stream mimes), size-gated pick, lane-branched confirm
+  dialog (size/time/staging copy wording), `PendingImportPick`
+  discriminator, kind-aware resume routing.
+- `ImportFixtureProvider` (debug): `archives` root serving real files from
+  `getExternalFilesDir/archives` as single documents with path containment.
+- New `O12ArchiveImportTest`: death-after-staging → death-after-detection →
+  mid-extraction death → complete (identity 5875 pinned in the manifest,
+  staged file gone); installer VAL-12 rejection with no orphan; encrypted
+  VAL-13 rejection. Runs on-device in Phase F.
+- Full JVM suite: BUILD SUCCESSFUL. **Deviation:** the plan's ~5 s
+  countdown-with-Cancel before auto-continue is deferred to Phase E polish —
+  auto-continue is inherent (the worker runs detection straight through) and
+  the summary shows on the progress card.
