@@ -523,3 +523,23 @@ pre-existing working-tree state, disjoint from this lane's files (Kotlin +
 RAR fixtures; `check_repo.py` and `check_sources.py` pass). Commits on this
 branch use `--no-verify` until the parent lane's suite is green again; the
 Gradle suite (the actual gate for these files) runs green per phase below.
+
+## Phase A — `ImportSource` generalization
+
+**Outcome: complete, green, committed.**
+
+- New `importer/ImportSource.kt`: `ImportSourceEntry` (key / relativePath /
+  directory / size / lastModified / attributes) + `ImportSource` interface
+  (inventory + open). `SafTreeSource` implements it; the SAF provider row
+  stays private (virtual/symlink/size checks run against the raw row, then it
+  maps with key = documentId, attributes = mime). Fingerprint material is
+  byte-identical to before (mime rides `attributes`).
+- `ImportJournal` + `ManagedClientImporter` consume the unified entry; the
+  `files.document_id` column now stores the source key (SAF documentId for
+  the folder lane — identical bytes) and `expected_mtime` stores
+  `lastModified` (0 for future archive lanes).
+- `:app:testDebugUnitTest -PpocketAbi=x86_64 -PpocketLane=full` →
+  BUILD SUCCESSFUL (folder lane behavior-preserving, zero test changes).
+- **Deviation:** journal schema v4 + STAGING/EXTRACTING phase registration
+  moved to Phase B, where their producers actually land — keeps Phase A
+  strictly behavior-preserving.

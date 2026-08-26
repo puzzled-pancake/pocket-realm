@@ -93,7 +93,7 @@ class ManagedClientImporter(
 
     private suspend fun copyAllEntries(
         copy: CopyContext,
-        source: SafTreeSource,
+        source: ImportSource,
         inventory: SourceInventory,
         staging: File,
         afterVerified: (Int) -> Unit,
@@ -126,7 +126,7 @@ class ManagedClientImporter(
         data class Transfer(val target: File, val partial: File, val resume: Boolean) : EntryDecision
     }
 
-    private fun sourceMatches(prior: ImportJournal.JournalFile?, entry: SafSourceEntry): Boolean =
+    private fun sourceMatches(prior: ImportJournal.JournalFile?, entry: ImportSourceEntry): Boolean =
         prior != null && prior.expectedSize == entry.size && prior.expectedMtime == entry.lastModified
 
     private fun partialFor(target: File, importId: String): File =
@@ -140,7 +140,7 @@ class ManagedClientImporter(
      */
     private fun resumablePrefix(
         prior: ImportJournal.JournalFile?,
-        entry: SafSourceEntry,
+        entry: ImportSourceEntry,
         partial: File,
         sourceUnchanged: Boolean,
     ): Boolean {
@@ -160,7 +160,7 @@ class ManagedClientImporter(
         return copyingRow && targetComplete && !partial.isFile
     }
 
-    private fun classifyEntry(importId: String, entry: SafSourceEntry, staging: File): EntryDecision {
+    private fun classifyEntry(importId: String, entry: ImportSourceEntry, staging: File): EntryDecision {
         val target = generations.resolve(staging, entry.relativePath)
         val prior = journal.file(importId, entry.relativePath)
         val sourceUnchanged = sourceMatches(prior, entry)
@@ -185,8 +185,8 @@ class ManagedClientImporter(
      */
     private suspend fun copyEntry(
         copy: CopyContext,
-        entry: SafSourceEntry,
-        source: SafTreeSource,
+        entry: ImportSourceEntry,
+        source: ImportSource,
         staging: File,
     ): Boolean {
         val importId = copy.importId
@@ -205,8 +205,8 @@ class ManagedClientImporter(
 
     private suspend fun transferEntry(
         copy: CopyContext,
-        entry: SafSourceEntry,
-        source: SafTreeSource,
+        entry: ImportSourceEntry,
+        source: ImportSource,
         decision: EntryDecision.Transfer,
     ) {
         val importId = copy.importId
@@ -228,7 +228,7 @@ class ManagedClientImporter(
         }
     }
 
-    private fun recordEntryFailure(importId: String, entry: SafSourceEntry, error: Throwable) {
+    private fun recordEntryFailure(importId: String, entry: ImportSourceEntry, error: Throwable) {
         if (error is ImportInterrupted || error is kotlinx.coroutines.CancellationException) {
             journal.update(importId, ImportPhase.PAUSED, entry.relativePath, error.message)
         } else journal.markFileFailed(importId, entry, error)
@@ -236,8 +236,8 @@ class ManagedClientImporter(
 
     private suspend fun copyEntryBytes(
         copy: CopyContext,
-        entry: SafSourceEntry,
-        source: SafTreeSource,
+        entry: ImportSourceEntry,
+        source: ImportSource,
         partial: File,
         resume: Boolean,
     ) {
@@ -259,7 +259,7 @@ class ManagedClientImporter(
         input: InputStream,
         output: FileOutputStream,
         copy: CopyContext,
-        entry: SafSourceEntry,
+        entry: ImportSourceEntry,
         startCopied: Long,
     ): Long {
         var copied = startCopied

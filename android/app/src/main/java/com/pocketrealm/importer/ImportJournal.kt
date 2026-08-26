@@ -57,14 +57,14 @@ class ImportJournal(context: Context) : AutoCloseable {
         } finally { db.endTransaction() }
     }
 
-    fun recordInventory(importId: String, entries: List<SafSourceEntry>) {
+    fun recordInventory(importId: String, entries: List<ImportSourceEntry>) {
         val db = helper.writableDatabase
         db.beginTransaction()
         try {
             for (entry in entries.filterNot { it.directory }) {
                 db.insertWithOnConflict("files", null, ContentValues().apply {
                     put("import_id", importId); put("relative_path", entry.relativePath)
-                    put("document_id", entry.documentId); put("expected_size", entry.size)
+                    put("document_id", entry.key); put("expected_size", entry.size)
                     put("expected_mtime", entry.lastModified); put("state", ImportFileState.DISCOVERED.name)
                     put("bytes_copied", 0); put("attempt", 0); put("fsync_marker", 0)
                 }, SQLiteDatabase.CONFLICT_IGNORE)
@@ -86,7 +86,7 @@ class ImportJournal(context: Context) : AutoCloseable {
         )
     }
 
-    fun markCopying(importId: String, entry: SafSourceEntry, tempName: String) {
+    fun markCopying(importId: String, entry: ImportSourceEntry, tempName: String) {
         helper.writableDatabase.execSQL(
             "UPDATE files SET state='COPYING', bytes_copied=0, temp_name=?, sha256=NULL, " +
                 "attempt=attempt+1, last_error=NULL, fsync_marker=0 WHERE import_id=? AND relative_path=?",
@@ -100,7 +100,7 @@ class ImportJournal(context: Context) : AutoCloseable {
      * markCopying this keeps bytes_copied and temp_name so the partial file
      * can be appended to instead of restarted from byte zero.
      */
-    fun markResumed(importId: String, entry: SafSourceEntry) {
+    fun markResumed(importId: String, entry: ImportSourceEntry) {
         helper.writableDatabase.execSQL(
             "UPDATE files SET state='COPYING', last_error=NULL, attempt=attempt+1 " +
                 "WHERE import_id=? AND relative_path=?",
@@ -114,7 +114,7 @@ class ImportJournal(context: Context) : AutoCloseable {
      * journal fresh (watchdog staleness and post-mortem progress both read it).
      * Rate-limited by the caller.
      */
-    fun touchCopying(importId: String, entry: SafSourceEntry, copiedBytes: Long) {
+    fun touchCopying(importId: String, entry: ImportSourceEntry, copiedBytes: Long) {
         helper.writableDatabase.execSQL(
             "UPDATE files SET bytes_copied=? WHERE import_id=? AND relative_path=?",
             arrayOf<Any?>(copiedBytes, importId, entry.relativePath),
@@ -122,7 +122,7 @@ class ImportJournal(context: Context) : AutoCloseable {
         update(importId, ImportPhase.COPYING, entry.relativePath)
     }
 
-    fun markVerified(importId: String, entry: SafSourceEntry, sha256: String, copiedBytes: Long) {
+    fun markVerified(importId: String, entry: ImportSourceEntry, sha256: String, copiedBytes: Long) {
         helper.writableDatabase.execSQL(
             "UPDATE files SET state='VERIFIED', bytes_copied=?, sha256=?, temp_name=NULL, " +
                 "last_error=NULL, fsync_marker=1 WHERE import_id=? AND relative_path=?",
@@ -131,7 +131,7 @@ class ImportJournal(context: Context) : AutoCloseable {
         update(importId, ImportPhase.COPYING, entry.relativePath)
     }
 
-    fun markSkipped(importId: String, entry: SafSourceEntry, reason: String) {
+    fun markSkipped(importId: String, entry: ImportSourceEntry, reason: String) {
         helper.writableDatabase.execSQL(
             "UPDATE files SET state='SKIPPED', bytes_copied=0, temp_name=NULL, last_error=?, " +
                 "fsync_marker=1 WHERE import_id=? AND relative_path=?",
@@ -140,7 +140,7 @@ class ImportJournal(context: Context) : AutoCloseable {
         update(importId, ImportPhase.COPYING, entry.relativePath)
     }
 
-    fun markFileFailed(importId: String, entry: SafSourceEntry, error: Throwable) {
+    fun markFileFailed(importId: String, entry: ImportSourceEntry, error: Throwable) {
         helper.writableDatabase.execSQL(
             "UPDATE files SET state='FAILED', last_error=? WHERE import_id=? AND relative_path=?",
             arrayOf((error.message ?: error.javaClass.simpleName).take(512), importId, entry.relativePath),

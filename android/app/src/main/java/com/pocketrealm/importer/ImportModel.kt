@@ -69,18 +69,8 @@ data class ImportLimits(
     companion object { const val GIB = 1024L * 1024L * 1024L }
 }
 
-data class SafSourceEntry(
-    val documentId: String,
-    val relativePath: String,
-    val directory: Boolean,
-    val size: Long,
-    val lastModified: Long,
-    val mimeType: String,
-    val flags: Int,
-)
-
 data class SourceInventory(
-    val entries: List<SafSourceEntry>,
+    val entries: List<ImportSourceEntry>,
     val fileCount: Int,
     val totalBytes: Long,
     val fingerprint: String,
