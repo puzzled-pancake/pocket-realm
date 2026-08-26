@@ -11,15 +11,16 @@ class ImportStoragePlanner(
     private val wineEstimate: Long = 1L * ImportLimits.GIB,
     private val minimumReserve: Long = 2L * ImportLimits.GIB,
 ) {
-    fun plan(sourceBytes: Long): StoragePlan {
-        require(sourceBytes >= 0)
+    /** Archive lanes additionally hold the staged archive copy until publish. */
+    fun plan(sourceBytes: Long, stagedArchiveBytes: Long = 0L): StoragePlan {
+        require(sourceBytes >= 0 && stagedArchiveBytes >= 0)
         val roots = StorageRoots.get(context)
         val database = directoryBytes(roots.databaseDatadir)
         val snapshot = maxOf(directoryBytes(roots.databaseSnapshots), database)
         val allocatable = context.getSystemService(StorageManager::class.java)
             .getAllocatableBytes(StorageManager.UUID_DEFAULT)
-        return calculate(sourceBytes, extractedEstimate, database, wineEstimate, snapshot,
-            minimumReserve, allocatable)
+        return calculate(sourceBytes, stagedArchiveBytes, extractedEstimate, database, wineEstimate,
+            snapshot, minimumReserve, allocatable)
     }
 
     private fun directoryBytes(root: java.io.File): Long {
@@ -29,12 +30,12 @@ class ImportStoragePlanner(
 
     companion object {
         internal fun calculate(
-            source: Long, extracted: Long, database: Long, wine: Long, snapshot: Long,
-            minimumReserve: Long, allocatable: Long,
+            source: Long, stagedArchive: Long, extracted: Long, database: Long, wine: Long,
+            snapshot: Long, minimumReserve: Long, allocatable: Long,
         ): StoragePlan {
-            require(listOf(source, extracted, database, wine, snapshot, minimumReserve, allocatable)
+            require(listOf(source, stagedArchive, extracted, database, wine, snapshot, minimumReserve, allocatable)
                 .all { it >= 0 })
-            val subtotal = Math.addExact(Math.addExact(source, extracted),
+            val subtotal = Math.addExact(Math.addExact(Math.addExact(source, stagedArchive), extracted),
                 Math.addExact(Math.addExact(database, wine), snapshot))
             val margin = maxOf(minimumReserve, ceil(subtotal * 0.20).toLong())
             return StoragePlan(source, extracted, database, wine, snapshot, margin,

@@ -3,7 +3,7 @@ package com.pocketrealm.importer
 import java.util.UUID
 
 enum class ImportPhase {
-    IDLE, DISCOVERING, PREFLIGHT, COPYING, VERIFYING, PUBLISHING,
+    IDLE, STAGING, DISCOVERING, PREFLIGHT, COPYING, EXTRACTING, VERIFYING, PUBLISHING,
     PREPARING_DATA, COMPLETE, PAUSED, CANCELLED, FAILED,
 }
 
@@ -90,9 +90,12 @@ data class StoragePlan(
     val lowHeadroom: Boolean get() = allocatableBytes < requiredBytes + 2L * ImportLimits.GIB
 }
 
+enum class ImportSourceKind { TREE, ARCHIVE }
+
 data class ImportStatus(
     val importId: String? = null,
     val phase: ImportPhase = ImportPhase.IDLE,
+    val sourceKind: ImportSourceKind = ImportSourceKind.TREE,
     val sourceFingerprint: String? = null,
     val sourceUri: String? = null,
     val filesProcessed: Int = 0,

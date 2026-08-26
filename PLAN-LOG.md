@@ -543,3 +543,44 @@ Gradle suite (the actual gate for these files) runs green per phase below.
 - **Deviation:** journal schema v4 + STAGING/EXTRACTING phase registration
   moved to Phase B, where their producers actually land — keeps Phase A
   strictly behavior-preserving.
+
+## Phase B — Quick checks, staging, detection
+
+**Outcome: complete, green, committed.**
+
+- `client/ClientPeIdentity.kt`: PE32 identity parse extracted verbatim from
+  SafClientScanner (scanner delegates; VAL-02 wording unchanged, message
+  tests still green). SafClientScanner's Access-based scan moved to a
+  resolver-free companion `scanAccess` so the archive lane reuses every
+  folder-lane VAL check without SAF.
+- `importer/ArchiveFormatSniffer.kt`: magic sniff (ZIP/7z/RAR4/RAR5/ISO
+  probe) + `ArchiveQuickCheck` pre-staging verdict (VAL-11 ISO, VAL-12
+  installer `setup.exe`+`setup-*.bin` at any level, VAL-01 no-WoW.exe,
+  VAL-13 unknown; RAR without name enumeration accepted for post-staging
+  detection).
+- `importer/ImportExtractionPolicy.kt`: names through ImportPathPolicy;
+  single case-fold namespace incl. directories (VAL-06 collisions AND
+  dir/file type conflicts); trailing dot/space rejected (VAL-07); root
+  allow-list (files + directories) excludes junk with reasons and
+  propagates exclusion to descendants ("!1.8 Hack" tree, launch.bat, dxvk/);
+  per-file/total caps VAL-08.
+- `importer/ArchiveClientScanner.kt`: client root = the directory directly
+  containing BOTH WoW.exe and Data/ (disambiguates the ENG double-exe);
+  wrapper rebase incl. backslash + trailing-slash entries; entries outside
+  the client root reported as excluded; variant/locale (`SET locale`) /
+  realm-target info read for the detection card.
+- Journal schema 3→4: `source_kind`, `staged_path`, `staged_bytes`,
+  `staged_sha256`; `beginStagingOrResume` inserts the row BEFORE staging
+  (fixes the scanner-before-journal sequencing); `touchStaging` /
+  `finishStaging`; `latest()` exposes sourceKind. STAGING + EXTRACTING
+  phases registered in all three places (enum, titles/explanations,
+  ACTIVE_IMPORT_PHASES). Storage planner gained the `stagedArchive` term.
+- `importer/StagedArchive.kt`: `StagedArchiveCopier` (resumable `.partial`
+  copy, fsync ticks, cooperative cancel, short-source VAL-13) and
+  `StagedArchiveStore` (`client/incoming/`, partial lifecycle, GC reconciler
+  that drops orphan partials immediately and unreferenced staged files after
+  the stale cutoff).
+- Tests: `ArchiveDetectionTest` (28), `StagedArchiveTest` (6), planner
+  extended for the archive term. Full suite
+  `:app:testDebugUnitTest -PpocketAbi=x86_64 -PpocketLane=full` →
+  BUILD SUCCESSFUL (912 tests).

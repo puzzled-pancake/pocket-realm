@@ -217,7 +217,9 @@ fun formatImportDuration(ms: Long): String {
 fun importPhaseBusy(phase: String): Boolean = phase in ACTIVE_IMPORT_PHASES
 
 private val ACTIVE_IMPORT_PHASES = setOf(
+    ImportPhase.STAGING.name,
     ImportPhase.DISCOVERING.name,
+    ImportPhase.EXTRACTING.name,
     ImportPhase.PREFLIGHT.name,
     ImportPhase.COPYING.name,
     ImportPhase.VERIFYING.name,
@@ -237,9 +239,11 @@ fun importWorkerLabel(state: String, present: Boolean): String = when {
 
 internal fun phaseTitle(phase: String): String = when (phase) {
     ImportPhase.IDLE.name -> "No import started"
+    ImportPhase.STAGING.name -> "Copying archive into Pocket Realm"
     ImportPhase.DISCOVERING.name -> "Scanning selected folder"
     ImportPhase.PREFLIGHT.name -> "Checking storage"
     ImportPhase.COPYING.name -> "Copying and verifying client"
+    ImportPhase.EXTRACTING.name -> "Extracting client from archive"
     ImportPhase.VERIFYING.name -> "Verifying managed copy"
     ImportPhase.PUBLISHING.name -> "Publishing managed client"
     ImportPhase.PREPARING_DATA.name -> "Preparing server world data"
@@ -251,6 +255,10 @@ internal fun phaseTitle(phase: String): String = when (phase) {
 }
 
 internal fun phaseExplanation(phase: String, activeStage: String?): String = when (phase) {
+    ImportPhase.STAGING.name ->
+        "The archive is copied into app storage once; the staged copy is resumable and enables detection before extraction."
+    ImportPhase.EXTRACTING.name ->
+        "Client files are extracted from the staged archive and hashed before the file counter advances."
     ImportPhase.COPYING.name ->
         "Each file is copied and hashed before the file counter advances. Large MPQ files can remain on one number for several minutes."
     ImportPhase.VERIFYING.name ->

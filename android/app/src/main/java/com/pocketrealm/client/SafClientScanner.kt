@@ -3,9 +3,6 @@ package com.pocketrealm.client
 import android.content.ContentResolver
 import android.net.Uri
 import android.provider.DocumentsContract
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.security.MessageDigest
 
 /**
  * Launcher-only selections (an installer/downloader folder) are the most
@@ -21,6 +18,9 @@ internal const val VAL01_LAUNCHER_ONLY_SELECTION: String =
  * Only the selected root, WoW.exe, and the immediate Data directory are read.
  * Import/copy is deliberately a separate operation so rejecting a selection
  * cannot mutate it or make it a runtime dependency.
+ *
+ * The identity logic lives in the companion [scanAccess] (resolver-free) so
+ * the archive lane reuses it without touching SAF.
  */
 internal class SafClientScanner(private val resolver: ContentResolver) {
     data class Result(
@@ -36,70 +36,9 @@ internal class SafClientScanner(private val resolver: ContentResolver) {
         val sourceRuntimeDependency: Boolean = false,
     )
 
-    fun scan(treeUri: Uri): Result = scan(DocumentsAccess(resolver, treeUri))
+    fun scan(treeUri: Uri): Result = scanAccess(DocumentsAccess(resolver, treeUri))
 
-    internal fun scan(access: Access): Result {
-        val warnings = mutableListOf<String>()
-        val failures = mutableListOf<String>()
-        val root = access.children(access.rootId)
-        val wow = root.singleOrNull { !it.directory && it.name.equals("WoW.exe", true) }
-        if (wow == null) {
-            failures += if (root.any { it.name.contains("launcher", true) })
-                VAL01_LAUNCHER_ONLY_SELECTION
-            else "VAL-01: direct WoW.exe is absent"
-        }
-
-        var identity: PeIdentity? = null
-        if (wow != null) {
-            if (wow.size > MAX_EXE_BYTES) failures += "VAL-02: selected executable exceeds fast-scan limit"
-            identity = runCatching { parsePe(access.read(wow.id, MAX_EXE_BYTES, rejectTruncation = true)) }
-                .onFailure { failures += (it.message ?: "VAL-02: invalid WoW.exe") }
-                .getOrNull()
-            if (identity != null && identity.version != EXPECTED_VERSION) {
-                failures += "VAL-03: expected $EXPECTED_VERSION, detected ${identity.version ?: "no matching version resource"}"
-            }
-            if (identity?.version == EXPECTED_VERSION) {
-                if (identity.sha256 == KNOWN_EXE_SHA256) warnings += "VAL-03: executable hash matches the inspected build-5875 copy"
-                else warnings += "VAL-03: build confirmed; this WoW.exe is accepted for vanilla launch, but optional executable tweaks require the inspected byte layout"
-            }
-        }
-
-        val data = root.singleOrNull { it.directory && it.name.equals("Data", true) }
-        if (data == null) {
-            failures += "VAL-04: Data directory is absent"
-        } else {
-            val children = access.children(data.id)
-            val mpqs = children.filter { !it.directory && it.name.endsWith(".mpq", true) }
-                .associateBy { it.name.lowercase() }
-            val missing = REQUIRED_MPQS.filterNot(mpqs::containsKey)
-            if (missing.isNotEmpty()) failures += "VAL-04: missing base MPQ set: ${missing.joinToString()}"
-            for (entry in mpqs.values) {
-                val header = runCatching { access.read(entry.id, 4) }.getOrDefault(ByteArray(0))
-                if (!header.contentEquals(byteArrayOf(0x4d, 0x50, 0x51, 0x1a))) {
-                    failures += "VAL-04: invalid MPQ header: Data/${entry.name}"
-                }
-            }
-            warnings += "VAL-05: FLAT_ENGLISH_LOCALE_INFERRED"
-        }
-
-        val customDlls = root.filter {
-            !it.directory && it.name.endsWith(".dll", true) && it.name.lowercase() !in STANDARD_ROOT_DLLS
-        }.map { it.name }.sorted()
-        if (customDlls.isNotEmpty()) warnings += "VAL-10: unrecognized root DLLs: ${customDlls.joinToString()}"
-
-        val knownBytes = root.sumOf { if (it.size >= 0) it.size else 0L }
-        val supported = failures.isEmpty() && identity?.version == EXPECTED_VERSION
-        return Result(
-            supported = supported,
-            clientId = if (supported) ClientRuntimeContract.WOW_5875_ID else null,
-            version = identity?.version,
-            build = identity?.build,
-            executableSha256 = identity?.sha256,
-            sourceBytesKnown = knownBytes,
-            warnings = warnings.distinct(),
-            failures = failures.distinct(),
-        )
-    }
+    internal fun scan(access: Access): Result = scanAccess(access)
 
     internal data class Entry(val id: String, val name: String, val directory: Boolean, val size: Long)
 
@@ -159,43 +98,79 @@ internal class SafClientScanner(private val resolver: ContentResolver) {
 
     private data class PeIdentity(val version: String?, val build: Int?, val sha256: String)
 
-    private fun parsePe(bytes: ByteArray): PeIdentity {
-        fun u16(offset: Int): Int = ByteBuffer.wrap(bytes, offset, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt() and 0xffff
-        fun u32(offset: Int): Long = ByteBuffer.wrap(bytes, offset, 4).order(ByteOrder.LITTLE_ENDIAN).int.toLong() and 0xffffffffL
-        require(bytes.size >= 512 && bytes[0] == 'M'.code.toByte() && bytes[1] == 'Z'.code.toByte()) {
-            "VAL-02: WoW.exe is not a PE executable"
-        }
-        val pe = u32(0x3c).toInt()
-        require(pe >= 0 && pe + 26 <= bytes.size && bytes.copyOfRange(pe, pe + 4).contentEquals(byteArrayOf(0x50, 0x45, 0, 0))) {
-            "VAL-02: WoW.exe has no valid PE header"
-        }
-        require(u16(pe + 4) == 0x14c && u16(pe + 24) == 0x10b) {
-            "VAL-02: WoW.exe is not IMAGE_FILE_MACHINE_I386 PE32"
-        }
-        var version: String? = null
-        var build: Int? = null
-        for (offset in 0..bytes.size - 16) {
-            if (bytes[offset] != 0xbd.toByte() || bytes[offset + 1] != 0x04.toByte() ||
-                bytes[offset + 2] != 0xef.toByte() || bytes[offset + 3] != 0xfe.toByte()) continue
-            if (u32(offset) != 0xfeef04bdL) continue
-            val ms = u32(offset + 8)
-            val ls = u32(offset + 12)
-            val candidate = listOf((ms ushr 16).toInt(), (ms and 0xffff).toInt(), (ls ushr 16).toInt(), (ls and 0xffff).toInt())
-            if (candidate[0] == 1 && candidate[1] == 12 && candidate[2] == 1) {
-                version = candidate.joinToString(".")
-                build = candidate[3]
-                break
+    companion object {
+        internal fun scanAccess(access: Access): Result {
+            val warnings = mutableListOf<String>()
+            val failures = mutableListOf<String>()
+            val root = access.children(access.rootId)
+            val wow = root.singleOrNull { !it.directory && it.name.equals("WoW.exe", true) }
+            if (wow == null) {
+                failures += if (root.any { it.name.contains("launcher", true) })
+                    VAL01_LAUNCHER_ONLY_SELECTION
+                else "VAL-01: direct WoW.exe is absent"
             }
-        }
-        val digest = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
-        return PeIdentity(version, build, digest)
-    }
 
-    private companion object {
-        const val EXPECTED_VERSION = "1.12.1.5875"
-        const val KNOWN_EXE_SHA256 = "b4756d38ef207c02ed651f4952bd89a70b4857b73a33413339e1b285b28d2dc7"
-        const val MAX_EXE_BYTES = 32 * 1024 * 1024
-        val REQUIRED_MPQS = setOf("base.mpq", "dbc.mpq", "fonts.mpq", "interface.mpq", "misc.mpq", "model.mpq", "sound.mpq", "speech.mpq", "terrain.mpq", "texture.mpq", "wmo.mpq")
-        val STANDARD_ROOT_DLLS = setOf("dbghelp.dll", "divxdecoder.dll", "fmod.dll", "ijl15.dll", "scan.dll", "unicows.dll")
+            var identity: PeIdentity? = null
+            if (wow != null) {
+                if (wow.size > MAX_EXE_BYTES) failures += "VAL-02: selected executable exceeds fast-scan limit"
+                identity = runCatching { parsePe(access.read(wow.id, MAX_EXE_BYTES, rejectTruncation = true)) }
+                    .onFailure { failures += (it.message ?: "VAL-02: invalid WoW.exe") }
+                    .getOrNull()
+                if (identity != null && identity.version != EXPECTED_VERSION) {
+                    failures += "VAL-03: expected $EXPECTED_VERSION, detected ${identity.version ?: "no matching version resource"}"
+                }
+                if (identity?.version == EXPECTED_VERSION) {
+                    if (identity.sha256 == KNOWN_EXE_SHA256) warnings += "VAL-03: executable hash matches the inspected build-5875 copy"
+                    else warnings += "VAL-03: build confirmed; this WoW.exe is accepted for vanilla launch, but optional executable tweaks require the inspected byte layout"
+                }
+            }
+
+            val data = root.singleOrNull { it.directory && it.name.equals("Data", true) }
+            if (data == null) {
+                failures += "VAL-04: Data directory is absent"
+            } else {
+                val children = access.children(data.id)
+                val mpqs = children.filter { !it.directory && it.name.endsWith(".mpq", true) }
+                    .associateBy { it.name.lowercase() }
+                val missing = REQUIRED_MPQS.filterNot(mpqs::containsKey)
+                if (missing.isNotEmpty()) failures += "VAL-04: missing base MPQ set: ${missing.joinToString()}"
+                for (entry in mpqs.values) {
+                    val header = runCatching { access.read(entry.id, 4) }.getOrDefault(ByteArray(0))
+                    if (!header.contentEquals(byteArrayOf(0x4d, 0x50, 0x51, 0x1a))) {
+                        failures += "VAL-04: invalid MPQ header: Data/${entry.name}"
+                    }
+                }
+                warnings += "VAL-05: FLAT_ENGLISH_LOCALE_INFERRED"
+            }
+
+            val customDlls = root.filter {
+                !it.directory && it.name.endsWith(".dll", true) && it.name.lowercase() !in STANDARD_ROOT_DLLS
+            }.map { it.name }.sorted()
+            if (customDlls.isNotEmpty()) warnings += "VAL-10: unrecognized root DLLs: ${customDlls.joinToString()}"
+
+            val knownBytes = root.sumOf { if (it.size >= 0) it.size else 0L }
+            val supported = failures.isEmpty() && identity?.version == EXPECTED_VERSION
+            return Result(
+                supported = supported,
+                clientId = if (supported) ClientRuntimeContract.WOW_5875_ID else null,
+                version = identity?.version,
+                build = identity?.build,
+                executableSha256 = identity?.sha256,
+                sourceBytesKnown = knownBytes,
+                warnings = warnings.distinct(),
+                failures = failures.distinct(),
+            )
+        }
+
+        private fun parsePe(bytes: ByteArray): PeIdentity {
+            val identity = ClientPeIdentity.parse(bytes)
+            return PeIdentity(identity.version, identity.build, identity.sha256)
+        }
+
+        private const val EXPECTED_VERSION = "1.12.1.5875"
+        private const val KNOWN_EXE_SHA256 = "b4756d38ef207c02ed651f4952bd89a70b4857b73a33413339e1b285b28d2dc7"
+        private const val MAX_EXE_BYTES = 32 * 1024 * 1024
+        private val REQUIRED_MPQS = setOf("base.mpq", "dbc.mpq", "fonts.mpq", "interface.mpq", "misc.mpq", "model.mpq", "sound.mpq", "speech.mpq", "terrain.mpq", "texture.mpq", "wmo.mpq")
+        private val STANDARD_ROOT_DLLS = setOf("dbghelp.dll", "divxdecoder.dll", "fmod.dll", "ijl15.dll", "scan.dll", "unicows.dll")
     }
 }

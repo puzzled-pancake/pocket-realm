@@ -57,6 +57,92 @@ class ImportJournal(context: Context) : AutoCloseable {
         } finally { db.endTransaction() }
     }
 
+    data class StagingResume(
+        val importId: String,
+        val expectedBytes: Long,
+        val stagedBytes: Long,
+        val stagedPath: String?,
+        val stagedSha256: String?,
+    )
+
+    /**
+     * Archive lane: the journal row exists BEFORE staging and detection so the
+     * UI can show progress and the watchdog can restart the staged copy.
+     * Resume matches the persisted file URI; the staged file itself is the
+     * durable anchor (staged_bytes + staged_sha256).
+     */
+    fun beginStagingOrResume(uri: Uri, expectedBytes: Long): StagingResume {
+        val db = helper.writableDatabase
+        db.beginTransaction()
+        try {
+            val prior = db.rawQuery(
+                "SELECT import_id, source_uri, phase, source_kind, staged_bytes, staged_path, staged_sha256 " +
+                    "FROM imports WHERE phase NOT IN ('COMPLETE','CANCELLED') ORDER BY created_at_ms DESC LIMIT 1",
+                emptyArray(),
+            ).use { cursor ->
+                if (!cursor.moveToFirst()) null
+                else arrayOf(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3)) to
+                    Triple(cursor.getLong(4), cursor.getString(5), cursor.getString(6))
+            }
+            if (prior != null) {
+                val (columns, staged) = prior
+                if (columns[3] != ImportSourceKind.ARCHIVE.name) {
+                    throw ImportRejected("SOURCE_CHANGED: a folder import is still active")
+                }
+                if (columns[1] != uri.toString()) {
+                    if (columns[2] == ImportPhase.FAILED.name) {
+                        db.update("imports", ContentValues().apply {
+                            put("phase", ImportPhase.CANCELLED.name); put("updated_at_ms", System.currentTimeMillis())
+                        }, "import_id=?", arrayOf(columns[0]))
+                    } else {
+                        failLocked(db, checkNotNull(columns[0]), "SOURCE_CHANGED: resume requires the original archive")
+                        throw ImportRejected("SOURCE_CHANGED: resume requires the original unchanged archive")
+                    }
+                } else {
+                    db.setTransactionSuccessful()
+                    return StagingResume(
+                        importId = checkNotNull(columns[0]),
+                        expectedBytes = expectedBytes,
+                        stagedBytes = staged.first,
+                        stagedPath = staged.second,
+                        stagedSha256 = staged.third,
+                    )
+                }
+            }
+            val id = UUID.randomUUID().toString()
+            val now = System.currentTimeMillis()
+            db.insertOrThrow("imports", null, ContentValues().apply {
+                put("import_id", id); put("schema_version", SCHEMA)
+                put("source_uri", uri.toString()); put("source_fingerprint", "pending-staging")
+                put("phase", ImportPhase.STAGING.name); put("source_kind", ImportSourceKind.ARCHIVE.name)
+                put("staged_bytes", 0)
+                put("files_processed", 0); put("files_total", 0)
+                put("bytes_copied", 0); put("bytes_total", expectedBytes)
+                put("warning_count", 0); put("created_at_ms", now); put("updated_at_ms", now)
+            })
+            db.setTransactionSuccessful()
+            return StagingResume(id, expectedBytes, 0, null, null)
+        } finally { db.endTransaction() }
+    }
+
+    /** Keeps the journal fresh during the staged copy; rate-limited by the caller. */
+    fun touchStaging(importId: String, copiedBytes: Long) {
+        helper.writableDatabase.execSQL(
+            "UPDATE imports SET staged_bytes=?, phase=?, updated_at_ms=? WHERE import_id=?",
+            arrayOf<Any?>(copiedBytes, ImportPhase.STAGING.name, System.currentTimeMillis(), importId),
+        )
+    }
+
+    /** Staging finished; the staged file's digest becomes the resume anchor. */
+    fun finishStaging(importId: String, stagedPath: String, stagedBytes: Long, stagedSha256: String) {
+        helper.writableDatabase.execSQL(
+            "UPDATE imports SET staged_path=?, staged_bytes=?, staged_sha256=?, phase=?, updated_at_ms=? " +
+                "WHERE import_id=?",
+            arrayOf<Any?>(stagedPath, stagedBytes, stagedSha256, ImportPhase.DISCOVERING.name,
+                System.currentTimeMillis(), importId),
+        )
+    }
+
     fun recordInventory(importId: String, entries: List<ImportSourceEntry>) {
         val db = helper.writableDatabase
         db.beginTransaction()
@@ -301,17 +387,18 @@ class ImportJournal(context: Context) : AutoCloseable {
     }
 
     fun latest(): ImportStatus = helper.readableDatabase.rawQuery(
-        "SELECT import_id, phase, source_fingerprint, source_uri, files_processed, files_total, bytes_copied, " +
+        "SELECT import_id, phase, source_kind, source_fingerprint, source_uri, files_processed, files_total, bytes_copied, " +
             "bytes_total, last_relative_path, warning_count, last_error, active_generation, updated_at_ms " +
             "FROM imports ORDER BY created_at_ms DESC LIMIT 1", emptyArray(),
     ).use { cursor ->
         if (!cursor.moveToFirst()) ImportStatus() else ImportStatus(
             importId = cursor.getString(0), phase = ImportPhase.valueOf(cursor.getString(1)),
-            sourceFingerprint = cursor.getString(2), sourceUri = cursor.getString(3),
-            filesProcessed = cursor.getInt(4),
-            filesTotal = cursor.getInt(5), bytesCopied = cursor.getLong(6), bytesTotal = cursor.getLong(7),
-            lastRelativePath = cursor.getString(8), warningCount = cursor.getInt(9),
-            lastError = cursor.getString(10), activeGeneration = cursor.getString(11), updatedAtMs = cursor.getLong(12),
+            sourceKind = ImportSourceKind.valueOf(cursor.getString(2)),
+            sourceFingerprint = cursor.getString(3), sourceUri = cursor.getString(4),
+            filesProcessed = cursor.getInt(5),
+            filesTotal = cursor.getInt(6), bytesCopied = cursor.getLong(7), bytesTotal = cursor.getLong(8),
+            lastRelativePath = cursor.getString(9), warningCount = cursor.getInt(10),
+            lastError = cursor.getString(11), activeGeneration = cursor.getString(12), updatedAtMs = cursor.getLong(13),
         )
     }
 
@@ -358,7 +445,10 @@ class ImportJournal(context: Context) : AutoCloseable {
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL("""CREATE TABLE imports(
                 import_id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL, source_uri TEXT NOT NULL,
-                source_fingerprint TEXT NOT NULL, phase TEXT NOT NULL, files_processed INTEGER NOT NULL,
+                source_fingerprint TEXT NOT NULL, phase TEXT NOT NULL,
+                source_kind TEXT NOT NULL DEFAULT 'tree', staged_path TEXT,
+                staged_bytes INTEGER NOT NULL DEFAULT 0, staged_sha256 TEXT,
+                files_processed INTEGER NOT NULL,
                 files_total INTEGER NOT NULL, bytes_copied INTEGER NOT NULL, bytes_total INTEGER NOT NULL,
                 last_relative_path TEXT, warning_count INTEGER NOT NULL, last_error TEXT,
                 active_generation TEXT, created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL,
@@ -403,9 +493,15 @@ class ImportJournal(context: Context) : AutoCloseable {
                     stage_durations TEXT NOT NULL DEFAULT '{}', mmap_maps INTEGER NOT NULL DEFAULT 0,
                     mmap_threads INTEGER NOT NULL DEFAULT 0, created_at_ms INTEGER NOT NULL)""")
             }
+            if (oldVersion <= 3 && newVersion >= 4) {
+                db.execSQL("ALTER TABLE imports ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'tree'")
+                db.execSQL("ALTER TABLE imports ADD COLUMN staged_path TEXT")
+                db.execSQL("ALTER TABLE imports ADD COLUMN staged_bytes INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE imports ADD COLUMN staged_sha256 TEXT")
+            }
             if (newVersion != SCHEMA) throw IllegalStateException("unsupported importer journal migration $oldVersion->$newVersion")
         }
     }
 
-    companion object { const val SCHEMA = 3 }
+    companion object { const val SCHEMA = 4 }
 }
