@@ -103,3 +103,13 @@ to anyone who asks (GPL-2.0 section 3(b) written offer).
   the Termux package records the provider archives are built from).
 - libandroid-support — GPL-3.0 (as declared by the Termux package; the code
   additionally embeds BSD-licensed NetBSD-origin routines).
+- libarchive 3.8.1 (libarchive-jni.so, archive client import) — BSD-2-Clause
+  and other permissive terms per its COPYING file; the bundled RAR/RAR5
+  readers (`archive_read_support_format_rar.c`, Tim Kientzle & Andres Mejia;
+  `archive_read_support_format_rar5.c`, Grzegorz Antoniak) are clean-room
+  implementations with no UnRAR-derived code. Consumed via
+  `me.zhanghai.android.libarchive:library:1.1.6` (Apache-2.0 Java/JNI
+  bindings), which also bundles mbed TLS (Apache-2.0), xz for Java
+  (public domain, 0BSD), zstd (BSD-3-Clause) and bzip2 (BSD-style) builds.
+- xz for Java 1.10 (org.tukaani:xz) — public domain / 0BSD (7z LZMA entry
+  streams via commons-compress).

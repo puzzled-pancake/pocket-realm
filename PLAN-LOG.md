@@ -627,3 +627,31 @@ Gradle suite (the actual gate for these files) runs green per phase below.
   countdown-with-Cancel before auto-continue is deferred to Phase E polish —
   auto-continue is inherent (the worker runs detection straight through) and
   the summary shows on the progress card.
+
+## Phase D — RAR via libarchive
+
+**Outcome: complete, green, committed (JNI execution deferred to Phase F).**
+
+- Dependency: `me.zhanghai.android.libarchive:library:1.1.6` (Maven Central;
+  Apache-2.0 bindings around BSD-2 libarchive 3.8.1; the same AAR Material
+  Files ships). Verified before integration by unpacking the AAR: 16 KB
+  PT_LOAD alignment on arm64-v8a and x86_64 (Android 15+ ready), ~2 MB/ABI.
+- `importer/RarArchiveSource.kt` (device-only file — the JNI library is not
+  on the JVM test classpath): streaming source over the staged file
+  (`readOpenFileName`), inventory = one header walk via a fresh handle
+  (`readDataSkip`), copy = one forward pass with resume-by-skip, encrypted
+  flag surfaced through `RawEntry.encrypted` (drives the VAL-13 gate),
+  `ArchiveException` mapped to VAL-13 rejections.
+- `ArchiveClientScanner` split: `locate()` (root finding + classification, no
+  entry reads) shared by all lanes; deep `scan()` for ZIP/7z; new
+  `verifyExtracted(root)` post-extraction identity gate (PE parse + MPQ set)
+  pinning the same manifest fields.
+- `runArchive` RAR branch: header-walk listing feeds the quick checks (the
+  RAR5 `install.rar` lands VAL-12), locate-only detection, extraction, then
+  `verifyExtracted` before publish — rejection after a wasted pass is the
+  documented streaming-lane tradeoff.
+- `THIRD_PARTY_NOTICES.md`: libarchive (BSD-2, clean-room RAR readers noted),
+  libarchive-android bindings, bundled mbed TLS/xz/zstd/bzip2, xz for Java.
+- New `O13RarImportTest` (device): corpus RAR4 list+extract through the real
+  source, RAR5 listing, encrypted flag, lone multivolume part-1 fails closed.
+- JVM suite + androidTest compile: BUILD SUCCESSFUL.

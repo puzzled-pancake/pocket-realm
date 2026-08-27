@@ -138,9 +138,11 @@ class ManagedClientImporter(
                     }
                     if (ArchiveFormatSniffer.isIso(probe)) format = ArchiveFormat.ISO
                 }
+                val isRar = format == ArchiveFormat.RAR4 || format == ArchiveFormat.RAR5
                 val rawEntries = when (format) {
                     ArchiveFormat.ZIP -> listZipEntries(stagedFile)
                     ArchiveFormat.SEVEN_ZIP -> listSevenZipEntries(stagedFile)
+                    ArchiveFormat.RAR4, ArchiveFormat.RAR5 -> listRarEntries(stagedFile)
                     else -> null
                 }
                 val quick = ArchiveQuickCheck.evaluate(format, rawEntries?.map { it.name })
@@ -152,18 +154,28 @@ class ManagedClientImporter(
                     )
                 }
 
-                val reader: ArchiveClientScanner.EntryReader = when (format) {
-                    ArchiveFormat.ZIP -> ArchiveClientScanner.EntryReader { name, maxBytes ->
-                        readZipEntry(stagedFile, name, maxBytes)
+                val located = ArchiveClientScanner(limits).locate(rawEntries!!)
+                val detection: ArchiveClientScanner.Result? = if (isRar) {
+                    // Streaming lanes never deep-probe before extraction; the
+                    // identity gate runs on the extracted tree instead.
+                    null
+                } else {
+                    val reader: ArchiveClientScanner.EntryReader = when (format) {
+                        ArchiveFormat.ZIP -> ArchiveClientScanner.EntryReader { name, maxBytes ->
+                            readZipEntry(stagedFile, name, maxBytes)
+                        }
+                        ArchiveFormat.SEVEN_ZIP -> ArchiveClientScanner.EntryReader { name, maxBytes ->
+                            readSevenZipEntry(stagedFile, name, maxBytes)
+                        }
+                        else -> throw ImportRejected(ArchiveQuickCheck.VAL13_UNSUPPORTED)
                     }
-                    ArchiveFormat.SEVEN_ZIP -> ArchiveClientScanner.EntryReader { name, maxBytes ->
-                        readSevenZipEntry(stagedFile, name, maxBytes)
+                    ArchiveClientScanner(limits).scan(rawEntries, reader).also { result ->
+                        if (!result.scan.supported || result.scan.clientId != ClientRuntimeContract.WOW_5875_ID) {
+                            throw ImportRejected(
+                                result.scan.failures.joinToString("; ").ifBlank { "unsupported client archive" },
+                            )
+                        }
                     }
-                    else -> throw ImportRejected(ArchiveQuickCheck.VAL13_UNSUPPORTED)
-                }
-                val detection = ArchiveClientScanner(limits).scan(rawEntries!!, reader)
-                if (!detection.scan.supported || detection.scan.clientId != ClientRuntimeContract.WOW_5875_ID) {
-                    throw ImportRejected(detection.scan.failures.joinToString("; ").ifBlank { "unsupported client archive" })
                 }
                 afterDetection()
                 journal.finishStaging(
@@ -172,14 +184,21 @@ class ManagedClientImporter(
                 )
                 journal.update(
                     importId, ImportPhase.DISCOVERING,
-                    "detected ${detection.scan.version} · ${detection.variant ?: "flat client"}" +
-                        (detection.locale?.let { " · $it" } ?: "") +
-                        (detection.excluded.takeIf { it.isNotEmpty() }?.let { " · ${it.size} entries excluded" } ?: ""),
+                    if (detection != null) {
+                        "detected ${detection.scan.version} · ${detection.variant ?: "flat client"}" +
+                            (detection.locale?.let { " · $it" } ?: "") +
+                            (detection.excluded.takeIf { it.isNotEmpty() }?.let { " · ${it.size} entries excluded" } ?: "")
+                    } else {
+                        "detected RAR client · ${located.variant ?: "flat client"}" +
+                            (located.excluded.takeIf { it.isNotEmpty() }?.let { " · ${it.size} entries excluded" } ?: "") +
+                            " · identity verified after extraction"
+                    },
                 )
 
                 val source: ImportSource = when (format) {
-                    ArchiveFormat.ZIP -> ZipArchiveSource(stagedFile, detection.classified)
-                    ArchiveFormat.SEVEN_ZIP -> SevenZipArchiveSource(stagedFile, detection.classified)
+                    ArchiveFormat.ZIP -> ZipArchiveSource(stagedFile, detection!!.classified)
+                    ArchiveFormat.SEVEN_ZIP -> SevenZipArchiveSource(stagedFile, detection!!.classified)
+                    ArchiveFormat.RAR4, ArchiveFormat.RAR5 -> RarArchiveSource(stagedFile, located.classified)
                     else -> throw ImportRejected(ArchiveQuickCheck.VAL13_UNSUPPORTED)
                 }
                 source.use {
@@ -188,7 +207,13 @@ class ManagedClientImporter(
                     if (!storage.canProceed) {
                         throw ImportRejected("STORAGE_PREFLIGHT: need=${storage.requiredBytes} allocatable=${storage.allocatableBytes}")
                     }
-                    recoverAndFinish(importId, inventory, storage, detection.scan, onDataStageTick)?.let { result ->
+                    val earlyScan = detection?.scan
+                        ?: com.pocketrealm.client.SafClientScanner.Result(
+                            supported = false, clientId = null, version = null, build = null,
+                            executableSha256 = null, sourceBytesKnown = 0, warnings = emptyList(),
+                            failures = emptyList(),
+                        )
+                    recoverAndFinish(importId, inventory, storage, earlyScan, onDataStageTick)?.let { result ->
                         stagedStore.delete(importId)
                         return@withContext result
                     }
@@ -202,14 +227,22 @@ class ManagedClientImporter(
                         check(it.inventory().fingerprint == inventory.fingerprint) {
                             "SOURCE_CHANGED: staged archive changed during import"
                         }
+                        val scanResult = detection?.scan
+                            ?: ArchiveClientScanner(limits).verifyExtracted(stagingDir).also { verified ->
+                                if (!verified.supported || verified.clientId != ClientRuntimeContract.WOW_5875_ID) {
+                                    throw ImportRejected(
+                                        verified.failures.joinToString("; ").ifBlank { "unsupported client archive" },
+                                    )
+                                }
+                            }
                         val published = publishManaged(
-                            PublishInputs(importId, detection.scan, inventory, started), beforePublish, afterRenameBeforeActivate,
+                            PublishInputs(importId, scanResult, inventory, started), beforePublish, afterRenameBeforeActivate,
                         )
                         stagedStore.delete(importId) // free the staged bytes before data preparation
                         if (prepareData) dataStore.prepare(importId, published.root, onDataStageTick)
                         journal.complete(importId, published.id)
                         recordBenchmark(importId)
-                        ImportResult(importId, published.id, inventory, storage, detection.scan.warnings)
+                        ImportResult(importId, published.id, inventory, storage, scanResult.warnings)
                     } catch (error: Throwable) {
                         if (error !is ImportInterrupted && error !is kotlinx.coroutines.CancellationException &&
                             journal.latest().phase != ImportPhase.FAILED) {

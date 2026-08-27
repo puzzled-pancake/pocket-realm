@@ -33,7 +33,15 @@ internal class ArchiveClientScanner(
         val classified: ImportExtractionPolicy.Classified,
     )
 
-    fun scan(entries: List<RawEntry>, reader: EntryReader): Result {
+    /** Root finding + policy classification without any entry reads. */
+    data class Located(
+        val rootPrefix: String,
+        val variant: String?,
+        val excluded: List<ImportExtractionPolicy.Excluded>,
+        val classified: ImportExtractionPolicy.Classified,
+    )
+
+    fun locate(entries: List<RawEntry>): Located {
         val rootPrefix = findClientRoot(entries)
         val wrapperItself = rootPrefix.trimEnd('/')
         val rebased = mutableListOf<ImportExtractionPolicy.RawEntry>()
@@ -48,15 +56,79 @@ internal class ArchiveClientScanner(
             }
         }
         val classified = policy.classify(rebased)
-        val access = ArchiveAccess(entries, rootPrefix, reader)
+        return Located(
+            rootPrefix = rootPrefix,
+            variant = rootPrefix.takeIf { it.isNotEmpty() }?.trimEnd('/', '\\'),
+            excluded = classified.excluded + outsideRoot,
+            classified = classified,
+        )
+    }
+
+    /** Deep detection over entries (ZIP/7z lanes). RAR lanes verify post-extraction. */
+    fun scan(entries: List<RawEntry>, reader: EntryReader): Result {
+        val located = locate(entries)
+        val access = ArchiveAccess(entries, located.rootPrefix, reader)
         val scan = SafClientScanner.scanAccess(access)
         return Result(
             scan = scan,
-            variant = rootPrefix.takeIf { it.isNotEmpty() }?.trimEnd('/', '\\'),
-            locale = readConfigLocale(entries, rootPrefix, reader),
-            realmTarget = readRealmTarget(entries, rootPrefix, reader),
-            excluded = classified.excluded + outsideRoot,
-            classified = classified,
+            variant = located.variant,
+            locale = readConfigLocale(entries, located.rootPrefix, reader),
+            realmTarget = readRealmTarget(entries, located.rootPrefix, reader),
+            excluded = located.excluded,
+            classified = located.classified,
+        )
+    }
+
+    /**
+     * Post-extraction identity gate for streaming lanes (RAR): parse the
+     * extracted WoW.exe, verify the Data MPQ set headers, and pin the same
+     * identity fields the folder/zip lanes pin at detection time.
+     */
+    fun verifyExtracted(root: java.io.File, warnings: List<String> = emptyList()): SafClientScanner.Result {
+        val exe = java.io.File(root, "WoW.exe")
+        val failures = mutableListOf<String>()
+        var identity: com.pocketrealm.client.ClientPeIdentity.Identity? = null
+        if (!exe.isFile) {
+            failures += "VAL-01: direct WoW.exe is absent"
+        } else {
+            identity = com.pocketrealm.client.ClientPeIdentity.parse(exe.readBytes())
+            if (identity.version != EXPECTED_VERSION) {
+                failures += "VAL-03: expected $EXPECTED_VERSION, detected ${identity.version ?: "no matching version resource"}"
+            }
+        }
+        val data = java.io.File(root, "Data")
+        if (!data.isDirectory) {
+            failures += "VAL-04: Data directory is absent"
+        } else {
+            val mpqs = data.listFiles().orEmpty().filter { it.isFile && it.name.endsWith(".mpq", true) }
+                .associateBy { it.name.lowercase() }
+            val missing = REQUIRED_MPQS.filterNot(mpqs::containsKey)
+            if (missing.isNotEmpty()) failures += "VAL-04: missing base MPQ set: ${missing.joinToString()}"
+            for (file in mpqs.values) {
+                val header = file.inputStream().use { runCatching { it.readNBytes(4) }.getOrDefault(ByteArray(0)) }
+                if (!header.contentEquals(byteArrayOf(0x4d, 0x50, 0x51, 0x1a))) {
+                    failures += "VAL-04: invalid MPQ header: Data/${file.name}"
+                }
+            }
+        }
+        val supported = failures.isEmpty() && identity?.version == EXPECTED_VERSION
+        return SafClientScanner.Result(
+            supported = supported,
+            clientId = if (supported) com.pocketrealm.client.ClientRuntimeContract.WOW_5875_ID else null,
+            version = identity?.version,
+            build = identity?.build,
+            executableSha256 = identity?.sha256,
+            sourceBytesKnown = exe.length(),
+            warnings = (warnings + "VAL-05: FLAT_ENGLISH_LOCALE_INFERRED").distinct(),
+            failures = failures.distinct(),
+        )
+    }
+
+    private companion object {
+        private const val EXPECTED_VERSION = "1.12.1.5875"
+        private val REQUIRED_MPQS = setOf(
+            "base.mpq", "dbc.mpq", "fonts.mpq", "interface.mpq", "misc.mpq", "model.mpq",
+            "sound.mpq", "speech.mpq", "terrain.mpq", "texture.mpq", "wmo.mpq",
         )
     }
 
