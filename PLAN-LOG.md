@@ -692,3 +692,19 @@ Gradle suite (the actual gate for these files) runs green per phase below.
   instrumented suites (O12/O13 + O11 regression), the real-archive import
   matrix (both RAR4s verified non-solid on 2026-08-27), LMK/watchdog resume,
   companion fallback, release-staging gate.
+
+## Inno installer payload — research (2026-08-27, pre-I0)
+
+- Task: make `WoW-1.12.1_install.rar` installable in-app. Identified the
+  payload: Inno Setup 5.3.5 installer (setup.exe + setup-1..4.bin), ANSI,
+  not passworded, LZMA1, external slices, `{app}`-rooted vanilla 1.12.1
+  client ("World Of Warcraft Classic" 1.12.1, repack by PreBound).
+- Ground truth: extracted with innoextract 1.9 - WoW.exe 4,775,986 B /
+  PE 1.12.1.5875, all 14 MPQs valid; full format verified byte-level with
+  a python probe (PE resource 11111 offset table, block framing with
+  4 KiB CRC frames over the *compressed* bytes, raw LZMA1 with no end
+  marker, header stream decoded 64,232 B clean). Details + sources:
+  `docs/plans/inno-installer-payload-plan.md`.
+- Licensing verified: innoextract is zlib (GPL-3.0-clean as reference),
+  xz-for-java 0BSD, issrc read as documentation only. No Blizzard bytes
+  will be committed (synthetic installer fixtures only).
