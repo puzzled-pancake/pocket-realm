@@ -683,3 +683,12 @@ Gradle suite (the actual gate for these files) runs green per phase below.
   tree still carries the in-flight SQLite/LLM lane's gradle changes (this
   lane's gradle edits: xz + libarchive AAR + version, to be committed when
   the parent lane lands).
+
+## Phase F — Device qualification
+
+**Outcome: runbook staged, execution pending device session.**
+
+- `docs/plans/universal-client-installer-device-runbook.md` written:
+  instrumented suites (O12/O13 + O11 regression), the real-archive import
+  matrix (both RAR4s verified non-solid on 2026-08-27), LMK/watchdog resume,
+  companion fallback, release-staging gate.
