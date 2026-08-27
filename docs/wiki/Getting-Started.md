@@ -8,11 +8,7 @@ You need:
 
 - An Android device with enough free internal storage.
 - A complete World of Warcraft 1.12.1 build 5875 client folder that you are
-  entitled to use. It must be a plain, already-extracted (uncompressed)
-  folder — the one that directly contains `WoW.exe` and a `Data` folder — not
-  an installer, downloader/launcher, or `.zip`/`.7z`/`.rar` archive. Pocket
-  Realm cannot run installers or open archives; extract a compressed copy
-  first, then select the extracted folder itself.
+  entitled to use. It can be a plain, already-extracted (uncompressed) client folder (directly containing `WoW.exe` and `Data`) or a single `.zip`/`.7z`/`.rar` archive holding exactly one client — the in-app archive installer stages, detects and extracts it. Installers, launchers, disc images, and encrypted or multi-volume archives are rejected with a `VAL-` message.
 - A charger for the first import and long setup work.
 - Touch access for folder selection, login fields, and character creation.
 - A controller, keyboard and mouse, or the on-screen control layout for play.
@@ -24,7 +20,7 @@ its final button lands on the import screen with the folder picker already
 open. You can replay it anytime from **Settings → Setup → Show first-run
 setup guide**.
 
-Open **Settings**, scroll to **Setup**, and choose **Game files and import**. Select the client folder when Android opens the folder picker: the extracted client itself (directly containing `WoW.exe` and `Data`), never an installer, launcher, or archive.
+Open **Settings**, scroll to **Setup**, and choose **Game files and import**. Pick either the extracted client folder (directly containing `WoW.exe` and `Data`) or — with the second button — a client archive (`.zip`/`.7z`/`.rar`). Never an installer or launcher.
 
 If **Settings** is missing from the side rail on your device, see Troubleshooting for another way to open it.
 

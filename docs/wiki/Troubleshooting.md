@@ -30,7 +30,7 @@ The selection is checked before anything is copied. A `VAL-01` rejection means t
 - A downloader/launcher folder was selected (the message says `launcher-only` because a direct `WoW.exe` is absent).
 - A `.zip`/`.7z`/`.rar` archive or a shortcut was selected instead of a folder.
 
-Pocket Realm cannot run installers and cannot open archives. Extract the client first (on a PC or with a file manager app), then choose the folder again and select the extracted client itself — the folder that directly contains `WoW.exe` and a `Data` folder. A `VAL-03` rejection instead means the client is the wrong version: exactly WoW 1.12.1 build 5875 is required. Replay the guide with **Settings → Setup → Show first-run setup guide** if you want the full requirements again.
+Archive lanes reject installer payloads with `VAL-12`, disc images with `VAL-11`, and unsupported archives (encrypted, multi-volume, solid RAR4) with `VAL-13` — run `tools/install_client_windows.ps1` on a PC to rank every source and extract the problematic ones for the folder lane. For the folder lane, extract the client first, then choose the folder that directly contains `WoW.exe` and a `Data` folder. A `VAL-03` rejection instead means the client is the wrong version: exactly WoW 1.12.1 build 5875 is required. Replay the guide with **Settings → Setup → Show first-run setup guide** if you want the full requirements again.
 
 ## Import stopped or looks frozen
 

@@ -500,7 +500,7 @@ private fun ImportPrimaryPane(
         Text(
             "The selected folder is read-only. Pocket Realm works from its verified private copy. " +
                 "Select the extracted client folder itself — the one directly containing WoW.exe " +
-                "and Data — not an installer, launcher, or archive.",
+                "and Data — or pick a .zip/.7z/.rar archive of it. Never an installer or launcher.",
             style = MaterialTheme.typography.labelSmall,
         )
     }

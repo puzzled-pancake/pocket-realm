@@ -64,7 +64,7 @@ class FirstRunTutorialTest {
     }
 
     @Test
-    fun requirementIsVerboseAboutTheUncompressedNonInstallerClient() {
+    fun requirementIsVerboseAboutFolderAndArchiveLanes() {
         val text = UNCOMPRESSED_CLIENT_REQUIREMENT.lowercase()
         listOf(
             "1.12.1", "5875", "extract", "uncompressed", "launcher",
@@ -72,6 +72,8 @@ class FirstRunTutorialTest {
         ).forEach { keyword -> assertTrue(keyword in text) }
         assertTrue("must not be an installer" in text)
         assertTrue("wow.exe" in text)
+        assertTrue("can extract it for you" in text)
+        assertTrue("password-protected" in text)
     }
 
     @Test

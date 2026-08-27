@@ -655,3 +655,31 @@ Gradle suite (the actual gate for these files) runs green per phase below.
 - New `O13RarImportTest` (device): corpus RAR4 list+extract through the real
   source, RAR5 listing, encrypted flag, lone multivolume part-1 fails closed.
 - JVM suite + androidTest compile: BUILD SUCCESSFUL.
+
+## Phase E — Windows companion + docs + version
+
+**Outcome: complete, green, committed (release-APK staging deferred).**
+
+- `tools/install_client_windows.ps1` (UTF-8 BOM; PowerShell 5.1-compatible):
+  ranks every archive + extracted client under the staging root — verified
+  against the real `C:\Wow clients` tree (all 6 client archives rank OK for
+  in-app import; the RAR5 installer ranks REJECTED with the VAL-12
+  explanation); extracts a chosen source to `Installed\<slug>` with a
+  sanitized slug (blocks 7z switch injection), array-argument invocation,
+  refuse-or-wipe semantics, FileStream header reads (2 GiB+ safe), wrapper
+  rebase, WoW 1.12.1.5875 identity verification (exe size + version + 11
+  MPQs), `!1.8 Hack` detection, and informational realmlist reporting.
+- `scripts/smoke_archive_import.py`: opt-in host smoke — synthetic client zip
+  ranks OK, installer zip ranks REJECTED (passing).
+- Docs: Game-Files-and-Import.md (two-lane contract, staged-copy space/time
+  guidance, VAL-11/12/13 catalogue pointer, USB-transfer advice),
+  Getting-Started.md, Troubleshooting.md, README.md — every no-archives site
+  updated; FirstRunTutorial constant + ClientScreen footer rewritten;
+  FirstRunTutorialTest pins extended to the archive-lane wording.
+- Version: `versionName` 0.103.0-alpha, `versionCode` 8.
+- Full JVM suite: BUILD SUCCESSFUL.
+- **Deviation:** `.tmp/release-0.103.0/` APK staging is deferred to a release
+  session — it needs the full native/python packaging lanes and the working
+  tree still carries the in-flight SQLite/LLM lane's gradle changes (this
+  lane's gradle edits: xz + libarchive AAR + version, to be committed when
+  the parent lane lands).

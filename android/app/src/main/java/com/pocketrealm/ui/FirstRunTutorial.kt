@@ -29,16 +29,17 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 internal const val UNCOMPRESSED_CLIENT_REQUIREMENT: String =
     "You need your own copy of the World of Warcraft 1.12.1 (build 5875) " +
-        "client that you are entitled to use. It must be a plain, " +
+        "client that you are entitled to use. Bring either a plain, " +
         "already-extracted, uncompressed client folder — the folder that " +
         "directly contains WoW.exe and a Data folder with its complete base " +
         "set of .MPQ files (base, dbc, fonts, interface, misc, model, sound, " +
-        "speech, terrain, texture, wmo). It must NOT be an installer or setup " +
-        ".exe, a downloader/launcher, or a .zip/.7z/.rar archive — Pocket " +
-        "Realm cannot run installers and cannot open archives. If your copy " +
-        "is compressed, extract it first (on a PC or with a file manager " +
-        "app), then select the extracted folder itself — not the archive, " +
-        "and not a parent folder."
+        "speech, terrain, texture, wmo) — or a single .zip/.7z/.rar archive " +
+        "of that folder; Pocket Realm can extract it for you on device. " +
+        "It must NOT be an installer or setup .exe, a downloader/launcher, " +
+        "a password-protected or split archive, or a disc image. If your copy " +
+        "is compressed differently (or encrypted), extract it first (on a PC " +
+        "or with a file manager app), then select the extracted folder " +
+        "itself — not a parent folder."
 
 internal data class TutorialStep(val title: String, val body: String)
 
