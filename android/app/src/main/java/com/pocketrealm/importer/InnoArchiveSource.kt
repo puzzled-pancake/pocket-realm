@@ -13,19 +13,24 @@ import java.io.InputStream
 internal class InnoArchiveSource(
     private val reader: InnoSetupReader,
     private val classified: ImportExtractionPolicy.Classified,
+    rootPrefix: String = "",
 ) : ImportSource {
 
     private val session = reader.session()
     private val byPath = reader.files().associateBy { it.path }
+    private val prefix = rootPrefix.trim('/').let { if (it.isEmpty()) "" else "$it/" }
 
     override fun inventory(): SourceInventory {
         val allowed = classified.entries.filter { !it.directory }.map { it.relativePath }.toHashSet()
         // Chunk order, not the classified alphabetical order: see the class
-        // doc. Entries the client policy excluded drop out here.
-        val entries = reader.files().filter { it.path in allowed }.map { file ->
+        // doc. Entries the client policy excluded drop out here. A wrapper
+        // layout (the installer's {app} dir holding the client one level
+        // down) is rebased so WoW.exe lands at the generation root.
+        val entries = reader.files().filter { it.path.removePrefix(prefix) in allowed }.map { file ->
+            val relative = file.path.removePrefix(prefix)
             ImportSourceEntry(
-                key = file.path,
-                relativePath = file.path,
+                key = relative,
+                relativePath = relative,
                 directory = false,
                 size = file.size,
                 lastModified = 0L,
@@ -42,7 +47,8 @@ internal class InnoArchiveSource(
     }
 
     override fun open(entry: ImportSourceEntry): InputStream {
-        val file = byPath[entry.relativePath]
+        val key = if (prefix.isEmpty()) entry.relativePath else prefix + entry.relativePath
+        val file = byPath[key]
             ?: throw ImportRejected("VAL-13: installer payload no longer lists ${entry.relativePath}")
         return session.open(file)
     }
@@ -64,10 +70,10 @@ internal object InnoPayloadDetection {
     fun rawEntries(files: List<InnoSetupReader.InnoPayloadFile>): List<ArchiveClientScanner.RawEntry> {
         val dirs = LinkedHashSet<String>()
         files.forEach { file ->
-            var parent = file.path.substringBefore('/', "")
+            var parent = file.path.substringBeforeLast('/', "")
             while (parent.isNotEmpty()) {
                 dirs += parent
-                parent = parent.substringBefore('/', "")
+                parent = parent.substringBeforeLast('/', "")
             }
         }
         return files.map { ArchiveClientScanner.RawEntry(it.path, false, it.size) } +

@@ -63,20 +63,26 @@ internal class InnoSliceSet(
         private var limit = 0L
 
         private fun advance(): Boolean {
-            val index = if (currentSlice < 0) slice else currentSlice + 1
-            val start = if (currentSlice < 0) offset else SLICE_HEADER_BYTES
+            var index = if (currentSlice < 0) slice else currentSlice + 1
+            var start = if (currentSlice < 0) offset else SLICE_HEADER_BYTES
             while (true) {
                 val size = sliceDataSize(index)
-                if (start < size) {
-                    current = sliceFile(index).also { it.seek(start) }
-                    currentSlice = index
-                    position = start
-                    limit = size
-                    return true
+                when {
+                    start < size -> {
+                        current = sliceFile(index).also { it.seek(start) }
+                        currentSlice = index
+                        position = start
+                        limit = size
+                        return true
+                    }
+                    // Zero-length (or exactly consumed) slices simply move on
+                    // to the next one; a missing slice file ends the walk.
+                    start == size -> {
+                        index++
+                        start = SLICE_HEADER_BYTES
+                    }
+                    else -> throw InnoFormatException("read past end of Inno slice $index")
                 }
-                // Zero-length tail slices simply move on to the next one.
-                if (start > size) throw InnoFormatException("read past end of Inno slice $index")
-                return false
             }
         }
 

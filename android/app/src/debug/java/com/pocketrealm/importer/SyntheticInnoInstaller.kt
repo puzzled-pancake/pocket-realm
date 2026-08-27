@@ -45,6 +45,9 @@ object SyntheticInnoInstaller {
         configure: Builder.() -> Unit = {},
     ): File {
         val options = Builder().apply(configure)
+        require(options.version == InnoVersion.V5_3_5) {
+            "SyntheticInnoInstaller only encodes the 5.3.5 layout; the knob stays for a future version matrix"
+        }
         val prepared = files.mapIndexed { index, spec ->
             val transformed = if (spec.callFiltered) encodeCallFilter(spec.bytes) else spec.bytes
             PreparedFile(
@@ -76,28 +79,35 @@ object SyntheticInnoInstaller {
         val allBytes = ByteArrayOutputStream()
         chunkStreams.forEach { allBytes.write(it.bytes) }
         val stream = allBytes.toByteArray()
-        val sliceStarts = ArrayList<Long>()
+        // Slice start positions within the concatenated chunk-stream bytes.
+        val sliceDataStarts = ArrayList<Long>()
         val slices = ArrayList<ByteArray>()
         var position = 0
         while (position < stream.size || slices.isEmpty()) {
-            sliceStarts.add(SLICE_HEADER_BYTES + position.toLong())
+            sliceDataStarts.add(position.toLong())
             val take = minOf(options.sliceBytes, stream.size - position)
             slices.add(stream.copyOfRange(position, position + take))
             position += take
             if (position >= stream.size) break
         }
-        fun sliceFor(offset: Long): Int = sliceStarts.indexOfLast { offset >= it }
+        fun sliceFor(dataPosition: Long): Int = sliceDataStarts.indexOfLast { dataPosition >= it }
 
         val dataEntries = ArrayList<DataEntry>()
         val fileEntries = ArrayList<FileEntry>()
-        var runningChunkOffset = SLICE_HEADER_BYTES
+        var runningGlobal = 0L // position within the concatenated chunk-stream bytes
         chunkStreams.forEach { chunk ->
+            val firstSlice = sliceFor(runningGlobal)
+            val lastSlice = sliceFor(runningGlobal + chunk.bytes.size - 1)
+            // The real format stores per-slice absolute file offsets (the
+            // 12-byte slice header included), not concatenated-stream positions.
+            val chunkOffset = SLICE_HEADER_BYTES + runningGlobal - sliceDataStarts[firstSlice]
             var fileOffset = 0L
             chunk.members.forEach { file ->
                 dataEntries.add(
                     DataEntry(
-                        firstSlice = sliceFor(runningChunkOffset),
-                        chunkOffset = runningChunkOffset.toLong(),
+                        firstSlice = firstSlice,
+                        lastSlice = lastSlice,
+                        chunkOffset = chunkOffset,
                         fileOffset = fileOffset,
                         fileSize = file.transformed.size.toLong(),
                         chunkSize = chunk.bytes.size.toLong(),
@@ -109,7 +119,7 @@ object SyntheticInnoInstaller {
                 fileEntries.add(FileEntry(file.rawDestination, dataEntries.size - 1))
                 fileOffset += file.transformed.size
             }
-            runningChunkOffset += chunk.bytes.size
+            runningGlobal += chunk.bytes.size
         }
 
         directory.mkdirs()
@@ -138,6 +148,7 @@ object SyntheticInnoInstaller {
 
     private class DataEntry(
         val firstSlice: Int,
+        val lastSlice: Int,
         val chunkOffset: Long,
         val fileOffset: Long,
         val fileSize: Long,
@@ -401,7 +412,7 @@ object SyntheticInnoInstaller {
             val d = LittleWriter()
             dataEntries.forEach { entry ->
                 d.int(entry.firstSlice)
-                d.int(entry.firstSlice) // last slice
+                d.int(entry.lastSlice)
                 d.int(entry.chunkOffset.toInt())
                 d.long(entry.fileOffset)
                 d.long(entry.fileSize)

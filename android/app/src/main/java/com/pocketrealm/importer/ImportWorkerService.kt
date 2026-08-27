@@ -147,6 +147,11 @@ class ImportWorkerService : Service() {
                     expectedBytes,
                     afterStaging = { if (interruptPoint == INTERRUPT_AFTER_STAGING) killTestProcess() },
                     afterDetection = { if (interruptPoint == INTERRUPT_AFTER_DETECTION) killTestProcess() },
+                    onScratchEntry = { filesDone ->
+                        if (interruptPoint == INTERRUPT_DURING_SCRATCH &&
+                            interruptAfter > 0 && filesDone >= interruptAfter
+                        ) killTestProcess()
+                    },
                     afterVerified = { verified ->
                         updateNotification(importer)
                         if (interruptAfter > 0 && verified >= interruptAfter) killTestProcess()
@@ -237,6 +242,7 @@ class ImportWorkerService : Service() {
         const val INTERRUPT_AFTER_DETECTION = "AFTER_DETECTION"
         const val INTERRUPT_BEFORE_PUBLISH = "BEFORE_PUBLISH"
         const val INTERRUPT_AFTER_RENAME = "AFTER_RENAME_BEFORE_ACTIVATE"
+        const val INTERRUPT_DURING_SCRATCH = "DURING_SCRATCH"
         private const val CHANNEL = "client_import"
         private const val NOTIFICATION_ID = 1101
         private const val DATA_NOTIFY_INTERVAL_MS = 5_000L

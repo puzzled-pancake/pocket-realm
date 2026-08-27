@@ -402,6 +402,13 @@ class ImportJournal(context: Context) : AutoCloseable {
         fail(importId, "DATA_${stage.name}: $detail")
     }
 
+    /** Imports a future run could still resume (anything not terminal). */
+    fun activeImportIds(): Set<String> = helper.readableDatabase.rawQuery(
+        "SELECT import_id FROM imports WHERE phase NOT IN ('COMPLETE','CANCELLED')", emptyArray(),
+    ).use { cursor ->
+        buildSet { while (cursor.moveToNext()) add(cursor.getString(0)) }
+    }
+
     fun latest(): ImportStatus = helper.readableDatabase.rawQuery(
         "SELECT import_id, phase, source_kind, source_fingerprint, source_uri, files_processed, files_total, bytes_copied, " +
             "bytes_total, last_relative_path, staged_bytes, warning_count, last_error, active_generation, updated_at_ms " +

@@ -40,6 +40,96 @@ class InnoVersionAndFilterTest {
         }
     }
 
+    @Test fun rejectsAmbiguousSignatures() {
+        // These byte patterns may belong to BlackBox rebuilds whose layout
+        // differs; the reader refuses to guess.
+        assertThrows(InnoFormatException::class.java) {
+            InnoVersion.parse(signature("Inno Setup Setup Data (5.4.2) (u)"))
+        }
+        assertThrows(InnoFormatException::class.java) {
+            InnoVersion.parse(signature("Inno Setup Setup Data (5.5.0) (u)"))
+        }
+        assertThrows(InnoFormatException::class.java) {
+            InnoVersion.parse(signature("Inno Setup Setup Data (5.5.7)"))
+        }
+    }
+
+    @Test fun callFilterStreamEndingInsideAnAddressTerminates() {
+        // A stream may legally end 0–3 bytes into a call address; the filter
+        // must deliver what it collected and then EOF — never loop.
+        listOf(
+            byteArrayOf(0xe8.toByte()),
+            byteArrayOf(0xe8.toByte(), 0x11),
+            byteArrayOf(0xe8.toByte(), 0x11, 0x22),
+            byteArrayOf(0xe8.toByte(), 0x11, 0x22, 0x33),
+        ).forEach { tail ->
+            for (variant in listOf(
+                InnoCallFilterInputStream.Variant.SINCE_5_2_0,
+                InnoCallFilterInputStream.Variant.SINCE_5_3_9,
+            )) {
+                InnoCallFilterInputStream(java.io.ByteArrayInputStream(tail), variant).use { stream ->
+                    assertTrue(
+                        "collected bytes delivered ($variant, ${tail.size} bytes)",
+                        stream.readBytes().contentEquals(tail),
+                    )
+                    assertEquals("EOF after the partial address ($variant)", -1, stream.read())
+                }
+            }
+        }
+    }
+
+    @Test fun callFilterAtThe64KiBlockEdgePassesThroughAndRewritesExactly() {
+        // E8 four bytes before the 64 KiB boundary: fewer than five bytes
+        // remain in the block, so the whole instruction passes untouched.
+        val passthrough = ByteArray(0x10000 + 16) { 0x90.toByte() }
+        passthrough[0xFFFC] = 0xe8.toByte()
+        passthrough[0xFFFD] = 0xaa.toByte()
+        passthrough[0xFFFE] = 0xbb.toByte()
+        passthrough[0xFFFF] = 0xcc.toByte()
+        java.io.ByteArrayInputStream(passthrough).use { input ->
+            val out = InnoCallFilterInputStream(input, InnoCallFilterInputStream.Variant.SINCE_5_2_0)
+                .use { it.readBytes() }
+            assertTrue("block-edge instruction untouched", out.contentEquals(passthrough))
+        }
+
+        // E8 exactly five bytes before the boundary: the address is collected
+        // and rewritten against the instruction end (0x10000).
+        val rewrite = ByteArray(0x10000 + 16) { 0x90.toByte() }
+        rewrite[0xFFFB] = 0xe8.toByte()
+        rewrite[0xFFFC] = 0x00.toByte() // address 0x123400, high byte 0x00
+        rewrite[0xFFFD] = 0x34.toByte()
+        rewrite[0xFFFE] = 0x12.toByte()
+        rewrite[0xFFFF] = 0x00.toByte()
+        java.io.ByteArrayInputStream(rewrite).use { input ->
+            val out = InnoCallFilterInputStream(input, InnoCallFilterInputStream.Variant.SINCE_5_2_0)
+                .use { it.readBytes() }
+            assertEquals(0xe8, out[0xFFFB].toInt() and 0xff)
+            // rel = 0x123400 - 0x10000 = 0x113400 -> low bytes 00 34 11, high stays 0x00.
+            assertEquals(0x00, out[0xFFFC].toInt() and 0xff)
+            assertEquals(0x34, out[0xFFFD].toInt() and 0xff)
+            assertEquals(0x11, out[0xFFFE].toInt() and 0xff)
+            assertEquals(0x00, out[0xFFFF].toInt() and 0xff)
+            assertEquals(0x90, out[0x10000].toInt() and 0xff)
+        }
+
+        // The >= 5.3.9 variant additionally flips the high byte when bit 23
+        // of the rewritten displacement is set (rel 1 - 0x10000 = 0xFFFF0001).
+        val flip = rewrite.copyOf().also {
+            it[0xFFFC] = 0x01.toByte()
+            it[0xFFFD] = 0x00.toByte()
+            it[0xFFFE] = 0x00.toByte()
+        }
+        java.io.ByteArrayInputStream(flip).use { input ->
+            val out = InnoCallFilterInputStream(input, InnoCallFilterInputStream.Variant.SINCE_5_3_9)
+                .use { it.readBytes() }
+            assertEquals(0xe8, out[0xFFFB].toInt() and 0xff)
+            assertEquals(0x01, out[0xFFFC].toInt() and 0xff)
+            assertEquals(0x00, out[0xFFFD].toInt() and 0xff)
+            assertEquals(0xff, out[0xFFFE].toInt() and 0xff)
+            assertEquals(0xff, out[0xFFFF].toInt() and 0xff)
+        }
+    }
+
     @Test fun callFilterRoundTripsThroughEncodeAndDecode() {
         // Synthetic x86-ish stream: opcodes, plausible addresses (high byte
         // 00/ff and otherwise), and instructions crossing a 64 KiB edge.

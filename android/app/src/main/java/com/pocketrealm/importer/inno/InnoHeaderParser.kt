@@ -210,11 +210,12 @@ internal class InnoHeaderParser internal constructor(
             deleteCount, uninstallDeleteCount, runCount, uninstallRunCount, dataEntryCountField,
         ).forEach { if (it < 0 || it > MAX_COUNT) throw InnoFormatException("implausible entry counts") }
 
-        reader.windowsVersionRange()
-        reader.u32() // back color
-        reader.u32() // back color 2
-        if (lt(InnoVersion.V5_5_7)) reader.u32() // image back color
-        reader.bytes(if (lt(InnoVersion.V5_3_9)) 16 else 20) // password digest
+            reader.windowsVersionRange()
+            reader.u32() // back color
+            reader.u32() // back color 2
+            if (lt(InnoVersion.V5_5_7)) reader.u32() // image back color
+            if (lt(InnoVersion.V5_0_4)) reader.u32() // small image back color
+            reader.bytes(if (lt(InnoVersion.V5_3_9)) 16 else 20) // password digest
         reader.bytes(8) // password salt
         reader.i64() // extra disk space required
         val slicesPerDisk = reader.u32().toInt().coerceAtLeast(1)
@@ -302,7 +303,7 @@ internal class InnoHeaderParser internal constructor(
             Slot(38, true), // append default dir name
             Slot(39, true), // append default group name
             Slot(OPTION_ENCRYPTION_USED, true), // encryption used
-            Slot(40, ge(InnoVersion.V5_0_0)), // changes environment (>= 5.0.4)
+            Slot(40, ge(InnoVersion.V5_0_4)), // changes environment
             Slot(41, ge(InnoVersion.V5_1_7) && !version.unicode),
             Slot(42, ge(InnoVersion.V5_1_13)), // setup logging
             Slot(43, ge(InnoVersion.V5_2_1)), // signed uninstaller
@@ -468,7 +469,7 @@ internal class InnoHeaderParser internal constructor(
         reader.windowsVersionRange()
         reader.u32() // hive
         reader.i16() // permission
-        if (ge(InnoVersion.V5_2_5)) reader.enum(7) else reader.enum(6)
+        if (ge(InnoVersion.V5_2_5)) reader.enum(6) else reader.enum(5) // value type (QWord arrives with 5.2.5)
         skipFlags(if (ge(InnoVersion.V5_1_0)) 12 else 10)
     }
 
@@ -490,7 +491,7 @@ internal class InnoHeaderParser internal constructor(
         parseConditionData()
         reader.windowsVersionRange()
         reader.i32() // show command
-        reader.enum(3) // wait condition
+        reader.enum(2) // wait condition (terminated / idle / no wait)
         val runBits = 7 + (if (ge(InnoVersion.V5_1_0)) 2 else 0) + (if (ge(InnoVersion.V5_2_0)) 1 else 0)
         skipFlags(runBits)
     }

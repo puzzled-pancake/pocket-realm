@@ -53,8 +53,6 @@ object ArchiveQuickCheck {
 
     const val VAL11_ISO = "VAL-11: disc images are not supported — the 1.12.1 ISOs ship older " +
         "installers (1.0.1 / 1.10.0); Pocket Realm needs the extracted 1.12.1.5875 client, not an installer"
-    const val VAL12_INSTALLER = "VAL-12: this is the Blizzard setup installer (setup.exe + setup-*.bin), " +
-        "not a client — select an archive that directly contains WoW.exe and Data"
     const val VAL12_NOT_INNO = "VAL-12: this archive carries a Windows installer payload Pocket Realm " +
         "cannot use (only original Inno Setup-based 1.12.1 installers are extractable on device) — " +
         "select an archive that directly contains WoW.exe and Data"
@@ -65,8 +63,15 @@ object ArchiveQuickCheck {
         ArchiveFormat.UNKNOWN -> Verdict.Reject(VAL13_UNSUPPORTED)
         else -> {
             val names = entryNames ?: return Verdict.Accept(format)
-            if (looksLikeInstaller(names)) Verdict.InstallerPayload(format)
-            else if (names.none { it.substringAfterLast('/').substringAfterLast('\\').equals("WoW.exe", true) }) {
+            // A real client always wins over a bundled installer folder: the
+            // normal lane detects and imports it (and excludes the installer
+            // files), while the installer lane would terminally reject the
+            // whole archive if the bundled setup.exe is not Inno-based.
+            val hasClientExe = names.any {
+                it.substringAfterLast('/').substringAfterLast('\\').equals("WoW.exe", true)
+            }
+            if (!hasClientExe && looksLikeInstaller(names)) Verdict.InstallerPayload(format)
+            else if (!hasClientExe) {
                 // A launcher-only or wrong-content archive: fail fast before the staging copy.
                 Verdict.Reject(
                     "VAL-01: no WoW.exe anywhere in the archive — " +

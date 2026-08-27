@@ -63,8 +63,21 @@ class InnoSetupReader private constructor(
      * verifies the per-file MD5 at end of stream. Each call re-opens the
      * chunk from its start — fine for spot checks, quadratic for a full
      * solid payload. Use [session] for ordered bulk extraction.
+     *
+     * One payload stream may be active at a time (here or through a
+     * [Session]): the slice set shares file pointers between streams.
      */
-    fun open(file: InnoPayloadFile): InputStream = openPositioned(file, chunk = null)
+    fun open(file: InnoPayloadFile): InputStream = try {
+        openPositioned(file, chunk = null)
+    } catch (error: InnoFormatException) {
+        throw error
+    } catch (error: EOFException) {
+        throw InnoFormatException("truncated installer payload: ${error.message}")
+    } catch (error: java.io.IOException) {
+        throw InnoFormatException("unreadable installer payload: ${error.message}")
+    } catch (error: IllegalStateException) {
+        throw InnoFormatException("corrupt installer layout: ${error.message}")
+    }
 
     /**
      * A forward-only bulk reader over the payload. Solid Inno payloads pack
@@ -72,7 +85,7 @@ class InnoSetupReader private constructor(
      * session keeps a single decompressed chunk stream and serves files in
      * [files] order, decoding the chunk exactly once. A request behind the
      * current position (a resumed import restarting mid-chunk) transparently
-     * re-opens and skips forward once.
+     * re-opens and skips forward once. One session per reader at a time.
      */
     fun session(): Session = Session()
 
@@ -80,7 +93,19 @@ class InnoSetupReader private constructor(
         private var chunk: CountingInputStream? = null
         private var chunkKey: Pair<Int, Long>? = null
 
-        fun open(file: InnoPayloadFile): InputStream {
+        fun open(file: InnoPayloadFile): InputStream = try {
+            openEntry(file)
+        } catch (error: InnoFormatException) {
+            throw error
+        } catch (error: EOFException) {
+            throw InnoFormatException("truncated installer payload: ${error.message}")
+        } catch (error: java.io.IOException) {
+            throw InnoFormatException("unreadable installer payload: ${error.message}")
+        } catch (error: IllegalStateException) {
+            throw InnoFormatException("corrupt installer chunk layout: ${error.message}")
+        }
+
+        private fun openEntry(file: InnoPayloadFile): InputStream {
             val entry = dataEntries[file.dataEntryIndex]
             val key = entry.firstSlice to entry.chunkOffset
             val current = chunk
@@ -135,7 +160,7 @@ class InnoSetupReader private constructor(
         if (entry.encrypted) throw InnoFormatException("installer payload file is encrypted")
         val bounded = BoundedInputStream(chunk, entry.fileSize)
         val filtered = entry.callFilter?.let { InnoCallFilterInputStream(bounded, it) } ?: bounded
-        return DigestVerifyingInputStream(filtered, entry.digest, file.path)
+        return DigestVerifyingInputStream(filtered, entry.digest, file.path, entry.fileSize)
     }
 
     private fun chunkStream(entry: InnoDataEntry): InputStream {
@@ -169,10 +194,23 @@ class InnoSetupReader private constructor(
          * Parses an extracted installer payload. [scratchDir] must contain
          * setup.exe and its slices, either at the top level or inside a
          * single wrapper subdirectory.
-         * @throws InnoFormatException for anything unsupported or corrupt;
-         * the archive lane maps this to a VAL-13 rejection.
+         * @throws InnoFormatException for anything unsupported or corrupt
+         * (truncated or unreadable payloads included); the archive lane maps
+         * this to a VAL-12/VAL-13 rejection.
          */
-        fun open(scratchDir: File): InnoSetupReader {
+        fun open(scratchDir: File): InnoSetupReader = try {
+            openInstaller(scratchDir)
+        } catch (error: InnoFormatException) {
+            throw error
+        } catch (error: EOFException) {
+            throw InnoFormatException("truncated installer payload: ${error.message}")
+        } catch (error: java.io.IOException) {
+            throw InnoFormatException("unreadable installer payload: ${error.message}")
+        } catch (error: IllegalStateException) {
+            throw InnoFormatException("corrupt installer layout: ${error.message}")
+        }
+
+        private fun openInstaller(scratchDir: File): InnoSetupReader {
             val setup = findSetupExe(scratchDir)
                 ?: throw InnoFormatException("no setup.exe in the extracted installer payload")
             val dir = setup.parentFile
@@ -194,17 +232,21 @@ class InnoSetupReader private constructor(
                 )
                 val codepage = probe.parseLanguageCodepage()
                 val charset = charsetFor(codepage, version)
+                val primaryStream = primaryBytes.inputStream()
                 val parser = InnoHeaderParser(
-                    InnoDataReader(primaryBytes.inputStream(), charset), version,
+                    InnoDataReader(primaryStream, charset), version,
                 )
                 val header = parser.parse()
+                requireFullyConsumed(primaryStream.available(), "primary")
 
                 val (secondary, _) = InnoBlockReader.open(source, afterPrimary)
                 val secondaryBytes = readAll(secondary, MAX_HEADER_BYTES)
+                val secondaryStream = secondaryBytes.inputStream()
                 val dataEntries = parser.parseDataEntries(
-                    InnoDataReader(secondaryBytes.inputStream(), charset),
+                    InnoDataReader(secondaryStream, charset),
                     header.dataEntryCount, header.compression,
                 )
+                requireFullyConsumed(secondaryStream.available(), "secondary")
 
                 val stems = buildList {
                     add(setup.nameWithoutExtension)
@@ -235,10 +277,19 @@ class InnoSetupReader private constructor(
             return null
         }
 
+        /** The upstream reader rejects trailing header bytes; so do we. */
+        private fun requireFullyConsumed(remaining: Int, label: String) {
+            if (remaining != 0) throw InnoFormatException("unknown data at end of $label header stream")
+        }
+
         private fun charsetFor(codepage: Long, version: InnoVersion): java.nio.charset.Charset {
             if (version.unicode) return Charsets.UTF_16LE
             return when (codepage.toInt()) {
-                0, 1252 -> Charsets.ISO_8859_1 // windows-1252 payload, byte-transparent decode
+                0 -> Charsets.ISO_8859_1 // byte-transparent decode of an undeclared codepage
+                // windows-1252 differs from Latin-1 in 0x80–0x9F; fall back to
+                // the byte-transparent decode if the charset is unavailable.
+                1252 -> runCatching { java.nio.charset.Charset.forName("windows-1252") }
+                    .getOrElse { Charsets.ISO_8859_1 }
                 1250 -> windowsCharset("windows-1250")
                 1251 -> windowsCharset("windows-1251")
                 1253 -> windowsCharset("windows-1253")
@@ -399,26 +450,38 @@ private class DigestVerifyingInputStream(
     private val source: InputStream,
     private val expected: InnoSetupReader.Digest?,
     private val path: String,
+    private val expectedSize: Long,
 ) : InputStream() {
     private val digest = expected?.let { MessageDigest.getInstance(it.algorithm) }
     private var completed = false
+    private var served = 0L
 
     override fun read(): Int {
         val value = source.read()
-        if (value >= 0) digest?.update(value.toByte())
-        else verify()
+        if (value >= 0) {
+            digest?.update(value.toByte())
+            served++
+        } else {
+            verify()
+        }
         return value
     }
 
     override fun read(dest: ByteArray, off: Int, len: Int): Int {
         val n = source.read(dest, off, len)
-        if (n > 0) digest?.update(dest, off, n)
+        if (n > 0) {
+            digest?.update(dest, off, n)
+            served += n
+        }
         if (n < 0) verify()
         return n
     }
 
     override fun close() {
-        verify()
+        // A close before full consumption is a caller-side abort, not
+        // corruption: only a stream read to EOF or to its exact declared
+        // size has earned a digest check.
+        if (served >= expectedSize) verify()
         source.close()
     }
 

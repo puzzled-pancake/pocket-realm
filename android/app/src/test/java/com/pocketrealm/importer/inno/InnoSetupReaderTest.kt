@@ -147,16 +147,83 @@ class InnoSetupReaderTest {
     }
 
     @Test fun encryptedEntryFailsClosedOnOpen() {
-        val (dir, files) = build { encryptFirstEntry = true }
+        val (dir, _) = build { encryptFirstEntry = true }
         InnoSetupReader.open(dir).use { reader ->
             val first = reader.files().first()
-            var threw = false
-            try {
-                reader.session().use { it.open(first).use { s -> s.readBytes() } }
-            } catch (expected: InnoFormatException) {
-                threw = true
+            reader.session().use { session ->
+                // A sibling in the same chunk still extracts byte-exact.
+                val sibling = reader.files().first { it.path != first.path }
+                session.open(sibling).use { it.readBytes() }
+                val error = runCatching {
+                    session.open(first).use { it.readBytes() }
+                }.exceptionOrNull()
+                assertTrue("expected InnoFormatException, got $error", error is InnoFormatException)
+                assertTrue(error!!.message!!.contains("encrypted"))
             }
-            assertTrue(threw)
+        }
+    }
+
+    @Test fun chunkStartingInALaterSliceExtracts() {
+        val dir = temp.newFolder()
+        val files = clientFiles()
+        // Per-file chunks in tiny slices: every chunk after the first starts
+        // inside setup-2.bin or beyond, exercising the per-slice chunk-offset
+        // decode (the real format stores offsets within the first slice, not
+        // positions in the concatenated stream).
+        SyntheticInnoInstaller.build(dir, files) { solid = false; sliceBytes = 32 }
+        assertTrue(dir.resolve("setup-4.bin").isFile)
+        InnoSetupReader.open(dir).use { reader ->
+            val extracted = extractAll(reader)
+            files.forEach { spec ->
+                assertTrue(extracted[spec.path]!!.contentEquals(spec.bytes))
+            }
+        }
+    }
+
+    @Test fun corruptStoredChunkFailsMd5Verification() {
+        val dir = temp.newFolder()
+        val files = clientFiles()
+        SyntheticInnoInstaller.build(dir, files) { lzma1Chunks = false }
+        val bin = dir.resolve("setup-1.bin")
+        val bytes = bin.readBytes()
+        // Slice data begins with the 4-byte chunk magic; the first file's
+        // bytes follow immediately. Flip one byte inside WoW.exe's content
+        // while leaving every framing layer intact.
+        bytes[12 + 4 + 2] = (bytes[12 + 4 + 2].toInt() xor 0x5a).toByte()
+        bin.writeBytes(bytes)
+        InnoSetupReader.open(dir).use { reader ->
+            val error = runCatching {
+                reader.session().use { session ->
+                    session.open(reader.files().first()).use { it.readBytes() }
+                }
+            }.exceptionOrNull()
+            assertTrue("expected digest failure, got $error", error is InnoFormatException)
+            assertTrue(error!!.message!!.contains("MD5"))
+        }
+    }
+
+    @Test fun callFilteredPayloadWithRealOpcodesExtractsByteExact() {
+        // syntheticPe() contains no E8/E9, so the call-filter wiring needs a
+        // payload with real call sites (rewritten and pass-through) to prove
+        // the inverse transform ran during extraction.
+        val raw = ByteArray(0x120) { ((it * 7) and 0xff).toByte() }
+        var i = 3
+        while (i + 5 <= raw.size) {
+            raw[i] = if (i % 18 < 9) 0xe8.toByte() else 0xe9.toByte()
+            raw[i + 4] = if (i % 36 == 0) 0x00.toByte() else 0xff.toByte()
+            i += 7
+        }
+        val dir = temp.newFolder()
+        SyntheticInnoInstaller.build(
+            dir,
+            listOf(
+                SyntheticInnoInstaller.FileSpec("WoW.exe", SyntheticClientArchives.syntheticPe()),
+                SyntheticInnoInstaller.FileSpec("scan.dll", raw, callFiltered = true),
+            ),
+        )
+        InnoSetupReader.open(dir).use { reader ->
+            val extracted = extractAll(reader)
+            assertTrue(extracted["scan.dll"]!!.contentEquals(raw))
         }
     }
 

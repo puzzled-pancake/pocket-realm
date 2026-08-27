@@ -797,3 +797,51 @@ Gradle suite (the actual gate for these files) runs green per phase below.
   real payload's header parse, WoW.exe extraction (byte-exact, MD5- and
   PE-verified) and the full synthetic pipeline; remaining device
   qualification follows the runbook.
+
+## 2026-08-27 — Inno installer lane: four-way code-review fix pass (M10)
+
+A post-M9 review (core parsers, integration lane, fixtures/tests, docs/UI as
+four parallel reviewers, every load-bearing claim re-verified by hand against
+the code and the innoextract 1.9 reference) confirmed the 5.3.5 happy path and
+found real edge defects; all fixed in this pass:
+
+- RarArchiveSource served its forward-only libarchive pass in name-sorted
+  inventory order (its own doc said archive order) — valid RAR installers and
+  RAR clients whose stored order differs reject with VAL-07. Inventory is now
+  reordered to physical archive order, mirroring SevenZipArchiveSource.
+- InnoCallFilterInputStream never returned EOF when a stream ended 1–3 bytes
+  into a call address (collecting stayed negative and re-delivered the same
+  bytes forever); nothing downstream bounded the filter's output. Fixed plus
+  EOF/block-edge filter tests, including the >=5.3.9 high-byte flip.
+- Scratch extraction had no completion marker: a process death mid-extract
+  poisoned the resume into a terminal VAL-12 "not Inno" rejection that also
+  destroyed the staged archive. A `.complete` marker now gates hasScratch;
+  reconcile protects fresh active-import files (staged-copy partials survive
+  restarts again) while still sweeping stale ones.
+- Scratch lane hardening: aggregate caps (maxFiles/maxTotalBytes/maxEntries,
+  Math.addExact), declare-vs-written byte accounting, storage preflight before
+  the archive-sized scratch write, cooperative-cancellation checkpoints, and a
+  new INTERRUPT_DURING_SCRATCH death test proving the marker-based resume.
+- Inno 5.0.0–5.0.3 headers misframed (missing small_image_back_color u32;
+  changes-environment gate was 5.0.0 instead of 5.0.4); registry/run enum
+  bounds one too wide; zero-length slices ended the stream; EOF/IOException/
+  IllegalStateException now map to InnoFormatException per the lane's contract
+  (verified against the real payload's setup.exe: both header streams parse
+  fully consumed); windows-1252 decoded via its real charset; digest verify
+  skips only genuinely partial reads.
+- Routing: a client archive carrying a bundled installer folder stays on the
+  client lane (WoW.exe presence outranks the installer pattern); the dead
+  VAL12_INSTALLER constant is gone; wrapper-layout {app} payloads locate and
+  rebase correctly (full ancestor synthesis + rootPrefix rebase in
+  InnoArchiveSource); fixture writer now encodes per-slice chunk offsets and
+  real lastSlice values (writer and reader disagreed for chunks starting past
+  slice 1 — the reader matched the reference, the writer was wrong).
+- Docs/UI: stale "Never an installer" archive-lane label, hour-class dialog
+  wording, README/Getting-Started 3x-space honesty, plan-doc drift (5.5.9→
+  5.5.6, ~15 min→hour-class, 2x→3x), ps1 verdict precedence (encrypted/solid
+  outrank installer-lane OK; PC auto-pick skips installer payloads).
+
+Full JVM suite 946/946 green; smoke_archive_import.py green; the real-payload
+spike (header parse incl. the new completeness checks) passed and was deleted
+before commit per the repo rule. Device-only paths (RarArchiveSource reorder,
+scratch-death resume, O12 additions) await the qualification runbook session.

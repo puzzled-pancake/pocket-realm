@@ -42,16 +42,30 @@ internal class RarArchiveSource(
 
     override fun inventory(): SourceInventory {
         val listed = listRarEntries(file)
-        val entries = classified.entries.map { entry ->
-            val stored = listed.firstOrNull { it.name == entry.key }
-                ?: throw ImportRejected("VAL-13: staged RAR no longer lists ${entry.relativePath}")
+        // Physical archive order: open() walks a single forward libarchive
+        // pass, so entries must be served in stored order (name-sorted order
+        // would run requests past headers that were already skipped).
+        val byKey = classified.entries.associateBy { it.key }
+        val entries = listed.mapNotNull { stored ->
+            val entry = byKey[stored.name]
+                ?: return@mapNotNull null
             if (stored.directory != entry.directory || stored.size != entry.size) {
                 throw ImportRejected("VAL-13: staged RAR entry changed: ${entry.relativePath}")
             }
             entry
         }
+        val listedNameSet = listedNames(listed)
+        val missing = classified.entries.firstOrNull { it.key !in listedNameSet }
+        if (missing != null || entries.size != classified.entries.size) {
+            throw ImportRejected(
+                "VAL-13: staged RAR no longer lists ${missing?.relativePath ?: "its classified entries"}",
+            )
+        }
         return SourceInventory(entries, classified.fileCount, classified.totalBytes, fingerprint(entries))
     }
+
+    private fun listedNames(listed: List<ArchiveClientScanner.RawEntry>) =
+        listed.asSequence().map { it.name }.toHashSet()
 
     override fun open(entry: ImportSourceEntry): InputStream {
         require(!entry.directory)

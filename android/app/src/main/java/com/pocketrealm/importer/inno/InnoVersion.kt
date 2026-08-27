@@ -8,7 +8,9 @@ package com.pocketrealm.importer.inno
  * 16-bit builds and the ambiguous 5.4.2(u)/5.5.0(u)/5.5.7 signatures are
  * rejected: the upstream extractor resolves those by trial-parsing whole
  * headers, a retry loop not worth porting for payloads that predate every
- * client we can use.
+ * client we can use. The plain ANSI 5.4.2/5.5.0 signatures may also belong to
+ * BlackBox rebuilds whose layout adds a u32; such a payload fails closed at
+ * the block/header checks rather than misparse.
  */
 class InnoVersion private constructor(val value: Long, val unicode: Boolean) : Comparable<InnoVersion> {
 
@@ -27,6 +29,7 @@ class InnoVersion private constructor(val value: Long, val unicode: Boolean) : C
 
         val V5_0_0 = v(5, 0, 0)
         val V5_0_3 = v(5, 0, 3)
+        val V5_0_4 = v(5, 0, 4)
         val V5_1_0 = v(5, 1, 0)
         val V5_1_2 = v(5, 1, 2)
         val V5_1_7 = v(5, 1, 7)

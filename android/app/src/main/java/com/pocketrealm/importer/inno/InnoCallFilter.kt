@@ -87,8 +87,11 @@ class InnoCallFilterInputStream(
         while (collecting < 0) {
             val byte = source.read()
             if (byte < 0) {
-                // EOF inside an address: deliver the bytes we did collect.
+                // EOF inside an address: deliver the bytes we did collect,
+                // then EOF — leaving `collecting` negative would re-enter this
+                // loop and re-deliver them forever.
                 pendingTo = 4 + collecting
+                collecting = 0
                 return if (pendingFrom < pendingTo) {
                     pending[pendingFrom++].toInt() and 0xff
                 } else {

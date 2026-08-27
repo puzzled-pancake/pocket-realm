@@ -105,7 +105,8 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
                             "detects the WoW 1.12.1 client inside, extracts and verifies it, then builds " +
                             "the server's maps, collision and navmesh data. Original installer archives " +
                             "(containing setup.exe + setup-*.bin) are unpacked on device too — plan for " +
-                            "well over 30 minutes and roughly twice the archive size in free space " +
+                            "well over 30 minutes (an hour or more for a ~5 GB installer archive) and " +
+                            "roughly twice the archive size in free space " +
                             "(three times for an installer archive); keep the device plugged in and " +
                             "awake. The archive itself is only read, never modified, and the staged " +
                             "copy is deleted after the client is published."
@@ -502,7 +503,9 @@ private fun ImportPrimaryPane(
         Text(
             "The selected folder is read-only. Pocket Realm works from its verified private copy. " +
                 "Select the extracted client folder itself — the one directly containing WoW.exe " +
-                "and Data — or pick a .zip/.7z/.rar archive of it. Never an installer or launcher.",
+                "and Data — or pick a .zip/.7z/.rar archive of it: a plain client archive or the " +
+                "original installer (setup.exe + setup-*.bin). Never a launcher or a Windows " +
+                "installer you must run yourself.",
             style = MaterialTheme.typography.labelSmall,
         )
     }

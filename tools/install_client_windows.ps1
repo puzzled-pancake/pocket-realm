@@ -116,14 +116,17 @@ $verdicts = foreach ($archive in $archives) {
     $entryNames = @($listing | Where-Object { $_ -match '^Path = ' } | ForEach-Object { $_ -replace '^Path = ', '' })
     $solid = $listing -match '^Solid = \+$'
     $encrypted = $listing -match '^Encrypted = \+$'
-    $verdict = if (Test-InstallerPayload $listing) {
-        'OK       - original installer payload; the Pocket Realm app unpacks it on device (in-app: installer lane)'
-    } elseif ($null -eq (Get-ClientRoot $entryNames)) {
-        'REJECTED  - no WoW.exe + Data client inside'
-    } elseif ($encrypted) {
+    # Rejections the app would also hit (encrypted, solid RAR4) outrank the
+    # installer-lane verdict; an installer payload is only "OK" when the app
+    # can actually unpack it on device.
+    $verdict = if ($encrypted) {
         'REJECTED  - password-protected (in-app: VAL-13); re-pack without a password'
     } elseif ($format -eq 'rar4' -and $solid) {
         'FALLBACK  - solid RAR4; extract here with this script, then import the folder'
+    } elseif (Test-InstallerPayload $listing) {
+        'OK       - original installer payload; the Pocket Realm app unpacks it on device (in-app: installer lane)'
+    } elseif ($null -eq (Get-ClientRoot $entryNames)) {
+        'REJECTED  - no WoW.exe + Data client inside'
     } elseif ($format -eq 'rar4' -or $format -eq 'rar5') {
         "OK       - imports in-app ($format)"
     } else {
@@ -152,7 +155,9 @@ if ($RankOnly) { return }
 $target = if ($Source) {
     if (Test-Path $Source -PathType Leaf) { Get-Item $Source } else { Write-Error "Source not found: $Source" }
 } else {
-    $ok = $verdicts | Where-Object { $_.Verdict -like 'OK*' -and $_.Format -ne 'extracted' } | Sort-Object SizeGB -Descending
+    # Installer payloads are in-app only (7-Zip cannot read Inno installers),
+    # so the PC-side auto-pick skips them.
+    $ok = $verdicts | Where-Object { $_.Verdict -like 'OK*' -and $_.Format -ne 'extracted' -and $_.Verdict -notmatch 'installer lane' } | Sort-Object SizeGB -Descending
     if (-not $ok) { Write-Error "No importable client archive found; see the verdict table above." }
     Write-Host "No -Source given. Best candidate: $($ok[0].Archive)`n"
     $ok[0]

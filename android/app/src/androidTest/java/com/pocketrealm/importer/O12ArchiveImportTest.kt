@@ -154,6 +154,51 @@ class O12ArchiveImportTest {
         )
     }
 
+    @Test fun installerArchiveSurvivesDeathDuringScratchExtraction() {
+        val installerDir = File(archivesDir, "installer-payload-death")
+        val specs = validClient().filter { !it.directory }.map { entry ->
+            SyntheticInnoInstaller.FileSpec(
+                entry.path.removePrefix("WoW_Classic_1.12.1/"),
+                entry.bytes,
+                callFiltered = entry.path.endsWith("WoW.exe"),
+            )
+        }
+        SyntheticInnoInstaller.build(installerDir, specs)
+        val (uri, size) = seedArchive(
+            "wow-install-death.zip",
+            listOf(
+                SyntheticClientArchives.Entry("Wowinstall classic", directory = true),
+                SyntheticClientArchives.Entry(
+                    "Wowinstall classic/setup.exe",
+                    File(installerDir, "setup.exe").readBytes(),
+                ),
+                SyntheticClientArchives.Entry(
+                    "Wowinstall classic/setup-1.bin",
+                    File(installerDir, "setup-1.bin").readBytes(),
+                ),
+            ),
+        )
+
+        // Death mid-scratch-extraction leaves a partial, unmarked scratch dir.
+        ImportWorkerService.startArchive(
+            context, uri, size, testProfile = true,
+            interruptAfter = 1, interruptPoint = ImportWorkerService.INTERRUPT_DURING_SCRATCH,
+        )
+        waitFor(30_000) { status().optLong("stagedBytes") == size }
+        waitWorkerGone(30_000)
+
+        // The resume must re-extract the partial scratch (not terminally
+        // reject it as a non-Inno payload), then complete and publish.
+        ImportWorkerService.startArchive(context, uri, size, testProfile = true)
+        waitFor(60_000) { status().optString("phase") == ImportPhase.COMPLETE.name }
+        val incoming = File(File(context.noBackupFilesDir, "client"), "incoming")
+        assertFalse(incoming.listFiles().orEmpty().isNotEmpty())
+        val pointer = JSONObject(File(context.noBackupFilesDir, "client/active.json").readText())
+        val generation = File(context.noBackupFilesDir, "client/generations/${pointer.getString("generation")}")
+        assertEquals(5875, JSONObject(File(generation, "client-manifest.json").readText())
+            .getJSONObject("identity").getInt("build"))
+    }
+
     @Test fun encryptedArchiveIsRejectedWithVal13() {
         val (uri, size) = seedArchive("encrypted.zip", validClient())
         SyntheticClientArchives.patchEncryptionBits(File(archivesDir, "encrypted.zip"))

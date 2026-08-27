@@ -105,4 +105,77 @@ class InnoLaneTest {
         }
         assertTrue(threw)
     }
+
+    @Test fun encryptedInstallerEntrySurfacesAsAnInnoFailureThroughTheSource() {
+        val dir = temp.newFolder()
+        SyntheticInnoInstaller.build(
+            dir,
+            listOf(
+                SyntheticInnoInstaller.FileSpec(
+                    "WoW.exe", SyntheticClientArchives.syntheticPe(), callFiltered = true,
+                ),
+                SyntheticInnoInstaller.FileSpec("realmlist.wtf", "set realmlist lane\n".toByteArray()),
+                SyntheticInnoInstaller.FileSpec("Data/base.MPQ", SyntheticClientArchives.mpqStub("base")),
+                SyntheticInnoInstaller.FileSpec("Data/dbc.MPQ", SyntheticClientArchives.mpqStub("dbc")),
+            ),
+        ) { encryptFirstEntry = true }
+        InnoSetupReader.open(dir).use { reader ->
+            val located = ArchiveClientScanner(ImportLimits(minFiles = 1, minTotalBytes = 1))
+                .locate(InnoPayloadDetection.rawEntries(reader.files()))
+            InnoArchiveSource(reader, located.classified).use { source ->
+                val inventory = source.inventory()
+                val encrypted = reader.files().first()
+                val entry = inventory.entries.first { it.relativePath == encrypted.path }
+                val error = runCatching { source.open(entry).use { it.readBytes() } }.exceptionOrNull()
+                assertTrue("expected InnoFormatException, got $error", error is com.pocketrealm.importer.inno.InnoFormatException)
+                assertTrue(error!!.message!!.contains("encrypted"))
+            }
+        }
+    }
+
+    @Test fun inventoryCountMismatchFailsClosedWithVal13() {
+        val installer = installerDir()
+        InnoSetupReader.open(installer).use { reader ->
+            val located = ArchiveClientScanner(ImportLimits(minFiles = 1, minTotalBytes = 1))
+                .locate(InnoPayloadDetection.rawEntries(reader.files()))
+            val drifted = ImportExtractionPolicy.Classified(
+                located.classified.entries, emptyList(),
+                located.classified.fileCount + 1, located.classified.totalBytes,
+            )
+            InnoArchiveSource(reader, drifted).use { source ->
+                val error = runCatching { source.inventory() }.exceptionOrNull()
+                assertTrue("expected rejection, got $error", error is ImportRejected)
+                assertTrue(error!!.message!!.contains("VAL-13"))
+            }
+        }
+    }
+
+    @Test fun wrapperLayoutPayloadIsLocatedAndRebasedToTheClientRoot() {
+        val dir = temp.newFolder()
+        SyntheticInnoInstaller.build(
+            dir,
+            listOf(
+                SyntheticInnoInstaller.FileSpec(
+                    "Wow112/WoW.exe", SyntheticClientArchives.syntheticPe(), callFiltered = true,
+                ),
+                SyntheticInnoInstaller.FileSpec("Wow112/realmlist.wtf", "set realmlist lane\n".toByteArray()),
+                SyntheticInnoInstaller.FileSpec("Wow112/Data/base.MPQ", SyntheticClientArchives.mpqStub("base")),
+                SyntheticInnoInstaller.FileSpec("Wow112/Data/dbc.MPQ", SyntheticClientArchives.mpqStub("dbc")),
+            ),
+        )
+        InnoSetupReader.open(dir).use { reader ->
+            val located = ArchiveClientScanner(ImportLimits(minFiles = 1, minTotalBytes = 1))
+                .locate(InnoPayloadDetection.rawEntries(reader.files()))
+            assertEquals("Wow112", located.rootPrefix.trimEnd('/'))
+            InnoArchiveSource(reader, located.classified, located.rootPrefix).use { source ->
+                val inventory = source.inventory()
+                assertTrue(inventory.entries.all { !it.relativePath.startsWith("Wow112/") })
+                val exe = inventory.entries.first { it.relativePath == "WoW.exe" }
+                assertTrue(
+                    source.open(exe).use { it.readBytes() }
+                        .contentEquals(SyntheticClientArchives.syntheticPe()),
+                )
+            }
+        }
+    }
 }

@@ -12,7 +12,14 @@ import java.io.File
  */
 internal object ScratchArchiveExtractor {
 
-    fun extract(stagedFile: File, format: ArchiveFormat, target: File, limits: ImportLimits) {
+    fun extract(
+        stagedFile: File,
+        format: ArchiveFormat,
+        target: File,
+        limits: ImportLimits,
+        checkpoint: () -> Unit = {},
+        onEntryExtracted: (filesDone: Int) -> Unit = {},
+    ) {
         val raw = when (format) {
             ArchiveFormat.ZIP -> listZipEntries(stagedFile)
             ArchiveFormat.SEVEN_ZIP -> listSevenZipEntries(stagedFile)
@@ -32,20 +39,32 @@ internal object ScratchArchiveExtractor {
         }
         source.use { open ->
             val inventory = open.inventory()
+            var filesDone = 0
             inventory.entries.forEach { entry ->
+                checkpoint()
                 if (entry.directory) return@forEach
                 val destination = File(target, entry.relativePath)
                 destination.parentFile?.mkdirs()
                 open.open(entry).use { input ->
                     destination.outputStream().use { output ->
                         val buffer = ByteArray(1 shl 16)
-                        while (true) {
-                            val n = input.read(buffer)
-                            if (n < 0) break
+                        var remaining = entry.size
+                        // Never write past the declared size, and never
+                        // accept a stream that dries up early: headers are
+                        // not trusted for space safety anywhere else either.
+                        while (remaining > 0) {
+                            val n = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                            if (n < 0) {
+                                throw ImportRejected("VAL-08: scratch extraction ended early: ${entry.relativePath}")
+                            }
                             output.write(buffer, 0, n)
+                            remaining -= n
+                            checkpoint()
                         }
                     }
                 }
+                filesDone++
+                onEntryExtracted(filesDone)
             }
         }
     }
@@ -55,15 +74,15 @@ internal object ScratchArchiveExtractor {
      * shared path policy, directories preserved. Keys stay the archive's
      * original names (the sources look entries up by them); relative paths
      * are the normalized forms used for the scratch layout. Mirrors the
-     * fold/collision guarantees of [ImportExtractionPolicy.classify] without
-     * its client allow-lists.
+     * fold/collision/aggregate-cap guarantees of
+     * [ImportExtractionPolicy.classify] without its client allow-lists.
      */
     private fun classifyForScratch(
         entries: List<ArchiveClientScanner.RawEntry>,
         limits: ImportLimits,
     ): ImportExtractionPolicy.Classified {
         val policy = ImportPathPolicy(limits)
-        val folded = HashMap<String, String>()
+        val folded = HashMap<String, Pair<String, Boolean>>()
         var fileCount = 0
         var totalBytes = 0L
         val out = ArrayList<ImportSourceEntry>(entries.size)
@@ -72,9 +91,12 @@ internal object ScratchArchiveExtractor {
             if (unified.isEmpty()) continue
             val normalized = policy.normalize(unified)
             val key = policy.caseFoldKey(normalized)
-            val previous = folded.putIfAbsent(key, normalized)
+            val previous = folded.putIfAbsent(key, normalized to entry.directory)
             if (previous != null) {
-                throw ImportRejected("VAL-06: duplicate archive entry '$normalized' and '$previous'")
+                if (previous.second != entry.directory) {
+                    throw ImportRejected("VAL-06: directory/file type conflict: '${previous.first}' and '$normalized'")
+                }
+                throw ImportRejected("VAL-06: duplicate archive entry '$normalized' and '${previous.first}'")
             }
             if (entry.directory) {
                 out += ImportSourceEntry(entry.name, normalized, true, 0, 0, "dir")
@@ -86,7 +108,14 @@ internal object ScratchArchiveExtractor {
             }
             out += ImportSourceEntry(entry.name, normalized, false, entry.size, 0, "file")
             fileCount++
-            totalBytes += entry.size
+            if (fileCount > limits.maxFiles) throw ImportRejected("VAL-08: file count exceeds ${limits.maxFiles}")
+            totalBytes = Math.addExact(totalBytes, entry.size)
+            if (totalBytes > limits.maxTotalBytes) {
+                throw ImportRejected("VAL-08: source exceeds ${limits.maxTotalBytes} bytes")
+            }
+        }
+        if (out.size > limits.maxEntries) {
+            throw ImportRejected("VAL-08: source entry count exceeds ${limits.maxEntries}")
         }
         return ImportExtractionPolicy.Classified(out, emptyList(), fileCount, totalBytes)
     }

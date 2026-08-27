@@ -8,7 +8,7 @@ You need:
 
 - An Android device with enough free internal storage.
 - A complete World of Warcraft 1.12.1 build 5875 client folder that you are
-  entitled to use. It can be a plain, already-extracted (uncompressed) client folder (directly containing `WoW.exe` and `Data`), a single `.zip`/`.7z`/`.rar` archive holding exactly one client, or the original installer archive (setup.exe + setup-*.bin) — the in-app archive installer stages, detects, unpacks and verifies all three on device. Windows installers you must run yourself, launchers, disc images, and encrypted or multi-volume archives are rejected with a `VAL-` message.
+  entitled to use. It can be a plain, already-extracted (uncompressed) client folder (directly containing `WoW.exe` and `Data`), a single `.zip`/`.7z`/`.rar` archive holding exactly one client, or the original installer archive (setup.exe + setup-*.bin). Pocket Realm verifies every source on device: the folder is copied and verified directly, while a client archive or an installer archive is staged, detected, extracted and verified in the app — the installer lane needs roughly three times the archive size in free space and can take an hour or more. Windows installers you must run yourself, launchers, disc images, and encrypted or multi-volume archives are rejected with a `VAL-` message.
 - A charger for the first import and long setup work.
 - Touch access for folder selection, login fields, and character creation.
 - A controller, keyboard and mouse, or the on-screen control layout for play.

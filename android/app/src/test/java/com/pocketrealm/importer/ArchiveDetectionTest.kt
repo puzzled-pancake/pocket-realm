@@ -65,6 +65,20 @@ class ArchiveQuickCheckTest {
     }
 
     @Test
+    fun clientArchiveWithABundledInstallerFolderStaysOnTheClientLane() {
+        // A real client always wins: the normal lane imports it and excludes
+        // the bundled installer files instead of misrouting the archive.
+        val names = listOf(
+            "WoW.exe",
+            "Data/base.MPQ",
+            "Extras/Installer/setup.exe",
+            "Extras/Installer/setup-1.bin",
+        )
+        val verdict = ArchiveQuickCheck.evaluate(ArchiveFormat.ZIP, names)
+        assertTrue(verdict is ArchiveQuickCheck.Verdict.Accept)
+    }
+
+    @Test
     fun archiveWithoutAnyWowExeFailsFastWithVal01() {
         val verdict = ArchiveQuickCheck.evaluate(
             ArchiveFormat.ZIP,

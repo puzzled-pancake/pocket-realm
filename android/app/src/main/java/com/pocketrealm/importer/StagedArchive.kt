@@ -95,9 +95,20 @@ class StagedArchiveStore(private val root: File) {
      */
     fun scratchDir(importId: String): File = File(root, "$importId.pkg.d")
 
-    /** True when a scratch extraction already exists for a resumed import. */
-    fun hasScratch(importId: String): Boolean =
-        scratchDir(importId).let { it.isDirectory && it.listFiles()?.isNotEmpty() == true }
+    /**
+     * True when a scratch extraction already exists for a resumed import —
+     * proven by the completion marker, so a process death mid-extraction is
+     * re-extracted instead of parsed as a corrupt payload.
+     */
+    fun hasScratch(importId: String): Boolean = scratchMarker(importId).isFile
+
+    /** Written only after a scratch extraction fully finished. */
+    fun scratchMarker(importId: String): File = File(scratchDir(importId), ".complete")
+
+    fun markScratchComplete(importId: String) {
+        scratchDir(importId).mkdirs()
+        scratchMarker(importId).writeText("complete")
+    }
 
     /** Expected durable length when resuming, 0 when starting fresh. */
     fun resumableBytes(importId: String, expectedBytes: Long): Long {
@@ -122,13 +133,20 @@ class StagedArchiveStore(private val root: File) {
         scratchDir(importId).deleteRecursively()
     }
 
-    /** Deletes staged/partial files not referenced by an active import, plus stale ones. */
+    /**
+     * Deletes staged/partial/scratch files nobody can still resume. Files of
+     * a fresh (within the staleness window) active import are kept — that is
+     * what makes the staged-copy partial and the scratch dir survive a
+     * process restart. Anything older than the window is swept so a paused
+     * import cannot leak storage forever; resuming such an import costs a
+     * re-stage. Dot-partials of inactive imports go immediately.
+     */
     fun reconcile(activeImportIds: Set<String>, staleAfterMs: Long = STALE_AFTER_MS) {
         if (!root.isDirectory) return
         val now = System.currentTimeMillis()
         root.listFiles()?.forEach { file ->
             val id = idOf(file) ?: return@forEach
-            if (id in activeImportIds) return@forEach
+            if (id in activeImportIds && now - file.lastModified() <= staleAfterMs) return@forEach
             if (now - file.lastModified() > staleAfterMs || file.name.startsWith(".")) {
                 if (file.isDirectory) file.deleteRecursively() else file.delete()
             }

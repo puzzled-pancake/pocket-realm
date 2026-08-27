@@ -99,4 +99,30 @@ class StagedArchiveStoreTest {
         // Fresh unreferenced staged files survive the stale cutoff (conservative).
         assertTrue("fresh orphan staged kept until stale", store.stagedFile(orphan).isFile)
     }
+
+    @Test fun scratchLifecycleIsProvenByTheCompletionMarker() {
+        val store = store()
+        val id = "44444444-4444-4444-8444-444444444444"
+        val scratch = store.scratchDir(id)
+        scratch.mkdirs()
+        File(scratch, "setup-1.bin").writeBytes(ByteArray(16))
+        // A partial extraction from a dead run must not count as complete.
+        assertFalse("partial scratch is not complete", store.hasScratch(id))
+        store.markScratchComplete(id)
+        assertTrue(store.hasScratch(id))
+        store.delete(id)
+        assertFalse("delete removes the scratch dir", scratch.exists())
+    }
+
+    @Test fun reconcileKeepsFreshScratchButSweepsStaleScratch() {
+        val store = store()
+        val active = "55555555-5555-4555-8555-555555555555"
+        val stale = "66666666-6666-4666-8666-666666666666"
+        store.markScratchComplete(active)
+        store.markScratchComplete(stale)
+        store.scratchDir(stale).setLastModified(System.currentTimeMillis() - 48L * 60L * 60L * 1000L)
+        store.reconcile(activeImportIds = setOf(active))
+        assertTrue("fresh scratch of an active import kept", store.scratchDir(active).isDirectory)
+        assertFalse("stale scratch swept", store.scratchDir(stale).exists())
+    }
 }
