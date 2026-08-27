@@ -180,6 +180,6 @@ vendored trees, and `THIRD_PARTY_NOTICES.md` in release packages.
 
 ## AI-coded notice
 
-Pocket Realm was developed with heavy use of AI coding. The work was done
-through the ZCode agent harness, using the open GLM models GLM 5.2 and
-GLM 5.3, with human direction and review throughout the project.
+Pocket Realm was developed with heavy use of AI coding, using the open-source
+GLM models 5.2 and 5.3 through the ZCode agent harness, with human direction
+and review throughout.
