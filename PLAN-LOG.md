@@ -763,3 +763,23 @@ Gradle suite (the actual gate for these files) runs green per phase below.
   device end-to-end (synthetic Inno installer zip -> published generation,
   byte-exact call-filtered WoW.exe). Full JVM suite 931/931 green (the
   maintainer's bots lane is green again as of 15:41).
+
+## Inno installer payload — I3 (2026-08-27, M8)
+
+- UI: archive confirm dialog now covers the installer lane (three-times
+  free-space note); FirstRunTutorial requirement rewritten — the original
+  installer archive (setup.exe + setup-*.bin in .zip/.7z/.rar) is unpacked
+  on device, Windows installers you must run yourself stay refused — with
+  the pinned JVM test extended (setup.exe/setup-*.bin/unpacked-on-device/
+  windows-installer pins).
+- Companion install_client_windows.ps1: installer payloads now rank OK with
+  "the Pocket Realm app unpacks it on device" (7-Zip cannot read Inno, so
+  the PC helper offers no local extraction); smoke_archive_import.py
+  updated and passing.
+- Docs: README (3 sites), Getting-Started, Game-Files-and-Import,
+  Troubleshooting (VAL-12/VAL-13 catalogue incl. pre-5.0/post-5.5.6 Inno).
+  THIRD_PARTY_NOTICES: innoextract 1.9 credited as the zlib-licensed format
+  reference (no code included).
+- Version bump intentionally deferred: build.gradle.kts / libs.versions.toml
+  still carry the maintainer's uncommitted 0.103.0-alpha edits (same policy
+  as M5); the installer lane ships in the next versioned release.

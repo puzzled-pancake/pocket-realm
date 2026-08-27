@@ -103,10 +103,12 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
                         val gigabytes = pending.expectedBytes / 1_000_000_000.0
                         "Pocket Realm copies the ${"%.1f".format(gigabytes)} GB archive into app storage, " +
                             "detects the WoW 1.12.1 client inside, extracts and verifies it, then builds " +
-                            "the server's maps, collision and navmesh data. Plan for well over 30 minutes " +
-                            "and roughly twice the archive size in free space during install; keep the " +
-                            "device plugged in and awake. The archive itself is only read, never modified, " +
-                            "and the staged copy is deleted after the client is published."
+                            "the server's maps, collision and navmesh data. Original installer archives " +
+                            "(containing setup.exe + setup-*.bin) are unpacked on device too — plan for " +
+                            "well over 30 minutes and roughly twice the archive size in free space " +
+                            "(three times for an installer archive); keep the device plugged in and " +
+                            "awake. The archive itself is only read, never modified, and the staged " +
+                            "copy is deleted after the client is published."
                     } else {
                         "This copies and verifies the WoW 1.12.1 client, then builds the " +
                             "server's maps, collision and navmesh data. Depending on the " +

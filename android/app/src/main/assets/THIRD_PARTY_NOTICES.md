@@ -113,3 +113,7 @@ to anyone who asks (GPL-2.0 section 3(b) written offer).
   (public domain, 0BSD), zstd (BSD-3-Clause) and bzip2 (BSD-style) builds.
 - xz for Java 1.10 (org.tukaani:xz) — public domain / 0BSD (7z LZMA entry
   streams via commons-compress).
+- Inno Setup installer payload reader (com.pocketrealm.importer.inno) — an independent Kotlin
+  implementation of the publicly documented Inno Setup 5.x data format, written against the
+  zlib-licensed innoextract 1.9 by Daniel Scharrer as the format reference (no innoextract code
+  is included). LZMA1 decoding uses xz for Java, credited above.

@@ -70,10 +70,15 @@ class FirstRunTutorialTest {
             "1.12.1", "5875", "extract", "uncompressed", "launcher",
             ".zip", ".7z", ".rar", "entitled",
         ).forEach { keyword -> assertTrue(keyword in text) }
-        assertTrue("must not be an installer" in text)
         assertTrue("wow.exe" in text)
         assertTrue("can extract it for you" in text)
         assertTrue("password-protected" in text)
+        // The original installer archive is a supported payload…
+        assertTrue("setup.exe" in text)
+        assertTrue("setup-*.bin" in text)
+        assertTrue("unpacked on device" in text)
+        // …while Windows installers you must run yourself stay refused.
+        assertTrue("must not be a windows installer" in text)
     }
 
     @Test

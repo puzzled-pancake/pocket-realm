@@ -8,7 +8,7 @@ You need:
 
 - An Android device with enough free internal storage.
 - A complete World of Warcraft 1.12.1 build 5875 client folder that you are
-  entitled to use. It can be a plain, already-extracted (uncompressed) client folder (directly containing `WoW.exe` and `Data`) or a single `.zip`/`.7z`/`.rar` archive holding exactly one client — the in-app archive installer stages, detects and extracts it. Installers, launchers, disc images, and encrypted or multi-volume archives are rejected with a `VAL-` message.
+  entitled to use. It can be a plain, already-extracted (uncompressed) client folder (directly containing `WoW.exe` and `Data`), a single `.zip`/`.7z`/`.rar` archive holding exactly one client, or the original installer archive (setup.exe + setup-*.bin) — the in-app archive installer stages, detects, unpacks and verifies all three on device. Windows installers you must run yourself, launchers, disc images, and encrypted or multi-volume archives are rejected with a `VAL-` message.
 - A charger for the first import and long setup work.
 - Touch access for folder selection, login fields, and character creation.
 - A controller, keyboard and mouse, or the on-screen control layout for play.
@@ -20,7 +20,7 @@ its final button lands on the import screen with the folder picker already
 open. You can replay it anytime from **Settings → Setup → Show first-run
 setup guide**.
 
-Open **Settings**, scroll to **Setup**, and choose **Game files and import**. Pick either the extracted client folder (directly containing `WoW.exe` and `Data`) or — with the second button — a client archive (`.zip`/`.7z`/`.rar`). Never an installer or launcher.
+Open **Settings**, scroll to **Setup**, and choose **Game files and import**. Pick either the extracted client folder (directly containing `WoW.exe` and `Data`) or — with the second button — a client archive (`.zip`/`.7z`/`.rar`, including the original installer archive). Never a Windows installer you must run yourself, and never a launcher.
 
 If **Settings** is missing from the side rail on your device, see Troubleshooting for another way to open it.
 

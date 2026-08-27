@@ -117,7 +117,7 @@ $verdicts = foreach ($archive in $archives) {
     $solid = $listing -match '^Solid = \+$'
     $encrypted = $listing -match '^Encrypted = \+$'
     $verdict = if (Test-InstallerPayload $listing) {
-        'REJECTED  - Blizzard setup installer, not a client (in-app: VAL-12)'
+        'OK       - original installer payload; the Pocket Realm app unpacks it on device (in-app: installer lane)'
     } elseif ($null -eq (Get-ClientRoot $entryNames)) {
         'REJECTED  - no WoW.exe + Data client inside'
     } elseif ($encrypted) {

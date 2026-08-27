@@ -52,7 +52,7 @@ Reports from any device, especially Mali or 6 GB ones, are welcome (see
   bundles or distributes any Blizzard asset: no executables, MPQs, DBCs,
   maps, models, or textures. You import a client you are entitled to use; Pocket
   Realm makes a private managed copy and prepares its data on-device. The
-  client is a plain, already-extracted (uncompressed) folder (directly containing `WoW.exe` and `Data`) — or, via the archive button, a single `.zip`/`.7z`/`.rar` client archive, which Pocket Realm stages, detects, extracts and verifies on device. Never an installer or launcher; encrypted, multi-volume and solid-RAR4 archives are rejected with actionable messages (the `tools/install_client_windows.ps1` helper handles those on a PC).
+  client is a plain, already-extracted (uncompressed) folder (directly containing `WoW.exe` and `Data`) — or, via the archive button, a single `.zip`/`.7z`/`.rar` client archive, which Pocket Realm stages, detects, extracts and verifies on device. The original installer archive (setup.exe + setup-*.bin) is unpacked on device the same way; Windows installers you must run yourself, launchers, and encrypted, multi-volume and solid-RAR4 archives are rejected with actionable messages (the `tools/install_client_windows.ps1` helper handles those on a PC).
 - Pocket Realm is a fan project and is not affiliated with, endorsed by, or
   sponsored by Blizzard Entertainment. World of Warcraft is a trademark of
   Blizzard Entertainment, Inc.
@@ -68,13 +68,13 @@ Building from source is fully supported as well; see below.
 ## First boot
 
 On a fresh install the app opens with a short first-run tutorial. It explains
-exactly what to select — a WoW 1.12.1 client folder or a client archive (`.zip`/`.7z`/`.rar`), never an installer — and its final button takes
+exactly what to select — a WoW 1.12.1 client folder, a client archive (`.zip`/`.7z`/`.rar`) or the original installer archive — and its final button takes
 you straight to the import screen with the folder picker already open. You
 can replay it anytime from **Settings → Setup → Show first-run setup guide**.
 
 1. Open **Settings → Setup → Game files and import** and pick your WoW 1.12.1
    (build 5875) client folder with Android's folder picker. The folder must
-   be the extracted client itself (the one containing `WoW.exe` and `Data`) or a client archive — not an installer or launcher. The folder is
+   be the extracted client itself (the one containing `WoW.exe` and `Data`), a client archive, or the original installer archive — not a Windows installer you must run, and not a launcher. The folder is
    treated as read-only; Pocket Realm copies and verifies what it needs into
    private app storage and then prepares the server data on the device.
 2. **Expect the import to take a while.** Depending on the device, storage

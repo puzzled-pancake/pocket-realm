@@ -35,11 +35,13 @@ internal const val UNCOMPRESSED_CLIENT_REQUIREMENT: String =
         "set of .MPQ files (base, dbc, fonts, interface, misc, model, sound, " +
         "speech, terrain, texture, wmo) — or a single .zip/.7z/.rar archive " +
         "of that folder; Pocket Realm can extract it for you on device. " +
-        "It must NOT be an installer or setup .exe, a downloader/launcher, " +
-        "a password-protected or split archive, or a disc image. If your copy " +
-        "is compressed differently (or encrypted), extract it first (on a PC " +
-        "or with a file manager app), then select the extracted folder " +
-        "itself — not a parent folder."
+        "The original installer archive (setup.exe with its setup-*.bin " +
+        "files, zipped or re-packed as .zip/.7z/.rar) is unpacked on device " +
+        "too. It must NOT be a Windows installer or setup you must run " +
+        "yourself, a downloader/launcher, a password-protected or split " +
+        "archive, or a disc image. If your copy is compressed differently " +
+        "(or encrypted), extract it first (on a PC or with a file manager " +
+        "app), then select the extracted folder itself — not a parent folder."
 
 internal data class TutorialStep(val title: String, val body: String)
 
