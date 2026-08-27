@@ -104,6 +104,56 @@ class O12ArchiveImportTest {
         assertFalse("rejection must delete the staged copy", incoming.listFiles().orEmpty().isNotEmpty())
     }
 
+    @Test fun innoInstallerArchiveExtractsTheClientAndPublishes() {
+        // A full synthetic client packed as an Inno installer, zipped up the
+        // way the real WoW-1.12.1_install.rar ships it.
+        val installerDir = File(archivesDir, "installer-payload")
+        val specs = validClient().filter { !it.directory }.map { entry ->
+            SyntheticInnoInstaller.FileSpec(
+                entry.path.removePrefix("WoW_Classic_1.12.1/"),
+                entry.bytes,
+                callFiltered = entry.path.endsWith("WoW.exe"),
+            )
+        }
+        SyntheticInnoInstaller.build(installerDir, specs)
+        val (uri, size) = seedArchive(
+            "wow-install.zip",
+            listOf(
+                SyntheticClientArchives.Entry("Wowinstall classic", directory = true),
+                SyntheticClientArchives.Entry(
+                    "Wowinstall classic/setup.exe",
+                    File(installerDir, "setup.exe").readBytes(),
+                ),
+                SyntheticClientArchives.Entry(
+                    "Wowinstall classic/setup-1.bin",
+                    File(installerDir, "setup-1.bin").readBytes(),
+                ),
+            ),
+        )
+
+        ImportWorkerService.startArchive(context, uri, size, testProfile = true)
+        waitFor(60_000) { status().optString("phase") == ImportPhase.COMPLETE.name }
+        val incoming = File(File(context.noBackupFilesDir, "client"), "incoming")
+        assertFalse(
+            "staged archive and scratch dir must not outlive the import",
+            incoming.listFiles().orEmpty().isNotEmpty(),
+        )
+
+        val pointer = JSONObject(File(context.noBackupFilesDir, "client/active.json").readText())
+        val generation = File(context.noBackupFilesDir, "client/generations/${pointer.getString("generation")}")
+        val manifest = JSONObject(File(generation, "client-manifest.json").readText())
+        assertEquals(5875, manifest.getJSONObject("identity").getInt("build"))
+        assertTrue(File(generation, "WoW.exe").isFile)
+        assertTrue(File(generation, "Data/base.MPQ").isFile)
+        // The installer's stored WoW.exe is call-filtered: byte equality with
+        // the fixture proves the inverse transform ran during extraction.
+        assertTrue(
+            File(generation, "WoW.exe").readBytes().contentEquals(
+                SyntheticClientArchives.syntheticPe(),
+            ),
+        )
+    }
+
     @Test fun encryptedArchiveIsRejectedWithVal13() {
         val (uri, size) = seedArchive("encrypted.zip", validClient())
         SyntheticClientArchives.patchEncryptionBits(File(archivesDir, "encrypted.zip"))

@@ -739,3 +739,27 @@ Gradle suite (the actual gate for these files) runs green per phase below.
   an hour. Phase I2 should surface honest progress copy (per-file MD5s
   give exact checkpoints); a decode-speed pass (buffering between stream
   layers) can follow if device runs warrant it.
+
+## Inno installer payload — I2 (2026-08-27, M7)
+
+- Installer lane wired end to end: ArchiveQuickCheck now routes setup.exe +
+  setup-N.bin shapes to a new InstallerPayload verdict (non-Inno payloads
+  reject there with a VAL-12 variant); runArchive extracts the staged
+  archive verbatim into client/incoming/<id>.pkg.d/ (ScratchArchiveExtractor
+  - shared path-safety policy, no client allow-list), parses it with
+  InnoSetupReader, locates the client via synthesized parent directories,
+  and streams the {app} files through InnoArchiveSource into the unchanged
+  copy/verify/publish pipeline (identity gate post-extraction, as with RAR).
+- InnoArchiveSource keeps the inventory in CHUNK order so solid payloads
+  decode their LZMA stream exactly once; per-file digests verify inline and
+  the fingerprint (name+size) anchors resume.
+- StagedArchiveStore gains scratchDir lifecycle (kept for resume, deleted at
+  every terminal state, GCed by the reconciler); the planner gains a scratch
+  term (peak = staged + scratch + client; 16 GiB free fails closed on the
+  4.97 GiB real payload).
+- Tests: InnoLaneTest (verdict routing, scratch extraction of a zipped
+  installer, chunk-ordered inventory + byte-exact open, non-Inno fail-closed)
+  + planner scratch-term arithmetic + updated detection pins; O12 gains the
+  device end-to-end (synthetic Inno installer zip -> published generation,
+  byte-exact call-filtered WoW.exe). Full JVM suite 931/931 green (the
+  maintainer's bots lane is green again as of 15:41).

@@ -154,26 +154,51 @@ class ManagedClientImporter(
                     )
                 }
 
-                val located = ArchiveClientScanner(limits).locate(rawEntries!!)
-                val detection: ArchiveClientScanner.Result? = if (isRar) {
-                    // Streaming lanes never deep-probe before extraction; the
-                    // identity gate runs on the extracted tree instead.
-                    null
-                } else {
-                    val reader: ArchiveClientScanner.EntryReader = when (format) {
-                        ArchiveFormat.ZIP -> ArchiveClientScanner.EntryReader { name, maxBytes ->
-                            readZipEntry(stagedFile, name, maxBytes)
+                // Installer payloads: extract the staged archive to a scratch
+                // directory and parse the Inno headers; the client files then
+                // stream out of the installer as an ordinary ImportSource.
+                val installerReader: com.pocketrealm.importer.inno.InnoSetupReader? =
+                    if (quick is ArchiveQuickCheck.Verdict.InstallerPayload) {
+                        val scratch = stagedStore.scratchDir(importId)
+                        if (!stagedStore.hasScratch(importId)) {
+                            scratch.deleteRecursively()
+                            ScratchArchiveExtractor.extract(stagedFile, format, scratch, limits)
                         }
-                        ArchiveFormat.SEVEN_ZIP -> ArchiveClientScanner.EntryReader { name, maxBytes ->
-                            readSevenZipEntry(stagedFile, name, maxBytes)
+                        try {
+                            com.pocketrealm.importer.inno.InnoSetupReader.open(scratch)
+                        } catch (error: com.pocketrealm.importer.inno.InnoFormatException) {
+                            throw ImportRejected("${ArchiveQuickCheck.VAL12_NOT_INNO} (${error.message})")
                         }
-                        else -> throw ImportRejected(ArchiveQuickCheck.VAL13_UNSUPPORTED)
+                    } else {
+                        null
                     }
-                    ArchiveClientScanner(limits).scan(rawEntries, reader).also { result ->
-                        if (!result.scan.supported || result.scan.clientId != ClientRuntimeContract.WOW_5875_ID) {
-                            throw ImportRejected(
-                                result.scan.failures.joinToString("; ").ifBlank { "unsupported client archive" },
-                            )
+
+                val located = if (installerReader != null) {
+                    ArchiveClientScanner(limits).locate(
+                        InnoPayloadDetection.rawEntries(installerReader.files()),
+                    )
+                } else {
+                    ArchiveClientScanner(limits).locate(rawEntries!!)
+                }
+                val detection: ArchiveClientScanner.Result? = when {
+                    installerReader != null -> null // identity gate runs on the extracted tree
+                    isRar -> null
+                    else -> {
+                        val reader: ArchiveClientScanner.EntryReader = when (format) {
+                            ArchiveFormat.ZIP -> ArchiveClientScanner.EntryReader { name, maxBytes ->
+                                readZipEntry(stagedFile, name, maxBytes)
+                            }
+                            ArchiveFormat.SEVEN_ZIP -> ArchiveClientScanner.EntryReader { name, maxBytes ->
+                                readSevenZipEntry(stagedFile, name, maxBytes)
+                            }
+                            else -> throw ImportRejected(ArchiveQuickCheck.VAL13_UNSUPPORTED)
+                        }
+                        ArchiveClientScanner(limits).scan(rawEntries!!, reader).also { result ->
+                            if (!result.scan.supported || result.scan.clientId != ClientRuntimeContract.WOW_5875_ID) {
+                                throw ImportRejected(
+                                    result.scan.failures.joinToString("; ").ifBlank { "unsupported client archive" },
+                                )
+                            }
                         }
                     }
                 }
@@ -184,7 +209,12 @@ class ManagedClientImporter(
                 )
                 journal.update(
                     importId, ImportPhase.DISCOVERING,
-                    if (detection != null) {
+                    if (installerReader != null) {
+                        "detected installer payload · ${installerReader.appName} ${installerReader.appVersion}" +
+                            " · ${installerReader.files().size} files · client extracted on device" +
+                            (located.excluded.takeIf { it.isNotEmpty() }?.let { " · ${it.size} entries excluded" } ?: "") +
+                            " · identity verified after extraction"
+                    } else if (detection != null) {
                         "detected ${detection.scan.version} · ${detection.variant ?: "flat client"}" +
                             (detection.locale?.let { " · $it" } ?: "") +
                             (detection.excluded.takeIf { it.isNotEmpty() }?.let { " · ${it.size} entries excluded" } ?: "")
@@ -195,15 +225,18 @@ class ManagedClientImporter(
                     },
                 )
 
-                val source: ImportSource = when (format) {
-                    ArchiveFormat.ZIP -> ZipArchiveSource(stagedFile, detection!!.classified)
-                    ArchiveFormat.SEVEN_ZIP -> SevenZipArchiveSource(stagedFile, detection!!.classified)
-                    ArchiveFormat.RAR4, ArchiveFormat.RAR5 -> RarArchiveSource(stagedFile, located.classified)
+                val source: ImportSource = when {
+                    installerReader != null -> InnoArchiveSource(installerReader, located.classified)
+                    format == ArchiveFormat.ZIP -> ZipArchiveSource(stagedFile, detection!!.classified)
+                    format == ArchiveFormat.SEVEN_ZIP -> SevenZipArchiveSource(stagedFile, detection!!.classified)
+                    format == ArchiveFormat.RAR4 || format == ArchiveFormat.RAR5 ->
+                        RarArchiveSource(stagedFile, located.classified)
                     else -> throw ImportRejected(ArchiveQuickCheck.VAL13_UNSUPPORTED)
                 }
                 source.use {
                     val inventory = it.inventory()
-                    val storage = storagePlanner.plan(inventory.totalBytes, expectedBytes)
+                    val scratchBytes = if (installerReader != null) expectedBytes else 0L
+                    val storage = storagePlanner.plan(inventory.totalBytes, expectedBytes, scratchBytes)
                     if (!storage.canProceed) {
                         throw ImportRejected("STORAGE_PREFLIGHT: need=${storage.requiredBytes} allocatable=${storage.allocatableBytes}")
                     }

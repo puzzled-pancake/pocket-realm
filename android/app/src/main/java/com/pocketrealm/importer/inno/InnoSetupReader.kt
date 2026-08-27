@@ -35,6 +35,7 @@ class InnoSetupReader private constructor(
     class InnoPayloadFile internal constructor(
         val path: String,
         val rawDestination: String,
+        val size: Long,
         internal val dataEntryIndex: Int,
     )
 
@@ -269,7 +270,12 @@ class InnoSetupReader private constructor(
                 }
                 val path = appRelativePath(entry.destination) ?: continue
                 if (path.isEmpty()) continue
-                payload.add(InnoPayloadFile(path, entry.destination, entry.location))
+                payload.add(
+                    InnoPayloadFile(
+                        path, entry.destination,
+                        dataEntries[entry.location].fileSize, entry.location,
+                    ),
+                )
             }
             payload.sortWith(
                 compareBy(

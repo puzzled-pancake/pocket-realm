@@ -87,6 +87,18 @@ class StagedArchiveStore(private val root: File) {
 
     fun partialFor(importId: String): File = File(root, ".$importId.pkg.partial")
 
+    /**
+     * Scratch directory holding an installer payload extracted from the
+     * staged archive (setup.exe plus its setup-N.bin slices). Shares the
+     * staged file's lifecycle: kept for crash resume, deleted with it at
+     * every terminal state.
+     */
+    fun scratchDir(importId: String): File = File(root, "$importId.pkg.d")
+
+    /** True when a scratch extraction already exists for a resumed import. */
+    fun hasScratch(importId: String): Boolean =
+        scratchDir(importId).let { it.isDirectory && it.listFiles()?.isNotEmpty() == true }
+
     /** Expected durable length when resuming, 0 when starting fresh. */
     fun resumableBytes(importId: String, expectedBytes: Long): Long {
         val staged = stagedFile(importId)
@@ -107,6 +119,7 @@ class StagedArchiveStore(private val root: File) {
     fun delete(importId: String) {
         stagedFile(importId).delete()
         partialFor(importId).delete()
+        scratchDir(importId).deleteRecursively()
     }
 
     /** Deletes staged/partial files not referenced by an active import, plus stale ones. */
@@ -116,11 +129,14 @@ class StagedArchiveStore(private val root: File) {
         root.listFiles()?.forEach { file ->
             val id = idOf(file) ?: return@forEach
             if (id in activeImportIds) return@forEach
-            if (now - file.lastModified() > staleAfterMs || file.name.startsWith(".")) file.delete()
+            if (now - file.lastModified() > staleAfterMs || file.name.startsWith(".")) {
+                if (file.isDirectory) file.deleteRecursively() else file.delete()
+            }
         }
     }
 
     private fun idOf(file: File): String? = when {
+        file.name.endsWith(".pkg.d") -> file.name.removeSuffix(".pkg.d")
         file.name.endsWith(".pkg") -> file.name.removeSuffix(".pkg")
         file.name.startsWith(".") && file.name.endsWith(".pkg.partial") ->
             file.name.removePrefix(".").removeSuffix(".pkg.partial")

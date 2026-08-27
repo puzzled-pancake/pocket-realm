@@ -41,6 +41,13 @@ object ArchiveQuickCheck {
     sealed interface Verdict {
         /** Format accepted; deep detection happens after staging. */
         data class Accept(val format: ArchiveFormat) : Verdict
+        /**
+         * setup.exe + setup-N.bin payload: accepted into the Inno installer
+         * lane, which extracts the archive to a scratch directory and parses
+         * the installer headers. Payloads that turn out not to be supportable
+         * Inno installers are rejected there with the VAL-12 wording.
+         */
+        data class InstallerPayload(val format: ArchiveFormat) : Verdict
         data class Reject(val failure: String) : Verdict
     }
 
@@ -48,6 +55,9 @@ object ArchiveQuickCheck {
         "installers (1.0.1 / 1.10.0); Pocket Realm needs the extracted 1.12.1.5875 client, not an installer"
     const val VAL12_INSTALLER = "VAL-12: this is the Blizzard setup installer (setup.exe + setup-*.bin), " +
         "not a client — select an archive that directly contains WoW.exe and Data"
+    const val VAL12_NOT_INNO = "VAL-12: this archive carries a Windows installer payload Pocket Realm " +
+        "cannot use (only original Inno Setup-based 1.12.1 installers are extractable on device) — " +
+        "select an archive that directly contains WoW.exe and Data"
     const val VAL13_UNSUPPORTED = "VAL-13: unsupported or unrecognized archive — expected .zip, .7z or .rar"
 
     fun evaluate(format: ArchiveFormat, entryNames: List<String>?): Verdict = when (format) {
@@ -55,7 +65,7 @@ object ArchiveQuickCheck {
         ArchiveFormat.UNKNOWN -> Verdict.Reject(VAL13_UNSUPPORTED)
         else -> {
             val names = entryNames ?: return Verdict.Accept(format)
-            if (looksLikeInstaller(names)) Verdict.Reject(VAL12_INSTALLER)
+            if (looksLikeInstaller(names)) Verdict.InstallerPayload(format)
             else if (names.none { it.substringAfterLast('/').substringAfterLast('\\').equals("WoW.exe", true) }) {
                 // A launcher-only or wrong-content archive: fail fast before the staging copy.
                 Verdict.Reject(

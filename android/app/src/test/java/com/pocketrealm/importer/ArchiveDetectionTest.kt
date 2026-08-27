@@ -46,14 +46,15 @@ class ArchiveQuickCheckTest {
     }
 
     @Test
-    fun blizzardInstallerPatternIsRejectedWithVal12() {
+    fun blizzardInstallerPatternRoutesToTheInstallerLane() {
         val names = listOf(
             "Wowinstall classic/setup.exe",
             "Wowinstall classic/setup-1.bin",
             "Wowinstall classic/setup-2.bin",
         )
         val verdict = ArchiveQuickCheck.evaluate(ArchiveFormat.RAR5, names)
-        assertTrue((verdict as ArchiveQuickCheck.Verdict.Reject).failure.startsWith("VAL-12:"))
+        assertTrue(verdict is ArchiveQuickCheck.Verdict.InstallerPayload)
+        assertEquals(ArchiveFormat.RAR5, (verdict as ArchiveQuickCheck.Verdict.InstallerPayload).format)
     }
 
     @Test
