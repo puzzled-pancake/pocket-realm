@@ -708,3 +708,34 @@ Gradle suite (the actual gate for these files) runs green per phase below.
 - Licensing verified: innoextract is zlib (GPL-3.0-clean as reference),
   xz-for-java 0BSD, issrc read as documentation only. No Blizzard bytes
   will be committed (synthetic installer fixtures only).
+
+## Inno installer payload — I0/I1 (2026-08-27, M6)
+
+- I0 spike (against the real WoW-1.12.1_install.rar payload, local-only,
+  nothing committed): PE resource offset table, 5.3.5 header parse to the
+  data entries, realmlist.wtf + WoW.exe extracted through the solid 5.34 GB
+  chunk with per-file MD5 verification; WoW.exe decodes to exactly
+  4,775,986 bytes / PE 1.12.1.5875. Spike files deleted before commit.
+- I1 (M6): `importer.inno` package — InnoVersion (5.0.0-5.5.6 ANSI+Unicode,
+  ambiguous signatures rejected), InnoDataReader (LE cursor, packed flags),
+  InnoBlockReader (CRC-framed LZMA1/zlib/stored blocks over compressed
+  bytes; xz-java raw LZMA1 with uncompSize -1 handles the no-end-marker
+  streams), InnoLoaderOffsets (PE resource 11111 + 0x30 pointer table),
+  InnoHeaderParser (field-exact 5.x walk incl. every skipped entry type),
+  InnoSliceSet (idsk slices, cross-slice streams), InnoCallFilter (x86
+  E8/E9 inverse transform, 5200 variant; encoder twin in the fixture
+  writer), InnoSetupReader with a forward-only Session (solid payloads
+  decode the chunk once; rewind re-opens + skips) and per-file digests.
+- SyntheticInnoInstaller fixture writer (debug source set): valid 5.3.5
+  payloads - LZMA1/stored blocks and chunks, solid or per-file layouts,
+  multi-slice splitting, {app}/{sys} destination constants, encrypted-entry
+  bit. 14 JVM tests green.
+- Note: full JVM suite currently 926 tests / 57 failures, all inside the
+  maintainer's uncommitted bots+supervisor lanes (BotProfiles.kt require
+  failure at line 54 cascades NoClassDefFoundError); every importer and
+  inno suite is green. Same policy as M0.
+- Throughput observation: the solid 5.34 GB chunk decodes at ~1.5-2 MB/s
+  through xz-java on the desktop - a full-payload pass is on the order of
+  an hour. Phase I2 should surface honest progress copy (per-file MD5s
+  give exact checkpoints); a decode-speed pass (buffering between stream
+  layers) can follow if device runs warrant it.
