@@ -10,7 +10,7 @@ cd android && ./gradlew :app:connectedDebugAndroidTest -PpocketAbi=x86_64 -Ppock
 ```
 
 - `O12ArchiveImportTest` — archive lane deaths/resume (staging → detection →
-  mid-extraction → publish), installer VAL-12, encrypted VAL-13, staged-file
+  mid-extraction → publish), junk-installer VAL-12, encrypted VAL-13, staged-file
   cleanup.
 - `O13RarImportTest` — libarchive JNI: corpus RAR4 list+extract, RAR5
   listing, encrypted flag, lone multivolume part-1.
@@ -25,7 +25,7 @@ cd android && ./gradlew :app:connectedDebugAndroidTest -PpocketAbi=x86_64 -Ppock
 | WoW_Classic_ENG_1.12.1.zip | in-app | imports; `!1.8 Hack` excluded with warning |
 | Nelthorya RAR4 (non-solid, verified) | in-app | imports via libarchive; identity pinned post-extraction |
 | torrents RAR4 (non-solid, verified) | in-app | imports via libarchive |
-| WoW-1.12.1_install.rar (RAR5) | in-app | VAL-12 installer rejection, staged copy deleted |
+| WoW-1.12.1_install.rar (RAR5) | in-app (installer lane) | imports: scratch-unpacked to incoming/<id>.pkg.d/, Inno 5.3.5 headers parsed, ~185 files streamed from the solid chunk, identity pinned post-extraction; staged pkg + scratch deleted after publish; expect the longest import of the set (LZMA over 5.3 GB — budget an hour class, watch the EXTRACTING notification) |
 | Either ISO | in-app | VAL-11 rejection |
 
 Record: total minutes per import, staged-copy deletion after publish
@@ -50,3 +50,12 @@ All rows green ⇒ mark Phase F complete in PLAN-LOG and stage
 `.tmp/release-0.103.0/` (APK + RELEASE_NOTES + update-manifest) — the gradle
 edits (xz, libarchive AAR, versionCode 8) ride the working tree until the
 parent SQLite/LLM lane lands.
+
+## 6. Installer-lane addendum (2026-08-27, I4)
+
+The O12 `innoInstallerArchiveExtractsTheClientAndPublishes` case covers the
+synthetic end-to-end (zipped Inno installer → published generation with the
+call-filtered WoW.exe byte-exact). The real WoW-1.12.1_install.rar row above
+is the device qualification for it. Also record: scratch reuse on resume
+(kill mid-extract, relaunch — `hasScratch` skips re-extraction), and the
+post-publish cleanliness of `incoming/` (both the `.pkg` and the `.pkg.d`).

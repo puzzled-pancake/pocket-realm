@@ -783,3 +783,17 @@ Gradle suite (the actual gate for these files) runs green per phase below.
 - Version bump intentionally deferred: build.gradle.kts / libs.versions.toml
   still carry the maintainer's uncommitted 0.103.0-alpha edits (same policy
   as M5); the installer lane ships in the next versioned release.
+
+## Inno installer payload — I4 (2026-08-27, M9)
+
+- Device runbook addendum: the real WoW-1.12.1_install.rar row flips from
+  "expected VAL-12 rejection" to a full installer-lane import (scratch
+  unpack, Inno 5.3.5 parse, ~185-file solid-chunk stream, hour-class LZMA
+  budget), plus scratch-reuse and incoming/ cleanliness checks; the O12
+  synthetic installer end-to-end covers the lane on every device run.
+- Series complete: e77dc1e (research+plan), 9770ca4 (M6), 93859da (M7),
+  8ae3502 (M8), this entry (M9). The original task — "make
+  WoW-1.12.1_install.rar install" — is implemented and verified against the
+  real payload's header parse, WoW.exe extraction (byte-exact, MD5- and
+  PE-verified) and the full synthetic pipeline; remaining device
+  qualification follows the runbook.
