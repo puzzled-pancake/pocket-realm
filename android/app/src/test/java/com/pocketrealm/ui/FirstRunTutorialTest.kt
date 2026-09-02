@@ -51,16 +51,38 @@ class FirstRunTutorialTest {
     }
 
     @Test
-    fun tutorialHasFourOrderedUsableSteps() {
-        assertEquals(4, FIRST_RUN_TUTORIAL_STEPS.size)
+    fun tutorialHasFiveOrderedUsableSteps() {
+        assertEquals(5, FIRST_RUN_TUTORIAL_STEPS.size)
         assertEquals("Welcome to Pocket Realm", FIRST_RUN_TUTORIAL_STEPS[0].title)
         assertEquals("What you need: an extracted WoW 1.12.1 client", FIRST_RUN_TUTORIAL_STEPS[1].title)
         assertEquals("How the selection works", FIRST_RUN_TUTORIAL_STEPS[2].title)
         assertEquals("What happens next", FIRST_RUN_TUTORIAL_STEPS[3].title)
+        // E2: the optional talking-bots step points at the LLM submenu +
+        // the small "try first" model download (plan E2's 30-second step)
+        assertEquals("Optional: make the people talk back", FIRST_RUN_TUTORIAL_STEPS[4].title)
         FIRST_RUN_TUTORIAL_STEPS.forEach { step ->
             assertTrue(step.title.isNotBlank())
             assertTrue(step.body.isNotBlank())
         }
+    }
+
+    @Test
+    fun llmStepPointsAtTheSubmenuAndTryFirstModel() {
+        val step = FIRST_RUN_TUTORIAL_STEPS[4]
+        val text = step.body.lowercase()
+        // the submenu's actual entry name in Settings (card "AI bot LLM",
+        // button "Configure AI bot LLM →")
+        assertTrue("ai bot llm" in text)
+        assertTrue("try first" in text)
+        // honest about the distribution state: the small tuned model is
+        // hand-staged until §4.2 lands, and the copy must not promise an
+        // in-app download of it (round-1 R2: dead-end instructions)
+        assertTrue("staged from a pc" in text)
+        assertTrue("in-app download" in text)
+        // optional, offline, honest about skipping
+        assertTrue("optional" in step.title.lowercase())
+        assertTrue("offline" in text)
+        assertTrue("skip it" in text)
     }
 
     @Test

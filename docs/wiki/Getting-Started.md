@@ -41,7 +41,7 @@ If Android interrupts the work, return to the same screen and use **Resume** whe
 
 The default choices are meant to work without deep technical knowledge. Before the first launch, it is still useful to check:
 
-- **Display** for 1280 x 720 performance or 1920 x 1080 sharpness.
+- **Display** for 1280 x 720 performance or 1920 x 1080 sharpness, plus the interface scale if the game UI feels too small.
 - **World population** for the number of computer-controlled residents.
 - **Controls** for the correct input device and layout.
 - **Sound** if game audio should be on.

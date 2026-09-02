@@ -38,23 +38,50 @@ import os
 import re
 import sys
 import time
-import urllib.request
 
-sys.path.insert(0, r"C:\pocket_realm_complete\tools\llm_lab")
-sys.path.insert(0, r"C:\NPU LLM\scripts\finetune")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sanity_battery import (B, CARD, PLAYER, MODELS, RESULTS_DIR,
                             chat, start_server, stop_server, parse_tools,
                             strip_tools)
 
 # ---- the python mirror of PlayerbotLlmRecallCore's cargo builders ----
-# (byte-checked against the C++ by the host battery; mirrored here so
-# the desktop harness composes exactly what the bridge would)
+# rev-3b: the frames come from banklib.BEAT_CARGO_VARIANTS (the wording
+# lock - the C++ core emits the same strings), and each composed cargo
+# CYCLES the flavor deterministically so a run measures all three (the
+# artifact records the flavor + cargo text per row). secret_cargo and
+# nickname_adoption stay single-wording (not variant sets).
+
+_FLAVOR_CYCLE = {"i": 0}
+_LAST = {"kind": None, "flavor": None}
+
+
+def _next_flavor():
+    f = _FLAVOR_CYCLE["i"] % 3
+    _FLAVOR_CYCLE["i"] += 1
+    return f
+
+
+def _render(kind, player="", fact=None, gossip=None, phrase=None, flavor=None):
+    f = (flavor if flavor is not None else _next_flavor()) % 3
+    frame = B.BEAT_CARGO_VARIANTS[kind][f]
+    _LAST.update(kind=kind, flavor=f)
+    out = frame.replace("{P}", player)
+    if fact is not None:
+        out = out.replace("{F}", fact_direct(fact))
+    if gossip is not None:
+        out = out.replace("{G}", gossip)
+    if phrase is not None:
+        out = out.replace("{T}", phrase)
+    return out
 
 
 def fact_direct(fact):
+    import re as _re
     out = " " + fact
     for a, b in ((" my", " your"), (" me", " you"), (" mine", " yours")):
-        out = out.replace(a, b)
+        # word-boundary on the right, like the C++ (round-1 R3: a bare
+        # replace would rewrite "metal" -> "you tal")
+        out = _re.sub(_re.escape(a) + r"(?![a-z])", b, out)
     out = out[1:]
     if out.startswith("he "):
         out = out[3:]
@@ -63,29 +90,23 @@ def fact_direct(fact):
     return out
 
 
-def debt_cargo(player, fact):
-    return (f"{player} {fact_direct(fact)}. It is UNPAID. "
-            "You are NOT square. Name it.")
+def debt_cargo(player, fact, flavor=None):
+    return _render("debt", player, fact=fact, flavor=flavor)
 
 
-def memory_cargo(player, fact, ask_after=False):
-    if ask_after:
-        return (f"You remember what {player} was after: {fact_direct(fact)}. "
-                "Ask after it, like it matters - because it does.")
-    return (f"You DO remember {player}. One true thing: {fact_direct(fact)}. "
-            "Work it in - once, naturally.")
+def memory_cargo(player, fact, ask_after=False, flavor=None):
+    return _render("memory_ask" if ask_after else "memory", player,
+                   fact=fact, flavor=flavor)
 
 
-def news_cargo(player, fact):
-    return (f"Something DID happen: {fact_direct(fact)}. "
-            f"That is your news, with {player}. Tell it.")
+def news_cargo(player, fact, flavor=None):
+    return _render("news", player, fact=fact, flavor=flavor)
 
 
-def ceremony_up(player, tier):
-    phrase = {3: "a friend worth keeping", 4: "a true friend",
-              5: "the one you would follow anywhere"}.get(tier, "a true friend")
-    return (f"You have quietly decided {player} is {phrase}. "
-            "Show it your own way, briefly - and do not explain yourself.")
+def ceremony_up(player, tier, flavor=None):
+    return _render("ceremony_up", player,
+                   phrase=B.CEREMONY_UP_PHRASES.get(tier, "a true friend"),
+                   flavor=flavor)
 
 
 def secret_cargo(player, secret):
@@ -123,7 +144,7 @@ ASSOC_CASES = [
      ["ram", "saving"]),
 ]
 
-MECHANIC_TOKENS = ["tier", "relationship", "bonded", "trusted ",
+MECHANIC_TOKENS = ["tier", "relationship", "bonded", "trusted",
                    "warm (", "civil (", "points"]
 
 
@@ -165,6 +186,7 @@ def main():
             card["absence"] = f"{PLAYER['name']} was last seen a few hours ago."
             sysm = B.sysm_for_card(card, player=PLAYER)
             cargo = build(PLAYER["name"], fact)
+            flavor = _LAST["flavor"]
             user = B.compose(turn, mems=[fact],
                              state="You are at your forge in Elwynn Forest.",
                              extra=cargo)
@@ -182,9 +204,12 @@ def main():
                 control.append(c["content"])
             ok, hits = majority_recall(draws, keys)
             _, chits = majority_recall(control, keys)
+            if chits >= (args.n // 2 + 1) and ok:
+                print(f"       NOTE: control also majority-recalls ({chits}/{args.n}) "
+                      "- no measured lift for this case")
             res["ASSOCIATIVE"].append(dict(
-                turn=turn, fact=fact, keys=keys, draws=draws,
-                control=control, recall=ok, hits=f"{hits}/{args.n}",
+                turn=turn, fact=fact, keys=keys, cargo=cargo, flavor=flavor,
+                draws=draws, control=control, recall=ok, hits=f"{hits}/{args.n}",
                 control_hits=f"{chits}/{args.n}"))
             print(f"ASSOC  {'PASS' if ok else 'FAIL'} {turn[:38]:40s} "
                   f"{hits}/{args.n} (control {chits}/{args.n})")
@@ -216,8 +241,14 @@ def main():
             differs = jaccard(strip_tools(r["content"]),
                               strip_tools(c["content"])) < 0.5
             floor.append(voiced and clean and differs)
+        controls = []
+        for i in range(2):
+            c = chat([{"role": "system", "content": sysm4},
+                      {"role": "user", "content": control_user}],
+                     model["sampling"], model["qwen"], seed=args.seed)
+            controls.append(c["content"])
         res["CEREMONY"]["draws"] = draws
-        res["CEREMONY"]["controls"] = None  # control draws kept in JACCARD file
+        res["CEREMONY"]["controls"] = controls
         res["CEREMONY"]["floor_pass"] = sum(floor)
         res["CEREMONY"]["floor_detail"] = floor
         print(f"CEREMONY floor (voiced+no-mechanic+differs): {sum(floor)}/5 "
@@ -318,6 +349,60 @@ def main():
         print(f"EVENT  levelup cheer {res['EVENT_KIND']['levelup_cheer']}, "
               f"duel sentiment {res['EVENT_KIND']['duellost_sentiment']} "
               f"(tolerant {tolerant}/{args.n}; gate >=2/{args.n} each)")
+
+        # ---- LONGFORM (S11 P50 baseline) -----------------------------------
+        # The frozen cue's measurement against the CURRENT (pre-P50)
+        # weights - the honest expectation is partial compliance at best;
+        # this records the baseline G5's P(>90w | cued) delivery metric
+        # and the P(>60w | uncued) inflation alarm move against. Drawn at
+        # max_tokens 230 (the licensed tier's runtime cap) with the SAME
+        # composed note the bridge injects (beat_frame cargo + cue).
+        lf_cases = [
+            ("story", "come on, tell me the story of the bridge fight",
+             "held the border bridge against the night raid"),
+            ("news", "so... any news for me?",
+             "won the duel at the fair, fair and square"),
+            ("bonded", "how have you been, really?",
+             "is saving up for a ram of his own"),
+        ]
+        card5 = copy.deepcopy(CARD)
+        card5["tier"] = 5
+        card5["facts"] = ["owes Brannoc five silver from the ale"]
+        lf_sysm = B.sysm_for_card(card5, player=PLAYER)
+        lf_state = "You are at your forge in Elwynn Forest."
+        for kind, turn, fact in lf_cases:
+            cargo_kind = "memory_ask" if kind == "bonded" else "news"
+            frame = B.beat_frame(cargo_kind, 30)
+            cargo = frame.replace("{P}", PLAYER["name"]).replace(
+                "{F}", fact_direct(fact))
+            cued = B.compose(turn, state=lf_state,
+                             extra=B.longform_extra(cargo))
+            uncued = B.compose(turn, state=lf_state,
+                               extra=cargo)
+            cued_words, uncued_words, cued_draws = [], [], []
+            for i in range(args.n):
+                r = chat([{"role": "system", "content": lf_sysm},
+                          {"role": "user", "content": cued}],
+                         model["sampling"], model["qwen"],
+                         max_tokens=230, seed=args.seed)
+                cued_draws.append(r["content"])
+                cued_words.append(len(strip_tools(r["content"]).split()))
+                u = chat([{"role": "system", "content": lf_sysm},
+                          {"role": "user", "content": uncued}],
+                         model["sampling"], model["qwen"],
+                         max_tokens=230, seed=args.seed)
+                uncued_words.append(len(strip_tools(u["content"]).split()))
+            res.setdefault("LONGFORM", {})[kind] = dict(
+                turn=turn, fact=fact, cargo=cargo, draws=cued_draws,
+                cued_words=cued_words, uncued_words=uncued_words,
+                cued_over90=sum(w > 90 for w in cued_words),
+                cued_over60=sum(w > 60 for w in cued_words),
+                uncued_over60=sum(w > 60 for w in uncued_words))
+            print(f"LONGFORM {kind:<7} cued>90w "
+                  f"{res['LONGFORM'][kind]['cued_over90']}/{args.n}, "
+                  f"uncued>60w {res['LONGFORM'][kind]['uncued_over60']}/{args.n} "
+                  f"(pre-P50 baseline; words cued={cued_words} "
+                  f"uncued={uncued_words})")
 
         # ---- JACCARD re-checkpoint (S7 ledger (d)) ------------------------
         rep_draws = []

@@ -176,6 +176,12 @@ public:
             [](uint32_t duration) { return duration > 1000; }));
         values[7] = static_cast<jlong>(m_hard_stall_total.load(std::memory_order_acquire));
         values[8] = static_cast<jlong>(m_last_hard_stall_elapsed_ms.load(std::memory_order_acquire));
+        // The login gate's measured CharacterDatabase round-trip (the ~10 s
+        // probe) as the DB-latency telemetry channel for the P0/P7 baseline:
+        // 0 = never sampled, UINT32_MAX = gate closed / probe expired. Read
+        // from the atomic mirror only - the playerbots map itself lives on
+        // the world thread.
+        values[9] = static_cast<jlong>(m_db_probe_delay_ms.load(std::memory_order_acquire));
     }
 
     int create_account(const std::string& username, const std::string& password, uint64_t timeout_ms)
@@ -478,6 +484,13 @@ public:
 #ifdef ENABLE_PLAYERBOTS
         if (m_bot_enabled.load(std::memory_order_acquire))
         {
+            // Mirror the login-gate probe result into an atomic so the
+            // status-poll thread never reads the playerbots map (world-thread
+            // state) directly - same marshaling pattern as the telemetry
+            // struct below.
+            m_db_probe_delay_ms.store(
+                sRandomPlayerbotMgr.GetDatabaseDelay("CharacterDatabase"),
+                std::memory_order_release);
             m_bot_target_fence.consume([&](int pending) {
                 sRandomPlayerbotMgr.SetValue(uint32(0), "bot_count", static_cast<uint32>(pending));
                 m_effective_bot_target.store(pending, std::memory_order_release);
@@ -703,6 +716,10 @@ private:
     std::atomic<uint64_t> m_hard_stall_total{0};
     std::atomic<uint64_t> m_last_hard_stall_elapsed_ms{0};
     std::atomic<uint32_t> m_consecutive_hard_stalls{0};
+    // CharacterDatabase probe RTT mirror (ms); 0 = never sampled,
+    // UINT32_MAX = login gate closed / probe expired. Written on the world
+    // thread in record_tick, read by performance_status from poll threads.
+    std::atomic<uint32_t> m_db_probe_delay_ms{0};
     // >=60 consecutive ticks over 1s each (world loop wedged for a minute+).
     static constexpr uint32_t HARD_STALL_FAIL_STREAK = 60;
     std::atomic<bool> m_bot_enabled{false};
@@ -777,10 +794,10 @@ Java_com_pocketrealm_server_WorldNative_botStatusNative(JNIEnv* env, jclass)
 extern "C" JNIEXPORT jlongArray JNICALL
 Java_com_pocketrealm_server_WorldNative_performanceStatusNative(JNIEnv* env, jclass)
 {
-    jlong values[9]{};
+    jlong values[10]{};
     g_runtime.performance_status(values);
-    jlongArray result = env->NewLongArray(9);
-    env->SetLongArrayRegion(result, 0, 9, values);
+    jlongArray result = env->NewLongArray(10);
+    env->SetLongArrayRegion(result, 0, 10, values);
     return result;
 }
 
@@ -862,3 +879,37 @@ Java_com_pocketrealm_server_WorldNative_detailNative(JNIEnv* env, jclass)
 extern "C" JNIEXPORT jint JNICALL
 Java_com_pocketrealm_server_WorldNative_onlinePlayersNative(JNIEnv*, jclass)
 { return static_cast<jint>(g_runtime.online_players()); }
+
+// ---- companion mode (M5): world pause + LLM runtime profile switch ----
+
+extern "C" void pocket_world_set_paused(int paused);
+extern "C" int pocket_world_is_paused(void);
+
+#ifdef ENABLE_PLAYERBOTS
+#include "playerbot/PlayerbotLlamaRuntime.h"
+#endif
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_pocketrealm_server_WorldNative_pauseWorldNative(JNIEnv*, jclass, jint paused)
+{
+    pocket_world_set_paused(paused != 0 ? 1 : 0);
+    return 0;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_pocketrealm_server_WorldNative_isWorldPausedNative(JNIEnv*, jclass)
+{ return pocket_world_is_paused(); }
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_pocketrealm_server_WorldNative_setCompanionModeNative(JNIEnv*, jclass, jint enabled)
+{
+#ifdef ENABLE_PLAYERBOTS
+    // companion mode = world paused + full-residency LLM profile for the
+    // faster prefill; coexistence profile restores on exit
+    PlayerbotLlamaRuntime::SetCompanionMode(enabled != 0);
+    pocket_world_set_paused(enabled != 0 ? 1 : 0);
+    return 0;
+#else
+    return -1;
+#endif
+}

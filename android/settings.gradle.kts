@@ -22,3 +22,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "pocket-realm"
 include(":app")
+include(":pocketrealm-llm")

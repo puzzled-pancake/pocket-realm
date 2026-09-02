@@ -83,7 +83,10 @@ def test_guard_merges_not_defers_in_the_bridge():
     text = BRIDGE_CPP.read_text(encoding="utf-8")
     # the question path runs BEFORE the ladder and lands in note.extra
     assert "guardExtra" in text
-    assert "note.extra = guardExtra" in text, (
+    # S8: the merge is concat-aware (a recall beat's cargo may already
+    # ride the extra leg - guard second) but still an assignment, never
+    # a deferral
+    assert 'note.extra = note.extra.empty() ? guardExtra : note.extra + "\\n" + guardExtra' in text, (
         "the A10 directive must MERGE into the beat note (merge-not-defer)")
     # exactly one guard per turn: the directive assignment is followed
     # by the loop break (the FIRST unresolved candidate wins)
@@ -99,9 +102,9 @@ def test_guard_merges_not_defers_in_the_bridge():
 def test_guard_skips_event_turns_and_uses_frozen_wording():
     text = BRIDGE_CPP.read_text(encoding="utf-8")
     inner = text.split("PlayerbotLlmBridge::Note BuildNoteInner(Player* bot")[1][:4000]
-    assert "if (eventTurn)" in inner
+    assert "if (state.eventTurn)" in inner
     # the event block returns before the question path is reached
-    assert inner.index("if (eventTurn)") < inner.index("IsQuestionShape")
+    assert inner.index("if (state.eventTurn)") < inner.index("IsQuestionShape")
     core = CORE.read_text(encoding="utf-8")
     assert "You have never heard of " in core
     # the directive is C++ line-wrapped; pin the fragments byte-exactly

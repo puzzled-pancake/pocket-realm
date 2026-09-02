@@ -55,11 +55,17 @@ def test_invariants_leg(banter_binary):
 def test_invariants_golden_pin_is_stable(banter_binary):
     # The RNG/selection fingerprint: printed by the invariants leg. Any
     # deliberate change to pools or selection updates this pin in the SAME
-    # commit - an accidental change must fail here instead.
+    # commit - an accidental change must fail here instead. (The hash is
+    # FNV-1a64 over 4x500 deterministic selections of the shipped KILL
+    # pool, so the pin is stable across machines and compilers.)
+    GOLDEN_FNV1A64 = "3291cab38a475afd"
     result = _run(banter_binary, "invariants")
     golden = [l for l in result.stdout.splitlines() if l.startswith("golden_fnv1a64=")]
     assert golden, "golden fingerprint line missing"
-    assert len(golden[0].split("=")[1]) == 16
+    assert golden[0] == f"golden_fnv1a64={GOLDEN_FNV1A64}", (
+        f"the selection/pool fingerprint drifted from the committed pin "
+        f"({GOLDEN_FNV1A64}); if the pool or selection change was "
+        "deliberate, re-pin this constant in the same commit")
 
 
 def test_core_content_contract():
@@ -101,8 +107,12 @@ def test_sim_wildcard_rate_in_design_band(sim_json):
 def test_sim_never_immediate_repeat(sim_json):
     # The core anti-repetition property: the worst stream anywhere in the
     # 1000-hour simulation must not repeat a line back-to-back. (Exact
-    # consecutive repeats were the old 2-variant bug.)
-    assert sim_json["worst_repeat_gap"] == 0 or sim_json["worst_repeat_gap"] >= 3
+    # consecutive repeats were the old 2-variant bug.) The harness reports
+    # the 1-based draw position of the earliest back-to-back repeat across
+    # all streams, or the 0xFFFFFFFF sentinel when no stream ever repeated.
+    assert sim_json["worst_repeat_gap"] == 0xFFFFFFFF, (
+        "a stream repeated a line back-to-back at draw "
+        f"{sim_json['worst_repeat_gap']}")
 
 
 def test_sim_sliding_window_variety(sim_json):

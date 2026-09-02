@@ -59,6 +59,10 @@ class RuntimeSupervisorClient(context: Context) {
         transact { remote -> JSONObject(remote.relaunchClient()) }
     }
 
+    suspend fun setCompanionMode(enabled: Boolean): JSONObject = withContext(Dispatchers.IO) {
+        transact { remote -> JSONObject(remote.setCompanionMode(enabled)) }
+    }
+
     suspend fun createBackup(name: String): JSONObject = withContext(Dispatchers.IO) {
         transact { remote -> JSONObject(remote.createBackup(name)) }
     }
@@ -75,24 +79,26 @@ class RuntimeSupervisorClient(context: Context) {
         transact { remote -> JSONObject(remote.backupStatus()) }
     }
 
-    private suspend fun <T> transact(block: (IRuntimeSupervisorControl) -> T): T =
-        suspendCancellableCoroutine { continuation ->
-            lateinit var connection: ServiceConnection
+    private suspend fun <T> transact(block: (IRuntimeSupervisorControl) -> T): T {
+        lateinit var connection: ServiceConnection
+        val remote = suspendCancellableCoroutine { continuation ->
             connection = object : ServiceConnection {
                 override fun onServiceConnected(name: ComponentName?, service: IBinder) {
-                    try {
-                        val value = block(IRuntimeSupervisorControl.Stub.asInterface(service))
-                        if (continuation.isActive) continuation.resume(value)
-                    } catch (error: Throwable) {
-                        if (continuation.isActive) continuation.resumeWithException(error)
-                    } finally {
-                        runCatching { appContext.unbindService(connection) }
-                    }
+                    if (continuation.isActive)
+                        continuation.resume(IRuntimeSupervisorControl.Stub.asInterface(service))
                 }
                 override fun onServiceDisconnected(name: ComponentName?) = Unit
                 override fun onNullBinding(name: ComponentName?) {
                     if (continuation.isActive) continuation.resumeWithException(
                         IllegalStateException("RuntimeSupervisor returned null Binder"))
+                    runCatching { appContext.unbindService(connection) }
+                }
+                override fun onBindingDied(name: ComponentName?) {
+                    // the :supervisor process died before publishing its
+                    // binder: without this the continuation never resumes and
+                    // the caller hangs on Dispatchers.IO forever
+                    if (continuation.isActive) continuation.resumeWithException(
+                        IllegalStateException("supervisor process died before binding"))
                     runCatching { appContext.unbindService(connection) }
                 }
             }
@@ -102,6 +108,16 @@ class RuntimeSupervisorClient(context: Context) {
             }
             continuation.invokeOnCancellation { runCatching { appContext.unbindService(connection) } }
         }
+        // ServiceConnection callbacks are delivered on the main thread: only
+        // the resume happens there, the binder transaction itself runs on IO
+        // so long remote calls (createAccount waits on :world for up to 30 s)
+        // cannot stall the main thread
+        return try {
+            withContext(Dispatchers.IO) { block(remote) }
+        } finally {
+            runCatching { appContext.unbindService(connection) }
+        }
+    }
 
     companion object {
         internal fun decodeRealmState(raw: String): RealmState {
@@ -122,7 +138,9 @@ class RuntimeSupervisorClient(context: Context) {
                         "The previous start was interrupted. Tap Start to recover safely and try again.",
                     )
                 }
-                RuntimePhase.WORLD_READY, RuntimePhase.RUNNING, RuntimePhase.CLIENT_FAILED -> {
+                // companion mode keeps the world process alive: surface it as a
+                // running realm whose ticking is deliberately paused
+                RuntimePhase.WORLD_READY, RuntimePhase.RUNNING, RuntimePhase.PAUSED, RuntimePhase.CLIENT_FAILED -> {
                     if (generationActive) RealmState.Running(
                         value.optLong("updatedAtWallMs", System.currentTimeMillis()),
                         RuntimeMode.valueOf(value.optString("runtimeMode", RuntimeMode.LOCAL.name)),

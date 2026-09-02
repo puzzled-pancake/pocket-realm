@@ -40,6 +40,7 @@ The Active setup card gives a plain summary of the choices that will affect the 
 - How many bots are kept near the player.
 - How quickly the population grows.
 - Resolution and frame-rate limit.
+- Interface scale.
 - Graphics driver and renderer choice.
 - Sound state.
 - Automatic login account.

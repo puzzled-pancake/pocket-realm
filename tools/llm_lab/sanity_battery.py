@@ -488,7 +488,7 @@ def summarize(name, res):
     probes = [r for r in res.get("S3_probes", []) if r["arm"] == "A"]
     print(f"\n===== {name} =====")
     print(f"S1 tools: fire {sum(c['fired'] for c in s1)}/{len(s1)} "
-          f"fill {sum(c['fill_ok'] for c in s1 if 'fill_field' in c or True)}/{len(s1)} "
+          f"fill {sum(c['fill_ok'] for c in s1)}/{len(s1)} "
           f"voice {sum(c['voice_ok'] for c in s1)}/{len(s1)} "
           f"hygiene {sum(c['hygiene'] for c in s1)}/{len(s1)}")
     print(f"S2 restraint: clean {sum(c['clean'] for c in s2)}/{len(s2)} "

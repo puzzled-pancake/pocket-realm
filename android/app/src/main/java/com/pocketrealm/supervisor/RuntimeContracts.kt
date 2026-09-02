@@ -23,6 +23,7 @@ interface RuntimeBackend : AutoCloseable {
     suspend fun stop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult
     suspend fun forceStop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult
     suspend fun saveWorld(owner: ComponentOwner): RuntimeActionResult
+    suspend fun setCompanionMode(owner: ComponentOwner, enabled: Boolean): RuntimeActionResult
     suspend fun provisionAccount(
         owner: ComponentOwner,
         username: String,

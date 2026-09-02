@@ -11,7 +11,6 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
-import com.pocketrealm.BuildConfig
 import com.pocketrealm.R
 import com.pocketrealm.log.AppLog
 import kotlinx.coroutines.CancellationException
@@ -21,7 +20,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import java.io.File
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -67,19 +65,18 @@ class LlmModelDownloadService : Service() {
         wakeLock = getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:llm-model-download")
             .apply { acquire(8L * 60L * 60L * 1000L) }
-        val url = intent.getStringExtra(EXTRA_URL)
-        val size = intent.getLongExtra(EXTRA_SIZE, 0L)
-        val sha256 = intent.getStringExtra(EXTRA_SHA256)
-        // built before the launch so the failure notification can rebuild its
-        // retry intent with the SAME descriptor this task used - a bare retry
-        // would otherwise silently fall back to primaryModel and could fetch
-        // a different pinned target into the same file name
-        val descriptor = LlmModelCoordinator.ModelDescriptor(
-            fileName = LlmModelCoordinator.primaryModel.fileName,
-            url = url ?: LlmModelCoordinator.primaryModel.url,
-            size = if (size > 0) size else LlmModelCoordinator.primaryModel.size,
-            sha256 = sha256 ?: LlmModelCoordinator.primaryModel.sha256,
-        )
+        // the registry id is the single source of truth for the whole
+        // descriptor (fileName, url, size, sha256): loose extras for the
+        // individual fields could mix a selected model's pinned bytes into
+        // another model's staged file name. Built before the launch so the
+        // failure notification can rebuild its retry intent with the SAME
+        // descriptor this task used.
+        val descriptor = LlmModelRegistry.byId(intent.getStringExtra(EXTRA_MODEL_ID))
+            .let {
+                LlmModelCoordinator.ModelDescriptor(
+                    fileName = it.fileName, url = it.url, size = it.size, sha256 = it.sha256,
+                )
+            }
         task = scope.launch {
             try {
                 val file = LlmModelCoordinator.download(applicationContext, descriptor, { written ->
@@ -96,7 +93,7 @@ class LlmModelDownloadService : Service() {
                     AppLog.i(TAG, "model download cancelled by user")
                 } else {
                     AppLog.e(TAG, "model download failed: ${error.message}")
-                    doneNotification(false, descriptor)
+                    doneNotification(false, descriptor.fileName)
                 }
             } finally {
                 wakeLock?.takeIf { it.isHeld }?.release()
@@ -152,7 +149,7 @@ class LlmModelDownloadService : Service() {
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(text))
     }
 
-    private fun doneNotification(ok: Boolean, descriptor: LlmModelCoordinator.ModelDescriptor? = null) {
+    private fun doneNotification(ok: Boolean, descriptorFileName: String? = null) {
         val manager = getSystemService(NotificationManager::class.java)
         if (ok) {
             // success is informational: no Cancel action (it targets the
@@ -176,14 +173,15 @@ class LlmModelDownloadService : Service() {
         }
         // terminal failure: the notification itself is the retry surface, and
         // the ongoing Cancel action (which targets the progress id) is dropped.
-        // The retry carries the failed download's descriptor so it re-fetches
-        // the same pinned url/size/sha256, never whatever primaryModel names.
+        // The retry carries the failed download's registry id so it re-fetches
+        // the same pinned descriptor, never whatever the default names.
+        val descriptorId = LlmModelRegistry.all
+            .firstOrNull { it.fileName == descriptorFileName }?.id
+            ?: LlmModelRegistry.DEFAULT_MODEL_ID
         val retryIntent = PendingIntent.getService(
             this, 1,
             Intent(this, LlmModelDownloadService::class.java).setAction(ACTION_DOWNLOAD)
-                .putExtra(EXTRA_URL, descriptor?.url)
-                .putExtra(EXTRA_SIZE, descriptor?.size ?: 0L)
-                .putExtra(EXTRA_SHA256, descriptor?.sha256),
+                .putExtra(EXTRA_MODEL_ID, descriptorId),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         manager.notify(
@@ -212,20 +210,17 @@ class LlmModelDownloadService : Service() {
         private const val DONE_NOTIFICATION_ID = 42
         private const val ACTION_DOWNLOAD = "com.pocketrealm.llm.action.DOWNLOAD"
         private const val ACTION_CANCEL = "com.pocketrealm.llm.action.CANCEL"
-        private const val EXTRA_URL = "url"
-        private const val EXTRA_SIZE = "size"
-        private const val EXTRA_SHA256 = "sha256"
+        private const val EXTRA_MODEL_ID = "model_id"
 
-        /** The staged model file path the world runtime should be configured with. */
-        fun expectedModelPath(context: Context): File = LlmModelCoordinator.modelPath(context)
-
-        fun start(context: Context, url: String? = null, size: Long = 0L, sha256: String? = null) {
+        /** Downloads the registry model selected by [modelId] (default = registry default). */
+        // modelId null falls back to DEFAULT_MODEL_ID - since the S4 flip that is
+        // the LOCAL-ONLY tuned model (no URL): a null-id download fails by
+        // design. Production callers pass the selected descriptor's id.
+        fun start(context: Context, modelId: String? = null) {
             context.startForegroundService(
                 Intent(context, LlmModelDownloadService::class.java)
                     .setAction(ACTION_DOWNLOAD)
-                    .putExtra(EXTRA_URL, url)
-                    .putExtra(EXTRA_SIZE, size)
-                    .putExtra(EXTRA_SHA256, sha256),
+                    .putExtra(EXTRA_MODEL_ID, modelId ?: LlmModelRegistry.DEFAULT_MODEL_ID),
             )
         }
     }

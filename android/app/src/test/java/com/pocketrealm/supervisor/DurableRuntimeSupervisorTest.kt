@@ -441,6 +441,11 @@ class DurableRuntimeSupervisorTest {
             return RuntimeActionResult(true, "saved")
         }
 
+        override suspend fun setCompanionMode(owner: ComponentOwner, enabled: Boolean): RuntimeActionResult {
+            actions += "companion:$enabled"
+            return RuntimeActionResult(true, "companion")
+        }
+
         override suspend fun provisionAccount(
             owner: ComponentOwner,
             username: String,

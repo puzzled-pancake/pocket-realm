@@ -1,0 +1,63 @@
+{{ bos_token }}{%- macro strip_thinking(text) -%}
+    {%- set ns = namespace(result='') -%}
+    {%- for part in text.split('<channel|>') -%}
+        {%- if '<|channel>' in part -%}
+            {%- set ns.result = ns.result + part.split('<|channel>')[0] -%}
+        {%- else -%}
+            {%- set ns.result = ns.result + part -%}
+        {%- endif -%}
+    {%- endfor -%}
+    {{- ns.result | trim -}}
+{%- endmacro -%}
+{%- set loop_messages = messages -%}
+{%- if messages[0]['role'] in ['system', 'developer'] -%}
+    {{ '<|turn>system
+' }}
+    {%- if messages[0]['content'] is string -%}
+        {{ messages[0]['content'] | trim }}
+    {%- elif messages[0]['content'] is sequence -%}
+        {%- for item in messages[0]['content'] -%}
+            {{ item['text'] | trim + ' '}}
+        {%- endfor -%}
+    {%- endif -%}
+    {{ '<turn|>
+' }}
+    {%- set loop_messages = messages[1:] -%}
+{%- endif -%}
+{%- for message in loop_messages -%}
+    {%- if (message['role'] == 'user') != (loop.index0 % 2 == 0) -%}
+        {{ raise_exception("Conversation roles must alternate user/assistant/user/assistant/...") }}
+    {%- endif -%}
+    {%- if (message['role'] == 'assistant') -%}
+        {%- set role = "model" -%}
+    {%- else -%}
+        {%- set role = message['role'] -%}
+    {%- endif -%}
+    {{ '<|turn>' + role + '
+' }}
+    {%- if message['content'] is string -%}
+        {%- if role == "model" -%}
+            {{ strip_thinking(message['content']) }}
+        {%- else -%}
+            {{ message['content'] | trim }}
+        {%- endif -%}
+    {%- elif message['content'] is iterable -%}
+        {%- for item in message['content'] -%}
+            {%- if item['type'] == 'text' -%}
+                {%- if role == "model" -%}
+                    {{ strip_thinking(item['text']) }}
+                {%- else -%}
+                    {{ item['text'] | trim }}
+                {%- endif -%}
+            {%- endif -%}
+        {%- endfor -%}
+    {%- else -%}
+        {{ raise_exception("Invalid content type") }}
+    {%- endif -%}
+    {{ '<turn|>
+' }}
+{%- endfor -%}
+{%- if add_generation_prompt -%}
+    {{'<|turn>model
+'}}
+{%- endif -%}

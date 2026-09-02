@@ -8,9 +8,11 @@ import androidx.datastore.core.MultiProcessDataStoreFactory
 import androidx.datastore.core.createMultiProcessCoordinator
 import androidx.datastore.core.okio.OkioStorage
 import androidx.datastore.preferences.preferencesDataStoreFile
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.PreferencesSerializer
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -29,12 +31,16 @@ import com.pocketrealm.client.RendererPackageCatalog
 import com.pocketrealm.client.UserVulkanDriver
 import com.pocketrealm.client.VulkanDriverCatalog
 import com.pocketrealm.ingame.WowGameSettingsConfig
+import com.pocketrealm.llm.ComputeMode
+import com.pocketrealm.llm.LlmModelRegistry
+import com.pocketrealm.server.LlmRuntimePolicy
 import com.pocketrealm.server.NearbyInteractPolicy
 import com.pocketrealm.supervisor.RuntimeMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import okio.FileSystem
 import okio.Path.Companion.toOkioPath
@@ -340,6 +346,12 @@ class Settings(private val context: Context) {
     data class Snapshot(
         val displayProfileId: String = ClientDisplayProfile.BALANCED.id,
         val clientFrameCap: Int = ClientFrameCap.FPS_30.fps,
+        /**
+         * App-managed WoW UI scale, or null when the client owns the
+         * `useUiScale`/`uiScale` CVars (stock behavior). Managed values are
+         * clamped per display profile by [effectiveClientUiScale].
+         */
+        val clientUiScale: Float? = null,
         val armRendererId: String = ArmClientRendererCatalog.DEFAULT_ID,
         val box64DxvkPackageId: String = RendererPackageCatalog.BOX64_DEFAULT,
         val armVulkanDriverId: String = VulkanDriverCatalog.AUTO_ID,
@@ -374,6 +386,56 @@ class Settings(private val context: Context) {
         /** Missing legacy values migrate to LOCAL; LAN hosting remains opt-in. */
         val runtimeMode: RuntimeMode = RuntimeMode.LOCAL,
         val allowLanPlayers: Boolean = false,
+        /**
+         * Playerbot LLM runtime (:llm process, llama-server + optional Hexagon
+         * NPU hybrid). Default OFF — the reviewed base conf keeps
+         * AiPlayerbot.LLMEnabled = 0 until the user opts in from the LLM
+         * submenu. Toggles apply on the next realm start (the conf is written
+         * at world start).
+         */
+        val llmEnabled: Boolean = false,
+        val llmComputeMode: ComputeMode = LlmRuntimePolicy.DEFAULT_COMPUTE_MODE,
+        val llmCoresMask: Long = LlmRuntimePolicy.DEFAULT_CORES_MASK,
+        val llmThreads: Int = LlmRuntimePolicy.DEFAULT_THREADS,
+        val llmOffloadLayers: Int = LlmRuntimePolicy.DEFAULT_OFFLOAD_LAYERS,
+        /**
+         * External endpoint mode: when on, the realm conf points bot chat at
+         * any OpenAI-compatible /v1/chat/completions endpoint ([llmExternalUrl],
+         * optional [llmExternalApiKey] sent as a Bearer header, [llmExternalModel]
+         * in the request body) and the embedded :llm runtime is never started.
+         * The URL/model/key are fail-closed: an invalid endpoint suppresses
+         * the whole conf block, exactly like a missing local model file.
+         */
+        val llmExternalMode: Boolean = false,
+        val llmExternalUrl: String = "",
+        val llmExternalApiKey: String = "",
+        val llmExternalModel: String = "",
+        /**
+         * Authored banter layer (rare kill quips, tier greetings, idle/mood
+         * lines). Free — no model call behind any of it — and heavily
+         * rate-limited in the native layer; default ON because it only ever
+         * matters while the LLM feature itself is enabled.
+         */
+        val llmBanter: Boolean = true,
+        /**
+         * S10 world chatter (§4.6b): the LLM-voiced ambient layers — party
+         * banter, proximity murmur, rare general-chat set pieces — every
+         * line event-gated (silence is the default; no fact-bank row, no
+         * line). The power ladder (thermal headroom + battery + charging +
+         * connectivity) is re-published to the native layer every minute by
+         * [com.pocketrealm.server.ChatterPowerMonitor] while the realm runs.
+         * Default OFF: ambient generation costs battery, and the user opts
+         * in. The external endpoint fields double as the cloud-composer
+         * configuration when set (the composer is a cloud-class job).
+         */
+        val llmAmbience: Boolean = false,
+        /**
+         * Selected registry model ([LlmModelRegistry]); drives the staged-file
+         * gate, the runtime's model path, and the request-body sampling
+         * profile. Unknown persisted ids resolve to the registry default at
+         * read time; applies on the next realm start like every llm* toggle.
+         */
+        val llmModelId: String = LlmModelRegistry.DEFAULT_MODEL_ID,
     ) {
         /** Persisted selection; [ArmClientRendererCatalog.AUTO_ID] is allowed. */
         fun selectedArmRendererId(): String = armRendererId
@@ -392,10 +454,21 @@ class Settings(private val context: Context) {
         fun effectiveVulkanDriverId(): String =
             ArmRendererAuto.resolveVulkanDriverId(armVulkanDriverId) ?: armVulkanDriverId
 
-        fun displaySelection(): ClientDisplaySelection = ClientDisplaySelection.nominal(
-            ClientDisplayProfile.requireId(displayProfileId),
-            ClientFrameCap.requireFps(clientFrameCap),
-        )
+        fun displaySelection(): ClientDisplaySelection {
+            clientUiScale?.let { require(it in 0.5f..2.0f) { "unsupported client UI scale: $it" } }
+            return ClientDisplaySelection.nominal(
+                ClientDisplayProfile.requireId(displayProfileId),
+                ClientFrameCap.requireFps(clientFrameCap),
+            )
+        }
+
+        /**
+         * The scale actually enforced this launch: the managed value clamped
+         * so stock ~512-unit-tall frames stay on-screen (virtualHeight/512,
+         * capped at 2.0). Null stays null — unmanaged is never clamped.
+         */
+        fun effectiveClientUiScale(virtualHeight: Int): Float? =
+            clientUiScale?.coerceIn(0.5f, 2f)?.coerceAtMost(virtualHeight / 512f)
 
         fun effectiveAutoLoginTimings(): AutoLoginTimings =
             if (autoLoginAdvanced) autoLoginTimings.normalized() else AutoLoginTimings()
@@ -403,7 +476,16 @@ class Settings(private val context: Context) {
 
     val flow: Flow<Snapshot> = store.data.map { it.toSnapshot() }
 
-    suspend fun update(transform: (Snapshot) -> Snapshot) {        store.edit { prefs ->
+    /**
+     * One-shot blocking read for non-suspend contexts — the :world conf
+     * generation at realm start (ServerRuntimeFiles) reads the LLM toggle
+     * this way. The multi-process coordinator makes the read consistent with
+     * writes from :supervisor/:ui; never call this on a hot path.
+     */
+    fun blockingSnapshot(): Snapshot = kotlinx.coroutines.runBlocking { flow.first() }
+
+    suspend fun update(transform: (Snapshot) -> Snapshot) {
+        store.edit { prefs ->
             val current = prefs.toSnapshot()
             val next = transform(current)
             val requestedDisplay = next.displaySelection()
@@ -412,82 +494,7 @@ class Settings(private val context: Context) {
                 requestedDisplay.profile.id,
                 requestedDisplay.frameCap.fps,
             )
-            prefs[Keys.DISPLAY_PROFILE] = display.profile.id
-            prefs[Keys.FRAME_CAP] = display.frameCap.fps
-            prefs[Keys.DISPLAY_SCHEMA] = 1
-            // fps_profile was present before display selection was connected
-            // to Wine. Do not reinterpret its FPS_40 default as user intent.
-            prefs.remove(Keys.FPS)
-            prefs[Keys.DXVK_BOX64] = next.box64DxvkPackageId
-            // Turning the lane off visibly resets a user-driver selection to
-            // Auto (I1: never a launch-time silent swap); toSnapshot keeps
-            // enforcing the rule for stale persisted values regardless.
-            prefs[Keys.VULKAN_DRIVER] = if (
-                !next.allowUserVulkanDrivers &&
-                UserVulkanDriver.isUserId(next.armVulkanDriverId)
-            ) VulkanDriverCatalog.AUTO_ID else next.armVulkanDriverId
-            prefs[Keys.ALLOW_USER_VULKAN_DRIVERS] =
-                if (next.allowUserVulkanDrivers) 1 else 0
-            prefs[Keys.VULKAN_SELECTION_SCHEMA] = VulkanDriverCatalog.SELECTION_SCHEMA
-            prefs.remove(Keys.VULKAN_MIGRATION_NOTICE)
-            prefs[Keys.RENDERER] = next.armRendererId
-            prefs[Keys.RENDERER_SCHEMA] = ArmClientRendererCatalog.SELECTION_SCHEMA
-            // Removed provider choices are not written back. Any settings write
-            // completes their migration after reads have resolved Box64.
-            prefs.remove(Keys.PROVIDER)
-            prefs.remove(Keys.DXVK_FEX)
-            prefs[Keys.BOTS] = next.botPopulationTarget
-            prefs[Keys.BOT_PROFILE_ID] = next.botProfileId
-            if (next.botSavedPresetId == null) {
-                prefs.remove(Keys.BOT_SAVED_PRESET)
-            } else {
-                prefs[Keys.BOT_SAVED_PRESET] = next.botSavedPresetId
-            }
-            prefs[Keys.BOT_PRESETS_IMPORTED] = if (next.botPresetsImported) 1 else 0
-            prefs[Keys.BOTS_ADVANCED] = if (next.botAdvancedEnabled) 1 else 0
-            prefs[Keys.BOTS_NEARBY] = next.botAdvanced.nearbyBotLimit
-            prefs[Keys.BOTS_RADIUS] = next.botAdvanced.nearbyRadius
-            prefs[Keys.BOTS_LOGIN_BATCH] = next.botAdvanced.loginBatchSize
-            prefs[Keys.BOTS_MAINTENANCE_BATCH] = next.botAdvanced.maintenanceBatchSize
-            prefs[Keys.BOTS_UPDATE_MS] = next.botAdvanced.updateIntervalMs
-            prefs[Keys.BOTS_TELEPORT_MIN] = next.botAdvanced.teleportMinMinutes
-            prefs[Keys.BOTS_TELEPORT_MAX] = next.botAdvanced.teleportMaxMinutes
-            prefs[Keys.BOTS_ITERATIONS] = next.botAdvanced.iterationsPerTick
-            prefs[Keys.BOTS_P99] = next.botAdvanced.admissionWorldP99Ms
-            prefs[Keys.BOTS_SYNC_LEVEL] = if (next.botAdvanced.syncLevelWithPlayers) 1 else 0
-            prefs[Keys.BOTS_LIMIT_COMBAT] = if (next.botAdvanced.limitCombatActivity) 1 else 0
-            prefs[Keys.BOTS_ACTIVE_PERCENT] = next.botAdvanced.activeBotPercent
-            prefs[Keys.BOTS_AUTO_QUEST] = if (next.botAdvanced.autoDoQuests) 1 else 0
-            prefs[Keys.BOTS_CHAT] = if (next.botAdvanced.allowBotChat) 1 else 0
-            prefs[Keys.BOTS_INVITES] = if (next.botAdvanced.allowPlayerInvites) 1 else 0
-            prefs[Keys.BOTS_GROUP_NEARBY] = if (next.botAdvanced.groupNearby) 1 else 0
-            prefs[Keys.BOTS_WANDER] = if (next.botAdvanced.wanderWhenIdle) 1 else 0
-            prefs[Keys.BOTS_OFF_SPEC] = if (next.botAdvanced.enableOffSpecStrategies) 1 else 0
-            prefs[Keys.SETUP_DONE] = if (next.setupComplete) 1 else 0
-            prefs[Keys.GENERATION] = next.lastActiveGeneration
-            prefs[Keys.INPUT_SAFE_MODE] = if (next.inputSafeMode) 1 else 0
-            prefs[Keys.AUTO_LOGIN_ON_LAUNCH] = if (next.autoLoginOnLaunch) 1 else 0
-            prefs[Keys.AUTO_LOGIN_ADVANCED] = if (next.autoLoginAdvanced) 1 else 0
-            val timings = next.autoLoginTimings.normalized()
-            prefs[Keys.AL_POLL_INTERVAL] = timings.pollIntervalMs.toInt()
-            prefs[Keys.AL_STABLE_POLLS] = timings.requiredStablePolls
-            prefs[Keys.AL_LOGIN_SETTLE] = timings.loginUiSettleMs.toInt()
-            prefs[Keys.AL_SESSION_TIMEOUT] = timings.sessionTimeoutMs.toInt()
-            prefs[Keys.AL_DRAIN_POLL] = timings.drainPollMs.toInt()
-            prefs[Keys.AL_INPUT_DRAIN_TIMEOUT] = timings.inputDrainTimeoutMs.toInt()
-            prefs[Keys.AL_IME_DWELL] = timings.imeKeyDwellMs.toInt()
-            prefs[Keys.AL_IME_GAP] = timings.imeKeyGapMs.toInt()
-            prefs[Keys.AL_FIELD_SETTLE] = timings.fieldSettleMs.toInt()
-            prefs[Keys.AL_POINTER_DWELL] = timings.pointerDwellMs.toInt()
-            prefs[Keys.TWEAKS] = next.tweaks.toJson()
-            prefs[Keys.TWEAKS_SCHEMA] = TWEAKS_SCHEMA_VERSION
-            prefs[Keys.GAME_SETTINGS] = next.gameSettings.toJson()
-            prefs[Keys.GAME_SETTINGS_SCHEMA] = 1
-            prefs[Keys.AUDIO_MODE] = next.audioMode.name
-            prefs[Keys.NEARBY_INTERACT_TRIGGER_GUARD_MS] =
-                NearbyInteractPolicy.normalizeTriggerGuardMs(next.nearbyInteractTriggerGuardMs)
-            prefs[Keys.RUNTIME_MODE] = next.runtimeMode.name
-            prefs[Keys.ALLOW_LAN_PLAYERS] = if (next.allowLanPlayers) 1 else 0
+            prefs.writeSnapshotWrites(next, display)
         }
     }
 
@@ -543,71 +550,6 @@ class Settings(private val context: Context) {
         return bumped
     }
 
-    private object Keys {
-        val FPS = stringPreferencesKey("fps_profile")
-        val DISPLAY_PROFILE = stringPreferencesKey("client_display_profile")
-        val FRAME_CAP = intPreferencesKey("client_frame_cap")
-        val DISPLAY_SCHEMA = intPreferencesKey("client_display_schema")
-        val RENDERER = rendererPreference
-        val RENDERER_SCHEMA = rendererSelectionSchemaPreference
-        val PROVIDER = stringPreferencesKey("provider")
-        val DXVK_BOX64 = stringPreferencesKey("dxvk_box64_package")
-        val VULKAN_DRIVER = vulkanDriverPreference
-        val VULKAN_SELECTION_SCHEMA = vulkanSelectionSchemaPreference
-        val VULKAN_MIGRATION_NOTICE = vulkanMigrationNoticePreference
-        val ALLOW_USER_VULKAN_DRIVERS = allowUserVulkanDriversPreference
-        val DXVK_FEX = stringPreferencesKey("dxvk_fex_package")
-        val BOTS = intPreferencesKey("bot_population_target")
-        val BOT_PROFILE_ID = stringPreferencesKey("bot_profile_id")
-        val BOT_SAVED_PRESET = stringPreferencesKey("bot_saved_preset_id")
-        val BOT_PRESETS_IMPORTED = intPreferencesKey("bot_presets_imported")
-        val BOTS_ADVANCED = intPreferencesKey("bot_advanced_enabled")
-        val BOTS_NEARBY = intPreferencesKey("bot_nearby_limit")
-        val BOTS_RADIUS = intPreferencesKey("bot_nearby_radius")
-        val BOTS_LOGIN_BATCH = intPreferencesKey("bot_login_batch")
-        val BOTS_MAINTENANCE_BATCH = intPreferencesKey("bot_maintenance_batch")
-        val BOTS_UPDATE_MS = intPreferencesKey("bot_update_interval_ms")
-        val BOTS_TELEPORT_MIN = intPreferencesKey("bot_teleport_min_minutes")
-        val BOTS_TELEPORT_MAX = intPreferencesKey("bot_teleport_max_minutes")
-        val BOTS_ITERATIONS = intPreferencesKey("bot_iterations_per_tick")
-        val BOTS_P99 = intPreferencesKey("bot_world_p99_ms")
-        val BOTS_SYNC_LEVEL = intPreferencesKey("bot_sync_level")
-        val BOTS_LIMIT_COMBAT = intPreferencesKey("bot_limit_combat")
-        val BOTS_ACTIVE_PERCENT = intPreferencesKey("bot_active_percent")
-        val BOTS_AUTO_QUEST = intPreferencesKey("bot_auto_quest")
-        val BOTS_CHAT = intPreferencesKey("bot_allow_chat")
-        val BOTS_INVITES = intPreferencesKey("bot_allow_invites")
-        val BOTS_GROUP_NEARBY = intPreferencesKey("bot_group_nearby")
-        val BOTS_WANDER = intPreferencesKey("bot_wander")
-        val BOTS_OFF_SPEC = intPreferencesKey("bot_off_spec")
-        val SETUP_DONE = setupCompletePreference
-        val GENERATION = intPreferencesKey("last_active_generation")
-        val INPUT_SAFE_MODE = intPreferencesKey("input_safe_mode")
-        val AUTO_LOGIN_ON_LAUNCH = intPreferencesKey("auto_login_on_launch")
-        val AUTO_LOGIN_ADVANCED = intPreferencesKey("auto_login_advanced")
-        val AL_POLL_INTERVAL = intPreferencesKey("al_poll_interval_ms")
-        val AL_STABLE_POLLS = intPreferencesKey("al_stable_polls")
-        val AL_LOGIN_SETTLE = intPreferencesKey("al_login_ui_settle_ms")
-        val AL_SESSION_TIMEOUT = intPreferencesKey("al_session_timeout_ms")
-        val AL_DRAIN_POLL = intPreferencesKey("al_drain_poll_ms")
-        val AL_INPUT_DRAIN_TIMEOUT = intPreferencesKey("al_input_drain_timeout_ms")
-        val AL_IME_DWELL = intPreferencesKey("al_ime_key_dwell_ms")
-        val AL_IME_GAP = intPreferencesKey("al_ime_key_gap_ms")
-        val AL_FIELD_SETTLE = intPreferencesKey("al_field_settle_ms")
-        val AL_POINTER_DWELL = intPreferencesKey("al_pointer_dwell_ms")
-        val TWEAKS = tweaksPreference
-        val TWEAKS_SCHEMA = tweaksSchemaPreference
-        val GAME_SETTINGS = stringPreferencesKey("game_settings_queue")
-        val GAME_SETTINGS_SCHEMA = intPreferencesKey("game_settings_queue_schema")
-        val GAME_SETTINGS_REVISION = longPreferencesKey("game_settings_revision")
-        val GAME_SETTINGS_DIRECT_EDITS = stringPreferencesKey("game_settings_direct_edit_revisions")
-        val AUDIO_MODE = stringPreferencesKey("audio_mode")
-        val NEARBY_INTERACT_TRIGGER_GUARD_MS =
-            intPreferencesKey("nearby_interact_trigger_guard_ms")
-        val RUNTIME_MODE = stringPreferencesKey("runtime_mode")
-        val ALLOW_LAN_PLAYERS = intPreferencesKey("allow_lan_players")
-    }
-
     private fun Preferences.toSnapshot(): Snapshot {
         val defaultDisplay = ClientDisplaySelection.defaultForDevice(
             Build.SUPPORTED_ABIS.asList(), Build.MODEL,
@@ -639,6 +581,7 @@ class Settings(private val context: Context) {
                 ClientFrameCap.requireFps(this[Keys.FRAME_CAP] ?: 0)
             }.getOrDefault(defaultDisplay.frameCap)
         } else defaultDisplay.frameCap
+        val clientUiScale = this[Keys.UI_SCALE]?.takeIf { it in 0.5f..2.0f }
         // Legacy flat target key still stores the adv4-era population. New
         // installs resolve to the recommended default (Alive Realm 320).
         val storedTarget = this[Keys.BOTS]
@@ -763,9 +706,11 @@ class Settings(private val context: Context) {
             fieldSettleMs = (this[Keys.AL_FIELD_SETTLE] ?: 300).toLong().coerceIn(50, 2000),
             pointerDwellMs = (this[Keys.AL_POINTER_DWELL] ?: 80).toLong().coerceIn(20, 500),
         ).normalized()
+        val llm = readLlmSnapshotFields()
         return Snapshot(
         displayProfileId = displayProfile.id,
         clientFrameCap = frameCap.fps,
+        clientUiScale = clientUiScale,
         armRendererId = rendererId,
         box64DxvkPackageId = box64Package,
         armVulkanDriverId = vulkanDriver,
@@ -805,6 +750,18 @@ class Settings(private val context: Context) {
         runtimeMode = runCatching { RuntimeMode.valueOf(this[Keys.RUNTIME_MODE] ?: "") }
             .getOrDefault(RuntimeMode.LOCAL),
         allowLanPlayers = (this[Keys.ALLOW_LAN_PLAYERS] ?: 0) == 1,
+        llmEnabled = llm.enabled,
+        llmComputeMode = llm.computeMode,
+        llmCoresMask = llm.coresMask,
+        llmThreads = llm.threads,
+        llmOffloadLayers = llm.offloadLayers,
+        llmExternalMode = llm.externalMode,
+        llmExternalUrl = llm.externalUrl,
+        llmExternalApiKey = llm.externalApiKey,
+        llmExternalModel = llm.externalModel,
+        llmBanter = llm.banter,
+        llmAmbience = llm.ambience,
+        llmModelId = llm.modelId,
         )
     }
 
@@ -817,4 +774,239 @@ class Settings(private val context: Context) {
             out
         }.getOrDefault(emptyMap())
     }
+}
+
+private object Keys {
+    val FPS = stringPreferencesKey("fps_profile")
+    val DISPLAY_PROFILE = stringPreferencesKey("client_display_profile")
+    val FRAME_CAP = intPreferencesKey("client_frame_cap")
+    val UI_SCALE = floatPreferencesKey("client_ui_scale")
+    val DISPLAY_SCHEMA = intPreferencesKey("client_display_schema")
+    val RENDERER = rendererPreference
+    val RENDERER_SCHEMA = rendererSelectionSchemaPreference
+    val PROVIDER = stringPreferencesKey("provider")
+    val DXVK_BOX64 = stringPreferencesKey("dxvk_box64_package")
+    val VULKAN_DRIVER = vulkanDriverPreference
+    val VULKAN_SELECTION_SCHEMA = vulkanSelectionSchemaPreference
+    val VULKAN_MIGRATION_NOTICE = vulkanMigrationNoticePreference
+    val ALLOW_USER_VULKAN_DRIVERS = allowUserVulkanDriversPreference
+    val DXVK_FEX = stringPreferencesKey("dxvk_fex_package")
+    val BOTS = intPreferencesKey("bot_population_target")
+    val BOT_PROFILE_ID = stringPreferencesKey("bot_profile_id")
+    val BOT_SAVED_PRESET = stringPreferencesKey("bot_saved_preset_id")
+    val BOT_PRESETS_IMPORTED = intPreferencesKey("bot_presets_imported")
+    val BOTS_ADVANCED = intPreferencesKey("bot_advanced_enabled")
+    val BOTS_NEARBY = intPreferencesKey("bot_nearby_limit")
+    val BOTS_RADIUS = intPreferencesKey("bot_nearby_radius")
+    val BOTS_LOGIN_BATCH = intPreferencesKey("bot_login_batch")
+    val BOTS_MAINTENANCE_BATCH = intPreferencesKey("bot_maintenance_batch")
+    val BOTS_UPDATE_MS = intPreferencesKey("bot_update_interval_ms")
+    val BOTS_TELEPORT_MIN = intPreferencesKey("bot_teleport_min_minutes")
+    val BOTS_TELEPORT_MAX = intPreferencesKey("bot_teleport_max_minutes")
+    val BOTS_ITERATIONS = intPreferencesKey("bot_iterations_per_tick")
+    val BOTS_P99 = intPreferencesKey("bot_world_p99_ms")
+    val BOTS_SYNC_LEVEL = intPreferencesKey("bot_sync_level")
+    val BOTS_LIMIT_COMBAT = intPreferencesKey("bot_limit_combat")
+    val BOTS_ACTIVE_PERCENT = intPreferencesKey("bot_active_percent")
+    val BOTS_AUTO_QUEST = intPreferencesKey("bot_auto_quest")
+    val BOTS_CHAT = intPreferencesKey("bot_allow_chat")
+    val BOTS_INVITES = intPreferencesKey("bot_allow_invites")
+    val BOTS_GROUP_NEARBY = intPreferencesKey("bot_group_nearby")
+    val BOTS_WANDER = intPreferencesKey("bot_wander")
+    val BOTS_OFF_SPEC = intPreferencesKey("bot_off_spec")
+    val SETUP_DONE = setupCompletePreference
+    val GENERATION = intPreferencesKey("last_active_generation")
+    val INPUT_SAFE_MODE = intPreferencesKey("input_safe_mode")
+    val AUTO_LOGIN_ON_LAUNCH = intPreferencesKey("auto_login_on_launch")
+    val AUTO_LOGIN_ADVANCED = intPreferencesKey("auto_login_advanced")
+    val AL_POLL_INTERVAL = intPreferencesKey("al_poll_interval_ms")
+    val AL_STABLE_POLLS = intPreferencesKey("al_stable_polls")
+    val AL_LOGIN_SETTLE = intPreferencesKey("al_login_ui_settle_ms")
+    val AL_SESSION_TIMEOUT = intPreferencesKey("al_session_timeout_ms")
+    val AL_DRAIN_POLL = intPreferencesKey("al_drain_poll_ms")
+    val AL_INPUT_DRAIN_TIMEOUT = intPreferencesKey("al_input_drain_timeout_ms")
+    val AL_IME_DWELL = intPreferencesKey("al_ime_key_dwell_ms")
+    val AL_IME_GAP = intPreferencesKey("al_ime_key_gap_ms")
+    val AL_FIELD_SETTLE = intPreferencesKey("al_field_settle_ms")
+    val AL_POINTER_DWELL = intPreferencesKey("al_pointer_dwell_ms")
+    val TWEAKS = tweaksPreference
+    val TWEAKS_SCHEMA = tweaksSchemaPreference
+    val GAME_SETTINGS = stringPreferencesKey("game_settings_queue")
+    val GAME_SETTINGS_SCHEMA = intPreferencesKey("game_settings_queue_schema")
+    val GAME_SETTINGS_REVISION = longPreferencesKey("game_settings_revision")
+    val GAME_SETTINGS_DIRECT_EDITS = stringPreferencesKey("game_settings_direct_edit_revisions")
+    val AUDIO_MODE = stringPreferencesKey("audio_mode")
+    val NEARBY_INTERACT_TRIGGER_GUARD_MS =
+        intPreferencesKey("nearby_interact_trigger_guard_ms")
+    val RUNTIME_MODE = stringPreferencesKey("runtime_mode")
+    val ALLOW_LAN_PLAYERS = intPreferencesKey("allow_lan_players")
+    val LLM_ENABLED = intPreferencesKey("llm_enabled")
+    val LLM_COMPUTE_MODE = stringPreferencesKey("llm_compute_mode")
+    val LLM_CORES_MASK = longPreferencesKey("llm_cores_mask")
+    val LLM_THREADS = intPreferencesKey("llm_threads")
+    val LLM_OFFLOAD_LAYERS = intPreferencesKey("llm_offload_layers")
+    val LLM_EXTERNAL_MODE = intPreferencesKey("llm_external_mode")
+    val LLM_EXTERNAL_URL = stringPreferencesKey("llm_external_url")
+    val LLM_EXTERNAL_API_KEY = stringPreferencesKey("llm_external_api_key")
+    val LLM_EXTERNAL_MODEL = stringPreferencesKey("llm_external_model")
+    val LLM_BANTER = intPreferencesKey("llm_banter")
+    val LLM_AMBIENCE = intPreferencesKey("llm_ambience")
+    val LLM_MODEL_ID = stringPreferencesKey("llm_model_id")
+}
+
+/**
+ * The persisted llm* pair shared by [Settings.Snapshot] reads and the
+ * [writeSnapshotWrites] round trip. Kept as one reader so the write encoding
+ * and the restore semantics cannot drift apart (SettingsUpdateWriteSetTest).
+ */
+internal data class LlmSnapshotFields(
+    val enabled: Boolean,
+    val computeMode: ComputeMode,
+    val coresMask: Long,
+    val threads: Int,
+    val offloadLayers: Int,
+    val externalMode: Boolean,
+    val externalUrl: String,
+    val externalApiKey: String,
+    val externalModel: String,
+    val banter: Boolean,
+    val ambience: Boolean,
+    val modelId: String,
+)
+
+internal fun Preferences.readLlmSnapshotFields(): LlmSnapshotFields = LlmSnapshotFields(
+    enabled = (this[Keys.LLM_ENABLED] ?: 0) == 1,
+    computeMode = runCatching { ComputeMode.valueOf(this[Keys.LLM_COMPUTE_MODE] ?: "") }
+        .getOrDefault(LlmRuntimePolicy.DEFAULT_COMPUTE_MODE),
+    coresMask = LlmRuntimePolicy.normalizeCoresMask(
+        this[Keys.LLM_CORES_MASK] ?: LlmRuntimePolicy.DEFAULT_CORES_MASK,
+    ),
+    threads = LlmRuntimePolicy.normalizeThreads(
+        this[Keys.LLM_THREADS] ?: LlmRuntimePolicy.DEFAULT_THREADS,
+    ),
+    offloadLayers = LlmRuntimePolicy.normalizeOffloadLayers(
+        this[Keys.LLM_OFFLOAD_LAYERS] ?: LlmRuntimePolicy.DEFAULT_OFFLOAD_LAYERS,
+    ),
+    externalMode = (this[Keys.LLM_EXTERNAL_MODE] ?: 0) == 1,
+    externalUrl = this[Keys.LLM_EXTERNAL_URL] ?: "",
+    externalApiKey = this[Keys.LLM_EXTERNAL_API_KEY] ?: "",
+    externalModel = this[Keys.LLM_EXTERNAL_MODEL] ?: "",
+    banter = (this[Keys.LLM_BANTER] ?: 1) == 1,
+    ambience = (this[Keys.LLM_AMBIENCE] ?: 0) == 1,
+    modelId = this[Keys.LLM_MODEL_ID] ?: LlmModelRegistry.DEFAULT_MODEL_ID,
+)
+
+/**
+ * The complete `Settings.update()` write-set, extracted so the round trip is
+ * testable without an Android context (Settings is otherwise the only
+ * context-free moment `update()` has: read snapshot, transform, write every
+ * key). Every persisted key is rewritten from the transformed snapshot on
+ * every update, so a snapshot field that falls out of this set — or a written
+ * encoding the reader cannot restore — silently loses user data on the next
+ * unrelated settings write. The queue journal keys (`game_settings_revision`,
+ * `game_settings_direct_edit_revisions`) are deliberately absent: only
+ * [Settings.mutateGameSettings] and [Settings.journalGameSettingsDirectEdit]
+ * may touch them, so no settings rewrite can regress the counter.
+ */
+internal fun MutablePreferences.writeSnapshotWrites(
+    next: Settings.Snapshot,
+    display: ClientDisplaySelection,
+) {
+    this[Keys.DISPLAY_PROFILE] = display.profile.id
+    this[Keys.FRAME_CAP] = display.frameCap.fps
+    if (next.clientUiScale == null) {
+        this.remove(Keys.UI_SCALE)
+    } else {
+        this[Keys.UI_SCALE] = next.clientUiScale
+    }
+    this[Keys.DISPLAY_SCHEMA] = 1
+    // fps_profile was present before display selection was connected
+    // to Wine. Do not reinterpret its FPS_40 default as user intent.
+    this.remove(Keys.FPS)
+    this[Keys.DXVK_BOX64] = next.box64DxvkPackageId
+    // Turning the lane off visibly resets a user-driver selection to
+    // Auto (I1: never a launch-time silent swap); toSnapshot keeps
+    // enforcing the rule for stale persisted values regardless.
+    this[Keys.VULKAN_DRIVER] = if (
+        !next.allowUserVulkanDrivers &&
+        UserVulkanDriver.isUserId(next.armVulkanDriverId)
+    ) VulkanDriverCatalog.AUTO_ID else next.armVulkanDriverId
+    this[Keys.ALLOW_USER_VULKAN_DRIVERS] =
+        if (next.allowUserVulkanDrivers) 1 else 0
+    this[Keys.VULKAN_SELECTION_SCHEMA] = VulkanDriverCatalog.SELECTION_SCHEMA
+    this.remove(Keys.VULKAN_MIGRATION_NOTICE)
+    this[Keys.RENDERER] = next.armRendererId
+    this[Keys.RENDERER_SCHEMA] = ArmClientRendererCatalog.SELECTION_SCHEMA
+    // Removed provider choices are not written back. Any settings write
+    // completes their migration after reads have resolved Box64.
+    this.remove(Keys.PROVIDER)
+    this.remove(Keys.DXVK_FEX)
+    this[Keys.BOTS] = next.botPopulationTarget
+    this[Keys.BOT_PROFILE_ID] = next.botProfileId
+    if (next.botSavedPresetId == null) {
+        this.remove(Keys.BOT_SAVED_PRESET)
+    } else {
+        this[Keys.BOT_SAVED_PRESET] = next.botSavedPresetId
+    }
+    this[Keys.BOT_PRESETS_IMPORTED] = if (next.botPresetsImported) 1 else 0
+    this[Keys.BOTS_ADVANCED] = if (next.botAdvancedEnabled) 1 else 0
+    this[Keys.BOTS_NEARBY] = next.botAdvanced.nearbyBotLimit
+    this[Keys.BOTS_RADIUS] = next.botAdvanced.nearbyRadius
+    this[Keys.BOTS_LOGIN_BATCH] = next.botAdvanced.loginBatchSize
+    this[Keys.BOTS_MAINTENANCE_BATCH] = next.botAdvanced.maintenanceBatchSize
+    this[Keys.BOTS_UPDATE_MS] = next.botAdvanced.updateIntervalMs
+    this[Keys.BOTS_TELEPORT_MIN] = next.botAdvanced.teleportMinMinutes
+    this[Keys.BOTS_TELEPORT_MAX] = next.botAdvanced.teleportMaxMinutes
+    this[Keys.BOTS_ITERATIONS] = next.botAdvanced.iterationsPerTick
+    this[Keys.BOTS_P99] = next.botAdvanced.admissionWorldP99Ms
+    this[Keys.BOTS_SYNC_LEVEL] = if (next.botAdvanced.syncLevelWithPlayers) 1 else 0
+    this[Keys.BOTS_LIMIT_COMBAT] = if (next.botAdvanced.limitCombatActivity) 1 else 0
+    this[Keys.BOTS_ACTIVE_PERCENT] = next.botAdvanced.activeBotPercent
+    this[Keys.BOTS_AUTO_QUEST] = if (next.botAdvanced.autoDoQuests) 1 else 0
+    this[Keys.BOTS_CHAT] = if (next.botAdvanced.allowBotChat) 1 else 0
+    this[Keys.BOTS_INVITES] = if (next.botAdvanced.allowPlayerInvites) 1 else 0
+    this[Keys.BOTS_GROUP_NEARBY] = if (next.botAdvanced.groupNearby) 1 else 0
+    this[Keys.BOTS_WANDER] = if (next.botAdvanced.wanderWhenIdle) 1 else 0
+    this[Keys.BOTS_OFF_SPEC] = if (next.botAdvanced.enableOffSpecStrategies) 1 else 0
+    this[Keys.SETUP_DONE] = if (next.setupComplete) 1 else 0
+    this[Keys.GENERATION] = next.lastActiveGeneration
+    this[Keys.INPUT_SAFE_MODE] = if (next.inputSafeMode) 1 else 0
+    this[Keys.AUTO_LOGIN_ON_LAUNCH] = if (next.autoLoginOnLaunch) 1 else 0
+    this[Keys.AUTO_LOGIN_ADVANCED] = if (next.autoLoginAdvanced) 1 else 0
+    val timings = next.autoLoginTimings.normalized()
+    this[Keys.AL_POLL_INTERVAL] = timings.pollIntervalMs.toInt()
+    this[Keys.AL_STABLE_POLLS] = timings.requiredStablePolls
+    this[Keys.AL_LOGIN_SETTLE] = timings.loginUiSettleMs.toInt()
+    this[Keys.AL_SESSION_TIMEOUT] = timings.sessionTimeoutMs.toInt()
+    this[Keys.AL_DRAIN_POLL] = timings.drainPollMs.toInt()
+    this[Keys.AL_INPUT_DRAIN_TIMEOUT] = timings.inputDrainTimeoutMs.toInt()
+    this[Keys.AL_IME_DWELL] = timings.imeKeyDwellMs.toInt()
+    this[Keys.AL_IME_GAP] = timings.imeKeyGapMs.toInt()
+    this[Keys.AL_FIELD_SETTLE] = timings.fieldSettleMs.toInt()
+    this[Keys.AL_POINTER_DWELL] = timings.pointerDwellMs.toInt()
+    this[Keys.TWEAKS] = next.tweaks.toJson()
+    this[Keys.TWEAKS_SCHEMA] = TWEAKS_SCHEMA_VERSION
+    this[Keys.GAME_SETTINGS] = next.gameSettings.toJson()
+    this[Keys.GAME_SETTINGS_SCHEMA] = 1
+    this[Keys.AUDIO_MODE] = next.audioMode.name
+    this[Keys.NEARBY_INTERACT_TRIGGER_GUARD_MS] =
+        NearbyInteractPolicy.normalizeTriggerGuardMs(next.nearbyInteractTriggerGuardMs)
+    this[Keys.RUNTIME_MODE] = next.runtimeMode.name
+    this[Keys.ALLOW_LAN_PLAYERS] = if (next.allowLanPlayers) 1 else 0
+    this[Keys.LLM_ENABLED] = if (next.llmEnabled) 1 else 0
+    this[Keys.LLM_COMPUTE_MODE] = next.llmComputeMode.name
+    this[Keys.LLM_CORES_MASK] = LlmRuntimePolicy.normalizeCoresMask(next.llmCoresMask)
+    this[Keys.LLM_THREADS] = LlmRuntimePolicy.normalizeThreads(next.llmThreads)
+    this[Keys.LLM_OFFLOAD_LAYERS] =
+        LlmRuntimePolicy.normalizeOffloadLayers(next.llmOffloadLayers)
+    this[Keys.LLM_EXTERNAL_MODE] = if (next.llmExternalMode) 1 else 0
+    // verbatim, NOT trimmed: a trim here round-trips through the flow and
+    // deletes a trailing space under the user's cursor mid-typing; the conf
+    // emission path normalizes (trims + validates) at read time instead
+    this[Keys.LLM_EXTERNAL_URL] = next.llmExternalUrl
+    this[Keys.LLM_EXTERNAL_API_KEY] = next.llmExternalApiKey
+    this[Keys.LLM_EXTERNAL_MODEL] = next.llmExternalModel
+    this[Keys.LLM_BANTER] = if (next.llmBanter) 1 else 0
+    this[Keys.LLM_AMBIENCE] = if (next.llmAmbience) 1 else 0
+    this[Keys.LLM_MODEL_ID] = next.llmModelId
 }

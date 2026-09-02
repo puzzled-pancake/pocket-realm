@@ -41,13 +41,14 @@ import sys
 import time
 import urllib.request
 
-sys.path.insert(0, r"C:\pocket_realm_complete\tools\llm_lab")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sanity_battery import (B, CARD, PLAYER, MODELS, RESULTS_DIR,
                             HEDGE_SIGNS, contains_any, chat, start_server,
                             stop_server, parse_tools, strip_tools,
                             CORRECTED_ERA_TRAPS)
 
-REPO = r"C:\pocket_realm_complete"
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))))
 ASSET = os.path.join(REPO, "android", "app", "src", "main", "assets",
                      "lore", "lore_cards_v112.jsonl")
 
@@ -255,7 +256,6 @@ def resolve_logit_bias(base, cfg):
 
 def bias_chat(base, cfg, messages, sampling, qwen, bias):
     """chat() + the era logit_bias the native path splices into the body."""
-    import sanity_battery
     body = {
         "model": "local", "messages": messages, "max_tokens": 200,
         "cache_prompt": True, "stream": False,
@@ -514,7 +514,7 @@ def main():
                 r = chat([{"role": "system", "content": sysm},
                           {"role": "user", "content": user}],
                          cfg["sampling"], cfg["qwen"])
-                flagged = fivegram_overlap(r["content"], furniture) or                     any(m in r["content"] for m in MARKERS)
+                flagged = fivegram_overlap(r["content"], furniture) or any(m in r["content"] for m in MARKERS)
                 draws.append(dict(flagged=flagged, reply=r["content"]))
             leak_rows.append(dict(probe=probe, draws=draws,
                                   majority_flagged=majority([d["flagged"] for d in draws])))

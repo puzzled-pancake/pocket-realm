@@ -34,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -69,6 +70,7 @@ import com.pocketrealm.client.VulkanDriverCatalog
 import com.pocketrealm.client.UserVulkanDriver
 import com.pocketrealm.client.UserVulkanDriverImport
 import com.pocketrealm.client.UserVulkanDriverRegistry
+import com.pocketrealm.client.UserVulkanDriverResolution
 import com.pocketrealm.client.UserVulkanDriverValidator
 import com.pocketrealm.server.NearbyInteractPolicy
 import com.pocketrealm.storage.Settings
@@ -93,6 +95,9 @@ private const val BACKUP_AWAIT_TIMEOUT_MS = BACKUP_AWAIT_TIMEOUT_MINUTES * 60_00
 private const val MIB = 1024L * 1024
 
 @Composable
+// onLlm joins the reviewed sibling navigation params; the list is one
+// longer than the default cap by design.
+@Suppress("LongParameterList")
 fun SettingsScreen(
     contentPadding: PaddingValues = PaddingValues(),
     onBots: (() -> Unit)? = null,
@@ -100,6 +105,7 @@ fun SettingsScreen(
     onCapability: (() -> Unit)? = null,
     onDiagnostics: (() -> Unit)? = null,
     onInGameSettings: (() -> Unit)? = null,
+    onLlm: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val settings = remember(context) { Settings(context) }
@@ -364,6 +370,30 @@ fun SettingsScreen(
                     )
                 }
             }
+            // The section's whole operation state lives OUTSIDE both the
+            // renderer conditional and the lane-toggle conditional:
+            // import/download coroutines run on the screen scope and keep
+            // writing their results while the renderer or lane is switched
+            // and switched back, so the state they captured must survive
+            // those disposals instead of resetting and silently dropping
+            // final notices and list refreshes.
+            var communityDownloadId by remember { mutableStateOf<String?>(null) }
+            var communityProgress by remember { mutableStateOf(0f) }
+            var userDriverRefresh by remember { mutableStateOf(0) }
+            var userVulkanStatus by rememberSaveable { mutableStateOf<String?>(null) }
+            var pendingDriverDelete by remember { mutableStateOf<String?>(null) }
+            var userImportInProgress by remember { mutableStateOf(false) }
+            var userDriversUnreadable by remember { mutableStateOf(false) }
+            // The in-progress lines (import copy, community download) must
+            // not survive process death: nothing is running after restore,
+            // so the stale notice is dropped on first composition.
+            LaunchedEffect(Unit) {
+                if (!userImportInProgress &&
+                    UserVulkanDriverPresentation.isTransientInProgressNotice(userVulkanStatus)
+                ) {
+                    userVulkanStatus = null
+                }
+            }
             if (snap.selectedArmRendererId() == "dxvk" ||
                 snap.selectedArmRendererId() == ArmClientRendererCatalog.AUTO_ID) {
             HorizontalDivider()
@@ -439,19 +469,19 @@ fun SettingsScreen(
                         UserVulkanDriverRegistry.registryRoot(context.filesDir),
                     )
                 }
-                var userDriverRefresh by remember { mutableStateOf(0) }
-                var userVulkanStatus by rememberSaveable { mutableStateOf<String?>(null) }
-                var pendingDriverDelete by remember { mutableStateOf<String?>(null) }
                 val userDrivers by produceState<List<UserVulkanDriver>>(
                     emptyList(), userDriverRefresh,
                 ) {
                     value = withContext(Dispatchers.IO) {
-                        runCatching { userVulkanRegistry.list() }.getOrElse { failure ->
-                            userVulkanStatus =
-                                "Imported drivers could not be read: " +
-                                    "${failure.message ?: failure.javaClass.simpleName}"
-                            emptyList()
-                        }
+                        runCatching { userVulkanRegistry.list() }
+                            .onSuccess { userDriversUnreadable = false }
+                            .getOrElse { failure ->
+                                userDriversUnreadable = true
+                                userVulkanStatus =
+                                    "Imported drivers could not be read: " +
+                                        "${failure.message ?: failure.javaClass.simpleName}"
+                                emptyList()
+                            }
                     }
                 }
                 val adrenoGpu = remember { ArmRendererAuto.isAdrenoGpu() }
@@ -459,19 +489,29 @@ fun SettingsScreen(
                     ActivityResultContracts.OpenDocument(),
                 ) { uri ->
                     if (uri != null) {
+                        // enabled only takes effect after recomposition; guard
+                        // the frame gap synchronously (community-download
+                        // pattern) so a double tap cannot stage two imports.
+                        userImportInProgress = true
+                        userVulkanStatus =
+                            UserVulkanDriverPresentation.IMPORT_IN_PROGRESS_NOTICE
                         scope.launch(Dispatchers.IO) {
-                            // A failed import is a status line, never a crash (I2).
-                            val outcome = runCatching {
-                                importUserVulkanDriverFromUri(context, uri)
-                            }.getOrElse { failure ->
-                                UserVulkanDriverImport.Rejected(
-                                    "Import failed: " +
-                                        "${failure.message ?: failure.javaClass.simpleName}",
-                                )
+                            try {
+                                // A failed import is a status line, never a crash (I2).
+                                val outcome = runCatching {
+                                    importUserVulkanDriverFromUri(context, uri)
+                                }.getOrElse { failure ->
+                                    UserVulkanDriverImport.Rejected(
+                                        "Import failed: " +
+                                            "${failure.message ?: failure.javaClass.simpleName}",
+                                    )
+                                }
+                                userVulkanStatus =
+                                    UserVulkanDriverPresentation.importResultNotice(outcome)
+                                userDriverRefresh++
+                            } finally {
+                                userImportInProgress = false
                             }
-                            userVulkanStatus =
-                                UserVulkanDriverPresentation.importResultNotice(outcome)
-                            userDriverRefresh++
                         }
                     }
                 }
@@ -492,14 +532,13 @@ fun SettingsScreen(
                             ),
                         )
                     },
+                    enabled = !userImportInProgress && communityDownloadId == null,
                     modifier = Modifier.testTag("import-user-vulkan-driver"),
                 ) { Text("Import driver (.so / .zip)") }
                 var showCommunityDrivers by remember { mutableStateOf(false) }
-                var communityDownloadId by remember { mutableStateOf<String?>(null) }
-                var communityProgress by remember { mutableStateOf(0f) }
                 OutlinedButton(
                     onClick = { showCommunityDrivers = true },
-                    enabled = communityDownloadId == null,
+                    enabled = communityDownloadId == null && !userImportInProgress,
                     modifier = Modifier.testTag("community-vulkan-drivers"),
                 ) { Text(UserVulkanDriverPresentation.COMMUNITY_BUTTON_LABEL) }
                 if (communityDownloadId != null) {
@@ -533,8 +572,11 @@ fun SettingsScreen(
                                         onClick = {
                                             // enabled only takes effect after
                                             // recomposition; guard the frame gap
-                                            // synchronously (updates-card pattern).
-                                            if (communityDownloadId != null) {
+                                            // synchronously (updates-card pattern)
+                                            // — including a running SAF import,
+                                            // so the two lanes can never overwrite
+                                            // each other's final notice.
+                                            if (communityDownloadId != null || userImportInProgress) {
                                                 return@TextButton
                                             }
                                             showCommunityDrivers = false
@@ -666,6 +708,57 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
+                if (userDriversUnreadable) {
+                    // The repair path for a corrupt registry: the list has no
+                    // rows to delete and an import would fail the same way,
+                    // so the reset is the only working action.
+                    Text(
+                        "Imported-driver storage is unreadable. Resetting removes " +
+                            "every imported driver; the packaged drivers are unaffected.",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    TextButton(
+                        onClick = {
+                            val wasUserSelection = UserVulkanDriver.isUserId(
+                                snap.selectedVulkanDriverId(),
+                            )
+                            scope.launch(Dispatchers.IO) {
+                                runCatching { userVulkanRegistry.reset() }
+                                    .onSuccess {
+                                        // Live-snapshot guard (crash-guard revert
+                                        // pattern): only fall back to Auto when the
+                                        // selection is still a user id by the time
+                                        // the reset finished.
+                                        settings.update { current ->
+                                            if (UserVulkanDriver.isUserId(
+                                                    current.armVulkanDriverId,
+                                                )
+                                            ) {
+                                                current.copy(
+                                                    armVulkanDriverId =
+                                                        VulkanDriverCatalog.AUTO_ID,
+                                                )
+                                            } else {
+                                                current
+                                            }
+                                        }
+                                        userDriversUnreadable = false
+                                        userVulkanStatus =
+                                            UserVulkanDriverPresentation
+                                                .resetNotice(wasUserSelection)
+                                    }
+                                    .onFailure {
+                                        userVulkanStatus =
+                                            "Reset failed: " +
+                                                "${it.message ?: it.javaClass.simpleName}"
+                                    }
+                                userDriverRefresh++
+                            }
+                        },
+                        modifier = Modifier.testTag("reset-user-vulkan-drivers"),
+                    ) { Text("Reset imported drivers") }
+                }
                 userVulkanStatus?.let {
                     Text(
                         it,
@@ -698,12 +791,19 @@ fun SettingsScreen(
                                                 snap.selectedVulkanDriverId() == driver.id
                                             runCatching { userVulkanRegistry.remove(driver.id) }
                                                 .onSuccess {
-                                                    if (wasSelected) {
-                                                        settings.update { current ->
+                                                    // The guard is re-evaluated on the live
+                                                    // snapshot inside the transform: a selection
+                                                    // made while the payload deletion was still
+                                                    // running must not be clobbered to Auto
+                                                    // (crash-guard revert pattern).
+                                                    settings.update { current ->
+                                                        if (current.armVulkanDriverId == driver.id) {
                                                             current.copy(
                                                                 armVulkanDriverId =
                                                                     VulkanDriverCatalog.AUTO_ID,
                                                             )
+                                                        } else {
+                                                            current
                                                         }
                                                     }
                                                     userVulkanStatus =
@@ -712,7 +812,8 @@ fun SettingsScreen(
                                                 }
                                                 .onFailure {
                                                     userVulkanStatus =
-                                                        "Delete failed: ${it.message}"
+                                                        "Delete failed: " +
+                                                            "${it.message ?: it.javaClass.simpleName}"
                                                 }
                                             userDriverRefresh++
                                         }
@@ -735,7 +836,7 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
             )
             RendererPackageCatalog.compatible(ArmTranslationBackend.BOX64).forEach { pkg ->
-                val availability = VulkanDriverCatalog.availabilityForPair(
+                val availability = UserVulkanDriverResolution.availabilityForPairPreflight(
                     snap.effectiveVulkanDriverId(),
                     pkg.id,
                     ArmRendererAuto.isAdrenoGpu(),
@@ -877,6 +978,14 @@ fun SettingsScreen(
                     )
                 }
             }
+            InterfaceScaleControls(
+                snap = snap,
+                onCommit = { scale ->
+                    scope.launch {
+                        settings.update { it.copy(clientUiScale = scale) }
+                    }
+                },
+            )
             Text("Applies on the next game launch.", style = MaterialTheme.typography.labelMedium)
         }
 
@@ -890,6 +999,20 @@ fun SettingsScreen(
                     onClick = action,
                     modifier = Modifier.fillMaxWidth().testTag("settings-open-bots"),
                 ) { Text("Configure in Bots →") }
+            }
+        }
+
+        SettingCard("AI bot LLM") {
+            Text(
+                "Embedded LLM runtime for playerbot speech: Hexagon NPU hybrid or CPU " +
+                    "decode-core selection. Off by default.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            onLlm?.let { action ->
+                OutlinedButton(
+                    onClick = action,
+                    modifier = Modifier.fillMaxWidth().testTag("settings-open-llm"),
+                ) { Text("Configure AI bot LLM →") }
             }
         }
 
@@ -1439,6 +1562,52 @@ private fun TweakSwitch(label: String, checked: Boolean, tag: String, onChange: 
 }
 
 /**
+ * The app-managed WoW interface-scale control. Both the shown value and the
+ * slider range derive from the same per-profile clamp the launch path
+ * enforces, so a persisted value that exceeds the current profile's cap
+ * (profile switch, restore downgraded to a smaller panel) renders clamped
+ * rather than out-of-range; the raw value survives and re-applies on a
+ * bigger profile.
+ */
+@Composable
+private fun InterfaceScaleControls(
+    snap: Settings.Snapshot,
+    onCommit: (Float?) -> Unit,
+) {
+    val virtualHeight = snap.displaySelection().virtualHeight
+    val cap = minOf(2f, virtualHeight / 512f)
+    val effective = snap.effectiveClientUiScale(virtualHeight)
+    Text("Interface scale", style = MaterialTheme.typography.titleSmall)
+    Text(
+        "Grows or shrinks the whole game UI beyond the stock slider's 1.0 cap — useful on small " +
+            "screens. It overrides the in-game Advanced Options slider. Values above 1.0 can push " +
+            "stock frames off-screen, and a raised scale can leave custom Move-UI layouts off-screen " +
+            "(recover with /ap resetui).",
+        style = MaterialTheme.typography.bodySmall,
+    )
+    FloatSteppedSlider(
+        label = "Scale",
+        value = effective,
+        valueText = effective?.let { "%.2f".format(java.util.Locale.US, it) } ?: "Default",
+        range = 0.5f..cap,
+        step = 0.05f,
+        tag = "ui-scale-slider",
+        onCommit = { onCommit(it) },
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        FilterChip(
+            selected = snap.clientUiScale == null,
+            onClick = { onCommit(null) },
+            label = { Text("Default (1.0)") },
+            modifier = Modifier.testTag("ui-scale-default"),
+        )
+    }
+}
+
+/**
  * Slider that persists only when the drag finishes; every onValueChange
  * frame stays local so a drag does not open one DataStore transaction per
  * frame (the multi-process preferences file is contended with :supervisor).
@@ -1524,22 +1693,54 @@ private suspend fun importUserVulkanDriverFromUri(
         // Bounded staging: the size cap applies while copying, not after the
         // whole document has hit internal storage.
         val cap = UserVulkanDriverValidator.DEFAULT_MAX_IMPORT_BYTES
-        opened.use { input ->
-            staged.outputStream().use { output ->
-                var copied = 0L
-                val buffer = ByteArray(64 * 1024)
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    copied += read
-                    if (copied > cap) {
-                        return@withContext UserVulkanDriverImport.Rejected(
-                            UserVulkanDriverValidator.sizeRejection(copied, cap),
-                        )
-                    }
-                    output.write(buffer, 0, read)
+        // Cloud documents can stall mid-stream with no read timeout; a
+        // watchdog closes the input after a progress-free minute so the
+        // player gets an exact reason instead of a permanently disabled
+        // import button.
+        var lastProgressNanos = System.nanoTime()
+        val copyFinished = java.util.concurrent.atomic.AtomicBoolean(false)
+        val stalled = java.util.concurrent.atomic.AtomicBoolean(false)
+        val watchdog = Thread {
+            while (!copyFinished.get()) {
+                Thread.sleep(1_000)
+                if (!copyFinished.get() &&
+                    System.nanoTime() - lastProgressNanos > USER_IMPORT_STALL_NANOS
+                ) {
+                    stalled.set(true)
+                    runCatching { opened.close() }
+                    return@Thread
                 }
             }
+        }.apply { isDaemon = true; start() }
+        try {
+            opened.use { input ->
+                staged.outputStream().use { output ->
+                    var copied = 0L
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        lastProgressNanos = System.nanoTime()
+                        copied += read
+                        if (copied > cap) {
+                            return@withContext UserVulkanDriverImport.Rejected(
+                                UserVulkanDriverValidator.sizeRejection(copied, cap),
+                            )
+                        }
+                        output.write(buffer, 0, read)
+                    }
+                }
+            }
+        } catch (error: java.io.IOException) {
+            if (stalled.get()) {
+                return@withContext UserVulkanDriverImport.Rejected(
+                    "The import stalled while reading the selected document; " +
+                        "pick the file again.",
+                )
+            }
+            throw error
+        } finally {
+            copyFinished.set(true)
         }
         val displayName = runCatching {
             context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
@@ -1555,3 +1756,6 @@ private suspend fun importUserVulkanDriverFromUri(
         staged.delete()
     }
 }
+
+/** One minute without a single byte of progress marks a stalled import stream. */
+private val USER_IMPORT_STALL_NANOS = 60_000_000_000L

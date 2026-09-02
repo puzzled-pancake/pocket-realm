@@ -10,6 +10,8 @@ enum class RuntimePhase {
     WORLD_READY,
     CLIENT_STARTING,
     RUNNING,
+    /** Companion mode: world ticking deliberately paused for a sit-and-talk session. */
+    PAUSED,
     CLIENT_FAILED,
     STOPPING,
     RECOVERING,

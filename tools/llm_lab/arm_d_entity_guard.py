@@ -10,9 +10,10 @@ Also re-runs e2b-base with its MAKER sampling (t1.0/p0.95/k64) because the
 main battery tested it at the tuned profile only.
 """
 import json
+import os
 import sys
 
-sys.path.insert(0, r"C:\pocket_realm_complete\tools\llm_lab")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sanity_battery import (B, CARD, PLAYER, MODELS, RESULTS_DIR,
                              HEDGE_SIGNS, contains_any, chat, start_server,
                              stop_server, parse_tools)
@@ -73,7 +74,6 @@ def run(name, sampling_override=None, arms=("guard",)):
 
 
 def main():
-    import os
     targets = []
     # tuned models at their profiles; e2b-base also re-run at maker sampling
     targets.append(("e2b-tuned", None))

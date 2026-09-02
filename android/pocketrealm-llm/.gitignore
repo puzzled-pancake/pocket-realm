@@ -1,0 +1,10 @@
+# The vendored prebuilt native runtime IS tracked: tools/check_repo.py
+# allowlists exactly this prefix as an oversized-blob exception, the staging
+# tasks in build.gradle.kts copy from here ("in-repo prebuilts"), and
+# prebuilt/README.md documents its provenance. The repo-wide `*.so` ignore
+# in the root .gitignore would otherwise silently drop every binary below on
+# `git add`, so a fresh checkout gets a module whose server implementation,
+# multimodal lib, Hexagon NPU backend, and DSP skels are missing at build
+# time. Deeper .gitignore files override the root rule; this re-include is
+# scoped to prebuilt/ only, so build outputs (build/, .cxx/) stay ignored.
+!prebuilt/**/*.so

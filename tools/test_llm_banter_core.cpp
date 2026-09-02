@@ -180,7 +180,6 @@ struct StreamStats
     uint16_t lastIdx = 0xFFFF; bool haveLast = false;
     uint32_t minRepeatGap = 0xFFFFFFFFu; // same pool index twice in a row-sequence
     uint32_t window[32]; uint32_t windowFill = 0; uint32_t windowDistinctMin = 99;
-    uint32_t usedIdx[64] = {0}; // poolSize <= 18; wildcard tracked separately
 };
 
 static uint32_t Xorshift(uint32_t& x)
@@ -341,9 +340,10 @@ static int RunFuzz(long iters)
             ++neuterLeaks;
             if (neuterLeaks <= 5)
             {
-                std::fprintf(stderr, "LEAK[%ld] post=[%s]", (long)i, buf);
-                // replay the same corpus entry + fresh mutations to see the
-                // pre-neuter bytes that produced this
+                // the pre-neuter bytes are unreproducible (the rng has moved
+                // on), so print them alongside the survivors
+                std::fprintf(stderr, "LEAK[%ld] pre=[%s] post=[%s]",
+                             (long)i, preNeuter, buf);
                 std::fprintf(stderr, " (src=%d muts=%d)\n", (int)src, muts);
             }
         }

@@ -5,7 +5,13 @@ import android.system.Os
 import android.system.OsConstants
 import com.pocketrealm.BuildConfig
 import com.pocketrealm.bots.BotProfile
+import com.pocketrealm.database.DatabaseDurableState
+import com.pocketrealm.database.DatabaseSqliteControlPlane
 import com.pocketrealm.llm.LlmModelCoordinator
+import com.pocketrealm.llm.LlmModelRegistry
+import com.pocketrealm.llm.LlmTierProfile
+import com.pocketrealm.llm.LlmSamplingProfile
+import com.pocketrealm.storage.Settings
 import com.pocketrealm.storage.StorageRoots
 import com.pocketrealm.supervisor.RealmEndpoint
 import org.json.JSONObject
@@ -41,9 +47,8 @@ internal class ServerRuntimeFiles(context: Context) {
 
     fun realmdConfig(bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS): File {
         val endpoint = RealmEndpoint.parseStored(bindAddress)
-        val secret = coreSecret()
         return secureWrite(File(run, "realmd.conf"), """
-            LoginDatabaseInfo = ".;${roots.databaseRun.resolve("mariadb.sock").absolutePath};pocket_core;$secret;classicrealmd"
+            LoginDatabaseInfo = "${databaseInfo("classicrealmd")}"
             RealmServerPort = ${ServerRuntimeContract.REALM_PORT}
             BindIP = "${endpoint.address}"
             RealmsStateUpdateDelay = 20
@@ -104,12 +109,9 @@ internal class ServerRuntimeFiles(context: Context) {
         nearbyInteractTriggerGuardMs: Int,
     ): File {
         val endpoint = RealmEndpoint.parseStored(bindAddress)
-        val secret = coreSecret()
-        val socket = roots.databaseRun.resolve("mariadb.sock").absolutePath
-        fun db(name: String) = ".;$socket;pocket_core;$secret;$name"
         val botConfig = botProfile?.let {
             secureWrite(File(run, "aiplayerbot-${it.id}.conf"),
-                it.playerbotConfig() + (debugLlmConfigOverrides() ?: ""))
+                it.playerbotConfig() + (llmConfigOverrides() ?: ""))
         } ?: secureWrite(File(run, "aiplayerbot-disabled.conf"), """
             AiPlayerbot.Enabled = 0
             AiPlayerbot.RandomBotAutologin = 0
@@ -121,10 +123,10 @@ internal class ServerRuntimeFiles(context: Context) {
         """.trimIndent() + "\n")
         return secureWrite(File(run, "mangosd.conf"), """
             DataDir = "${data.absolutePath}"
-            LoginDatabaseInfo = "${db("classicrealmd")}"
-            WorldDatabaseInfo = "${db("classicmangos")}"
-            CharacterDatabaseInfo = "${db("classiccharacters")}"
-            LogsDatabaseInfo = "${db("classiclogs")}"
+            LoginDatabaseInfo = "${databaseInfo("classicrealmd")}"
+            WorldDatabaseInfo = "${databaseInfo("classicmangos")}"
+            CharacterDatabaseInfo = "${databaseInfo("classiccharacters")}"
+            LogsDatabaseInfo = "${databaseInfo("classiclogs")}"
             RealmID = 1
             WorldServerPort = ${ServerRuntimeContract.WORLD_PORT}
             BindIP = "${endpoint.address}"
@@ -167,26 +169,87 @@ internal class ServerRuntimeFiles(context: Context) {
     }
 
     /**
-     * Debug-build-only playerbot LLM overrides. The in-process llama backend
-     * is opt-in for testing: it turns itself on exactly when the model GGUF
-     * has been pushed to filesDir/models (adb push + run-as on a debuggable
-     * build), so an ADB session can drive the whole feature without touching
-     * the UI. Release builds never emit these keys and the profile conf keeps
-     * its reviewed LLMEnabled = 0.
+     * Playerbot LLM overrides, resolved at world start (one blocking
+     * settings read inside the transition gate; toggles therefore apply on
+     * the next realm start). All decisions live in the pure
+     * [llmOverrides] companion function (see its contract there).
      */
-    private fun debugLlmConfigOverrides(): String? {
-        if (!BuildConfig.DEBUG) return null
-        val model = LlmModelCoordinator.modelPath(appContext)
-        if (!model.isFile) return null
-        return """
-            AiPlayerbot.LLMEnabled = 2
-            AiPlayerbot.LLMBackend = 1
-            AiPlayerbot.LLMModelPath = "${model.absolutePath}"
-            AiPlayerbot.LLMThreads = 3
-            AiPlayerbot.LLMCpuFirstCore = 3
-            AiPlayerbot.LLMCtxSize = 4096
-            AiPlayerbot.LLMSlots = 4
-        """.trimIndent() + "\n"
+    private fun llmConfigOverrides(): String? {
+        val snapshot = Settings(appContext).blockingSnapshot()
+        val selected = LlmModelRegistry.byId(snapshot.llmModelId)
+        val model = LlmModelCoordinator.modelPathFor(appContext, snapshot.llmModelId)
+        // S7/A11: stage the lore card index only when an LLM block can be
+        // emitted, and degrade to no-cards on any staging failure - a
+        // lore asset problem must never fail a world start for a feature
+        // the user never enabled (round-1 R2)
+        val lore = if (snapshot.llmEnabled || (BuildConfig.DEBUG && model.isFile))
+            runCatching { stageLoreCards().absolutePath }.getOrNull()
+        else
+            null
+        // S10/E6: the power file is staged whenever the LLM subsystem can
+        // run, carrying the CURRENT ambience toggle in its enabled flag -
+        // the native scheduler re-reads it every tick, so the master
+        // switch works mid-session in both directions (the conf keys
+        // alone apply only at world start). A staging failure fails
+        // CLOSED: no power file path in the conf means chatter stays off
+        // (the silence doctrine).
+        val chatterPower = if (snapshot.llmEnabled)
+            runCatching {
+                ChatterPowerMonitor.refreshOnce(appContext, enabled = snapshot.llmAmbience).absolutePath
+            }.getOrNull()
+        else
+            null
+        // the composer rides the external endpoint fields the user filled
+        // in (validated by the same normalizers; null on any invalid value)
+        val composerEndpoint =
+            if (snapshot.llmEnabled)
+                LlmRuntimePolicy.normalizeExternalEndpoint(snapshot.llmExternalUrl)
+            else
+                null
+        return llmOverrides(
+            uiEnabled = snapshot.llmEnabled,
+            modelPresent = model.isFile,
+            modelAbsolutePath = model.absolutePath,
+            profile = selected.profile,
+            tier = selected.tierProfile,
+            debugBuild = BuildConfig.DEBUG,
+            externalMode = snapshot.llmExternalMode,
+            externalEndpoint = LlmRuntimePolicy.normalizeExternalEndpoint(snapshot.llmExternalUrl),
+            externalModel = LlmRuntimePolicy.normalizeExternalModel(snapshot.llmExternalModel),
+            externalApiKey = LlmRuntimePolicy.normalizeExternalApiKey(snapshot.llmExternalApiKey),
+            banterEnabled = snapshot.llmBanter,
+            loreFile = lore,
+            chatterPowerFile = chatterPower,
+            composerEndpoint = composerEndpoint,
+            composerModel = LlmRuntimePolicy.normalizeExternalModel(snapshot.llmExternalModel),
+            composerApiKey = LlmRuntimePolicy.normalizeExternalApiKey(snapshot.llmExternalApiKey),
+        )
+    }
+
+    /**
+     * S7/A11: the lore card index ships as an app asset and is staged
+     * next to the conf atomically (pid-temp + rename, the class's write
+     * discipline). A staged copy whose size no longer matches the asset
+     * (an app update shipping revised cards, or a partial write from an
+     * older non-atomic path) is re-staged. Callers treat any failure as
+     * "no cards" - the native retrieval loop fails closed to quiet and
+     * the entity guard still works.
+     */
+    private fun stageLoreCards(): File {
+        val target = File(run, LORE_CARDS_FILE_NAME)
+        val assetPath = "lore/$LORE_CARDS_FILE_NAME"
+        val expected = appContext.assets.open(assetPath).use { it.available() }.toLong()
+        if (target.isFile && target.length() == expected)
+            return target
+        val temp = File(run, ".$LORE_CARDS_FILE_NAME.${android.os.Process.myPid()}.tmp")
+        appContext.assets.open(assetPath).use { input ->
+            FileOutputStream(temp).use { output -> input.copyTo(output) }
+        }
+        if (!temp.renameTo(target)) {
+            temp.copyTo(target, overwrite = true)
+            temp.delete()
+        }
+        return target
     }
 
     fun writeLifecycle(component: String, clean: Boolean, operation: String, detail: String = "") {
@@ -195,6 +258,33 @@ internal class ServerRuntimeFiles(context: Context) {
             .put("clean", clean).put("operation", operation.take(64))
             .put("detail", detail.take(256)).put("at", System.currentTimeMillis()).toString()
         secureWrite(File(lifecycle, "$component.json"), value)
+    }
+
+    /**
+     * P6: the DatabaseInfo connection string for one database. The SQLite
+     * provider's runtimes open the datadir files IN-PROCESS (the string is
+     * the file path the DO_SQLITE backend feeds to sqlite3_open); MariaDB
+     * keeps the socket form. The decision reads the engine's durable
+     * active-provider marker COMBINED with this APK's own capability: a
+     * marker naming the SQLite provider in a non-sqlite APK (the window's
+     * APK-level rollback - a default build installed over a window build)
+     * must boot MariaDB, whose datadir is never deleted before P8.
+     */
+    private fun databaseInfo(name: String): String {
+        val sqliteServing = DatabaseDurableState.parseActiveProviderMarker(
+            File(roots.databaseRoot, DatabaseDurableState.ACTIVE_PROVIDER_MARKER_NAME)
+                .takeIf(File::isFile)?.readText(),
+        )?.mode == DatabaseDurableState.ProviderMode.SQLITE &&
+            runCatching {
+                appContext.assets.open("database/provider-sqlite/BUILD_PROVENANCE.json").close()
+            }.isSuccess
+        if (sqliteServing) {
+            val datadir = File(roots.databaseRoot, DatabaseSqliteControlPlane.SQLITE_DATADIR_NAME)
+            return DatabaseSqliteControlPlane.databaseFile(datadir, name).absolutePath
+        }
+        val secret = coreSecret()
+        val socket = roots.databaseRun.resolve("mariadb.sock").absolutePath
+        return ".;$socket;pocket_core;$secret;$name"
     }
 
     private fun coreSecret(): String {
@@ -228,6 +318,88 @@ internal class ServerRuntimeFiles(context: Context) {
     companion object {
         private const val MAX_NORMAL_LOG_BYTES = 4L * 1024L * 1024L
         private const val MAX_ERROR_LOG_BYTES = 8L * 1024L * 1024L
+
+        /** S7/A11: the staged lore card index file (asset: lore/). */
+        private const val LORE_CARDS_FILE_NAME = "lore_cards_v112.jsonl"
+
+        /**
+         * The four-state playerbot LLM gate, pure in its inputs so the
+         * verdicts are unit-testable. (0) External-endpoint mode (submenu on
+         * + a normalized endpoint) emits the external conf block BEFORE any
+         * local-model gate — an external service needs no staged GGUF, and an
+         * unusable endpoint/key/model (any normalizer null) suppresses the
+         * block entirely instead of pointing bots at a broken URL; it also
+         * shadows the debug fallback, matching the supervisor which never
+         * starts the :llm process in this mode. (1) The submenu runtime's
+         * HTTP block when the user enabled it AND the model GGUF is staged —
+         * the same gate the supervisor applies before starting the :llm
+         * process, so the conf and the running server can never disagree; the
+         * base profile conf keeps its reviewed LLMEnabled = 0 and the append
+         * wins by Config.cpp's last-wins parse. (2) With the submenu off, the
+         * pre-submenu debug-only in-process llama override (still
+         * model-gated), so the adb-driven native/llm workflow keeps working
+         * on debuggable builds. (3) Otherwise nothing — release builds
+         * without the submenu opt-in emit nothing.
+         */
+        internal fun llmOverrides(
+            uiEnabled: Boolean,
+            modelPresent: Boolean,
+            modelAbsolutePath: String,
+            debugBuild: Boolean,
+            externalMode: Boolean = false,
+            externalEndpoint: String? = null,
+            externalModel: String? = null,
+            externalApiKey: String? = null,
+            banterEnabled: Boolean = true,
+            profile: LlmSamplingProfile = LlmModelRegistry.TUNED_E2B.profile,
+            tier: LlmTierProfile = LlmModelRegistry.TUNED_E2B.tierProfile,
+            loreFile: String? = null,
+            chatterPowerFile: String? = null,
+            composerEndpoint: String? = null,
+            composerModel: String? = null,
+            composerApiKey: String? = null,
+        ): String? {
+            if (uiEnabled && externalMode) {
+                return LlmRuntimePolicy.confBlockExternal(
+                    externalEndpoint, externalModel, externalApiKey, banterEnabled,
+                    loreFile = loreFile,
+                    chatterPowerFile = chatterPowerFile,
+                    composerEndpoint = composerEndpoint,
+                    composerModel = composerModel,
+                    composerApiKey = composerApiKey,
+                )
+            }
+            if (uiEnabled && modelPresent) {
+                return LlmRuntimePolicy.confBlock(
+                    true, banterEnabled = banterEnabled, profile = profile, tier = tier,
+                    loreFile = loreFile,
+                    chatterPowerFile = chatterPowerFile,
+                    composerEndpoint = composerEndpoint,
+                    composerModel = composerModel,
+                    composerApiKey = composerApiKey,
+                )
+            }
+            if (!debugBuild || !modelPresent) return null
+            // the lore line rides the debug block too: the retrieval
+            // loop is backend-independent (the bridge loads it for both
+            // the HTTP and in-process paths)
+            val debugLore = if (!loreFile.isNullOrBlank())
+                "\n            AiPlayerbot.LLMLoreFile = \"$loreFile\"" else ""
+            // S8-ledger (n): the banter toggle must gate the in-process debug
+            // path too - the native default (1) otherwise runs the authored
+            // initiative layer regardless of the toggle
+            val debugBanter =
+                "\n            AiPlayerbot.LLMBanterEnabled = ${if (banterEnabled) 1 else 0}"
+            return """
+                AiPlayerbot.LLMEnabled = 2
+                AiPlayerbot.LLMBackend = 1
+                AiPlayerbot.LLMModelPath = "$modelAbsolutePath"
+                AiPlayerbot.LLMThreads = 3
+                AiPlayerbot.LLMCpuFirstCore = 3
+                AiPlayerbot.LLMCtxSize = 4096
+                AiPlayerbot.LLMSlots = 4$debugBanter$debugLore
+            """.trimIndent() + "\n"
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 # LLM INTEGRATION — Staged Execution Plan & Review Protocol (2026-08-29)
 
-Companion to `LLM-INTEGRATION.md` (rev 2). This file defines the execution
+Companion to `LLM-INTEGRATION.md` (rev 3). This file defines the execution
 split, the per-stage review gate, and the running stage status. **A stage is
 done when its review gate passes with zero issues, not when the code is
 written.**
@@ -48,11 +48,19 @@ written.**
 | S6 | ACT tools + emotes + duel hook | A2, A3, A14 | `PlayerbotLlmTools.cpp` overlay, `EmoteAction` routing, `Player::DuelComplete` | duelworld-10 ≥9/10; 19 text-emotes visible in-game | **PASSED (4 rounds)** |
 | S7 | Truth guards | A10 (stakes-scoped), A11 (lore loop + corrected era policy + corpus scrub), A12 filters | bridge overlay, lore assets, server launch flags | guard ≥4/6 clean denials n=3; lore ≥10/12 non-echo; era 0/8 corrected traps; leak filter h4 pass | **PASSED (3 rounds)** |
 | S8 | Memory USE + believability beats | A13 full table, A16-A19 | bridge + memory overlays | S4 associative ≥3/4 with beats; tier-ceremony felt-change ≥4/5; initiative ≥3/30-min | **PASSED (2 rounds)** |
-| S9 | Player surface | E1-E5 (pacing, onboarding, Talk UI, visible progression) | `Hud.lua`/`Core.lua`, LlmScreen, packet pacing code | ack <1s; first line ≤6-8s; Talk flow no name typing; tier lines visible | pending |
-| S10 | v2.3 data + retrain | §5 (P45-P49, G5 gate, arms arm2′/arm1b′/2B) | G:\NPU LLM banks + train scripts | G0-G5 gates per §5; held-out hedge ≥5/6; over-hedge 0/6; tools ≥.93 | pending |
+| S9 | Player surface | E1-E5 (pacing, onboarding, Talk UI, visible progression) | `Hud.lua`/`Core.lua`/`Talk.lua`, LlmScreen, packet pacing code | ack <1s; first line ≤6-8s; Talk flow no name typing; tier lines visible | **PASSED (2 rounds + post-gate folds)** |
+| S10 | E6 world chatter (ambient layers) | §4.6b (composer pipeline, event-gated scheduler + queue, power ladder, fatigue/world-ring, cloud routing, master toggle) | SayAction/PlayerbotAI anchors, new PlayerbotLlmChatter overlay, Kotlin chatter queue + toggle (LlmScreen/ServerRuntimeFiles), cloud client routing | event-gated firing (silence default); world-ring zero-repeat 6h soak; ≤1.5% battery/session device-batched; whisper ack unharmed under load; interruption + combat blocks observed; legend hops ≤ cap; composer voice human-read panel; power ladder honored | **PASSED (4 rounds + post-gate folds)** |
+| S11 | v2.3 + v2.4 data + retrain (was S10 pre-rev-3) | §5 + §5.1 (P45-P49, P50 long-form, P51 depth arcs, P52 ambient barks, API-drafter protocol, G0-G5 incl. length-conditional sections, arms arm2′/arm1b′/2B) | G:\NPU LLM banks + train scripts | G0-G5 gates per §5; held-out hedge ≥5/6; over-hedge 0/6; tools ≥.93 per-family (S5-C2); length histograms + multi-turn eval per §5.1 | **IN PROGRESS — rounds 0-5 landed (round 5 CONVERGED at zero P0/P1: banks P45-P54 authored, gated, composed — 16,953 examples); retrain arms + G0-G5 pending — ← NEXT** |
 
-Parallel tracks (start after their dependency stage passes): S10 authoring
-may start after S4; S9 E1 pacing subset may start after S5.
+Parallel tracks (start after their dependency stage passes): S11 (retrain)
+authoring may start after S4; S9 E1 pacing subset may start after S5.
+S10 (world chatter) is unblocked now that S9 has passed and may run in
+parallel with S11.
+
+Rev-3 renumber note (2026-08-31): world chatter enters as **S10** (it
+follows S9); the v2.3/v2.4 retrain is renumbered **S11**. References to
+"S10" in the frozen S1-S8 stage records and their ledger items mean the
+RETRAIN (now S11) — those records stand as written.
 
 ---
 
@@ -953,3 +961,997 @@ lift honestly split 2/4, ceremony human-read 4/5 twice on independent
 draws, event kinds firing, jaccard re-checkpoint clean, no see-saw in
 the trained composite; the recall-mask P0 caught by review - the
 desktop harness measures intent, the tree needed the pin).**
+
+### S9 — Player surface (E1 pacing + ack / E2 first contact / E3 Talk UI / E4 progression / E5 picker + §4.4 entry gate + T4 + S8-(n))
+- Round 0 (implementation, 2026-08-31):
+  **§4.4 entry gate (the S4-record binding condition)** — asset
+  `android/app/src/main/assets/llm/chat_template_nonthinking.jinja`
+  (the tuned export's template MINUS the thinking machinery;
+  render-verified byte-identical to the tuned GGUF's non-thinking path
+  on 4 message shapes incl. the thinking-content-stripping shape).
+  Warm-up probe in `LlmRuntimeService.runSupervisor`: one 8-token POST
+  with NO kwargs (must see the template's OWN default) once /health
+  passes — also pays the measured first-request penalty; detection =
+  reasoning_content non-empty OR content empty; on detection, ONE
+  restart with `--chat-template <staged file's CONTENT>` (CRITICAL:
+  the vendored 6d05498 binary has NO --chat-template-file —
+  string-extract verified, 0 occurrences in libllama-server-impl.so,
+  --chat-template present x2; the desktop b10520 has both, and
+  verification on it alone green-lit a flag the shipped binary lacks —
+  the plan's "verify on the vendored binary first" warning was exactly
+  this trap). `LlmRuntimeConfig` gains chatTemplateFile +
+  serialVersionUID = 1L (sticky-restart compat; pre-field streams
+  deserialize to null = fail-open). LIVE-VERIFIED end to end on the
+  exact §1.4 failure model (gemma-4-E2B it): default template burns
+  the 8-token budget (reasoning 20 chars, content empty,
+  finish=length); the file-flag override AND the inline-content form
+  both return content "Ready." finish=stop — artifacts
+  `C:\llm-lab\results\s44_probe_default-template_20260831.json`,
+  `s44_probe_nonthinking-override_20260831.json`,
+  `s44_probe_nonthinking-inline_20260831.json`.
+  **E1 pacing** — the generation timeDiff becomes a RUNNING credit
+  consumed across ALL lines (was: zeroed after the first, which then
+  still dribbled); MsPerChar 200 -> 35 on the reply call; the busy
+  placeholder lands INSTANTLY (busyReply ? 0 : ...; the <1 s busy
+  law); instant whisper ack BEFORE the memory reads + generation
+  (face the speaker via SetFacingToObject + one deterministic text
+  emote nod/wave by GUID parity through PlayTextEmote — zero LLM
+  cost, 4 s per-pairing rate cap, whisper + non-event only);
+  per-class voice budgets via the pure `pocketllm::ApplyReplyBudget`
+  (conversational 2 lines x 160 B, ambient RPG 1 x 80 B, UTF-8-backoff
+  cuts) applied BEFORE the history recorder; replyClass threads
+  through GenerateResponsePackets (0 chat / 1 RPG); the journal keeps
+  its 4 ms/char diary pace; the 255 splitter cap stays S7's one
+  documented number.
+  **T4** — `AiPlayerbot.LLMConnectTimeout` (default 10, clamped 1-60)
+  bounds the TCP connect (non-blocking connect + select + SO_ERROR
+  verify + restore-to-blocking); SO_RCVTIMEO/SO_SNDTIMEO = the
+  generation budget bound the TLS-handshake + write legs (round-1
+  fix; a stuck SSL_connect previously leaked generation slots
+  forever). The 30 s T4 gen timeout was already emitted.
+  **E2** — one-time login onboarding sys line (Player.cpp anchor at
+  SendInitialPacketsAfterAddToMap -> OnPlayerLogin; real players only;
+  once per character per world process via the OnboardedPlayers
+  dedupe — the anchor site ALSO fires on cross-map teleports,
+  round-1 R1); the player's FIRST-EVER bot contact gets the scripted
+  welcome (AuthoredFirstContactWelcome: PlayerHasAnyPairing gate + a
+  NATIVE LogFact("met X for the first time", shared-event) — the
+  memory law beats the voice law at the opening moment) + AppendTurn
+  x2 + the relationship touch; first-run tutorial step 5 points at
+  Settings -> AI bot speech (honest copy: tuned models are staged from
+  a PC until §4.2; the in-app download is the untuned fallback).
+  **E3** — new addon module Talk.lua: resolution target-player ->
+  last whisperer -> last say speaker (the client-side approximation of
+  "nearest": 1.12 has no unit radar), opens the stock composer
+  pre-filled "/w Name " via ChatFrame_OpenChat (type-guarded); the
+  radial Talk entry takes SOCIAL's slot (the parallel stream PINNED
+  Move UI's slot by test — Social is unpinned and touch reaches the
+  stock minimap button); the Hud grows the chat to 220 px while a
+  whisper conversation is live (10 s linger) and reveals the scroll
+  chrome on a 5-lines/2.5 s burst (the journal dump); journaled rects
+  are never resized; the module is registered ("talk" bisection
+  switch, TOC, package).
+  **E4** — tier-change sys line at the A16 ceremony consume site
+  (TierShiftSysLine "X seems warmer/colder toward you." — pure
+  DB-derived, survives governor-dropped ceremonies, never on ACT
+  turns); the AUTOMATIC standing one-liner on a pairing's first
+  whisper of the session (MaybeSessionStandingLine, once per pairing
+  per process, skips first meetings) + the whisper keywords
+  "standing"/"gossip" (zero-generation reads; NO relationship points —
+  round-1 R6 killed the tier-5 farm); the whisper keyword set is
+  documented in docs/llm-runtime-submenu.md; a conversations counter
+  (atomic, the recorder gate's own definition, read on the debug-llm
+  surface).
+  **E5 + S8-(n)** — the LlmScreen model picker, small-first with
+  trade-off copy + the restart-required note (§2.1's "LlmScreen must
+  say so"); the banter-toggle copy now describes
+  greet-first/initiative/crowd/bot2bot; the debug llmOverrides block
+  emits LLMBanterEnabled.
+  **Tests**: BudgetLeg (act_tools battery) + TierShiftSysLine rows
+  (recall battery); tests/test_llm_player_surface.py (NEW, 19
+  source-contract pins); Kotlin: LlmRuntimePolicyTest (+connect line,
+  +template override/fail-open, +staging never deletes),
+  LlmRuntimeConfigTest (NEW: serialVersionUID/round-trip/null),
+  LlmRuntimeServiceWarmUpTest (NEW: the probe/restart source
+  contract), FirstRunTutorialTest (5 steps + the LLM step), and the
+  debug-banter assertions; the mutation suite kills 26/26 mutants
+  (tmp/mutation_s9.py, incl. the ToolsCore budget implementation and
+  the service mutants).
+  **Verification at close**: 124 host gates green; all Kotlin suites
+  green (4 pre-existing parallel-stream AndroidPortAssetTest failures
+  remain, theirs); all four lanes rebuilt clean after the final
+  folds; lockfiles fresh incl. the sqlite x86_64 lane verified
+  manually per the standing protocol; the n3/sanity instruments are
+  untouched (no prompt change -> no see-saw checkpoint owed; see-saw
+  verified clean by round-2 R4).
+- Round 1 (6 reviewers: R1 cross-layer, R2 Kotlin, R3 tests, R4 laws,
+  R5 systems, R6 red-team): **1 P0, 8 P1**. The P0 (R3): the new
+  BudgetLeg shipped unwired — tests/test_llm_act_tools.py invoked only
+  the four old legs, so a ToolsCore budget mutation SURVIVED the suite
+  (demonstrated by mutation) -> test_budget_leg added + the mutation
+  suite extended to mutate the shipped budget implementation. P1s
+  fixed: (R1) OnPlayerLogin re-fired per cross-map teleport ->
+  OnboardedPlayers once-per-process dedupe; (R4) the AUTOMATIC
+  "standing on first whisper of a session" surface was missing ->
+  MaybeSessionStandingLine; (R6) the standing/gossip keywords awarded
+  uncapped +1 relationship points (tier-5 in ~120 zero-cost whispers)
+  -> points removed (journal precedent); (R6) the §4.4 retry could
+  wedge into a permanent 30 s crash loop (a vanished staged file +
+  llama-server's parse-time abort) -> arm-time read + inline-content
+  flag + armedTemplate revert-to-base on a never-healthy override
+  child + staging never deleting the live file; (R6) the
+  TLS-handshake/write legs were unbounded past T4's connect budget
+  (slot leak) -> SO_RCVTIMEO/SO_SNDTIMEO = the generation budget;
+  (R2) tutorial step 5 pointed at a download the q08 entry cannot
+  offer -> honest copy; plus the CRITICAL flag-surface find above
+  (--chat-template-file absent from the vendored binary; caught by
+  re-verifying R4's round-1 P2 against the actual .so). P2s folded:
+  registry KDoc, the connect clamp, the WIN32 log error,
+  outError->outDebug on the hot pacing path, the false "logged at the
+  call site" comment, the Talk write-back, journaled-pin/order pins
+  tightened, the docs standing example.
+- Round 2 (3 rotated reviewers, six mandates): **ZERO P0/P1**. All
+  round-1 fixes verified against the tree (incl. the recv-path
+  interplay: RecvWithTimeout runs the socket non-blocking so the
+  socket timeouts are inert there; the SSL path's WANT_READ branch
+  already retries under the same elapsed budget); independent
+  re-verification of the vendored flag surface and the argv safety of
+  the inline template (2.1 KB, NUL-free); the mutation rerun killed
+  26/26; no double-BuildNote, no sticky-restart double-apply
+  (persistConfig stores only the intent config).
+- Post-gate folds (S2/S8 precedent, full rerun + lane rebuilds):
+  stale --chat-template-file comments, the self-contradictory
+  still-thinking log message, the missing debug-banter test
+  assertions, the EINTR disposition recorded in-anchor — and the
+  socklen_t "portability" fold was itself REVERTED after it broke
+  bionic's getsockopt prototype (int* vs socklen_t*); the correct
+  finding is that MinGW defines socklen_t via the file's own
+  ws2tcpip.h include.
+- Recorded conditions + deferred P2 ledger (binding later stages):
+  (a) PlayerHasAnyPairing's player-only lookup full-scans
+  bot_player_relationship (PK (bot,player), no player index) on the
+  world thread at login/first-contact — accepted: the table is
+  pairing-population-sized on a single-player device; add KEY(player)
+  at the next touch of the (parallel-stream-owned) schema SQL.
+  (b) The T4 socket bound is PER-OP, not a total deadline — a peer
+  that drips one record per just-under-timeout interval can still
+  stretch the SSL legs; the realistic dead-endpoint case is bounded.
+  (c) connect select() EINTR falls through as failure (fail-safe;
+  recorded in-anchor).
+  (d) The warm-up probe's empty-content-without-thinking class is a
+  false positive -> one harmless restart (bounded by one-retry +
+  revert; logged distinctly).
+  (e) stageChatTemplate's copyTo fallback can leave a partial live
+  file on a mid-copy IO failure (double fault: rename refused AND copy
+  fails); contained by the arm-time read + one-retry + revert + the
+  collision classification.
+  (f) When a pairing's session-first whisper IS exactly "standing",
+  the automatic sys line and the keyword reply voice the same sentence
+  once (cosmetic; the player asked).
+  (g) The journal keyword branch lacks the whisper+non-event gate its
+  siblings have — IMPROBABLE (not unreachable): a 2-letter bot name
+  substring of "journal" admitted by the party substring gate could
+  dump the journal; self-addressed, pure read, latent.
+  (h) Talk resolution has no faction/ignore filter (1.12 offers no
+  name->faction API client-side; a cross-faction lastSayFrom makes the
+  pre-filled whisper fail silently — player confusion only).
+  (i) E2's "one-time" is once per character per WORLD PROCESS (the
+  no-pairing DB gate + the dedupe), not once-ever across restarts —
+  the accepted reading, recorded.
+  (j) MsPerChar 35 applies to all chat-class replies (the plan's
+  letter said whisper-class); ambient is separately clamped 1x80 —
+  in-spirit, wider than the letter, recorded.
+  (k) The E4 conversations counter's app-side transport stays deferred
+  (§4.3's declared Workstream-A dependency; WorldNative's ABI array is
+  parallel-stream-owned); the native counter + the debug-llm surface
+  ship.
+  (l) The template override is armed probe-gated for every model, but
+  the asset is gemma-dialect: only the gemma base can trip today (the
+  qwen-tuned default measured non-thinking with kwargs omitted — the
+  S4 artifact s44_thinking_kwargs_q08-tuned.json); a future registry
+  family that trips needs its own dialect asset.
+  (m) DEVICE-PENDING legs (S3/S6/S8 precedent): ack <1 s, first line
+  6-8 s, the Talk flow in-game, tier lines visible, the on-device
+  template restart, and executing the vendored binary's flag surface
+  on-device (string extraction + the desktop live legs stand in).
+  (n) Detekt is red tree-wide in the parallel working tree
+  (pre-existing; a 1340-entry baseline with zero Llm entries); S9's
+  Kotlin adds generic-catch findings in adjacent style. The 4
+  AndroidPortAssetTest failures are the parallel stream's stale pins
+  (version 0.6.0, getglobal vs Live) — theirs to finish.
+  (o) The sticky-restart pre-field deserialization fixture is not
+  exercised (dev-only exposure; serialVersionUID pinned + round-trip
+  tested).
+**VERDICT: S9 PASSED (2 rounds, converged at zero; §4.4 machinery
+live-verified on the §1.4 failure model with three artifacts, the
+vendored binary's flag surface checked against the actual .so after
+desktop verification green-lit a flag it lacks; the pacing law +
+budgets pinned by 19 source-contract pins and 26 killed mutants; four
+lanes + lockfiles fresh at close).**
+
+### S10 — E6 world chatter (§4.6b: silence-default ambient layers + power ladder + master toggle)
+- Round 0 (implementation, 2026-08-31):
+  **New pure core** `PlayerbotLlmChatterCore.h` (host-compilable, the
+  ToolsCore/TruthCore/RecallCore pattern): the rung policy table
+  (NORMAL cloud-composer batches 270s window/30-60s display; CONSTRAINED
+  device single lines 540s/90-120s; CRITICAL global-only 1/3min;
+  EMERGENCY authored event-grounded floor 120s — pins absolute), the
+  WORLD-LEVEL repetition ring (24-entry, JaccardWords 0.5 — the A12
+  metric applied cross-bot), the fatigue + legend ledger (per-fact
+  retirement at 5 tellings; per-(template x speaker x listener) spacing;
+  per-listener credence heard→never-retell; LegendTellingText = the
+  immutable row as truth, deterministic DistortGossipHop per
+  non-originator telling, drift frozen at 3 content hops), the murmur
+  register tolerance (5-24 words / 120 B — the documented pre-P52 band,
+  NOT the 8-20 trained target), the 10 event-grounded floor templates
+  (every template addresses {L} + carries {E} — an authored line never
+  fabricates ledger state), the frozen device-path wording
+  (MurmurSystemMessage/MurmurNote/PartyNote/GlobalNote +
+  ComposerSystemPrompt/UserPrompt — the P52 wording lock, byte-pinned),
+  ParseComposerScript (speaker-validated, 6-turn cap, full line-safety
+  law inline), ClampMurmurBytes, ChatterLineSafe (the banter-core
+  LineIsValid law tightened: printable ASCII, no <>{}|, no */[/space
+  leads — an autonomous producer may never mint pipes/newlines), the
+  8s player-channel hold + the 30s ambient ADMISSION window.
+  **New overlay** `PlayerbotLlmChatter.{h,cpp}`: the world-thread
+  scheduler Tick (riding RandomPlayerbotMgr's 10s telemetry gate),
+  power-file reconcile (missing/disabled/garbage-rung = OFF + queue
+  clear — the master kill; stale >10min INCLUDING zero/future stamps =
+  EMERGENCY + non-floor flush), the pre-generated queue (cap 12,
+  drain <=2/tick scanning past not-due heads, interruption deferral
+  requeues front +10s), the murmur refill (batch-window + low-water +
+  quiet-channel gates; COMPOSER script over <=3 nearby personas at
+  NORMAL with a composer configured — per-bot device calls are the
+  fallback, per §4.6b "per-bot only when the player is involved"),
+  party banter (per-master 720/900s windows stamped ON THE ROLL win or
+  lose at 50%/25%; the duel event note fires once >=60s then is
+  CONSUMED, re-armed only while the channel is held), the rare global
+  set piece (duel-class preference, spacing burns on the roll), and
+  delivery (Say/party/zone-General via the JoinChatChannels idiom;
+  ring+fatigue re-vet at delivery; ring/fatigue/credence/template
+  ledger + RememberReply + shared-channel AppendTurn; murmur
+  MarkHeard for everyone in 30y). Device batches pay the SHARED
+  governor (GovernorAdmit — the S3 block extracted) and yield the
+  interactive lane (InteractiveGenerationInFlight); workers are
+  copy-only detached threads under catch-all wrappers (a spawn throw or
+  bad_alloc can neither strand the batch flag nor kill the world);
+  composer turns deliver IN ORDER (monotone base+i*perTurn stagger).
+  **Kotlin**: ChatterPowerMonitor (the pure rung table vs
+  getThermalHeadroom/battery/charging/connectivity; atomic 60s power
+  file; epoch-keyed refresher armed at every world start in BOTH
+  modes), the two-directional master toggle (the conf arms the
+  subsystem + names the file whenever the LLM runs; the FILE's enabled
+  flag carries the live llmAmbience switch — mid-session both ways),
+  conf emission (LLMChatterEnabled/PowerFile/Composer* riding the
+  external endpoint fields), the LlmScreen "World chatter (beta)"
+  switch, Settings llmAmbience triple-write (default OFF).
+  **Driver anchors**: manifest + copies; PlayerbotAIConfig keys
+  (composer URL parse GUARDED — parseUrl throws on the empty default;
+  round-1 R6's P0 was exactly this at world boot); the mgr Tick +
+  include; the SayAction gate stamp (NotePlayerInteraction on
+  real-player conversational triggers); GenerateHttp endpoint/key
+  overrides (the composer POSTs its own endpoint through the hardened
+  client); the OnDuelComplete hook.
+  **Tests**: tools/test_llm_chatter.cpp (412 checks: policy table,
+  ring, fatigue/legend incl. absolute constants, register, ChatterLineSafe
+  rows, floor templates, frozen wording, composer parse, the 6h soak
+  over the REAL core math — silence default at every rung, per-fact
+  ceilings, pairwise zero-repeat, interruption full suppression, floor
+  <=1/120s, global <=1/180s, determinism, the governor-rate arithmetic
+  incl. the composer multi-line cap) + tests/test_llm_chatter.py (10
+  legs: battery + source-contract pins, all call-site slices) +
+  tmp/mutation_s10.py (67 mutants across core/scheduler/driver/Kotlin;
+  green-baseline assert + per-mutant byte-verified restore + leftover
+  sweep) + Kotlin (ChatterPowerMonitorTest rung table, the chatter
+  emission leg, the write-set).
+- Round 1 (6 reviewers): **5 P0, 12 P1**. P0s: the composer URL parse
+  crashed every world boot without a composer row (parseUrl throws on
+  ""; now guarded like the main endpoint); the duel note was never
+  consumed (party machine-gunned every ~60s forever after one duel;
+  now consumed on fire + the window stamps on the ROLL win or lose);
+  the whisper-lane claim (--parallel 2 absent) RESOLVED by re-extracting
+  the vendored .so — the binary ships AUTO-parallel ("n_parallel is set
+  to auto, using n_parallel = 4 and kv_unified = true"; 0 hits for
+  --parallel; the desktop build agrees) so the plan's lane-pinned flag
+  is UNIMPLEMENTABLE there and no eviction/queueing exists; the
+  code-side quiet-window admission gate (30s) shipped instead; two
+  vacuous pins (rung bounds, queue clear) replaced with call-site
+  slices. P1s folded: EMERGENCY pick window (was 0 = re-pick/re-drift
+  every tick), the soak modeled the wrong cadence (now window-driven),
+  the global floor leaking to generated rungs, thread-spawn try/catch,
+  murmur composer-fed at NORMAL, display-policy threading into jobs,
+  the Kotlin one-directional toggle (two-directional via the file),
+  ChatterLineSafe (newlines/pipes/braces survived HygienePass), party
+  pins + the composer mapping/drain-cap pins.
+- Round 2 (3 rotated reviewers, six mandates): **0 P0, 6 P1** — the
+  composer enqueue loop truncated scripts to ONE line (the factKeys
+  loop bound); the floor paths skipped the line-safety law (DB event
+  text can carry pipes/newlines past the write chain — model-authored
+  share_gossip rows); the staging-condition + duel-arm pins were
+  missing; plus folds (stale flush keeps generated lines → now dropped;
+  duel note consumed only when dispatch proceeds; the drain scans past
+  not-due heads; worker-body catch-alls; stoi out_of_range caught;
+  GovernorAdmit claim softened to structural; dead floorQueueMax
+  deleted; the harness mirror hardened + the composer floor honestly
+  >=1 on the 2B lab stand-in with the >=2 cloud target recorded;
+  LlmScreen copy "within about a minute").
+- Round 3 (2 reviewers, six mandates — the final-gate attempt):
+  **1 P0, 2 P1**. The P0: the mutation harness itself (no baseline
+  assert; NO per-mutant restore — mutants accumulated, making every
+  kill after the first unattributable; a live un-reverted mutant was
+  found mid-run and restored). REBUILT: green_baseline() + per-mutant
+  byte-verified restore + leftover sweep — and the properly-isolated
+  run then exposed 12 SURVIVORS the accumulating harness had masked
+  (all vacuous-pin classes: a missing " in source", name-only pins,
+  signature-only pins, a comment-robust pin). All pins repaired to
+  exact call-site slices; the battery gained the AmbientAdmissionQuiet
+  behavioral rows; final run 67/67 (tmp/mutation_s10_rerun2.log; the
+  honest chain is 55/67-survivors → pin repair → 67/67, zero mutants
+  dropped). The P1: composer turns delivered out of order (independent
+  draws reorder a reply ahead of its setup ~1/3 of the time) — now a
+  monotone base+i*perTurn stagger.
+- Round 4 (final gate, 2 reviewers, six mandates): **ZERO P0/P1**.
+  Both independently reproduced the verification state (10-passed pin
+  suite, 124 host gates, the 412-check battery recompiled from source,
+  the 67/67 log with clean restore markers, no leftover mutants,
+  gradle green) and mechanically swept the monotone-delay arithmetic
+  (both cadences, turnCap 0..4, 500 draws — in-bounds, no underflow).
+- Gates: host 124 green (19 player_surface + 29 act_tools + 29 recall +
+  9 truth + 10 banter + 8 a0 + 5 json + 4 prompt_format + 10 chatter +
+  the lockfile pin); Kotlin green (LlmRuntimePolicyTest 23,
+  ChatterPowerMonitorTest 5, ServerRuntimeFilesLlmGateTest 11,
+  SettingsUpdateWriteSetTest 4, LlmConfMergeOrderTest 5,
+  LlmRoutesContractTest); all four lanes rebuilt at close, lockfiles
+  fresh incl. the sqlite x86_64 lane verified manually (the standing
+  protocol); n3 checkpoint BOTH composites at close (trained 5/6
+  majority-fire — adjust_sentiment 0.33, the S5/S7/S8-ledgered family
+  carried to S11's per-family gate; legacy 4/6, the ledgered boundary
+  families; S2 all-clean both — no see-saw: no conversational prompt
+  text changed). Voice gates on e2b-tuned (three artifacts: 120101
+  green pre-fix, 124211 the honest pre-fix FAIL kept — composer turns
+  [3,1,3] + one ring collision at 0.636, 124321 green under the honest
+  floors): murmur/party/global pass 0.8-1.0 across runs, zero tool
+  draws, zero delivered-pair repeats (the enqueue veto modeled), the
+  composer voice panel human-read in-register and persona-consistent;
+  every failing draw was uniform register-overshoot (26-29 words vs
+  the 24 tolerance) — anchored, tool-free, and dropped in-tree by the
+  register gate: the exact pre-P52 behavior S11's bank trains.
+- Recorded conditions + deferred P2 ledger (binding later stages):
+  (a) DEVICE-PENDING legs (S3/S6/S8/S9 precedent): the <=1.5%
+  battery/session measurement, whisper-ack latency under full murmur
+  load on-device, in-game interruption/combat-block observation, the
+  power-file refresh loop live, the vendored auto-parallel behavior
+  executed (the string-extraction + the S9 flag-law method stand in;
+  a captured runtime log would upgrade it), the composer against a
+  real cloud endpoint. (b) The plan's SS2.2 "--parallel 2 with lane
+  pinning" is UNIMPLEMENTABLE on the vendored binary (auto-parallel=4
+  unified-KV; string-extract verified on both binaries); the plan text
+  still instructs it — reconcile at the next plan revision. (c) The
+  murmur register runtime tolerance (5-24 words/120 B) is deliberately
+  wider than the P52/L3c trained target (8-20): pre-P52 acceptance
+  measured 0.8-1.0 with uniform overshoot-drops; S11's P52 bank + the
+  frozen wording re-gate it (re-run the voice harness at whatever
+  checkpoint S11 ships). (d) The composer floor in the lab harness is
+  >=1 accepted turn on the 2B stand-in (>=2 is the cloud-class target;
+  the 124211 artifact shows the 2B model drawing a 1-turn script); a
+  real cloud-composer run is the S11/device leg. (e) Credence is not
+  re-checked at delivery (a queued speaker can be marked heard by a
+  nearby delivery in its 30-60s window — bounded to one extra
+  retell); the global headline's floor bookkeeping records its
+  template index. (f) The harness's restore verification compares
+  newline-normalized text (content-identity, not byte — inert today,
+  all targets LF-native + sha256-pinned); green_baseline covers the
+  pytest leg only (the gradle fallback leg's kills rest on the
+  independently-verified green gradle runs); no subprocess timeout (a
+  hanging mutant hangs the harness; the finally sweep still restores).
+  (g) turnCap==0 relies on unsigned wrap semantics (provably safe,
+  the loop never runs — a future explicit guard would drop the
+  reasoning burden). (h) The global layer's zone-General delivery
+  re-derives the channel name via BroadcastHelper::GetLocale() while
+  the core rejoins with the session DBC locale — a mismatch mints a
+  ghost channel and the line silently drops (the SayToGeneral()
+  idiom is the alternative if it ever bites). (i) Stimulus
+  propagation (a chatter line re-entering the event store) is
+  deliberately absent — echo suppression outranks it; recorded as a
+  plan deviation. (j) Event barks are duel-only (the plan lists zone
+  entry/kills/loot/level-up); the OnDuelCompleted hook surface
+  generalizes. (k) The party device speaker is a random group bot;
+  the composer speaker set is the persona list. (l) ChatterState
+  ledgers (heard/perFact/lastTemplate/party maps) are process-local
+  and never pruned — the accepted never-cleaned GUID-statics class; a
+  world restart resets fatigue (a retired fact earns fresh tellings
+  per boot; world_gossip rows expire in 7 days). (m) The murmur
+  composer script's turns all bind one factKey (capped at 5 by the
+  fact budget); multi-fact scripts need the eventRows plumbing to
+  carry >1 — future work with the cloud leg.
+**VERDICT: S10 PASSED (4 rounds, converged at zero; the silence
+doctrine pinned by the 6h soak + per-layer source pins, the
+power/ladder machinery two-directional and fail-safe by construction,
+the whisper lane protected by the quiet-window admission gate after
+the vendored-binary flag law killed the plan's --parallel config, the
+wording lock byte-pinned for S11's P52 bank; 67/67 mutants under true
+per-mutant isolation after the round-3 harness P0 exposed 12 vacuous
+pins; four lanes + lockfiles fresh at close).**
+
+### S11 — v2.3/v2.4 data + retrain (§5 + §5.1; rounds 0-5 landed: the scaffolding, every repo-side coupling, the G0 harness conversion, and the BANKS; the training arms and G0-G5 remain)
+- Round 0 (implementation, 2026-08-31):
+  **Tier max_tokens raise (the S9-coupled "own reviewed change")** —
+  TUNED_E2B 120→230 (clears the P50 long bank: 150 words ≈ 225 tokens
+  at ~1.5 tok/word; bank-side law caps tool-bearing cue rows at 130
+  words so prose + tool lines never exceed the cap), TUNED_Q08 100→210
+  + BASE_E2B 120→210 (clear the existing 110-word corpus worst case;
+  NOT long-licensed — see the 225 gate below); LlmRuntimePolicyTest
+  pins updated (230 ×2 sites + conf key, q08 210, base 210 + temp-1
+  unique-site pins); docs/llm-runtime-submenu.md + the §2.1 tier row +
+  §2.2 lane-0/1 rows + the README-INTEGRATION sample reconciled.
+  **Fieldless emote fold (S6-ledger (j))** — ExtractToolCalls folds
+  `<<perform_emote laugh>>` into fields=[emote=laugh]: pure form only
+  (perform_emote + empty fields + single alphabetic dangling token; a
+  keyed value always wins; other tools never fold); executor field
+  authority unchanged (the licensed line still decides which emote
+  plays). 5 battery rows.
+  **Beat-cargo VARIANT SETS (rev-3b item 1)** — banklib gains
+  BEAT_CARGO_VARIANTS (3 persona flavors × 8 frame kinds; flavor 0 =
+  the S8 measured wording BYTE-PRESERVED, programmatically verified
+  against the git-index copy) + CEREMONY_UP_PHRASES + the selection
+  law `flavor = bot_guid % 3`; emit_prompt_constants.py machine-emits
+  the frames + ceremony phrases into RecallCore between markers (new
+  splice with a marker-less REFUSAL — the first emission once replaced
+  the whole file; recovered byte-exact from the submodule mirror, the
+  incident disclosed to and verified-clean by round-1 R1); the seven
+  cargo builders take botGuid and select GUID-stably (one flavor per
+  bot for life); 9 bridge call sites thread bot->GetGUIDLow();
+  static_asserts pin frame-set uniformity (a divergent set would be an
+  OOB read in the world process); the battery byte-pins ALL flavors ×
+  all kinds + the flavor law (stable, rotating, one-per-bot).
+  **P50/P51 long-form layer** — ONE frozen cue (LONGFORM_CUE,
+  banklib-authored, machine-emitted as kLongFormCue); LongFormLicensed
+  (maxNewTokens >= 225 — T1 licenses, T2/T3/native-default 200 do not)
+  lives in ToolsCore beside the budget that consumes it;
+  WantsStorytelling + WantsOpenConfidence (second-person-gated at the
+  caller; "what do you make of" dropped as third-person-usable) feed
+  exactly THREE bridge rungs: the storytelling ask (event-fact
+  anchored), tier-5 Bonded open-confidence (goal-fact anchored), and
+  the news-recall deep-dive — each gated on the tier token budget and
+  each marking the note (see round 2).
+  **The reply-budget coupling** — ApplyReplyBudget takes maxNewTokens;
+  a CUE-BEARING conversational turn on a licensed tier runs to the
+  splitter's own 4×255 budget; every uncued turn keeps 2×160 on every
+  tier; ambient stays 1×80 everywhere (the per-turn earning is the
+  round-2 fix — round 0 shipped it tier-wide and the panel killed
+  that).
+  **The S11 bank pipeline (the wording lock made structural)** —
+  banklib gains the guard/longform/murmur bank shapes + renderers
+  (guard_turn composes the frozen A10 directive via the new
+  bridge_wording module; longform_turn composes beat_frame cargo +
+  LONGFORM_CUE; murmur_turn composes the frozen S10 murmur wording) —
+  the bank FILES carry only content, never prompt text; validate_banks
+  gains the three bank branches with the conditional length bands
+  (L3b 80-150 cue-bearing only, 80-130 when tooled; L3c 8-20 murmur
+  only — via check_reply(band=), the global MIN/MAX untouched), arc
+  4-24 turns + the longform/longform_facts flags, content-field laws
+  (era/ascii/marker/control-token on entity/fact/event/listener), a
+  P45 deny-shape check (a guard reply never INTRODUCES a replacement
+  proper noun; the lore-title allowlist bounds legal pivots), and a
+  frozen-literal scan (no authored surface quotes the cue / frame
+  tokens / guard / murmur wording); compose_banks composes all three
+  banks through the frozen renderers + the arc longform plumbing and
+  FAILS LOUD on any non-empty bank it cannot compose (the round-2 fix
+  — round 0's validator whitelist without composer branches was
+  fail-silent); the merge forbidden-span set now includes every frozen
+  S11 string; draft_dedup.py (§5.1c) is the explicit 13-gram gate
+  against the frozen corpus; extract_bridge_wording.py compiles the
+  C++ cores on the host and renders the frozen strings into
+  bridge_wording.py with sentinel→placeholder conversion (the reverse
+  wording-lock direction: C++ → authoring tree), --check-fresh and
+  wired as a pytest leg.
+  **Harness** — s8_beats_gates draws its cargo frames from banklib
+  (drift impossible) with per-row flavor cycling + a flavor field in
+  the artifact; a NEW LONGFORM section measures the cue against the
+  current weights (3 kinds × n=3 paired cued/uncued at max_tokens 230).
+  **Tests**: recall battery +5 pins (all-flavor byte-pins, flavor law,
+  cue bytes, licensing boundary, triggers); act_tools +fold rows
+  +budget rows; pytest +6 (guid-threaded call spans paren-balanced,
+  emitted-frame block, 3-cue-site exact-call regex + mark-site count +
+  rung content anchoring + reader/RecordLicense flag checks, wording
+  freshness ×2 directions, reader semantics); tmp/mutation_s11.py
+  under the S10 discipline.
+- Round 1 (6 reviewers): **1 P0, 1 P1**. The P0 (R1): the news
+  deep-dive's `FactClassOf(fact, "") == FACT_EVENT` was ALWAYS FALSE
+  (the mask already selects event-class; re-classifying with a lost
+  category reads PLAIN) — half the cue-bearing bank had no runtime
+  trigger; fixed by deleting the dead conjunct (the mask IS the
+  event-class guarantee) + re-anchoring the pin. The P1 (R1): the S9
+  reply budget clamped cued tellings to 2×160 — ApplyReplyBudget now
+  scales with the configured max new tokens. P2s folded:
+  static_asserts, the bonded second-person gate + trigger drop (both
+  sides), README + §2.1/§2.2 + conf-comment reconciliations, the
+  BASE_E2B exact pin, symmetric G:-absent skips on both --check legs,
+  mutant label fixes, the exact-call regex upgrade (a substring count
+  survived an argument-scaling mutant).
+- Round 2 (3 rotated reviewers, six mandates): **3 P1** — (1) the
+  widened budget was TIER-WIDE: a plain uncued turn (or zone-chatter
+  class-0) on T1 could voice 4×255 while the comments claimed
+  per-turn earning → the longFormCued flag now threads Note →
+  ToolLicense → NoteLongFormCued (stamp- AND flag-checked, resolved on
+  the world thread as a std::async argument — by-value, so a
+  superseding note can neither widen nor narrow an in-flight
+  generation; the RPG ambient site passes false explicitly because
+  defaults do not bind through the async function pointer — the lane
+  build caught exactly that compile error) → ApplyReplyBudget's 4th
+  arg; (2) the cue had ZERO model measurement → the LONGFORM harness
+  section (measured: cued 32-61 words, 0/9 over 90; uncued 0/9 over
+  60 — the honest pre-P50 baseline for both G5 length metrics); (3)
+  the merge composer could not compose the new banks (validator-
+  whitelisted, zero examples, fail-silent — the S9-unwired-leg class)
+  → composer branches + arc longform plumbing + the fail-loud
+  RuntimeError (verified OUTSIDE the per-file try, so it aborts the
+  merge as intended). P2s folded: extractor round-trip hardening v1
+  (backslash-first decode, newline/tab-safe literals, both-brace
+  assert), validator content-field laws, the s8 flavor field, the
+  prompt_format emitter-staging skip.
+- Round 3 (3 rotated reviewers, six mandates — the gate): **ZERO
+  P0/P1** across all three slots (the per-turn fix verified on all
+  four legs; the pacing arithmetic re-derived — a cued telling's
+  residual drip ≈ 11.5-16.5s after the generation credit; the
+  composer fail-loud verified uncaught; the restart path fails
+  NARROW). Post-gate P2 folds (S2/S8 precedent): the enum-compare
+  cast, the boundary comment, extractor control-byte hardening
+  (\r/\f/\v escaped + strict-\n split + a post-decode control-char
+  assert), the composer forbidden-set extension (every frozen S11
+  string is anti-echo corpus), the validator frozen-literal scan, and
+  mutant-site uniquification (+the BASE_E2B cap mutant).
+- Gates at close: **140 host gates green** (129 LLM-file gates: 19
+  player_surface + 29 act_tools + 33 recall + 9 truth + 10 banter +
+  8 a0 + 5 json + 5 prompt_format + 11 chatter; +9 sqlite-dialect +
+  2 lockfile pins); Kotlin green (LlmRuntimePolicyTest 23,
+  LlmModelRegistryTest 5 — including the --rerun verification);
+  mutation **22/22** (tmp/mutation_s11_final.log; the honest chain
+  15/16 → pin repair → 16/16 → round-2 additions → 19/20 → reader-pin
+  → 20/20 → uniquify+BASE → 22/22); all four lanes rebuilt at close,
+  lockfiles hash-fresh incl. the sqlite x86_64 lane verified manually
+  (27 entries, zero mismatches, each lane).
+- Model-measurement artifacts (C:\llm-lab\results\): n3 BOTH composites
+  (trained 6/6 families majority + S2 all-clean; legacy 5/6 with
+  adjust_sentiment 0.33 — the ledgered boundary family) —
+  n3_*_s11-round0_20260831-1756{16,02}.json; s8 175852 (the
+  FRAME-BEARING leg — all three flavors rendered in-prompt; n3 is
+  composite evidence only, restated per round-3 R4) and 194021 (the
+  close run: ASSOC 4/4 — one honest control-also-recalls note —
+  ceremony floor 5/5, events 3/3+3/3, jaccard 0.212, and the LONGFORM
+  baseline). No see-saw: the instrument's banklib prompts are
+  byte-verified unchanged across the session's edits.
+- Recorded conditions + deferred P2 ledger (binding the remainder):
+  (a) THE STAGE IS NOT CLOSED: the P45-P52 BANKS are unauthored and
+  the training arms (arm2′/arm1b′/2B) have not run — the G0-G5 gates
+  remain the stage's acceptance; everything landed this session is the
+  machinery those gates will exercise. (b) The prtools2/3/4+ambition
+  keyed-emote harness conversion (the G0 BLOCKER) is STILL OWED and
+  untouched. (c) PROVENANCE: the flavor-1/2 frames and the long-form
+  cue are AGENT-authored this session (flavor 0 byte-preserves the
+  research program's S8 wording; the rev-3b letter — freeze before
+  BANK authoring, banks + bridge move together — is mechanically
+  enforced, but no human has read the new wordings; flag at the next
+  owner review). (d) The storytelling/news-recall beats carry no
+  per-pair cooldown (accepted: the player's own message rate + the
+  governor bound them; the mandatesContent exemption is 1/min/bot).
+  (e) The S9-(m) "first line 6-8 s" device leg needs UNCUED scoping —
+  a cued telling lands post-decode by design (15-21 s decode + the
+  residual drip); scope it before the device run measures it. (f) n3
+  is composite evidence for the frames; s8 175852 is the frame-bearing
+  leg (cited accordingly above). (g) Mutation harness: the Kotlin kill
+  leg has no baseline (the standing S10-ledger (f) class) and the
+  restore is newline-normalized (inert — all six targets LF-verified).
+  (h) The exact-call LongFormLicensed regex pins COUNT, not a per-site
+  bijection (brittle to a benign hoist refactor; recorded). (i)
+  LlmModelRegistry.kt's mtime overlaps the native-fix window though
+  its content is verified fix-free (round-3 R1's traceability note).
+  (j) SayAction's delay-removal debug log prints the zeroed value
+  (pre-existing upstream shape, cosmetic). (k) banklib.fact_direct
+  duplicates the s8 harness mirror (the S8-ledger (l) inspection-only
+  class). (l) Device legs (S9-(m)/S10-(a) classes) all still pending
+  the device run; the cued-telling battery/latency legs ride it too.
+**VERDICT: S11 rounds 0-3 CONVERGED at zero P0/P1 (3 review rounds;
+the round-1 P0 dead-gate and the round-2 per-turn-budget/composer/
+measurement P1s all fixed with proof; 22/22 mutants; four lanes +
+lockfiles fresh; the wording lock now mechanical in BOTH directions
+and structural in the bank pipeline). The stage remains OPEN pending
+bank authoring P45-P52 and the retrain arms + G0-G5 gates (the G0
+harness blocker itself was cleared in round 4 and CONVERGED at zero
+P0/P1 through rounds 4b/4c — see the round-4 series below).**
+
+- Round 4 (the G0 blocker: keyed-emote harness conversion, 2026-08-31):
+  prtools2/3/4 + ambition converted (plus one adjacent rp-web line);
+  ledger (b) CLOSED and S6-ledger (j) fully discharged on both ends.
+  **What changed** - (1) prtools3.parse is now a line-by-line mirror of
+  the SHIPPED PlayerbotLlmToolsCore.h scanner: blocks open only at `<<`,
+  quote-and-nest-aware close with the plain-find fallback, unterminated
+  markers dropped, prose truncated at stray `>>`, the key scan accepts
+  quoted AND unquoted values with first-key-wins, and the S6-(j) fold
+  fires on exactly the C++ condition (perform_emote, no keyed fields,
+  single letters-only trailing token; multi-bare-token input folds the
+  scan's LAST dangling token, as the C++ loop does). The v3.0-era
+  mirrored-opener and short-name-alias tolerances (C++ patch candidates
+  that never landed) are REMOVED - they credited calls production drops.
+  (2) The emote resolve map is now ResolveTextEmote verbatim (19-name
+  whitelist, the shipped alias map, light morphology); the old harness
+  maps drifted (grin->laugh, smile->laugh, angry->no) and mis-scored
+  TRAINED emotes - grin/shrug/dance are whitelisted, smile resolves to
+  grin, angry to glare. The scored value is the resolved one (what the
+  game would play). (3) Fixed a LIVE dispatch-norm bug: run_case's
+  engine self-check parsed skeletons as bare (`ln.split()[-1]` on a
+  keyed skeleton yields `emote="cheer"`), so every emote case would
+  have reported ENGINE-MISS; extracted to dispatch_of(turn) and
+  verified against EXPECT_DISPATCH for all 13 cases. (4) prtools4's
+  four bridge skeletons keyed (win cheer / lose no / duel salute /
+  badnews cry); prtools4.py dry re-walked: 25 scenarios, 0
+  world-misses, 0 req-mismatches. (5) ambition D_TURNS specs now carry
+  full keyed skeleton insides via d_skeletons(); this also fixed two
+  latent bugs - the fire check compared the whole spec token
+  ("perform_emote laugh") against parsed NAMES (never matchable), and
+  the expander taught adjust_sentiment with an off-contract text=
+  field (the contract is reason=). (6) prtools2's v2 arm delegates to
+  the mirror and its V2_INSTR teaches the keyed line; the v1 arm stays
+  the frozen control (BLOCK_STRICT, no fold - that difference IS the
+  A/B) but scores through the shipped resolve. (7) rp-web's greet
+  skeleton keyed (adjacent, same class). **Mechanical locks**: new
+  tests/test_llm_prtools_harness.py (10 pins: the fold and its guards,
+  the resolve table, degenerate-block parity, dispatch_of vs
+  EXPECT_DISPATCH, both prtools2 arms, prtools4 skeletons, ambition
+  expansion, and a no-bare-literal source scan over all five files) -
+  plus a NEW harness-to-banklib lock: prtools3.TOOLS_NOTE is pinned
+  byte-equal to banklib.TOOLS_NOTE (verified equal; previously nothing
+  held the harness prompt to the trained wording). Synthetic smoke
+  tmp/prtools_keyed_smoke.py all-green; final.py (G1) and rp-web
+  import the shared parser, so they inherit the conversion. Historical
+  research harnesses (initiative/recallfix/tricks) deliberately left
+  untouched - their recorded artifacts were produced with those exact
+  files. Evidence: 150 pytest gates green (140 prior + 10 new), smoke
+  log in tmp/, dry 0/0.
+- Round 4b (panel round 1 fixes, 2026-08-31 — 0 P0 / 10 P1 across the
+  6 roles, all resolved or folded here): (1) **tricks.py IS in the G1
+  gate path** (final.py's calibration slice iterates tricks.TOOL_TURNS
+  into live prompts, 20% of arm-selection weight) — its two bare
+  skeletons keyed; tricks.py + final.py added to the no-bare source
+  scan (the scan had covered only the five converted files).
+  initiative/recallfix stay untouched (frozen research records, off
+  every gate path — G2 hard-creative has no tool syntax at all; the
+  G3 lane runs rp-web, keyed). (2) **Copy-fidelity framing fixed**: the
+  "score what the game would play" comment was wrong — production plays
+  the LICENSED line's value (PlayerbotLlmTools.cpp
+  PlayTextEmote(...LicensedField(licensedLine,"emote"))) and never
+  reads the model's copy; the harness charge on the model's resolved
+  value is a FORMAT-gate copy-fidelity check (stricter than playback,
+  plus alias-leniency: hello→wave passes the wave beat). Comments and
+  this record now say so — a G0 emote failure is NOT "the wrong emote
+  plays in game". (3) **Repair masking surfaced**: score() now prints
+  harness stamp + repair pressure + units-passing-with-zero-repairs
+  per model (the headline score counts post-repair attempts; G0 must
+  read the first-shot numbers separately). (4) **ambition D fills was
+  a near-tautology** (whole-fields-blob regex + `or len(blob) > 30`,
+  cross-turn keywords, "duel" listed twice) — replaced by per-row
+  regexes on the target call's OWN fill field via d_fill_ok()
+  (pinned). Also fixed in D: emote rows now copy keyed ready lines
+  (fire was name-only before and could never match an emote spec
+  token). (5) **Baseline comparability**: every run JSON now carries
+  harness=prtools3-v3.4-keyed (prtools2/3/4 + ambition); score()
+  prints UNSTAMPED for the frozen pre-conversion logs. SUPERSEDED:
+  all pre-conversion prtools2/3/4/ambition/final numbers (old parser
+  resurrected mirrored openers + short-name aliases, scored emotes
+  through a drifted resolve map, and prompted with bare skeletons) are
+  NOT comparable with post-conversion runs — including the G1 "final.py
+  ≥ .861" threshold, which must be re-derived on the first
+  post-conversion run of the SAME baseline model before it gates
+  anything. (6) **prtools2's A/B recharacterized**: V1_INSTR is the
+  RETIRED S2-era production contract (A7 replaced it with the
+  note-driven TOOLS_NOTE); on v2.3 the v1 arm measures self-dispatch
+  suppression under a retired contract (an example-bleed signal), not
+  production tool skill — comment updated; v2 (matches v2.3 training)
+  is the meaningful arm. (7) **Doubled-line divergence killed**:
+  production ExtractAndQueue queues EVERY licensed call (a doubled
+  emote would play twice); prtools4's digest dedup (falsely commented
+  as a production rule) silently credited doubles — removed, so
+  check_turn's dup charge lives and prtools4 now agrees with prtools3;
+  needs_repair gained the dup guard so doubles earn the repair pass
+  (majority still decides). (8) **Mutation pass run** (the owed S10
+  law, skipped in round 4 and now disclosed): tmp/mutation_s11_r4.py —
+  16 mutants on the new pins (fold guards, alias/whitelist/suffix
+  table, dispatch_of, TOOLS_NOTE, dup guard, skeletons, V2_INSTR,
+  d_skeletons want, d_fill_ok length-escape, grammar separator, _SP
+  NBSP, trailing-trim), 16/16 killed, per-mutant byte-verified restore
+  + leftover sweep, log tmp/mutation_s11_r4.log. One designed mutant
+  was swapped after proving semantically equivalent (whitelist bypass
+  is shadowed by the plural-strip fallback — equivalent, unkillable,
+  replaced with an alias-map bypass). (9) **Phantom citation fixed**:
+  round 4 cited a "smoke log in tmp/" that was never persisted — all
+  four artifacts now exist: tmp/prtools_keyed_smoke_r4.log,
+  tmp/prtools4_dry_r4.log, tmp/pytest_llm_r4.log,
+  tmp/mutation_s11_r4.log. (10) P2 folds: ASCII C-locale semantics
+  (NBSP glues the name; Kelvin-sign case-folding mints nothing),
+  cleaned trims trailing \n/space only (leading + tabs stay, like the
+  C++), sorted(EMOTE_ALLOWED) in the morphology scan (kills set-order
+  nondeterminism), the GBNF `"\n+"` literal-plus separator bug in
+  grammar_for/cont_grammar (`("\n" "\n"* ...)` now), f6's unanchored
+  `no` → `\bno\b` (prtools3 + final.py's LONG t26), prtools2 v1
+  category-expectation skip + the dead `forbid ["laugh"]` entry
+  recorded as accepted legacy. Precision on round 4's record:
+  prtools3's TOOLS_NOTE and trigger skeletons were ALREADY keyed by
+  the Aug-25 half-conversion (the round's contribution there is the
+  banklib equality pin + the dispatch-norm fix, not the keying).
+  Evidence: 156 pytest gates (140 + 16 pins), smoke all-green (both
+  logs), dry 25/0/0, mutation 16/16.
+- Round 4c (panel round 2 folds, 2026-08-31 — round 2 returned 0 P0 /
+  1 P1 / ~29 P2 across the six roles): (1) **P1 closed — final.py
+  (the G1 instrument) joined the stamp/archive regime**: its result
+  JSON now carries harness=prtools3-v3.4-keyed, run() archives any
+  unstamped logs/final/<tag>.json to <tag>-pre-keyed-archived.json
+  instead of overwriting it (fail-loud if the archive exists), and
+  table() prints an UNSTAMPED/not-comparable marker under pre-keyed
+  rows — the .861 threshold's provenance can no longer be silently
+  destroyed or mixed. (2) One real mirror hole found by TWO roles
+  (R1+R3): prtools3's quoted-value CLOSE check still used unicode
+  .isspace() (an inner quote + NBSP closed the value in Python but
+  not in the C++) — now `in _SP`; pinned (inner-quote+NBSP case) and
+  mutation-covered (17th mutant; the pass is 17/17,
+  tmp/mutation_s11_r4.log). (3) prtools4.check_turn gained the
+  resolves guard prtools3 has (unresolved raw values no longer pass
+  beats on substring) — the same emission now scores the same in
+  both sections of the G1 battery. (4) prtools.py's FIT f6 regex
+  was the third unanchored `cry|no` site (prtools2 imports FIT for
+  live scoring, so the frozen-research file WAS gate-path) —
+  anchored `cry|\bno\b` like prtools3/final; disclosed edit to an
+  otherwise-frozen file. (5) score() surfaces everywhere: prtools2
+  + prtools4 score() print the harness stamp (prtools2 also prints
+  the v1-arm retired-contract annotation); prtools3's first-shot /
+  repair-pressure denominators now scope to the repairable tool
+  units (depth rows are single-shot voice checks). (6) Comments made
+  honest: prtools2's dead `arm=="v1" and False` now says fail-both;
+  prtools4's walk comment states log_fact doubles are neither
+  charged nor repaired and double-append to memories (mirroring
+  production's double-store). (7) Mutation script hardened:
+  try/finally restore (no mutant can survive an abort on disk) +
+  per-restore log lines. (8) Recorded from round-2 P2s: tricks.py's
+  own logs predate the keying (provenance cut point — tricks was
+  edited 2026-08-31 after its recorded runs); prtools5.py is
+  referenced by nothing (off every path); the "tools ≥ .93"
+  per-family gate is measured by the repo tools/llm_lab battery
+  (banklib-driven, independent of the bench-harness parsers), so it
+  does NOT inherit the bench-harness supersession; the
+  dispatch_of-duplicate-name latent and the two textual (vs
+  behavioral) mutation kills stay recorded as accepted; artifacts
+  should be persisted BEFORE the record citing them next round
+  (round-2 P3: docs were saved before the logs). Evidence: 156
+  pytest gates, smoke ALL CHECKS PASSED (tmp/prtools_keyed_smoke_
+  r4.log), dry 25/0/0 (tmp/prtools4_dry_r4.log), mutation 17/17
+  (tmp/mutation_s11_r4.log), battery log tmp/pytest_llm_r4.log.
+- Round 4 CONVERGED (panel round 3, 2026-08-31): all six roles at
+  ZERO P0/P1 (R1 byte-diffed the mirror against the compiled C++ on
+  50 probes - diverge 0, "byte-faithful everywhere"; R2 confirmed
+  its final.py P1 fully resolved; R3/R4/R6 re-ran every artifact
+  green; R5's cross-battery parity matrix converged on every probe).
+  Post-gate P2 folds applied with proof: (a) the master plan's G0
+  bullet carried a stale 16/16 mutation count (round-4c refresh
+  missed it) - now current; (b) the UNSTAMPED fallback string was
+  missing its closing paren in three score() sites - fixed; (c) R5's
+  real parity find: prtools4.check_turn charged a bare-tone extra
+  adjust_sentiment that prtools3.check_case forgives (the production
+  F6 mood-tag drop - the bridge silently discards a bare tone-label
+  sentiment with no ledger event), splitting final.py's own tools vs
+  chain/long sections on one emission - prtools4 now carries the
+  same F6-mirror exception, pinned by
+  test_bare_tone_extra_sentiment_parity and mutation-covered (18th
+  mutant; the pass is 18/18). Recorded as accepted (P2 ledger for
+  the G0/G3 prep): prtools2's fit scorer stays dup-blind (both A/B
+  arms lenient symmetrically; its role is the v2-contract arm);
+  final.py overwrites a STAMPED live file on re-run without
+  archiving (only unstamped pre-keyed baselines are protected - the
+  version-mismatch archive is G0-prep work); battery_report.py
+  reads by exact filename and ignores the harness stamp (flag when
+  the .861 re-derivation runs); rp-web routes G3 turns through
+  initiative.digest, which still name-dedups (the non-production
+  rule removed from prtools4) - sim-behavior only, no scoring rides
+  on it; two of the 18 mutation kills remain textual rather than
+  behavioral (the grammar spelling + TOOLS_NOTE source-scan kills).
+  FINAL STATE: 157 pytest gates (140 + 17 harness pins), smoke
+  all-green, dry 25/0/0, mutation 18/18, both wording locks fresh.
+  The G0 harness blocker stands CLEARED; the G0 gate itself remains
+  unrun (banks + checkpoints are the next session's work).
+- Round 5 (BANK AUTHORING P45-P54, 2026-09-01, three owner-cut
+  segments — see the provenance note below; the round-5 execution
+  briefs are LLM-BANK-AUTHORING-BRIEF.md + -R2.md and the two
+  HANDOFF-R3/R4 progress files at the repo root):
+  **THE OWNER DIRECTIVE (2026-09-01, carried through all three
+  segments, binding amendment to §5.1's API-drafter protocol)**:
+  drafters are AGENTS THE AUTHORING AGENT SPAWNS (general-purpose
+  subagents, foreground, one parallel message per wave) — NEVER
+  llama-server, local GGUF, or any external LLM API. Multi-source
+  (§5.1a) = >=2 spawned drafter agents per bank with disjoint opener
+  menus and fresh prose; the §5.1d per-provider reject log becomes a
+  per-DRAFTER-AGENT reject log tracked by part-file origin; ToS
+  (§5.1b) is sidestepped entirely (house agents, no provider terms).
+  Every drafter read the shared law sheet
+  (finetune-data/drafts/SPEC_common.md) + its card bibles + a
+  structure seed, wrote ONE part file under drafts/, and returned
+  counts only. Precedent: B13 (owner mid-campaign engine switch).
+  **BANKS LANDED (all validate CLEAN, all 13-gram gates 0 vs the
+  frozen corpus):**
+  | bank | rows | notes |
+  |---|---|---|
+  | P45_entity_hedge | 492 (396 guard + 96 free) | earlier segment; held-out nonces never trained (4 rows merge-dropped); P21(h) inside |
+  | P46_era_deflection | 300 free | earlier segment |
+  | P47_card_grounded_lore | 500 poi | earlier segment; spans sample the shipped 289-1102-char spread |
+  | P48_associative_recall | 300 memory | earlier segment |
+  | P50_longform | 600 longform | earlier segment |
+  | P51_depth_arcs | 300 arcs / 3,886 turns / 12 cards | this segment (waves A-D below) |
+  | P52_ambient_barks | 192 murmur / 8 cards | this segment; L3c 8-20w |
+  | P53_persona_sessions | 60 sessions / 825 turns / 10 cards | this segment; persona-locked 12-16 turns |
+  | P54_topups | 590 rows / 4 companion cards | this segment; q08 + protocol + nickname + A16/A17 |
+  **P21(h) hedge-then-guess rework DONE (the only rework of landed
+  v2.2 content):** THREE rows, all in P21B (ayamiss ~line 339,
+  sartura ~line 425 found by widened sweep, fankriss ~line 899) —
+  each reworked in place to honest-hedge + deny + pivot-to-source;
+  P21J:815 checked and is a correct era-trap denial (not a target).
+  No other hedge shapes exist in P21* (sweep terms: hazard / don't
+  know the name / sounds like one of those / can't say i know /
+  never heard of).
+  **P49 = REPORT BLOCKER, ZERO ROWS authored.** No banklib bank shape
+  can express the enum-classifier sub-call (P49 is a separate
+  grammar-locked generation path, not a reply-bearing row); banklib /
+  validate_banks / compose_banks are shared tooling and off-limits to
+  authoring agents; and the §5 table's "already queued (Qwen intent
+  gap)" claim is FALSE — P49 rows exist nowhere (verified: no
+  claim=/verdict= enum rows in any bank). Decision owed to the owner:
+  either a coordinated banks+bridge change adding a classifier row
+  shape to banklib (with re-emission), or strike P49 from the §5
+  manifest. Not forced.
+  **P53/P54 numbering decisions (recorded per R2 §2):** the §5
+  table's un-numbered "persona-locked sessions" row became
+  **P53_persona_sessions** (10 cards x 6 sessions, one persona
+  start-to-finish — the .778->.5 persona-dip fix); the targeted
+  top-ups bundle became **P54_topups** (4 companion cards:
+  ~120 protocol rows of adjust_sentiment q08-gap beats + cross-family
+  token-mass, ~30 nickname-adoption free rows, ~20 A16
+  meetup-initiation events rows, ~20 A17 dusk-appointment memory
+  5-tuples).
+  **P51 construction (the round's core):** waves A-D, 24 spawned
+  drafter agents. Wave A: 6 cards x 18 arcs (betrayal->restitution,
+  rescue, long-lost-friend, mourning). Wave B: rumor investigation +
+  bar-story contest. Wave C: the 4 COMPANION cards, camp/travel arcs
+  with B10 ACT tools (duel_challenge/give_item/follow/party_invite/
+  move_to/loot_roll) mid-arc. Wave D (the plan's ~300-arc target):
+  +7 arcs per card on all 12 prefixes, each drafter script-banned
+  from every opener its landed part used and 6-gram-checked against
+  all 12 landed parts. Per arc: 12-14 turns, >=3 planted callback
+  tokens reused at turns 8+, 2-3 base tool turns mid-arc (+1-2 ACT on
+  companions — see deviations), exactly one 80-150w tool-free cued
+  longform turn with a third-person longform_facts entry, guid
+  cycling 0/1/2. Merge: tmp/merge_parts.py (24 parts in numeric
+  order; two round-5 tooling fixes were needed for session banks —
+  session dicts passed through un-tupled, string tool fields split to
+  lists — tmp/ scripts only, no shared tooling touched).
+  **P53 construction:** 5 agents x 2 cards x 6 sessions; sessions are
+  exempt from the opener/L5 passes by design but DO count toward L4
+  and the L11 register floors — the floors PASS package-wide
+  (messy ~99% / abbrev ~36% / emote ~18% / jargon ~7-8% / confused
+  ~8% over 825 player lines; floors 40/15/10/5/5) after a spawned
+  edit agent normalized 149 player emote lines to the strict
+  RP_EMOTE whitelist forms.
+  **P54 + the protocol-share floor:** the first 190-row version left
+  the corpus protocol share BELOW the standing floor (measured 13.53%
+  vs the 14.83% baseline — the rule "top up to at or above the
+  previous proportion" is binding), so +400 protocol rows were
+  drafted (2 more agents, 200 each: 50/50 adjust_sentiment +/-
+  with substantive act-tied reasons, log_fact, share_gossip, and
+  every ACT form, per card) with a snapshot-based delta gate
+  (drafts/P54_presnapshot.py = the frozen side). Final measured
+  share **16.54%** (floor met) and long-row share **15.13%** (inside
+  the 10-20% budget; 150-word hard cap holds corpus-wide).
+  **Phrase ledger (B3 reworks, in place):** baseline 47 actionable
+  idioms -> 96 after authoring -> 91 after rework. The named
+  LEDGER_AVOID stock tics (first light, hold still, take your time,
+  sit and let, rinse the cut, hold steady, twice over, next pull)
+  were briefed into every drafter and have ZERO new occurrences in
+  editable rows (one 'twice over' session occurrence found and
+  reworded; 'twice over' x12 at string level sits in authored arc
+  docs, which B3 skips). The growth 47->91 is proper nouns (booty
+  bay, sentinel hill...) + a threshold artifact: sessions added 60
+  editable docs, pushing content phrases (razor hill, honest work,
+  grog row) over the editable-df>=6 line — six filler shapes that
+  DID pick up editable docs ('which is the only', 'honest work',
+  'whole trick', 'strong word', 'third step', 'next week') were
+  reworked in the sessions (17 edits).
+  **GATES:** per bank validate_banks CLEAN; 13-gram vs frozen
+  corpus 0 for every bank at its pre-compose gate; frozen-6g
+  0 after fix passes (P51: 53 rows reworded by a spawned edit agent;
+  P52: 2; P54: 9 + 15 delta). panel batch: R6's live dup pairs
+  (11, all hidden behind session rows the merge dedup cannot see)
+  and the mulgore opener violation fixed by content rewords
+  (tmp/panel_fixes_p53.py, panel_fixes_p53b.py, panel_fixes_p54.py,
+  panel_fixes_p51.py); final reconstructed-frozen gate
+  (tmp/s11_final_gate.log, frozen side = P01-P50 bank files because
+  compose had already run): 13g 0 everywhere; residual 6g (P51 13
+  replies, P54 1 row) all inside the compose dup-vs drop sets — zero
+  live.
+  **COMPOSE (disclosed deviation): compose_banks ran THREE times** —
+  once at the plan's end-gate, a second time because the P54 protocol
+  top-up was mandated by the share floor, a third after the panel fix
+  batch. The R3 §3 "exactly once" law exists to keep gate_new_banks'
+  frozen side pure; each recompose was preceded by in-file validation
+  and followed by the reconstructed-side gate above (13g 0), and the
+  third compose is the landing state. Final merge: **16,953 examples**
+  (train 16,144 / val 809), drops 280 (236 pre-existing old-bank dup
+  classes + 44 S11: P51 15 arcs, P52 0, P53 4 sessions forbidden-span,
+  P54 13) — every drop has reason + span in reports/P5X_report.json;
+  opener max 1.5% global.
+  **BATTERY + LOCKS:** 157 pytest gates green after the final compose;
+  emit_prompt_constants --check and extract_bridge_wording --check
+  fresh; prtools harness 17 passed — run BEFORE the work (pre-flight)
+  and after every edit pass and compose.
+  **6-REVIEWER PANEL (spawned agents, ONE message, R2 §6 roles):**
+  R1 data-methodology/budget, R2 lore+era, R3 validator+hygiene, R4
+  wording-lock+repo coupling, R5 evidence/process, R6 adversarial
+  dedup+bleed. Verdicts: R1-R5 PASS, R6 FAIL -> **ZERO P0**; the P1s
+  all fixed with proof this round: (1) R6: 11 live cross-file 6-gram
+  pairs + 3 live in-session pairs + a per-card opener violation, all
+  riding the session rows the merge dedup never registers — fixed by
+  content rewords (shared tooling untouched); (2) R3+R5: the P54 edit
+  pass had been SILENTLY REVERTED by the top-up re-merge (the bank
+  rebuilt from pre-edit parts) — re-applied and byte-verified present;
+  (3) R1: the evidence generator miscounted P53 (sessions=1, rows=61)
+  — fixed, regenerated; the owed per-drafter reject log written
+  (reports/S11_round5_rejects.json); (4) R1: 2 arcs ended ON a tool
+  turn — trailing tool lists stripped. R2/R4 P2 folds applied: era
+  nits ("photographed"->"measured", "postcard"->"card",
+  "telegraphs"->"signals", coffee->tea x4) and one cue-tail echo
+  ("tell it whole") reworded. R5's reject table (cited in the
+  rejects artifact): P51 5.0% arcs, P52 0%, P53 6.7% sessions,
+  P54 2.2% rows.
+  **Evidence artifacts (all persisted BEFORE this record):**
+  reports/S11_round5_baseline.json (pre-authoring: locks green,
+  13,673-example corpus, protocol 14.83%, long 0.65%, P45 nonce pool
+  304/76, P21(h) set), reports/S11_round5_final.json (corpus
+  16,953 / protocol 16.54% / long 15.13% / per-bank words +
+  question rates: guard 50.8%, others 18-34%, P51 arcs 7.7%, P52
+  murmurs 2.1%; nonce statement: zero single-word held-out names in
+  any S11 bank), reports/S11_round5_rejects.json (per-drafter
+  table), reports/merge_report.json + P45-P54_report.json (drop
+  reasons), reports/phrase_ledger.json, tmp/p51_edit1.py +
+  p51_frozen6g_fixlist.txt + p51_gate1.log, p52_gate1.log,
+  p53_edit1.py, p53_ledger_edit.py, p54_edit1.py + p54_gate1.log,
+  panel_fixes_p5*.py, s11_final_gate.py + s11_final_gate.log.
+  **Provenance note (two off-peak interruptions):** the round spanned
+  three owner-cut sessions. Segment 1 landed P45-P48/P50 + P21B +
+  skeletons + baseline. Segment 2 dispatched wave A: 3 of 6 agents
+  landed, 2 died at spawn (off-peak ticket expiry), 1 died after
+  reading with nothing on disk. Segment 3 (this record) re-dispatched
+  the 3 missing parts (one died AGAIN before writing — the
+  write-in-first-3-tool-calls survival law was added to every later
+  dispatch — then landed on retry), and lost one wave-D agent to a
+  provider rate limit (retried, landed). Per R4 §5: retry only the
+  missing parts; verify every wave by FILE EXISTENCE + ast.parse +
+  arc counts, never by summary.
+  **Provenance flag (S11-ledger (c), carried):** ALL round-5 rows are
+  machine-authored by spawned agents and HUMAN-UNREAD. The bibles,
+  the validator, the ledger, and the dedup gates bound them
+  mechanically, but no human has read the prose. FLAG FOR OWNER
+  SPOT-REVIEW: ~20 sampled rows across P51 arcs (one longform turn),
+  P52 murmurs, P53 sessions (one full session), P54 nickname rows —
+  plus the wave-D arc canon decisions (e.g. Norbin Cogspanner,
+  Gatecrasher/Coalkeeper/Duskbell nicknames) which are suite-canon
+  invented by the drafters.
+  **Deviations recorded (owner may overturn):** (a) compose ran three
+  times (above); (b) companion arcs carry 3-5 tool turns total
+  (base 2-3 + B10 ACT 1-2) vs the §5.1 "1-3 tool turns" line, bank
+  mean 2.68 base + ACT — the ACT lines ARE the dilution compensation
+  the same plan mandates; (c) P51 landed 300 arcs (plan ~300) after
+  wave D, with 15 lost to compose dup-vs drops -> 285 corpus arcs;
+  (d) P53 landed 60 sessions, 4 dropped forbidden-span -> 56 corpus.
+  **VERDICT: S11 round 5 CONVERGED at zero P0/P1 (one panel round;
+  the R6 opener/dedup P1s, the R3+R5 edit-revert P1, and the R1
+  evidence/accounting P1s all fixed with proof). THE STAGE REMAINS
+  OPEN for the retrain/gates agent: run arm2' + arm1b' + the open 2B
+  arm from the composed corpus (16,953 examples, train 16,144 /
+  val 809), then G0-G5 (re-derive the G1 threshold on the first
+  post-conversion baseline run), the P49 blocker decision, and the
+  owner spot-review of the machine-authored rows. NOTHING IS
+  COMMITTED.**

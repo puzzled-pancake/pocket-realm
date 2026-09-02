@@ -814,6 +814,12 @@ class InputContract(
      * Atomically claim a neutral generation and enqueue the complete
      * username-Tab-password-Enter sequence. Mapping/capacity/lifecycle failure
      * injects zero events, so credentials can never be partially accepted.
+     *
+     * [effectiveUiScale] is the UI scale enforced into this launch's
+     * Config.wtf: the login widgets anchor around the window centre, so their
+     * offsets from centre grow with the scale. The tap fractions were
+     * measured at scale 1.0; folding the scale into the centre-relative part
+     * keeps them on the widgets (bit-identical at 1.0).
      */
     fun queueSinglePlayerAutoLogin(
         username: String,
@@ -823,6 +829,7 @@ class InputContract(
         loginWindowY: Int = 0,
         loginWindowWidth: Int = 1920,
         loginWindowHeight: Int = 1080,
+        effectiveUiScale: Float = 1f,
     ): Boolean {
         val mappedUsername = ImeCharMap.map(username)
         val mappedPassword = ImeCharMap.map(password)
@@ -840,8 +847,10 @@ class InputContract(
                 imeQueue.addLast(ImePulse(
                     keyCode = null,
                     gapAfterMs = fieldSettleMs,
-                    pointerX = loginWindowX + (loginWindowWidth * xFraction).toInt(),
-                    pointerY = loginWindowY + (loginWindowHeight * yFraction).toInt(),
+                    pointerX = loginWindowX +
+                        (loginWindowWidth * (0.5f + (xFraction - 0.5f) * effectiveUiScale)).toInt(),
+                    pointerY = loginWindowY +
+                        (loginWindowHeight * (0.5f + (yFraction - 0.5f) * effectiveUiScale)).toInt(),
                 ))
             }
             fun enqueueMapped(result: ImeCharMap.ImeCommitResult) {

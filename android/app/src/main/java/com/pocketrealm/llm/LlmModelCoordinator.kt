@@ -7,6 +7,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.security.MessageDigest
 
 /**
@@ -58,22 +59,27 @@ object LlmModelCoordinator {
     )
 
     /**
-     * Primary: Unsloth Gemma 4 E2B it-qat UD-Q4_K_XL. Fallback: official QAT
-     * Q4_0. Sizes/hashes must be re-verified against the published repo when
-     * the download UI ships; the backend refuses to load a model that fails
-     * verification regardless.
+     * The selectable models live in [LlmModelRegistry]; this alias keeps the
+     * download machinery's historical name. Since the S4 default flip the
+     * DOWNLOAD default is deliberately still the base model (the only
+     * descriptor with a URL); the SELECTED default is the registry's
+     * TUNED_E2B (hand-staged until §4.2 decides distribution). Callers
+     * choosing a model must pass the settings-derived descriptor, not
+     * this default.
      */
-    val primaryModel = ModelDescriptor(
-        fileName = "gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
-        url = "https://huggingface.co/unsloth/gemma-4-E2B-it-qat-GGUF/resolve/main/" +
-            "gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
-        size = 2_815_000_000L,
-        sha256 = "",
-    )
+    val primaryModel: ModelDescriptor = LlmModelRegistry.BASE_E2B.let {
+        ModelDescriptor(fileName = it.fileName, url = it.url, size = it.size, sha256 = it.sha256)
+    }
 
     /** Absolute path the native runtime expects (AiPlayerbot.LLMModelPath). */
     fun modelPath(context: Context, descriptor: ModelDescriptor = primaryModel): File =
         File(File(context.filesDir, "models"), descriptor.fileName)
+
+    /** The staged file for a registry descriptor, selected by settings id. */
+    fun modelPathFor(context: Context, modelId: String?): File =
+        modelPath(context, LlmModelRegistry.byId(modelId).let {
+            ModelDescriptor(fileName = it.fileName, url = it.url, size = it.size, sha256 = it.sha256)
+        })
 
     /** The verified model file, or null when it is absent or unverified. */
     fun modelIfVerified(
@@ -88,11 +94,14 @@ object LlmModelCoordinator {
     /**
      * Blocking download; run from a worker thread/foreground service. Returns
      * the verified model file. Reuses a verified copy without network use.
+     * [isCancelled] is polled per chunk so a cancel actually stops the
+     * transfer (OkHttp reads are blocking; coroutines cannot preempt them).
      */
     fun download(
         context: Context,
         descriptor: ModelDescriptor = primaryModel,
         onProgress: (Long) -> Unit = {},
+        isCancelled: () -> Boolean = { false },
     ): File {
         modelIfVerified(context, descriptor)?.let { verified ->
             onProgress(verified.length())
@@ -105,7 +114,7 @@ object LlmModelCoordinator {
         val partial = File(dir, descriptor.fileName + ".part")
         val etagFile = File(dir, descriptor.fileName + ".etag")
 
-        if (partial.isFile && partial.length() >= descriptor.size) partial.delete()
+        if (partial.isFile && partial.length() > descriptor.size) partial.delete()
         var start = partial.length()
         var etag = if (start > 0 && etagFile.isFile) etagFile.readText().takeIf { it.isNotBlank() } else null
         if (start == 0L) {
@@ -113,18 +122,34 @@ object LlmModelCoordinator {
             partial.delete()
         }
 
-        var resolved = resolveRedirects(descriptor.url)
-        var attempt = streamToPartial(resolved, descriptor, start, etag, partial, onProgress)
-        if (attempt == StreamResult.EXPIRED && start > 0) {
-            // signed CDN URL went stale mid-resume: re-resolve the original
-            // huggingface.co resolve URL and retry once from scratch
-            AppLog.i(TAG, "signed model URL expired, re-resolving")
+        var resolved = descriptor.url
+        // a partial already matching the pinned size was fully streamed by a
+        // previous run that died before rename (the checksum pass over the
+        // full file is a tens-of-seconds window): verify and adopt it instead
+        // of deleting and re-downloading the whole file. Only a strictly
+        // oversize partial (corruption) is discarded above.
+        var attempt = if (partial.isFile && partial.length() == descriptor.size)
+            StreamResult.DONE
+        else {
+            resolved = resolveRedirects(descriptor.url)
+            streamToPartial(resolved, descriptor, start, etag, partial, onProgress, isCancelled)
+        }
+        if (attempt == StreamResult.EXPIRED) {
+            // a signed CDN URL is stale or being rejected regardless of
+            // resume state: the FIRST get of a freshly resolved URL can also
+            // come back 403/412 (repo gated/removed between the HEAD probe
+            // and the GET). Re-resolve the original huggingface.co resolve
+            // URL and retry once from scratch.
+            AppLog.i(TAG, "model URL rejected (403/412), re-resolving")
             partial.delete()
             etagFile.delete()
             etag = null
             start = 0
             resolved = resolveRedirects(descriptor.url)
-            attempt = streamToPartial(resolved, descriptor, start, null, partial, onProgress)
+            attempt = streamToPartial(resolved, descriptor, start, null, partial, onProgress, isCancelled)
+            if (attempt == StreamResult.EXPIRED) {
+                error("model URL rejected (403/412) after re-resolve — is the repo gated or removed?")
+            }
         }
         if (attempt == StreamResult.FAILED) error("model download failed")
 
@@ -154,6 +179,7 @@ object LlmModelCoordinator {
         etag: String?,
         partial: File,
         onProgress: (Long) -> Unit,
+        isCancelled: () -> Boolean,
     ): StreamResult {
         val host = url.toHttpUrlOrNull()?.host ?: error("invalid URL: $url")
         check(host in allowedHosts + extraAllowedHosts) { "model host refused: $host" }
@@ -167,6 +193,16 @@ object LlmModelCoordinator {
             val body = requireNotNull(response.body) { "empty body" }
             val append = start > 0 && response.code == 206
             if (!append && start > 0) partial.delete()
+            // persist the validator immediately: a resume after an interrupted
+            // first attempt must send If-Range, not a bare Range that could
+            // append to a replaced upstream file. A 206 that does not echo an
+            // ETag must NOT blank the validator saved by the earlier attempt
+            val validator = response.header("ETag")
+            if (validator != null || !append) {
+                File(partial.parentFile, partial.nameWithoutExtension + ".etag").let { sidecar ->
+                    if (!sidecar.isDirectory) sidecar.writeText(validator ?: "")
+                }
+            }
             var written = if (append) start else 0L
             FileOutputStream(partial, append).use { output ->
                 val input = body.byteStream()
@@ -174,15 +210,16 @@ object LlmModelCoordinator {
                 while (true) {
                     val read = input.read(buffer)
                     if (read < 0) break
+                    if (isCancelled()) {
+                        output.fd.sync()
+                        throw IOException("model download cancelled")
+                    }
                     output.write(buffer, 0, read)
                     written += read
                     check(written <= descriptor.size) { "model exceeds size cap" }
                     onProgress(written)
                 }
                 output.fd.sync()
-            }
-            File(partial.parentFile, partial.nameWithoutExtension + ".etag").let { sidecar ->
-                if (!sidecar.isDirectory) sidecar.writeText(response.header("ETag") ?: "")
             }
             return StreamResult.DONE
         }

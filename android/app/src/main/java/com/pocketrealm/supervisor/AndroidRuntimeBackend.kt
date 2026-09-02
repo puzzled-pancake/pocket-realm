@@ -33,9 +33,12 @@ import com.pocketrealm.client.VulkanDriverCatalog
 import com.pocketrealm.client.VulkanDriverKind
 import com.pocketrealm.database.DatabaseService
 import com.pocketrealm.database.IDatabaseControl
+import com.pocketrealm.llm.LlmModelCoordinator
+import com.pocketrealm.llm.LlmRuntime
 import com.pocketrealm.log.AppLog
 import com.pocketrealm.server.IRealmControl
 import com.pocketrealm.server.IWorldControl
+import com.pocketrealm.server.LlmRuntimePolicy
 import com.pocketrealm.server.PreparedDataStore
 import com.pocketrealm.server.RealmRuntimeService
 import com.pocketrealm.server.WorldRuntimeService
@@ -240,8 +243,9 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                     "LAN host interface disappeared before world start"
                 }
                 json(world.api().claim(owner.sessionId, owner.instanceToken, ownerLease))
-                val nearbyInteractTriggerGuardMs = Settings(appContext).flow.first()
-                    .nearbyInteractTriggerGuardMs
+                val snapshot = Settings(appContext).flow.first()
+                val nearbyInteractTriggerGuardMs = snapshot.nearbyInteractTriggerGuardMs
+                ensureLlmRuntime(snapshot, profileId)
                 when {
                     BotProfiles.find(profileId) != null ->
                         json(world.api().startBotProfileAt(
@@ -303,6 +307,64 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         val saved = json(world.api().save())
         RuntimeActionResult(saved.getBoolean("ok"), saved.optString("error"))
     }
+
+    /**
+     * Start or stop the LLM runtime (:llm process) per the LLM submenu
+     * setting, immediately BEFORE the world server claims its memory — the
+     * measured ordering rule (start the runtime before the game container
+     * claims RAM). With the runtime disabled, or the model GGUF absent, the
+     * service is stopped; ServerRuntimeFiles independently emits LLMEnabled
+     * only when the runtime is enabled AND the model is present, so the conf
+     * and the running process can never disagree.
+     */
+    private fun ensureLlmRuntime(snapshot: Settings.Snapshot, profileId: String) {
+        // S10/E6: the chatter power refresher runs in BOTH modes (embedded
+        // and external) - it only writes when the ambience switch is on,
+        // and the native layer degrades to silence when the file goes
+        // stale, so a dead refresher is always fail-safe. Started here so
+        // every world start (re)arms it with the freshest epoch.
+        runCatching {
+            com.pocketrealm.server.ChatterPowerMonitor.startPeriodic(appContext) {
+                runCatching {
+                    com.pocketrealm.storage.Settings(appContext).blockingSnapshot().llmAmbience
+                }.getOrDefault(false)
+            }
+        }
+        val model = LlmModelCoordinator.modelPathFor(appContext, snapshot.llmModelId)
+        // Only bot profiles consume the runtime: normal/integrated starts pin
+        // AiPlayerbot.LLMEnabled = 0 in their conf, so pre-claiming the model
+        // memory there would cost the coexistence budget for nothing.
+        // External-endpoint mode never runs the embedded server either — the
+        // stop branch actively reclaims any leftover :llm process from a
+        // previous embedded session, matching ServerRuntimeFiles' external
+        // conf emission so the conf and the running process never disagree.
+        val botProfile = BotProfiles.find(profileId) != null
+        if (!snapshot.llmEnabled || snapshot.llmExternalMode || !botProfile || !model.isFile) {
+            LlmRuntime.stop(appContext)
+            return
+        }
+        val config = LlmRuntimePolicy.runtimeConfig(
+            snapshot,
+            model.absolutePath,
+            // §4.4: stage the non-thinking chat template override so the
+            // service's warm-up probe can retry a thinking template with
+            // --chat-template <staged content> (same single source as
+            // LlmScreen's Start-now)
+            LlmRuntimePolicy.stageChatTemplate(appContext),
+        )
+        AppLog.i(TAG, "starting LLM runtime (${snapshot.llmComputeMode}) before world start")
+        LlmRuntime.start(appContext, config)
+    }
+
+    override suspend fun setCompanionMode(owner: ComponentOwner, enabled: Boolean): RuntimeActionResult =
+        withContext(Dispatchers.IO) {
+            val status = observation(RuntimeComponent.WORLD, json(world.api().status()), "READY")
+            if (status.owner != owner) {
+                return@withContext RuntimeActionResult(false, "world ownership mismatch; companion mode withheld")
+            }
+            val result = json(world.api().setCompanionMode(if (enabled) 1 else 0))
+            RuntimeActionResult(result.getBoolean("ok"), result.optString("error"))
+        }
 
     override suspend fun provisionAccount(
         owner: ComponentOwner,
@@ -378,6 +440,8 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                 DatabaseStartPreparation.Action.RESUME_MIGRATIONS,
                 DatabaseStartPreparation.Action.APPLY_PINNED_MIGRATIONS ->
                     json(database.api().applyPinnedMigrations())
+                DatabaseStartPreparation.Action.PROVISION_SQLITE_PROVIDER ->
+                    json(database.api().provisionSqliteProvider())
                 DatabaseStartPreparation.Action.RECOVER_DIRTY_GENERATION ->
                     json(database.api().recover())
                 DatabaseStartPreparation.Action.READY -> return
@@ -615,6 +679,11 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                 rendererPackageId.orEmpty(),
                 displaySelection.profile.id,
                 displaySelection.frameCap.fps,
+                // The same snapshot the client runtime's prepare merges into
+                // this launch's Config.wtf — the login screen the auto-login
+                // taps drive renders with exactly this scale (per-profile
+                // clamped, 1f when the UI scale is unmanaged).
+                runtimeSettings.effectiveClientUiScale(displaySelection.virtualHeight) ?: 1f,
             ))
             check(prepared.getString("displayProfileId") ==
                 displayPrepared.getString("displayProfile") &&

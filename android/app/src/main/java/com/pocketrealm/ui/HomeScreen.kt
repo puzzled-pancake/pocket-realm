@@ -58,6 +58,7 @@ import com.pocketrealm.client.RendererPackageCatalog
 import com.pocketrealm.client.VulkanDriverCatalog
 import com.pocketrealm.client.UserVulkanDriver
 import com.pocketrealm.client.UserVulkanDriverRegistry
+import com.pocketrealm.client.UserVulkanDriverResolution
 import com.pocketrealm.realm.RealmState
 import com.pocketrealm.realm.ClientLaunchState
 import com.pocketrealm.service.RealmService
@@ -70,6 +71,21 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/**
+ * True when any database provider has completed a verified bootstrap, i.e.
+ * the world data exists and a start will not pay the minutes-long first
+ * preparation. The SQLite lane seals `sqlite-initialized.json`; the legacy
+ * MariaDB lane seals `initialized.json` (DatabaseEngine writes both only
+ * after their bootstrap verified). Checking only the MariaDB seal made
+ * every start on a SQLite realm look like a first start, offering to
+ * "create the realm database" over an initialized world.
+ */
+private fun databaseBootstrapped(context: android.content.Context): Boolean {
+    val root = StorageRoots.get(context).databaseRoot
+    return File(root, "sqlite-initialized.json").isFile ||
+        File(root, "initialized.json").isFile
+}
 
 /**
  * Landscape-first launch dashboard (brief §58): Home answers what will start,
@@ -103,7 +119,7 @@ fun HomeScreen(
     val clientUnavailableReason = if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
         when (settingsSnapshot.selectedArmRendererId()) {
             ArmClientRendererCatalog.AUTO_ID -> null
-            "dxvk" -> VulkanDriverCatalog.availabilityForPair(
+            "dxvk" -> UserVulkanDriverResolution.availabilityForPairPreflight(
                 settingsSnapshot.effectiveVulkanDriverId(),
                 settingsSnapshot.selectedDxvkPackageId(),
                 ArmRendererAuto.isAdrenoGpu(),
@@ -202,7 +218,7 @@ fun HomeScreen(
         if (settingsSnapshotState == null) return@startRealmOnly
         scope.launch {
             val initialized = withContext(Dispatchers.IO) {
-                File(StorageRoots.get(context).databaseRoot, "initialized.json").isFile
+                databaseBootstrapped(context)
             }
             if (initialized) {
                 performStart(includeClient = false)
@@ -216,7 +232,7 @@ fun HomeScreen(
         if (settingsSnapshotState == null) return@startRealmAndGame
         scope.launch {
             val initialized = withContext(Dispatchers.IO) {
-                File(StorageRoots.get(context).databaseRoot, "initialized.json").isFile
+                databaseBootstrapped(context)
             }
             if (initialized) {
                 pendingAutoEnterBase = displayHost?.generation ?: -1L
@@ -481,7 +497,7 @@ private fun RealmControlCard(
     var firstStartHint by remember(state) { mutableStateOf(false) }
     LaunchedEffect(state) {
         firstStartHint = state is RealmState.Starting && withContext(Dispatchers.IO) {
-            !File(StorageRoots.get(context).databaseRoot, "initialized.json").isFile
+            !databaseBootstrapped(context)
         }
     }
     val actions = homeActionAvailability(

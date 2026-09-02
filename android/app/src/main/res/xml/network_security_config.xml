@@ -1,4 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
+    <!-- The :llm runtime's health probe talks plain HTTP to the loopback
+         llama-server it supervises (127.0.0.1:8080/health). Without this
+         loopback-only carve-out the probe can never succeed: healthy stays
+         false, the NPU death counter never resets, and every NPU-mode child
+         exit is misattributed as a load death. No general cleartext egress
+         is permitted. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain>127.0.0.1</domain>
+        <domain>localhost</domain>
+    </domain-config>
 </network-security-config>

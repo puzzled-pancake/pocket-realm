@@ -168,9 +168,29 @@ class WorldRuntimeService : Service() {
                 .put("schema", 1).put("ok", true).put("component", "world")
         }
         override fun save() = guarded { transitionGate.run {
+            val saveStartedAt = SystemClock.elapsedRealtime()
             val rc = WorldNative.saveNative(ServerRuntimeContract.CONTROL_TIMEOUT_MS)
+            val saveAckMs = SystemClock.elapsedRealtime() - saveStartedAt
+            android.util.Log.i("PocketWorld", "saveall-ack code=${ServerRuntimeContract.errorName(rc.toLong())} durationMs=$saveAckMs")
             files.writeLifecycle("world", false, "save", ServerRuntimeContract.errorName(rc.toLong()))
             ServerStatusJson.operation("world", "save", rc)
+        } }
+        override fun setWorldPaused(paused: Int) = guarded { transitionGate.run {
+            val rc = WorldNative.pauseWorldNative(if (paused != 0) 1 else 0)
+            files.writeLifecycle("world", false,
+                if (paused != 0) "pause" else "resume",
+                ServerRuntimeContract.errorName(rc.toLong()))
+            ServerStatusJson.operation("world", if (paused != 0) "pause" else "resume", rc)
+        } }
+        override fun setCompanionMode(enabled: Int) = guarded { transitionGate.run {
+            // world pause + the full-residency LLM profile in one verb; the
+            // coexistence profile restores when leaving companion mode
+            val rc = WorldNative.setCompanionModeNative(if (enabled != 0) 1 else 0)
+            files.writeLifecycle("world", false,
+                if (enabled != 0) "companion-enter" else "companion-exit",
+                ServerRuntimeContract.errorName(rc.toLong()))
+            ServerStatusJson.operation("world",
+                if (enabled != 0) "companion-enter" else "companion-exit", rc)
         } }
         override fun stop() = guarded { transitionGate.run {
             stopAdmissionMonitor()
@@ -334,6 +354,7 @@ class WorldRuntimeService : Service() {
                 .put("worldHardStallsInWindow", performance[6])
                 .put("worldHardStallTotal", performance[7])
                 .put("worldLastHardStallElapsedMs", performance[8])
+                .put("dbProbeDelayMs", performance[9])
         } else {
             value.put("tickWindowSamples", 0)
                 .put("worldTickP50Ms", 0)
@@ -344,6 +365,7 @@ class WorldRuntimeService : Service() {
                 .put("worldHardStallsInWindow", 0)
                 .put("worldHardStallTotal", 0)
                 .put("worldLastHardStallElapsedMs", 0)
+                .put("dbProbeDelayMs", 0)
         }
 
         val statusMetrics = cachedMetrics ?: if (profile == null && bot[2] != 0L && performance != null) {
@@ -382,6 +404,7 @@ class WorldRuntimeService : Service() {
             .put("worldHardStallsInWindow", metrics.hardStallCount)
             .put("worldHardStallTotal", metrics.hardStallTotal)
             .put("worldLastHardStallElapsedMs", metrics.lastHardStallElapsedMs)
+            .put("dbProbeDelayMs", metrics.dbProbeDelayMs)
     }
 
     private fun startAdmissionMonitor(profile: BotProfile) {
@@ -436,6 +459,13 @@ class WorldRuntimeService : Service() {
         while (admissionEpoch.isCurrent(generation)) {
             try {
                 if (!admissionEpoch.isCurrent(generation)) break
+                // a paused world (companion mode) reports frozen tick metrics;
+                // withholding adaptation avoids the monitor misreading a
+                // deliberate pause as a hard stall
+                if (WorldNative.isWorldPausedNative() != 0) {
+                    Thread.sleep(ADMISSION_INTERVAL_MS)
+                    continue
+                }
                 val bot = WorldNative.botStatusNative()
                 if (!admissionEpoch.isCurrent(generation)) break
                 if (bot.size == BOT_STATUS_SIZE && bot[2] != 0L) {
@@ -559,6 +589,6 @@ class WorldRuntimeService : Service() {
         private const val ADMISSION_INTERVAL_MS = 10_000L
         private const val ADMISSION_JOIN_TIMEOUT_MS = 6_000L
         private const val BOT_STATUS_SIZE = 19
-        private const val PERFORMANCE_STATUS_SIZE = 9
+        private const val PERFORMANCE_STATUS_SIZE = 10
     }
 }

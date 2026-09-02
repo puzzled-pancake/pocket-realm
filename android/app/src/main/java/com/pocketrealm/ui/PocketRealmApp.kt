@@ -287,8 +287,10 @@ fun PocketRealmApp() {
                             onCapability = { navigatePush(navController, Screen.Capability.route) },
                             onDiagnostics = { navigatePush(navController, Screen.Diagnostics.route) },
                             onInGameSettings = { navigatePush(navController, InGameRoutes.HUB) },
+                            onLlm = { navigatePush(navController, LlmRoutes.HUB) },
                         )
                     }
+                    composable(LlmRoutes.HUB) { LlmScreen() }
                     composable(Screen.Client.route) { ClientScreen(PaddingValues()) }
                     composable(Screen.Capability.route) { CapabilityScreen() }
                     composable(Screen.Diagnostics.route) { DiagnosticsScreen() }
@@ -443,6 +445,10 @@ internal object AddonRoutes {
     fun installedDetail(installId: String): String = "addons/installed/${Uri.encode(installId)}"
 }
 
+internal object LlmRoutes {
+    const val HUB = "llm"
+}
+
 internal fun screenTitle(route: String?): String = when {
     route?.startsWith(InGameRoutes.GRAPH) == true -> InGameRoutes.titleFor(route)
     route == AddonRoutes.HUB -> "Add-ons"
@@ -452,6 +458,7 @@ internal fun screenTitle(route: String?): String = when {
     route == AddonRoutes.CUSTOM -> "Install from GitHub"
     route == AddonRoutes.CATALOG_DETAIL -> "Add-on details"
     route == AddonRoutes.INSTALLED_DETAIL -> "Installed add-on"
+    route == LlmRoutes.HUB -> "AI bot LLM"
     else -> Screen.fromRoute(route)?.label ?: "Pocket Realm"
 }
 

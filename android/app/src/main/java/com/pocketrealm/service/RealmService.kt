@@ -102,6 +102,7 @@ internal object RealmServiceOperationPolicy {
         RuntimePhase.WORLD_READY,
         RuntimePhase.CLIENT_STARTING,
         RuntimePhase.RUNNING,
+        RuntimePhase.PAUSED,
         RuntimePhase.CLIENT_FAILED,
         RuntimePhase.STOPPING,
         RuntimePhase.RECOVERING,
@@ -228,6 +229,8 @@ class RealmService : Service() {
         }
 
         override fun relaunchClient(): String = accepted("relaunch-client") { supervisor.relaunchClient() }
+        override fun setCompanionMode(enabled: Boolean): String =
+            accepted("companion-mode") { supervisor.setCompanionMode(enabled) }
         override fun recover(): String = accepted("recover") { supervisor.recover() }
         override fun createAccount(username: String, password: String, gmLevel: Int): String =
             runBlocking(Dispatchers.IO) {
@@ -533,6 +536,7 @@ class RealmService : Service() {
         )
         val active = snapshot.phase !in setOf(RuntimePhase.STOPPED, RuntimePhase.UNCONFIGURED, RuntimePhase.ERROR)
         val title = when (snapshot.phase) {
+            RuntimePhase.PAUSED -> "Companion conversation (world paused)"
             RuntimePhase.RUNNING, RuntimePhase.WORLD_READY, RuntimePhase.CLIENT_FAILED -> when (snapshot.runtimeMode) {
                 RuntimeMode.LOCAL -> "Local realm running"
                 RuntimeMode.LAN_HOST -> "LAN realm running (experimental)"
@@ -587,7 +591,7 @@ class RealmService : Service() {
         private const val EXTRA_LAN_ADDRESS = "com.pocketrealm.extra.LAN_ADDRESS"
         private const val TAG = "RuntimeSupervisor"
         private const val LAN_HOST_INTERFACE_LOSS_GRACE_MS = 10_000L
-        private val MONITORED_PHASES = setOf(RuntimePhase.WORLD_READY, RuntimePhase.RUNNING, RuntimePhase.CLIENT_FAILED)
+        private val MONITORED_PHASES = setOf(RuntimePhase.WORLD_READY, RuntimePhase.RUNNING, RuntimePhase.PAUSED, RuntimePhase.CLIENT_FAILED)
 
         fun ensureChannel(context: Context) {
             val manager = context.getSystemService(NotificationManager::class.java)

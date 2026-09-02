@@ -7,6 +7,7 @@ interface IRuntimeSupervisorControl {
     String startSpec(String launchSpecJson);
     String stop(boolean forced);
     String relaunchClient();
+    String setCompanionMode(boolean enabled);
     String recover();
     String createAccount(String username, String password, int gmLevel);
     String createBackup(String name);

@@ -76,6 +76,8 @@ class ClientDisplayHost(
     val rendererPackageId: String? = null,
     autoLoginCredentials: SinglePlayerAutoLoginCredentials? = null,
     private val timings: Settings.AutoLoginTimings = Settings.AutoLoginTimings(),
+    /** UI scale enforced into this launch's Config.wtf; scales the login taps' centre offsets. */
+    private val autoLoginUiScale: Float = 1f,
     private val audioEnabled: Boolean = false,
     private val onWindowVisible: () -> Unit,
 ) : AutoCloseable {
@@ -412,6 +414,7 @@ class ClientDisplayHost(
                             target.rootY.toInt(),
                             target.width.toInt(),
                             target.height.toInt(),
+                            effectiveUiScale = autoLoginUiScale,
                         )
                     }
 

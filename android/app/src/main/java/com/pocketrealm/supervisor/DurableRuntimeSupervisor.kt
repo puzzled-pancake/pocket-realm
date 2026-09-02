@@ -120,6 +120,13 @@ class DurableRuntimeSupervisor(
                 .any { current.components.getValue(it).state != ComponentLifecycle.READY }) {
             return@withLock operation(false, "server dependency is not ready")
         }
+        // A client failure during companion mode strands the native pause flag
+        // with no journaled PAUSED phase left to exit from: clear it
+        // best-effort before claiming RUNNING, so the resumed world actually
+        // ticks. A no-op when the world was never paused.
+        ownerOf(RuntimeComponent.WORLD)?.let { world ->
+            runCatching { backend.setCompanionMode(world, false) }
+        }
         val session = checkNotNull(current.sessionId)
         val spec = launchSpecOf(current, includeClient = true)
         val retainedOwner = ownerOf(RuntimeComponent.CLIENT)
@@ -150,6 +157,50 @@ class DurableRuntimeSupervisor(
             recoverability = Recoverability.NONE,
         ))
         operation(true, "client relaunched")
+    }
+
+    /**
+     * Companion mode (M5): a journaled RUNNING <-> PAUSED transition that
+     * pauses world ticking and switches the LLM runtime profile. Pause is a
+     * pause, never a stop - the world process stays alive so save/stop still
+     * work from PAUSED and resume needs no reconfiguration.
+     */
+    suspend fun setCompanionMode(enabled: Boolean): RuntimeOperation = operationLock.withLock {
+        // exit is also legal from CLIENT_FAILED: a client failure during
+        // companion mode discards the PAUSED phase while the native pause
+        // flag stays set, so the resume verb must remain reachable there
+        val from = if (enabled) RuntimePhase.RUNNING else RuntimePhase.PAUSED
+        val to = if (enabled) RuntimePhase.PAUSED else RuntimePhase.RUNNING
+        if (enabled && _state.value.phase != from) {
+            return@withLock operation(false, "companion mode requires phase $from (currently ${_state.value.phase})")
+        }
+        if (!enabled && _state.value.phase != RuntimePhase.PAUSED && _state.value.phase != RuntimePhase.CLIENT_FAILED) {
+            return@withLock operation(false, "companion exit requires phase PAUSED (currently ${_state.value.phase})")
+        }
+        val world = ownerOf(RuntimeComponent.WORLD)
+        if (world == null) {
+            return@withLock operation(false, "companion mode requires a running world component")
+        }
+        // the phase actually journaled before this operation (differs from
+        // `from` when exiting via CLIENT_FAILED) - the rollback target and,
+        // on a successful exit, the terminal phase: leaving companion mode
+        // only clears the pause aspect, a dead client stays CLIENT_FAILED
+        val actualFrom = _state.value.phase
+        val exitPhase = if (actualFrom == RuntimePhase.CLIENT_FAILED) RuntimePhase.CLIENT_FAILED else RuntimePhase.RUNNING
+        publish(_state.value.copy(
+            phase = if (enabled) to else exitPhase,
+            clean = false,
+            lastDurableAction = if (enabled) "companion-entered" else "companion-resumed",
+        ))
+        val result = runCatching { backend.setCompanionMode(world, enabled) }
+            .getOrElse { RuntimeActionResult(false, it.message ?: it.javaClass.simpleName) }
+        if (!result.ok) {
+            // journal the failed transition back to the phase we actually
+            // found; the world pause flag was never flipped
+            publish(_state.value.copy(phase = actualFrom, lastDurableAction = "companion-failed"))
+            return@withLock operation(false, result.detail)
+        }
+        operation(result.ok, result.detail)
     }
 
     suspend fun stop(mode: StopMode): RuntimeOperation = operationLock.withLock {

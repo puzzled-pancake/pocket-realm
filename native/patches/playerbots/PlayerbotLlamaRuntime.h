@@ -16,9 +16,18 @@
  *
  * Any change to how prompt segments are assembled MUST bump
  * POCKETREALM_LLAMA_PROMPT_FORMAT_VERSION so warm slots are invalidated
- * instead of being reused against a different token prefix.
+ * instead of being reused against a different token prefix. v3: segment
+ * admission is budgeted against the character window (oldest facts, then
+ * gossip, then rolling turns drop under pressure) and the llama lane
+ * defaults the window to 8192. v4: adds the per-bot trait seasoning
+ * segments (temperament + habit) right after the backstory anchor.
  */
-#define POCKETREALM_LLAMA_PROMPT_FORMAT_VERSION 1
+#define POCKETREALM_LLAMA_PROMPT_FORMAT_VERSION 5
+// v5: A5 trained memory dialect (Relationship with/AbsenceLine/inline
+// facts) in BuildPromptContext - see PlayerbotLlmMemory.cpp
+
+// response marker for the duty-cycle governor's player-facing busy state
+#define POCKETREALM_LLM_BUSY "\x02busy\x02"
 
 class PlayerbotLlamaRuntime
 {

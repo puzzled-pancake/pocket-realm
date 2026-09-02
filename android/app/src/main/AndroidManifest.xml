@@ -121,6 +121,13 @@
             android:process=":import"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <!-- LLM companion model (GGUF, ~2.6 GB) download: same dataSync
+             discipline as the client importer; main process, resumable,
+             checksum-verified. -->
+        <service
+            android:name=".llm.LlmModelDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- MariaDB owns its datadir in a dedicated fault domain. The
              same-APK Binder API exposes lifecycle/test verbs only; callers

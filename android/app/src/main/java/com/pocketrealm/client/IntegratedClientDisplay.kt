@@ -69,6 +69,7 @@ class ClientDisplayService : Service() {
             rendererPackageId: String,
             displayProfileId: String,
             frameCap: Int,
+            autoLoginUiScale: Float,
         ): String = guarded {
             ownership.requireOwner(instanceToken)
             require(clientId == ClientRuntimeContract.WOW_5875_ID) { "unauthorized display client" }
@@ -161,6 +162,7 @@ class ClientDisplayService : Service() {
                 rendererPackageId = rendererPackageIdOrNull,
                 autoLoginCredentials = autoLoginCredentials,
                 timings = timings,
+                autoLoginUiScale = autoLoginUiScale,
                 audioEnabled = audioMode == "on",
             )
             host = display

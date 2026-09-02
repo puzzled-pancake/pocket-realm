@@ -21,6 +21,10 @@ interface IWorldControl {
     String characterPersistence(String username, String characterName);
     String realmStatus();
     String save();
+    /** Companion mode: pause/resume world ticking (1/0). */
+    String setWorldPaused(int paused);
+    /** Companion mode: pause + full-residency LLM profile (1 = enter, 0 = leave). */
+    String setCompanionMode(int enabled);
     String stop();
     String stopOwned(String instanceToken);
     String forceStopOwned(String instanceToken);

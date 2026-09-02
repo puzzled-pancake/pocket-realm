@@ -74,6 +74,17 @@ internal val FIRST_RUN_TUTORIAL_STEPS: List<TutorialStep> = listOf(
             "the world — several minutes, and it happens only once), create " +
             "a local account, and play.",
     ),
+    TutorialStep(
+        title = "Optional: make the people talk back",
+        body = "The realm's bots can speak through an on-device language " +
+            "model. When you want that, open Settings → AI bot LLM and " +
+            "pick a model: the small \"try first\" one is the fastest way " +
+            "to hear the realm talk, though until publishing lands the " +
+            "tuned models are staged from a PC and the in-app download is " +
+            "the larger untuned fallback. The choice applies at the next " +
+            "realm start. Skip it and the realm still works; bots just " +
+            "stay quiet. Everything runs on this device, offline.",
+    ),
 )
 
 /**
@@ -140,7 +151,7 @@ internal object ClientPickerAutoOpen {
 }
 
 /**
- * Four-step first-run guide over the app shell. Tap-outside and system Back
+ * Five-step first-run guide over the app shell. Tap-outside and system Back
  * are deliberate no-ops: the tutorial must never be silently dismissed, so
  * "Skip" is the explicit escape hatch on every step.
  */

@@ -29,7 +29,8 @@ import sys
 from collections import Counter
 
 CORPUS = r"G:\Wow llm stuff\lore"
-REPO = r"C:\pocket_realm_complete"
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))))
 DEFAULT_OUT = os.path.join(
     REPO, "android", "app", "src", "main", "assets", "lore",
     "lore_cards_v112.jsonl")
@@ -118,7 +119,7 @@ def line_is_post_era(line):
             return True
     if re.search(r"\bpatch \d+\.\d+", low):
         return True
-    if re.search(r"\(20(?:0[7-9]|[1-9]\d)\)", low):  # (2007)-((2099)
+    if re.search(r"\(20(?:0[7-9]|[1-9]\d)\)", low):  # (2007)-(2099)
         return True
     if re.search(r"\bhotfix\b|\bptr\b|\bbeta\b", low):
         return True
