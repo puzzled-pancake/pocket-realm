@@ -39,6 +39,7 @@ import com.pocketrealm.client.ArmClientRenderer
 import com.pocketrealm.client.ArmClientRendererCatalog
 import com.pocketrealm.client.GladioCapability
 import com.pocketrealm.client.SystemVulkanCapabilities
+import com.pocketrealm.client.UserVulkanDriverResolution
 import com.pocketrealm.client.VulkanDriverCatalog
 import com.pocketrealm.realm.RealmState
 import com.pocketrealm.service.RealmService
@@ -84,7 +85,7 @@ fun LanScreen() {
     val clientUnavailableReason = if (Build.SUPPORTED_ABIS.firstOrNull() == "arm64-v8a") {
         when (snapshot.selectedArmRendererId()) {
             ArmClientRendererCatalog.AUTO_ID -> null
-            "dxvk" -> VulkanDriverCatalog.availabilityForPair(
+            "dxvk" -> UserVulkanDriverResolution.availabilityForPairPreflight(
                 snapshot.effectiveVulkanDriverId(),
                 snapshot.selectedDxvkPackageId(),
                 ArmRendererAuto.isAdrenoGpu(),

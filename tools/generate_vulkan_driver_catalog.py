@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path, PurePosixPath
 
 
@@ -18,10 +19,53 @@ OUTPUT = (
 EXPECTED_IDS = {"system-vulkan-vortek-2.1", "turnip-26.1.0"}
 LIBRARY_ROLES = {"guest-vulkan-bridge-library", "guest-vulkan-icd-library"}
 MANIFEST_ROLE = "guest-vulkan-icd-manifest"
+# Mirrors VulkanDriverPackage.FILE_NAME: the asset basename becomes
+# libraryName/icdFileName, which the Kotlin init matches against this
+# exact shape — a manifest edit must never pass here and throw there.
+FILE_NAME_RE = re.compile(r"[A-Za-z0-9_.-]{3,96}")
 
 
 def kotlin_string(value: str) -> str:
-    return json.dumps(value, ensure_ascii=False)
+    # JSON-encode, then close the two Kotlin gaps: a literal "$" starts a
+    # string template, and Kotlin has no "\f" escape (json emits \f for
+    # U+000C). Scanning the json output left to right, one escape at a
+    # time, keeps escaped-backslash sequences intact — a plain replace
+    # would corrupt a literal "\\f" in the value.
+    encoded = json.dumps(value, ensure_ascii=False)
+    out: list[str] = []
+    i = 0
+    while i < len(encoded):
+        ch = encoded[i]
+        if ch == "\\" and i + 1 < len(encoded):
+            nxt = encoded[i + 1]
+            if nxt == "f":
+                out.append("\\u000C")
+            else:
+                out.append(ch)
+                out.append(nxt)
+            i += 2
+        elif ch == "$":
+            out.append("\\$")
+            i += 1
+        elif ch in "\u0085\u2028\u2029":
+            # Kotlin counts NEL/LS/PS as line terminators: raw in a string
+            # literal they are an unterminated-string compile error.
+            out.append("\\u%04X" % ord(ch))
+            i += 1
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
+def kotlin_nonblank(value: str) -> bool:
+    # Mirrors Kotlin's isNotBlank: Kotlin's Char.isWhitespace counts the
+    # U+001C-U+001F bidi separators as blank, so they are named explicitly
+    # — a catalog entry passing .strip() here must never fail validation
+    # in Kotlin at app startup.
+    return any(
+        not (ch.isspace() or ch in "\u001c\u001d\u001e\u001f") for ch in value
+    )
 
 
 def load_catalog() -> dict[str, object]:
@@ -39,6 +83,10 @@ def load_catalog() -> dict[str, object]:
         raise RuntimeError(f"Vulkan driver catalog is not the closed set: {ids}")
     if catalog.get("default") not in ids:
         raise RuntimeError("Vulkan driver default is not present")
+    # VulkanDriverCatalog's init hard-requires the Turnip default; bind it
+    # here too so a manifest edit fails generation, not app startup.
+    if catalog.get("default") != "turnip-26.1.0":
+        raise RuntimeError("Vulkan driver default must remain turnip-26.1.0")
 
     for driver in drivers:
         driver_id = driver["id"]
@@ -46,10 +94,12 @@ def load_catalog() -> dict[str, object]:
             raise RuntimeError(f"unsupported Vulkan driver kind: {driver.get('kind')}")
         display = driver.get("display")
         if not isinstance(display, dict) or not all(
-            isinstance(display.get(field), str) and display[field].strip()
+            isinstance(display.get(field), str) and kotlin_nonblank(display[field])
             for field in ("label", "summary", "qualification")
         ):
             raise RuntimeError(f"Vulkan driver display metadata is incomplete: {driver_id}")
+        if not isinstance(driver.get("version"), str) or not kotlin_nonblank(driver["version"]):
+            raise RuntimeError(f"Vulkan driver version is absent: {driver_id}")
         files = driver.get("files")
         if not isinstance(files, list) or len(files) != 2:
             raise RuntimeError(f"Vulkan driver must have one library and one manifest: {driver_id}")
@@ -59,10 +109,20 @@ def load_catalog() -> dict[str, object]:
         for entry in files:
             asset = entry.get("asset")
             digest = entry.get("sha256")
-            if not isinstance(asset, str) or PurePosixPath(asset).parent != PurePosixPath(
-                f"arm-translated/vulkan-drivers/{driver_id}"
+            # Kotlin's init checks the literal prefix with String.startsWith;
+            # PurePosixPath collapses "//" and "/./" segments, so the raw
+            # string must be compared too or a sloppy edit passes here and
+            # throws in the data-class init at app startup.
+            if not isinstance(asset, str) or not asset.startswith(
+                f"arm-translated/vulkan-drivers/{driver_id}/"
             ):
                 raise RuntimeError(f"Vulkan driver asset escapes its package: {asset}")
+            # Kotlin's init rejects ".." as a substring of the whole asset
+            # path (not per segment) — mirror that exactly.
+            if ".." in asset:
+                raise RuntimeError(f"Vulkan driver asset name contains '..': {asset}")
+            if not FILE_NAME_RE.fullmatch(PurePosixPath(asset).name):
+                raise RuntimeError(f"Vulkan driver asset name is invalid: {asset}")
             if not isinstance(entry.get("size"), int) or entry["size"] <= 0:
                 raise RuntimeError(f"Vulkan driver asset size is invalid: {asset}")
             if not isinstance(digest, str) or len(digest) != 64 or any(

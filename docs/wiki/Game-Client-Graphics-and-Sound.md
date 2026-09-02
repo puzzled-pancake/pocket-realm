@@ -79,6 +79,8 @@ The Performance profile uses 1280 x 720. The Sharp profile uses 1920 x 1080. The
 
 The frame limit is passed to both the client setup and renderer. It limits work but cannot guarantee a stable frame rate in every scene.
 
+The interface scale (Display settings) is written into the client's configuration file before launch. The stock in-game slider tops out at 1.0; the app value can go above it, capped per display profile so stock frames stay on-screen. Automatic login compensates its tap positions for the scale it enforced.
+
 ## Sound
 
 On the ARM route, Wine's ALSA audio output connects to an app-owned sound socket. The Winlator-derived Android sound server reads that stream and sends it to Android audio.

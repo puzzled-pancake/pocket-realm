@@ -35,7 +35,46 @@ URL_RE = re.compile(
 
 
 def kotlin_string(value: str) -> str:
-    return json.dumps(value, ensure_ascii=False)
+    # JSON-encode, then close the two Kotlin gaps: a literal "$" starts a
+    # string template, and Kotlin has no "\f" escape (json emits \f for
+    # U+000C). Scanning the json output left to right, one escape at a
+    # time, keeps escaped-backslash sequences intact — a plain replace
+    # would corrupt a literal "\\f" in the value.
+    encoded = json.dumps(value, ensure_ascii=False)
+    out: list[str] = []
+    i = 0
+    while i < len(encoded):
+        ch = encoded[i]
+        if ch == "\\" and i + 1 < len(encoded):
+            nxt = encoded[i + 1]
+            if nxt == "f":
+                out.append("\\u000C")
+            else:
+                out.append(ch)
+                out.append(nxt)
+            i += 2
+        elif ch == "$":
+            out.append("\\$")
+            i += 1
+        elif ch in "\u0085\u2028\u2029":
+            # Kotlin counts NEL/LS/PS as line terminators: raw in a string
+            # literal they are an unterminated-string compile error.
+            out.append("\\u%04X" % ord(ch))
+            i += 1
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
+def kotlin_nonblank(value: str) -> bool:
+    # Mirrors Kotlin's isNotBlank: Kotlin's Char.isWhitespace counts the
+    # U+001C-U+001F bidi separators as blank, so they are named explicitly
+    # — a manifest passing .strip() here must never fail the data-class
+    # init at app startup.
+    return any(
+        not (ch.isspace() or ch in "\u001c\u001d\u001e\u001f") for ch in value
+    )
 
 
 def reject(message: str) -> None:
@@ -61,12 +100,12 @@ def load_manifest() -> dict[str, object]:
         if driver_id in seen_ids:
             reject(f"duplicate community Vulkan driver id: {driver_id}")
         seen_ids.add(driver_id)
-        if not isinstance(driver.get("version"), str) or not driver["version"].strip():
+        if not isinstance(driver.get("version"), str) or not kotlin_nonblank(driver["version"]):
             reject(f"community Vulkan driver version is absent: {driver_id}")
 
         display = driver.get("display")
         if not isinstance(display, dict) or not all(
-            isinstance(display.get(field), str) and display[field].strip()
+            isinstance(display.get(field), str) and kotlin_nonblank(display[field])
             for field in ("label", "summary", "note")
         ):
             reject(f"community Vulkan driver display metadata is incomplete: {driver_id}")
@@ -83,7 +122,7 @@ def load_manifest() -> dict[str, object]:
             reject(f"community Vulkan driver source repo is invalid: {driver_id}")
         if any(segment in {".", ".."} for segment in repo.split("/")):
             reject(f"community Vulkan driver source repo has dot segments: {driver_id}")
-        if not isinstance(source.get("release"), str) or not source["release"].strip():
+        if not isinstance(source.get("release"), str) or not kotlin_nonblank(source["release"]):
             reject(f"community Vulkan driver release is absent: {driver_id}")
         url = source.get("url")
         match = URL_RE.fullmatch(url) if isinstance(url, str) else None
@@ -105,7 +144,7 @@ def load_manifest() -> dict[str, object]:
             reject(f"community Vulkan driver format is unsupported: {driver_id}")
         if source.get("license") != "MIT":
             reject(f"community Vulkan driver license is not MIT: {driver_id}")
-        if not isinstance(source.get("upstream"), str) or not source["upstream"].strip():
+        if not isinstance(source.get("upstream"), str) or not kotlin_nonblank(source["upstream"]):
             reject(f"community Vulkan driver upstream is absent: {driver_id}")
     return manifest
 

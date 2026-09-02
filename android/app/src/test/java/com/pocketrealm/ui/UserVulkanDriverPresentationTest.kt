@@ -174,6 +174,41 @@ class UserVulkanDriverPresentationTest {
     }
 
     @Test
+    fun importInProgressNoticeIsExactAndOnlyTransientLinesMatchTheRestoreClear() {
+        assertEquals("Importing driver…", UserVulkanDriverPresentation.IMPORT_IN_PROGRESS_NOTICE)
+        // The restore-clear must drop both transient in-progress lines and
+        // keep every final notice.
+        assertTrue(
+            UserVulkanDriverPresentation.isTransientInProgressNotice(
+                UserVulkanDriverPresentation.IMPORT_IN_PROGRESS_NOTICE,
+            ),
+        )
+        assertTrue(
+            UserVulkanDriverPresentation.isTransientInProgressNotice(
+                "Downloading Mesa Turnip 26.0.0 R8 (K11MCH1)… 1 / 3 MB",
+            ),
+        )
+        assertFalse(
+            UserVulkanDriverPresentation.isTransientInProgressNotice(
+                "Imported Mesa Turnip 26.0.0 R8.",
+            ),
+        )
+        assertFalse(UserVulkanDriverPresentation.isTransientInProgressNotice(null))
+    }
+
+    @Test
+    fun resetNoticeOnlyClaimsTheSelectionFallbackWhenItApplied() {
+        assertEquals(
+            "Imported drivers were reset; the selection is Auto again.",
+            UserVulkanDriverPresentation.resetNotice(selectionWasUserDriver = true),
+        )
+        assertEquals(
+            "Imported drivers were reset.",
+            UserVulkanDriverPresentation.resetNotice(selectionWasUserDriver = false),
+        )
+    }
+
+    @Test
     fun communityDownloadStatusIsExact() {
         assertEquals(
             "Downloading Mesa Turnip 26.0.0 R8 (K11MCH1)… 1 / 3 MB",

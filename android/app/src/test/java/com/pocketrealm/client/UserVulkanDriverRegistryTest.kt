@@ -143,6 +143,17 @@ class UserVulkanDriverValidatorTest {
         assertTrue(reason!!.contains("truncated"))
     }
 
+    @Test
+    fun programHeadersPastTheLoadedPrefixFailClosed() {
+        // e_phoff inside the file but past the 4 MiB inspectable prefix:
+        // the table exists on disk yet is not inspectable — rejected, and
+        // never accepted uninspected.
+        val bytes = elf64()
+        put64(bytes, 32, 5_000_000)
+        val reason = UserVulkanDriverValidator.elfRejection(bytes, fileSize = 8_000_000)
+        assertTrue(reason!!.contains("truncated"))
+    }
+
     // --- ICD manifest ---------------------------------------------------------
 
     @Test
@@ -211,6 +222,34 @@ class UserVulkanDriverValidatorTest {
         val rejected = UserVulkanDriverValidator.validateMeta("{ not json")
             as UserVulkanDriverValidator.MetaOutcome.Rejected
         assertTrue(rejected.reason.contains("meta.json could not be parsed"))
+    }
+
+    @Test
+    fun androidNullCoercionCannotAlterValidationVerdicts() {
+        // The Android-coerced form of a JSON null is the literal string
+        // "null" (the desktop artifact returns "" instead) — the guard must
+        // keep validation verdicts identical across platforms.
+        val coercedLibraryPath = UserVulkanDriverValidator.validateIcd(
+            """{"ICD":{"library_path":"null"}}""",
+        )
+        assertTrue(coercedLibraryPath is UserVulkanDriverValidator.IcdOutcome.Rejected)
+        val jsonNullLibraryPath = UserVulkanDriverValidator.validateIcd(
+            """{"ICD":{"library_path":null,"api_version":"1.3.1"}}""",
+        )
+        assertTrue(jsonNullLibraryPath is UserVulkanDriverValidator.IcdOutcome.Rejected)
+
+        // A null api_version must stay absent, never render as "null".
+        val coercedVersion = UserVulkanDriverValidator.validateIcd(
+            """{"ICD":{"library_path":"x.so","api_version":"null"}}""",
+        ) as UserVulkanDriverValidator.IcdOutcome.Accepted
+        assertNull(coercedVersion.apiVersion)
+
+        // meta.json: a null name/driverVersion must not become "null".
+        val coercedName = UserVulkanDriverValidator.validateMeta(
+            """{"name":"null","driverVersion":null}""",
+        ) as UserVulkanDriverValidator.MetaOutcome.Accepted
+        assertNull(coercedName.label)
+        assertNull(coercedName.apiVersion)
     }
 }
 
@@ -426,6 +465,98 @@ class UserVulkanDriverRegistryTest {
     }
 
     @Test
+    fun reImportingQuarantinedLibraryBytesIsRejectedWithTheExactReason() {
+        val (registry, _) = newRegistry()
+        val imported = registry.import("Crashy", soFile()) as UserVulkanDriverImport.Imported
+        registry.update(
+            imported.driver.copy(
+                earlyCrashStreak = 2,
+                quarantined = true,
+                quarantineReason = "quarantined after 2 early crashes",
+            ),
+        )
+        // soFile() writes byte-identical content: a re-import must not
+        // resurrect the quarantined artifact under a fresh id with a clean
+        // crash streak.
+        val result = registry.import("Crashy again", soFile())
+        val reason = (result as UserVulkanDriverImport.Rejected).reason
+        assertTrue(reason.contains("byte-identical"))
+        assertTrue(reason.contains("\"Crashy\""))
+        assertTrue(reason.contains("quarantined after 2 early crashes"))
+        assertEquals(1, registry.list().size)
+    }
+
+    @Test
+    fun interruptedImportLeftoversAreReclaimedOnTheNextImport() {
+        val (registry, root) = newRegistry()
+        val hour = 60L * 60L * 1000
+        val staleStaging = File(root, ".incoming-deadbeef").apply { mkdirs() }
+        File(staleStaging, "driver.so").writeBytes(ByteArray(16))
+        staleStaging.setLastModified(System.currentTimeMillis() - 2 * hour)
+        val liveStaging = File(root, ".incoming-live").apply { mkdirs() }
+        val orphanPayload = File(root, "orphaned-slug").apply { mkdirs() }
+        File(orphanPayload, "driver.so").writeBytes(ByteArray(16))
+        val staleTemp = File(root, ".registry.json.tmp-stale").apply { writeText("{}") }
+        // Not slug-shaped and not lane-owned: reconcile must leave it alone.
+        val foreignDir = File(root, "Not.A.Slug").apply { mkdirs() }
+
+        val imported = registry.import("Fresh", soFile()) as UserVulkanDriverImport.Imported
+
+        assertFalse(staleStaging.exists())
+        assertFalse(orphanPayload.exists())
+        assertFalse(staleTemp.exists())
+        // A concurrent import's young staging directory is spared.
+        assertTrue(liveStaging.exists())
+        assertTrue(foreignDir.exists())
+        assertTrue(File(root, imported.driver.slug).isDirectory)
+        assertEquals(1, registry.list().size)
+    }
+
+    @Test
+    fun reconcileSparesThePayloadDirectoriesOfRegisteredDrivers() {
+        val (registry, root) = newRegistry()
+        // The second import's reconcile must not touch the first driver's
+        // payload: the knownSlugs membership check is the only difference
+        // between reclaiming orphans and deleting every driver per import.
+        val first = registry.import("Keep me", soFile()) as UserVulkanDriverImport.Imported
+        registry.import("Another", soFile()) as UserVulkanDriverImport.Imported
+        val kept = File(root, first.driver.slug)
+        assertTrue(File(kept, "driver.so").isFile)
+        assertTrue(File(kept, "icd.json").isFile)
+        assertEquals(2, registry.list().size)
+    }
+
+    @Test
+    fun resetClearsAnUnreadableRegistryForAFreshStart() {
+        val (registry, root) = newRegistry()
+        root.mkdirs()
+        File(root, "registry.json").writeText("""{"schema":1,"drivers":[{""")
+        File(root, "leftover-slug").apply { mkdirs() }
+        File(File(root, "leftover-slug"), "driver.so").writeBytes(ByteArray(8))
+        File(root, ".registry.json.tmp-x").writeText("{}")
+        File(root, "session-record.json").writeText("{}")
+
+        assertTrue(runCatching { registry.list() }.isFailure)
+        registry.reset()
+
+        // The empty registry is durably published, not merely deleted: a
+        // torn reset must never resurrect the old entries as ghosts.
+        val published = org.json.JSONObject(File(root, "registry.json").readText())
+        assertEquals(UserVulkanDriverRegistry.SCHEMA, published.getInt("schema"))
+        assertEquals(0, published.getJSONArray("drivers").length())
+
+        assertEquals(0, registry.list().size)
+        assertFalse(File(root, "leftover-slug").exists())
+        assertFalse(File(root, ".registry.json.tmp-x").exists())
+        // Diagnostics co-tenants survive the lane reset.
+        assertTrue(File(root, "session-record.json").isFile)
+        // The lane is importable again.
+        val imported = registry.import("Fresh start", soFile())
+        assertTrue(imported is UserVulkanDriverImport.Imported)
+        assertEquals(1, registry.list().size)
+    }
+
+    @Test
     fun removeDeletesPayloadAndRegistryEntry() {
         val (registry, root) = newRegistry()
         val imported = registry.import("Gone", soFile()) as UserVulkanDriverImport.Imported
@@ -481,6 +612,22 @@ class UserVulkanDriverRegistryTest {
         assertTrue(failure is IllegalStateException)
         assertTrue(failure!!.message!!.contains("registry is unreadable"))
         assertTrue(failure.message!!.contains("re-import"))
+        // The repair pointer must name the affordance, not just "re-import".
+        assertTrue(failure.message!!.contains("'Reset imported drivers'"))
+    }
+
+    @Test
+    fun aFailedRegistrySaveAfterThePayloadMoveReclaimsTheStagedPayload() {
+        val (registry, root) = newRegistry()
+        // registry.json as a directory makes DurableFiles' temp→rename fail
+        // (EISDIR/AccessDenied) only after the payload directory was already
+        // moved into place, exercising the rollback's publication guard.
+        File(root, "registry.json").mkdirs()
+        assertTrue(runCatching { registry.import("Doomed", soFile()) }.isFailure)
+        // No orphaned payload: the rollback reclaimed the moved directory.
+        // (The published→keep direction of the guard needs a failure after
+        // the rename and is not injectable at JVM level.)
+        assertFalse(File(root, "doomed").exists())
     }
 
     @Test
@@ -492,6 +639,111 @@ class UserVulkanDriverRegistryTest {
         val result = registry.import("Bomb", bomb, maxImportBytes = 64_000)
         val reason = (result as UserVulkanDriverImport.Rejected).reason
         assertTrue(reason.contains("import cap"))
+        assertEquals(0, registry.list().size)
+    }
+
+    @Test
+    fun directoryEntriesAreDrainedAgainstTheInflatedCap() {
+        val (registry, _) = newRegistry()
+        // isDirectory is name-based: a "bomb/"-named entry may carry a huge
+        // DEFLATED payload. Skipping its drain would let nextEntry() inflate
+        // it uncapped, so the prescan must cap directory entries too.
+        val zip = temp.newFile("payload-${System.nanoTime()}.zip")
+        ZipOutputStream(zip.outputStream()).use { stream ->
+            stream.putNextEntry(ZipEntry("bomb/"))
+            stream.write(ByteArray(1_000_000))
+            stream.closeEntry()
+            stream.putNextEntry(ZipEntry("lib.so"))
+            stream.write(elf64())
+            stream.closeEntry()
+        }
+        val result = registry.import("Dir bomb", zip, maxImportBytes = 64_000)
+        val reason = (result as UserVulkanDriverImport.Rejected).reason
+        assertTrue(reason.contains("import cap"))
+        assertEquals(0, registry.list().size)
+    }
+
+    @Test
+    fun androidNullCoercionCannotFakeAQuarantineReason() {
+        val (registry, root) = newRegistry()
+        root.mkdirs()
+        val entry = """"id":"user-x","label":"X","libraryFileName":"driver.so",""" +
+            """"sha256":"${"a".repeat(64)}","addedAt":1,"earlyCrashStreak":0,""" +
+            """"quarantined":false"""
+        // The persisted form: explicit JSON nulls for both optional fields.
+        File(root, "registry.json").writeText(
+            """{"schema":1,"drivers":[{$entry,"vulkanApiVersion":null,"quarantineReason":null}]}""",
+        )
+        val stored = registry.find("user-x")
+        assertNull(stored?.vulkanApiVersion)
+        assertNull(stored?.quarantineReason)
+
+        // The Android-coerced form: the null sentinel surfacing as the
+        // literal string "null" from optString. Without the has/isNull
+        // read guard this trips the model invariant on every subsequent
+        // read, bricking the whole lane on device.
+        File(root, "registry.json").writeText(
+            """{"schema":1,"drivers":[{$entry,"vulkanApiVersion":"null","quarantineReason":"null"}]}""",
+        )
+        val coerced = UserVulkanDriverRegistry(root).find("user-x")
+        assertNull(coerced?.vulkanApiVersion)
+        assertNull(coerced?.quarantineReason)
+    }
+
+    @Test
+    fun blankDisplayNameFallsBackToTheImportedDriverLabel() {
+        val (registry, root) = newRegistry()
+        // SAF providers are known to return blank DISPLAY_NAME columns; the
+        // fallback is the only guard keeping the exact-reason contract (I8)
+        // from degrading to a generic init failure.
+        val imported = registry.import("   ", soFile()) as UserVulkanDriverImport.Imported
+        assertEquals("Imported driver", imported.driver.label)
+        assertEquals("user-imported-driver", imported.driver.id)
+        assertTrue(File(root, "imported-driver").isDirectory)
+    }
+
+    @Test
+    fun absoluteZipEntryPathsAreRejectedAsUnsafe() {
+        val (registry, _) = newRegistry()
+        val result = registry.import(
+            "Abs", zipOf("/data/local/tmp/evil.so" to elf64()),
+        ) as UserVulkanDriverImport.Rejected
+        assertTrue(result.reason.contains("unsafe entry path (/data/local/tmp/evil.so)"))
+        assertEquals(0, registry.list().size)
+    }
+
+    @Test
+    fun archiveWithTooManyEntriesIsRejectedBeforeNameBookkeepingGrows() {
+        val (registry, _) = newRegistry()
+        // A header flood of near-empty entries costs no inflated bytes; the
+        // entry-count cap must bound the prescan anyway.
+        val flood = zipOf(
+            *(0..UserVulkanDriverRegistry.MAX_ARCHIVE_ENTRIES).map { index ->
+                "junk$index.txt" to ByteArray(0)
+            }.toTypedArray(),
+        )
+        val result = registry.import("Flood", flood)
+        val reason = (result as UserVulkanDriverImport.Rejected).reason
+        assertTrue(reason.contains("${UserVulkanDriverRegistry.MAX_ARCHIVE_ENTRIES + 1} entries"))
+        assertTrue(reason.contains("single .so"))
+        assertEquals(0, registry.list().size)
+    }
+
+    @Test
+    fun unexpectedEntryNamesAreSampledWithAnExactOverflowCount() {
+        val (registry, _) = newRegistry()
+        val junkCount = UserVulkanDriverRegistry.MAX_REASON_SAMPLES + 4
+        val zip = zipOf(
+            *(listOf("lib.so" to elf64()) + (0 until junkCount).map { index ->
+                "junk$index.txt" to "x".toByteArray()
+            }).toTypedArray(),
+        )
+        val result = registry.import("Noisy", zip)
+        val reason = (result as UserVulkanDriverImport.Rejected).reason
+        assertTrue(reason.contains("unexpected: junk0.txt"))
+        assertTrue(reason.contains("and 4 more"))
+        // The reason stays bounded: not every name is quoted verbatim.
+        assertFalse(reason.contains("junk${junkCount - 1}.txt"))
         assertEquals(0, registry.list().size)
     }
 

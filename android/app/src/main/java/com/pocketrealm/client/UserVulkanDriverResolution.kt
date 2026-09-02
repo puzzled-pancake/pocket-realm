@@ -19,6 +19,30 @@ object UserVulkanDriverResolution {
     fun quarantinedDriverReason(driver: UserVulkanDriver): String =
         "Imported driver ${driver.label} is quarantined: ${driver.quarantineReason}"
 
+    /**
+     * Home/LAN/Settings preflight pair check that understands the user lane:
+     * a user-imported Turnip ICD pairs like the packaged Turnip package (it
+     * never uses the Vortek bridge), and the user lane's own availability
+     * (Adreno-only, quarantine, deleted payload) stays gated at launch with
+     * its exact seam reasons — the catalog's unknown-package notice must
+     * never surface for a `user-` id (the Settings snapshot documents the
+     * same rule for its selection notice).
+     */
+    fun availabilityForPairPreflight(
+        requestedDriverId: String?,
+        requestedRendererId: String?,
+        adrenoGpu: Boolean,
+        system: SystemVulkanCapabilities? = null,
+    ): VulkanDriverAvailability = when {
+        !UserVulkanDriver.isUserId(requestedDriverId) -> VulkanDriverCatalog.availabilityForPair(
+            requestedDriverId, requestedRendererId, adrenoGpu, system,
+        )
+        !adrenoGpu -> VulkanDriverAvailability(false, ADRENO_ONLY_REASON)
+        else -> VulkanDriverCatalog.availabilityForPair(
+            VulkanDriverCatalog.TURNIP_26_1, requestedRendererId, adrenoGpu, system,
+        )
+    }
+
     /** What a validated request id resolved to, catalog or user lane. */
     sealed interface SessionDriver {
         val id: String
@@ -118,7 +142,9 @@ object UserVulkanDriverResolution {
         val rewrittenIcd = JSONObject()
             .put("library_path", libraryAbsolutePath)
             .put("library_arch", "64")
-        icd.optString("api_version").takeIf { it.isNotBlank() }?.let {
+        // The Android null-coercion guard: a null api_version must stay
+        // absent, never become the literal string "null" in the rootfs ICD.
+        UserVulkanDriverValidator.optionalString(icd, "api_version")?.let {
             rewrittenIcd.put("api_version", it)
         }
         return JSONObject()

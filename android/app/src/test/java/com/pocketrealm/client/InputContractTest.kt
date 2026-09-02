@@ -2359,6 +2359,47 @@ class InputContractTest {
         assertTrue(c.isNeutral(1))
     }
 
+    @Test fun `login taps are unchanged at ui scale one`() {
+        val sink = RecordingSink()
+        val scheduler = ManualImeScheduler()
+        val c = InputContract(sink, scheduler)
+        c.attach(sessionId = null, generation = 1)
+
+        assertTrue(c.queueSinglePlayerAutoLogin("ab", "cd", 1, effectiveUiScale = 1f))
+        scheduler.drain()
+        // The three centre-anchored taps on the default 1920x1080 login
+        // window: account field, password field, Connect. Identical to the
+        // legacy fixed-fraction math at scale 1.0.
+        assertEquals(
+            listOf(
+                SinkEvent.PointerMove(960, 564),
+                SinkEvent.PointerMove(960, 671),
+                SinkEvent.PointerMove(960, 758),
+            ),
+            sink.events.filterIsInstance<SinkEvent.PointerMove>(),
+        )
+    }
+
+    @Test fun `login taps follow the login widgets at raised ui scale`() {
+        val sink = RecordingSink()
+        val scheduler = ManualImeScheduler()
+        val c = InputContract(sink, scheduler)
+        c.attach(sessionId = null, generation = 1)
+
+        assertTrue(c.queueSinglePlayerAutoLogin("ab", "cd", 1, effectiveUiScale = 1.5f))
+        scheduler.drain()
+        // The widgets' offsets from the window centre grow with the enforced
+        // UI scale, so each tap's centre-relative offset is scaled by 1.5.
+        assertEquals(
+            listOf(
+                SinkEvent.PointerMove(960, 577),
+                SinkEvent.PointerMove(960, 737),
+                SinkEvent.PointerMove(960, 867),
+            ),
+            sink.events.filterIsInstance<SinkEvent.PointerMove>(),
+        )
+    }
+
     @Test fun `single player login rejection queues zero credential events`() {
         val sink = RecordingSink()
         val scheduler = ManualImeScheduler()

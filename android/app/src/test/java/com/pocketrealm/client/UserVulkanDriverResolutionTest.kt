@@ -1,6 +1,7 @@
 package com.pocketrealm.client
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -203,6 +204,49 @@ class UserVulkanDriverResolutionTest {
     }
 
     @Test
+    fun pairPreflightKeepsUserIdsOffTheCatalogsUnknownPackageNotice() {
+        val dxvk = RendererPackageCatalog.compatible(ArmTranslationBackend.BOX64).first()
+        // Adreno + user driver: a user Turnip ICD never uses Vortek, so it
+        // pairs like the packaged Turnip package — the Home/LAN launch gate
+        // and the Settings DXVK chips must stay usable.
+        val adreno = UserVulkanDriverResolution.availabilityForPairPreflight(
+            "user-mine", dxvk.id, adrenoGpu = true,
+        )
+        assertTrue(adreno.available)
+
+        // Non-Adreno carries the seam's own exact reason, never the catalog's
+        // unknown-package notice for a driver that is in fact registered.
+        val nonAdreno = UserVulkanDriverResolution.availabilityForPairPreflight(
+            "user-mine", dxvk.id, adrenoGpu = false,
+        )
+        assertFalse(nonAdreno.available)
+        assertEquals(UserVulkanDriverResolution.ADRENO_ONLY_REASON, nonAdreno.reason)
+
+        // Catalog ids keep their closed semantics untouched (I1): the system
+        // bridge still needs a capability probe and unknown ids still fail
+        // closed with the catalog's own wording.
+        val unprobedSystem = UserVulkanDriverResolution.availabilityForPairPreflight(
+            VulkanDriverCatalog.SYSTEM_DEFAULT, dxvk.id, adrenoGpu = false, system = null,
+        )
+        assertFalse(unprobedSystem.available)
+        assertTrue(unprobedSystem.reason.contains("capability probe"))
+        val probedSystem = UserVulkanDriverResolution.availabilityForPairPreflight(
+            VulkanDriverCatalog.SYSTEM_DEFAULT, dxvk.id, adrenoGpu = false,
+            system = SystemVulkanCapabilities(
+                apiVersion = (1 shl 22) or (3 shl 12),
+                nativeTextureCompressionBC = true,
+                deviceExtensions = emptySet(),
+            ),
+        )
+        assertTrue(probedSystem.available)
+        val unknown = UserVulkanDriverResolution.availabilityForPairPreflight(
+            "future-driver", dxvk.id, adrenoGpu = true,
+        )
+        assertFalse(unknown.available)
+        assertEquals("Unknown Vulkan driver package: future-driver.", unknown.reason)
+    }
+
+    @Test
     fun icdForRootfsRewritesLibraryPathDeterministically() {
         val stored = """{"ICD":{"api_version":"1.3.290","library_path":"libvulkan_freedreno.so"},"file_format_version":"1.0.0"}"""
         val first = UserVulkanDriverResolution.icdForRootfs(stored, "/rfs/usr/lib/driver.so")
@@ -217,6 +261,18 @@ class UserVulkanDriverResolutionTest {
             """{"ICD":{"library_path":"x.so"}}""", "/rfs/usr/lib/driver.so",
         )
         assertTrue(!org.json.JSONObject(bare).getJSONObject("ICD").has("api_version"))
+    }
+
+    @Test
+    fun icdForRootfsOmitsACoercedNullApiVersion() {
+        // Android's org.json would surface a JSON-null api_version as the
+        // literal string "null"; the rewrite must omit it instead of
+        // handing the Vulkan loader a garbage version.
+        val rewritten = UserVulkanDriverResolution.icdForRootfs(
+            """{"ICD":{"library_path":"x.so","api_version":"null"}}""",
+            "/rfs/usr/lib/driver.so",
+        )
+        assertTrue(!org.json.JSONObject(rewritten).getJSONObject("ICD").has("api_version"))
     }
 
     @Test

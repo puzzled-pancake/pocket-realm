@@ -71,6 +71,13 @@ internal object UserVulkanDriverPresentation {
         }
     }
 
+    /**
+     * Transient status while the SAF import copies. Deliberately not part
+     * of the restored state: after a process death mid-import no import is
+     * running, so the line is cleared on first composition.
+     */
+    const val IMPORT_IN_PROGRESS_NOTICE = "Importing driver…"
+
     /** What deleting a driver must tell the user, including the reset rule. */
     fun deletionNotice(driver: UserVulkanDriver, wasSelected: Boolean): String =
         if (wasSelected) {
@@ -79,6 +86,22 @@ internal object UserVulkanDriverPresentation {
         } else {
             "Deleted ${driver.label}."
         }
+
+    /** What a lane reset must tell the user — the selection rule only when it applied. */
+    fun resetNotice(selectionWasUserDriver: Boolean): String =
+        if (selectionWasUserDriver) {
+            "Imported drivers were reset; the selection is Auto again."
+        } else {
+            "Imported drivers were reset."
+        }
+
+    /**
+     * True for the transient in-progress lines (import copy, community
+     * download): they must not survive process death, so the restore path
+     * clears them when nothing is actually running.
+     */
+    fun isTransientInProgressNotice(status: String?): Boolean =
+        status == IMPORT_IN_PROGRESS_NOTICE || status?.startsWith("Downloading ") == true
 
     /** The section's static explanatory copy (docs link target: Phase F). */
     const val SECTION_NOTE =

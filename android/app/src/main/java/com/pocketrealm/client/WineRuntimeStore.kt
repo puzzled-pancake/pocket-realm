@@ -2143,7 +2143,8 @@ internal class WineRuntimeStore(private val context: Context) {
         // is launch-effective and may intentionally differ from the user's
         // persisted request when the imported executable is unqualified.
         val effectiveTweaks = ClientTweaksConfig.fromControlJson(p.tweaksJson)
-        val resolution = resolveVirtualDisplay(displayProfile).resolution
+        val virtualDisplay = resolveVirtualDisplay(displayProfile)
+        val resolution = virtualDisplay.resolution
         val workingDir = p.workingDir
         val configFile = File(workingDir, "WTF/Config.wtf")
         val recordFile = File(workingDir, "managed-safe-profile.json")
@@ -2156,10 +2157,19 @@ internal class WineRuntimeStore(private val context: Context) {
             JSONObject(recordFile.readText(Charsets.UTF_8))
         }.getOrNull()
         val previousAudio = previousRecord?.optString("audio")?.takeIf { it.isNotEmpty() }
+        val previousUiScale = previousRecord?.optString("uiScale")?.takeIf { it.isNotEmpty() }
         val previousPreparedAtRevision = previousRecord?.optLong("preparedAtRevision") ?: 0L
         val previousDelivered = GameSettingsDeliveryEntry.listFromJson(
             previousRecord?.opt("applied_overrides"),
         )
+        // Best-effort pre-lock parse of the live Config.wtf: the UI-scale
+        // transition delete value-matches against what the app last wrote, so
+        // a stale read only defers the cleanup to the next prepare (the file
+        // is re-merged under the edit lock below regardless).
+        val liveConfigValues = runCatching {
+            if (configFile.isFile) ConfigWtfCodec.parse(configFile.readText(Charsets.UTF_8)) else emptyMap()
+        }.getOrDefault(emptyMap())
+        val effectiveUiScale = settings.effectiveClientUiScale(virtualDisplay.height)
 
         val enforced = ManagedConfigPolicy.enforcedKeys(
             ManagedConfigPolicy.LaunchConditions(
@@ -2167,6 +2177,7 @@ internal class WineRuntimeStore(private val context: Context) {
                 resolution = resolution,
                 gameMaximized = displayProfile.gameMaximized,
                 frameCap = p.frameCap,
+                uiScale = effectiveUiScale,
                 audioMode = audioMode,
                 realmLoopback = realmEndpoint.isLoopback,
                 soundChannelsEnabled = effectiveTweaks.soundChannelsEnabled,
@@ -2179,6 +2190,11 @@ internal class WineRuntimeStore(private val context: Context) {
             previousPreparedAtRevision = previousPreparedAtRevision,
             directEditRevisions = settings.gameSettingsDirectEditRevisions,
         )?.let { enforced += it }
+        enforced += ManagedConfigPolicy.uiScaleTransitionDelete(
+            previousUiScale = previousUiScale,
+            currentUiScale = effectiveUiScale,
+            currentFileValues = liveConfigValues,
+        )
 
         val plan = GameSettingsDeliveryPlanner.plan(
             config = settings.gameSettings,
@@ -2270,6 +2286,10 @@ internal class WineRuntimeStore(private val context: Context) {
             .put("preparedAtRevision", settings.gameSettingsRevision)
             .put("applied_overrides", GameSettingsDeliveryEntry.listToJson(carriedForward))
             .put("config_sha256", sha256Text(configText))
+        // Written only while managed: the recorded value is what the merge
+        // enforced this launch (already per-profile clamped) and is the
+        // value-match input for the next managed→unmanaged transition delete.
+        effectiveUiScale?.let { record.put("uiScale", ConfigWtfCodec.formatValue(it)) }
         writeAtomic(recordFile, record.toString(2))
         return p.copy(managedConfigText = configText)
     }

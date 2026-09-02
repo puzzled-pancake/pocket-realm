@@ -149,6 +149,56 @@ class CommunityVulkanDriverDownloadTest {
     }
 
     @Test
+    fun redirectLoopsTerminateAtTheCapWithTheExactReason() {
+        // Every followed redirect must be https (the per-hop contract), so
+        // pinning the loop cap needs a TLS mock server the client trusts.
+        val certificate = okhttp3.tls.HeldCertificate.Builder()
+            .addSubjectAlternativeName("localhost")
+            .build()
+        val serverHandshake = okhttp3.tls.HandshakeCertificates.Builder()
+            .heldCertificate(certificate)
+            .build()
+        val clientHandshake = okhttp3.tls.HandshakeCertificates.Builder()
+            .addTrustedCertificate(certificate.certificate)
+            .build()
+        MockWebServer().use { server ->
+            server.useHttps(serverHandshake.sslSocketFactory())
+            server.start()
+            val self = server.url("/loop.zip").toString()
+            // More hops than the cap: an allowlisted self-redirect cycle
+            // must terminate with the bounded-loop reason, not spin.
+            repeat(6) {
+                server.enqueue(
+                    MockResponse.Builder().code(302)
+                        .setHeader("Location", self)
+                        .build(),
+                )
+            }
+            val destination = destination()
+            val outcome = CommunityVulkanDriverDownload.downloadPinned(
+                url = self,
+                expectedSize = 1L,
+                expectedSha256 = "0".repeat(64),
+                destination = destination,
+                client = OkHttpClient.Builder()
+                    .connectTimeout(5, TimeUnit.SECONDS)
+                    .readTimeout(5, TimeUnit.SECONDS)
+                    .followRedirects(false)
+                    .followSslRedirects(false)
+                    .sslSocketFactory(
+                        clientHandshake.sslSocketFactory(),
+                        clientHandshake.trustManager,
+                    )
+                    .build(),
+                allowedHosts = setOf(server.hostName),
+            )
+            val failed = outcome as CommunityVulkanDriverDownload.Outcome.Failed
+            assertTrue(failed.reason.contains("redirected more than"))
+            assertFalse(destination.exists())
+        }
+    }
+
+    @Test
     fun cleartextRedirectTargetsAreRejectedEvenOnAllowedHosts() {
         MockWebServer().use { server ->
             server.start()

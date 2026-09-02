@@ -61,10 +61,16 @@ private const val MAX_WATCHDOG_RESTARTS = 4
 private const val WATCHDOG_RESTART_INTERVAL_MS = 60_000L
 private const val NOTICE_STICKY_MS = 10_000L
 
-/** SAF providers label client archives inconsistently; octet-stream is the practical catch-all. */
+/** SAF providers label client archives inconsistently, and several
+ * (the RP6's external-storage provider among them) resolve .rar to a
+ * NULL mime type - a null-mime document matches NO filter entry and
+ * renders permanently greyed even with octet-stream allowed. The
+ * picker therefore accepts everything; ArchiveFormatSniffer is the
+ * real validation gate on whatever gets picked. */
 private val ARCHIVE_MIME_TYPES = arrayOf(
     "application/zip", "application/x-zip-compressed", "application/x-7z-compressed",
     "application/x-rar-compressed", "application/vnd.rar", "application/octet-stream",
+    "*/*",
 )
 
 /**
@@ -169,9 +175,15 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
             onSelect = { folderPicker.launch(null) },
             onResume = {
                 ui.persistedTree?.let {
-                    ImportWorkerService.resumeActive(context, it.toString())
-                    ui.beginNewPollEpoch()  // restart the status poller for the resumed run
-                    ui.postImportNotice("Resume requested. Verified files and completed stages are retained.")
+                    // A resume must never crash the app over journal state a
+                    // prior build wrote: route through the same tolerant
+                    // failure notice as every other entry point.
+                    runCatching { ImportWorkerService.resumeActive(context, it.toString()) }
+                        .onFailure { ui.postImportNotice("Resume failed: ${it.message}") }
+                        .onSuccess {
+                            ui.beginNewPollEpoch()  // restart the status poller for the resumed run
+                            ui.postImportNotice("Resume requested. Verified files and completed stages are retained.")
+                        }
                 }
             },
         )

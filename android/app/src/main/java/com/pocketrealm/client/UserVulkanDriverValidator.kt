@@ -123,11 +123,9 @@ object UserVulkanDriverValidator {
         }
         val icd = document.optJSONObject("ICD")
             ?: return IcdOutcome.Rejected("The ICD JSON has no ICD object.")
-        val libraryPath = icd.optString("library_path")
-        if (libraryPath.isBlank()) {
-            return IcdOutcome.Rejected("The ICD JSON has no ICD.library_path entry.")
-        }
-        val apiVersion = icd.optString("api_version").takeIf { it.isNotBlank() }
+        val libraryPath = optionalString(icd, "library_path")
+            ?: return IcdOutcome.Rejected("The ICD JSON has no ICD.library_path entry.")
+        val apiVersion = optionalString(icd, "api_version")
         val warning = apiVersion?.let(::apiVersionWarning)
         return IcdOutcome.Accepted(apiVersion, warning)
     }
@@ -149,11 +147,22 @@ object UserVulkanDriverValidator {
                     "${error.message ?: error.javaClass.simpleName}.",
             )
         }
-        val label = document.optString("name").trim().take(64).takeIf { it.isNotBlank() }
-        val apiVersion = document.optString("driverVersion").trim().takeIf { it.isNotBlank() }
+        val label = optionalString(document, "name")?.trim()?.take(64)
+        val apiVersion = optionalString(document, "driverVersion")?.trim()
             ?.let { version -> if (version.startsWith("Vulkan ")) version.removePrefix("Vulkan ") else version }
         return MetaOutcome.Accepted(label, apiVersion)
     }
+
+    /**
+     * Android's org.json coerces a JSON null to the literal string "null"
+     * in optString (the desktop test artifact returns "" instead) — every
+     * optional string from an untrusted manifest must be read through
+     * has/isNull guards so validation verdicts match across platforms.
+     */
+    fun optionalString(obj: JSONObject, name: String): String? =
+        obj.optString(name).takeIf {
+            obj.has(name) && !obj.isNull(name) && it.isNotBlank() && it != "null"
+        }
 
     /**
      * Vulkan API floor is warn-only, never an import rejection: DXVK 2.4.1
