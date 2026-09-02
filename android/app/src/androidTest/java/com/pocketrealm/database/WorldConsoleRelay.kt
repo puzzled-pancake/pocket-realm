@@ -43,7 +43,7 @@ import java.util.concurrent.TimeUnit
 class WorldConsoleRelay {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val connections = ArrayList<ServiceConnection>()
-    private var control: IDatabaseControl? = null
+    private var control: Bound<IDatabaseControl>? = null
     private var realm: Bound<IRealmControl>? = null
     private var world: Bound<IWorldControl>? = null
 
@@ -79,7 +79,7 @@ class WorldConsoleRelay {
     }.getOrNull()
 
     private fun db(): IDatabaseControl =
-        control ?: bind("com.pocketrealm.database.DatabaseService")
+        control?.api ?: bind("com.pocketrealm.database.DatabaseService")
             { IDatabaseControl.Stub.asInterface(it) }.also { control = it }.api
 
     private fun realmApi(): IRealmControl =
