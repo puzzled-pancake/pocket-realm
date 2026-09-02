@@ -94,8 +94,18 @@ class ImportWorkerService : Service() {
                 updateNotification(importer)
             } catch (_: CancellationException) {
                 // The durable journal remains PAUSED and can be resumed safely.
-            } catch (_: Throwable) {
-                updateNotification(importer)
+            } catch (failure: Throwable) {
+                // The durable journal and notification are the only
+                // post-mortem channels a resumed session has: a silently
+                // swallowed failure froze the UI at "staging: 0/0 files"
+                // through two full retry loops with nothing to diagnose.
+                runCatching { importer.journalFailure(failure) }
+                android.util.Log.e(
+                    "PocketRealmImport",
+                    "import failed: ${failure.message}",
+                    failure,
+                )
+                updateNotification(importer, failure.message)
             } finally {
                 importer.close()
                 ImportProcessMetricsSampler.markStopped(applicationContext)
@@ -165,8 +175,18 @@ class ImportWorkerService : Service() {
                 updateNotification(importer)
             } catch (_: CancellationException) {
                 // The durable journal remains PAUSED and can be resumed safely.
-            } catch (_: Throwable) {
-                updateNotification(importer)
+            } catch (failure: Throwable) {
+                // The durable journal and notification are the only
+                // post-mortem channels a resumed session has: a silently
+                // swallowed failure froze the UI at "staging: 0/0 files"
+                // through two full retry loops with nothing to diagnose.
+                runCatching { importer.journalFailure(failure) }
+                android.util.Log.e(
+                    "PocketRealmImport",
+                    "import failed: ${failure.message}",
+                    failure,
+                )
+                updateNotification(importer, failure.message)
             } finally {
                 importer.close()
                 ImportProcessMetricsSampler.markStopped(applicationContext)
@@ -201,7 +221,7 @@ class ImportWorkerService : Service() {
      * entire (many-minute) server-data phase. Prefer the running data stage;
      * fall back to the copy-phase file counter.
      */
-    private fun updateNotification(importer: ManagedClientImporter) {
+    private fun updateNotification(importer: ManagedClientImporter, failureMessage: String? = null) {
         val status = importer.status()
         val active = importer.dataCheckpoints(status.importId)
             .firstOrNull { it.state == DataStageState.RUNNING }
@@ -210,8 +230,9 @@ class ImportWorkerService : Service() {
             "server data$counter • ${active.checkpoint ?: active.stage.name.lowercase().replace('_', ' ')}"
         } else {
             val checkpoint = status.lastRelativePath?.let { " • $it" }.orEmpty()
-            "${status.phase.name.lowercase().replace('_', ' ')}: " +
+            val base = "${status.phase.name.lowercase().replace('_', ' ')}: " +
                 "${status.filesProcessed}/${status.filesTotal} files$checkpoint"
+            if (failureMessage != null) "$base • failed: $failureMessage".take(300) else base
         }
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(text))
     }
@@ -270,7 +291,13 @@ class ImportWorkerService : Service() {
 
         /**
          * Watchdog/resume routing: restart whichever lane the durable journal
-         * describes — the archive lane's staged file anchors the restart size.
+         * describes. The archive lane's restart size is phase-dependent:
+         * before staging finishes, bytes_total IS the source archive size and
+         * stagedBytes is mere progress (passing progress as the size once
+         * deleted the partial and re-staged toward a truncated target); after
+         * finishStaging, bytes_total becomes the extraction payload total for
+         * progress display, and the staged file's journaled size — which
+         * equals the source size by construction — is the durable anchor.
          */
         fun resumeActive(context: Context, uri: String, testProfile: Boolean = false): Boolean {
             ManagedClientImporter(context).use { importer ->
@@ -278,7 +305,10 @@ class ImportWorkerService : Service() {
                 if (status.sourceUri != uri) return false
                 return when (status.sourceKind) {
                     ImportSourceKind.ARCHIVE -> {
-                        val size = if (status.stagedBytes > 0) status.stagedBytes else status.bytesTotal
+                        val size = when {
+                            status.stagedPath != null && status.stagedBytes > 0 -> status.stagedBytes
+                            else -> status.bytesTotal
+                        }
                         if (size <= 0) false else {
                             startArchive(context, Uri.parse(uri), size, testProfile); true
                         }

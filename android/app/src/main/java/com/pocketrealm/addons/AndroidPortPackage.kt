@@ -12,7 +12,7 @@ internal object AndroidPortPackage {
     const val DISPLAY_NAME = "Android Port"
     const val ASSET_PATH = "addons/android-port"
     const val ADDON_FOLDER = "AndroidPort"
-    const val VERSION = "0.6.0"
+    const val VERSION = "0.6.1"
 
     /** Install id persisted by 0.5.x and earlier on-device registries. */
     const val LEGACY_INSTALL_ID = "builtin__vanillaconsoleport"

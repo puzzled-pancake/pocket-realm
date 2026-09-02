@@ -998,12 +998,227 @@ object BotProfiles {
             5 * 60_000L, 10_000L),
     )
 
+    /** Headless benchmark twins of the measured mobile tiers. Identical
+     * to their sources except AiPlayerbot.RandomBotLoginWithPlayer = 0:
+     * no shipped product profile uses that combination because the
+     * product always has its human player present (RandomPlayerbotMgr
+     * gates AddRandomBots on a non-empty player list when the flag is
+     * set) - but the differential/benchmark lanes drive world-only, and
+     * RandomBotLoginAtStartup is parsed but never consumed upstream.
+     * Not user-selectable. */
+    val BENCH_AUTOLOGIN_50 = BotProfile(
+        id = "bench-autologin-b50-v1",
+        displayName = "Bench · 50 bots (headless)",
+        summary = "Benchmark twin of Typical·50: bots log in without a player.",
+        userSelectable = false,
+        selectedTarget = 50,
+        minimumOnline = 25,
+        maximumOnline = 50,
+        initialTarget = 25,
+        startupIncreaseStep = 25,
+        startupRampIntervalMs = 30_000,
+        activationBatchSize = 5,
+        maximumAltBots = 2,
+        generationBatchSize = 5,
+        generationYieldMs = 500,
+        accountPrefix = "PRT50",
+        accountCount = 6,
+        loginBatchSize = 2,
+        maintenanceBatchSize = 8,
+        randomBotUpdateIntervalMs = 2_000,
+        loginWithPlayer = false,
+        forceActiveWhenNearPlayer = true,
+        nearPlayerTeleportMaxAmount = 8,
+        nearPlayerTeleportRadius = 200,
+        teleportMinIntervalSeconds = 3_600,
+        teleportMaxIntervalSeconds = 14_400,
+        limitCombatActivity = true,
+        activeBotPercent = 3,
+        allowPlayerInvites = false,
+        groupNearby = false,
+        wanderWhenIdle = false,
+        enableOffSpecStrategies = false,
+        admission = BotAdmissionLimits(250, 1_024, 2_048, 3 * 60_000L, 25, 25,
+            5 * 60_000L, 10_000L),
+    )
+
+    val BENCH_AUTOLOGIN_100 = BotProfile(
+        id = "bench-autologin-b100-v1",
+        displayName = "Bench · 100 bots (headless)",
+        summary = "Benchmark twin of Balanced·100: bots log in without a player.",
+        userSelectable = false,
+        selectedTarget = 100,
+        minimumOnline = 25,
+        maximumOnline = 100,
+        initialTarget = 25,
+        startupIncreaseStep = 25,
+        startupRampIntervalMs = 30_000,
+        activationBatchSize = 5,
+        maximumAltBots = 2,
+        generationBatchSize = 5,
+        generationYieldMs = 500,
+        accountPrefix = "PRB100",
+        accountCount = 12,
+        loginBatchSize = 2,
+        maintenanceBatchSize = 8,
+        randomBotUpdateIntervalMs = 2_000,
+        loginWithPlayer = false,
+        forceActiveWhenNearPlayer = true,
+        nearPlayerTeleportMaxAmount = 12,
+        nearPlayerTeleportRadius = 250,
+        teleportMinIntervalSeconds = 3_600,
+        teleportMaxIntervalSeconds = 14_400,
+        syncLevelWithPlayers = true,
+        limitCombatActivity = true,
+        activeBotPercent = 5,
+        autoDoQuests = true,
+        allowPlayerInvites = false,
+        admission = BotAdmissionLimits(250, 1_536, 2_048, 3 * 60_000L, 25, 25,
+            5 * 60_000L, 10_000L),
+    )
+
+    val BENCH_AUTOLOGIN_160 = BotProfile(
+        id = "bench-autologin-b160-v1",
+        displayName = "Bench · 160 bots (headless)",
+        summary = "Benchmark twin of Efficient·160: bots log in without a player.",
+        userSelectable = false,
+        selectedTarget = 160,
+        minimumOnline = 120,
+        maximumOnline = 160,
+        maximumAltBots = 2,
+        generationBatchSize = 10,
+        generationYieldMs = 150,
+        accountPrefix = "PRL160",
+        accountCount = 18,
+        loginBatchSize = 3,
+        maintenanceBatchSize = 12,
+        randomBotUpdateIntervalMs = 1_500,
+        loginWithPlayer = false,
+        forceActiveWhenNearPlayer = true,
+        nearPlayerTeleportMaxAmount = 12,
+        nearPlayerTeleportRadius = 250,
+        teleportMinIntervalSeconds = 3_600,
+        teleportMaxIntervalSeconds = 14_400,
+        admission = BotAdmissionLimits(
+            maxWorldP99Ms = 250,
+            minFreeMemoryMiB = 1_024,
+            minFreeStorageMiB = 2_048,
+            performanceWarmupMs = 3 * 60_000L,
+            reduceStep = 25,
+            increaseStep = 25,
+            healthyRampMs = 5 * 60_000L,
+            changeCooldownMs = 10_000L,
+        ),
+    )
+
+    /** Headless 600-bot max-activity benchmark profile: base =
+     * MASSIVE_REALM_600 (600 target, 81 bot accounts) with headless
+     * login (RandomBotLoginWithPlayer = 0) and the activity knobs
+     * MAXED - 20% active (the profile validator's ceiling), combat
+     * unrestrained, quests/off-spec strategies/wandering on. The
+     * worst-case world+DB pressure wave for the engine comparison.
+     * Not user-selectable. */
+    val BENCH_ACTIVE_600 = BotProfile(
+        id = "bench-active-b600-v1",
+        displayName = "Bench · 600 bots (headless, active)",
+        summary = "Benchmark pressure wave: 600 bots, max activity.",
+        userSelectable = false,
+        selectedTarget = 600,
+        minimumOnline = 100,
+        maximumOnline = 600,
+        initialTarget = 100,
+        startupIncreaseStep = 50,
+        startupRampIntervalMs = 45_000,
+        activationBatchSize = 4,
+        maximumAltBots = 2,
+        generationBatchSize = 5,
+        generationYieldMs = 250,
+        accountPrefix = "PRMR600",
+        accountCount = 81,
+        loginBatchSize = 2,
+        maintenanceBatchSize = 8,
+        randomBotUpdateIntervalMs = 3_000,
+        iterationsPerTick = 8,
+        loginWithPlayer = false,
+        forceActiveWhenNearPlayer = true,
+        nearPlayerTeleportMaxAmount = 10,
+        nearPlayerTeleportRadius = 250,
+        teleportMinIntervalSeconds = 3_600,
+        teleportMaxIntervalSeconds = 14_400,
+        syncLevelWithPlayers = true,
+        randomBotMaxLevelChance = 0.30f,
+        limitCombatActivity = false,
+        activeBotPercent = 20,
+        autoDoQuests = true,
+        allowBotChat = false,
+        allowPlayerInvites = false,
+        groupNearby = true,
+        wanderWhenIdle = true,
+        enableOffSpecStrategies = true,
+        admission = BotAdmissionLimits(250, 2_048, 2_048, 5 * 60_000L, 50, 25,
+            5 * 60_000L, 10_000L),
+    )
+
+    /** Forced-ceiling stress twin of BENCH_ACTIVE_600: the full target is
+     * demanded IMMEDIATELY (initialTarget = selectedTarget - no admission
+     * stepping), 1010 characters of headroom, doubled login/activation
+     * batches. Measures what the engine actually holds at 1000 (the
+     * runner accepts the achieved plateau). Not user-selectable. */
+    val BENCH_FORCED_1000 = BotProfile(
+        id = "bench-forced-b1000-v1",
+        displayName = "Bench · 1000 bots (forced, active)",
+        summary = "Forced ceiling wave: 1000 bots demanded at once.",
+        userSelectable = false,
+        selectedTarget = 1000,
+        minimumOnline = 100,
+        maximumOnline = 1000,
+        initialTarget = 1000,
+        // initialTarget already equals selectedTarget, so the ramp starts
+        // at the full demand; the step must still satisfy >=1 (BotProfile
+        // init requirement) and 1000 is a no-op single step.
+        startupIncreaseStep = 1000,
+        startupRampIntervalMs = 5_000,
+        activationBatchSize = 8,
+        maximumAltBots = 2,
+        generationBatchSize = 5,
+        generationYieldMs = 250,
+        accountPrefix = "PRMR1K",
+        // 9 characters per account: ceil(1000/9)=112 plus the policy's
+        // 20% regeneration headroom (BotPopulationPolicy.accountsForTarget).
+        accountCount = 135,
+        loginBatchSize = 4,
+        maintenanceBatchSize = 8,
+        randomBotUpdateIntervalMs = 3_000,
+        iterationsPerTick = 8,
+        loginWithPlayer = false,
+        forceActiveWhenNearPlayer = true,
+        nearPlayerTeleportMaxAmount = 10,
+        nearPlayerTeleportRadius = 250,
+        teleportMinIntervalSeconds = 3_600,
+        teleportMaxIntervalSeconds = 14_400,
+        syncLevelWithPlayers = true,
+        randomBotMaxLevelChance = 0.30f,
+        limitCombatActivity = false,
+        activeBotPercent = 20,
+        autoDoQuests = true,
+        allowBotChat = false,
+        allowPlayerInvites = false,
+        groupNearby = true,
+        wanderWhenIdle = true,
+        enableOffSpecStrategies = true,
+        admission = BotAdmissionLimits(250, 3_072, 3_072, 5 * 60_000L, 50, 25,
+            5 * 60_000L, 10_000L),
+    )
+
     private val profiles = listOf(
         LOW_25, LOW_CPU_160, FRESH_REALM_240, LIVELY_700,
         QUIET_25, TYPICAL_50, BALANCED_100, POPULATED_250,
         CROWDED_400, BUSY_600, LAUNCH_DAY_700,
         LOW_POWER_80, LIVELY_160, BUSY_WORLD_240, ALIVE_REALM_320,
         CROWDED_REALM_400, FULL_REALM_500, MASSIVE_REALM_600,
+        BENCH_AUTOLOGIN_50, BENCH_AUTOLOGIN_100, BENCH_AUTOLOGIN_160,
+        BENCH_ACTIVE_600,
+        BENCH_FORCED_1000,
     )
         .associateBy(BotProfile::id)
 

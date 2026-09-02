@@ -607,6 +607,19 @@ class ManagedClientImporter(
 
     fun status(): ImportStatus = journal.latest().copy(activeGeneration = generations.activeGeneration())
 
+    /**
+     * Records a run-level failure the importer's own catches did not journal
+     * (staging-level rejections historically left the row mid-flight with no
+     * last_error, so a resumed session had no post-mortem at all). Safe to
+     * call for any throwable after the run coroutine has died.
+     */
+    fun journalFailure(failure: Throwable) {
+        val current = journal.latest()
+        val id = current.importId ?: return
+        if (current.phase == ImportPhase.COMPLETE || current.phase == ImportPhase.CANCELLED) return
+        journal.fail(id, failure.message ?: failure.javaClass.simpleName)
+    }
+
     fun dataCheckpoints(importId: String?): List<DataCheckpoint> =
         importId?.let(journal::dataStages).orEmpty()
 

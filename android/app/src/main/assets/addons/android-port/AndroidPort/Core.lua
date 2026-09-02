@@ -2,7 +2,7 @@
 AndroidPort = AndroidPort or {}
 local AP = AndroidPort
 
-AP.VERSION = "0.6.0"
+AP.VERSION = "0.6.1"
 AP.BINDING_SCHEMA = 5
 AP.keys = { "1", "2", "3", "4", "5", "6", "7", "8" }
 
@@ -34,6 +34,7 @@ end
 
 local MODULE_NAMES = {
     bars = true, radial = true, mover = true, hud = true, bags = true,
+    talk = true,
 }
 
 local function SetModuleEnabled(name, enabled)
@@ -51,16 +52,32 @@ end
 function AP:GetLayout()
     local width = UIParent and UIParent:GetWidth() or 1280
     local height = UIParent and UIParent:GetHeight() or 720
-    if height >= 900 then
-        return {
+    -- Tier on the PHYSICAL height: UIParent dimensions shrink as the client's
+    -- uiScale grows, so keying the tier on the raw height would flip the HUD
+    -- to the small layout while the player is raising the scale to make
+    -- things bigger. GetEffectiveScale folds uiScale back in, making the
+    -- tier a device-class choice that no uiScale value can flip.
+    local scale = UIParent and UIParent:GetEffectiveScale() or 1
+    local layout
+    if height * scale >= 900 then
+        layout = {
             width = width, height = height, button = 80, padding = 86,
             star = 860, bottom = 136, radial = 520, radialButton = 58,
         }
+    else
+        layout = {
+            width = width, height = height, button = 56, padding = 60,
+            star = 640, bottom = 96, radial = 400, radialButton = 44,
+        }
     end
-    return {
-        width = width, height = height, button = 56, padding = 60,
-        star = 640, bottom = 96, radial = 400, radialButton = 44,
-    }
+    -- The outer star button's outer edge lands at width/2 + star/2 + padding
+    -- + button/2 (buttons anchor BOTTOM to the cluster CENTRE at padding
+    -- offsets), so star must stay <= width - 2*padding - button; the extra
+    -- -40 keeps a 20-unit margin that also covers the cluster frame border
+    -- (+4) and the hit-rect overshoot (+14) at high uiScale.
+    local maxStar = width - 2 * layout.padding - layout.button - 40
+    if layout.star > maxStar then layout.star = maxStar end
+    return layout
 end
 
 function AP:InitializeDatabase()
@@ -167,6 +184,18 @@ local function ResolveFrame(reference)
     return reference
 end
 
+-- The only liveness proof Interface 11200 offers: the name must be a member
+-- of the engine's current frame walk (identity-matched when the set was
+-- built). A freed frame keeps its global userdata, and ANY read through
+-- __index on it faults the client (ERROR #132, null frame vtable), so stock
+-- frames are resolved through here — never through a bare getglobal
+-- nil-check, which cannot see the difference between live and freed.
+function AP:LiveFrame(name)
+    if type(name) ~= "string" then return nil end
+    if not (self.liveFrameNames and self.liveFrameNames[name]) then return nil end
+    return getglobal(name)
+end
+
 local function HasMoverMethods(frame)
     return frame and frame.GetPoint and frame.GetCenter and frame.GetName and
         frame.ClearAllPoints and frame.SetPoint and frame.SetMovable and
@@ -218,7 +247,8 @@ function AP:ResolveCandidate(candidate)
     if not candidate or type(candidate.name) ~= "string" then return nil end
     local frame = getglobal(candidate.name)
     if not frame then return nil end
-    if candidate.curated then return frame end
+    -- Curated stock frames included: every global resolve clears the live
+    -- frame set before a method read may touch the userdata.
     if self.liveFrameNames and self.liveFrameNames[candidate.name] then
         return frame
     end
@@ -392,7 +422,10 @@ function AP:RefreshAddonIcons()
         local seen = {}
         for id, record in pairs(self.addonIconRegistry) do
             local frame = ResolveFrame(record.reference)
-            if frame then self:AddAddonIconCandidate(id, frame, record.label, true, seen) end
+            if frame and (type(record.reference) ~= "string" or
+                (self.liveFrameNames and self.liveFrameNames[record.reference])) then
+                self:AddAddonIconCandidate(id, frame, record.label, true, seen)
+            end
         end
         self:DiscoverTopLevelFrames(seen)
     end)
@@ -939,7 +972,7 @@ SlashCmdList["ANDROIDPORT"] = function(message)
             AP.Bags:SetEnabled(not (AndroidPortDB and AndroidPortDB.bags and AndroidPortDB.bags.enabled))
         end
     else
-        Print("/ap radial opens the menu; /ap chat toggles the minimal chat; /ap bags toggles the all-in-one bag window; /ap restore restores pre-install key bindings; /ap resetui restores the stock frame layout; /ap off <bars|radial|mover|hud|bags> disables one module (reloadui to apply) — /ap on re-enables it")
+        Print("/ap radial opens the menu (Talk on the seventh slot opens the whisper composer without name typing); /ap chat toggles the minimal chat; /ap bags toggles the all-in-one bag window; /ap restore restores pre-install key bindings; /ap resetui restores the stock frame layout; /ap off <bars|radial|mover|hud|bags|talk> disables one module (reloadui to apply) — /ap on re-enables it")
     end
 end
 
@@ -958,8 +991,13 @@ function AP:InitializeModules()
     local bagsOn = self:IsModuleEnabled("bags")
     local barsOn = self:IsModuleEnabled("bars")
     local radialOn = self:IsModuleEnabled("radial")
+    local talkOn = self:IsModuleEnabled("talk")
     if self.FrameMover and moverOn then self.FrameMover:Initialize() end
     if self.Hud and hudOn then self.Hud:Initialize() end
+    -- E3: the Talk module owns no frames at init; Initialize only marks it
+    -- ready (a re-entry guard — the radial action re-checks the module
+    -- switch inside Talk:Open)
+    if self.Talk and talkOn then self.Talk:Initialize() end
     -- Bags is deliberately non-fatal: a failure here must never trip the
     -- bars or radial fail-safe below nor block ApplyBindings.
     if self.Bags and bagsOn then self.Bags:Initialize() end
@@ -973,7 +1011,12 @@ end
 
 events:SetScript("OnEvent", function()
     if event == "ADDON_LOADED" and arg1 == "AndroidPort" then
-        AP:InitializeModules()
+        -- Module initialization is deferred to PLAYER_ENTERING_WORLD, which
+        -- always follows every ADDON_LOADED: while this event fires the
+        -- FrameXML load is still mid-flight and much of the stock frame set
+        -- the modules anchor to does not exist yet. Initializing here also
+        -- raced the engine during login-screen loads (ERROR #132 class).
+        AP:RefreshAddonIcons()
     elseif event == "ADDON_LOADED" then
         AP:RefreshAddonIcons()
     elseif event == "PLAYER_ENTERING_WORLD" then

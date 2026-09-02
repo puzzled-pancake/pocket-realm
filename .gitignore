@@ -132,3 +132,6 @@ CMakeConfigureLog.yaml
 *.ilk
 *.lastbuildstate
 *.recipe
+
+# Local ML tooling cache (unsloth studio), never repo source
+unsloth_compiled_cache/

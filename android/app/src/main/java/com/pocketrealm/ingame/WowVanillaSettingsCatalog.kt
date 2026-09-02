@@ -14,12 +14,15 @@ package com.pocketrealm.ingame
  * video labels are descriptive (the 1.12.1 video panel is native and its
  * string table is not in any pinned source).
  *
- * Verified fixed-settings count: 108 (11 sound, 24 graphics, 37 interface,
- * 36 advanced interface) of which 8 are function-backed rows that render
+ * Verified fixed-settings count: 109 (11 sound, 24 graphics, 37 interface,
+ * 37 advanced interface) of which 8 are function-backed rows that render
  * disabled; farclip is the single user-editable graphics CVar this drop.
+ * The advanced-interface Display row (v2) mirrors the app-managed UI-scale
+ * setting — its key is enforced into Config.wtf by Pocket Realm, so the row
+ * is fixed and points at the app's Display settings.
  */
 object WowVanillaSettingsCatalog {
-    const val CATALOG_VERSION: Int = 1
+    const val CATALOG_VERSION: Int = 2
 
     const val FIXED_REASON_MANAGED_DISPLAY = "Managed by Pocket Realm display settings"
     const val FIXED_REASON_RENDERER = "Not supported by the current renderer"
@@ -553,6 +556,19 @@ object WowVanillaSettingsCatalog {
             provenance = WowSettingProvenance.FRAMEXML_PIN,
         ),
 
+        // ---------------- Advanced: Display ----------------
+        WowSettingDefinition(
+            id = "advanced.uiScale", section = WowSettingSection.INTERFACE_ADVANCED,
+            group = "Display", label = "UI Scale", control = WowSettingControl.SLIDER,
+            backend = WowSettingBackend.CVAR, key = "uiScale",
+            // Bounds mirror the app-managed interface-scale slider (like
+            // graphics.frameCap mirrors ClientFrameCap), not the stock 0.64-1.0
+            // OptionsFrame slider; the row renders disabled either way.
+            min = 0.5f, max = 2.0f, step = 0.05f,
+            provenance = WowSettingProvenance.FRAMEXML_PIN,
+            fixedReason = FIXED_REASON_MANAGED_DISPLAY,
+        ),
+
         // ---------------- Advanced: Action Bars ----------------
         WowSettingDefinition(
             id = "advanced.lockActionBars", section = WowSettingSection.INTERFACE_ADVANCED,
@@ -884,11 +900,11 @@ object WowVanillaSettingsCatalog {
 
     fun byKey(key: String): WowSettingDefinition? = definitions.firstOrNull { it.key == key }
 
-    /** Definition ids as the hash input, mirroring the binding catalog's pin. */
-    const val ID_ORDER_SHA256: String = "bf5f8f72b15a8db471d847d09c57ad87ea0c9546d3249191efcf0b1524fcad1a"
-    const val SETTING_COUNT: Int = 108
-
     /** IDs whose backing key is user-editable in this drop (not fixed/function/enforced). */
     val userEditable: List<WowSettingDefinition> =
         definitions.filter { it.fixedReason == null && it.backend != WowSettingBackend.FUNCTION }
+
+    /** Definition ids as the hash input, mirroring the binding catalog's pin. */
+    const val ID_ORDER_SHA256: String = "944ad6a7c20d481dfe891c961c355326212c5bca28faeba5615412bea0feec32"
+    const val SETTING_COUNT: Int = 109
 }

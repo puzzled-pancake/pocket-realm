@@ -76,27 +76,41 @@ class ImportJournal(context: Context) : AutoCloseable {
         db.beginTransaction()
         try {
             val prior = db.rawQuery(
-                "SELECT import_id, source_uri, phase, source_kind, staged_bytes, staged_path, staged_sha256 " +
+                "SELECT import_id, source_uri, phase, source_kind, staged_bytes, staged_path, staged_sha256, bytes_total " +
                     "FROM imports WHERE phase NOT IN ('COMPLETE','CANCELLED') ORDER BY created_at_ms DESC LIMIT 1",
                 emptyArray(),
             ).use { cursor ->
                 if (!cursor.moveToFirst()) null
                 else arrayOf(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3)) to
-                    Triple(cursor.getLong(4), cursor.getString(5), cursor.getString(6))
+                    Triple(cursor.getLong(4), cursor.getString(5), cursor.getString(6)) to cursor.getLong(7)
             }
             if (prior != null) {
-                val (columns, staged) = prior
+                val (row, journaledTotal) = prior
+                val (columns, staged) = row
                 if (columns[3] != ImportSourceKind.ARCHIVE.name) {
                     throw ImportRejected("SOURCE_CHANGED: a folder import is still active")
                 }
-                if (columns[1] != uri.toString()) {
+                // Before staging finishes, the caller's expected size must
+                // match the journaled total: a mismatch once silently
+                // re-staged toward a truncated target (progress bytes passed
+                // as the size) and destroyed the resumable partial. After
+                // finishStaging, bytes_total legitimately becomes the
+                // extraction payload total — the staged file (stagedPath)
+                // anchors identity instead — so the size check no longer
+                // applies.
+                val sizeChanged = staged.second == null && journaledTotal != expectedBytes
+                if (columns[1] != uri.toString() || sizeChanged) {
+                    val reason = when {
+                        columns[1] != uri.toString() -> "resume requires the original archive"
+                        else -> "resume size $expectedBytes != journaled $journaledTotal bytes"
+                    }
                     if (columns[2] == ImportPhase.FAILED.name) {
                         db.update("imports", ContentValues().apply {
                             put("phase", ImportPhase.CANCELLED.name); put("updated_at_ms", System.currentTimeMillis())
                         }, "import_id=?", arrayOf(columns[0]))
                     } else {
-                        failLocked(db, checkNotNull(columns[0]), "SOURCE_CHANGED: resume requires the original archive")
-                        throw ImportRejected("SOURCE_CHANGED: resume requires the original unchanged archive")
+                        failLocked(db, checkNotNull(columns[0]), "SOURCE_CHANGED: $reason")
+                        throw ImportRejected("SOURCE_CHANGED: $reason")
                     }
                 } else {
                     db.setTransactionSuccessful()
@@ -411,18 +425,25 @@ class ImportJournal(context: Context) : AutoCloseable {
 
     fun latest(): ImportStatus = helper.readableDatabase.rawQuery(
         "SELECT import_id, phase, source_kind, source_fingerprint, source_uri, files_processed, files_total, bytes_copied, " +
-            "bytes_total, last_relative_path, staged_bytes, warning_count, last_error, active_generation, updated_at_ms " +
+            "bytes_total, last_relative_path, staged_bytes, staged_path, warning_count, last_error, active_generation, updated_at_ms " +
             "FROM imports ORDER BY created_at_ms DESC LIMIT 1", emptyArray(),
     ).use { cursor ->
         if (!cursor.moveToFirst()) ImportStatus() else ImportStatus(
             importId = cursor.getString(0), phase = ImportPhase.valueOf(cursor.getString(1)),
             sourceKind = ImportSourceKind.valueOf(cursor.getString(2)),
             sourceFingerprint = cursor.getString(3), sourceUri = cursor.getString(4),
-            filesProcessed = cursor.getInt(5),
-            filesTotal = cursor.getInt(6), bytesCopied = cursor.getLong(7), bytesTotal = cursor.getLong(8),
+            // Clamped AT construction: a legacy build left rows whose
+            // bytes_copied (payload) exceeded bytes_total (then the source
+            // size), and post-hoc sanitizing still threw inside <init> —
+            // crashing every status reader, including the Resume button.
+            filesProcessed = cursor.getInt(5).coerceAtMost(cursor.getInt(6)),
+            filesTotal = cursor.getInt(6),
+            bytesCopied = cursor.getLong(7).coerceAtMost(cursor.getLong(8)),
+            bytesTotal = cursor.getLong(8),
             lastRelativePath = cursor.getString(9), stagedBytes = cursor.getLong(10),
-            warningCount = cursor.getInt(11),
-            lastError = cursor.getString(12), activeGeneration = cursor.getString(13), updatedAtMs = cursor.getLong(14),
+            stagedPath = cursor.getString(11),
+            warningCount = cursor.getInt(12),
+            lastError = cursor.getString(13), activeGeneration = cursor.getString(14), updatedAtMs = cursor.getLong(15),
         )
     }
 

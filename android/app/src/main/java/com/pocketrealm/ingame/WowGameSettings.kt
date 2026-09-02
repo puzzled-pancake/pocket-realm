@@ -147,8 +147,9 @@ data class BindingAssignment(val command: String, val primary: String?, val seco
  * delivered override is never re-applied, so later in-game edits survive and
  * are reported as superseded at the next editor visit. Entries stranded on a
  * key the app currently enforces (e.g. staged master sound while audio is
- * off) and entries whose backing scope file is absent are skipped and
- * retained: not written, not dropped, not recorded as delivered.
+ * off), entries for fixed rows (never stageable through the editor), and
+ * entries whose backing scope file is absent are skipped and retained: not
+ * written, not dropped, not recorded as delivered.
  */
 object GameSettingsDeliveryPlanner {
 
@@ -188,6 +189,14 @@ object GameSettingsDeliveryPlanner {
             val definition = WowVanillaSettingsCatalog.byId(id)
             val cvarKey = definition?.key ?: id
             if (definition == null || definition.backend != WowSettingBackend.CVAR) {
+                blocked += id
+                return@forEach
+            }
+            // Fixed rows (managed display/renderer/fixed-in-game) can never be
+            // staged through the editor; a queued entry for one (hand-edited
+            // DataStore, restored backup) is blocked and retained rather than
+            // delivered against an app-owned key.
+            if (definition.fixedReason != null) {
                 blocked += id
                 return@forEach
             }

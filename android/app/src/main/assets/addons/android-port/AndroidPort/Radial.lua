@@ -15,7 +15,13 @@ local items = {
     { name = "Talents", icon = "Interface\\Icons\\Ability_Marksmanship", action = function() ToggleTalentFrame() end },
     { name = "Quest Log", icon = "Interface\\Icons\\INV_Misc_Note_01", action = function() ToggleQuestLog() end },
     { name = "World Map", icon = "Interface\\Icons\\INV_Misc_Map_01", action = function() ToggleWorldMap() end },
-    { name = "Social", icon = "Interface\\Icons\\INV_Letter_02", action = function() ToggleFriendsFrame(1) end },
+    -- E3: Talk takes Social's slot: on this offline realm the friends list
+    -- has no human friends to show (the stock minimap button still opens it
+    -- on touch), while reaching a conversation without typing a bot's exact
+    -- name is the whole point. Move UI keeps its slot + F8 binding.
+    { name = "Talk", icon = "Interface\\Icons\\INV_Letter_03", action = function()
+        if AndroidPort.Talk then AndroidPort.Talk:Open() end
+    end },
     -- Start already opens the normal game menu. Keep the scarce eighth radial
     -- slot for the setup action that otherwise required an awkward chord.
     { name = "Move UI", icon = "Interface\\Icons\\INV_Misc_Gear_01", action = function()

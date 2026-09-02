@@ -44,7 +44,7 @@ class AndroidPortAssetTest {
         assertTrue(toc.lineSequence().any { it.trim() == "## Interface: 11200" })
         val declared = toc.lineSequence().map(String::trim)
             .filter { it.endsWith(".lua") || it.endsWith(".xml") }.toList()
-        assertEquals(listOf("Core.lua", "ActionBars.lua", "Radial.lua", "Bags.lua", "FrameMover.lua", "Hud.lua"), declared)
+        assertEquals(listOf("Core.lua", "ActionBars.lua", "Radial.lua", "Bags.lua", "FrameMover.lua", "Hud.lua", "Talk.lua"), declared)
         declared.forEach { assertTrue("TOC entry $it", File(addon, it).isFile) }
         // Vanilla discovers this reserved filename itself. Listing it in the
         // TOC sends it through the generic FrameXML loader, which reports one
@@ -239,7 +239,7 @@ class AndroidPortAssetTest {
         assertTrue(core.contains("frame:GetCenter()"))
         assertTrue(core.contains("point = \"CENTER\", relativePoint = \"BOTTOMLEFT\""))
         assertTrue(core.contains("candidate.frame:SetPoint(saved.point, UIParent, saved.relativePoint"))
-        assertTrue(core.contains("if frame then self:AddAddonIconCandidate"))
+        assertTrue(core.contains("self:AddAddonIconCandidate(id, frame, record.label, true, seen)"))
         assertTrue(core.contains("elseif event == \"ADDON_LOADED\" then"))
         assertTrue(core.contains("if self.addonIconRefreshActive then return false end"))
         assertTrue(core.contains("local ok = pcall(function()"))
@@ -306,8 +306,8 @@ class AndroidPortAssetTest {
         val mover = File(addon, "FrameMover.lua").readText()
         val toc = File(addon, "AndroidPort.toc").readText()
 
-        assertTrue(core.contains("AP.VERSION = \"0.6.0\""))
-        assertTrue(toc.contains("## Version: 0.6.0"))
+        assertTrue(core.contains("AP.VERSION = \"0.6.1\""))
+        assertTrue(toc.contains("## Version: 0.6.1"))
         assertTrue(mover.contains("AndroidPort.FrameMover = AndroidPort.FrameMover or {}"))
         assertTrue(mover.contains("Mover.SCALE_MIN = 0.5"))
         assertTrue(mover.contains("Mover.SCALE_MAX = 1.5"))
@@ -378,8 +378,8 @@ class AndroidPortAssetTest {
         assertTrue(hud.contains("FCF_SetWindowColor(chat, 0, 0, 0, 1)"))
         assertTrue(hud.contains("chat.oldAlpha = 0.25"))
         assertTrue(hud.contains("chat:SetUserPlaced(1)"))
-        assertTrue(hud.contains("getglobal(\"ChatFrame1Tab\")"))
-        assertTrue(hud.contains("getglobal(\"ChatFrameMenuButton\")"))
+        assertTrue(hud.contains("Live(\"ChatFrame1Tab\")"))
+        assertTrue(hud.contains("Live(\"ChatFrameMenuButton\")"))
         assertTrue(hud.contains("events:RegisterEvent(\"UPDATE_CHAT_WINDOWS\")"))
         assertTrue(hud.contains("FCF_UpdateDockPosition = function()"))
         assertTrue(hud.contains("function Hud:RestoreChatFrame()"))
@@ -530,7 +530,7 @@ class AndroidPortAssetTest {
 
     @Test fun `xp strip sits under the mana bar inside the portrait block`() {
         val hud = File(addon, "Hud.lua").readText()
-        assertTrue(hud.contains("local manaBar = getglobal(\"PlayerFrameManaBar\")"))
+        assertTrue(hud.contains("local manaBar = Live(\"PlayerFrameManaBar\")"))
         assertTrue(hud.contains("bar:SetPoint(\"TOPLEFT\", manaBar, \"BOTTOMLEFT\", 0, -2)"))
         assertTrue(hud.contains("bar:SetPoint(\"TOPRIGHT\", manaBar, \"BOTTOMRIGHT\", 0, -2)"))
         assertTrue(hud.contains("SetTexture(0, 0, 0)"))

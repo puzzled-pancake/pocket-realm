@@ -52,17 +52,18 @@ internal class InGameSettingsEditor(private val context: Context) {
     /** Enforced Config keys for the *current* persisted launch conditions. */
     fun enforcedForCurrentConditions(snapshot: Settings.Snapshot): List<ConfigWtfCodec.EnforcedLine> {
         val renderer = snapshot.effectiveRenderer().id.lowercase()
-        val resolution = snapshot.displaySelection().let { selection ->
+        val displaySelection = snapshot.displaySelection().let { selection ->
             com.pocketrealm.client.ClientDisplayCapabilities
                 .physicalLandscapeBounds(context)
-                .let { (width, height) -> selection.profile.resolveFor(width, height).resolution }
+                .let { (width, height) -> selection.profile.resolveFor(width, height) }
         }
         return ManagedConfigPolicy.enforcedKeys(
             ManagedConfigPolicy.LaunchConditions(
                 renderer = renderer,
-                resolution = resolution,
+                resolution = displaySelection.resolution,
                 gameMaximized = snapshot.displaySelection().profile.gameMaximized,
                 frameCap = snapshot.clientFrameCap,
+                uiScale = snapshot.effectiveClientUiScale(displaySelection.height),
                 audioMode = snapshot.audioMode.name.lowercase(),
                 realmLoopback = snapshot.runtimeMode == com.pocketrealm.supervisor.RuntimeMode.LOCAL,
                 soundChannelsEnabled = snapshot.tweaks.soundChannelsEnabled,

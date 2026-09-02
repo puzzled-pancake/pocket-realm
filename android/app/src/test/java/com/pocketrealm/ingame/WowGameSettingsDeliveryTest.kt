@@ -21,6 +21,7 @@ class WowVanillaSettingsCatalogTest {
     fun `id order hash pins the catalog contents`() {
         assertEquals(WowVanillaSettingsCatalog.ID_ORDER_SHA256, idOrderSha256())
         assertEquals(WowVanillaSettingsCatalog.SETTING_COUNT, WowVanillaSettingsCatalog.all.size)
+        assertEquals(2, WowVanillaSettingsCatalog.CATALOG_VERSION)
     }
 
     @Test
@@ -31,7 +32,7 @@ class WowVanillaSettingsCatalogTest {
         assertEquals(24, bySection[WowSettingSection.GRAPHICS]!!.size)
         assertEquals(11, bySection[WowSettingSection.SOUND]!!.size)
         assertEquals(37, bySection[WowSettingSection.INTERFACE]!!.size)
-        assertEquals(36, bySection[WowSettingSection.INTERFACE_ADVANCED]!!.size)
+        assertEquals(37, bySection[WowSettingSection.INTERFACE_ADVANCED]!!.size)
     }
 
     @Test
@@ -189,12 +190,26 @@ class GameSettingsDeliveryPlannerTest {
         val enforced = ManagedConfigPolicy.enforcedKeys(
             ManagedConfigPolicy.LaunchConditions(
                 renderer = "dxvk", resolution = "1920x1080", gameMaximized = true,
-                frameCap = 30, audioMode = "off", realmLoopback = true,
+                frameCap = 30, uiScale = null, audioMode = "off", realmLoopback = true,
                 soundChannelsEnabled = false, soundChannels = 32,
             ),
         ).map { it.key }.toSet()
         val plan = plan(config, enforced = enforced)
         assertEquals(setOf("sound.master"), plan.blockedKeys)
+        assertTrue(plan.cvarWrites.isEmpty())
+        assertTrue(plan.delivered.isEmpty())
+    }
+
+    @Test
+    fun `queued entries for fixed rows are blocked and retained`() {
+        // Fixed rows can never be staged through the editor; a queued entry
+        // (hand-edited DataStore, restored backup) is blocked rather than
+        // delivered against an app-owned key.
+        val config = WowGameSettingsConfig(
+            cvar = mapOf("advanced.uiScale" to QueuedOverride("1.500000", 5, "config")),
+        )
+        val plan = plan(config)
+        assertEquals(setOf("advanced.uiScale"), plan.blockedKeys)
         assertTrue(plan.cvarWrites.isEmpty())
         assertTrue(plan.delivered.isEmpty())
     }
@@ -279,7 +294,7 @@ class ManagedConfigPolicyTest {
     private fun conditions(audio: String, renderer: String = "dxvk") =
         ManagedConfigPolicy.LaunchConditions(
             renderer = renderer, resolution = "1920x1080", gameMaximized = true,
-            frameCap = 30, audioMode = audio, realmLoopback = true,
+            frameCap = 30, uiScale = null, audioMode = audio, realmLoopback = true,
             soundChannelsEnabled = true, soundChannels = 48,
         )
 
@@ -381,5 +396,61 @@ class ManagedConfigPolicyTest {
             "SoundMixRate", "SoundBufferSize", "SoundSoftwareChannels",
             "M2UseShaders", "realmName",
         ) })
+    }
+
+    @Test
+    fun `managed ui scale enforces both cvars - unmanaged owns both keys`() {
+        val managed = conditions("on").copy(uiScale = 1.5f)
+        val enforced = ManagedConfigPolicy.enforcedKeys(managed)
+        assertEquals(
+            listOf(ConfigWtfCodec.EnforcedLine("useUiScale", "1"),
+                ConfigWtfCodec.EnforcedLine("uiScale", "1.500000")),
+            enforced.filter { it.key == "useUiScale" || it.key == "uiScale" },
+        )
+        assertEquals(18, enforced.size)
+        // Unmanaged: the pair is absent from the set entirely (user-owned,
+        // like master sound with audio on) — a null entry would DELETE the
+        // user's own lines at every prepare.
+        val unmanaged = ManagedConfigPolicy.enforcedKeys(conditions("on"))
+        assertTrue(unmanaged.none { it.key == "useUiScale" || it.key == "uiScale" })
+    }
+
+    @Test
+    fun `ui scale transition delete fires once only on a value-matched pair`() {
+        val fileWithEnforcedPair = mapOf("useUiScale" to "1", "uiScale" to "1.500000")
+        // managed -> unmanaged with the recorded pair still in the file: both
+        // lines are deleted as a unit.
+        assertEquals(
+            listOf(ConfigWtfCodec.EnforcedLine("uiScale", null),
+                ConfigWtfCodec.EnforcedLine("useUiScale", null)),
+            ManagedConfigPolicy.uiScaleTransitionDelete(
+                previousUiScale = "1.500000", currentUiScale = null,
+                currentFileValues = fileWithEnforcedPair,
+            ),
+        )
+        // The user changed the scale in game during the final managed session:
+        // nothing is deleted — the lines are theirs now.
+        assertTrue(ManagedConfigPolicy.uiScaleTransitionDelete(
+            previousUiScale = "1.500000", currentUiScale = null,
+            currentFileValues = mapOf("useUiScale" to "1", "uiScale" to "0.800000"),
+        ).isEmpty())
+        // Still managed, or never managed: no transition.
+        assertTrue(ManagedConfigPolicy.uiScaleTransitionDelete(
+            previousUiScale = "1.500000", currentUiScale = 1.5f,
+            currentFileValues = fileWithEnforcedPair,
+        ).isEmpty())
+        assertTrue(ManagedConfigPolicy.uiScaleTransitionDelete(
+            previousUiScale = null, currentUiScale = null,
+            currentFileValues = fileWithEnforcedPair,
+        ).isEmpty())
+        // Corrupt record or missing lines: conservative no-op.
+        assertTrue(ManagedConfigPolicy.uiScaleTransitionDelete(
+            previousUiScale = "not-a-number", currentUiScale = null,
+            currentFileValues = fileWithEnforcedPair,
+        ).isEmpty())
+        assertTrue(ManagedConfigPolicy.uiScaleTransitionDelete(
+            previousUiScale = "1.500000", currentUiScale = null,
+            currentFileValues = emptyMap(),
+        ).isEmpty())
     }
 }

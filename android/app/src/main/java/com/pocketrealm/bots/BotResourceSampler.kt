@@ -21,6 +21,8 @@ data class BotRuntimeMetrics(
     /** Monotonic process-lifetime count used to detect newly observed stalls. */
     val hardStallTotal: Long,
     val lastHardStallElapsedMs: Long,
+    /** CharacterDatabase probe RTT in ms; 0 = never sampled, 4294967295L (UINT32_MAX) = gate closed. */
+    val dbProbeDelayMs: Long,
     val worldPssMiB: Long,
     val freeMemoryMiB: Long,
     val freeStorageMiB: Long,
@@ -33,7 +35,7 @@ class BotResourceSampler(context: Context, private val storageRoot: File) {
     private val power = context.getSystemService(PowerManager::class.java)
 
     fun read(performance: LongArray): BotRuntimeMetrics {
-        require(performance.size == 9)
+        require(performance.size == 10)
         val memory = ActivityManager.MemoryInfo().also(activity::getMemoryInfo)
         val storage = StatFs(storageRoot.absolutePath)
         return BotRuntimeMetrics(
@@ -46,6 +48,7 @@ class BotResourceSampler(context: Context, private val storageRoot: File) {
             hardStallCount = performance[6].toInt(),
             hardStallTotal = performance[7],
             lastHardStallElapsedMs = performance[8],
+            dbProbeDelayMs = performance[9],
             worldPssMiB = Debug.getPss() / 1024L,
             freeMemoryMiB = memory.availMem / MIB,
             freeStorageMiB = storage.availableBytes / MIB,

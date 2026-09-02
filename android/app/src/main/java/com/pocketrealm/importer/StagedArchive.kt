@@ -36,8 +36,14 @@ class StagedArchiveCopier(
                 var sinceTick = 0L
                 while (copied < expectedBytes) {
                     checkpoint()
-                    val remaining = (expectedBytes - copied).toInt()
-                    val count = input.read(buffer, 0, minOf(buffer.size, remaining))
+                    // Length must be derived in Long: archives over 4 GiB make
+                    // expectedBytes - copied exceed Int range, and its 2^32
+                    // point truncates to 0 — read(buf, 0, 0) returns 0 forever
+                    // and the loop spins without progress.
+                    val count = input.read(
+                        buffer, 0,
+                        minOf(buffer.size.toLong(), expectedBytes - copied).toInt(),
+                    )
                     if (count < 0) return copied
                     output.write(buffer, 0, count)
                     copied += count

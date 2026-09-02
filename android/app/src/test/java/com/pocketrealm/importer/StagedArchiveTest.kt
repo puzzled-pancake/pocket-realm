@@ -60,6 +60,54 @@ class StagedArchiveCopierTest {
             copier.copy(target, 8192, 4096, { ByteArrayInputStream(ByteArray(16)) }, {}, {})
         }
     }
+
+    /**
+     * Regression: archives over 4 GiB. The old loop computed its read length
+     * as (expectedBytes - copied).toInt(); when exactly 2^32 bytes remained
+     * that truncated to 0, and read(buf, 0, 0) returning 0 spun the loop at
+     * full CPU with zero I/O progress — observed live on a 5.34 GiB RAR that
+     * wedged at offset size - 2^32. The virtual source serves zeros without
+     * storing the payload and refuses zero-length reads, so the old code fails
+     * this test immediately instead of hanging it.
+     */
+    @Test fun crossesThe4GiBRemainingBoundaryWithoutStalling() {
+        val target = File(folder.newFolder(), "staged.pkg")
+        val copier = StagedArchiveCopier(bufferBytes = 64 * 1024, progressTickBytes = 1024L * 1024 * 1024)
+        val readLengths = mutableListOf<Int>()
+        val source = object : java.io.InputStream() {
+            var served = 0L
+            override fun read(): Int {
+                served += 1
+                return 0x5A
+            }
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                check(len > 0) { "zero-length read requested: remaining hit 2^32 and truncated to Int 0" }
+                readLengths += len
+                java.util.Arrays.fill(b, off, off + len, 0x5A)
+                served += len
+                return len
+            }
+            override fun skip(n: Long): Long {
+                served += n
+                return n
+            }
+        }
+        // 4 GiB + 64 KiB: the second iteration crosses the boundary where the
+        // truncated remaining became zero. Cancel once the boundary is behind us.
+        val thrown = try {
+            copier.copy(
+                target, (1L shl 32) + 64L * 1024, 0, { source }, {},
+            ) {
+                if (source.served >= 128L * 1024) throw CancelDuringCopy(source.served)
+            }
+            null as CancelDuringCopy?
+        } catch (error: CancelDuringCopy) {
+            error
+        }
+        assertTrue("cancel fired only after crossing the boundary", thrown != null)
+        assertEquals(listOf(64 * 1024, 64 * 1024), readLengths)
+        assertEquals(128L * 1024, target.length())
+    }
 }
 
 class StagedArchiveStoreTest {

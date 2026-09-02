@@ -72,9 +72,19 @@ for _, spec in ipairs(curatedFrames) do
     relativeWhitelist[spec.name] = true
 end
 
+-- Freed-frame gate for stock-frame lookups: see AP:LiveFrame in Core.lua.
+-- A bare getglobal nil-check cannot tell a freed frame (whose userdata
+-- lingers, C++ object gone) from a live one, and the first method read on
+-- a freed frame faults the client (ERROR #132).
+local function LiveFrame(name)
+    local host = AndroidPort
+    if host and host.LiveFrame then return host:LiveFrame(name) end
+    return nil
+end
+
 local function SafeRelative(name)
     if relativeWhitelist[name] then
-        local frame = getglobal(name)
+        local frame = LiveFrame(name)
         if frame then return frame end
     end
     return UIParent
@@ -195,7 +205,7 @@ function Mover:ChainOnShow(name, frame)
         local anchors = AndroidPortDB and AndroidPortDB.frameAnchors
         local saved = type(anchors) == "table" and anchors[name] or nil
         if saved and saved.points then
-            local target = getglobal(name)
+            local target = LiveFrame(name)
             if target then pcall(function() Mover:ApplySavedFrame(target, saved) end) end
         end
     end)
@@ -257,7 +267,7 @@ function Mover:RestoreFrames()
     local anchors = AndroidPortDB and AndroidPortDB.frameAnchors
     if type(anchors) ~= "table" then return false end
     for name, saved in pairs(anchors) do
-        local frame = getglobal(name)
+        local frame = LiveFrame(name)
         if frame and self:IsValidSavedFrame(saved) then
             -- pcall guards Lua errors only; it is not crash protection.
             pcall(function() Mover:ApplySavedFrame(frame, saved) end)
@@ -270,11 +280,15 @@ end
 -- The stock bag sweep runs from both the open and the close path and also
 -- resets container scale, so re-assert journaled layout after it settles.
 function Mover:ReassertContainers()
+    -- ContainerFrame1..N are created on demand at bag open, so the live set
+    -- built at login is stale by the time this runs; rebuild it first or the
+    -- LiveFrame gate below silently skips every journaled container.
+    if AndroidPort and AndroidPort.BuildLiveFrameSet then AndroidPort:BuildLiveFrameSet() end
     local anchors = AndroidPortDB and AndroidPortDB.frameAnchors
     if type(anchors) ~= "table" then return end
     for name, saved in pairs(anchors) do
         if string.find(name, "ContainerFrame", 1, true) or name == "BankFrame" then
-            local frame = getglobal(name)
+            local frame = LiveFrame(name)
             if frame and frame.IsShown and frame:IsShown() then
                 pcall(function() Mover:ApplySavedFrame(frame, saved) end)
             end
@@ -311,7 +325,7 @@ function Mover:ResetUI()
     local restored = 0
     if type(db.frameBackups) == "table" then
         for name, backup in pairs(db.frameBackups) do
-            local frame = getglobal(name)
+            local frame = LiveFrame(name)
             if frame and self:IsValidSavedFrame(backup) then
                 local ok = pcall(function() Mover:ApplySavedFrame(frame, backup) end)
                 if ok then restored = restored + 1 end
@@ -333,8 +347,11 @@ function Mover:Initialize()
     if not host or type(host.addonIconCandidates) ~= "table" then return false end
     local ok = pcall(function()
         for _, spec in ipairs(curatedFrames) do
-            local frame = getglobal(spec.name)
-            if HasFrameLayoutMethods(frame) and
+            -- Live gate first: a bare getglobal nil-check cannot tell a
+            -- freed frame from a live one, and the first method read on a
+            -- freed frame faults the client.
+            local frame = host:LiveFrame(spec.name)
+            if frame and HasFrameLayoutMethods(frame) and
                 (not frame.IsProtected or not frame:IsProtected()) then
                 local key = "frame:" .. spec.name
                 local candidate = host.addonIconCandidates[key]

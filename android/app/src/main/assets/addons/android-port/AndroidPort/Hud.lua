@@ -8,12 +8,33 @@ Hud.ready = Hud.ready or false
 
 local CHAT_WIDTH = 340
 local CHAT_HEIGHT = 100
+-- E3: while a whisper conversation is live the frame grows to a readable
+-- transcript (~9 lines); the minimal 4-line strip scrolls the player's own
+-- words away mid-conversation
+local CHAT_TALK_HEIGHT = 220
+-- whisper activity keeps the tall rect armed this long after the last line
+local TALK_ACTIVE_SECONDS = 10
+-- a burst (journal dump: the diary paces several lines a second) reveals
+-- the scroll chrome so the newest lines can actually be reached
+local BURST_MESSAGES = 5
+local BURST_WINDOW = 2.5
+local BURST_LINGER = 6
 local CHAT_MARGIN = 28
 local STOCK_CHAT_WIDTH = 430
 local STOCK_CHAT_HEIGHT = 120
 local MAX_PLAYER_LEVEL = 60
 
 local chatButtons = { "UpButton", "DownButton", "BottomButton" }
+
+-- Freed-frame gate for stock-frame lookups: see AP:LiveFrame in Core.lua.
+-- A bare getglobal nil-check cannot tell a freed frame (whose userdata
+-- lingers, C++ object gone) from a live one, and the first method read on
+-- a freed frame faults the client (ERROR #132).
+local function Live(name)
+    local host = AndroidPort
+    if host and host.LiveFrame then return host:LiveFrame(name) end
+    return nil
+end
 
 function Hud:ChatEnabled()
     local db = AndroidPortDB
@@ -31,29 +52,70 @@ function Hud:ChatAnchorY()
 end
 
 function Hud:HideChatChrome()
+    -- E3: a live burst keeps the scroll buttons reachable even under the
+    -- minimal treatment (a journal dump scrolls the player's words away)
+    if self:BurstActive() then return end
     for _, suffix in ipairs(chatButtons) do
-        local button = getglobal("ChatFrame1" .. suffix)
+        local button = Live("ChatFrame1" .. suffix)
         if button then button:Hide() end
     end
-    local tab = getglobal("ChatFrame1Tab")
+    local tab = Live("ChatFrame1Tab")
     if tab then tab:Hide() end
-    local combatTab = getglobal("ChatFrame2Tab")
+    local combatTab = Live("ChatFrame2Tab")
     if combatTab then combatTab:Hide() end
-    local menu = getglobal("ChatFrameMenuButton")
+    local menu = Live("ChatFrameMenuButton")
     if menu then menu:Hide() end
 end
 
 function Hud:ShowChatChrome()
     for _, suffix in ipairs(chatButtons) do
-        local button = getglobal("ChatFrame1" .. suffix)
+        local button = Live("ChatFrame1" .. suffix)
         if button then button:Show() end
     end
-    local tab = getglobal("ChatFrame1Tab")
+    local tab = Live("ChatFrame1Tab")
     if tab then tab:Show() end
-    local combatTab = getglobal("ChatFrame2Tab")
+    local combatTab = Live("ChatFrame2Tab")
     if combatTab then combatTab:Show() end
-    local menu = getglobal("ChatFrameMenuButton")
+    local menu = Live("ChatFrameMenuButton")
     if menu then menu:Show() end
+end
+
+-- E3: is a whisper conversation live (recent whisper traffic in either
+-- direction)? Drives the tall conversation rect.
+function Hud:ConversationActive()
+    return (self.talkActiveUntil or 0) > GetTime()
+end
+
+-- E3: is a message burst in flight (>= BURST_MESSAGES whisper lines inside
+-- BURST_WINDOW, lingering BURST_LINGER after the last)? Drives the scroll
+-- chrome reveal.
+function Hud:BurstActive()
+    return (self.burstUntil or 0) > GetTime()
+end
+
+-- E3: whisper traffic observer (both directions). Only TRANSITIONS apply
+-- the rect - the composer's own echo must not resize the frame under the
+-- player's fingers on every line.
+function Hud:NoteWhisperActivity()
+    local now = GetTime()
+    self.talkActiveUntil = now + TALK_ACTIVE_SECONDS
+    if not self.burstWindowAt or now - self.burstWindowAt > BURST_WINDOW then
+        self.burstWindowAt = now
+        self.burstCount = 0
+    end
+    self.burstCount = (self.burstCount or 0) + 1
+    local burst = self.burstCount >= BURST_MESSAGES
+    if burst then
+        self.burstUntil = now + BURST_LINGER
+    end
+    if not self.chatTall then
+        self.chatTall = true
+        pcall(function() if self:ChatEnabled() then self:ApplyChatFrame() end end)
+    end
+    if burst and not self.chromeShown then
+        self.chromeShown = true
+        pcall(function() self:ShowChatChrome() end)
+    end
 end
 
 -- Position the chat unless the player has journaled it with Move UI, then
@@ -61,7 +123,7 @@ end
 -- the shared edit box directly, exactly like the stock simple-chat mode.
 function Hud:ApplyChatFrame()
     if not self:ChatEnabled() then return false end
-    local chat = getglobal("ChatFrame1")
+    local chat = Live("ChatFrame1")
     if not chat or not chat.SetPoint then return false end
     local db = AndroidPortDB
     local journaled = type(db) == "table" and type(db.frameAnchors) == "table" and
@@ -70,7 +132,9 @@ function Hud:ApplyChatFrame()
     if not journaled then
         chat:ClearAllPoints()
         chat:SetWidth(CHAT_WIDTH)
-        chat:SetHeight(CHAT_HEIGHT)
+        -- E3: tall while talking, minimal at rest (a journaled rect is the
+        -- player's own choice and is never resized out from under them)
+        chat:SetHeight(self:ConversationActive() and CHAT_TALK_HEIGHT or CHAT_HEIGHT)
         chat:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", CHAT_MARGIN, self:ChatAnchorY())
     end
     -- The trailing 1 is doNotSave: the stored chat profile stays stock so a
@@ -83,7 +147,7 @@ function Hud:ApplyChatFrame()
     chat.oldAlpha = 0.25
     -- The docked combat log shares the rect, so its chrome gets the same
     -- treatment or it reappears alongside the minimal chat.
-    local combat = getglobal("ChatFrame2")
+    local combat = Live("ChatFrame2")
     if combat and combat.SetPoint then
         if type(FCF_SetWindowAlpha) == "function" then FCF_SetWindowAlpha(combat, 0, 1) end
         if type(FCF_SetWindowColor) == "function" then FCF_SetWindowColor(combat, 0, 0, 0, 1) end
@@ -94,7 +158,7 @@ function Hud:ApplyChatFrame()
 end
 
 function Hud:RestoreChatFrame()
-    local chat = getglobal("ChatFrame1")
+    local chat = Live("ChatFrame1")
     if not chat or not chat.SetPoint then return false end
     chat:ClearAllPoints()
     chat:SetWidth(STOCK_CHAT_WIDTH)
@@ -104,7 +168,7 @@ function Hud:RestoreChatFrame()
     if type(FCF_SetWindowAlpha) == "function" then FCF_SetWindowAlpha(chat, 0.25, 1) end
     if type(FCF_SetWindowColor) == "function" then FCF_SetWindowColor(chat, 0, 0, 0, 1) end
     chat.oldAlpha = 0.25
-    local combat = getglobal("ChatFrame2")
+    local combat = Live("ChatFrame2")
     if combat and type(FCF_SetWindowAlpha) == "function" then
         FCF_SetWindowAlpha(combat, 0.25, 1)
     end
@@ -175,9 +239,9 @@ end
 function Hud:CreateXPBar()
     local bar = getglobal("AndroidPortXPBar")
     if bar then return bar end
-    local playerFrame = getglobal("PlayerFrame")
+    local playerFrame = Live("PlayerFrame")
     if not playerFrame then return nil end
-    local manaBar = getglobal("PlayerFrameManaBar")
+    local manaBar = Live("PlayerFrameManaBar")
     bar = CreateFrame("StatusBar", "AndroidPortXPBar", playerFrame)
     bar:SetHeight(8)
     if manaBar then
@@ -285,10 +349,17 @@ events:RegisterEvent("UPDATE_CHAT_WINDOWS")
 events:RegisterEvent("PLAYER_XP_UPDATE")
 events:RegisterEvent("UPDATE_EXHAUSTION")
 events:RegisterEvent("PLAYER_LEVEL_UP")
+-- E3: whisper traffic drives the tall conversation rect + burst chrome
+events:RegisterEvent("CHAT_MSG_WHISPER")
+events:RegisterEvent("CHAT_MSG_WHISPER_INFORM")
 events:SetScript("OnEvent", function()
     -- Crash-bisection switch ("/ap off hud"): skip ALL world-entry work so
     -- a surviving crash genuinely exonerates this module.
     if AndroidPort and not AndroidPort:IsModuleEnabled("hud") then return end
+    if event == "CHAT_MSG_WHISPER" or event == "CHAT_MSG_WHISPER_INFORM" then
+        Hud:NoteWhisperActivity()
+        return
+    end
     if event == "PLAYER_ENTERING_WORLD" or event == "UPDATE_CHAT_WINDOWS" then
         -- The engine applies the saved chat rectangle after the load-time
         -- pass, silently dropping the window back onto the action cluster;
@@ -302,6 +373,16 @@ events:SetScript("OnEvent", function()
     Hud:UpdateXPBar()
 end)
 events:SetScript("OnUpdate", function()
+    -- E3 decay: the resting rect returns once the conversation quiets and
+    -- the burst lapses (state flags make each decay apply exactly once)
+    if Hud.chatTall and not Hud:ConversationActive() then
+        Hud.chatTall = nil
+        pcall(function() if Hud:ChatEnabled() then Hud:ApplyChatFrame() end end)
+    end
+    if Hud.chromeShown and not Hud:BurstActive() then
+        Hud.chromeShown = nil
+        pcall(function() if Hud:ChatEnabled() then Hud:ApplyChatFrame() end end)
+    end
     if not this.pendingReassert then return end
     if AndroidPort and not AndroidPort:IsModuleEnabled("hud") then
         this.pendingReassert = nil

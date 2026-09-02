@@ -9,7 +9,11 @@ package com.pocketrealm.ingame
  * false this launch carry a null value and are removed from the merged
  * output, so stale lines cannot survive audio on→off, loopback→LAN, or
  * renderer flips. `farclip` is deliberately absent: it flipped to
- * user-editable with the 177 seed (plan §4.3, Phase 2).
+ * user-editable with the 177 seed (plan §4.3, Phase 2). The UI scale pair is
+ * conditionally owned: enforced while the app manages the value, entirely
+ * absent from this set (user-owned, like master sound with audio on) while
+ * unmanaged — a one-time transition delete ([uiScaleTransitionDelete])
+ * removes the stale enforced pair when management is turned off again.
  */
 object ManagedConfigPolicy {
 
@@ -21,6 +25,8 @@ object ManagedConfigPolicy {
         val resolution: String,
         val gameMaximized: Boolean,
         val frameCap: Int,
+        /** App-managed UI scale (already per-profile clamped); null = user-owned. */
+        val uiScale: Float?,
         val audioMode: String,
         val realmLoopback: Boolean,
         val soundChannelsEnabled: Boolean,
@@ -46,6 +52,14 @@ object ManagedConfigPolicy {
             // clean exit (ground truth capture), and the editor can change
             // them at any time now that they are absent from this set.
             add(ConfigWtfCodec.EnforcedLine("maxFPS", conditions.frameCap.toString()))
+            // UI scale: while managed, both CVars are enforced every prepare
+            // (self-healing against the client's exit rewrite of Config.wtf).
+            // While unmanaged both keys are user-owned — absent from this set
+            // entirely so an in-game Advanced Options choice survives.
+            conditions.uiScale?.let { scale ->
+                add(ConfigWtfCodec.EnforcedLine("useUiScale", "1"))
+                add(ConfigWtfCodec.EnforcedLine("uiScale", ConfigWtfCodec.formatValue(scale)))
+            }
             add(ConfigWtfCodec.EnforcedLine("scriptMemory", "0"))
             // Audio-off enforcement is the only sound line the app owns. While
             // audio is ON the master CVar is NOT in this list at all — it is
@@ -94,5 +108,32 @@ object ManagedConfigPolicy {
         val lastUserEdit = directEditRevisions[MASTER_SOUND_CVAR]
         if (lastUserEdit != null && lastUserEdit > previousPreparedAtRevision) return null
         return ConfigWtfCodec.EnforcedLine(MASTER_SOUND_CVAR, null)
+    }
+
+    /**
+     * The managed→unmanaged UI-scale transition cleanup: delete the stale
+     * enforced pair exactly once — but only when both lines still carry the
+     * values the app itself wrote (uiScale matches the recorded last-enforced
+     * value; useUiScale is still "1"). In-game edits are never journaled, so
+     * the recorded value is the only discriminator between "stale enforced
+     * lines" and "the user changed the scale in game during the final managed
+     * session" (the same never-delete-a-user-choice rule as
+     * [masterSoundTransitionDelete]). On any mismatch the pair stays in the
+     * file, fully user-owned.
+     */
+    fun uiScaleTransitionDelete(
+        previousUiScale: String?,
+        currentUiScale: Float?,
+        currentFileValues: Map<String, String>,
+    ): List<ConfigWtfCodec.EnforcedLine> {
+        if (previousUiScale == null || currentUiScale != null) return emptyList()
+        val recorded = previousUiScale.toFloatOrNull() ?: return emptyList()
+        val fileScale = currentFileValues["uiScale"]?.toFloatOrNull()
+        if (fileScale == null || recorded.compareTo(fileScale) != 0) return emptyList()
+        if (currentFileValues["useUiScale"] != "1") return emptyList()
+        return listOf(
+            ConfigWtfCodec.EnforcedLine("uiScale", null),
+            ConfigWtfCodec.EnforcedLine("useUiScale", null),
+        )
     }
 }
