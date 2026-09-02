@@ -1,4 +1,4 @@
-// S10/E6 world-chatter host battery: compiles the SHIPPED pure core
+// World-chatter host battery: compiles the SHIPPED pure core
 // (PlayerbotLlmChatterCore.h) standalone with -std=c++11 and pins every
 // contract the scheduler depends on - the power-ladder policy table, the
 // world repetition ring, the fatigue + legend ledger, the authored floor,
@@ -36,7 +36,7 @@ void TestPolicyTable()
     CHECK(em.murmurDisplayMinSec >= 120);  // stretched display cadence
     // the batch window spaces the EMERGENCY PICKS too: a zero window
     // would re-pick (and re-drift the legend) every scheduler tick while
-    // the floor's own spacing defers delivery (round-1 R1/R5)
+    // the floor's own spacing defers delivery
     CHECK(em.murmurBatchWindowSec >= 120);
 
     // CRITICAL: global-channel layer only, ~1 line/3 min ceiling
@@ -46,7 +46,7 @@ void TestPolicyTable()
 
     // CONSTRAINED: device batches, stretched cadence (>= 90s display),
     // no composer, rarer party idle. The batch window (540s) is the
-    // device-RATE bound - pinned absolutely (round-1 R5: the battery's
+    // device-RATE bound - pinned absolutely (the battery's
     // battery-arithmetic leg rests on it)
     ChatterPolicy co = ChatterPolicyFor(RUNG_CONSTRAINED, true);
     CHECK(co.generated && co.murmur && co.party && co.global && !co.composer);
@@ -119,7 +119,7 @@ void TestWorldRing()
 void TestFatigueAndLegend()
 {
     ChatterFatigue f;
-    // the plan's absolute design constants (SS4.6b: "topic saturation
+    // the absolute design constants ("topic saturation
     // retires a story after K tellings"; "content-bearing hops capped
     // ~3-5") - pinned absolutely so a constants edit cannot silently
     // pass the relative checks below
@@ -184,7 +184,7 @@ void TestRegisterAndFloor()
     for (int i = 0; i < 10; ++i) speech += "word word word ";
     CHECK(!IsMurmurRegister(speech));
 
-    // the chatter line-safety law (round-1 R6): an autonomous producer
+    // the chatter line-safety law: an autonomous producer
     // may never queue newlines, non-ASCII residue, protocol/pipe
     // characters, or emote-initial leads
     CHECK(ChatterLineSafe("Ash lost five silver in a duel by the gates"));
@@ -221,8 +221,8 @@ void TestRegisterAndFloor()
 
 void TestFrozenWording()
 {
-    // the wording lock (SS5.1 P45(b) generalized): these exact byte
-    // strings are what the S11 P52 bank must train. Moving any of them
+    // the wording lock: these exact byte
+    // strings are what the murmur bank must train. Moving any of them
     // is a bank-side change, not a wording tweak.
     CHECK(MurmurNote("Ashmar",
         "Ash lost a duel") ==
@@ -305,8 +305,8 @@ void TestInterruption()
     CHECK(!PlayerHoldsChannel(1000 - kPlayerChannelHoldSec, 1000));
 
     // the wider AMBIENT ADMISSION window: a batch dispatches only when
-    // the player has been quiet for kAmbientAdmissionHoldSec (round-3:
-    // the body had no behavioral pin - a stubbed gate survived)
+    // the player has been quiet for kAmbientAdmissionHoldSec (the body
+    // carries a behavioral pin - a stubbed gate would not survive)
     CHECK(AmbientAdmissionQuiet(0, 1000));      // never stamped
     CHECK(!AmbientAdmissionQuiet(999, 1000));   // actively conversing
     CHECK(!AmbientAdmissionQuiet(1000 - kAmbientAdmissionHoldSec + 1, 1000));
@@ -394,7 +394,7 @@ SoakResult RunSoak(ChatterRung rung, bool composerConfigured,
         // murmur layer: the SHIPPED topology - one device/composer batch
         // per batch window (the refill gate; the display stagger is the
         // notBefore delay), dispatched only in a quiet channel, delivered
-        // only when the player does not hold it (round-1 R3/R5: the soak
+        // only when the player does not hold it (the soak
         // must model the window-driven refill, not a display-cadence loop)
         if (policy.murmur && policy.generated && !factKey.empty() &&
             now - lastMurmur >= policy.murmurBatchWindowSec &&

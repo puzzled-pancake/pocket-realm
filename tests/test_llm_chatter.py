@@ -1,11 +1,11 @@
-"""The S10 world-chatter battery (E6/§4.6b host gate).
+"""The world-chatter battery.
 
 Compiles the SHIPPED pure core (native/patches/playerbots/
 PlayerbotLlmChatterCore.h) on the host with -std=c++11 and pins the
 power-ladder policy table, the world repetition ring, the fatigue +
 legend ledger (retirement, credence, the content-hop cap), the authored
-event-grounded floor, the frozen murmur/composer prompt wording (the
-P52 wording lock) and the 6-hour soak invariants - silence default,
+event-grounded floor, the frozen murmur/composer prompt wording
+(the frozen wording lock) and the 6-hour soak invariants - silence default,
 world-ring zero-repeat, retirement ceilings, interruption suppression,
 per-rung cadence ceilings. The world-side glue (the scheduler tick, the
 batch workers, the delivery ledger, the driver anchors, the conf keys)
@@ -85,7 +85,7 @@ def test_conf_keys_wired():
     # the composer url is parsed once like the main endpoint
     assert "llmChatterComposerUrlParsed = parseUrl(llmChatterComposerUrl);" in driver
     # the conf.dist.in doc block documents the layer
-    assert "S10/E6 world chatter" in driver
+    assert "World chatter" in driver
 
 
 def test_scheduler_tick_anchor():
@@ -93,7 +93,6 @@ def test_scheduler_tick_anchor():
     # the tick rides the telemetry 10 s gate on the world thread. Pinned
     # WITH the indentation + closing brace: a commented-out call
     # (";// PlayerbotLlmChatter::Tick();") keeps a bare-name pin alive
-    # (round-3 mutation finding)
     assert "        PlayerbotLlmChatter::Tick();\n    }\n" in driver
     assert '#include "PlayerbotLlmChatter.h"' in driver
 
@@ -123,10 +122,10 @@ def test_governor_extraction_and_raw_post():
     assert "std::string PlayerbotLLMInterface::PostChatHttp(" in driver
     assert "bool PlayerbotLLMInterface::InteractiveGenerationInFlight()" in driver
     # the in-flight probe's BODY reads the real counter (a stubbed body
-    # keeps the signature pins alive - round-3 mutation finding)
+    # keeps the signature pins alive)
     assert "return sPlayerbotLLMInterface.generationCount.load() > 0;" in driver
     # the governor's budget legs consume the conf values (either leg
-    # gutted is a bypass; round-3 mutation finding)
+    # gutted is a bypass)
     assert "botWindow.size() < std::max<uint32>(1, sPlayerbotAIConfig.llmGovernorBotMax) &&" in driver
     assert "globalWindow.size() < std::max<uint32>(1, sPlayerbotAIConfig.llmGovernorGlobalMax);" in driver
     # GenerateHttp carries the endpoint/key overrides (declaration + definition)
@@ -138,7 +137,7 @@ def test_governor_extraction_and_raw_post():
     assert "apiKeyOverride ? *apiKeyOverride : sPlayerbotAIConfig.llmApiKey" in driver
     # parseUrl throws on non-URL text: the composer URL parse is guarded
     # exactly like the main endpoint (an unguarded empty-default parse
-    # would abort every world boot - round-1 R6 P0)
+    # would abort every world boot)
     assert 'if (!llmChatterComposerUrl.empty())' in driver
     assert "catch (const std::exception& e)" in driver
     assert 'sLog.outError("Unable to parse LLMChatterComposerUrl: %s", e.what());' in driver
@@ -163,8 +162,8 @@ def test_scheduler_discipline():
     assert "PlayerbotLLMInterface::GovernorAdmit(job.speakerGuid)" in source
     # ambient dispatch waits for a quiet channel (player chat outranks
     # the batch lane, not just the delivery) - pinned on the ASSIGNMENT
-    # slices, not the bare name (round-3: the name-only pin survived a
-    # disabled gate)
+    # slices, not the bare name (a name-only pin survives a disabled
+    # gate)
     assert "quiet = pocketllm::AmbientAdmissionQuiet(s.lastPlayerChatAt, now);" in source
     assert ("                    if (fire && !pocketllm::AmbientAdmissionQuiet(s.lastPlayerChatAt, now))\n"
             "                        fire = false;" in source)
@@ -208,7 +207,7 @@ def test_scheduler_discipline():
             "                }" in source)
     # the party cadence law: the window stamps on the ROLL (not the win),
     # and the duel event note is CONSUMED only when its bark will really
-    # dispatch (a held channel leaves it armed to retry - round-2 R1)
+    # dispatch (a held channel leaves it armed to retry)
     assert "windowAt = now;  // the roll consumes the window, win or lose" in source
     assert "s.partyDuelNoteAt.erase(master->GetGUIDLow());" in source
     assert "if (duelNote && now - duelNote >= 60 && duelNote < now)" in source
@@ -219,7 +218,7 @@ def test_scheduler_discipline():
     assert "size_t const turnCap = std::min(script.size()," in source
     assert "(size_t)pocketllm::ChatterFatigue::kMaxFactTellings));" in source
     # turns of ONE exchange deliver IN ORDER (independent draws reorder
-    # a reply ahead of its setup line ~1/3 of the time - round-3)
+    # a reply ahead of its setup line ~1/3 of the time)
     assert "uint32 const perTurn = std::max<uint32>(6u," in source
     assert "base + (uint32)i * perTurn, base + (uint32)i * perTurn);" in source
     # a job with no fact rows never reaches the enqueue loop (the
@@ -229,11 +228,11 @@ def test_scheduler_discipline():
     # nearby personas (per-bot device calls are the fallback)
     assert "job.layer = pocketllm::LAYER_MURMUR;" in source
     # the line-safety law covers the FLOOR paths too (the DB event text
-    # can carry pipes/newlines past the write chain - round-2 R1/R6)
+    # can carry pipes/newlines past the write chain)
     assert "if (pocketllm::ChatterLineSafe(floorText))" in source
     assert "if (!pocketllm::ChatterLineSafe(headline))" in source
-    # a stale power file flushes already-generated queue entries (the
-    # plan's "generation stops; authored texture floor only")
+    # a stale power file flushes already-generated queue entries
+    # ("generation stops; authored texture floor only")
     assert "if (!itr->floor)\n                itr = s.queue.erase(itr);" in source
 
 
@@ -241,7 +240,7 @@ def test_pure_core_doctrine_pins():
     core = CORE.read_text(encoding="utf-8")
     # the doctrine is stated where the next maintainer will read it
     assert "SILENCE IS THE DEFAULT STATE" in core
-    # the wording lock is stated for the S11 P52 bank
+    # the wording lock is stated in the core itself
     assert "FROZEN device-path prompt wording" in core
     # no game globals/DB/wall clock in the pure core (the purity comment
     # names them; the REAL signatures must not)
@@ -258,7 +257,7 @@ def test_kotlin_emission_surface():
     assert 'AiPlayerbot.LLMChatterEnabled = 0' in policy  # off is explicit
     # the two-directional toggle's heart: the power file is staged
     # whenever the LLM subsystem is enabled, carrying the live ambience
-    # flag - the staging condition itself is load-bearing (round-2 R2/R3)
+    # flag - the staging condition itself is load-bearing
     runtime_files = (ROOT / "android" / "app" / "src" / "main" / "java" /
                      "com" / "pocketrealm" / "server" / "ServerRuntimeFiles.kt").read_text(encoding="utf-8")
     assert "val chatterPower = if (snapshot.llmEnabled)" in runtime_files
@@ -268,13 +267,13 @@ def test_kotlin_emission_surface():
     for line in ("RUNG_OFF = 0", "RUNG_EMERGENCY = 1", "RUNG_CRITICAL = 2",
                  "RUNG_CONSTRAINED = 3", "RUNG_NORMAL = 4"):
         assert line in monitor
-    # the plan's named thermal gate is used
+    # the platform thermal gate is used
     assert "getThermalHeadroom" in monitor
 
 
 def test_p52_wording_lock_module_is_fresh():
-    """S11 binding condition (S10-ledger): the P52 bank trains the FROZEN
-    S10 wording byte-exactly. banklib-adjacent bridge_wording.py is
+    """Binding condition: the wording bank trains the FROZEN shipped
+    wording byte-exactly. banklib-adjacent bridge_wording.py is
     GENERATED from the C++ cores; this leg regenerates and diffs so any
     drift between the shipped wording and the authoring tree fails loud.
     Skips (with reason) on a machine without the G: authoring tree - the

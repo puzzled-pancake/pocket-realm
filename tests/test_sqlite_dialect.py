@@ -1,10 +1,10 @@
-"""P3/G5 runtime dialect: inventory tripwire + ODKU threshold fixture.
+"""Runtime dialect: inventory tripwire + ODKU threshold fixture.
 
 The self-maintaining dialect inventory scans the EFFECTIVE runtime source
 (the playerbots patches overrides + the playerbots submodule minus the
 overridden files + cmangos src minus the build-time modules mirror + the
 cmangos patches replacements + both facade runtimes) for the MySQL
-dialect classes F28/F51 enumerated. Every hit must be one of:
+dialect classes enumerated. Every hit must be one of:
   - a #define in DatabaseEnv.h (the sanctioned backend macro layer),
   - inside the #else (DO_MYSQL) branch of an #ifdef DO_SQLITE guard - the
     registered rewrites keep their MySQL branch for DO_MYSQL builds,
@@ -13,12 +13,12 @@ dialect classes F28/F51 enumerated. Every hit must be one of:
   - a pristine site whose driver overlay replacement AND upstream anchor
     are verified present, where the hit LINE contains that exact anchor
     text and the per-file per-class hit count matches the registered
-    count (file:line granularity per the P3 spec).
+    count (file:line granularity).
 Anything else fails CI: inventory rot becomes a build failure.
 
 The ODKU fixture (tools/test_sqlite_odku.c) executes the exact rewritten
 SQL against the PINNED amalgamation at the 10/30/60 tier boundaries and
-includes the unfolded-rewrite negative control (F28/F43).
+includes the unfolded-rewrite negative control.
 """
 from __future__ import annotations
 
@@ -82,8 +82,7 @@ _SPANNING_CLASSES = ("insert-ignore", "on-duplicate-key", "delete-order-limit")
 # anchored only when its LINE contains the exact upstream anchor text (the
 # driver carries both the anchor and the replacement), and the per-file
 # per-class hit count must equal the registered count: a THIRD raw
-# TRUNCATE in ObjectMgr.cpp (the parallel-session growth class, gotcha
-# #11) fails CI instead of riding the exemption.
+# TRUNCATE in ObjectMgr.cpp fails CI instead of riding the exemption.
 ANCHORED_SITES = (
     # (path under cmangos src, class, driver replacement, upstream anchor, expected count)
     ("game/Globals/ObjectMgr.cpp", "raw-truncate",
@@ -214,7 +213,7 @@ def _strip_comments(text: str) -> list[str]:
 
 def test_dialect_inventory_has_no_unguarded_mysqlisms() -> None:
     # A silently-narrowed scan (one submodule absent) is a vacuous green -
-    # skip loudly so the SKIP count exposes it (E's R3 finding). The
+    # skip loudly so the SKIP count exposes it. The
     # patches dirs are in-repo but their absence narrows the scan too.
     if not (PLAYERBOTS.is_dir() and CMANGOS_SRC.is_dir()
             and PATCHES_PLAYERBOTS.is_dir() and PATCHES_CMANGOS.is_dir()):
@@ -272,11 +271,11 @@ def test_dialect_inventory_has_no_unguarded_mysqlisms() -> None:
                     f"{line_hits} per-line instances)")
     assert not unguarded, (
         "unguarded MySQL dialect in effective runtime source (new runtime "
-        "statements must be rewritten per P3/G5 or guarded per backend):\n"
+        "statements must be backend-portable or guarded per backend):\n"
         + "\n".join(unguarded))
     # Every anchored file/class must appear exactly its REGISTERED TOTAL
-    # count of anchored hits (the file:line enumeration the P3 spec
-    # demands: a third raw TRUNCATE in ObjectMgr fails here).
+    # count of anchored hits (file:line enumeration: a third raw
+    # TRUNCATE in ObjectMgr fails here).
     expected_totals: dict[tuple[str, str], int] = {}
     for site_path, site_cls, _, _, expected in ANCHORED_SITES:
         expected_totals[(site_path, site_cls)] = (
@@ -304,11 +303,12 @@ def test_dialect_inventory_has_no_unguarded_mysqlisms() -> None:
 
 def test_upsert_schema_dependencies_are_pinned_for_p4() -> None:
     # The ON CONFLICT(`bot`,`player`) upsert REQUIRES the composite PK to
-    # survive P4 DDL translation: a non-unique translation (or a dropped
+    # survive DDL translation: a non-unique translation (or a dropped
     # PK) makes every relationship write fail at PREPARE time ("ON
     # CONFLICT clause does not match any PRIMARY KEY or UNIQUE
     # constraint") - PExecute never surfaces it. Pin the source DDL; the
-    # P4 fidelity harness must assert the translated schema keeps these.
+    # seeding fidelity harness must assert the translated schema keeps
+    # these.
     ddl = (ROOT / "native" / "llm" / "sql" / "ai_playerbot_llm_memory.sql"
            ).read_text(encoding="utf-8")
     assert "PRIMARY KEY (`bot`,`player`)" in ddl, (
@@ -320,7 +320,7 @@ def test_upsert_schema_dependencies_are_pinned_for_p4() -> None:
     # PRIMARY KEY (the rowid alias): the facts/gossip INSERTs omit `id`
     # and depend on auto-assign - any other translation fails NOT NULL at
     # execute, and the runtime-statement shapes (ORDER BY `id` DESC) need
-    # the column to keep existing (I-41).
+    # the column to keep existing.
     gossip = (ROOT / "native" / "llm" / "sql" / "world_gossip.sql"
               ).read_text(encoding="utf-8")
     for name, schema in (("bot_player_facts", ddl), ("world_gossip", gossip)):
@@ -331,11 +331,11 @@ def test_upsert_schema_dependencies_are_pinned_for_p4() -> None:
 
 
 def test_runtime_text_escape_is_backend_aware() -> None:
-    # I-40: EscapeSql must NOT double backslashes under DO_SQLITE (SQLite
+    # EscapeSql must NOT double backslashes under DO_SQLITE (SQLite
     # string literals have no backslash escapes - only the '' doubling);
     # the MySQL branch keeps the doubling. Pinned with PLACEMENT: the
     # doubling lines must sit inside the #else (DO_MYSQL) region of the
-    # EscapeSql #ifdef - hoisting the branch back out (the exact I-40
+    # EscapeSql #ifdef - hoisting the branch back out (the exact
     # regression) fails here even though every substring still exists.
     cpp = (PATCHES_PLAYERBOTS / "PlayerbotLlmMemory.cpp").read_text(encoding="utf-8")
     assert "no backslash escapes" in cpp  # the DO_SQLITE branch comment
@@ -347,7 +347,7 @@ def test_runtime_text_escape_is_backend_aware() -> None:
                       if 'out += "\\\\\\\\";' in line]
     assert doubling_lines and all(i in mysql_regions for i in doubling_lines), (
         "the backslash-doubling lines must live only inside the DO_MYSQL "
-        "#else region of EscapeSql (I-40)")
+        "#else region of EscapeSql")
     # And nothing doubling backslashes anywhere OUTSIDE a DO_MYSQL region
     # (comment-stripped lines; the primary pin above is exception-free).
     for i, line in enumerate(lines, start=1):
@@ -378,19 +378,20 @@ def test_anchored_overlay_constants_are_actually_wired() -> None:
 
 
 def test_connection_layer_escape_string_does_not_double_backslashes() -> None:
-    # The OTHER escape surface (I-40's class): the hardened
+    # The OTHER escape surface (same class): the hardened
     # SQLiteConnection::escape_string must keep backslashes single
     # (SQLite literals have no backslash escapes).
     cpp = (PATCHES_CMANGOS / "DatabaseSqlite.cpp").read_text(encoding="utf-8")
     assert "case '\\\\': newTo += \"\\\\\";" in cpp, (
         "escape_string must emit a SINGLE backslash for a backslash input "
-        "(SQLite has no backslash escapes - the I-40 class)")
+        "(SQLite has no backslash escapes)")
 
 
 def test_pinned_ddl_files_match_the_migration_manifest_hashes() -> None:
-    # C's R3 idea: bind the pinned DDL files to manifest entries 0411/0412
-    # by sql_sha256 - a shape-preserving DDL edit (passing the I-41 pins)
-    # then fails HERE instead of drifting silently until P4's (f) leg.
+    # Bind the pinned DDL files to manifest entries 0411/0412
+    # by sql_sha256 - a shape-preserving DDL edit (passing the schema
+    # pins) then fails HERE instead of drifting silently into the seeded
+    # database.
     import hashlib
     import json
 
@@ -398,19 +399,19 @@ def test_pinned_ddl_files_match_the_migration_manifest_hashes() -> None:
                           .read_text(encoding="utf-8"))
     by_source = {e["source_path"]: e for e in manifest["entries"]}
     # A duplicate source_path append would silently key-collapse the dict
-    # and weaken the binding to whichever entry lands last (F14).
+    # and weaken the binding to whichever entry lands last.
     assert len(by_source) == len(manifest["entries"]), (
         "duplicate source_path in the migration manifest")
     # Append-only discipline pinned mechanically: the exact entry count
     # and the 0411/0412 tail (a silent mid-array insertion fails here,
-    # not at P4).
+    # not at seed time).
     assert len(manifest["entries"]) == 412, (
         f"migration manifest has {len(manifest['entries'])} entries, "
         "expected the pinned 412")
     assert [e["migration_id"] for e in manifest["entries"][-2:]] == [
         "0411-playerbot-characters-ai_playerbot_llm_memory",
         "0412-playerbot-world-world_gossip"], (
-        "the manifest tail must stay 0411/0412 (append-only, F14)")
+        "the manifest tail must stay 0411/0412 (append-only)")
     for rel in ("native/llm/sql/ai_playerbot_llm_memory.sql",
                 "native/llm/sql/world_gossip.sql"):
         entry = by_source.get(rel)
@@ -467,8 +468,8 @@ def _collapse(text: str) -> str:
 def test_odku_threshold_fixture_against_the_pinned_amalgamation() -> None:
     """Compile the pinned amalgamation + the ODKU fixture for the host
     (core define set; the full production recipe adds FTS5/RTREE/
-    metadata/json1/dbstat - registered for the pre-P5 sweep) and run it: the folded rewrite hits the
-    10/30/60 boundaries exactly, the unfolded control lags (F28/F43), the
+    metadata/json1/dbstat) and run it: the folded rewrite hits the
+    10/30/60 boundaries exactly, the unfolded control lags, the
     benign TravelMgr DDL parses, and the anticheat rowid rewrite binds."""
     gcc = shutil.which("gcc") or shutil.which("clang") or shutil.which("cc")
     if gcc is None:

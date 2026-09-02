@@ -37,10 +37,10 @@ import kotlin.math.max
  *      load deaths -> NPU blocked (persisted) and CPU fallback,
  *   5. watches memory pressure (PSI): on sustained pressure it stops the
  *      child gracefully instead of letting the system kill the game client
- *      (lesson from 2026-08-19: free RAM lies, PSI does not),
+ *      (free RAM lies, PSI does not),
  *   6. broadcasts RAM/PSI/mode stats (ACTION_STATS) once per second for the UI.
  *
- * NPU laws baked in (findings log):
+ * NPU rules baked in:
  *  - the hexagon backend is loaded ONLY via GGML_BACKEND_PATH after the
  *    pre-flight passes; a CPU-fallback restart clears it, otherwise the
  *    poisoned-registry crash loops;
@@ -179,7 +179,7 @@ class LlmRuntimeService : Service() {
 
     private fun runSupervisor(config: LlmRuntimeConfig, gen: Int) {
         var backoffMs = 1_000L
-        // §4.4: the config actually exec'd. When the warm-up probe proves the
+        // The config actually exec'd. When the warm-up probe proves the
         // model's own template burns the budget on a thinking preamble, this
         // becomes config + --chat-template <staged content> and the child is
         // (deliberately, post-healthy) restarted onto it. Exactly one retry
@@ -287,12 +287,12 @@ class LlmRuntimeService : Service() {
                         npuBlockedPref().edit().putInt(KEY_NPU_DEATHS, 0).apply()
                     }
                     log("healthy")
-                    // §4.4 warm-up probe: one tiny generation through the real
+                    // Warm-up probe: one tiny generation through the real
                     // chat path. This pays the measured first-request penalty
                     // here (the next player-facing request finds warm code
                     // paths) AND detects the thinking-template failure shape
                     // (reasoning_content non-empty, or empty content — the
-                    // §1.4 budget-burn). One retry per supervisor run; a
+                    // budget-burn). One retry per supervisor run; a
                     // deliberate POST-HEALTHY kill is never attributed as an
                     // NPU load death (attribution only fires pre-healthy).
                     val thinks = warmUpThinks(effectiveConfig)
@@ -354,7 +354,7 @@ class LlmRuntimeService : Service() {
             if (!healthy.get() && npuActive) {
                 attributeNpuDeath(exitStatus, SystemClock.elapsedRealtime() - execAtMs)
             }
-            // §4.4: an override-armed child that never reached healthy would
+            // An override-armed child that never reached healthy would
             // crash-loop on the dead --chat-template-file flag - revert to
             // the model's own template (templateRetryDone stays true: the
             // probe already proved it thinks; fail open to the model default
@@ -582,11 +582,11 @@ class LlmRuntimeService : Service() {
         probe("http://127.0.0.1:${config.port}/health")
 
     /**
-     * §4.4 warm-up probe: POST one 8-token chat completion through the real
+     * Warm-up probe: POST one 8-token chat completion through the real
      * /v1/chat/completions path the world server uses. Null = the probe
      * itself failed (no verdict, no restart — fail-open to the model's own
      * template); true = the thinking-template failure shape (non-empty
-     * `reasoning_content`, or empty content — the §1.4 budget-burn); false =
+     * `reasoning_content`, or empty content — the budget-burn); false =
      * the model answers chat directly.
      */
     private fun warmUpThinks(config: LlmRuntimeConfig): Boolean? {
@@ -817,7 +817,7 @@ class LlmRuntimeService : Service() {
         private const val KEY_NPU_TAIL = "npuTail"
         private const val NPU_DEATH_LIMIT = 2
 
-        /** §4.4 warm-up probe body: one tiny generation, no kwargs - the
+        /** Warm-up probe body: one tiny generation, no kwargs - the
          *  probe must see the template's OWN default (kwargs could mask the
          *  very failure being detected). */
         private const val WARM_UP_BODY =

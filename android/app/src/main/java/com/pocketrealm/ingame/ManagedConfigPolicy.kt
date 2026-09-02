@@ -1,15 +1,15 @@
 package com.pocketrealm.ingame
 
 /**
- * The app-enforced Config.wtf overlay (plan §4.3), shared by the prepare
+ * The app-enforced Config.wtf overlay, shared by the prepare
  * path (which writes it through the merge engine) and the editor UI (which
  * labels queued entries blocked when their key is enforced this launch).
  *
  * Every entry is *written or deleted* — conditional keys whose condition is
  * false this launch carry a null value and are removed from the merged
  * output, so stale lines cannot survive audio on→off, loopback→LAN, or
- * renderer flips. `farclip` is deliberately absent: it flipped to
- * user-editable with the 177 seed (plan §4.3, Phase 2). The UI scale pair is
+ * renderer flips. `farclip` is deliberately absent: it is user-editable in
+ * the seed data. The UI scale pair is
  * conditionally owned: enforced while the app manages the value, entirely
  * absent from this set (user-owned, like master sound with audio on) while
  * unmanaged — a one-time transition delete ([uiScaleTransitionDelete])
@@ -92,7 +92,7 @@ object ManagedConfigPolicy {
     }
 
     /**
-     * The one-time audio off→on transition cleanup (§4.3): delete the stale
+     * The one-time audio off→on transition cleanup: delete the stale
      * enforced "0" exactly once — but never when the user edited the master
      * key after the audio-off launch (a user-chosen master-off is
      * byte-identical to the stale enforced value; only the direct-edit

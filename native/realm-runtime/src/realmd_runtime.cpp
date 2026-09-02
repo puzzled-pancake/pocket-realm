@@ -62,7 +62,7 @@ public:
             // Signal BOTH exits under the guard; the join
             // and cleanup run OUTSIDE it — the worker's exit path calls
             // cleanup(), which takes m_lifecycle, so joining while holding it
-            // deadlocked (round-1/2 finding).
+            // would deadlock.
             if (state == POCKET_SERVER_FAILED)
             {
                 failed_at_entry = true;

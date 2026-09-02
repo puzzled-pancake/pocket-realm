@@ -12,17 +12,17 @@ majority per case:
                 recall cargo as the note's extra leg. Gate: >=3/4
                 majority recall on NON-ECHO keys. A no-note control row
                 per case records the lift.
-  CEREMONY      the A16 tier-transition note (plan wording) + the
+  CEREMONY      the A16 tier-transition note (authored wording) + the
                 Trusted secret, 5 rolls on a plain conversational turn;
                 auto-floor = no mechanic tokens + voiced + differs from
                 the control. The draws land in the artifact for the
-                human-read felt-change panel (gate >=4/5, judged at
-                review). A paired tier-3 vs tier-5 (nickname tierNote)
+                human-read felt-change panel (gate >=4/5, judged by
+                human reading). A paired tier-3 vs tier-5 (nickname tierNote)
                 comparison rides along.
   EVENT_KIND    the S8 event notes: level-up licenses cheer + log_fact
                 under the [EVENT] head; a duel loss licenses
                 adjust_sentiment +1 + log_fact. Gate: >=2/3 fire each.
-  JACCARD       the S7-ledger-(d) re-checkpoint: beat-mandated turns
+  JACCARD       the repeat-drift re-checkpoint: beat-mandated turns
                 drawn twice each, pairwise word-Jaccard across replies -
                 the ONE-NOTE-family risk the dedupe exemption could
                 incubate. Diagnostics (no gate number); repeats above
@@ -79,7 +79,7 @@ def fact_direct(fact):
     import re as _re
     out = " " + fact
     for a, b in ((" my", " your"), (" me", " you"), (" mine", " yours")):
-        # word-boundary on the right, like the C++ (round-1 R3: a bare
+        # word-boundary on the right, like the C++ (a bare
         # replace would rewrite "metal" -> "you tal")
         out = _re.sub(_re.escape(a) + r"(?![a-z])", b, out)
     out = out[1:]
@@ -353,7 +353,7 @@ def main():
         # ---- LONGFORM (S11 P50 baseline) -----------------------------------
         # The frozen cue's measurement against the CURRENT (pre-P50)
         # weights - the honest expectation is partial compliance at best;
-        # this records the baseline G5's P(>90w | cued) delivery metric
+        # this records the baseline P(>90w | cued) delivery metric
         # and the P(>60w | uncued) inflation alarm move against. Drawn at
         # max_tokens 230 (the licensed tier's runtime cap) with the SAME
         # composed note the bridge injects (beat_frame cargo + cue).
@@ -404,7 +404,7 @@ def main():
                   f"(pre-P50 baseline; words cued={cued_words} "
                   f"uncued={uncued_words})")
 
-        # ---- JACCARD re-checkpoint (S7 ledger (d)) ------------------------
+        # ---- JACCARD re-checkpoint (repeat drift) -------------------------
         rep_draws = []
         for fact, turn, build, keys in ASSOC_CASES[:3]:
             card = copy.deepcopy(CARD)

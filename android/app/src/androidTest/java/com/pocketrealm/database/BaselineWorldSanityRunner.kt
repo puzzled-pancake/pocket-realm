@@ -26,22 +26,22 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
- * Baseline-world sanity run (the DEC-10 gate partially lifted by staging
- * native/.build-o09-server-data into content/o09-server/active): boots the
+ * Baseline-world sanity run (data staged from native/.build-o09-server-data
+ * into content/o09-server/active by stageBaselineDataFromExternal): boots the
  * REAL CMaNGOS stack — database → realmd → world — on the BASELINE data
  * pack (dbc + maps, vmaps/mmaps disabled by the baseline config; the o11
  * bot-profile path still needs client-derived vmaps/mmaps and stays
  * gated), then drives the real product surface end-to-end:
  *
- * - W2-lite: account creation through the REAL :world console writer
- *   (`account create` — the F30 cross-process LoginDatabase path),
+ * - Accounts through the REAL :world console writer
+ *   (`account create` — the cross-process LoginDatabase path),
  *   password verify (sAccountMgr.CheckPassword, both polarities), gmlevel
  *   set, accountStatus, characterPersistence read probes.
- * - W6-world: a client-acked `saveall`.
+ * - A client-acked `saveall`.
  * - On-disk proof: the SQLite datadir's account table is read back
  *   directly after the save (the console writes went through the engine
  *   to disk — SRP6 verifiers and all).
- * - DEC-02 pair: world.killForTest → database kill+recover → full stack
+ * - Kill pair: world.killForTest → database kill+recover → full stack
  *   restart → the sentinel account must have SURVIVED (real durability,
  *   not an ack).
  *
@@ -158,18 +158,18 @@ class BaselineWorldSanityRunner {
             }
         }
 
-        // ---- DEC-02 pair: kill the world, kill the database dirty, recover, restart,
+        // ---- kill pair: kill the world, kill the database dirty, recover, restart,
         // and prove the sentinel account SURVIVED on disk --------------------------
         assertOk("sentinel-create", world!!.api.createAccount("sanitykill1", "KillPass99"))
         assertOk("sentinel-save", world!!.api.save())
         // killForTest never returns (the :world process kills itself) —
-        // runCatching, never asserted (the O13/O09 precedents).
+        // runCatching, never asserted.
         runCatching { world!!.api.killForTest() }
         world!!.close(); world = null
         Thread.sleep(1_000)
         world = bind("com.pocketrealm.server.WorldRuntimeService") { IWorldControl.Stub.asInterface(it) }
         assertEquals("STOPPED", JSONObject(world!!.api.status()).optString("state"))
-        runCatching { realm!!.api.stop() }  // retire the realm over a dead db (O09:109)
+        runCatching { realm!!.api.stop() }  // retire the realm over a dead db
         assertOk("db-kill", control!!.killForTest())
         val recoverStart = System.currentTimeMillis()
         assertOk("db-recover", control!!.recover())
@@ -207,9 +207,9 @@ class BaselineWorldSanityRunner {
     }
 
     /** Stage the baseline data pack from the host-pushed external staging
-     * dir into filesDir/content/o09-server/active (the O11 host-bridge
-     * precedent: `run-as` cannot cross the API-35 FUSE boundary, but the
-     * app process can read its own external dir). Idempotent. */
+     * dir into filesDir/content/o09-server/active (`run-as` cannot cross
+     * the API-35 FUSE boundary, but the app process can read its own
+     * external dir). Idempotent. */
     private fun stageBaselineDataFromExternal() {
         val target = File(File(context.filesDir, "content/o09-server"), "active")
         if (File(target, "BUILD_PROVENANCE.json").isFile) return

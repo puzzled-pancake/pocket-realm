@@ -1,4 +1,4 @@
-"""P5/G7 user-state bridge harness (MariaDB replacement plan).
+"""User-state bridge harness.
 
 Proves the host-testable core of the dual-provider translation:
 
@@ -6,10 +6,10 @@ Proves the host-testable core of the dual-provider translation:
     (mysqldump --tab convention: \\t \\n \\r \\\\ \\0, NULL as \\N -
     unambiguous because a literal backslash-N text value arrives
     escaped as \\\\N);
-  - export queries wrap EXACTLY the blob columns in HEX() (F44: the
+  - export queries wrap EXACTLY the blob columns in HEX() (the
     two longblob `data` columns corrupt without it) and the export
-    prelude pins the session to UTC (the P3 tz footnote's
-    normalization, by construction);
+    prelude pins the session to UTC (timestamp normalization, by
+    construction);
   - the full bridge direction: batch-TSV text -> transactional import
     into a seeded-shape SQLite datadir preserves values byte-for-byte
     (blob checksums over binary incl. 0x00/0xFF/quotes; text with
@@ -17,13 +17,13 @@ Proves the host-testable core of the dual-provider translation:
     winning over seed rows (INSERT OR REPLACE);
   - the reverse direction: emitting TSV from the SQLite side and
     re-importing reproduces the database identically (the round-trip
-    leg of the exit criterion);
+    leg);
   - interrupted-translation recovery: ragged/truncated TSV fails loud
     with no partial commit; a leftover .partial from a killed run is
     discarded and the next attempt succeeds.
 
 The on-device leg (a REAL datadir through the shipped client) is
-device-gated like DEC-04 and registered in the plan ledger.
+device-gated and exercised by the device test lane.
 """
 from __future__ import annotations
 
@@ -88,9 +88,9 @@ def test_decode_is_the_mysqldump_convention() -> None:
 # ---------------------------------------------------------------------------
 
 def test_utc_pin_is_the_session_normalization() -> None:
-    # the withdrawn client-stdout export_query surface was deleted in
-    # P5 R3 (I-100 completed on the host side); the OUTFILE wire is the
-    # only export surface and is pinned by the fixture test below
+    # the withdrawn client-stdout export_query surface was deleted; the
+    # OUTFILE wire is the only export surface and is pinned by the
+    # fixture test below
     assert bridge.UTC_PIN == "SET time_zone = '+00:00'"
 
 
@@ -276,7 +276,7 @@ def test_ragged_tsv_fails_loud_with_no_partial_commit(tmp_path) -> None:
     before = live.read_bytes()
     good = bridge.encode_tsv([[b"3", b"9", b"Ragged", b"1", b"1"]])
     # truncated MID-ROW: three fields, five required, AND no trailing
-    # newline - the strict decoder (R5 C) diagnoses the unterminated
+    # newline - the strict decoder diagnoses the unterminated
     # tail first; a terminated ragged row still matches 'ragged'
     truncated = "3\t9\tRagged"
     with pytest.raises(bridge.BridgeError, match="unterminated|ragged"):
@@ -327,10 +327,10 @@ def test_broken_utf8_in_a_text_column_fails_loud(tmp_path) -> None:
 
 
 def test_null_for_not_null_target_fails_loud(tmp_path) -> None:
-    """P5 R1 I-88: the masked-DEFAULT discovery gate (SQLite's INSERT OR
-    REPLACE silently stores the column DEFAULT when an explicit NULL
-    violates NOT NULL) had no host test - only the Kotlin twin tested
-    it. NULL for characters.account (NOT NULL) must refuse loud with
+    """Regression pin for the masked-DEFAULT discovery gate (SQLite's
+    INSERT OR REPLACE silently stores the column DEFAULT when an
+    explicit NULL violates NOT NULL) - only the Kotlin twin tested
+    it before. NULL for characters.account (NOT NULL) must refuse loud with
     the live file untouched and no .partial left behind."""
     live = tmp_path / "classiccharacters.sqlite"
     _make_target(live)
@@ -343,7 +343,7 @@ def test_null_for_not_null_target_fails_loud(tmp_path) -> None:
 
 
 def test_nonempty_wal_sidecar_is_refused_loud(tmp_path) -> None:
-    """P5 R1 I-81: a committed-but-uncheckpointed -wal would be silently
+    """A committed-but-uncheckpointed -wal would be silently
     dropped by the byte copy. A live database holding a non-empty
     sidecar (connection still open) must be refused before any copy."""
     live = tmp_path / "classiccharacters.sqlite"
@@ -363,7 +363,7 @@ def test_nonempty_wal_sidecar_is_refused_loud(tmp_path) -> None:
 
 
 def test_wal_mode_is_restored_after_import(tmp_path) -> None:
-    """P5 R1 I-81: the import transaction runs in DELETE journal mode;
+    """The import transaction runs in DELETE journal mode;
     a WAL-mode live database (cleanly closed, sidecar gone) must come
     out of the import still WAL, not silently DELETE-persisted."""
     live = tmp_path / "classiccharacters.sqlite"
@@ -390,7 +390,7 @@ def test_wal_mode_is_restored_after_import(tmp_path) -> None:
 
 
 def test_decode_tsv_strict_is_the_staged_file_entry() -> None:
-    """P5 R4 (B-3): the host twin of DatabaseUserStateBridge.
+    """The host twin of DatabaseUserStateBridge.
     decodeTsvBytes - byte-level entry, interior empty lines preserved
     (single-column empty-string rows), unterminated trailing rows and
     invalid UTF-8 refuse loud."""
@@ -407,11 +407,11 @@ def test_decode_tsv_strict_is_the_staged_file_entry() -> None:
 
 
 def test_outfile_export_query_is_the_shipped_wire(tmp_path) -> None:
-    """P5 R3 I-107: the canonical statement bytes live in ONE shared
+    """The canonical statement bytes live in ONE shared
     fixture (tests/p5_outfile_wire_fixture.txt) that BOTH this test and
     the Kotlin twin's outfileExportQueryIsExactlyTheMysqldumpTabMechanism
-    compare against - the runtimes cannot diverge on the export wire
-    again. The literals in the statement are SQL escape sequences
+    compare against - the runtimes cannot diverge on the export wire.
+    The literals in the statement are SQL escape sequences
     (backslash+t, two backslashes in ESCAPED BY, backslash+n); the
     sql_mode pin makes the parse independent of the server global."""
     cols = [("guid", "int"), ("name", "varchar"), ("data", "longblob"),
@@ -434,12 +434,12 @@ def test_outfile_export_query_is_the_shipped_wire(tmp_path) -> None:
     # PK; undefined LIMIT/OFFSET order silently duplicates/drops rows)
     q2 = bridge.outfile_export_query("classiccharacters", "account_data",
                                      cols, "/p.tsv")
-    # the no-PK form is SECOND-fixture-pinned (both suites compare the
-    # same bytes - P5 R4, B/C idea 1)
+    # the no-PK form is second-fixture-pinned (both suites compare the
+    # same bytes)
     fixture2 = (ROOT / "tests" / "p5_outfile_wire_fixture_nopk.txt").read_text()
     assert q2 == fixture2
     assert "ORDER BY `guid`, `name`, `data`, `flag`" in fixture2
-    # byte-level newline hygiene (gotcha #14 family): the fixtures must
+    # byte-level newline hygiene: the fixtures must
     # never carry a CR
     assert b"\r" not in (ROOT / "tests" / "p5_outfile_wire_fixture.txt").read_bytes()
     assert b"\r" not in (ROOT / "tests" / "p5_outfile_wire_fixture_nopk.txt").read_bytes()

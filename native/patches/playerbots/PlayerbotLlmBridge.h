@@ -2,21 +2,20 @@
 #define _PlayerbotLlmBridge_h
 
 /*
- * The A1 bridge: deterministic beat selection + [BRIDGE AI] note
+ * The bridge: deterministic beat selection + [BRIDGE AI] note
  * construction, called from ChatReplyDo before generation.
  *
- * The BRIDGE OWNS DECISIONS (the research program's prime directive):
- * the model owns prose only. Every tool emission on the shipped path is
- * licensed by a note this bridge built from game state - no note means
- * no tools (the trained contract's restraint distribution; S2 battery
- * holds 7/7 with zero spurious calls). Since S6 the license is not just
- * elicit-shaped, it is ENFORCED: every note's tool set is recorded
- * (RecordLicense) and the executor drops queued calls their note never
- * licensed (A2's "zero executions from unlicensed turns").
+ * The BRIDGE OWNS DECISIONS: the model owns prose only. Every tool
+ * emission on the shipped path is licensed by a note this bridge built
+ * from game state - no note means no tools (the trained contract's
+ * restraint distribution). The license is not just elicit-shaped, it is
+ * ENFORCED: every note's tool set is recorded (RecordLicense) and the
+ * executor drops queued calls their note never licensed (zero
+ * executions from unlicensed turns).
  *
- * Note construction law (prtools3 v3, measured): skeletons arrive
- * ready-made in the note's lines, fill hints ride BELOW the block, ONE
- * note per turn (ONE-NOTE law - two notes collapse tool fire to 35%).
+ * Note construction law: skeletons arrive ready-made in the note's
+ * lines, fill hints ride BELOW the block, ONE note per turn (ONE-NOTE
+ * law - two notes collapse tool fire to 35%).
  * The rendering itself is PlayerbotLlmPrompt.h's ComposeUserTurn (the
  * banklib compose twin, byte-gated) - this class never formats the note
  * itself.
@@ -34,8 +33,8 @@ class Player;
 class PlayerbotLlmBridge
 {
 public:
-    // S8 turn state, captured PRE-STOMP by the caller and threaded to
-    // every note build (the S5 absence law generalized): the absence
+    // Turn state, captured PRE-STOMP by the caller and threaded to
+    // every note build: the absence
     // bucket + trained tier read before the relationship write queues,
     // the drain flag + event kind for event turns. firstMeeting derives
     // from the bucket ("a first meeting") exactly as before.
@@ -66,19 +65,19 @@ public:
     {
         std::vector<std::string> lines;   // ready-made <<tool ...>> skeletons
         std::string fills;                // fill hints BELOW the block
-        std::string extra;                // directive prose (tone/speak-first/A10 guard)
-        // A11 lore loop: the [RESULT] card text a question-shaped turn
+        std::string extra;                // directive prose (tone/speak-first/known-entity guard)
+        // lore loop: the [RESULT] card text a question-shaped turn
         // retrieved (renders in the turn's head, never as a note; an
         // empty string means no card). Cards and notes compose - the
         // card grounds the answer, the note still licenses tools.
         std::string result;
-        // S8/A13: this note MANDATES content (recall cargo, ceremony,
+        // This note MANDATES content (recall cargo, ceremony,
         // secret) - the reply is SUPPOSED to carry these words, so the
-        // A12 dedupe reroll must exempt the generation (a debt beat
+        // dedupe reroll must exempt the generation (a debt beat
         // wants "you still owe me five silver" to resemble its last
-        // mention; the plan's beat-content exemption).
+        // mention).
         bool mandatesContent = false;
-        // S11: this note carried the frozen long-form cue (a licensed
+        // This note carried the frozen long-form cue (a licensed
         // telling) - the reply budget widens ONLY for such turns, so a
         // plain conversational turn on a licensed tier keeps the short
         // budget (the flag rides the license stamp like mandatesContent)
@@ -103,7 +102,7 @@ public:
     // every field the bridge decided (names, items, direction, emote,
     // choice, category) executes from this line, never from the model's copy -
     // only fill-hint fields (text/reason) are the model's to write.
-    // mandatesContent mirrors the note's flag so the A12 dedupe reroll
+    // mandatesContent mirrors the note's flag so the dedupe reroll
     // can exempt exactly the generation whose own note mandated content.
     struct ToolLicense
     {
@@ -120,12 +119,12 @@ public:
     // when not covered (wrong stamp, unlicensed tool, no license). The
     // executor both GATES and fetches on this one read.
     static std::string LicensedLineFor(uint32 botGuid, uint64_t stamp, std::string const& tool);
-    // S8/A13: true when the generation's OWN note (identified by stamp)
-    // mandated content - the A12 dedupe reroll exemption. Stamp-checked
+    // True when the generation's OWN note (identified by stamp)
+    // mandated content - the dedupe reroll exemption. Stamp-checked
     // like LicensedLineFor: a superseding note never leaks the exemption
     // to an older in-flight generation.
     static bool NoteMandatesContent(uint32 botGuid, uint64_t stamp);
-    // S11: true when the generation's OWN note (identified by stamp)
+    // True when the generation's OWN note (identified by stamp)
     // carried the long-form cue - the reply budget's per-turn earning.
     // Stamp-checked like NoteMandatesContent.
     static bool NoteLongFormCued(uint32 botGuid, uint64_t stamp);
@@ -149,8 +148,8 @@ public:
     // emote beat; event turns take the event-kind note (housekeeping
     // log_fact + the kind's licensed extra: a cheer on level-up, a
     // sentiment move on duels). An empty note licenses nothing.
-    // The TurnState carries the PRE-STOMP absence+tier reads (the S5
-    // law: a fresh read races the async relationship write), the drain
+    // The TurnState carries the PRE-STOMP absence+tier reads (a fresh
+    // read races the async relationship write), the drain
     // flag and the event kind - never derived from text.
     static Note BuildNote(Player* bot, Player* player, std::string const& normalizedMsg,
         TurnState const& state);
@@ -158,14 +157,14 @@ public:
     // banklib.SPEAK_FIRST verbatim: the event-turn directive.
     static char const* SpeakFirst();
 
-    // ---- A11 lore loop state (loaded once from
+    // ---- lore loop state (loaded once from
     // AiPlayerbot.LLMLoreFile; null when the key is empty or the file
     // fails to load - the loop goes quiet, the entity guard still works).
     // ResolvePoiPlace maps a player's place phrase to the CANONICAL POI
     // card title (false when unresolvable - the bridge then refuses to
     // license a move_to for it; the executor re-resolves at execution
-    // time the same way). IsKnownName is the A10 known-entity test
-    // shared with the A12 invention post-filter: templates (creatures,
+    // time the same way). IsKnownName is the known-entity test
+    // shared with the invention post-filter: templates (creatures,
     // quests, items, areas), lore card keys, gameobject names and
     // online players/bots all count as known.
     static pocketllm::LoreIndex const* Lore();

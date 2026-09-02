@@ -1,7 +1,7 @@
 /*
  * native/wine-spike/include/wine_spike.h
  *
- * O06 Phase-1 Wine feasibility spike — C interface.
+ * Phase-1 Wine feasibility spike — C interface.
  *
  * This library runs in the Android/Bionic namespace. It builds the symlink-only
  * logical Wine tree in filesDir (pointing at APK-managed ELFs in nativeLibraryDir),
@@ -388,7 +388,7 @@ int wine_spike_run_wine_direct(const char *native_dir,
  * therefore session-tree scoped instead of relying on executable names. */
 int wine_spike_cancel_active_direct(void);
 
-/* Generic x86_64 Linux/glibc child runner used by O08's isolated MariaDB
+/* Generic x86_64 Linux/glibc child runner used by the isolated MariaDB
  * service. The caller remains responsible for exposing only fixed, trusted
  * commands: this native primitive is intentionally not part of an exported
  * Binder surface. args_blob and env_blob are newline-delimited bounded lists;

@@ -387,10 +387,11 @@ internal object DatabaseDurableState {
     }
 
     // ------------------------------------------------------------------
-    // P5/G7 -> P6 handoff: the translation-record consumer gate (I-115,
-    // registered R3/R4/R5 with D's identity-pin strengthening + E's
-    // staging-intactness refusal). Pure and JVM-testable by design; the
-    // engine supplies the staged-file verification as a predicate.
+    // The translation-record consumer gate: verifies an exported baseline
+    // against the live clean-stop seal, provider identity, generation,
+    // and staged-file intactness before any import may consume it. Pure
+    // and JVM-testable by design; the engine supplies the staged-file
+    // verification as a predicate.
     // ------------------------------------------------------------------
 
     enum class TranslationConsumption {
@@ -407,7 +408,7 @@ internal object DatabaseDurableState {
     }
 
     /**
-     * Decide whether the P5 translation staging may be consumed by the
+     * Decide whether the translation staging may be consumed by the
      * SQLite import leg. Every refusal leg is a documented user promise:
      * a stale baseline (post-export datadir writes, restores, provider
      * updates, re-inits) must never be imported over. The
@@ -475,7 +476,7 @@ internal object DatabaseDurableState {
     private const val SNAPSHOT_COMPATIBILITY_FIELDS = 6
 
     // ------------------------------------------------------------------
-    // P6: provider-mode resolution + the active-provider marker. Pure and
+    // Provider-mode resolution + the active-provider marker. Pure and
     // JVM-testable; the engine and ServerRuntimeFiles (separate processes)
     // must reach the SAME decision from durable state, so the decision is
     // a function and its durable cache is a codec pair.
@@ -488,8 +489,8 @@ internal object DatabaseDurableState {
      * 1. A VALID SQLite initialized seal AND a sqlite-capable APK mean the
      *    cutover completed - SQLite serves. (A non-sqlite APK with a
      *    dormant sqlite datadir stays MariaDB: that is the window's
-     *    APK-level rollback - the MariaDB datadir is never deleted before
-     *    P8.)
+     *    APK-level rollback - the MariaDB datadir is never deleted while
+     *    the window lasts, so it remains the rollback anchor.)
      * 2. No MariaDB initialized marker at all (fresh install - including
      *    a failed/partial prior init, whose marker only appears at
      *    completion) on a sqlite-capable APK goes straight to SQLite: the
@@ -556,20 +557,20 @@ internal object DatabaseDurableState {
     }.getOrNull()
 
     // ------------------------------------------------------------------
-    // P6 R1 (A3/B-A/D2/E1/E2): the interrupted-provisioning recovery
+    // The interrupted-provisioning recovery
     // decision. The INIT transaction record spans the ENTIRE provision
     // (record written first; deleted only after the final seal+marker
     // commit), so every crash window is covered. The re-provision variant
     // moves the live datadir to a FIXED retire name (recorded by
     // convention) before seeding - recovery restores it rather than ever
-    // re-translating from the frozen MariaDB datadir (the recorded design
-    // decision: post-cutover user state must never be silently discarded).
+    // re-translating from the frozen MariaDB datadir (a hard design rule:
+    // post-cutover user state must never be silently discarded).
     // ------------------------------------------------------------------
 
     enum class ProvisioningRecovery { KEEP_COMPLETED, DISCARD_RECORD, RESTORE_RETIRED, QUARANTINE_AND_RETRY }
 
     /**
-     * I-133 (R2 B): the SQLite provider's OWNSHIP closure digest - the
+     * The SQLite provider's OWNSHIP closure digest - the
      * provenance asset with `seed_transcripts` REMOVED, canonically
      * re-serialized, hashed. The exclusion is load-bearing: the seed pins
      * change with every corpus advance, and ownership must stay

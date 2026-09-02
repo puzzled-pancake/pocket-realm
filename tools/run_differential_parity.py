@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P6.5/DEC-09: the differential parity lane orchestrator.
+"""The differential parity lane orchestrator.
 
 Builds both server APKs (Server A = the default MariaDB provider,
 Server B = -PdifferentialTestLane + -PsqliteProvider, x86_64), manages
@@ -10,15 +10,16 @@ KNOWN-DIFFERENCE LEDGER, and emits build/differential/<run-id>/
 parity-report.json (always — failure paths too).
 
 Verdicts: PASS (exit 0) | PASS-GATED (exit 2 — every executed check
-passed but the world legs were skipped for lack of prepared game data,
-DEC-10; a gated run can never satisfy the standard exit criteria) |
+passed but the world legs were skipped for lack of prepared game data;
+a gated run can never satisfy the standard exit criteria) |
 FAIL (exit 1).
 
-The comparison today is ROW-COUNT-ONLY over Server A's P5 export slice.
-The content-level comparator (typed field comparators over the staged
-TSVs vs a canonical SQLite emission, modulo the ledger classes) is
-REGISTERED-NOT-IMPLEMENTED — the W9 TSV leg; until it lands, the three
-content ledger classes are recorded but not exercisable.
+The comparison today is ROW-COUNT-ONLY over Server A's user-state
+export slice. The content-level comparator (typed field comparators
+over the staged TSVs vs a canonical SQLite emission, modulo the ledger
+classes) is REGISTERED-NOT-IMPLEMENTED — the W9 TSV leg; until it
+lands, the three content ledger classes are recorded but not
+exercisable.
 
 Profiles: quick (smoke) | standard (the evidence run) | massive (soak).
 """
@@ -44,17 +45,17 @@ INSTRUMENT = "com.pocketrealm.test/androidx.test.runner.AndroidJUnitRunner"
 BUILD_CMD_PREFIX = [str(ROOT / "android" / "gradlew.bat")]     if (ROOT / "android" / "gradlew.bat").exists() else ["./gradlew"]
 # The instrument timeout must exceed the runner's own worst-case internal
 # budget sum (world boots 600 s + bot ramps 900 s per step + soaks), or a
-# slow-but-legal run is killed by the harness (P6.5 R1 A).
+# slow-but-legal run is killed by the harness.
 INSTRUMENT_TIMEOUT_S = {"quick": 3600, "standard": 7200, "massive": 10800}
 
-# The append-only KNOWN-DIFFERENCE LEDGER (Part 2 P6.5 spec): every
+# The append-only KNOWN-DIFFERENCE LEDGER: every
 # engine-expected divergence class, seeded from the recorded residuals.
 KNOWN_DIFFERENCE_LEDGER = [
-    {"id": "NOCASE-ASCII", "origin": "I-60",
+    {"id": "NOCASE-ASCII", "origin": "seed-corpus case-fold comparison",
      "rule": "text differing only by ASCII case folds equal (NOCASE folds ASCII only, not full utf8_general_ci)"},
-    {"id": "DECIMAL-REAL", "origin": "I-65",
+    {"id": "DECIMAL-REAL", "origin": "seed-corpus decimal comparison",
      "rule": "decimal/numeric REAL columns compare within 1e-9"},
-    {"id": "DATETIME-WALLCLOCK", "origin": "I-84",
+    {"id": "DATETIME-WALLCLOCK", "origin": "seed-corpus audit columns",
      "rule": "DATETIME audit columns carry each engine's wall-clock provenance (no product consumer)"},
     {"id": "AUTOINCREMENT-SEQ", "origin": "spec",
      "rule": "auto-increment sequence values (sqlite_sequence / MariaDB AUTO_INCREMENT counters) are engine-mechanical"},
@@ -64,10 +65,10 @@ KNOWN_DIFFERENCE_LEDGER = [
 
 # Server A's export slice shape (DatabaseUserStateBridge.REALMD_USER_
 # STATE_TABLES + classiccharacters minus ai_playerbot*): pinned so an
-# exporter/schema regression cannot shrink the compared set silently
-# (P6.5 R1 C). The characters count is as deterministic as the realmd
+# exporter/schema regression cannot shrink the compared set silently.
+# The characters count is as deterministic as the realmd
 # list (sha-pinned bootstrap + the 412 pinned migrations) — exact pin,
-# update-with-manifest discipline (P6.5 R2 C).
+# updated together with the migration manifest.
 PINNED_REALMD_SLICE = {"account", "account_banned", "ip_banned",
                        "realmcharacters", "system_fingerprint_usage"}
 PINNED_CHARACTER_TABLES = 64
@@ -108,10 +109,9 @@ def build_apks() -> dict:
     common = ["-PpocketAbi=x86_64", "-PpocketLane=full"]
     # Server A (the DEFAULT MariaDB provider) builds FIRST and is captured
     # EAGERLY: the sqlite build below overwrites app-debug.apk at the same
-    # path. The first quick run read server A's bytes lazily (a Path kept
-    # until the return statement) and therefore captured the SQLITE APK
-    # for BOTH servers - an invalid sqlite-vs-sqlite comparison that
-    # PASSED (recorded in the plan's P6.5 first-run CORRECTION).
+    # path. Reading server A's bytes lazily (a Path kept until the return
+    # statement) would capture the SQLITE APK for BOTH servers - an
+    # invalid sqlite-vs-sqlite comparison that PASSES.
     command_a = [*BUILD_CMD_PREFIX, ":app:assembleDebug", ":app:assembleDebugAndroidTest",
                  *common]
     run(command_a, cwd=gradle, timeout=1800)
@@ -124,7 +124,7 @@ def build_apks() -> dict:
     run(command_b, cwd=gradle, timeout=1800)
     server_b = (debug_dir / "app-debug.apk").read_bytes()
     # An identical-APK refusal lives in main() so the report records the
-    # executed commands and hashes BEFORE refusing (R4 F).
+    # executed commands and hashes BEFORE refusing.
     # The SAME instrumentation APK drives both servers by design (identical
     # barrage; the sqlite-lane rebuild of the androidTest APK is ignored).
     tests_b = tests_a
@@ -138,7 +138,7 @@ def reuse_prior_apks() -> dict:
     """--skip-build: reuse the newest prior run's captured server APKs (the
     run dir is timestamped; the captured bytes are the pinned inputs).
     Only COMPLETE captures (server + tests APKs) qualify — a run that died
-    mid-capture is skipped, not half-reused (P6.5 R2 D/F)."""
+    mid-capture is skipped, not half-reused."""
     base = ROOT / "build" / "differential"
     candidates = sorted(d for d in base.iterdir() if d.is_dir()) if base.is_dir() else []
     for run_dir in reversed(candidates):
@@ -165,7 +165,7 @@ def drive_server(apk_bytes: bytes, tests_bytes: bytes, tag: str, out_dir: Path,
     tests_path = out_dir / f"tests-{tag}.apk"
     tests_path.write_bytes(tests_bytes)
     adb("install", "-r", str(tests_path), timeout=300)
-    # Stale-evidence guard (P6.5 R2 E): a mid-run crash leaves the prior
+    # Stale-evidence guard: a mid-run crash leaves the prior
     # bundle in place — delete it so this run can only adjudicate its own
     # evidence (a missing bundle fails the pull, loudly).
     adb("shell", "run-as", "com.pocketrealm", "rm", "-f",
@@ -191,7 +191,7 @@ def drive_server(apk_bytes: bytes, tests_bytes: bytes, tag: str, out_dir: Path,
 
 def verdict_to_exit(verdict) -> int:
     """PASS exits 0; PASS-GATED (the world legs skipped for lack of game
-    data, DEC-10) exits 2 — every executed check passed, but the standard
+    data) exits 2 — every executed check passed, but the standard
     exit criteria are NOT satisfied by a gated run; everything else is 1."""
     if verdict == "PASS":
         return 0
@@ -199,7 +199,7 @@ def verdict_to_exit(verdict) -> int:
 
 
 def mariadb_export_counts(bundle: dict) -> dict:
-    """Server A's dump shape: the P5 exporter's per-table records
+    """Server A's dump shape: the exporter's per-table records
     ({rows, sha256, ...}) under dump.tables[db][table]. Only the
     user-state slice is exported BY DESIGN (classicrealmd's 5 tables +
     the classiccharacters non-bot tables); tables outside that slice —
@@ -234,7 +234,7 @@ def parity_oracle(a: dict, b: dict, profile: str) -> dict:
           f"source={(a.get('dump') or {}).get('source')}")
     check("W0-B-dump-source", (b.get("dump") or {}).get("source") == "sqlite-rowcount-emitter",
           f"source={(b.get('dump') or {}).get('source')}")
-    # W0 corpus identity (R1 E): both servers must have driven the
+    # W0 corpus identity: both servers must have driven the
     # REQUESTED corpus — a standard-flagged run whose evidence is
     # quick-shaped (stale tests APK, arg-plumbing regression) must FAIL,
     # not exit 0 as a manufactured "standard PASS".
@@ -251,7 +251,7 @@ def parity_oracle(a: dict, b: dict, profile: str) -> dict:
         check(f"W1-{tag}-boot", bool(bundle.get("revisionsVerified")),
               f"provider={bundle.get('providerMode')} bootWallMs={bundle.get('bootWallMs')}")
 
-    # W8 cross-engine revision agreement (R1 C/E): both engines must
+    # W8 cross-engine revision agreement: both engines must
     # report the same manifest/seal counts and currency.
     ra, rb = a.get("revisionState") or {}, b.get("revisionState") or {}
     for key in ("migrationManifestCount", "migrationSealedCount", "migrationsCurrent"):
@@ -272,7 +272,7 @@ def parity_oracle(a: dict, b: dict, profile: str) -> dict:
     # load-bearing in-flight B-side kill is the gated world-kill pair).
     check("W7-dirty-kill", bool(a.get("dirtyKillRecovered")) and bool(b.get("dirtyKillRecovered")),
           "db kill+recover acked on both engines (B-side running-state marker drill; in-flight pair is the world leg)")
-    # The quick leg's recover payload (R5 A/B/D): present on both, no
+    # The quick leg's recover payload: present on both, no
     # silent rebuild — the only recovery payload that executes on a gated
     # host, so it must be mechanically inspected too.
     for bundle, tag in ((a, "A"), (b, "B")):
@@ -281,7 +281,7 @@ def parity_oracle(a: dict, b: dict, profile: str) -> dict:
               and "rebuilt" not in json.dumps(quick_payload),
               f"quickRecoverResult={type(quick_payload).__name__}")
 
-    # Per-table row counts over SERVER A'S EXPORT SLICE (the P5 user-state
+    # Per-table row counts over SERVER A'S EXPORT SLICE (the user-state
     # tables): every exported table must exist on B with the same count.
     # Row-count-only today: the content comparator is the W9 TSV leg
     # (REGISTERED-NOT-IMPLEMENTED — see the module docstring).
@@ -294,7 +294,7 @@ def parity_oracle(a: dict, b: dict, profile: str) -> dict:
             ra_count = counts_a[database][table]
             rb_count = tb.get(table)
             # A record with no rows key is an exporter regression, not a
-            # 0==0 match (R2 E: None == None passed vacuously before).
+            # 0==0 match (None == None passed vacuously before).
             check(f"rows:{database}.{table}",
                   ra_count is not None and ra_count == rb_count,
                   f"A={ra_count} B={rb_count}")
@@ -304,7 +304,7 @@ def parity_oracle(a: dict, b: dict, profile: str) -> dict:
     if not counts_a:
         check("W9-export-slice-nonempty", False, "Server A exported no tables")
     else:
-        # Slice shape pin (R1 C): an exporter/schema regression must not
+        # Slice shape pin: an exporter/schema regression must not
         # shrink the compared set silently.
         realmd = set(counts_a.get("classicrealmd", {}))
         check("W0-export-slice-realmd", realmd == PINNED_REALMD_SLICE,
@@ -331,14 +331,14 @@ def parity_oracle(a: dict, b: dict, profile: str) -> dict:
     gated_b = bool((b.get("worldLeg") or {}).get("gated"))
     gated = gated_a or gated_b
     if gated_a != gated_b:
-        # Gate SYMMETRY (R2 A/D): one server gating while the other
+        # Gate SYMMETRY: one server gating while the other
         # executed the world corpus means the servers ran DIFFERENT
         # corpora — a partial-failure provisioning stage must FAIL, never
         # cap at PASS-GATED with the executed side unchecked.
         check("W0-gate-symmetry", False,
               f"corpus divergence: A.worldLeg.gated={gated_a} B.worldLeg.gated={gated_b}")
     if gated and gated_a == gated_b:
-        # GAME-DATA GATE (DEC-10): this host has no imported game client,
+        # GAME-DATA GATE: this host has no imported game client,
         # so the world cannot boot and the world-driven legs (W2/W3/W5,
         # the world saves, the world-kill sentinel matrix) are
         # SKIPPED-GATED - loudly, never silently. The verdict is capped at
@@ -352,8 +352,8 @@ def parity_oracle(a: dict, b: dict, profile: str) -> dict:
             findings.append({"check": name, "ok": None,
                              "detail": "SKIPPED-GATED: no prepared game data on "
                                        "this host (import a client to enable)"})
-        # W4 is stretch-gated, not game-data-gated: loud on gated runs too
-        # (R2 E — I-145's wording promised every non-quick profile).
+        # W4 is stretch-gated, not game-data-gated: loud on gated runs
+        # too, so every non-quick profile records the W4 status.
         findings.append({"check": "W4-gameplay-probes", "ok": None,
                          "detail": "SKIPPED-STRETCH: the managed-addon scriptable "
                                    "surface (spec-marked stretch)"})
@@ -365,7 +365,7 @@ def parity_oracle(a: dict, b: dict, profile: str) -> dict:
               f"accounts A={type(accounts_a).__name__} B={type(accounts_b).__name__}")
         if isinstance(accounts_a, dict) and isinstance(accounts_b, dict):
             # W2 parity: the identical account barrage through the REAL
-            # :world console writer (the F30 cross-process LoginDatabase
+            # :world console writer (the cross-process LoginDatabase
             # path).
             for key, expected in (("created", 100), ("verified", 100),
                                   ("wrongPasswordRejected", 100), ("gmLeveled", 10),
@@ -375,20 +375,20 @@ def parity_oracle(a: dict, b: dict, profile: str) -> dict:
                 rb2 = accounts_b.get(key)
                 check(f"W2-{key}", ra2 == expected and rb2 == expected,
                       f"A={ra2} B={rb2} (expected {expected})")
-            # W7/DEC-02 sentinel survival through the concurrent-save
+            # W7 sentinel survival through the concurrent-save
             # world-kill + db-kill/recover matrix, on BOTH engines.
             sa = a.get("sentinelsAliveAfterRecovery")
             sb = b.get("sentinelsAliveAfterRecovery")
             check("W7-sentinels", sa == 100 and sb == 100, f"A={sa} B={sb} (expected 100)")
             # The concurrent-save premise must hold on BOTH engines: the
-            # kernel-level kill fired while the save was in flight (R2
-            # A/B/E — a post-ack kill never enters the torn-write window
-            # and must not be booked as DEC-02 evidence).
+            # kernel-level kill fired while the save was in flight (a
+            # post-ack kill never enters the torn-write window and would
+            # not exercise torn-write recovery).
             ka = a.get("killFiredWhileSaveInFlight")
             kb = b.get("killFiredWhileSaveInFlight")
             check("W7-kill-mid-save", ka is True and kb is True,
                   f"A={ka} B={kb} (the kill must fire mid-save on both)")
-            # R3 B: the save call must have died UNACKED (the kill preceded
+            # The save call must have died UNACKED (the kill preceded
             # the reply) and the recovery must have healed via ordinary
             # WAL/InnoDB recovery — a silent VACUUM-INTO rebuild on B or a
             # recovery without observed output on A is a divergence to
@@ -400,14 +400,14 @@ def parity_oracle(a: dict, b: dict, profile: str) -> dict:
                 start_payload = bundle.get("dbStartAfterRecover")
                 check(f"W7-{tag}-recovery-payloads-present",
                       isinstance(recover_payload, dict) and isinstance(start_payload, dict),
-                      "dbRecoverResult/dbStartAfterRecover must ride the evidence (R4 D)")
+                      "dbRecoverResult/dbStartAfterRecover must ride the evidence")
                 payloads = json.dumps(recover_payload) + json.dumps(start_payload)
                 check(f"W7-{tag}-no-silent-rebuild", "rebuilt" not in payloads,
                       "recovery payload mentions a rebuild (VACUUM INTO) - adjudicate, do not pass")
         # W5 soak floors: every step reached its bot target on both
         # servers (telemetry-compared, never row-diffed - bot generation
         # carries its own RNG state). A missing/empty soak or a zero
-        # target is a corpus failure, never a silent skip (R1 E, R2 E).
+        # target is a corpus failure, never a silent skip.
         for bundle, tag in ((a, "A"), (b, "B")):
             steps = bundle.get("botSoak")
             if not isinstance(steps, list) or not steps:
@@ -423,7 +423,7 @@ def parity_oracle(a: dict, b: dict, profile: str) -> dict:
                       f"peak={peak} target={step.get('target')}")
         # W10 comparative bands: saveall-ack (<=1.5xA), world tick p99
         # (<=1.25xA), db probe delay (<=1.5xA), stop-drain (<=2xA — the
-        # spec's fourth band, R2 A) - worst observed per server. Missing
+        # fourth band) - worst observed per server. Missing
         # or all-zero inputs FAIL (never silently skip); anchors floor at
         # 1 ms so a legitimately-sub-ms A sample cannot force B<=0.
         def worst_of(bundle, key):
@@ -438,7 +438,7 @@ def parity_oracle(a: dict, b: dict, profile: str) -> dict:
                     worst = max(worst, sample.get(sample_key) or 0)
             return worst or None
         # The saveall band uses ONLY real save acks; the concurrent-kill
-        # elapsed is a different measurement and rides separately (R2 A).
+        # elapsed is a different measurement and rides separately.
         sa_ack, sb_ack = worst_of(a, "worldSaveAckMs"), worst_of(b, "worldSaveAckMs")
         check("W10-saveall-band",
               sa_ack is not None and sb_ack is not None
@@ -460,7 +460,7 @@ def parity_oracle(a: dict, b: dict, profile: str) -> dict:
         check("W10-drain-band",
               da is not None and db is not None and db <= max(da, 1) * 2,
               f"A={da}ms B={db}ms (<=2xA)")
-        # W4 gameplay probes: the spec's stretch item — recorded skipped
+        # W4 gameplay probes: the stretch item — recorded skipped
         # by the runner, echoed loudly here.
         findings.append({"check": "W4-gameplay-probes", "ok": None,
                          "detail": "SKIPPED-STRETCH: the managed-addon scriptable "
@@ -482,7 +482,7 @@ def main() -> int:
     run_id = _dt.datetime.now().strftime("%Y%m%d-%H%M%S") + f"-{args.profile}"
     out_dir = ROOT / "build" / "differential" / run_id
     out_dir.mkdir(parents=True, exist_ok=True)
-    # The report exists BEFORE any stage can fail (P6.5 R2 E/F): build,
+    # The report exists BEFORE any stage can fail: build,
     # reuse, and emulator-spawn failures archive a FAIL report too.
     report = {"runId": run_id, "profile": args.profile, "verdict": "FAIL",
               "failingStage": None}
@@ -502,7 +502,7 @@ def main() -> int:
         report["apkSha256"] = {tag: hashlib.sha256(apks[f"server_{tag}"]).hexdigest()
                                for tag in ("a", "b")}
         report["testsApkSha256"] = hashlib.sha256(apks["tests_a"]).hexdigest()
-        # Code-era marker (R4 E): the orchestrator + runner source digests —
+        # Code-era marker: the orchestrator + runner source digests —
         # "current code" claims are mechanically checkable per report.
         report["codeEra"] = {
             name: hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
@@ -533,11 +533,11 @@ def main() -> int:
         report.update({"providerModes": {"a": evidence_a.get("providerMode"),
                                          "b": evidence_b.get("providerMode")},
                        **parity_oracle(evidence_a, evidence_b, args.profile)})
-    except Exception as failure:  # failure-path evidence discipline (R1 E)
+    except Exception as failure:  # failure-path evidence discipline
         report["verdict"] = "FAIL"
         report["error"] = f"{type(failure).__name__}: {failure}"[:2000]
     finally:
-        # Best-effort teardown on EVERY exception class (R3 D: a missing
+        # Best-effort teardown on EVERY exception class (a missing
         # adb path raises OSError, which is not a SubprocessError) — the
         # report write must always be reached.
         if report.get("failingStage") not in ("build", "emulator"):

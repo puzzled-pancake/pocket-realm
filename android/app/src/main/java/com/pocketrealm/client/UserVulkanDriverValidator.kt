@@ -186,7 +186,7 @@ object UserVulkanDriverValidator {
     private const val PT_LOAD = 1
     private const val ELF_PREFIX_BYTES = 4L * 1024 * 1024
 
-    /** Single owner of the exact size-cap rejection string (I8). */
+    /** Single owner of the exact size-cap rejection string. */
     fun sizeRejection(actual: Long, cap: Long): String =
         "The imported driver is $actual bytes (${actual / (1024 * 1024)} MiB); " +
             "the import cap is ${cap / (1024 * 1024)} MiB."

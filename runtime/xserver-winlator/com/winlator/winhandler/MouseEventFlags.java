@@ -1,8 +1,8 @@
 /*
- * com.winlator.winhandler.MouseEventFlags — STUB for the O06 S-3 spike.
+ * com.winlator.winhandler.MouseEventFlags — trimmed stub.
  *
  * Source: brunodev85/winlator-app ca3d735 (LGPL-2.1). Upstream encodes mouse
- * button flags for WinHandler forwarding. The spike stubs input, so the flag
+ * button flags for WinHandler forwarding. Input is stubbed, so the flag
  * builder returns 0. The signature matches upstream (Pointer.Button, boolean).
  * See docs/patches/wine-provider-provenance.md.
  */

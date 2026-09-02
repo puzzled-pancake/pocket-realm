@@ -6,9 +6,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Phase-0 characterization net: Vulkan driver id resolution and the persisted
+ * Characterization net: Vulkan driver id resolution and the persisted
  * selection migration table (schema 0..4). The user lane must extend — never
- * change — these outcomes (plan I1).
+ * change — these outcomes.
  */
 class VulkanDriverResolutionCharacterizationTest {
     private val catalogIds = listOf(

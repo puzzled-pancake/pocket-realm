@@ -1,5 +1,5 @@
 -- Android Port Talk (installed folder: AndroidPort): the controller's
--- conversation entry (plan E3). Typing a bot's exact name on a controller
+-- conversation entry. Typing a bot's exact name on a controller
 -- keyboard is the single biggest friction in reaching the talking bots, so
 -- the radial Talk action resolves who to address - the player's current
 -- target if it is a player, else the last unit that whispered or spoke

@@ -1,10 +1,10 @@
 """Tripwire: the SQLite amalgamation must only move deliberately.
 
-The amalgamation used to be an unpinned build-host artifact (research digest
-F32: sources.json carried only a note, no pin, no fetcher). It is now a real
-pinned component - this test pins the reviewed url + zip sha + content shas
-and refuses silent drift, mirroring the MariaDB lockfile tripwire. Update
-these pins only alongside a reviewed amalgamation bump.
+The amalgamation used to be an unpinned build-host artifact (sources.json
+carried only a note, no pin, no fetcher). It is now a real pinned
+component - this test pins the exact url + zip sha + content shas and
+refuses silent drift, mirroring the MariaDB lockfile tripwire. Update
+these pins only alongside a deliberate amalgamation bump.
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def _entry() -> dict:
     for source in data["sources"]:
         if source["id"] == ENTRY_ID:
             return source
-    raise AssertionError(f"{ENTRY_ID} missing from sources.json (the F32 gap is back)")
+    raise AssertionError(f"{ENTRY_ID} missing from sources.json")
 
 
 def test_amalgamation_pin_is_registered_and_reviewed() -> None:
@@ -68,7 +68,7 @@ def test_staged_amalgamation_matches_the_pin() -> None:
 
 
 def test_recipe_keeps_the_full_parity_wal_default() -> None:
-    # DEC-02 enforcement chain: the amalgamation build default must stay
+    # The amalgamation build default must stay
     # SQLITE_DEFAULT_WAL_SYNCHRONOUS=2 (FULL). =1 is the power-cut downgrade
     # the MariaDB policy test refuses; it must not creep back in.
     text = RECIPE.read_text(encoding="utf-8")
@@ -77,16 +77,16 @@ def test_recipe_keeps_the_full_parity_wal_default() -> None:
 
 
 def test_recipe_refuses_ambiguous_amalgamation_globs() -> None:
-    # The exactly-one rule must hold at configure time too (a parallel-
-    # session revert once removed the guard; this pins the guard text
-    # itself, not just the staged-directory state).
+    # The exactly-one rule must hold at configure time too (a revert
+    # once removed the guard; this pins the guard text itself, not just
+    # the staged-directory state).
     text = RECIPE.read_text(encoding="utf-8")
     assert "list(LENGTH SQLITE_AMALG SQLITE_AMALG_COUNT)" in text
     assert "if(NOT SQLITE_AMALG_COUNT EQUAL 1)" in text
 
 
 def test_recipe_does_not_define_update_delete_limit() -> None:
-    # DEC-03: the DELETE..LIMIT policy is the portable rowid rewrite (P3),
+    # DELETE..LIMIT policy: the portable rowid rewrite is the answer,
     # NOT a re-vendor of SQLite with SQLITE_ENABLE_UPDATE_DELETE_LIMIT. The
     # flag must never appear in the recipe, the o09 driver's sqlite flags,
     # or the staging script's cmake invocation.
@@ -108,8 +108,8 @@ def test_only_the_pinned_amalgamation_dir_is_staged() -> None:
 
 
 def test_built_sqlite_library_matches_the_pin() -> None:
-    # Deterministic-rebuild reference (P1 exit criterion): the built static
-    # library must match the reviewed per-ABI hashes recorded in sources.json
+    # Deterministic-rebuild reference: the built static
+    # library must match the pinned per-ABI hashes recorded in sources.json
     # for the pinned NDK/cmake toolchain, and must carry the FULL-parity WAL
     # default in its compile-time options string.
     import subprocess
@@ -129,7 +129,7 @@ def test_built_sqlite_library_matches_the_pin() -> None:
             f"{abi} libsqlite3.a sha256 {digest} != pinned {expected}; either the "
             "amalgamation/recipe drifted or the toolchain changed - update the "
             "built_artifacts block in the same reviewed change")
-        # Binary-level DEC-02 leg: the compile-time WAL default must be FULL.
+        # Binary-level leg of the WAL policy: the compile-time WAL default must be FULL.
         strings = subprocess.run(
             ["python", "-c",
              f"import sys;data=open(r'{library}','rb').read();"
@@ -137,4 +137,4 @@ def test_built_sqlite_library_matches_the_pin() -> None:
             capture_output=True)
         assert strings.returncode == 0, (
             f"{abi} libsqlite3.a does not carry DEFAULT_WAL_SYNCHRONOUS=2 in its "
-            "compile-time options; the built library predates the DEC-02 recipe change")
+            "compile-time options; the built library predates the current recipe")

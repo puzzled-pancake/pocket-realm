@@ -177,7 +177,7 @@ public:
         values[7] = static_cast<jlong>(m_hard_stall_total.load(std::memory_order_acquire));
         values[8] = static_cast<jlong>(m_last_hard_stall_elapsed_ms.load(std::memory_order_acquire));
         // The login gate's measured CharacterDatabase round-trip (the ~10 s
-        // probe) as the DB-latency telemetry channel for the P0/P7 baseline:
+        // probe) as the DB-latency telemetry channel:
         // 0 = never sampled, UINT32_MAX = gate closed / probe expired. Read
         // from the atomic mirror only - the playerbots map itself lives on
         // the world thread.
@@ -880,7 +880,7 @@ extern "C" JNIEXPORT jint JNICALL
 Java_com_pocketrealm_server_WorldNative_onlinePlayersNative(JNIEnv*, jclass)
 { return static_cast<jint>(g_runtime.online_players()); }
 
-// ---- companion mode (M5): world pause + LLM runtime profile switch ----
+// ---- companion mode: world pause + LLM runtime profile switch ----
 
 extern "C" void pocket_world_set_paused(int paused);
 extern "C" int pocket_world_is_paused(void);

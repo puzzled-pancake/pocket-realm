@@ -26,8 +26,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * MariaDB-vs-SQLite bot pressure benchmark (the DEC-10 bot legs on the
- * host emulator, per the P6.5 emulator-substitutable precedent). Boots
+ * MariaDB-vs-SQLite bot pressure benchmark on the host emulator. Boots
  * the REAL stack on a REAL client-derived o11 generation (dbc+maps+
  * vmaps+mmaps — staged host-side), then drives REAL playerbot
  * populations through the product surface:
@@ -96,7 +95,7 @@ class BotPressureBenchmarkRunner {
         control = bind("com.pocketrealm.database.DatabaseService") { IDatabaseControl.Stub.asInterface(it) }.api
         val status = assertOk(control!!.status())
         evidence.put("providerMode", status.optString("providerMode"))
-        // Product-startup parity (addendum 7 runbook): the supervisor
+        // Product-startup parity: the supervisor
         // recovers an interrupted runtime before booting; the headless
         // path used to skip this, so an unclean death poisoned every
         // later run until a full uninstall. recover() reporting not-ok
@@ -124,9 +123,9 @@ class BotPressureBenchmarkRunner {
         // ---- waves: one measured bot profile per wave (the product
         // surface: setBotTarget is REFUSED while a profile's admission
         // monitor owns the target, so waves are distinct profiles, each
-        // a fresh world boot - the differential soak's proven pattern).
-        // The world stop arms the 250 ms retireCleanProcess fuse: close,
-        // sleep past it, rebind between waves (O09/O13 precedents).
+        // a fresh world boot). The world stop arms the 250 ms
+        // retireCleanProcess fuse: close, sleep past it, rebind between
+        // waves.
         val waveResults = JSONArray()
         for ((index, wave) in waves.withIndex()) {
             val (profileId, soakSeconds) = wave
@@ -202,11 +201,10 @@ class BotPressureBenchmarkRunner {
     /** Poll until the wave's bots are online. Two exits:
      *  (a) the floor (95% for big waves - the profile's login throttle
      *      spaces the last logins across update intervals), or
-     *  (b) a PLATEAU with the admission controller ADAPTED - on real
-     *      devices the profile's admission monitor sheds population when
-     *      world p99 exceeds the contract, and that stabilized population
-     *      is exactly the absolute-capacity datum the device window
-     *      exists to measure, not a timeout failure. */
+     *  (b) a PLATEAU with the admission controller ADAPTED - the
+     *      profile's admission monitor sheds population when world p99
+     *      exceeds the contract, and that stabilized population is
+     *      itself an absolute-capacity datum, not a timeout failure. */
     private fun waitForBots(target: Int, timeoutMs: Long): Long {
         val floor = if (target >= 50) target - target / 20 else target
         val deadline = System.currentTimeMillis() + timeoutMs
@@ -239,8 +237,8 @@ class BotPressureBenchmarkRunner {
             }
             Thread.sleep(3_000)
         }
-        // Ramp deadline expired below the floor. On-battery reality
-        // (2026-08-27 B2): the device's power-save CPU scheduling can
+        // Ramp deadline expired below the floor. On-battery reality:
+        // the device's power-save CPU scheduling can
         // cap the achievable population below the profile target while
         // the world stays fully healthy - aborting there discards the
         // soak window, which is the measurement we want. Accept the

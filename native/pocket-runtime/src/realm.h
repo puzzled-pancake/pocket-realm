@@ -11,7 +11,7 @@
 // onto it. This is the key constraint that makes cooperative stop tractable:
 // there is exactly one thread to drain.
 //
-// Re-entrancy (O04 acceptance: create/start/.../destroy twice in one process):
+// Re-entrancy contract (create/start/.../destroy twice in one process):
 // the singletons are reset for reinit at stop time (see lifecycle_mangosd.cpp
 // ResetForReinit). If that proves infeasible, the second realm_start returns
 // REALM_E_BUSY per the recorded Strategy B decision — but the C ABI is identical.

@@ -2,16 +2,17 @@
 #define _PlayerbotLlmChatter_h
 
 /*
- * S10/E6: the world-chatter scheduler (plan SS4.6b) - ambient bot-to-bot
+ * The world-chatter scheduler - ambient bot-to-bot
  * speech in three layers (proximity murmur, party banter, rare
  * general-channel set pieces) plus the authored event-grounded floor,
  * under the doctrine SILENCE IS THE DEFAULT: no line is generated,
  * queued or delivered without a real fact-bank row behind it (world
- * gossip rows, player facts, verified events - the bank A19/S8 already
- * write). The pure decision machinery (power-ladder policy, world
+ * gossip rows, player facts, verified events - the rows the bridge and
+ * memory layers already write). The pure decision machinery (power-ladder
+ * policy, world
  * repetition ring, fatigue + legend ledger, floor templates, the frozen
  * murmur/composer prompt wording) lives in PlayerbotLlmChatterCore.h and
- * is pinned by the host battery; this class owns the game state: the
+ * is pinned by the host test suite; this class owns the game state: the
  * queue, the power file the app refreshes, the async batch workers and
  * the world-thread delivery.
  *
@@ -43,7 +44,7 @@ public:
     // it is a no-op when chatter is off.
     static void Tick();
 
-    // The interruption rule (E1/E6): player chat owns the channel. Stamp
+    // The interruption rule: player chat owns the channel. Stamp
     // from the ChatReplyDo trigger gate on every real-player
     // conversational trigger; murmur and party delivery pause while the
     // stamp is fresh (kPlayerChannelHoldSec).

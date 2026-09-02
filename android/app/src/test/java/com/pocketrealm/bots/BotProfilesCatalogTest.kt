@@ -5,12 +5,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Forces BotProfiles' static initializer to run on the HOST JVM. The
- * forced-1000 device window (2026-08-27) shipped a profile whose
- * constructor requirements were never executed anywhere - BotProfiles
- * failed class-init on the world process's first profile lookup and
- * every world start died with ExceptionInInitializerError. Presence in
- * the APK is not verification; construction is.
+ * Forces BotProfiles' static initializer to run on the HOST JVM. A
+ * shipped profile once had constructor requirements that were never
+ * executed anywhere before release - BotProfiles failed class-init on
+ * the world process's first profile lookup and every world start died
+ * with ExceptionInInitializerError. Presence in the APK is not
+ * verification; construction is.
  */
 class BotProfilesCatalogTest {
     @Test

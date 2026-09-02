@@ -409,7 +409,7 @@ class UserVulkanDriverRegistry(private val root: File) {
         UserVulkanDriverValidator.sizeRejection(actual, cap)
 
     /**
-     * Rejection reasons stay exact (I8) but bounded: the first
+     * Rejection reasons stay exact but bounded: the first
      * [MAX_REASON_SAMPLES] names verbatim plus an exact overflow count.
      */
     private fun names(samples: List<String>, count: Int): String =

@@ -1,4 +1,4 @@
-"""The S6 ACT-tool battery (A2/A3 host gate).
+"""The ACT-tool battery (A2/A3 host gate).
 
 Compiles the SHIPPED pure core (native/patches/playerbots/
 PlayerbotLlmToolsCore.h) on the host with -std=c++11 - like the json
@@ -77,9 +77,9 @@ def test_beats_leg(act_tools_binary):
 
 
 def test_budget_leg(act_tools_binary):
-    # S9/E1: the per-class voice budgets - conversational 2x160, ambient
-    # 1x80, UTF-8 backoff at the cut (round-1 R3 caught this leg shipping
-    # unwired: a ToolsCore mutation survived the suite with the leg absent)
+    # The per-class voice budgets - conversational 2x160, ambient
+    # 1x80, UTF-8 backoff at the cut (this leg once shipped unwired:
+    # a ToolsCore mutation survived the suite with the leg absent)
     result = subprocess.run([str(act_tools_binary), "budget"],
                             capture_output=True, text=True, timeout=300)
     assert result.returncode == 0, result.stdout + result.stderr[:2000]
@@ -121,10 +121,10 @@ def test_emote_table_pins_all_nineteen_ids():
 
 def test_executor_license_check_precedes_dispatch():
     text = TOOLS_CPP.read_text(encoding="utf-8")
-    # round-3 form: slice the EXECUTOR body first (round-2's bare
-    # find() anchored on the LicensedField helper's guard -
-    # mutation-proven ineffective); ONE locked read (LicensedLineFor)
-    # both gates and fetches; a non-empty line IS the coverage proof
+    # Slice the EXECUTOR body first (a bare find() anchors on the
+    # LicensedField helper's guard - proven ineffective); ONE locked
+    # read (LicensedLineFor) both gates and fetches; a non-empty line
+    # IS the coverage proof
     executor = text.split("void PlayerbotLlmTools::ExecutePending(")[1]
     assert "if (licensedLine.empty())" in executor
     gate_pos = executor.find("if (licensedLine.empty())")
@@ -136,13 +136,13 @@ def test_executor_license_check_precedes_dispatch():
 
 
 def test_nudge_strip_is_event_turn_only():
-    """Round-2 fold: a player whisper that happens to end in the
+    """A player whisper that happens to end in the
     nudge-shaped suffix keeps its actual words - the strip runs only on
     event-flagged turns, at every site."""
     memory = MEMORY_CPP.read_text(encoding="utf-8")
     bridge = BRIDGE_CPP.read_text(encoding="utf-8")
     driver = DRIVER.read_text(encoding="utf-8")
-    # S7 round-1: the current turn is control-token scrubbed before
+    # the current turn is control-token scrubbed before
     # compose (a forged "[RESULT]"/"[BRIDGE AI]" line must not render as
     # bridge-authored furniture in its own turn)
     assert "ScrubControlTokens(PlayerbotLlmBridge::NormalizeTurn(" in memory.replace("\r\n", "\n")
@@ -158,7 +158,7 @@ def test_executor_routes_text_emotes_not_animation_ids():
     emote_branch = text.split('call.name == "perform_emote"')[1].split("else if")[0]
     assert "bot->HandleEmoteCommand(" not in emote_branch, \
         "perform_emote must not CALL the ONESHOT animation path (comments may name it)"
-    # S8: the resolve+deliver code moved into the shared PlayTextEmote
+    # the resolve+deliver code moved into the shared PlayTextEmote
     # helper (the crowd tier's own path); the branch delegates to it
     assert 'PlayTextEmote(bot, player, LicensedField(licensedLine, "emote"))' in emote_branch
     helper = text.split("void PlayerbotLlmTools::PlayTextEmote")[1].split("void PlayerbotLlmTools::ExecutePending")[0]
@@ -182,7 +182,7 @@ def test_duel_precommit_guard_precedes_cast():
 def test_move_to_resolves_poi_from_the_licensed_line():
     text = TOOLS_CPP.read_text(encoding="utf-8")
     branch = text.split('call.name == "move_to"')[1].split("else if")[0]
-    # S7/A11 un-gated: the place executes from the LICENSED line and is
+    # the place executes from the LICENSED line and is
     # re-resolved against the lore POI index at execution time - an
     # unresolvable place stays a refusal, never a blind path
     assert "ResolvePoiPlace" in branch, "move_to must re-resolve the place"
@@ -254,8 +254,8 @@ def test_bridge_beats_use_trained_note_shapes():
     assert '<<give_item player="' in text and ' item="' in text
     assert '<<follow name="' in text
     assert '<<party_invite name="' in text
-    # the S5 beat texts are untouched (see-saw discipline: no existing
-    # note wording changes in S6)
+    # the existing beat texts are untouched (no wording changes while
+    # the battery pins them)
     assert '<<adjust_sentiment direction="-1" reason="...">>' in text
     assert '<<log_fact text="..." category="shared-event">>' in text
     assert '<<share_gossip text="...">>' in text
@@ -295,7 +295,7 @@ def test_event_drain_flag_threading():
 
 
 def test_license_stamp_threads_from_note_to_extraction():
-    """Round-1 P1 fix: the stamp must tag the GENERATION'S OWN note, not the
+    """The stamp must tag the GENERATION'S OWN note, not the
     bot's live license at completion time - an interleaved newer note or a
     note-less autonomous generation can otherwise be vetted against a
     license that never drove it."""
@@ -331,7 +331,7 @@ def test_follow_and_invite_name_pins():
 
 
 def test_give_item_trades_only_with_the_licensed_speaker():
-    """Round-1 P1 fix: an already-open trade with a DIFFERENT player must
+    """An already-open trade with a DIFFERENT player must
     never receive the licensed item (TradeAction adds to the live trade)."""
     text = TOOLS_CPP.read_text(encoding="utf-8")
     branch = text.split('call.name == "give_item"')[1].split("else if")[0]
@@ -340,7 +340,7 @@ def test_give_item_trades_only_with_the_licensed_speaker():
 
 
 def test_gratitude_beat_is_second_person_gated():
-    """Round-1 P2 symmetry fix: the gratitude beat carries the same
+    """Symmetry pin: the gratitude beat carries the same
     second-person gate as the insult beat."""
     text = BRIDGE_CPP.read_text(encoding="utf-8")
     gratitude = text.split("kGratitudeTriggers")[4]  # after the last mention
@@ -360,9 +360,9 @@ def test_duel_outcome_hook_anchor():
 
 def test_absence_fallback_trap_removed():
     memory = MEMORY_CPP.read_text(encoding="utf-8")
-    # scope the pin to the builder itself: later functions (the S8
-    # initiative scheduler reads the bucket legitimately, pre-stomp by
-    # construction - no relationship write has queued on that path)
+    # scope the pin to the builder itself: later functions (the
+    # initiative scheduler) read the bucket legitimately, pre-stomp by
+    # construction - no relationship write has queued on that path
     trained = memory.split("BuildTrainedChatRequest(Player* bot")[1] \
         .split("std::string PlayerbotLlmMemory::GetRelationshipTier")[0]
     assert "GetAbsenceBucket(bot, player)" not in trained, \

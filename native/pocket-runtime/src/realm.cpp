@@ -162,12 +162,12 @@ void Realm::worker_main()
         {
             // Honest degraded health: machinery started, world data missing.
             // The realm is "running" in the sense that it brought up what it
-            // could; O05 surfaces this as a distinct non-playable state.
+            // could; the supervisor surfaces this as a distinct non-playable state.
             {
                 std::lock_guard<std::mutex> lk(m_mutex);
                 for (int i = 0; i < REALM_COND_COUNT; ++i)
                     m_conditions[i] = conds[i];
-                m_blocker_text = "world loop blocked: .dbc/.map client data import required (O10)";
+                m_blocker_text = "world loop blocked: .dbc/.map client data import required";
             }
             m_state.store(REALM_STATE_RUNNING, std::memory_order_release);
 
@@ -192,7 +192,7 @@ void Realm::worker_main()
         }
         else
         {
-            // Full real bring-up succeeded (will only happen once O10 lands).
+            // Full real bring-up succeeded (the client-data gate passed).
             {
                 std::lock_guard<std::mutex> lk(m_mutex);
                 for (int i = 0; i < REALM_COND_COUNT; ++i)
@@ -306,7 +306,7 @@ realm_err Realm::command(const char* cmd, int len)
     realm_state s = current_state();
     if (s != REALM_STATE_RUNNING && s != REALM_STATE_SAVING)
         return REALM_E_WRONG_STATE;
-    // O04: the world command processor (sWorld.QueueCliCommand) is wired in O05.
+    // The world command processor (sWorld.QueueCliCommand) is not wired yet.
     // Until then, reject commands honestly rather than fake-OK-ing them: a
     // degraded realm without the world loop running has no command processor.
     // (No fake success.) The packaging work replaces this with the real queue path.
@@ -323,7 +323,7 @@ realm_err Realm::save(realm_save_mode mode)
     // are no players to save, so this is a valid no-op that the supervisor can
     // still call on the Save&Exit path.
     m_state.store(REALM_STATE_SAVING, std::memory_order_release);
-    // O05 will drive the real save here. For O04 we transition back to RUNNING
+    // The production save path will drive the real save; for now we transition back to RUNNING
     // immediately since there is no durable player state yet.
     m_state.store(REALM_STATE_RUNNING, std::memory_order_release);
     (void)mode;
@@ -335,7 +335,7 @@ realm_err Realm::checkpoint()
     realm_state s = current_state();
     if (s != REALM_STATE_RUNNING && s != REALM_STATE_SAVING)
         return REALM_E_WRONG_STATE;
-    // O05: PRAGMA wal_checkpoint(RESTART) on all four DBs. No-op safe in O04.
+    // PRAGMA wal_checkpoint(RESTART) on all four DBs. No-op safe before the real save path lands.
     return REALM_E_OK;
 }
 

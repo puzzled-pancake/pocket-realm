@@ -17,7 +17,7 @@ import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 /**
- * Phase D of the community-list plan: the pinned downloader's failure modes
+ * The pinned downloader's failure modes
  * all carry exact reasons, delete the partial file, and never import. The
  * seam is [CommunityVulkanDriverDownload.downloadPinned] with MockWebServer.
  */
@@ -314,7 +314,7 @@ class CommunityVulkanDriverDownloadTest {
             val failed = outcome as CommunityVulkanDriverDownload.Outcome.Failed
             assertTrue(failed.reason.contains("not one Pocket Realm trusts"))
             // The allowlist is read from the updater's shared constants at
-            // every call (construction-shared, never duplicated — plan R2).
+            // every call (construction-shared, never duplicated).
             assertTrue(AppUpdateCoordinator.allowedHosts.contains("github.com"))
             assertTrue(
                 AppUpdateCoordinator.allowedHosts

@@ -46,7 +46,7 @@ endforeach()
 # Database backend link: exactly one engine's client library. Under SQLITE
 # the in-tree backend links the pinned amalgamation static library and the
 # MariaDB connector must not appear anywhere in the link (fail-loud backend
-# selection, G1/G2); MySQL is the else-default.
+# selection); MySQL is the else-default.
 if(SQLITE)
     set(POCKET_DB_LIBS SQLite::SQLite3)
 else()
@@ -67,7 +67,7 @@ target_link_libraries(pocket_world_runtime PRIVATE
 if(BUILD_PLAYERBOTS)
     # CMaNGOS applies this directory-locally to game/mangosd, so the embedded
     # facade must opt in explicitly even though libplayerbots is linked through
-    # game. Without it, the typed O13 bridge compiles out silently.
+    # game. Without it, the typed bridge compiles out silently.
     target_compile_definitions(pocket_world_runtime PRIVATE ENABLE_PLAYERBOTS)
     target_include_directories(pocket_world_runtime PRIVATE
         ${CMAKE_SOURCE_DIR}/dep/g3dlite

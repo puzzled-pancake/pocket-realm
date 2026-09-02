@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """Seed the four SQLite realm databases from the PINNED 412-entry
-migration manifest (P4 Route A, DEC-01).
+migration manifest.
 
 Single source of truth: schemas/database-migrations.json — the same
 ordered, hash-verified entries the MariaDB lane applies. Each entry's
-bytes are verified against the manifest sql_sha256 BEFORE translation
-(the P3->P4 addendum (f) binding), translated by
+bytes are verified against the manifest sql_sha256 BEFORE translation,
+translated by
 tools/sqlite_seed_translator.py (string-aware; no line-based splitting
 anywhere), and executed into per-database SQLite files named by the
 manifest's `database` field (classicrealmd/classiccharacters/classiclogs/
 classicmangos).
 
-Fail-loud: any statement error aborts the seed (zero tolerated errors,
-the P4 exit criterion). Emits a deterministic translation report
+Fail-loud: any statement error aborts the seed (zero tolerated errors).
+Emits a deterministic translation report
 (schemas/sqlite-seed-baseline.json when --write-baseline) plus optional
 .sql transcripts (one per database, in replay order) for the
 pinned-amalgamation harness leg and the future dual-provider APK seed
@@ -38,7 +38,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 import sqlite_seed_translator as translator  # noqa: E402
 
 MANIFEST = ROOT / "schemas" / "database-migrations.json"
-# Reviewed, append-only per-database seed augmentations (see
+# Append-only per-database seed augmentations (see
 # apply_seed_augments); module-level so tests can isolate it.
 AUGMENT_DIR = ROOT / "schemas" / "seed-augment"
 BASELINE = ROOT / "schemas" / "sqlite-seed-baseline.json"
@@ -76,8 +76,8 @@ def apply_seed_augments(
         per_db_statements: dict[str, list[str]],
         report: "translator.TranslationReport",
         manifest_sha256: str | None = None) -> int:
-    """Append the reviewed per-database seed augmentations (addendum 6
-    follow-up): the world binary builds the equipment/random-item
+    """Append the per-database seed augmentations: the world binary
+    builds the equipment/random-item
     caches on first boot (~4 minutes of world boot) and persists them
     into ai_playerbot_* tables that later boots load. Shipping a
     captured build in the seed erases the first-boot cost entirely.
@@ -85,7 +85,7 @@ def apply_seed_augments(
     comments ignored), sqlite dialect, applied to the database named
     by the file; files may be plain .sql or gzip .sql.gz (the large
     capture exceeds the 100 MB blob push limit uncompressed). The
-    augmentation directory is reviewed, append-only input pinned by
+    augmentation directory is append-only input pinned by
     the baseline like every other transcript byte, and PROVENANCE.json
     binds the capture to the migrations manifest it was taken against:
     a manifest advance fails loudly until the capture is deliberately
@@ -158,8 +158,8 @@ def seed(out_dir: Path, transcripts_dir: Path | None,
     # Hash-bind the baseline to the exact manifest state it was seeded
     # from: the seed outputs already bind it transitively via per-entry
     # sql_sha256, but an explicit hash makes diagnosing a baseline
-    # mismatch O(1) instead of a diff hunt (D idea 1, adopted P4 R2).
-    # LF-normalized input (F3-1): the repo's .gitattributes canonical
+    # mismatch O(1) instead of a diff hunt.
+    # LF-normalized input: the repo's .gitattributes canonical
     # form is LF, so a fresh LF checkout must hash identically to this
     # CRLF working tree.
     manifest_sha256 = hashlib.sha256(
@@ -168,7 +168,7 @@ def seed(out_dir: Path, transcripts_dir: Path | None,
     report = translator.TranslationReport()
     variables: dict[str, str] = {}
     per_db_statements: dict[str, list[str]] = {}
-    # per-database schema tracking (I-189): positional ADD COLUMN needs
+    # per-database schema tracking: positional ADD COLUMN needs
     # the table's effective column order; namespaces must not mix.
     db_states: dict[str, translator.DBSchemaState] = {}
     started = time.time()
@@ -176,7 +176,7 @@ def seed(out_dir: Path, transcripts_dir: Path | None,
     for entry in manifest["entries"]:
         data = entry_bytes(entry)
         # STRICT decode: errors="replace" would silently freeze U+FFFD
-        # mojibake as deterministic, baseline-pinned data (I-51).
+        # mojibake as deterministic, baseline-pinned data.
         text = data.decode("utf-8")
         db_name = entry["database"]
         stmts = translator.translate_file_text(
@@ -185,7 +185,7 @@ def seed(out_dir: Path, transcripts_dir: Path | None,
                                           translator.DBSchemaState()))
         per_db_statements.setdefault(db_name, []).extend(stmts)
 
-    # Precomputed playerbot runtime caches (addendum 6 follow-up): see
+    # Precomputed playerbot runtime caches: see
     # apply_seed_augments - the shared helper keeps seed() and the test
     # suite's inline pipeline copies on one code path.
     apply_seed_augments(per_db_statements, report, manifest_sha256)
@@ -276,10 +276,10 @@ def seed(out_dir: Path, transcripts_dir: Path | None,
                                      if v is None),
     }
     if transcripts_dir:
-        # Hash-bind the transcript BYTES (the P5 APK seed assets): the
+        # Hash-bind the transcript BYTES (the APK seed assets): the
         # count-level baseline alone cannot detect count-preserving
-        # content drift (I-50). Sizes pin the F31 both-metric seed
-        # footprint (F idea 1, adopted P4 R2).
+        # content drift. Sizes pin the both-metric seed
+        # footprint alongside the digests.
         summary["transcript_digests"] = {
             db: hashlib.sha256(
                 (transcripts_dir / f"{db}.sql").read_bytes()).hexdigest()
@@ -299,8 +299,7 @@ def seed(out_dir: Path, transcripts_dir: Path | None,
     if write_baseline:
         if manifest_path != MANIFEST:
             # a synthetic/foreign manifest must never be able to
-            # overwrite the reviewed append-only baseline (E idea 3,
-            # adopted P4 R3)
+            # overwrite the append-only baseline
             raise RuntimeError(
                 "--write-baseline refused: manifest_path is not the "
                 "real migration manifest")
@@ -308,7 +307,7 @@ def seed(out_dir: Path, transcripts_dir: Path | None,
             raise RuntimeError(
                 "--write-baseline refused: seed not clean (a failed run "
                 "must never clobber the append-only baseline)")
-        # newline="\n": the reviewed artifact's bytes must not differ
+        # newline="\n": the artifact's bytes must not differ
         # between Windows and Linux regenerations (gotcha #14 class).
         with BASELINE.open("w", encoding="utf-8", newline="\n") as fh:
             fh.write(json.dumps(sanitize_summary(summary), indent=2)

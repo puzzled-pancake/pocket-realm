@@ -74,7 +74,7 @@ class NpuDeathAttributionTest {
         // Session-open failure text: counted regardless of uptime.
         assertEquals(NpuDeathVerdict.LOAD_DEATH, NpuDeathAttribution.classify(10_001, 1_000L, sessionTail))
         assertEquals(NpuDeathVerdict.LOAD_DEATH, NpuDeathAttribution.classify(10_001, 60_000L, sessionTail))
-        // The other real signature the round-6 marker list exists for.
+        // The other real death-marker signature.
         assertEquals(NpuDeathVerdict.LOAD_DEATH, NpuDeathAttribution.classify(10_001, 1_000L, domainTail))
         // Empty tail: the NPU exec never wrote a log line — died inside
         // backend init (--log-file precedes --device in argv), counts.
@@ -104,7 +104,7 @@ class NpuDeathAttributionTest {
             NpuDeathAttribution.COLLISION_MARKERS,
         )
         // The markers must NOT match benign teardown/startup lines that
-        // carry the bare substrings of the round-5 marker list.
+        // carry substrings shared with the marker list.
         val benignButSuggestive = listOf(
             "ggml-hex: releasing session: HTP0",
             "ggml-hex: releasing registry",

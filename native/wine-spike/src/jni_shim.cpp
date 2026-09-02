@@ -477,7 +477,7 @@ Java_com_pocketrealm_wine_WineSpikeNative_isTrackedBionicProcessGroupDrainedNati
     return wine_spike_active_glibc_process_group_drained() ? JNI_TRUE : JNI_FALSE;
 }
 
-/* O08: fixed-command MariaDB launcher. This JNI primitive is process-local to
+/* Fixed-command MariaDB launcher. This JNI primitive is process-local to
  * DatabaseService; the Binder contract never accepts these path/argv fields. */
 JNIEXPORT jstring JNICALL
 Java_com_pocketrealm_database_DatabaseNative_runGlibcProgramNative(

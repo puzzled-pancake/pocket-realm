@@ -1,7 +1,7 @@
 """Tripwire: every async DB enqueue site must route through the null guard.
 
 HaltDelayThread() nulls m_threadBody while m_allowAsyncTransactions stays
-sticky-true across POCKET_EMBEDDED restart cycles (research digest F50): the
+sticky-true across POCKET_EMBEDDED restart cycles: the
 production restart path re-enters session 2 with CharacterDatabase async-on
 against freshly-halted thread state, so an unguarded enqueue after a halt is
 a null dereference. The build driver overlays route all twelve sites
@@ -99,7 +99,7 @@ def test_overlay_applies_and_guards_every_site() -> None:
         assert "bool SafeDelayOperation(SqlOperation* op);" in database_h
         # Ownership: the worker queue deletes ops after Execute, so the inline
         # fallback must too (mirrors CommitTransactionDirect). A fallback that
-        # leaks every op it handles would rot the restart window (I-04).
+        # leaks every op it handles would rot the restart window.
         helpers = database_cpp.split("bool Database::SafeDelayOperation", 1)[1]
         fallback = helpers.split("bool Database::SafeDelayQueryHolder", 1)[0]
         assert "op->Execute(m_pAsyncConn);" in fallback
@@ -181,27 +181,27 @@ def test_overlay_restores_pristine_sources_byte_for_byte() -> None:
 
 def test_backend_selection_uses_the_real_cmake_switch() -> None:
     # The historical no-op pair must be gone from the driver's configure
-    # invocation; the SQLITE cache variable replaced it (F41).
+    # invocation; the SQLITE cache variable replaced it.
     source = (ROOT / "tools" / "build_o09_realm_runtime.py").read_text(encoding="utf-8")
     assert '"-DDO_MYSQL=ON", "-DDO_SQLITE=OFF"' not in source
     assert '"-DSQLITE=ON"] if backend == "sqlite" else ["-DSQLITE=OFF"]' in source
 
 
 def test_committed_lockfiles_never_record_the_sqlite_backend() -> None:
-    # DEC-06: the committed MariaDB-lane lockfiles are the shipped-provider
-    # pin verified by Gradle. A sqlite build must never move them - fail
+    # The committed MariaDB-lane lockfiles are the shipped-provider pin
+    # verified by Gradle. A sqlite build must never move them - fail
     # loud if one ever records database_backend "sqlite" (a rename or
     # copy-paste accident during the dual-provider window). The field is
     # REQUIRED (not defaulted): an old-schema lockfile means that ABI's
-    # lane was never rebuilt after the P0 overlay work - exactly the stale
-    # staged-artifact hazard the pin exists to prevent - and the overlay
-    # id set must be current for the same reason.
+    # lane was never rebuilt since the overlay pinning landed - exactly
+    # the stale staged-artifact hazard the pin exists to prevent - and
+    # the overlay id set must be current for the same reason.
     import json
 
-    # I-30/E3-2: the exact-set expectation below uses the same .get()
-    # default as the driver - so a registry entry MISSING its "backends"
-    # key would silently enter both provenances and still match. Require
-    # the declaration explicitly; the silent default becomes a loud error.
+    # The exact-set expectation below uses the same .get() default as the
+    # driver - so a registry entry MISSING its "backends" key would
+    # silently enter both provenances and still match. Require the
+    # declaration explicitly; the silent default becomes a loud error.
     assert all("backends" in entry for entry in driver.CMANGOS_OVERLAYS), (
         "every CMANGOS_OVERLAYS entry must declare backends explicitly "
         "(a missing key silently defaults into both lanes' provenance)")
@@ -224,7 +224,7 @@ def test_committed_lockfiles_never_record_the_sqlite_backend() -> None:
         assert not missing, (
             f"{name} predates the P0 overlay work (missing overlay ids "
             f"{sorted(missing)}); rebuild that ABI lane with the current driver")
-        # I-25/I-30: the exact mysql overlay set, mechanically derived from
+        # The exact mysql overlay set, mechanically derived from
         # the driver's registry + backend filter. A future registry entry
         # without a "backends" key defaults into BOTH provenances - this
         # catches that (and a mis-filtered regeneration) instead of trusting
@@ -237,8 +237,8 @@ def test_committed_lockfiles_never_record_the_sqlite_backend() -> None:
             f"unexpected={sorted(overlays - expected)} (a sqlite-only overlay "
             "in mysql provenance or a registry/lockfile drift)")
     assert seen > 0, "no committed realm-runtime lockfile found at all"
-    # DEC-07 INVERTED (P5): the sqlite lane now stages (sibling root +
-    # sibling lockfile). The arm64 sibling is the window's provider pin:
+    # The sqlite lane stages into a sibling root with a sibling lockfile.
+    # The arm64 sibling is the dual-provider window's sqlite pin:
     # required, backend=sqlite, carrying the exact sqlite overlay set
     # and the patches content pin.
     sibling = ROOT / "schemas" / "realm-runtime-lockfile-arm64-v8a-sqlite.json"
@@ -261,11 +261,10 @@ def test_committed_lockfiles_never_record_the_sqlite_backend() -> None:
 
 
 def test_lockfiles_pin_patches_content() -> None:
-    """Pre-P5 checklist item 3: every committed lockfile (mysql lanes
-    AND the sqlite sibling) pins the sha256 of every native/patches/
-    file compiled into its build. Any patches edit - including a
-    parallel session's - makes the committed lockfile mechanically
-    stale: this is the I-40 carry-forward's retirement."""
+    """Every committed lockfile (mysql lanes AND the sqlite sibling)
+    pins the sha256 of every native/patches/ file compiled into its
+    build. Any patches edit makes the committed lockfile mechanically
+    stale - this pin is what catches that drift."""
     import json
     expected = driver.patches_content_digests()
     assert expected, "no patch files found under native/patches/"

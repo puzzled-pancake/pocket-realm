@@ -1,4 +1,4 @@
-"""The S8 memory-USE battery (A13/A16/A17/A18/A19 host gate).
+"""The memory-USE battery (A13/A16/A17/A18/A19 host gate).
 
 Compiles the SHIPPED pure core (native/patches/playerbots/
 PlayerbotLlmRecallCore.h) on the host with -std=c++11 and pins the fact
@@ -124,7 +124,7 @@ def test_tier_ceremony_gating_and_secret_marker():
 
 
 def test_beat_cargo_variants_are_guid_threaded():
-    """rev-3b (S11): every cargo builder call in the bridge threads the
+    """Every cargo builder call in the bridge threads the
     bot's GUID so one bot hears ONE flavor for life - a stable of bots
     spreads across the variant set. The span check is paren-balanced per
     CALL: a regex to the next ';' would swallow both arms of a ternary in
@@ -170,7 +170,7 @@ def test_recall_core_carries_the_emitted_frame_block():
 
 
 def test_longform_cue_injection_is_tier_and_content_gated():
-    """S11 P50/P51: the frozen long-form cue rides exactly three bridge
+    """The frozen long-form cue rides exactly three bridge
     beats (storytelling ask, tier-5 bonded open-confidence, event-class
     news deep-dive), each gated on the configured max new tokens AND
     anchored to real memory content - the game stays the truth, and
@@ -219,9 +219,8 @@ def test_longform_cue_injection_is_tier_and_content_gated():
 def test_note_long_form_cued_is_flag_checked():
     """The budget widening's per-turn earning keys on NoteLongFormCued:
     it must read the license's OWN flag, stamp-checked - a stamped but
-    un-cued note (any ordinary beat) never widens (the round-2 mutation
-    survivor class: the call-site pin alone let 'any stamped note
-    widens' live)."""
+    un-cued note (any ordinary beat) never widens (the call-site pin
+    alone would let 'any stamped note widens' live)."""
     cpp = BRIDGE_CPP.read_text(encoding="utf-8")
     body = cpp.split("bool PlayerbotLlmBridge::NoteLongFormCued")[1].split("}")[0]
     assert "license.stamp == stamp" in body, "stamp-checked like the mandate reader"
@@ -391,11 +390,11 @@ def test_play_text_emote_is_the_shared_delivery():
         "the authored crowd emote reaction delivers through the same path"
 
 
-# ---- round-1 fix pins -------------------------------------------------------
+# ---- regression pins -------------------------------------------------------
 
 
 def test_recall_masks_use_mask_constants():
-    """Round-1 R1's P0: the bridge passed raw FactClass VALUES as bit
+    """Regression pin: the bridge once passed raw FactClass VALUES as bit
     masks (FACT_DEBT == 1 selected PLAIN). Every call site must compose
     from the FACT_MASK_* constants."""
     bridge = BRIDGE_CPP.read_text(encoding="utf-8")
@@ -417,7 +416,7 @@ def test_new_core_build_wiring_is_pinned():
 
 
 def test_gossip_matching_is_word_exact():
-    """Round-1 R6's P1: bare substring matching misattributed gossip to
+    """Regression pin: bare substring matching misattributed gossip to
     players whose names are prefixes of other words ('Ash' vs 'Ashmar'
     vs lowercase 'ash')."""
     memory = MEMORY_CPP.read_text(encoding="utf-8")
@@ -427,7 +426,7 @@ def test_gossip_matching_is_word_exact():
 
 
 def test_secret_marker_is_category_constrained():
-    """Round-1 R6's P1: a model-filled fact copying a player-whispered
+    """Regression pin: a model-filled fact copying a player-whispered
     'secret told:' prefix must not lock the Trusted unlock out - the
     probe is category-constrained to the ceremony's writer."""
     memory = MEMORY_CPP.read_text(encoding="utf-8")
@@ -436,7 +435,7 @@ def test_secret_marker_is_category_constrained():
 
 
 def test_relationship_insert_stamps_timestamp():
-    """Round-1 R6's P1: the initial row's NULL last_interaction_at made
+    """Regression pin: the initial row's NULL last_interaction_at made
     turn 2 read as a second first meeting (double log_fact beat)."""
     memory = MEMORY_CPP.read_text(encoding="utf-8")
     add = memory.split("AddRelationshipPoints(Player* bot")[1].split("AddBoundedSentimentInput")[0]
@@ -458,7 +457,7 @@ def test_bot2bot_reply_matches_its_opener():
     ex = memory.split("A18: a player walking up on two bots")[1].split("return; // one initiative per scan")[0]
     assert "replies[pick]" in ex, "the reply matches its own opener"
     assert "reply.msgtype = CHAT_MSG_SAY" in ex, "the reply answers on /say"
-    # round-2 R3: the DRAIN side of the say-tagged reply is pinned too
+    # the DRAIN side of the say-tagged reply is pinned too
     driver = DRIVER.read_text(encoding="utf-8")
     assert "if (reaction.msgtype == CHAT_MSG_SAY)" in driver, \
         "a SAY-tagged authored reaction speaks on /say even when grouped"

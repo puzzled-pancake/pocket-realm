@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
-"""P5/G7 user-state bridge: MariaDB datadir -> SQLite provider (core).
+"""User-state bridge: MariaDB datadir -> SQLite provider (core).
 
-Direction of use (dual-provider window first boot): the OLD (MariaDB)
-provider must still boot to export (F13/F44 - fail-closed seals make
-the window mandatory; the next release drops MariaDB only after the
-translation is proven). This module is the host-testable core of the
+Direction of use (dual-provider first boot): the OLD (MariaDB)
+provider must still boot to export - fail-closed seals make the window
+mandatory; the next release drops MariaDB only after the
+translation is proven. This module is the host-testable core of the
 translation:
 
   - EXPORT QUERIES: per-table ``SELECT ..., HEX(<blob>), ...`` in the
-    spec's batch-TSV design, with the session pinned to UTC FIRST (the
-    P3 tz footnote's normalization - by construction, not per-value
+    batch-TSV design, with the session pinned to UTC FIRST (tz
+    normalization by construction, not per-value
     conversion: MySQL TIMESTAMP columns convert on read using the
     session tz, so the pin reads them at UTC; DATETIME columns are
     tz-agnostic literals and cross as stored (device-local wall clock)
-    - recorded residual, P5 R1 I-84). The shipped export runs as
+    - a recorded residual). The shipped export runs as
     ``SELECT ... INTO OUTFILE`` (outfile_export_query) - the mysqldump
     --tab mechanism itself, so the server performs exactly this
     module's TSV escaping.
-  - TSV CODEC: the mysqldump --tab convention the P5 spec mandates -
+  - TSV CODEC: the mysqldump --tab convention -
     fields tab-separated, records newline-terminated, ``\t \n \0
     \\`` escaped inside fields (the server's default INTO OUTFILE
     escape set; a raw CR crosses unescaped and the codec decodes both
@@ -29,8 +29,8 @@ translation:
     seed owns schema + static content, the datadir owns the user), BLOB
     columns imported from the exporter's HEX text as X'...'-equivalent
     bytes. Imports write to ``<name>.partial`` and are atomically
-    os.replace()d onto the live path only when clean (the pre-registered
-    P5 sentinel); a leftover ``.partial`` from a killed run is detected
+    os.replace()d onto the live path only when clean; a leftover
+    ``.partial`` from a killed run is detected
     and removed before the next attempt.
 
 The wire contract is OURS (the shipped client must emit the
@@ -44,20 +44,20 @@ import sqlite3
 from pathlib import Path
 
 # The exporter prelude: pin the session timezone so every TIMESTAMP
-# read converts to UTC (P3 footnote normalization, by construction).
-# DATETIME columns are tz-agnostic literals and cross as stored (the
-# recorded residual, P5 R1 I-84).
+# read converts to UTC (normalization by construction).
+# DATETIME columns are tz-agnostic literals and cross as stored (a
+# recorded residual).
 UTC_PIN = "SET time_zone = '+00:00'"
 
-# The two longblob columns the P5 spec calls out (characters.sql:61 and
+# The two longblob columns (characters.sql:61 and
 # :156 - account_data.data / character_account_data.data): corrupt
-# without HEX encoding on export (F44).
+# without HEX encoding on export.
 BLOB_COLUMNS: dict[str, set[str]] = {
     "account_data": {"data"},
     "character_account_data": {"data"},
 }
 
-# The user-state slice (recorded in the plan ledger, P5):
+# The user-state slice:
 #   - classiccharacters: every table EXCEPT the ai_playerbot_* tables
 #     (bots are regenerable; their config/learning tables carry the
 #     bot_ prefix and ride along - they are small and user-adjacent);
@@ -99,7 +99,7 @@ def table_columns(target: sqlite3.Connection,
 
 def human_slice_tables(target: sqlite3.Connection) -> list[str]:
     """The classiccharacters export list: every table except the
-    regenerable ai_playerbot_* tables (decided P5; see module docstring)."""
+    regenerable ai_playerbot_* tables (see module docstring)."""
     tables = [r[0] for r in target.execute(
         "SELECT name FROM sqlite_master WHERE type='table' "
         "AND name NOT LIKE 'sqlite_%' ORDER BY name")]
@@ -108,7 +108,7 @@ def human_slice_tables(target: sqlite3.Connection) -> list[str]:
 
 # Source DATA_TYPE values that export as HEX text (the blob family; the
 # BLOB_COLUMNS name map pins the two known slice longblobs as defense in
-# depth - P5 R1: the family rule guards the append path).
+# depth - the family rule guards the append path).
 _EXPORT_BLOB_TYPES = {"BLOB", "TINYBLOB", "MEDIUMBLOB", "LONGBLOB",
                       "VARBINARY", "BINARY"}
 
@@ -125,15 +125,15 @@ def outfile_export_query(database: str, table: str,
     """The SHIPPED export wire (Kotlin twin of
     DatabaseUserStateBridge.outfileExportQuery): one paged statement
     whose escaping the SERVER performs via INTO OUTFILE - the mysqldump
-    --tab mechanism itself, no client-stdout boundary (P5 R1 I-77).
-    Bit columns are normalized with CAST(.. AS UNSIGNED) (I-85).
+    --tab mechanism itself, no client-stdout boundary.
+    Bit columns are normalized with CAST(.. AS UNSIGNED).
     The field/line literals are SQL ESCAPE SEQUENCES - backslash+t
     etc. in the emitted text, and TWO backslashes inside ESCAPED BY
-    so the server reads one (P5 R3 I-107: an earlier edit emitted
+    so the server reads one (an earlier edit emitted
     raw control bytes and a lone backslash, which under the default
     sql_mode breaks the ESCAPED BY literal's quoting entirely). The
     qualified db.table makes the statement invocation-context-free
-    (I-E1R3: the shipped page call passes no --database); the
+    (the shipped page call passes no --database); the
     sql_mode pin (mysqldump precedent; read-only session) makes the
     backslash-escape literals parse identically regardless of the
     server's global mode.)
@@ -159,7 +159,7 @@ def outfile_export_query(database: str, table: str,
 
 
 def count_query(table: str) -> str:
-    """The source-truth row count cross-check (I-78). INVOCATION
+    """The source-truth row count cross-check. INVOCATION
     CONTRACT: the FROM is unqualified - the caller must pass the
     database to the client invocation (the engine's count leg does)."""
     return f"SELECT COUNT(*) FROM `{table}`;"
@@ -218,7 +218,7 @@ def decode_tsv(text: str) -> list[list[bytes | None]]:
 
 def decode_tsv_strict(data: bytes) -> list[list[bytes | None]]:
     """Staged-file entry (Kotlin twin of DatabaseUserStateBridge.
-    decodeTsvBytes, P5 R4 B-3): decode batch-TSV BYTES directly - no
+    decodeTsvBytes): decode batch-TSV BYTES directly - no
     String boundary in front of the fail-loud UTF-8 gate. Escaped
     fields never contain raw 0x09/0x0A, so byte-level splitting is
     exact; an interior empty line is a legal single-column
@@ -294,7 +294,7 @@ def import_table(target: sqlite3.Connection, table: str,
     columns = table_columns(target, table)
     if not columns:
         raise BridgeError(f"target schema has no table {table!r}")
-    # R5 (C): the import consumes the STRICT staged-file semantics -
+    # The import consumes the STRICT staged-file semantics -
     # bytes route through decode_tsv_strict (unterminated trailing rows
     # and dropped interior empty lines refuse/preserve exactly like the
     # shipped Kotlin decodeTsvBytes); str input stays supported for the
@@ -344,7 +344,7 @@ def import_database(live_path: Path, tables_tsv: dict[str, str]) -> dict:
     is removed first (interrupted-translation recovery). Refuses LOUD
     when a non-empty -wal/-shm sidecar exists (committed-but-
     uncheckpointed frames would be silently dropped by the byte copy -
-    P5 R1 I-81: the recorded flow imports freshly seeded, cleanly
+    the recorded flow imports freshly seeded, cleanly
     closed databases; anything else is an anomaly worth stopping for)
     and restores the live file's pre-import journal mode after the
     merge (the import transaction runs in DELETE mode; a WAL-mode live
@@ -359,7 +359,7 @@ def import_database(live_path: Path, tables_tsv: dict[str, str]) -> dict:
         raise BridgeError(f"live database missing: {live_path}")
     pre_mode = None
     # read-only URI probe: a plain connect can trigger hot-journal
-    # recovery on the LIVE file before the copy (P5 R3, B I-B)
+    # recovery on the LIVE file before the copy
     probe = sqlite3.connect(
         f"file:{live_path.as_posix()}?mode=ro", uri=True)
     try:

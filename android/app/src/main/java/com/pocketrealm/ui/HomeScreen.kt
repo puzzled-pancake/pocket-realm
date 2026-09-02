@@ -88,7 +88,7 @@ private fun databaseBootstrapped(context: android.content.Context): Boolean {
 }
 
 /**
- * Landscape-first launch dashboard (brief §58): Home answers what will start,
+ * Landscape-first launch dashboard: Home answers what will start,
  * whether it is running, and which account is used. Bot configuration lives
  * in the Bots destination; LAN host/join lives in the LAN destination.
  */
@@ -471,7 +471,7 @@ fun HomeScreen(
     }
 }
 
-/** Compact realm card (brief §3): identity, status, and start actions only. */
+/** Compact realm card: identity, status, and start actions only. */
 @Composable
 private fun RealmControlCard(
     state: RealmState,
@@ -635,7 +635,7 @@ private fun RealmControlCard(
     }
 }
 
-/** Dense active-setup summary (brief §4): compact chips, not one line per value. */
+/** Dense active-setup summary: compact chips, not one line per value. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CurrentSetupCard(

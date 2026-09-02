@@ -74,7 +74,7 @@ data class BotCustomConfiguration(
         )
     }
 
-    /** Population-independent estimate of normally-active bots (§17 display). */
+    /** Population-independent estimate of normally-active bots (status display). */
     fun estimatedActiveBots(): Int = (selectedTarget * activeBotPercent + 50) / 100
 
     /** Rebuild with a new target, keeping the shape valid and re-sizing the account pool. */
@@ -190,7 +190,7 @@ data class BotCustomConfiguration(
 }
 
 /**
- * Activity bundles (brief §14): combinations of AI update interval,
+ * Activity bundles: combinations of AI update interval,
  * iterations per tick and active percentage. Any population may combine with
  * any activity — the editor warns about heavy mixes but never blocks them.
  */
@@ -237,7 +237,7 @@ enum class BotActivityPreset(val label: String, val summary: String) {
 }
 
 /**
- * Playstyle bundles (brief §13). Behaviour around humans and groups; LAN
+ * Playstyle bundles. Behaviour around humans and groups; LAN
  * Co-op here means bot behaviour near multiple humans, not networking
  * (networking lives in the LAN destination).
  */

@@ -110,7 +110,7 @@ const char* realm_err_str(realm_err e)
         case REALM_E_WRONG_STATE: return "wrong state for this call";
         case REALM_E_FATAL_STARTUP: return "fatal startup error";
         case REALM_E_DB: return "database error";
-        case REALM_E_BLOCKED_ON_CLIENT_DATA: return "blocked on client data import (O10)";
+        case REALM_E_BLOCKED_ON_CLIENT_DATA: return "blocked on client data import";
         case REALM_E_TIMEOUT: return "timed out";
         case REALM_E_BUSY: return "realm busy (re-init not available in this process)";
         case REALM_E_INTERNAL: return "internal error";

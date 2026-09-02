@@ -160,7 +160,7 @@ class DurableRuntimeSupervisor(
     }
 
     /**
-     * Companion mode (M5): a journaled RUNNING <-> PAUSED transition that
+     * Companion mode: a journaled RUNNING <-> PAUSED transition that
      * pauses world ticking and switches the LLM runtime profile. Pause is a
      * pause, never a stop - the world process stays alive so save/stop still
      * work from PAUSED and resume needs no reconfiguration.

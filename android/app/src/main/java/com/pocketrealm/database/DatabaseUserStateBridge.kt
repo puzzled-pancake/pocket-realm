@@ -2,24 +2,24 @@ package com.pocketrealm.database
 
 import java.io.File
 
-/** P5/G7 user-state bridge failure: every raise is a loud refusal, never
+/** User-state bridge failure: every raise is a loud refusal, never
  * a silent substitution (the masked-default class the host harness
  * proved SQLite would otherwise make). */
 class BridgeError(message: String) : Exception(message)
 
 /**
- * P5/G7 user-state bridge (MariaDB datadir -> SQLite provider), Kotlin
+ * User-state bridge (MariaDB datadir -> SQLite provider), Kotlin
  * side of tools/sqlite_user_state_bridge.py.
  *
  * The dual-provider window's first boot translates the sealed MariaDB
- * datadir: the OLD provider must still boot to export (F13/F44 - the
+ * datadir: the OLD provider must still boot to serve the export (the
  * fail-closed seals make the window mandatory), the export runs through
  * the shipped MariaDB client in batch-TSV mode, and the import lands in
  * the freshly seeded SQLite datadirs with user state winning over seed
  * rows. This object holds the JVM-pure core (codec + query shaping);
  * the Android-framework legs ( SQLiteDatabase import, the
  * .partial/os.replace commit point) live in [Importer] and are
- * validated on device (P7) against the host harness
+ * validated on device against the host harness
  * (tests/test_sqlite_user_state_bridge.py).
  *
  * WIRE CONTRACT (must match the client invocation and the host tests):
@@ -32,14 +32,14 @@ class BridgeError(message: String) : Exception(message)
 object DatabaseUserStateBridge {
 
     /** The exporter prelude: pin the session timezone so every
-     * TIMESTAMP read converts to UTC (the P3 tz footnote's
-     * normalization, by construction). DATETIME columns are tz-agnostic
-     * literals — they cross as stored (device-local wall clock); the
-     * recorded residual lives in the plan ledger (P5 R1, I-84). */
+     * TIMESTAMP read converts to UTC. DATETIME columns are tz-agnostic
+     * literals — they cross as stored (device-local wall clock); that
+     * residual device-local-timezone dependence is an accepted property
+     * of the source schema. */
     const val UTC_PIN: String = "SET time_zone = '+00:00'"
 
     /** The two longblob columns (characters.sql:61/:156) that corrupt
-     * without HEX encoding on export (F44). */
+     * without HEX encoding on export. */
     private val BLOB_COLUMNS: Map<String, Set<String>> = mapOf(
         "account_data" to setOf("data"),
         "character_account_data" to setOf("data"),
@@ -141,7 +141,7 @@ object DatabaseUserStateBridge {
         }
 
     /**
-     * Staged-file entry (P5 R2, C2-2): decode batch-TSV BYTES directly,
+     * Staged-file entry: decode batch-TSV BYTES directly,
      * so no unpinned String boundary sits in front of the strict-UTF-8
      * gate (a lenient String(bytes, UTF_8) would turn invalid bytes
      * into U+FFFD *before* [Importer] could refuse them). Escaped
@@ -183,10 +183,10 @@ object DatabaseUserStateBridge {
     }
 
     // ------------------------------------------------------------------
-    // Export wire (P5 orchestrator leg) — SELECT ... INTO OUTFILE
+    // Export wire — SELECT ... INTO OUTFILE
     // ------------------------------------------------------------------
     //
-    // WIRE CONTRACT (recorded in the plan ledger): the host core's
+    // WIRE CONTRACT: the host core's
     // contract is the mysqldump --tab convention, and INTO OUTFILE is
     // literally that mechanism — mysqldump --tab generates exactly this
     // statement, and the query spells the field/line clauses EXACTLY so
@@ -196,14 +196,13 @@ object DatabaseUserStateBridge {
     // default escape set is \\ \t \n \0 inside fields + the two-char \N
     // for NULL (a raw \r crosses UNescaped — the codec decodes both
     // forms, so values round-trip either way). No client-stdout boundary
-    // exists in the data path. (The earlier --batch --raw +
-    // query-side-REPLACE-chain design was withdrawn in P5 R1: the JNI
-    // runner captures only the last 16 KiB of child stdout — I-77.)
+    // exists in the data path (the runner captures only the last 16 KiB
+    // of child stdout, so bulk data must never travel that way).
     // Outfiles land under secure-file-priv (databaseRoot/import) and
     // require the FILE privilege: pages run as pocket_admin, like the
     // migration runner. A zero-row page produces an EMPTY file.
 
-    /** Source DATA_TYPE values that export as HEX text (F44 blob
+    /** Source DATA_TYPE values that export as HEX text (the blob
      * family; the name map below pins the two known longblobs as
      * defense in depth — verified the only blob columns in the slice,
      * but the append path gets the family rule, not the two names). */
@@ -217,7 +216,7 @@ object DatabaseUserStateBridge {
             sourceDataType.substringBefore(' ').uppercase() in EXPORT_BLOB_TYPES
 
     /** True when the column imports as bytes from HEX text (target
-     * side: the P4 translator normalizes the whole blob family to
+     * side: the corpus translator normalizes the whole blob family to
      * exactly "BLOB"). */
     fun isTargetBlobColumn(table: String, name: String, declaredType: String): Boolean =
         name in (BLOB_COLUMNS[table] ?: emptySet()) ||
@@ -226,15 +225,15 @@ object DatabaseUserStateBridge {
     /** The per-page export statement: UTC-pinned session + charset pin,
      * sql_mode pin (mysqldump precedent; read-only session — makes the
      * backslash-escape literals parse identically regardless of the
-     * server's global mode, P5 R3 I-107), HEX blobs, bit columns
+     * server's global mode), HEX blobs, bit columns
      * normalized to 0/1 text (CAST AS UNSIGNED — a raw bit would cross
      * as a control byte), deterministic order (PRIMARY KEY when
      * present, otherwise ALL columns — four slice tables have no PK,
      * and undefined LIMIT/OFFSET order can silently duplicate/drop rows
-     * at page boundaries, P5 R2), LIMIT/OFFSET pagination, the
+     * at page boundaries), LIMIT/OFFSET pagination, the
      * mysqldump --tab field/line clauses spelled EXACTLY as SQL escape
      * sequences, and a QUALIFIED db.table (the shipped page invocation
-     * passes no --database — I-E1R3). */
+     * passes no --database). */
     fun outfileExportQuery(
         database: String,
         table: String,
@@ -266,14 +265,14 @@ object DatabaseUserStateBridge {
     INVOCATION CONTRACT: the FROM is UNqualified (fixture-consistent
     tables are qualified) — the caller MUST pass the database to the
     client invocation (the engine's count leg does; the page queries
-    are qualified and need none — P5 R4, E idea 1). */
+    are qualified and need none). */
     fun countQuery(table: String): String = "SELECT COUNT(*) FROM `$table`;"
 
     /**
      * The import-side scaffolding (host import_table/import_database
      * parity). JVM-pure row validation and statement shaping; the
      * SQLiteDatabase execution that consumes them is the Android
-     * framework leg validated on device (P7) against the host
+     * framework leg validated on device against the host
      * harness (tests/test_sqlite_user_state_bridge.py).
      */
     object Importer {
@@ -330,7 +329,7 @@ object DatabaseUserStateBridge {
             }
             // STRICT decode: String(bytes, UTF_8) substitutes U+FFFD
             // silently - the host core fails loud here and so must this
-            // port (the I-51 mojibake class).
+            // port (mojibake must never be stored in place of a refusal).
             return try {
                 strictUtf8Decoder().decode(java.nio.ByteBuffer.wrap(value)).toString()
             } catch (failure: Throwable) {
@@ -351,8 +350,8 @@ object DatabaseUserStateBridge {
     }
 
     /** Minimal growable byte buffer with UTF-8 appending. VALID
-     * surrogate pairs combine into the standard 4-byte form (P5 R1
-     * I-79: the high surrogate used to collapse to a lone 0xFF — any
+     * surrogate pairs combine into the standard 4-byte form (a naive
+     * high-surrogate path collapses to a lone 0xFF — any
      * astral character in user text would have aborted the whole
      * translation); a lone/trailing HIGH surrogate maps to 0xFF, and a
      * lone LOW surrogate encodes an invalid 3-byte sequence — both

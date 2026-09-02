@@ -1,11 +1,11 @@
 package com.pocketrealm.database
 
 /**
- * P6/G8: the SQLite control plane's pure statement/policy surface —
+ * The SQLite control plane's pure statement/policy surface —
  * the engine-agnostic shapes the SQLite provider path in DatabaseEngine
  * executes against the datadir's SQLite databases. Kept free of
  * Android-framework types so every shape is JVM-unit-testable; the
- * SQLiteDatabase execution legs are validated on device (P7) against
+ * SQLiteDatabase execution legs are validated on device against
  * the host bridge harness.
  *
  * The ledger DDL is the SQLite-native translation of the MariaDB
@@ -17,7 +17,7 @@ package com.pocketrealm.database
  */
 internal object DatabaseSqliteControlPlane {
 
-    /** The SQLite databases the realm runtime owns (P4 seed transcripts
+    /** The SQLite databases the realm runtime owns (the seed transcripts
      * ship exactly these four, assets/seed/&lt;db&gt;.sqlz). */
     val DATABASES: List<String> = listOf(
         "classicrealmd", "classiccharacters", "classiclogs", "classicmangos",
@@ -28,7 +28,7 @@ internal object DatabaseSqliteControlPlane {
         "PENDING", "APPLIED", "ROLLED_BACK", "FAILED",
     )
 
-    /** The pocketrealm_meta ledger DDL, SQLite-native (G8). The meta
+    /** The pocketrealm_meta ledger DDL, SQLite-native. The meta
      * database is engine-created (not part of the seed transcripts):
      * same shape contract as the MariaDB original — migration_id
      * primary key, component/commit identities, sql hash, timestamps,
@@ -49,7 +49,7 @@ internal object DatabaseSqliteControlPlane {
         );
     """
 
-    /** G8: the revision probe — pragma_table_info replaces the MariaDB
+    /** The revision probe — pragma_table_info replaces the MariaDB
      * information_schema.COLUMNS query. Returns true when [column] is
      * among [table]'s columns in [database]. */
     const val REVISION_PROBE: String =
@@ -58,14 +58,14 @@ internal object DatabaseSqliteControlPlane {
     /** Bind order for [REVISION_PROBE]: table, then column. */
     fun revisionProbeBinds(table: String, column: String): Array<String> = arrayOf(table, column)
 
-    /** G8 corruption story: the first-boot gate. quick_check first (the
+    /** Corruption handling, the first-boot gate. quick_check first (the
      * fast pass); integrity_check as the full verdict; both must return
      * exactly "ok" (SQLite returns a single row 'ok' when clean). */
     const val QUICK_CHECK: String = "PRAGMA quick_check;"
     const val INTEGRITY_CHECK: String = "PRAGMA integrity_check;"
     const val INTEGRITY_OK: String = "ok"
 
-    /** G8 corruption story: the rebuild fallback. VACUUM INTO copies a
+    /** Corruption handling, the rebuild fallback. VACUUM INTO copies a
      * corruptible live database into a fresh file (defragmented and
      * rebuilt); the caller stages the target as <name>.rebuilt and
      * atomically replaces the live file only after the rebuilt copy
@@ -73,15 +73,16 @@ internal object DatabaseSqliteControlPlane {
      * the bridge's .partial/os.replace. */
     const val VACUUM_INTO: String = "VACUUM INTO ?;"
 
-    /** The seed asset names (P5 staging ships exactly these; I-93: .sqlz,
-     * never .sql.gz — AGP's asset merge auto-gunzips *.gz, gotcha #16). */
+    /** The seed asset names (staging ships exactly these). The .sqlz
+     * suffix is deliberate — never .sql.gz, because AGP's asset merge
+     * auto-gunzips *.gz. */
     fun seedAsset(database: String): String = "seed/$database.sqlz"
 
     // ------------------------------------------------------------------
-    // P6 datadir layout. The SQLite provider's databases live in their own
+    // Datadir layout. The SQLite provider's databases live in their own
     // sibling datadir (never inside the MariaDB datadir - the window keeps
     // both providers' state distinct and the MariaDB datadir is the
-    // rollback anchor until P8). One file per database plus the
+    // rollback anchor). One file per database plus the
     // engine-owned meta (ledger) database.
     // ------------------------------------------------------------------
 
@@ -125,7 +126,7 @@ internal object DatabaseSqliteControlPlane {
             "VALUES (?,?,?,?,?,?,?,'APPLIED',?,?)"
 
     // ------------------------------------------------------------------
-    // P6 seed replay: the statement splitter (I-56 inheritance — the host
+    // Seed replay: the statement splitter (the host
     // executor's per-statement diagnostics came from sqlite3_complete
     // boundary detection; on device the framework API has no such helper,
     // so the same literal-aware boundary logic lives here, JVM-tested).
@@ -143,23 +144,23 @@ internal object DatabaseSqliteControlPlane {
         return statements
     }
 
-    /** One split statement with its transcript-local identity (I-56
-     * diagnostics). [offset] is the transcript char offset where the
+    /** One split statement with its transcript-local identity (drives
+     * the per-statement diagnostics). [offset] is the transcript char offset where the
      * statement's text begins (pre-whitespace-trim). */
     data class SeedStatement(val index: Int, val offset: Int, val sql: String)
 
     /**
      * Incremental, literal-aware `;` boundary scanner for seed transcripts.
-     * The P4 driver joins statements with ";\n" AND terminates the file
-     * with a final ";\n" (per-statement strings carry NO ';' — gotcha #15;
+     * The host generator joins statements with ";\n" AND terminates the file
+     * with a final ";\n" (per-statement strings carry NO ';';
      * the scanner handles both a terminated and an unterminated tail).
      * Single-quoted strings ('' escape), double-quoted identifiers/strings
      * (""), backtick identifiers (``), line comments (--) and block
      * comments (slash-star) never split. The translator strips comments
      * before emission, so the comment modes are defense-in-depth; chunk
      * boundaries splitting any two-char marker/pair are carried across
-     * feeds (pendingMarker/pendingLiteralQuote/pendingBlockStar — the
-     * R1 fix round: quote-after-marker adjacency must reprocess, not
+     * feeds (pendingMarker/pendingLiteralQuote/pendingBlockStar:
+     * quote-after-marker adjacency must reprocess, not
      * swallow). [feed] returns the statements completed by that chunk;
      * [finish] flushes the tail.
      */
@@ -215,7 +216,7 @@ internal object DatabaseSqliteControlPlane {
                         // clears the marker and is REPROCESSED by the normal
                         // branches below - appending it blindly would swallow
                         // a quote/backtick that must open a literal (the
-                        // R1 C2 class: merged statements + false boundaries).
+                        // merged-statement/false-boundary bug class).
                         if (pendingMarker != null) {
                             val completes = (pendingMarker == '-' && c == '-') ||
                                 (pendingMarker == '/' && c == '*')

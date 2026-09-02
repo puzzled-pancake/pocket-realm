@@ -5,7 +5,7 @@
 // CMaNGOS calls (sMaster.StartDatabasesEmbedded, sMaster.InitWorldEmbedded,
 // sMaster.StartNetworkEmbedded, sMaster.StopEmbedded, realmd listener setup).
 //
-// The client-data gate (O10) is the central honesty mechanism: when the world
+// The client-data gate is the central honesty mechanism: when the world
 // machinery throws a POCKET_FATAL whose message indicates missing .dbc/.map
 // data, we classify it as a client-data gate (not a fatal startup error) so
 // the realm can report BLOCKED_ON_CLIENT_DATA honestly rather than FAILED.
@@ -165,7 +165,7 @@ lifecycle_result start_world_machinery(world_session** out,
             r.detail = msg;
             if (is_client_data_message(msg))
             {
-                // Honest: machinery not up because the client data import (O10)
+                // Honest: machinery not up because the client data import
                 // has not run. Report the world-loop triad as blocked, not false.
                 r.err = REALM_E_BLOCKED_ON_CLIENT_DATA;
                 r.client_data_gate = true;

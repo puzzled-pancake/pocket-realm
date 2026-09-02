@@ -216,13 +216,13 @@ internal object LlmRuntimePolicy {
         )
     }
 
-    /** Plan §2.1 T4: off-device endpoints get their own budget, not a device profile. */
+    /** Off-device endpoints get their own budget, not a device profile. */
     val EXTERNAL_PROFILE = LlmSamplingProfile(
         temperature = 0.7, topP = 0.9, topK = 20,
         repeatPenalty = 1.0, maxTokens = 300,
     )
 
-    /** Plan §2.1 T4 runtime knobs (16/bot, 48 global; 30s gen + 10s connect; ctx 16384). */
+    /** External-endpoint runtime knobs (16/bot, 48 global; 30s gen + 10s connect; ctx 16384). */
     val EXTERNAL_TIER = LlmTierProfile(
         contextLength = 16384, generationTimeoutSec = 30,
         maxSimultaneousGenerations = 4,
@@ -266,12 +266,12 @@ internal object LlmRuntimePolicy {
             if (providerSafe) "\n            AiPlayerbot.LLMProviderSafe = 1" else ""
         val botToBotLine =
             if (tier.botToBotChatChance > 0) "\n            AiPlayerbot.LLMBotToBotChatChance = ${tier.botToBotChatChance}" else ""
-        // S7/A11: the staged lore card index (question turns get [RESULT]
-        // cards, move_to resolves POI places); blank/absent keeps the
+        // The staged lore card index: question turns get [RESULT]
+        // cards and move_to resolves POI places; blank/absent keeps the
         // native loop off
         val loreLine =
             if (!loreFile.isNullOrBlank()) "\n            AiPlayerbot.LLMLoreFile = \"$loreFile\"" else ""
-        // S10/E6: the world-chatter layer. The conf enables the SUBSYSTEM
+        // World-chatter layer. The conf enables the SUBSYSTEM
         // and names the power file whenever the app staged one (LLM on);
         // the FILE's enabled flag is the master switch - it is re-read by
         // the native scheduler every tick, so the ambience toggle works
@@ -358,7 +358,7 @@ internal object LlmRuntimePolicy {
      * every other knob keeps its measured default. --jinja applies the
      * model's real chat template, and --load-mode none is the measured
      * coexistence profile (no second mmap copy of the weights).
-     * [chatTemplateFile] is the §4.4 staged non-thinking override: when the
+     * [chatTemplateFile] is the staged non-thinking override: when the
      * warm-up probe detects a thinking template, the service restarts once
      * with --chat-template <the staged content> (stage it via
      * [stageChatTemplate]).
@@ -378,7 +378,7 @@ internal object LlmRuntimePolicy {
         }.build()
 
     /**
-     * §4.4: stage the packaged non-thinking chat template (the gemma-dialect
+     * Stage the packaged non-thinking chat template (the gemma-dialect
      * export shape the tuned GGUFs use — render-verified byte-identical to
      * the tuned template's non-thinking path) into filesDir and return its
      * absolute path, or null when staging fails. Null fails OPEN: the runtime
@@ -408,6 +408,6 @@ internal object LlmRuntimePolicy {
         null
     }
 
-    /** File name inside assets/llm/ and filesDir/llm/ (§4.4). */
+    /** File name inside assets/llm/ and filesDir/llm/. */
     private const val TEMPLATE_ASSET_NAME = "chat_template_nonthinking.jinja"
 }

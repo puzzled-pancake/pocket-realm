@@ -29,7 +29,7 @@ class DatabaseConfigPolicyTest {
     }
 
     @Test fun powerCutContractsPerEngineAsAmended() {
-        // DEC-02 as amended 2026-08-27: the engines now carry deliberately
+        // The engines carry deliberately
         // per-engine power-cut contracts. MariaDB (the server lane) keeps
         // trx_commit=1 (zero committed loss). The SQLite lane (the
         // recommended on-device engine) uses WAL + synchronous=NORMAL:

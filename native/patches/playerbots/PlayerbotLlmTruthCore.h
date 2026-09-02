@@ -1,18 +1,18 @@
 #ifndef _PlayerbotLlmTruthCore_h
 #define _PlayerbotLlmTruthCore_h
 
-// Pure, host-compilable core of the S7 truth guards (plan §3):
-//   A10  stakes-scoped entity guard - candidate proper-noun extraction,
+// Pure, host-compilable core of the truth guards:
+//   stakes-scoped entity guard - candidate proper-noun extraction,
 //        question/stakes shapes and the FROZEN directive wording
-//   A11  lore card index (jsonl load, keyword scoring, POI resolution) +
+//   lore card index (jsonl load, keyword scoring, POI resolution) +
 //        the corrected era lists (always-ban terms vs context-allow
 //        sense-phrases) + the era lint over shipped cards
-//   A12  post-generation hygiene - 5-gram prompt-leak detector, marker
+//   post-generation hygiene - 5-gram prompt-leak detector, marker
 //        terms, markdown stripper, ASCII clamp, /say cap splitter,
 //        Jaccard dedupe, self-initiated-invention sentence scan, and the
 //        strict-UTF-8 request-side sanitizer
 // No core/module includes - PlayerbotLlmBridge.cpp, PlayerbotLlmTools.cpp,
-// PlayerbotLlmMemory.cpp, PlayerbotLlmFilters.cpp and the host battery
+// PlayerbotLlmMemory.cpp, PlayerbotLlmFilters.cpp and the host test suite
 // (tools/test_llm_truth.cpp) all compile it standalone, so the guard
 // grammar, the retrieval scoring and every filter are pinned by tests
 // instead of by inspection.
@@ -99,10 +99,10 @@ inline std::vector<std::string> WordTokens(std::string const& text)
     return out;
 }
 
-// ------------------------------------------------------------------ A10 ----
+// ------------------------------------------------- entity guard ----
 
-// The A10 directive, FROZEN before any v2.3 P45 authoring (plan §5 wording
-// lock): the bank must train exactly the distribution the bridge injects,
+// The guard directive, FROZEN (the wording lock): the bank must train
+// exactly the distribution the bridge injects,
 // so this template may not drift. The [BRIDGE AI] prefix and the
 // "(For this reply only...)" footer are compose() furniture - this is the
 // note body only. cls is exactly one of "person" / "place" / "thing".
@@ -479,7 +479,7 @@ inline std::vector<GuardCandidate> ExtractGuardEntities(std::string const& msg)
 }
 
 // Strict question shape - the lore loop's trigger ("what/where/who/why +
-// known entity" per plan A11). Imperative service shapes ("take me to X")
+// known entity"). Imperative service shapes ("take me to X")
 // are NOT questions: they route to the ACT beats, not the card head.
 inline bool IsQuestionShape(std::string const& msg)
 {
@@ -559,7 +559,7 @@ inline bool IsQuestionOrStakesShape(std::string const& msg)
     return false;
 }
 
-// ------------------------------------------------------------------ A11 ----
+// --------------------------------------------------- lore index ----
 
 // One lore card as shipped in the jsonl asset (built by
 // tools/llm_lab/build_lore_cards.py from the era-scrubbed corpus).
@@ -577,7 +577,7 @@ struct LoreCard
 };
 
 // The retrieval index: cards plus an inverted keyword map. Loading is a
-// plain file read so the host battery exercises the real parser over
+// plain file read so the host test suite exercises the real parser over
 // fixture files; an empty/failed load degrades to "no cards" (the guard
 // still works - the lore loop is the only thing that goes quiet).
 class LoreIndex
@@ -779,7 +779,7 @@ private:
     std::map<std::string, std::vector<size_t>> keyToCards_;
 };
 
-// ---- the corrected era policy (plan §3 A11 verbatim classes) ----
+// ---- the corrected era policy (verbatim classes) ----
 // Always-ban: unambiguous later-era words. Context-allow terms NEVER
 // appear here (Dalaran, death knight, Northrend, Outland, blood elf,
 // worgen, Lich King, Naxxramas, Kel'Thuzad are all 1.12-legitimate; and
@@ -848,7 +848,7 @@ inline bool EraHit(std::string const& lower, std::string const& needle,
 
 // A deny-shaped negator at word boundaries near a hit (up to 14 bytes
 // after, 24 before): "no draenei trades here" and "never heard of any
-// draenei" are exactly the denials the A10 guard elicits, so they must
+// draenei" are exactly the denials the entity guard elicits, so they must
 // not regenerate. ("cannot" does not count - "cannot miss it" is not a
 // denial of the premise; the boundary check rejects it as "not"-inside-
 // a-word.)
@@ -952,7 +952,7 @@ inline std::vector<std::string> EraLintCards(std::vector<LoreCard> const& cards)
     return bad;
 }
 
-// ------------------------------------------------------------------ A12 ----
+// ------------------------------------------ post-generation hygiene ----
 
 // Markdown stripper: headings/bold/italic/bullets/code fences never reach
 // the 1.12 chat frame as markup. Emphasis runs are dropped PER LINE and
@@ -1220,7 +1220,7 @@ inline std::vector<std::pair<size_t, size_t>> SentenceSpans(std::string const& t
     return out;
 }
 
-// Self-initiated-invention scan (A10's post-filter leg): a REPLY sentence
+// Self-initiated-invention scan (the post-filter leg): a REPLY sentence
 // that introduces a capitalized entity the world does not know, attached
 // to a service/direction claim ("I know a gnomish instructor in
 // Stormwind"), is dropped. The isKnown predicate comes from the caller

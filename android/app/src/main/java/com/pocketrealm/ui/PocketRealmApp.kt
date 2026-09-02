@@ -330,7 +330,7 @@ fun PocketRealmApp() {
 }
 
 /**
- * Compact landscape app header (brief §2): 52 dp tall, route title left,
+ * Compact landscape app header: 52 dp tall, route title left,
  * short realm status and a settings gear right. The side rail already
  * communicates location, so no large decorative title band is spent.
  */

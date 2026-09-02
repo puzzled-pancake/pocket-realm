@@ -24,7 +24,7 @@ struct lifecycle_result
     realm_err err{REALM_E_OK};
     std::string detail;          // human-readable; logged and surfaced on FAILED
 
-    // True if `err` is the client-data gate (O10) rather than a generic fault.
+    // True if `err` is the client-data gate rather than a generic fault.
     // The health mapper uses this to report BLOCKED_ON_CLIENT_DATA vs FALSE.
     bool client_data_gate{false};
 };

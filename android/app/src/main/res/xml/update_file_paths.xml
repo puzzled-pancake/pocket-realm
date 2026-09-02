@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- F6: only the update download dir is shareable with the installer. -->
+<!-- Only the update download dir is shareable with the installer. -->
 <paths>
     <files-path name="update-downloads" path="updates/" />
 </paths>

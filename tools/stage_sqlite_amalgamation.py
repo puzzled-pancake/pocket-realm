@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Stage the pinned SQLite amalgamation and build libsqlite3.a per ABI.
 
-Closes the provenance gap (research digest F32): the amalgamation used to
-arrive in native/.deps/src/sqlite/ as an untracked, unpinned build-host
-artifact. It is now a real pinned component - sources[] entry
+The amalgamation is a real pinned component - sources[] entry
 `sqlite-amalgamation-3460100` - fetched and sha-verified by
 tools/fetch_provider.py, staged here, and compiled by the single recipe at
-native/.deps/src/sqlite/CMakeLists.txt (never re-vendored, never patched).
+native/.deps/src/sqlite/CMakeLists.txt (never re-vendored, never patched,
+never an untracked build-host artifact).
 
 Usage:
     python tools/stage_sqlite_amalgamation.py --abi x86_64
@@ -14,9 +13,8 @@ Usage:
     python tools/stage_sqlite_amalgamation.py --list
 
 Deterministic: same zip, same recipe, same NDK -> byte-identical
-libsqlite3.a (verified by rebuild-compare during P1 qualification). The
-script refuses to proceed if the staged amalgamation does not match the
-pinned content hashes.
+libsqlite3.a (verified by rebuild-compare). The script refuses to proceed
+if the staged amalgamation does not match the pinned content hashes.
 """
 from __future__ import annotations
 

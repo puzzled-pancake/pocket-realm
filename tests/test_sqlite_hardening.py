@@ -1,8 +1,8 @@
-"""P2/G3 hardened DO_SQLITE connection layer: unit tests per fix.
+"""Hardened DO_SQLITE connection layer: unit tests per fix.
 
 The replacement files under native/patches/cmangos/ are compiled into the
 DO_SQLITE lane by tools/build_o09_realm_runtime.py (mysql builds never touch
-them). These tests pin every hardening the phase requires, and the
+them). These tests pin every hardening the replacement ships, and the
 two-handle contention test exercises the engine-level policy (WAL,
 synchronous=FULL, busy_timeout=500, BEGIN IMMEDIATE, commit-failure
 rollback) against the PINNED amalgamation compiled for the host.
@@ -30,11 +30,10 @@ def _patch(name: str) -> str:
 def test_connection_policy_is_the_decided_one() -> None:
     cpp = _patch("DatabaseSqlite.cpp")
     assert "PRAGMA journal_mode=WAL;" in cpp
-    # DEC-02 amendment (2026-08-27, addendum 6): synchronous=NORMAL under
-    # WAL - crash-consistent with bounded progress loss on power cut,
-    # never corruption. The per-engine power-cut contracts are deliberate:
-    # MariaDB keeps trx_commit=1. Amended alongside the 64 MiB page
-    # cache that carried the device forced-1000 window.
+    # synchronous=NORMAL under WAL - crash-consistent with bounded
+    # progress loss on power cut, never corruption. The per-engine
+    # power-cut contracts are deliberate: MariaDB keeps trx_commit=1,
+    # and the 64 MiB page cache serves the same low-RAM devices.
     assert "PRAGMA synchronous=NORMAL;" in cpp
     assert "synchronous=FULL" not in cpp
     assert "PRAGMA cache_size=-65536;" in cpp
@@ -43,7 +42,7 @@ def test_connection_policy_is_the_decided_one() -> None:
     assert "constexpr int POCKET_SQLITE_BUSY_TIMEOUT_MS = 500;" in cpp
     assert "constexpr int POCKET_SQLITE_BUSY_RETRIES = 3;" in cpp
     assert "sqlite3_busy_timeout(mSqlite, POCKET_SQLITE_BUSY_TIMEOUT_MS);" in cpp
-    # The F30 hazards must be gone from the replacement.
+    # The upstream hazards must be gone from the replacement.
     assert "synchronous=1" not in cpp
     assert "sqlite3_busy_timeout(mSqlite, 2)" not in cpp
     # A silent WAL failure (first-open race) degrades concurrency loudly.
@@ -62,7 +61,7 @@ def test_write_transactions_begin_immediate() -> None:
 
 
 def test_commit_failure_rolls_back_and_begin_failure_refuses() -> None:
-    # The F30 chain-B wedge fix rides the SqlOperations overlay, applied by
+    # The commit-wedge fix rides the SqlOperations overlay, applied by
     # the driver for the sqlite lane and inert under DO_MYSQL. A failed
     # BEGIN must refuse to run the batch at all (upstream fell through to
     # autocommit - non-atomic partial application); a failed COMMIT must
@@ -100,7 +99,7 @@ def test_mid_scan_failure_fails_the_query_like_mysql() -> None:
 
 
 def test_busy_policy_agrees_with_the_kotlin_config_policy() -> None:
-    # DatabaseSqliteConfigPolicy is the reviewed Kotlin-side source of the
+    # DatabaseSqliteConfigPolicy is the Kotlin-side source of the
     # same contract; both sides are pinned so neither can drift alone.
     kotlin = (ROOT / "android" / "app" / "src" / "main" / "java" / "com"
               / "pocketrealm" / "database" / "DatabaseSqliteConfigPolicy.kt"
@@ -151,7 +150,7 @@ def test_hardening_only_applies_to_the_sqlite_lane() -> None:
 def test_two_handle_contention_against_the_pinned_amalgamation() -> None:
     """Compile the pinned amalgamation + the contention test for the host
     (core define set; the full production recipe adds FTS5/RTREE/
-    metadata/json1/dbstat - registered for the pre-P5 sweep) and run it: no dropped writes, no wedge,
+    metadata/json1/dbstat) and run it: no dropped writes, no wedge,
     embedded NULs survive, and concurrent same-connection Query iteration
     under the emulated SqlConnection::Lock is snapshot-consistent (T6)."""
     gcc = shutil.which("gcc") or shutil.which("clang") or shutil.which("cc")

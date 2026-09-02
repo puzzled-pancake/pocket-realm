@@ -1,4 +1,4 @@
-"""A0 backend-unification contract guards (S3).
+"""A0 backend-unification contract guards.
 
 The A0 unification lives in driver-anchor text (tools/
 build_o09_realm_runtime.py) and overlay files - there is no host-runnable
@@ -42,7 +42,7 @@ def test_every_http_return_path_extracts_and_queues_tools():
     # the three HTTP return paths that voice text all extract tools; the
     # fail-quiet paths return empty (nothing to extract)
     returns = generate.count("PlayerbotLlmTools::ExtractAndQueue(")
-    # S7 round-1: the leak/marker/dupe rejections moved BEFORE
+    # the leak/marker/dupe rejections moved BEFORE
     # extraction, so the HTTP envelope/retry/dedupe paths flow through
     # ONE finally-chosen extraction site (llama raw + that + voicable
     # raw fallback = 3)
@@ -55,7 +55,7 @@ def test_every_http_return_path_extracts_and_queues_tools():
 
 def test_http_returns_carry_the_speaker_guid():
     generate = _driver().PB_LLM_IFACE_CPP_ANDROID
-    # S7: the envelope/retry extractions moved into PocketLlmVoiceFilter
+    # the envelope/retry extractions moved into PocketLlmVoiceFilter
     # (the A12 leak check runs BEFORE extraction so a rejected reply
     # leaves no queued calls behind); the raw-fallback site stayed inline
     for site in ("ExtractAndQueue(httpBody",
@@ -75,11 +75,11 @@ def test_hard_trigger_gate_is_backend_independent():
 def test_tool_instructions_ride_both_backends():
     prompt = _driver().PB_SAY_PROMPT_V2_ANDROID
     tools_at = prompt.index("ToolInstructions(")
-    # S4: the backend branch is guarded by json.empty() (the trained-format
+    # the backend branch is guarded by json.empty() (the trained-format
     # body short-circuits both legacy paths); the tools note must still be
     # appended before that split so llama AND the legacy HTTP template
-    # carry it (A0/G-1). Under the trained format the TOOLS_NOTE rides the
-    # system message instead (PlayerbotLlmPrompt.h). S5/A7: the call is
+    # carry it (A0). Under the trained format the TOOLS_NOTE rides the
+    # system message instead (PlayerbotLlmPrompt.h). The call is
     # GUID-keyed (per-bot trained variant).
     llama_branch = prompt.index("useLlamaBackend)")
     assert tools_at < llama_branch, (
@@ -99,7 +99,7 @@ def test_speaker_resolution_is_not_the_bot_owner():
     cpp = TOOLS_CPP.read_text(encoding="utf-8")
     # strip line comments so the check targets code, not prose mentions
     code_only = "\n".join(line.split("//", 1)[0] for line in cpp.splitlines())
-    # S6 narrowing: GetMaster may appear ONLY in a comparison against the
+    # GetMaster may appear ONLY in a comparison against the
     # already-resolved speaker (the follow beat's master check) - never as
     # the resolution source for attribution (the A0 interlocutor fix)
     for line in code_only.splitlines():
@@ -138,13 +138,13 @@ def test_persisted_memory_text_is_marker_neutered():
             "exemplar (S3 R6 P1)")
         # ORDER is load-bearing: StripAstral must run BEFORE the neutering.
         # It deletes 4-byte sequences and would fuse an astral-padded `<X<`
-        # back into a live `<<` after the neuter pass (S3 round-2 P1).
-        # S5 wraps the neuter in ScrubControlTokens (control-token scrub)
-        # and may line-break between the calls - normalize whitespace
+        # back into a live `<<` after the neuter pass.
+        # ScrubControlTokens (control-token scrub) wraps the neuter and
+        # may line-break between the calls - normalize whitespace
         # before matching.
         import re
         normalized = re.sub(r"\s+", "", body)
-        # S5 round-2: the chain is strip -> SCRUB -> NEUTER. The neuter runs
+        # the chain is strip -> SCRUB -> NEUTER. The neuter runs
         # LAST by law: the scrub's deletions can fuse `<[EVENT]<` into a
         # live `<<`, so neutering first would leave the fused marker.
         assert "NeuterMarkersCopy(ScrubControlTokens(StripAstral(" in normalized, (

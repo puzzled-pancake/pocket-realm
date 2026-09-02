@@ -1,13 +1,13 @@
-"""S11 G0 blocker: the keyed-emote harness conversion, pinned.
+"""The keyed-emote harness conversion, pinned.
 
-The G0 gates re-run prtools2/3/4 + ambition (and final.py / rp-web, which
+The harness gates re-run prtools2/3/4 + ambition (and final.py / rp-web, which
 import them) against the v2.3 banks, which train the keyed emote line
 (`<<perform_emote emote="laugh">>`). The harnesses used to teach and score
 the bare research-era form, and their parsers diverged from the shipped
 scanner. These pins hold the conversion in place:
 
 - prtools3's parser mirrors the shipped ExtractToolCalls (keyed primary,
-  the S6-ledger (j) lone-word fold with its exact guards, the shipped
+  the lone-word fold with its exact guards, the shipped
   resolve map, leakage/unterminated rules, and NO tolerance beyond it)
 - prtools3's TOOLS_NOTE stays byte-identical to banklib's frozen A-variant
   (the harness measures the trained distribution, not a drifted prompt)
@@ -95,7 +95,7 @@ def test_keyed_forms_parse_and_score(p3):
 
 
 def test_lone_word_fold_matches_the_shipped_scanner(p3):
-    """The S6-ledger (j) fold: perform_emote, no keyed fields, one
+    """The lone-word fold: perform_emote, no keyed fields, one
     letters-only trailing token - nothing more."""
     c = calls_of(p3, "<<perform_emote laugh>>")[0]
     assert c["fields"]["emote"] == "laugh" and c["resolves"]
@@ -229,8 +229,8 @@ def test_ambition_fill_check_is_per_row_not_blob_length(amb):
 
 
 def test_tricks_tool_turns_are_keyed_and_parse(tricks, p3):
-    """tricks.TOOL_TURNS feeds final.py's G1 calibration slice - its bare
-    skeletons were model-facing in the gate path (round-4b fix)."""
+    """tricks.TOOL_TURNS feeds final.py's calibration slice - its bare
+    skeletons were model-facing in the gate path."""
     for tname, _, skel, _ in tricks.TOOL_TURNS:
         calls = calls_of(p3, skel)
         assert tname in [c["name"] for c in calls], tname

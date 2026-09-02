@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""A9 empty-content retry verification against the pinned base model (S2).
+"""A9 empty-content retry verification against the pinned base model.
 
-The production bug (plan §1.4, measured 2026-08-29): the app-pinned
+The production bug (measured 2026-08-29): the app-pinned
 gemma-4-E2B-it-qat-UD-Q4_K_XL under llama-server --jinja +
 /v1/chat/completions with max_tokens <= 200 returns an EMPTY content with
 the budget burned into reasoning_content ("Thinking Process:" preamble,
@@ -165,15 +165,15 @@ def main():
             f"first-attempt usable {first_ok}/{len(report['legs'])}; "
             f"retry usable {retry_ok}/{len(report['legs'])}")
 
-        # Budget diagnosis: the §1.4 failure is the gemma-4 "it" template
+        # Budget diagnosis: the failure is the gemma-4 "it" template
         # routing a thinking preamble into reasoning_content. The thinking
         # is budget-elastic (reasoning_chars grow as max_tokens grows) and
         # ALWAYS precedes any content: under the app's production budget
         # the reply is ALWAYS empty (this run: empty at 120/200/300, first
-        # usable at 500 with plain-fill prompts; §1.4 measured 51/51 empty
+        # usable at 500 with plain-fill prompts; 51/51 measured empty
         # at <=200 under the trained prompt shapes). The tier table's
         # 120-token BASE budget can never pay the toll - the base tier
-        # stays gated on the §4.4 template override by design, and no
+        # stays gated on the chat-template override by design, and no
         # budget raise may be read out of this probe as a "fix".
         report["budget_probe"] = []
         FILLS["<prompt>"] = "Brannoc says: what do you charge for a shield repair"

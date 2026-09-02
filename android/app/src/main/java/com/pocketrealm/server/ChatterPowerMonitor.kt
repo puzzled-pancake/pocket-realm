@@ -11,7 +11,7 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * S10 world chatter (§4.6b): the app-side half of the power ladder.
+ * World chatter: the app-side half of the power ladder.
  *
  * The native scheduler (PlayerbotLlmChatter) runs inside the world
  * process and cannot read PowerManager; this monitor computes the ladder
@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicLong
  * flipping the switch takes effect mid-session (the conf key alone would
  * only apply at world start).
  *
- * Rung mapping (plan §4.6b POWER LADDER; EMERGENCY is the worst):
+ * Rung mapping (EMERGENCY is the worst):
  *  - EMERGENCY battery <10% AND offline AND thermal SEVERE (generation
  *    stops; the native authored event floor only)
  *  - CRITICAL  battery <20% OR thermal SEVERE (global-channel layer only)
@@ -55,7 +55,7 @@ internal object ChatterPowerMonitor {
     /**
      * Pure rung computation (unit-tested): every input is optional because
      * every read can fail on some device — a null battery or missing
-     * thermal API degrades conservatively only where the plan's condition
+     * thermal API degrades conservatively only where a rung condition
      * names it (an unknown battery never blocks NORMAL on its own, but an
      * unknown network state is treated as offline — silence-safe).
      */
@@ -99,7 +99,7 @@ internal object ChatterPowerMonitor {
             null
         }
         val headroom: Int? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // the plan's named gate: the forecast says the thermal budget
+            // Thermal-headroom gate: the forecast says the thermal budget
             // is already spent even before the status flag trips
             runCatching { power?.getThermalHeadroom(0)?.toInt() }.getOrNull()
         } else {
@@ -112,7 +112,8 @@ internal object ChatterPowerMonitor {
      * One synchronous refresh of the power file; the world-start path and
      * the periodic worker both land here. `enabled` is the ambience
      * toggle re-read live, so the master switch kills the layer
-     * mid-session exactly like the plan's master-toggle demand.
+     * mid-session (the generated conf key alone would only apply at
+     * world start).
      */
     fun refreshOnce(context: Context, enabled: Boolean): File {
         val target = powerFile(context)

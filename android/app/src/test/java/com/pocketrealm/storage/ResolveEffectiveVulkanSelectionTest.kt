@@ -6,9 +6,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * Phase C settings rule: a persisted user-driver selection only stays
+ * Settings rule: a persisted user-driver selection only stays
  * effective while the user lane is enabled — a disabled lane resolves to
- * Auto visibly, never a launch-time silent swap (plan I1).
+ * Auto visibly, never a launch-time silent swap.
  */
 class ResolveEffectiveVulkanSelectionTest {
 

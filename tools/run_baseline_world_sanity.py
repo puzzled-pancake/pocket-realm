@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Baseline-world sanity driver (partial DEC-10 lift).
+"""Baseline-world sanity driver.
 
 Stages the in-tree baseline server data pack
 (native/.build-o09-server-data: dbc + maps + BUILD_PROVENANCE.json,
 extracted from the user's own 1.12.1.5875 client) into the app's
 content/o09-server/active, then drives BaselineWorldSanityRunner on BOTH
-servers (B = SQLite first — the ask — then A = MariaDB for the same-leg
+servers (B = SQLite first, then A = MariaDB for the same-leg
 cross-check): real database + realmd + world boot, real console account
 writes, saveall, on-disk proof, dirty-kill recovery with sentinel
 survival.

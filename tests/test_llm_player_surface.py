@@ -1,12 +1,11 @@
-"""The S9 player-surface source-contract pins (E1-E5).
+"""The player-surface source-contract pins.
 
 The host batteries pin the pure cores (the reply budgets in
 test_llm_act_tools, the tier-shift line in test_llm_recall); this file pins
 the world-side glue the host cannot drive, following test_llm_recall.py's
 pattern: the driver's ANDROID anchor blocks, the overlay files, and the
 Kotlin/Lua surfaces are asserted by content contract. Every load-bearing
-pin here was mutation-tested at S9 round 0 (scratch runs; each mutant killed
-by exactly one pin, then restored).
+pin here was mutation-tested (each mutant killed by exactly one pin).
 """
 from __future__ import annotations
 
@@ -69,12 +68,12 @@ def test_reply_class_budgets_thread_through_both_callers():
         "the voice budget applies before the history recorder, scaled by the " \
         "tier's max new tokens AND the turn's own cue state (S11: the " \
         "widening is earned per turn, never tier-wide)"
-    # round-1 R3: pin the ORDER, not just presence - history and the player
+    # pin the ORDER, not just presence - history and the player
     # must see the same words
     assert recorder.index("ApplyReplyBudget(lines, replyClass") < \
         recorder.index("AppendTurn(botGuid, playerOrChannel, true, botName"), \
         "the clamp runs before the history recorder writes the lines"
-    # round-2 R1/R5: the chat async resolves the cue flag stamp-checked
+    # the chat async resolves the cue flag stamp-checked
     # against the generation's own license (the RPG path defaults false)
     chat = android_anchor("PB_SAY_ASYNC_ANDROID")
     assert "PlayerbotLlmBridge::NoteLongFormCued(bot->GetGUIDLow(), llmLicenseStamp)" in chat, \
@@ -113,7 +112,7 @@ def test_memory_ack_faces_and_rate_caps():
     memory = MEMORY_CPP.read_text(encoding="utf-8")
     ack = memory.split("void PlayerbotLlmMemory::AcknowledgeWhisper")[1].split("\n}\n")[0]
     assert "bot->SetFacingToObject(player);" in ack, "turn-to-face before the emote"
-    # round-1 R3: order pinned, not just presence
+    # order pinned, not just presence
     assert ack.index("SetFacingToObject") < ack.index("PlayTextEmote"), \
         "the turn-to-face lands before the emote"
     assert "PlayTextEmote" in ack, "A3's own delivery path, zero LLM cost"
@@ -127,13 +126,13 @@ def test_memory_ack_faces_and_rate_caps():
 def test_connect_timeout_bounds_the_tcp_connect():
     anchor = android_anchor("PB_IFACE_CONNECT_ANDROID")
     assert "sPlayerbotAIConfig.llmConnectTimeout;" in anchor, \
-        "the connect budget is the conf key (10 s default, §2.1 T4)"
+        "the connect budget is the conf key (10 s default)"
     assert "O_NONBLOCK" in anchor and "select(" in anchor
     assert "SO_ERROR" in anchor, "the writable-socket verdict is verified"
     assert "ETIMEDOUT" in anchor, "a select timeout reports as ETIMEDOUT"
     assert "fcntl(sock, F_SETFL, sockFlags);" in anchor, \
         "the socket returns to blocking mode for the send/recv legs"
-    # round-1 R6: the generation budget must bound EVERY socket leg - a
+    # the generation budget must bound EVERY socket leg - a
     # stalled TLS handshake or write would otherwise hang the generation
     # thread and permanently hold its generation slot
     assert "SO_RCVTIMEO" in anchor and "SO_SNDTIMEO" in anchor
@@ -147,7 +146,7 @@ def test_connect_timeout_conf_key_is_clamped_and_doc_line_exists():
     assert "uint32 llmConnectTimeout;" in header
     timeout = android_anchor("PB_LLM_TIMEOUT_ANDROID")
     assert "AiPlayerbot.LLMConnectTimeout\", 10" in timeout
-    # round-1 R6: a hand value of 0 or negative must not void the budget
+    # a hand value of 0 or negative must not void the budget
     assert "std::max(1u, std::min(60u" in timeout
     conf = android_anchor("PB_LLM_CONF_ANDROID")
     assert "# AiPlayerbot.LLMConnectTimeout = 10" in conf
@@ -162,7 +161,7 @@ def test_login_onboarding_hook_is_anchored_and_restored():
     assert "PlayerbotLlmMemory::OnPlayerLogin(this);" in anchor
     assert "SendItemDurations();" in anchor, \
         "the anchor is the tail of SendInitialPacketsAfterAddToMap (login)"
-    # the S6 rule: CORE-tree anchors need BOTH the apply and restore entries
+    # CORE-tree anchors need BOTH the apply and restore entries
     apply_count = driver.count(
         "CORE_LOGIN_ONBOARDING_UPSTREAM, CORE_LOGIN_ONBOARDING_ANDROID)")
     restore_count = driver.count(
@@ -177,7 +176,7 @@ def test_onboarding_line_is_once_per_character_and_ascii():
     assert "PlayerHasAnyPairing(player->GetGUIDLow())" in login, \
         "the first pairing silences the line forever"
     assert "GetPlayerbotAI()" in login, "bots never see the onboarding line"
-    # round-1 R1: the anchor site (SendInitialPacketsAfterAddToMap) also
+    # the anchor site (SendInitialPacketsAfterAddToMap) also
     # fires on every cross-map teleport - the once-per-process dedupe makes
     # the line a true one-time voice and skips the repeat DB query
     assert "if (!OnboardedPlayers().insert(player->GetGUIDLow()).second)" in login, \
@@ -187,7 +186,7 @@ def test_onboarding_line_is_once_per_character_and_ascii():
 
 
 def test_standing_one_liner_fires_on_first_whisper_of_session():
-    # round-1 R4: the plan's AUTOMATIC surface ("standing one-liner on first
+    # the AUTOMATIC surface ("standing one-liner on first
     # whisper of a session"), not just the keyword
     memory = MEMORY_CPP.read_text(encoding="utf-8")
     standing = memory.split("void PlayerbotLlmMemory::MaybeSessionStandingLine")[1].split("\n}\n")[0]
@@ -230,7 +229,7 @@ def test_say_anchor_intercepts_the_welcome_and_keywords():
     assert "chatChannelSource == ChatChannelSource::SRC_WHISPER && !llmEventTurn" in keywords
     assert "StandingLine(bot, player)" in keywords
     assert "GossipLines(bot, player)" in keywords
-    # round-1 R6: keyword reads award NO relationship points - an uncapped
+    # keyword reads award NO relationship points - an uncapped
     # +1 per bare keyword whisper was a zero-cost tier-5 farm
     assert "AddRelationshipPoints" not in keywords, \
         "the keyword surfaces are reads, not conversations (journal precedent)"
@@ -268,7 +267,7 @@ def test_talk_module_ships_and_resolves_without_name_typing():
         "the guarded primary path actually calls it"
     assert 'CHAT_MSG_WHISPER_INFORM' in talk, "outgoing whispers refresh the target"
     assert 'IsModuleEnabled("talk")' in talk, "bisection switch honored"
-    # round-1 R6: an opened-but-unsend composer must not write the resolved
+    # an opened-but-unsend composer must not write the resolved
     # name back into the whisper tracker (resolution stays event-driven)
     assert "self.lastWhisperFrom = name" not in talk
     toc = (ADDON / "AndroidPort.toc").read_text(encoding="utf-8")
@@ -279,8 +278,8 @@ def test_radial_talk_takes_socials_slot_and_move_ui_stays():
     radial = (ADDON / "Radial.lua").read_text(encoding="utf-8")
     assert '{ name = "Talk"' in radial
     assert "AndroidPort.Talk:Open()" in radial
-    # the parallel stream PINNED Move UI's slot (AndroidPortAssetTest) - it
-    # stays, with its F8 binding; Talk takes Social's slot instead (the
+    # Move UI keeps its slot (pinned by AndroidPortAssetTest), with its
+    # F8 binding; Talk takes Social's slot instead (the
     # offline realm's friends list is empty; touch reaches the minimap
     # button)
     assert '{ name = "Move UI"' in radial
@@ -295,7 +294,7 @@ def test_hud_grows_while_talking_and_reveals_scroll_on_burst():
     assert "ConversationActive() and CHAT_TALK_HEIGHT or CHAT_HEIGHT" in hud
     assert "CHAT_MSG_WHISPER_INFORM" in hud, "both directions of the exchange"
     assert "BurstActive()" in hud, "the journal dump reveals the scroll chrome"
-    # round-1 R3/R6: the journaled guard is pinned on the real block, not on
+    # the journaled guard is pinned on the real block, not on
     # the word appearing anywhere in the file - a player-journaled rect is
     # never resized out from under them
     apply_block = hud.split("function Hud:ApplyChatFrame()")[1].split("\nend")[0]

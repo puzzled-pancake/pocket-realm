@@ -1,18 +1,18 @@
 /*
- * pocket_selftest.c — O06 G1 Wine self-test PE.
+ * pocket_selftest.c — Wine self-test PE.
  *
  * A minimal, legally redistributable 32-bit Win32 program that exercises the
- * Wine display/input/audio lifecycle paths the G1 spike must prove, with NO
+ * Wine display/input/audio lifecycle paths, with NO
  * dependency on proprietary WoW content:
  *
  *   - registers a window class + creates a 1280x720 top-level window
  *     (exercises winex11.drv -> libX11; proves the X11/display path)
  *   - handles WM_KEYDOWN/WM_KEYUP/WM_MOUSEMOVE/WM_LBUTTONDOWN/WM_LBUTTONUP
  *     (proves the input bridge end-to-end via the X server's InputDeviceManager)
- *     plus WM_RBUTTONDOWN/UP, WM_MBUTTONDOWN/UP, and WM_MOUSEWHEEL for O14
+ *     plus WM_RBUTTONDOWN/UP, WM_MBUTTONDOWN/UP, and WM_MOUSEWHEEL for
  *     right/middle/wheel coverage, and reports relative pointer motion
  *   - opens + immediately closes the winmm waveOut device, then prints whether
- *     audio init succeeded, so the spike can prove the audio-OFF path by
+ *     audio init succeeded, so the self-test can prove the audio-OFF path by
  *     observing that init is NOT attempted when audio is disabled
  *   - writes structured, parseable lines to stdout so the host driver can
  *     verify each lifecycle event:
@@ -38,14 +38,14 @@
 #include <stdio.h>
 
 static const char *CLASS_NAME = "PocketSelftestWnd";
-static const char *WINDOW_TITLE = "Pocket Realm G1 Self-test";
+static const char *WINDOW_TITLE = "Pocket Realm Self-test";
 static int g_vk_last = 0;
 static int g_audio_attempted = 0;
 static int g_audio_ok = 0;
 static int g_painted = 0;
 static int g_interactive = 0;
 static char g_close_file[MAX_PATH * 4];
-/* O14 input observations: last absolute position (for relative delta calc) and
+/* Input observations: last absolute position (for relative delta calc) and
  * bounded counters so the host can confirm each new input path end-to-end. */
 static int g_last_mouse_x = -1;
 static int g_last_mouse_y = -1;
@@ -53,7 +53,7 @@ static int g_right_seen = 0;
 static int g_middle_seen = 0;
 static int g_wheel_seen = 0;
 static int g_relmove_seen = 0;
-static int g_char_count = 0; /* O14 increment-2: WM_CHAR observations */
+static int g_char_count = 0; /* WM_CHAR observations */
 
 static void log_line(const char *fmt, ...) {
     char buf[256];
@@ -124,7 +124,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             log_line("POCKET_SELFTEST_KEYUP %d", (int)wp);
             return 0;
         case WM_CHAR: {
-            /* O14 increment-2: Wine's TranslateMessage produces WM_CHAR from
+            /* Wine's TranslateMessage produces WM_CHAR from
              * X key events. This observes committed text (both physical-key and
              * IME-committed) as the actual character codepoint, proving the
              * full Android → InputContract → X → Wine → WM_CHAR path. Only the
@@ -140,7 +140,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             int my = (int)(short)HIWORD(lp);
             /* Relative-motion observation: emit a bounded RELMOVE line when the
              * pointer moved from the last known position, regardless of button
-             * state. This lets the O14 test prove relative-pointer injection
+             * state. This lets the host driver prove relative-pointer injection
              * (camera-look / captured mouse) reaches Win32 as WM_MOUSEMOVE. */
             if (g_last_mouse_x >= 0 || g_last_mouse_y >= 0) {
                 int dx = mx - g_last_mouse_x;
@@ -188,9 +188,9 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_MOUSEWHEEL: {
             /* GET_WHEEL_DELTA_WPARAM: positive = up, negative = down. Report
-             * the signed delta so the O14 test can prove vertical wheel pulses
+             * the signed delta so the host driver can prove vertical wheel pulses
              * reach Win32 with correct direction. Horizontal is 0 (no
-             * WM_MOUSEHWHEEL handler in this increment; winlator maps horizontal
+             * WM_MOUSEHWHEEL handler here; winlator maps horizontal
              * scroll-click buttons to button events, not WM_MOUSEHWHEEL). */
             int delta = (short)HIWORD(wp);
             g_wheel_seen = 1;
@@ -207,7 +207,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             SetTextColor(dc, RGB(225, 235, 255));
             RECT title = {72, 72, 1200, 300};
             DrawTextA(dc,
-                      "Pocket Realm\r\nO06 Wine lifecycle self-test\r\n"
+                      "Pocket Realm\r\nWine lifecycle self-test\r\n"
                       "Win32 on x86_64 Android",
                       -1, &title, DT_LEFT | DT_TOP | DT_NOPREFIX);
             EndPaint(hwnd, &ps);
@@ -224,8 +224,9 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_TIMER:
             if (wp == 1) {
                 /* Close when (non-interactive) auto-fire after paint, or
-                 * (interactive) the close sentinel file appears. The O14 test
-                 * uses interactive mode: it injects right/middle/wheel/relmove
+                 * (interactive) the close sentinel file appears. Interactive
+                 * mode is for host-driven sessions: the driver injects
+                 * right/middle/wheel/relmove
                  * while the probe stays alive, then writes the close sentinel to
                  * end the session. The four g_*_seen counters are reported in
                  * the final OK line regardless of this gate. */

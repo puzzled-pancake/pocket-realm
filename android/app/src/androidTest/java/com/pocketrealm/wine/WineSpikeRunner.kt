@@ -256,7 +256,7 @@ class WineSpikeRunner(private val context: Context) {
      * S-1: Prove the effective dynamic loader is the APK-managed glibc loader for
      * wine, wineserver, and every native child — from the production app process.
      *
-     * S-5 fallback sequence (corrected ordering):
+     * S-5 fallback sequence:
      *  S-5(0) Run the ptrace SIGSYS diagnostic FIRST. Exit 159 alone only proves
      *         termination *by* SIGSYS; it does not establish the cause. We capture
      *         si_code + syscall nr before classifying. The initial record is
@@ -313,8 +313,9 @@ class WineSpikeRunner(private val context: Context) {
         evidence["wineTarget"] = wineTarget
 
         // =====================================================================
-        // S-5(0): ptrace SIGSYS diagnostic. Earlier qualification recorded the
-        // failure as "SELinux blocks execve" based solely on exit 159. We capture
+        // S-5(0): ptrace SIGSYS diagnostic. An exit-159-only diagnosis
+        // ("SELinux blocks execve") is unsound — SIGSYS termination alone
+        // does not establish the cause — so we capture
         // si_code + the triggering syscall before classifying.
         // =====================================================================
         AppLog.i(TAG, "S-5(0): running ptrace SIGSYS diagnostic")
@@ -1159,7 +1160,7 @@ class WineSpikeRunner(private val context: Context) {
     /**
      * S-3: X11/GDI window via winex11.drv + the pinned Winlator X-server.
      *
-     * Acceptance (per the corrected scope):
+     * Acceptance:
      *   - the native transport libwinlator.so is loaded (System.loadLibrary)
      *   - <appTmp>/.X11-unix/X0 is created; the glibc path shim relocates the
      *     X11 client's compiled socket path into that app-private directory

@@ -1,8 +1,8 @@
 /*
- * Fixed-command Linux/glibc launcher for O08.
+ * Fixed-command Linux/glibc launcher for the isolated MariaDB service.
  *
  * Android's app-domain seccomp profile rejects glibc rtld's legacy access(2)
- * probe. O06 qualified the pinned Termux PRoot loader as the narrow syscall
+ * probe. The pinned Termux PRoot loader was qualified as the narrow syscall
  * adapter. This runner reuses that immutable APK-managed substrate for native
  * x86_64 MariaDB without inheriting any Wine-specific paths or environment.
  */

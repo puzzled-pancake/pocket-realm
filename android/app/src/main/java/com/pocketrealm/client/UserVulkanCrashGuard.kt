@@ -4,7 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Pure crash guard for user-imported Vulkan drivers (plan Phase E): two
+ * Pure crash guard for user-imported Vulkan drivers: two
  * consecutive early deaths of a user-driver session quarantine the driver
  * with an exact reason; a clean exit or a session that survives the early
  * window resets the streak. SYSTEM/PACKAGED lanes are qualified and exempt

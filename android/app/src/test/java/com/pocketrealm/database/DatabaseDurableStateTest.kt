@@ -264,8 +264,8 @@ class DatabaseDurableStateTest {
         assertFalse(DatabaseMutationGate.permits(false, false, true, false))
     }
     @Test fun translationConsumerGateRefusesEveryStalenessLeg() {
-        // I-115: the P5 translation-record consumer gate, pure and
-        // JVM-tested per refusal leg before the P6 import leg consumes it.
+        // The translation-record consumer gate: every refusal leg is
+        // pure and JVM-tested before the importer consumes a record.
         val sealText = "the-clean-stop-seal-bytes"
         val sealSha = com.pocketrealm.fs.FileDigests.sha256(sealText)
         val recordGeneration = "012348af-1234-4123-8123-0123456789ab"
@@ -366,7 +366,7 @@ class DatabaseDurableStateTest {
     }
 
     // ------------------------------------------------------------------
-    // P6: provider-mode resolution + the active-provider marker.
+    // Provider-mode resolution + the active-provider marker.
     // ------------------------------------------------------------------
 
     @Test fun providerModeResolutionCoversWindowAndRollbackStates() {
@@ -377,7 +377,7 @@ class DatabaseDurableStateTest {
         assertEquals(DatabaseDurableState.ProviderMode.SQLITE, resolve(true, true, true))
         assertEquals(DatabaseDurableState.ProviderMode.SQLITE, resolve(true, true, false))
         // APK-level rollback: the same datadir on a NON-capable (default)
-        // APK must boot MariaDB - the old datadir is never deleted pre-P8
+        // APK must boot MariaDB - the old datadir is kept, never deleted
         assertEquals(DatabaseDurableState.ProviderMode.MARIADB, resolve(false, true, true))
         // fresh install of a window APK: straight to SQLite, no MariaDB
         // bootstrap that would immediately be translated away
@@ -433,7 +433,7 @@ class DatabaseDurableStateTest {
     }
 
     // ------------------------------------------------------------------
-    // P6 R1 (A3/B-A/D2/E1/E2): the interrupted-provisioning recovery.
+    // The interrupted-provisioning recovery.
     // ------------------------------------------------------------------
 
     @Test fun provisioningRecoveryCoversEveryCrashWindow() {
@@ -468,8 +468,11 @@ class DatabaseDurableStateTest {
     }
 
     @Test fun sqliteClosureDigestIsCorpusStableButBuildSensitive() {
-        // I-133: ownership must survive a corpus advance (only the seed
-        // pins move) and must move when the provider build moves.
+        // ownership must survive a corpus advance (only the seed pins
+        // move) and must move when the provider build moves — a digest
+        // that flipped on seed changes would unown the datadir on every
+        // content refresh, and one that ignored the build would keep a
+        // swapped provider's ownership
         val artifact = org.json.JSONObject()
             .put("path", "native/x/libpocket_world_runtime.so")
             .put("sha256", "a".repeat(64))

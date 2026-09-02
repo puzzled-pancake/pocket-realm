@@ -8,7 +8,7 @@ Hud.ready = Hud.ready or false
 
 local CHAT_WIDTH = 340
 local CHAT_HEIGHT = 100
--- E3: while a whisper conversation is live the frame grows to a readable
+-- While a whisper conversation is live the frame grows to a readable
 -- transcript (~9 lines); the minimal 4-line strip scrolls the player's own
 -- words away mid-conversation
 local CHAT_TALK_HEIGHT = 220
@@ -52,7 +52,7 @@ function Hud:ChatAnchorY()
 end
 
 function Hud:HideChatChrome()
-    -- E3: a live burst keeps the scroll buttons reachable even under the
+    -- A live burst keeps the scroll buttons reachable even under the
     -- minimal treatment (a journal dump scrolls the player's words away)
     if self:BurstActive() then return end
     for _, suffix in ipairs(chatButtons) do
@@ -80,20 +80,20 @@ function Hud:ShowChatChrome()
     if menu then menu:Show() end
 end
 
--- E3: is a whisper conversation live (recent whisper traffic in either
+-- Is a whisper conversation live (recent whisper traffic in either
 -- direction)? Drives the tall conversation rect.
 function Hud:ConversationActive()
     return (self.talkActiveUntil or 0) > GetTime()
 end
 
--- E3: is a message burst in flight (>= BURST_MESSAGES whisper lines inside
+-- Is a message burst in flight (>= BURST_MESSAGES whisper lines inside
 -- BURST_WINDOW, lingering BURST_LINGER after the last)? Drives the scroll
 -- chrome reveal.
 function Hud:BurstActive()
     return (self.burstUntil or 0) > GetTime()
 end
 
--- E3: whisper traffic observer (both directions). Only TRANSITIONS apply
+-- Whisper traffic observer (both directions). Only TRANSITIONS apply
 -- the rect - the composer's own echo must not resize the frame under the
 -- player's fingers on every line.
 function Hud:NoteWhisperActivity()
@@ -132,7 +132,7 @@ function Hud:ApplyChatFrame()
     if not journaled then
         chat:ClearAllPoints()
         chat:SetWidth(CHAT_WIDTH)
-        -- E3: tall while talking, minimal at rest (a journaled rect is the
+        -- Tall while talking, minimal at rest (a journaled rect is the
         -- player's own choice and is never resized out from under them)
         chat:SetHeight(self:ConversationActive() and CHAT_TALK_HEIGHT or CHAT_HEIGHT)
         chat:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", CHAT_MARGIN, self:ChatAnchorY())
@@ -349,7 +349,7 @@ events:RegisterEvent("UPDATE_CHAT_WINDOWS")
 events:RegisterEvent("PLAYER_XP_UPDATE")
 events:RegisterEvent("UPDATE_EXHAUSTION")
 events:RegisterEvent("PLAYER_LEVEL_UP")
--- E3: whisper traffic drives the tall conversation rect + burst chrome
+-- Whisper traffic drives the tall conversation rect + burst chrome
 events:RegisterEvent("CHAT_MSG_WHISPER")
 events:RegisterEvent("CHAT_MSG_WHISPER_INFORM")
 events:SetScript("OnEvent", function()
@@ -373,7 +373,7 @@ events:SetScript("OnEvent", function()
     Hud:UpdateXPBar()
 end)
 events:SetScript("OnUpdate", function()
-    -- E3 decay: the resting rect returns once the conversation quiets and
+    -- Decay: the resting rect returns once the conversation quiets and
     -- the burst lapses (state flags make each decay apply exactly once)
     if Hud.chatTall and not Hud:ConversationActive() then
         Hud.chatTall = nil

@@ -15,7 +15,7 @@ local items = {
     { name = "Talents", icon = "Interface\\Icons\\Ability_Marksmanship", action = function() ToggleTalentFrame() end },
     { name = "Quest Log", icon = "Interface\\Icons\\INV_Misc_Note_01", action = function() ToggleQuestLog() end },
     { name = "World Map", icon = "Interface\\Icons\\INV_Misc_Map_01", action = function() ToggleWorldMap() end },
-    -- E3: Talk takes Social's slot: on this offline realm the friends list
+    -- Talk takes Social's slot: on this offline realm the friends list
     -- has no human friends to show (the stock minimap button still opens it
     -- on touch), while reaching a conversation without typing a bot's exact
     -- name is the whole point. Move UI keeps its slot + F8 binding.

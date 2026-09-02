@@ -6,9 +6,9 @@ import org.junit.Test
 import java.io.File
 
 /**
- * Phase-0 characterization net: the exact environment variables the packaged
+ * Characterization net: the exact environment variables the packaged
  * graphics lanes emit. The user-imported Vulkan driver lane must layer on top
- * of these without changing any pinned value (plan I3/I7).
+ * of these without changing any pinned value.
  */
 class ArmSessionEnvironmentTest {
     private val rootfs = File("/pocket-rootfs")

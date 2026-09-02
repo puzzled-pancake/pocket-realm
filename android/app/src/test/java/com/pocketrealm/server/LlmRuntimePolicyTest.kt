@@ -78,9 +78,9 @@ class LlmRuntimePolicyTest {
         ).forEach { field ->
             assertTrue("missing sampling field $field", block.contains(field))
         }
-        // §4.3 tier emission: the conf-side knobs the native consumes, with
-        // the §2.1 T1 values (a silent regression of any of these is
-        // exactly the bug class this stage exists to close)
+        // Tier emission: the conf-side knobs the native consumes, with
+        // the T1 tuned-model values (a silent regression of any of these is
+        // exactly the bug class these pins exist to close)
         listOf(
             "AiPlayerbot.LLMPromptFormat = 1",
             "AiPlayerbot.LLMApiModel = local",
@@ -137,7 +137,7 @@ class LlmRuntimePolicyTest {
     @Test
     fun minPEmitsOnlyWhenAProfileSetsIt() {
         // min_p is plumbed but off on every shipped profile (unmeasured on
-        // top of the §15 winners); this pins the emission branch so it can
+        // top of the tuned winners); this pins the emission branch so it can
         // never be deleted silently nor leak into the external envelope
         val withMinP = LlmRuntimePolicy.confBlock(
             llmEnabled = true,
@@ -210,7 +210,7 @@ class LlmRuntimePolicyTest {
 
     @Test
     fun runtimeConfigCarriesTheStagedChatTemplateOverride() {
-        // §4.4: the staged non-thinking template arms the warm-up probe's
+        // the staged non-thinking template arms the warm-up probe's
         // one-shot --chat-template retry (inline staged content); null
         // (staging failed) must fail open to the model's own template
         val snapshot = Settings.Snapshot(llmEnabled = true)
@@ -231,7 +231,7 @@ class LlmRuntimePolicyTest {
 
     @Test
     fun stagingNeverDeletesTheLiveTemplateOnAFailedRename() {
-        // round-1 R6: the old delete-then-retry rename path could destroy
+        // the old delete-then-retry rename path could destroy
         // the staged file a persisted sticky-restart config still points
         // at; the fallback must stream-copy over the target instead
         val policy = sequenceOf(
@@ -265,7 +265,7 @@ class LlmRuntimePolicyTest {
 
     @Test
     fun loreFileLineEmitsOnlyWhenStaged() {
-        // S7/A11: the staged lore card index path rides both conf blocks;
+        // the staged lore card index path rides both conf blocks;
         // absent keeps the native retrieval loop off
         val with = LlmRuntimePolicy.confBlock(
             llmEnabled = true, loreFile = "/srv/run/lore_cards_v112.jsonl",
@@ -286,7 +286,7 @@ class LlmRuntimePolicyTest {
 
     @Test
     fun chatterLinesEmitWheneverThePowerFileIsStagedAndGateOnItsFlag() {
-        // S10/E6: the conf enables the SUBSYSTEM whenever the app staged
+        // the conf enables the SUBSYSTEM whenever the app staged
         // the power file (LLM on) - the FILE's enabled flag is the master
         // switch, re-read natively every tick, so the ambience toggle
         // works mid-session in both directions. No staged file = the
@@ -397,7 +397,7 @@ class LlmRuntimePolicyTest {
         assertFalse(block.contains("repeat_penalty"))
         assertFalse(block.contains("presence_penalty"))
         assertFalse(block.contains("min_p"))
-        // dedicated T4 budget (plan §2.1): not a recycled device profile
+        // dedicated T4 budget: not a recycled device profile
         assertTrue(block.contains("\"temperature\":0.7,"))
         assertTrue(block.contains("\"top_p\":0.9,"))
         assertTrue(block.contains("\"max_tokens\":300,"))

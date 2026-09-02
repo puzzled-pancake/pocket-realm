@@ -52,7 +52,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Dedicated LAN destination (brief §44). Owns host/join networking only;
+ * Dedicated LAN destination. Owns host/join networking only;
  * how bots behave around several humans belongs to the Bots playstyle
  * selector. Future sections (player lists, discovery, invitations) are
  * deliberately absent until actually supported.
@@ -199,7 +199,7 @@ fun LanScreen() {
 }
 
 /**
- * Planned LAN capabilities (brief §45): designed, honestly labeled, and
+ * Planned LAN capabilities: designed, honestly labeled, and
  * deliberately not interactive until a real implementation ships. Nothing
  * here pretends to work today.
  */

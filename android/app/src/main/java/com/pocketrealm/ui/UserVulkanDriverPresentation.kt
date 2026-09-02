@@ -28,7 +28,7 @@ internal data class CommunityDriverRow(
 )
 
 /**
- * Pure presentation rules for the user-driver picker (plan Phase D): list
+ * Pure presentation rules for the user-driver picker: list
  * ordering, label formatting, the exact validator/quarantine/Adreno status
  * strings, and import/deletion notices. Compose stays a thin shell around
  * this; every string here is assertable in JVM tests.
@@ -103,7 +103,7 @@ internal object UserVulkanDriverPresentation {
     fun isTransientInProgressNotice(status: String?): Boolean =
         status == IMPORT_IN_PROGRESS_NOTICE || status?.startsWith("Downloading ") == true
 
-    /** The section's static explanatory copy (docs link target: Phase F). */
+    /** The section's static explanatory copy. */
     const val SECTION_NOTE =
         "User drivers are Mesa Turnip builds you import yourself. They run only on " +
             "Adreno GPUs, must be built for 16 KB pages, and a driver that crashes " +

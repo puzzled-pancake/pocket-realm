@@ -9,7 +9,7 @@ import java.io.File
 import java.security.MessageDigest
 
 /**
- * Phase C coverage for the generation-identity and guest-path layers the
+ * Coverage for the generation-identity and guest-path layers the
  * user lane feeds: the identity must accept user-driver fields, stay
  * deterministic per driver payload, and the staged guest paths must match
  * the layout installUserArmGraphics writes and the ICD rewrite targets.
@@ -86,8 +86,8 @@ class UserVulkanGenerationIdentityTest {
             icd.canonicalPath,
         )
         // The ICD rewrite targets exactly the installed library path, and the
-        // generation identity digests exactly those bytes (the B5 class of
-        // bug: identity-time and install-time paths must agree).
+        // generation identity digests exactly those bytes — identity-time and
+        // install-time paths must agree.
         val stored = """{"ICD":{"api_version":"1.3.290","library_path":"driver.so"}}"""
         val icdText = UserVulkanDriverResolution.icdForRootfs(stored, library.absolutePath)
         assertEquals(

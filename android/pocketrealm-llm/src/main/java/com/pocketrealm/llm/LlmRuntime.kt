@@ -18,7 +18,7 @@ enum class ComputeMode { AUTO, CPU, NPU }
  * Public API for embedding the LLM runtime. All values are the defaults we
  * validated on the QCS8550 (Retroid Pocket 6); tune via [Builder].
  *
- * Resource rules proven on-device (findings log 2026-08-19 .. 2026-08-28):
+ * Resource rules proven on-device:
  *  - threads confined to mid cores 3-5, nice 10: game client coexists cleanly;
  *  - decode cores are the whole story in NPU mode (prefill is HTP-bound and
  *    core-invariant): 3×mid balanced, 2×mid low-draw, 1×mid lowest power;
@@ -33,19 +33,19 @@ data class LlmRuntimeConfig(
     val threads: Int = 3,
     val cpuMaskHex: Long = 0x38L,          // cores 3-5 (mids). 0 = no affinity.
     val nice: Int = 10,
-    // 8192 since rev-3 (2026-08-31): the measured worst-case trained request
+    // 8192: the measured worst-case trained request
     // is ~2.2k tokens (largest session row + template + era-bias + a full
     // asset lore card) and the P50/P51 banks grow the GENERATION side
     // (max_tokens up to 300) plus headroom for future history growth. KV
-    // RAM at 8192 is re-checked on the G4 device matrix; --cache-type q8_0
-    // is the fallback lever if pressure shows.
+    // cache RAM at 8192 still needs checking on lower-RAM devices;
+    // --cache-type q8_0 is the fallback lever if pressure shows.
     val contextSize: Int = 8192,
     val computeMode: ComputeMode = ComputeMode.AUTO,
     val npuLayers: Int = 99,               // -ngl for the HTP offload; 99 = all layers
     val useMtp: Boolean = false,           // requires an MTP-enabled GGUF; forced off in NPU mode
     val mtpDraftMax: Int = 3,
     val extraArgs: List<String> = emptyList(), // e.g. ["--jinja", "--flash-attn"]
-    // §4.4 (LLM-INTEGRATION): absolute staged path of the non-thinking chat
+    // Absolute staged path of the non-thinking chat
     // template override. When non-null AND the post-healthy warm-up probe
     // sees the model's own template burn the budget on a thinking preamble
     // (reasoning_content / empty content), the service restarts the child

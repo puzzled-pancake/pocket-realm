@@ -6,16 +6,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * P6/G8: the SQLite control plane's pure shapes. The SQLite-touching
- * execution legs (SQLiteDatabase against real datadirs) are the
- * registered P7 on-device validation; these tests pin the statement
- * surface the engine executes.
+ * The SQLite control plane's pure shapes. The SQLite-touching
+ * execution legs (SQLiteDatabase against real datadirs) run as on-device
+ * validation; these tests pin the statement surface the engine executes.
  */
 class DatabaseSqliteControlPlaneTest {
 
     @Test fun ledgerDdlIsSqliteNativeAndShapePreserving() {
         val ddl = DatabaseSqliteControlPlane.LEDGER_DDL
-        // G8: the ENUM becomes a CHECK over the exact MariaDB value set
+        // the ENUM becomes a CHECK over the exact MariaDB value set
         assertTrue(ddl.contains("CHECK (status IN ('PENDING','APPLIED','ROLLED_BACK','FAILED'))"))
         assertEquals(DatabaseSqliteControlPlane.LEDGER_STATUSES,
             setOf("PENDING", "APPLIED", "ROLLED_BACK", "FAILED"))
@@ -36,7 +35,7 @@ class DatabaseSqliteControlPlaneTest {
     }
 
     @Test fun revisionProbeUsesPragmaTableInfoWithTwoBinds() {
-        // G8: replaces the information_schema.COLUMNS probe — the
+        // Replaces the information_schema.COLUMNS probe — the
         // refuse-on-mismatch contract keeps its mandatory negative test
         // by probing a deliberately wrong column and requiring zero.
         assertEquals(
@@ -73,7 +72,7 @@ class DatabaseSqliteControlPlaneTest {
     }
 
     // ------------------------------------------------------------------
-    // P6(b): the seed-replay statement scanner (the I-56 inheritance).
+    // The seed-replay statement scanner.
     // ------------------------------------------------------------------
 
     @Test fun splitterSplitsOnSemicolonsAndPreservesLiterals() {
@@ -91,14 +90,14 @@ class DatabaseSqliteControlPlaneTest {
         assertEquals("INSERT INTO a VALUES ('it''s')", statements[2].sql)
         assertEquals("INSERT INTO a VALUES (\"dq;string\")", statements[3].sql)
         assertEquals("INSERT INTO a VALUES (`back;tick`)", statements[4].sql)
-        // I-56 diagnostics: sequential index + monotonically increasing offsets
+        // diagnostics: sequential index + monotonically increasing offsets
         assertEquals(0, statements[0].index)
         assertEquals(4, statements[4].index)
         assertTrue(statements.zipWithNext().all { (a, b) -> b.offset > a.offset })
     }
 
     @Test fun splitterHandlesNewlinesInsideStatementsAndTheNoSemicolonTail() {
-        // the P4 corpus style: multi-row INSERTs one row per line, joined
+        // the migration-corpus style: multi-row INSERTs one row per line, joined
         // with ";\n", NO trailing semicolon (gotcha #15)
         val transcript = "INSERT INTO t VALUES\n(1, 'a'),\n(2, 'b');\nINSERT INTO t VALUES (3, 'c')"
         val statements = DatabaseSqliteControlPlane.splitSeedStatements(transcript)
@@ -118,7 +117,7 @@ class DatabaseSqliteControlPlaneTest {
             }
             append("-- a; comment\n")
             append("/* block; comment */ INSERT INTO final VALUES (1);\n")
-            // R1 C2: quote/backtick immediately after a chunk-tail '-'/'/'
+            // a quote/backtick immediately after a chunk-tail '-'/'/'
             // must OPEN a literal, never be swallowed as ordinary text
             append("INSERT INTO q1 VALUES (5 -'a;b');\n")
             append("INSERT INTO q2 VALUES (6 /\"c;d\");\n")
@@ -169,7 +168,7 @@ class DatabaseSqliteControlPlaneTest {
     }
 
     // ------------------------------------------------------------------
-    // P6(b): the datadir layout + the ledger insert shape.
+    // The datadir layout + the ledger insert shape.
     // ------------------------------------------------------------------
 
     @Test fun sqliteDatadirLayoutIsNamespaced() {

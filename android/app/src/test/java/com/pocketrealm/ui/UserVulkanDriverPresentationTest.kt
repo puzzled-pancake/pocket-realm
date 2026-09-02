@@ -10,7 +10,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Phase D: pure presentation rules behind the user-driver picker. */
+/** Pure presentation rules behind the user-driver picker. */
 class UserVulkanDriverPresentationTest {
 
     private fun driver(
@@ -138,7 +138,7 @@ class UserVulkanDriverPresentationTest {
         )
     }
 
-    // --- Community driver dialog (Phase D of the community-list plan) --------
+    // --- Community driver dialog ---------------------------------------------
 
     @Test
     fun communityRowsShowPinnedDetailLinesAndTheImportedMark() {

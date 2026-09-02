@@ -1,4 +1,5 @@
-// Host battery for the S7 truth guards (plan §3 A10/A11/A12): compiles
+// Host battery for the truth guards (entity guard, lore index,
+// post-generation hygiene): compiles
 // the PURE core (PlayerbotLlmTruthCore.h) exactly like the tree does and
 // pins the guard grammar, the frozen directive wording, the lore index
 // semantics, the corrected era lists, the era lint and every A12 filter.
@@ -78,7 +79,7 @@ static void TestGuardExtraction()
     CHECK(sawDughan && !sawListen);
     CHECK(ExtractGuardEntities("Sure, I know a man who can help").empty());
     CHECK(ExtractGuardEntities("Look, the rain is coming").empty());
-    // ...unless the opening run is a multi-word name (round-1 fix class)
+    // ...unless the opening run is a multi-word name
     c = ExtractGuardEntities("Marshal Redwyn, I asked you already");
     sawListen = false;
     for (GuardCandidate const& g : c)
@@ -149,7 +150,7 @@ static void TestStakesShape()
 
 static void TestFrozenDirective()
 {
-    // A10 wording lock (plan §3 A10 / §5 P45): byte-frozen, the v2.3
+    // A10 wording lock: byte-frozen, the
     // guard bank must train this exact distribution
     CHECK(pocketllm::GuardDirective("Marshal Redwyn", "person") ==
         "You have never heard of Marshal Redwyn - no such person trades "
@@ -208,7 +209,7 @@ static void TestLoreIndex()
     CHECK(!idx.ResolvePoi("defias brotherhood")); // not a POI card
 
     // the SHIPPED lore asset: loads, era-lints clean, POIs resolve (the
-    // G5 era lint, landed with the builder that produces the file)
+    // era lint is the same scanner the card builder runs)
     {
         char const* asset = "android/app/src/main/assets/lore/lore_cards_v112.jsonl";
         LoreIndex shipped;
@@ -239,7 +240,7 @@ static void TestLoreIndex()
     CHECK(bad.Size() == 0);
     CHECK(!bad.BestCard("where are the deadmines"));
 
-    // era lint: a contaminated card is caught (the G5 shipped-card gate)
+    // era lint: a contaminated card is caught (the shipped-card gate)
     std::vector<LoreCard> cards = idx.Cards();
     CHECK(EraLintCards(cards).empty());
     cards.push_back(LoreCard("Bad Card", "Shattrath is a city.", std::vector<std::string>(), false));
@@ -249,7 +250,7 @@ static void TestLoreIndex()
     lint = EraLintCards(cards);
     CHECK(lint.size() == 1 && lint[0] == "Bad Card");
     // a contaminated KEY is caught too (keys feed IsKnownName ground
-    // truth - round-2 pin for the keys-in-surface fix)
+    // truth - the keys-in-surface fix is pinned here)
     cards.back().text = "A quiet, ordinary town.";
     cards.back().keys.push_back("shattrath");
     lint = EraLintCards(cards);
@@ -275,7 +276,7 @@ static void TestEraLists()
     CHECK(EraScan("the portal is never open").empty());
     CHECK(EraScan("no, the portal is closed for good").empty());
     // the guard's own denials voice the term and must survive the
-    // backstop (round-1 R1/R4 conflict fix)
+    // backstop (denial and backstop rules must agree)
     CHECK(EraScan("I have never heard of any draenei").empty());
     CHECK(EraScan("no draenei trades in these lands").empty());
     CHECK(EraScan("never met a pandaren in my life, not one").empty());
@@ -286,7 +287,7 @@ static void TestEraLists()
     CHECK(EraScan("a whole caravan of pandarens") == "pandaren");
     // a negated first mention must not mask an affirmed second
     CHECK(!EraScan("the portal is not open. Aye, the portal is open this week.").empty());
-    // "cannot" is not a denial (round-1 R6 evade class)
+    // "cannot" is not a denial (the evade class this check exists for)
     CHECK(!EraScan("the portal is open, cannot miss it").empty());
     // context-allow words never trip the scan by existing
     CHECK(EraScan("the worgen of Silverpine haunt the woods").empty());
@@ -347,8 +348,8 @@ static void TestFilters()
     for (std::string const& l : lines)
         CHECK(l.size() <= 255);
     // multibyte never split: no piece ends on an orphaned lead byte or
-    // starts on a continuation byte (round-1 R3: the old check was
-    // vacuous and the core splitter DID split sequences)
+    // starts on a continuation byte (a vacuous check here would let the
+    // core splitter split sequences)
     lines = SplitSayCap(std::string(253, 'a') + "\xc3\xa9zz", 255);
     for (std::string const& l : lines)
     {

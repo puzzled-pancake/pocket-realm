@@ -21,7 +21,7 @@ internal object WorldNative {
     external fun onlinePlayersNative(): Int
     external fun detailNative(): String
 
-    // companion mode (M5): world pause primitive + LLM profile switch
+    // Companion mode: world pause primitive + LLM profile switch
     external fun pauseWorldNative(paused: Int): Int
     external fun isWorldPausedNative(): Int
     external fun setCompanionModeNative(enabled: Int): Int

@@ -10,7 +10,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * §4.4 (S9): the runtime config is persisted (Base64 through the service's
+ * The runtime config is persisted (Base64 through the service's
  * prefs) and re-delivered on a sticky restart — a sticky restart after the
  * :llm process died must resume the realm's runtime, so the serialized form
  * is a compatibility contract. The serialVersionUID is pinned BEFORE the

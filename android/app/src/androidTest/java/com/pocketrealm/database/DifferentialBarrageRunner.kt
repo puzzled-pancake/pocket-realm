@@ -22,12 +22,12 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
- * P6.5/DEC-09: the differential parity lane's in-app barrage driver (the
- * DatabaseLifecycleTest precedent, extended per the Part 2 P6.5 spec).
- * Runs IDENTICALLY on both server APKs — Server A (the default MariaDB
- * build) and Server B (-PdifferentialTestLane + -PsqliteProvider, x86_64)
- * — driving the same fixed-SQL Binder surface and emitting a per-table
- * state dump (Server A via the P5 exporter's staging; Server B via the
+ * The differential parity lane's in-app barrage driver (the
+ * DatabaseLifecycleTest precedent, extended). Runs IDENTICALLY on both
+ * server APKs — Server A (the default MariaDB build) and Server B
+ * (-PdifferentialTestLane + -PsqliteProvider, x86_64) — driving the same
+ * fixed-SQL Binder surface and emitting a per-table state dump (Server A
+ * via the user-state-to-SQLite exporter's staging; Server B via the
  * row-count emitter over the SQLite datadir rows) plus the telemetry
  * keys the host oracle (tools/run_differential_parity.py) compares
  * against the KNOWN-DIFFERENCE LEDGER. NO new SQL injection surface: the
@@ -35,22 +35,21 @@ import java.util.concurrent.TimeUnit
  *
  * The dump is ROW-COUNT-ONLY today: the content-level comparator (typed
  * field comparators over the staged TSVs vs a canonical SQLite emission,
- * modulo the ledger classes) is REGISTERED-NOT-IMPLEMENTED (the W9 TSV
- * leg — see the plan's P6.5 entries).
+ * modulo the ledger classes) is registered but not implemented yet.
  *
  * Profiles (the orchestrator passes -e differentialProfile):
  * - quick: the smoke leg — lifecycle, start/stop cycles, revisions, the
  *   db-level dirty-kill matrix, dump/oracle.
- * - standard: the evidence leg — adds W2/W3 (the synthetic account
- *   barrage through the REAL :world console writer — the F30
- *   cross-process LoginDatabase path — plus password/gmlevel/status/
- *   character-persistence probes), W6's world save (client-acked), the
- *   W5 stepped bot soak with W10 telemetry sampling, and the DEC-02
+ * - standard: the evidence leg — adds the synthetic account barrage
+ *   through the REAL :world console writer (the cross-process
+ *   LoginDatabase path — plus password/gmlevel/status/
+ *   character-persistence probes), a client-acked world save, the
+ *   stepped bot soak with periodic telemetry sampling, and the
  *   concurrent-save world-kill + db-kill + recover + world-restart
  *   sentinel matrix. The dump runs BEFORE the soak: bot generation is
  *   seeded by its own RNG state and is telemetry-compared, never
- *   row-diffed. W4 (gameplay probes) is a stretch item and is recorded
- *   SKIPPED-STRETCH, never silently.
+ *   row-diffed. The gameplay probes (managed-addon scriptable surface)
+ *   are a stretch item and are recorded SKIPPED-STRETCH, never silently.
  * - massive: the soak leg (longer steps + the b100 rung); same shape.
  */
 @RunWith(AndroidJUnit4::class)
@@ -58,8 +57,8 @@ class DifferentialBarrageRunner {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val evidence = JSONObject()
     private val connections = ArrayList<ServiceConnection>()
-    // W10 drain telemetry: every client-acked world stop duration (the
-    // ≤2×A drain band's inputs, R2 A).
+    // Drain telemetry: every client-acked world stop duration — the
+    // inputs to the host oracle's ≤2×-Server-A drain comparison.
     private val worldDrainMs = JSONArray()
 
     @After fun unbind() {
@@ -79,14 +78,14 @@ class DifferentialBarrageRunner {
         evidence.put("profile", profile)
         evidence.put("providerMode", status.optString("providerMode"))
         evidence.put("sqliteCapable", sqliteCapable)
-        // W8 cross-engine agreement inputs: the revision/seal state both
+        // Cross-engine agreement inputs: the revision/seal state both
         // engines must agree on (412/412, current) — compared host-side.
         evidence.put("revisionState", JSONObject()
             .put("migrationManifestCount", status.optLong("migrationManifestCount", -1))
             .put("migrationSealedCount", status.optLong("migrationSealedCount", -1))
             .put("migrationsCurrent", status.optBoolean("migrationsCurrent")))
 
-        // W1 boot parity: initialize (A: MariaDB bootstrap+migrations; B:
+        // Boot parity: initialize (A: MariaDB bootstrap+migrations; B:
         // the .sqlz seed replay), migrations, start, health.
         val started = System.currentTimeMillis()
         assertOk("initialize", control.initialize())
@@ -96,11 +95,11 @@ class DifferentialBarrageRunner {
         evidence.put("bootWallMs", System.currentTimeMillis() - started)
         evidence.put("startKeys", startStatus)
 
-        // W2-lite: the account/character surface reachable through the
+        // The account/character surface reachable through the
         // fixed-SQL Binder at the quick scale.
         evidence.put("accountBarrage", if (fullBarrage) "FULL:world-console-writer" else "SKIPPED:quick-profile-scope")
 
-        // W6 start/stop cycles (database-level stop/start/health waves;
+        // Start/stop cycles (database-level stop/start/health waves;
         // the world-level saveall waves are the standard profile's).
         val waves = JSONArray()
         for (wave in 1..3) {
@@ -114,14 +113,14 @@ class DifferentialBarrageRunner {
 
         assertOk("stop-for-revisions", control.stop())
 
-        // W8 revision parity (stopped-state): the engine's own
+        // Revision parity (stopped-state): the engine's own
         // verification is idempotent-verify on both providers.
         assertOk("revisions", control.applyPinnedMigrations()).also {
             assertTrue(it.optBoolean("revisionMismatchRejected") || it.optBoolean("idempotent"))
         }
         evidence.put("revisionsVerified", true)
 
-        // W2/W3/W6-world (standard/massive): the synthetic account barrage
+        // World legs (standard/massive): the synthetic account barrage
         // through the REAL :world console writer + a client-acked world
         // save, then a clean full teardown so the dump stays stopped-state.
         // The world needs prepared game data (the user's client, imported
@@ -144,7 +143,7 @@ class DifferentialBarrageRunner {
                 evidence.put("worldBootMs", worldLeg.getLong("worldBootMs"))
                 evidence.put("worldSaveAckMs", worldLeg.getJSONArray("saveAckMs"))
             }
-            // W4 gameplay probes: the managed-addon scriptable surface —
+            // Gameplay probes: the managed-addon scriptable surface —
             // a stretch item, skipped loudly, never silently.
             evidence.put("gameplayProbes", "SKIPPED:stretch")
         }
@@ -154,12 +153,12 @@ class DifferentialBarrageRunner {
         // soak so the compared state stays deterministic).
         evidence.put("dump", dump(control, sqliteCapable))
 
-        // W7 db-level dirty-kill matrix (debug builds only): running →
-        // dirty kill → recover (which re-seals clean). NOTE (R1 B, R2 B):
-        // on the SQLite provider this RUNNING-state kill is a marker
-        // deletion drill (the in-process engine has closed its handles and
-        // nothing is in flight); the load-bearing in-flight B-side kill is
-        // the concurrent-save world-kill leg. Recover leaves STOPPED.
+        // Db-level dirty-kill matrix (debug builds only): running →
+        // dirty kill → recover (which re-seals clean). On the SQLite
+        // provider this RUNNING-state kill is a marker deletion drill
+        // (the in-process engine has closed its handles and nothing is in
+        // flight); the load-bearing in-flight B-side kill is the
+        // concurrent-save world-kill leg. Recover leaves STOPPED.
         assertOk("pre-kill-start", control.start())
         assertOk("kill-for-test", control.killForTest())
         evidence.put("quickRecoverResult", assertOk("recover", control.recover()))
@@ -169,7 +168,7 @@ class DifferentialBarrageRunner {
             botSoakAndDirtyKill(control, profile)
         }
 
-        // W10 telemetry: the comparative keys (absolutes stay DEC-04
+        // Telemetry: the comparative keys (absolute numbers stay
         // device-gated; the host oracle compares A vs B only).
         val finalStatus = JSONObject(control.status())
         evidence.put("telemetry", JSONObject()
@@ -177,8 +176,9 @@ class DifferentialBarrageRunner {
             .put("saveWaves", waves)
             .put("worldDrainMs", worldDrainMs)
             .put("lastStatus", finalStatus))
-        // W8 inputs from the FINAL state (post-migrations: 412/412,
-        // current) — the initial read predates the apply and says little.
+        // Revision inputs from the FINAL state (post-migrations:
+        // 412/412, current) — the initial read predates the apply and
+        // says little.
         evidence.put("revisionState", JSONObject()
             .put("migrationManifestCount", finalStatus.optLong("migrationManifestCount", -1))
             .put("migrationSealedCount", finalStatus.optLong("migrationSealedCount", -1))
@@ -187,13 +187,13 @@ class DifferentialBarrageRunner {
         writeEvidence(evidence)
     }
 
-    /** W2/W3/W6-world: db+realm+world boot, the synthetic account barrage
+    /** Db+realm+world boot, the synthetic account barrage
      * (create/verify/gmlevel/status/persistence through the REAL world
      * console writer), one client-acked save, clean world/realm/db stop.
      * Returns {"gated": true, ...} when no prepared game data exists (the
      * DB-scope legs continue). */
     private fun worldAccountBarrage(control: IDatabaseControl): JSONObject {
-        // POSITIVE game-data probe (R1 E): gate ONLY on the prepared-data
+        // POSITIVE game-data probe: gate ONLY on the prepared-data
         // pointer's actual absence — a staged-but-broken import or any
         // other world-start failure must FAIL the run, never gate it.
         val preparedPointer = File(context.filesDir, "content/o11-server/active.json")
@@ -213,9 +213,9 @@ class DifferentialBarrageRunner {
         waitReady(600_000, "world") { JSONObject(world.api.status()) }
         val worldBootMs = System.currentTimeMillis() - bootStart
 
-        // W2: 100 synthetic accounts, fixed names/passwords, identical on
+        // 100 synthetic accounts, fixed names/passwords, identical on
         // both servers. createAccount is the console `account create`
-        // command issued from the :world process — the F30 cross-process
+        // command issued from the :world process — the cross-process
         // LoginDatabase writer on BOTH engines.
         val created = JSONArray()
         var createdCount = 0
@@ -249,14 +249,14 @@ class DifferentialBarrageRunner {
             val username = "diffacct%03d".format(i)
             val account = assertOk("status-$username", world.api.accountStatus(username))
             if (account.optBoolean("accountExists")) statusProbed++
-            // W3 read probe: the characters + character_inventory SELECTs
+            // Read probe: the characters + character_inventory SELECTs
             // through the engine (synthetic accounts have no characters —
             // the deterministic outcome is character-missing on both).
             val persistence = assertOk("persistence-$username", world.api.characterPersistence(username, "Diffchar"))
             persistenceProbed++
             if (persistence.optString("reason") == "character-missing") persistenceMissing++
         }
-        // W6-world: one client-acked saveall (the W10 comparative band).
+        // One client-acked saveall (its ack feeds the drain telemetry).
         val saveAckMs = JSONArray()
         val saveStart = System.currentTimeMillis()
         assertOk("barrage-world-save", world.api.save())
@@ -264,7 +264,7 @@ class DifferentialBarrageRunner {
 
         // Clean teardown: world → realm → database (the supervisor order).
         // Every world stop retires the :world process (retireCleanProcess)
-        // — close the handles so nothing reuses a dying proxy (R1 D).
+        // — close the handles so nothing reuses a dying proxy.
         timedWorldStop("barrage-world-stop") { world.api.stop() }
         world.close()
         assertOk("barrage-realm-stop", realm.api.stop())
@@ -284,7 +284,7 @@ class DifferentialBarrageRunner {
             .put("saveAckMs", saveAckMs)
     }
 
-    /** W5 stepped bot soak + W10 telemetry sampling + the DEC-02
+    /** Stepped bot soak with periodic telemetry sampling, then the
      * concurrent-save world-kill/db-kill/recover/world-restart sentinel
      * matrix. */
     private fun botSoakAndDirtyKill(control: IDatabaseControl, profile: String) {
@@ -332,8 +332,8 @@ class DifferentialBarrageRunner {
             soakSteps.put(JSONObject().put("profileId", profileId)
                 .put("target", target).put("samples", samples))
             // Step boundary: every world stop arms the 250 ms retire fuse
-            // (retireCleanProcess) — close, sleep past the fuse, rebind
-            // (R1 D + R2 B: the precedents' sleep was load-bearing).
+            // (retireCleanProcess) — close, sleep past the fuse, rebind;
+            // an immediate rebind races the retiring process.
             timedWorldStop("soak-world-stop-$profileId") { world.api.stop() }
             world.close()
             if (index < steps.size - 1) {
@@ -343,13 +343,13 @@ class DifferentialBarrageRunner {
         }
         evidence.put("botSoak", soakSteps)
 
-        // DEC-02 cross-engine pair: kill :world while a save is IN FLIGHT.
-        // R2 B/D: the Binder killForTest CANNOT be mid-save — save() and
+        // The concurrent-save kill: kill :world while a save is IN FLIGHT.
+        // The Binder killForTest CANNOT be mid-save — save() and
         // killForTest() serialize on the service's transition gate, so a
         // Binder kill lands only after the save acks. The kill below is
         // KERNEL-LEVEL instead: the runner shares the app UID with :world,
         // so Os.kill(SIGKILL) on the world's pid bypasses every user-space
-        // lock and lands while saveNative is in flight. R3 B: the kill
+        // lock and lands while saveNative is in flight. The kill
         // delay is ADAPTIVE (≥1 s and a quarter of the OBSERVED save-ack)
         // so it lands inside the writing phase, past the CLI-queue phase
         // (the world thread dequeues the saveall within one Update tick);
@@ -384,24 +384,24 @@ class DifferentialBarrageRunner {
         evidence.put("saveDiedUnacked", saveDiedUnacked.get())
         evidence.put("concurrentSaveKillAckMs", System.currentTimeMillis() - midSaveStart)
         world.close()
-        // Post-kill margin + fresh-process proof (R3 D/B): the precedents
-        // sleep past the death window, and the rebind must land on a NEW
-        // :world pid — a recycled/stale pid would mean the kill missed.
+        // Post-kill margin + fresh-process proof: sleep past the death
+        // window, and the rebind must land on a NEW :world pid — a
+        // recycled/stale pid would mean the kill missed.
         Thread.sleep(1_000)
         world = bind("com.pocketrealm.server.WorldRuntimeService") { IWorldControl.Stub.asInterface(it) }
         val reboundPid = JSONObject(world.api.status()).optLong("pid", -1)
         assertTrue("rebind landed on the killed pid ($worldPid vs $reboundPid)", reboundPid != worldPid)
         assertOk("soak-db-kill", control.killForTest())
-        // Retire the realm fault domain across the db kill (R2 D / the
-        // O09:109 precedent): realmd stays READY over a dead db and its
-        // start refuses from READY — stop it before the recovery restart.
+        // Retire the realm fault domain across the db kill: realmd stays
+        // READY over a dead db and its start refuses from READY — stop it
+        // before the recovery restart.
         runCatching { realm.api.stop() }
         val recoverResult = assertOk("soak-db-recover", control.recover())
         val startAfterRecover = assertOk("post-kill-db-start", control.start())
-        // R3 B: the recovery outcomes ride the evidence — a silent
+        // The recovery outcomes ride the evidence — a silent
         // corruption rebuild (VACUUM INTO) or an InnoDB recovery without
         // observed output must be visible to the host oracle, not healed
-        // quietly (W7's diagnostic completeness).
+        // quietly (diagnostic completeness).
         evidence.put("dbRecoverResult", recoverResult)
         evidence.put("dbStartAfterRecover", startAfterRecover)
         assertOk("post-kill-realm-start", realm.api.start())
@@ -422,14 +422,14 @@ class DifferentialBarrageRunner {
         assertOk("soak-db-final-stop", control.stop())
     }
 
-    /** One client-acked world stop, timed into the W10 drain telemetry. */
+    /** One client-acked world stop, timed into the drain telemetry. */
     private fun timedWorldStop(name: String, stop: () -> String) {
         val started = System.currentTimeMillis()
         assertOk(name, stop())
         worldDrainMs.put(System.currentTimeMillis() - started)
     }
 
-    /** Server A: the P5 exporter's staging (the exporter's per-table
+    /** Server A: the user-state-to-SQLite exporter's staging (per-table
      * records incl. row counts + content digests). Server B: the row-count
      * emitter over the SQLite datadir rows. */
     private fun dump(control: IDatabaseControl, sqliteCapable: Boolean): JSONObject {
@@ -493,8 +493,8 @@ class DifferentialBarrageRunner {
     }
 
     /** A bound service handle; close() unbinds (killForTest and every
-     * clean stop take the hosting process down — the O13/O09 precedents
-     * close+rebind after each). */
+     * clean stop take the hosting process down, so callers close+rebind
+     * after each). */
     private inner class Bound<T>(val api: T, private val connection: ServiceConnection) {
         fun close() {
             runCatching { context.unbindService(connection) }

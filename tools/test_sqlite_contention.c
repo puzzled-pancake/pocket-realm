@@ -1,8 +1,8 @@
 /*
- * Two-handle SQLite contention test (P2/G3 of the MariaDB replacement plan).
+ * Two-handle SQLite contention test.
  *
  * Reproduces the :realm + :world cross-writer reality on the LoginDatabase
- * pattern (research digest F30) and the P2 addendum's same-connection
+ * pattern and the same-connection
  * Query-iteration requirement. Two kinds of handles:
  *   - independent connections (cross-process pattern), and
  *   - ONE connection shared by reader+writer threads through a mutex that
@@ -55,7 +55,7 @@ static int reject_commit(void* ctx)
 
 /* Aborts a running statement after `limit` VDBE ops: the stepping SELECT
  * then ends with SQLITE_INTERRUPT mid-scan (T8's deterministic injection
- * of the state the I-26 ScanComplete guard exists for). */
+ * of the state the ScanComplete guard exists for). */
 struct progress_abort { int ops; int limit; };
 
 static int abort_progress(void* raw)
@@ -150,8 +150,8 @@ static int wait_locked(atomic_int* locked)
 }
 
 /*
- * T6: concurrent same-connection Query iteration (the P2 addendum's
- * requirement). One connection is shared between a reader thread and a
+ * T6: concurrent same-connection Query iteration.
+ * One connection is shared between a reader thread and a
  * writer thread exactly the way the 1-connection query pool shares it:
  * every sqlite call on the shared handle happens under the connection
  * mutex, and the reader MATERIALIZES the full result (steps to DONE)
@@ -384,7 +384,7 @@ int main(int argc, char** argv)
         sqlite3_close(shared);
     }
 
-    /* T7: the F30 chain-B recovery contract, behaviorally forced. A COMMIT
+    /* T7: the commit-failure recovery contract, behaviorally forced. A COMMIT
      * that fails (forced here via sqlite3_commit_hook - the documented
      * non-zero return converts COMMIT into ROLLBACK - the one deterministic
      * host-side injection) must leave the connection usable: data rolled
@@ -412,7 +412,7 @@ int main(int argc, char** argv)
     }
 
     /* T8: a mid-scan step failure is real, injectable engine behavior -
-     * the state I-26's ScanComplete guard exists for. A progress handler
+     * the state the ScanComplete guard exists for. A progress handler
      * aborting the scan leaves a non-DONE rc; any rows already read are a
      * silently truncated set the caller must FAIL, never return. */
     {

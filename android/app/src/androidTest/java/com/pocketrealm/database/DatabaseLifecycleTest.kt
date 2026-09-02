@@ -39,7 +39,7 @@ class DatabaseLifecycleTest {
         // leastPrivilegeVerified/privilegedActionDenied are the MariaDB
         // bootstrap's least-privilege probes (CREATE USER denial etc.);
         // the socketless SQLite lane has no daemon credential surface.
-        // cleanStopped is the born-clean D6 contract on BOTH providers'
+        // cleanStopped is the born-clean contract on BOTH providers'
         // first-run shapes (idempotent re-runs omit it).
         assertOk("initialize", control.initialize()).also {
             if (provider == "MARIADB") {
@@ -79,7 +79,7 @@ class DatabaseLifecycleTest {
             assertTrue(it.getBoolean("recoveryOutputObserved"))
             assertTrue(it.getBoolean("cleanStopped"))
         }
-        // Self-heal contract (addendum 6/7 follow-up, SQLite): after an
+        // Self-heal contract (SQLite): after an
         // unclean death a bare start() recovers in place (WAL checkpoint +
         // integrity gate + re-seal) instead of refusing until a full
         // uninstall. MariaDB keeps its explicit recover() contract.

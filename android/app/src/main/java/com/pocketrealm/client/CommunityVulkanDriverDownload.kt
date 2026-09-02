@@ -12,10 +12,10 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Downloads one pinned community driver artifact and verifies it against the
- * reviewed manifest before anything may import it (C2): declared size
+ * reviewed manifest before anything may import it: declared size
  * preflight, cap-during-copy, and a full SHA-256 check. The verified file is
  * handed to [UserVulkanDriverRegistry.import] by the caller — this path
- * never bypasses the ordinary import gates (C3), and every failure deletes
+ * never bypasses the ordinary import gates, and every failure deletes
  * the partial file and returns its exact reason (never a silent fallback).
  */
 object CommunityVulkanDriverDownload {
@@ -86,7 +86,7 @@ object CommunityVulkanDriverDownload {
                 hop(response, target, expectedSize, expectedSha256, destination, onProgress)
             } catch (error: Exception) {
                 // Mid-stream IO failures (reset, timeout, truncated body) must
-                // not leak the partially written temp (C2).
+                // not leak the partially written temp file.
                 return failed(
                     destination,
                     "The download failed: ${error.message ?: error.javaClass.simpleName}.",

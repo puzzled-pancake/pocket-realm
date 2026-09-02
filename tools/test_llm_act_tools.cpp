@@ -276,7 +276,7 @@ static void EmotesLeg()
     CHECK_EQ(pocketllm::ResolveTextEmote("bye"), 101u, "bye -> wave");
     CHECK_EQ(pocketllm::ResolveTextEmote("clap"), 21u, "clap -> cheer");
     CHECK_EQ(pocketllm::ResolveTextEmote("angry"), 46u, "angry -> glare");
-    // the remaining measured aliases (round-2 coverage fold)
+    // the remaining measured aliases
     CHECK_EQ(pocketllm::ResolveTextEmote("weep"), 31u, "weep -> cry");
     CHECK_EQ(pocketllm::ResolveTextEmote("giggle"), 60u, "giggle -> laugh");
     CHECK_EQ(pocketllm::ResolveTextEmote("snicker"), 60u, "snicker -> laugh");
@@ -340,7 +340,7 @@ static void BeatsLeg()
     CheckStr(item, "torches", "plural noun kept (executor retries singular)");
     CHECK(!pocketllm::WantsGiveItem("could you spare me a moment"),
         "the 'spare me' idiom never licenses give_item");
-    // abstract-noun idioms never license a hand-over (round-1 P1)
+    // abstract-noun idioms never license a hand-over
     CHECK(!pocketllm::WantsGiveItem("give me a moment to think"),
         "give me a moment idiom");
     CHECK(!pocketllm::WantsGiveItem("can i have a word with you"),
@@ -351,7 +351,7 @@ static void BeatsLeg()
         "lend me your ears idiom");
     CHECK(!pocketllm::WantsGiveItem("give me a break"),
         "give me a break idiom");
-    // multi-word and plural-stemmed idiom phrases (round-2 fold)
+    // multi-word and plural-stemmed idiom phrases
     CHECK(!pocketllm::WantsGiveItem("give me a few minutes to think"),
         "few minutes idiom");
     CHECK(!pocketllm::WantsGiveItem("give me a second chance, that is all"),
@@ -420,9 +420,9 @@ static void BeatsLeg()
     std::printf("beats leg done\n");
 }
 
-// S9/E1 + S11: the per-class voice budgets - whisper-class notes (2 lines
+// The per-class voice budgets - whisper-class notes (2 lines
 // x 160 bytes, on EVERY tier when uncued), ambient barks (1 line x 80
-// everywhere), and the S11 long-form widening (a CUED turn on a licensed
+// everywhere), and the long-form widening (a CUED turn on a licensed
 // tier runs to the splitter's own 4 x 255 budget - the widening is earned
 // per turn; a plain turn on a licensed tier keeps the short budget).
 // UTF-8-safe truncation throughout.
@@ -441,7 +441,7 @@ static void BudgetLeg()
     }
     {
         // an UNCUED turn on a licensed tier keeps the short budget: the
-        // widening is earned per turn, never tier-wide (round-2 P1)
+        // widening is earned per turn, never tier-wide
         std::vector<std::string> lines = {
             std::string(255, 'a'), std::string(255, 'b'),
             std::string(255, 'c'), std::string(200, 'd'),

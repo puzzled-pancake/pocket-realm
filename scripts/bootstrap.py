@@ -2,9 +2,8 @@
 """Bootstrap verification for a clean checkout.
 
 Confirms the host toolchain and pinned upstream sources are present and
-consistent, so the Android + native build paths are reproducible. This is
-the O01 acceptance check: a clean checkout can build the host/Android
-bootstrap, and provenance is visible.
+consistent, so the Android + native build paths are reproducible: a clean
+checkout can build the host/Android bootstrap, and provenance is visible.
 
     python3 scripts/bootstrap.py            # check everything
     python3 scripts/bootstrap.py --json     # machine-readable report

@@ -1,4 +1,4 @@
-// test_lifecycle.cpp — the O04 acceptance proof.
+// test_lifecycle.cpp — the lifecycle acceptance proof.
 //
 // Exercises the full C ABI: create -> start -> health -> save -> request_stop
 // -> join -> destroy, then REPEATS the entire cycle a second time in the same
@@ -73,7 +73,7 @@ static int run_one_cycle(const char* world_conf, const char* realmd_conf,
     CHECK(e == REALM_E_OK, "realm_start accepted");
 
     // The worker either reaches RUNNING (degraded, client-blocked) or FAILED.
-    // For O04 without client data, we expect RUNNING + degraded health. Poll
+    // Without client data, we expect RUNNING + degraded health. Poll
     // up to 30s for a terminal-ish settle.
     e = realm_join(h, 30000);
 
@@ -88,26 +88,26 @@ static int run_one_cycle(const char* world_conf, const char* realmd_conf,
 
     if (expect_client_blocked)
     {
-        // O04 honest expectation: the realm ATTEMPTS the full real startup. The
+        // Honest expectation: the realm ATTEMPTS the full real startup. The
         // world (mangos) DB snapshot is at an older schema revision than the
-        // core expects (the z2815->z2830 migration chain is O06's work), so
+        // core expects (the z2815->z2830 migration chain ships with the world-schema work), so
         // _StartDB reports a DB error and the realm transitions to FAILED with
         // a clear diagnostic — NOT a fake-green status. This is the documented
-        // O04/O06 boundary. What we assert here is that the lifecycle HANDLED
+        // staged-migration boundary. What we assert here is that the lifecycle HANDLED
         // it correctly: no process crash, a structured error, honest health.
         realm_state fst = REALM_STATE_STOPPED;
         CHECK(realm_get_state(h, &fst) == REALM_E_OK, "state query ok after start attempt");
         const bool reached_failed = (fst == REALM_STATE_FAILED);
         const bool reached_running = (fst == REALM_STATE_RUNNING);
         // The realm is either FAILED (world DB schema gap, the current honest
-        // outcome pre-O06) or RUNNING (degraded, client-data blocked — the
-        // outcome once O06 migrations make the world DB schema-compatible).
+        // outcome before the migrations) or RUNNING (degraded, client-data blocked — the
+        // outcome once the migrations make the world DB schema-compatible).
         // Both are honest; faking green is not.
         CHECK(reached_failed || reached_running,
               "realm reached FAILED (db schema gap) or RUNNING (degraded) — not crashed");
         if (reached_failed)
         {
-            printf("     note: realm FAILED on world DB schema gap (z2815->z2830, O06) — honest\n");
+            printf("     note: realm FAILED on world DB schema gap (z2815->z2830 migration chain) — honest\n");
             // Health must report the DB condition as not-ready, never fake green.
             CHECK(hh.all_ready == 0, "all_ready is 0 (world DB schema behind)");
         }
@@ -115,7 +115,7 @@ static int run_one_cycle(const char* world_conf, const char* realmd_conf,
         {
             // Degraded running: DBs open, world loop blocked on client data.
             CHECK(hh.conditions[REALM_COND_WORLD_LOOP_RUNNING] == REALM_COND_BLOCKED_ON_CLIENT_DATA,
-                  "WORLD_LOOP_RUNNING is BLOCKED_ON_CLIENT_DATA (O10), not faked green");
+                  "WORLD_LOOP_RUNNING is BLOCKED_ON_CLIENT_DATA, not faked green");
             CHECK(hh.all_ready == 0, "all_ready is honestly 0 (client data missing)");
         }
         if (hh.blocker_text)
@@ -171,7 +171,7 @@ int main(int argc, char** argv)
     const char* data_dir = argv[3];
     const char* db_dir = argv[4];
 
-    printf("=== Pocket Realm lifecycle test (O04) ===\n");
+    printf("=== Pocket Realm lifecycle test ===\n");
 
     // --- Cycle 1 ---
     printf("--- Cycle 1 ---\n");

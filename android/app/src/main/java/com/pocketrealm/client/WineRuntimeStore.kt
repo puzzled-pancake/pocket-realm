@@ -1279,8 +1279,8 @@ internal class WineRuntimeStore(private val context: Context) {
 
     /** Install a user-imported Turnip ICD pair plus the matching DXVK D3D9 DLLs.
      *
-     * The app-private registry is the source (never APK assets; I4). Staging
-     * replaces, never mutates, the packaged driver files (I3): every packaged
+     * The app-private registry is the source (never APK assets). Staging
+     * replaces, never mutates, the packaged driver files: every packaged
      * library/manifest is retired first, then the user pair is published
      * atomically and verified after publication.
      */

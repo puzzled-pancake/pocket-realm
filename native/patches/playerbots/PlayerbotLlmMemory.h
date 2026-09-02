@@ -48,7 +48,7 @@ public:
     // ordered byte-stable context for the in-process backend
     static std::string BuildPromptContext(Player* bot, Player* player, int chatChannelSource, std::string const& chanName);
 
-    // ---- A4/A5 trained prompt format (HTTP path, AiPlayerbot.LLMPromptFormat = 1):
+    // ---- trained prompt format (HTTP path, AiPlayerbot.LLMPromptFormat = 1):
     // assembles the COMPLETE chat request the trained contract defines -
     // system message from live bot/player data + DB memory (banklib
     // sysm_for_card shape), the trained user turn ([Memories]/[State]
@@ -84,8 +84,8 @@ public:
     // wall-clock-aware greeting bucket: "short"/"medium"/"long" absence
     static std::string GetAbsenceBucket(Player* bot, Player* player);
 
-    // ---- S8: the pre-stomp pairing read (the S5 absence law, now also
-    // carrying the tier the A16 ceremony observes). ONE query for
+    // ---- the pre-stomp pairing read (absence, now also
+    // carrying the tier the ceremony observes). ONE query for
     // last_interaction_at + tier + points, taken before the
     // relationship stomp queues; tier derives exactly like
     // GetTrainedTier (points >= 120 -> Bonded).
@@ -101,12 +101,12 @@ public:
     static void LogFact(uint32 bot, uint32 player, std::string const& text, std::string const& category);
     static std::vector<std::string> GetJournal(Player* bot, Player* player);
 
-    // ---- S8/A13 recall surfaces (newest-20 window, classified with the
+    // ---- recall surfaces (newest-20 window, classified with the
     // pure core): the newest fact whose class is in the mask (bit per
     // pocketllm::FactClass; tone rows never match - they are opinions,
     // not memories); the newest unresolved negative-tone row (no newer
     // positive tone row); a durable prefix probe (the secret-release
-    // marker); and the A19 player-subject gossip row (newest-8 fetch,
+    // marker); and the player-subject gossip row (newest-8 fetch,
     // matched in code - no wildcard LIKE hazards).
     static std::string GetNewestRecallFact(uint32 bot, uint32 player, int classMask);
     static std::string GetUnresolvedGrudge(uint32 bot, uint32 player);
@@ -125,19 +125,19 @@ public:
     // entry per whisper line so the delivery path can pace it like a diary
     static std::vector<std::string> GetJournalLines(Player* bot, Player* player);
 
-    // ---- M3 event allowlist hooks (called from core under ENABLE_PLAYERBOTS,
+    // ---- event allowlist hooks (called from core under ENABLE_PLAYERBOTS,
     // world thread only): record a verified event for every bot in the
     // player's own active party and queue a bounded conversational reaction
     static void OnPlayerLevelUp(Player* player, uint32 newLevel);
     static void OnPlayerRareLoot(Player* player, uint32 itemId);
-    // A14 duel-outcome hook (Player::DuelComplete - the ONE site covering
+    // Duel-outcome hook (Player::DuelComplete - the ONE site covering
     // all nine outcome call sites; Unit.cpp's damage win calls it on the
-    // loser with DUEL_WON). S6-minimal: verified event + one [EVENT]
-    // reaction for the dueled bot; the sentiment/gossip beat machinery
-    // that hangs off the same hook is S8 (A16-A19). participantType is a
+    // loser with DUEL_WON). Deliberately minimal: verified event + one
+    // [EVENT] reaction for the dueled bot; the sentiment/gossip beat
+    // machinery hangs off the same hook. participantType is a
     // DuelCompleteType value; only player-vs-bot duels react.
     static void OnDuelComplete(Player* participant, Player* opponent, uint32 participantType);
-    // M6 kill-banter hook (Unit::Kill credit block, world thread): rarely
+    // Kill-banter hook (Unit::Kill credit block, world thread): rarely
     // queues an AUTHORED party quip (no generation behind it) for one bot in
     // the tapper's group; heavily rate-limited internally
     static void OnPlayerGroupKill(Player* tapper, Unit* victim);
@@ -149,9 +149,9 @@ public:
     // rare): true once per minIntervalSeconds per bot
     static bool TryClaimAmbientSlot(uint32 botGuid, uint32 minIntervalSeconds);
 
-    // ---- S8/A17 initiative scheduler (world thread, UpdateAI-cadence):
+    // ---- initiative scheduler (world thread, UpdateAI-cadence):
     // the authored speak-first layer - arrival greet-first packets for
-    // remembered players (the validated greet-first finding), debt
+    // remembered players, debt
     // reminders and tier-gated goal ask-afters ("new facts want out
     // once; stale facts stay quiet" - each fact initiates at most once),
     // and the rare authored bot2bot exchange when a player walks up on
@@ -160,53 +160,53 @@ public:
     // costs no generation.
     static void TickInitiative(Player* bot);
 
-    // S8/A17: the authored arrival packet - tier greeting + absence
-    // magnitude + (A19) what the town says about the player. Empty when
+    // The authored arrival packet - tier greeting + absence
+    // magnitude + what the town says about the player. Empty when
     // nothing applies.
     static std::string AuthoredArrivalGreeting(Player* bot, Player* player,
         std::string const& absenceBucket);
 
-    // S8/A18: the deterministic crowd tier on a non-trigger ambient /say
+    // The deterministic crowd tier on a non-trigger ambient /say
     // from a real player - at most a bounded couple of staggered text
     // emotes per message window, world-thread queued with the 2-5s
     // persona-paced delay. Returns true when a crowd reaction queued.
     static bool QueueCrowdEmote(Player* bot, Player* speaker);
 
-    // ---- S9: the player surface (E1 pacing acknowledgment, E2 first
-    // contact, E4 visible progression). All world-thread; all cheap.
+    // ---- the player surface (pacing acknowledgment, first contact,
+    // visible progression). All world-thread; all cheap.
 
-    // E1: instant whisper receipt acknowledgment BEFORE the generation is
-    // queued - face the speaker and one deterministic text emote (A3's
+    // Instant whisper receipt acknowledgment BEFORE the generation is
+    // queued - face the speaker and one deterministic text emote (its
     // own delivery path, zero LLM cost). Rate-capped per pairing so rapid
     // whisper exchanges do not emote-spam.
     static void AcknowledgeWhisper(Player* bot, Player* player);
 
-    // E4: player-facing conversations counter (diagnostics) - one count
+    // Player-facing conversations counter (diagnostics) - one count
     // per genuine player-facing generation, exactly the recorder gate's
     // own definition (never busy placeholders, never autonomous chatter).
     static void NoteConversation();
     static uint64_t ConversationCount();
 
-    // E2: the one-time in-game onboarding line at login (gating inside:
+    // The one-time in-game onboarding line at login (gating inside:
     // LLM enabled, real player, no bot pairing yet - a pure DB read, so
     // it fires once per character, before the first bot contact). The
     // anchor site also runs on cross-map teleports; the once-per-process
     // dedupe makes the line a true one-time voice.
     static void OnPlayerLogin(Player* player);
 
-    // E4: "standing" one-liner on the FIRST whisper of a session (one
+    // The "standing" one-liner on the FIRST whisper of a session (one
     // voice per pairing per world process; system-colored, zero
     // generation). preStompAbsence is the pre-stomp read the caller
-    // captured - a first meeting skips (the E2 welcome owns that moment).
+    // captured - a first meeting skips (the welcome owns that moment).
     static void MaybeSessionStandingLine(Player* bot, Player* player,
         std::string const& preStompAbsence);
 
-    // E2 helper: does this player have ANY bot pairing row yet? (the
+    // Helper: does this player have ANY bot pairing row yet? (the
     // once-per-character gate for the onboarding line and the scripted
     // first-contact welcome)
     static bool PlayerHasAnyPairing(uint32 playerGuid);
 
-    // E2: the player's FIRST-EVER bot contact gets the scripted welcome
+    // The player's FIRST-EVER bot contact gets the scripted welcome
     // (authored, and hinting that bots remember - which is true: the
     // pairing's first-meeting fact forms right here through the same
     // native write the licensed log_fact line persists through; a
@@ -215,7 +215,7 @@ public:
     // runs instead.
     static std::string AuthoredFirstContactWelcome(Player* bot, Player* player);
 
-    // E4: the whisper keyword surfaces - "standing" renders the tier
+    // The whisper keyword surfaces - "standing" renders the tier
     // one-liner, "gossip" the town-talk rows the greeting surfaces
     // carry. Pure DB reads, zero generation.
     static std::string StandingLine(Player* bot, Player* player);
@@ -235,14 +235,14 @@ public:
         // value itself is set at the queue site, keeping this header
         // clear of core enum includes.
         uint32 msgtype;
-        // S8: the event kind (PlayerbotLlmBridge::EventKind) so the
+        // The event kind (PlayerbotLlmBridge::EventKind) so the
         // event note licenses what actually happened (cheer on level-up,
         // sentiment on duel outcomes); 0 keeps the plain nudge
         uint32 eventKind;
-        // S8/A18 pacing: the reaction is not delivered before this wall
+        // Pacing: the reaction is not delivered before this wall
         // time (staggered crowd/b2b delivery; 0 = immediate)
         time_t notBefore;
-        // S8/A18: authored text is an EMOTE NAME, not a spoken line -
+        // Authored text is an EMOTE NAME, not a spoken line -
         // delivered through the deterministic text-emote path
         bool emote;
         EventReaction()

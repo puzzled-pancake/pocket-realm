@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""DB-scope engine benchmark driver (P6.5 follow-up).
+"""DB-scope engine benchmark driver.
 
 Builds the SAME two server APKs as the differential lane (A = default
 MariaDB, B = -PdifferentialTestLane + -PsqliteProvider, x86_64), drives the
 IDENTICAL EngineBenchmarkRunner on both via `am instrument`, pulls the
 evidence bundles, and emits a paired comparison under
-build/engine-benchmark/<run-id>/. Reuses the differential lane's converged
+build/engine-benchmark/<run-id>/. Reuses the differential lane's
 build/boot machinery (tools/run_differential_parity.py).
 
 Everything measured here is COMPARATIVE on this host (x86_64 emulator,
-WHPX): per DEC-04 discipline the absolute product contracts stay
-device-gated, and the world-driven metrics (tick p99, saveall under bots,
-probe delay under load) remain DEC-10-gated — see the runner's KDoc for
-the representation caveats per engine.
+WHPX): the absolute product contracts stay device-gated, and the
+world-driven metrics (tick p99, saveall under bots, probe delay under
+load) stay gated to on-device runs — see the runner's KDoc for the
+representation caveats per engine.
 """
 
 import argparse
@@ -110,11 +110,11 @@ def compare(a: dict, b: dict) -> dict:
             "rssRunningKb": {"A(mariadb)": a_cyc["rssRunningKb"], "B(sqlite)": b_cyc["rssRunningKb"]},
         },
         "caveats": [
-            "x86_64 emulator, WHPX — comparative only (DEC-04); absolutes stay device-gated",
+            "x86_64 emulator, WHPX — comparative only; absolute numbers stay device-gated",
             "SQLite numbers are in-process on a datadir copy (what CMaNGOS DO_SQLITE does in :world)",
             "MariaDB numbers are client-batch server-side execution via the engine's own client "
             "launcher — NOT the C-connector round trip; the client spawn cost is measured separately",
-            "world-driven metrics (tick p99, saveall under bots, probe under load) stay DEC-10-gated",
+            "world-driven metrics (tick p99, saveall under bots, probe under load) stay device-gated",
         ],
     }
     return comparison

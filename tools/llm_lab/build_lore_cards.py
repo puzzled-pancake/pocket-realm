@@ -8,7 +8,7 @@ Reads the wiki harvest at G:\\Wow llm stuff\\lore (592 pages, fetched
     {"title": ..., "text": <~140-word era-scrubbed lead>, "keys": [...],
      "poi": true for zones/cities/dungeons}
 
-The scrub implements the CORRECTED era policy (plan §3 A11): never
+The scrub implements the CORRECTED era policy: never
 bare-ban Dalaran, death knight, worgen, Northrend, Outland, blood elf,
 Lich King, Naxxramas or Kel'Thuzad - all 1.12-legitimate. Only
 later-expansion SENSES die (expansion names, patch refs, post-2006
@@ -17,7 +17,7 @@ dates, later zones, playable-class premises, "Dalaran floats", ...).
 The output is era-LINTED before writing; the host battery
 (tools/test_llm_truth.cpp, run by tests/test_llm_truth.py) re-lints the
 SHIPPED file with the C++ scanner, so python/C++ drift cannot ship a
-contaminated card silently (the G5-era lint, landed early).
+contaminated card silently.
 
 Usage: python tools/llm_lab/build_lore_cards.py [--out <path>] [--report]
 """

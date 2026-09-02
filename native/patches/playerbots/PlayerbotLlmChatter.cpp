@@ -196,8 +196,8 @@ void ReconcilePower(time_t now)
         return;
     }
     // a stale writer degrades to the authored floor: generated batches
-    // stop, and already-generated queue entries are dropped (the plan's
-    // "generation stops; authored texture floor only" - round-2 R6);
+    // stop, and already-generated queue entries are dropped ("generation
+    // stops; authored texture floor only");
     // event-grounded floor lines may continue (documented fail-safe).
     // A missing/zero stamp or one from the future (a clock jump after
     // the writer died) counts as stale - never as fresh forever.
@@ -373,8 +373,8 @@ struct ComposerJob
 
 pocketllm::RequestSampling AmbientSampling()
 {
-    // SS4.6b ambience voice: T ~1.0 with min_p 0.05 - the diversity pair
-    // for ambient generation (page: "min_p 0.05-0.1 with T ~1.0-1.2")
+    // ambience voice: T ~1.0 with min_p 0.05 - the diversity pair
+    // for ambient generation ("min_p 0.05-0.1 with T ~1.0-1.2")
     pocketllm::RequestSampling s;
     s.temperature = 1.0f;
     s.topP = 0.95f;
@@ -417,7 +417,7 @@ uint32 WorkerRand(uint32 lo, uint32 hi)
 // fatigue/credence (credence is checked at PICK on the world thread; a
 // queued speaker can still be marked heard by a nearby delivery during
 // its 30-60 s display wait - delivery re-vets ring/fatigue but not
-// credence, bounded to one extra retell; the round-3 ledger).
+// credence, bounded to one extra retell).
 void EnqueueValidated(pocketllm::ChatterLayer layer, uint32 speakerGuid,
     uint32 listenerGuid, std::string const& rawLine, std::string const& factKey,
     bool originator, uint32 displayMin, uint32 displayMax)
@@ -458,7 +458,7 @@ void EnqueueValidated(pocketllm::ChatterLayer layer, uint32 speakerGuid,
 // server through the shared HTTP client + governor (never a second
 // runtime; never bypassing the interactive lane's pressure). The body
 // runs under a catch-all so no residual throw (bad_alloc in the string
-// building) can strand the batch flag (round-2 R1).
+// building) can strand the batch flag.
 void RunDeviceBatchInner(DeviceJob const& job);
 void RunComposerBatchInner(ComposerJob const& job);
 
@@ -514,7 +514,7 @@ void RunDeviceBatchInner(DeviceJob const& job)
 // the same register/safety/ring/fatigue vetting before queueing. The
 // enqueue loop stops at the fact's remaining telling budget - the 6th
 // turn of a single-fact script would die at delivery re-vet anyway
-// (round-1 R6: kMaxFactTellings caps every fact's chatter deliveries).
+// (kMaxFactTellings caps every fact's chatter deliveries).
 void RunComposerBatchInner(ComposerJob const& job)
 {
     std::vector<std::string> personaLines, names;
@@ -557,8 +557,8 @@ void RunComposerBatchInner(ComposerJob const& job)
                 (size_t)pocketllm::ChatterFatigue::kMaxFactTellings));
         // turns of ONE exchange deliver IN ORDER: one base draw plus a
         // monotone per-turn stagger. Independent random draws reorder a
-        // reply ahead of its setup line ~1/3 of the time (round-3
-        // R1/R5/R6) - a scripted exchange reads as conversation only if
+        // reply ahead of its setup line ~1/3 of the time - a scripted
+        // exchange reads as conversation only if
         // its order survives the queue.
         uint32 const perTurn = std::max<uint32>(6u,
             job.displayMaxSec > job.displayMinSec
@@ -681,7 +681,7 @@ bool DeliverLine(PendingLine& entry, time_t now)
             entry.speakerGuid, entry.listenerGuid, now);
 
     // history: the murmur line joins the shared SAY channel window (the
-    // A18 cross-injection cap applies at read time); party lines join
+    // cross-injection cap applies at read time); party lines join
     // the party history
     uint32 const channelKey = entry.layer == pocketllm::LAYER_PARTY
         ? (0x80000000u | static_cast<uint32>(ChatChannelSource::SRC_PARTY))
@@ -746,7 +746,7 @@ void DispatchDeviceJob(DeviceJob job)
     BatchInFlight().store(true);
     // std::thread throws std::system_error on resource exhaustion - the
     // flag must not stick true and the world thread must not die (an
-    // uncaught throw here terminates the world process; round-1 R5)
+    // uncaught throw here terminates the world process)
     try
     {
         std::thread(RunDeviceBatch, job).detach();
@@ -821,8 +821,7 @@ void PlayerbotLlmChatter::Tick()
     // deep queue never machine-guns the channel); an interruption
     // deferral goes back to the FRONT with a short retry delay. The scan
     // SKIPS not-yet-due heads instead of stopping at them - a deferred
-    // murmur head must not block a due global entry behind it
-    // (round-2 R6).
+    // murmur head must not block a due global entry behind it.
     {
         std::deque<PendingLine> due;
         std::deque<PendingLine> deferred;
@@ -907,7 +906,7 @@ void PlayerbotLlmChatter::Tick()
 
                 if (policy.composer)
                 {
-                    // SS4.6b: murmur is bot-to-bot (the player only
+                    // murmur is bot-to-bot (the player only
                     // overhears), so at NORMAL with a composer configured
                     // the batch is a CLOUD script over the nearby
                     // personas; per-bot device calls are the fallback
@@ -948,7 +947,7 @@ void PlayerbotLlmChatter::Tick()
                     // line-safety law covers the floor too: the DB event
                     // text can carry pipes/newlines past the write chain
                     // (model-authored share_gossip rows) - fail silent,
-                    // never voice them (round-2 R1/R6).
+                    // never voice them.
                     size_t const tpl = urand(0, uint32(pocketllm::MurmurFloorTemplateCount() - 1));
                     std::string const floorText = pocketllm::ClampMurmurBytes(
                         pocketllm::RenderFloorTemplate(tpl, speaker->GetName(),
@@ -990,9 +989,9 @@ void PlayerbotLlmChatter::Tick()
     // ---- party banter: per-master idle windows (the ~10-15 min Dragon
     // Age cadence) + the duel event note outranking the timer. The window
     // stamps on the ROLL (a lost roll waits out the next window - it must
-    // not retry every 10 s tick; round-1 R6) and the duel note is
+    // not retry every 10 s tick) and the duel note is
     // CONSUMED when it fires (a one-shot event bark, not a permanent
-    // fast-fire switch; round-1 R1/R6 P0).
+    // fast-fire switch).
     if (policy.party && !BatchInFlight().load())
     {
         for (Player* master : players)
@@ -1031,7 +1030,7 @@ void PlayerbotLlmChatter::Tick()
                     // is consumed - back to the idle cadence. The note is
                     // consumed ONLY when the bark will actually dispatch:
                     // a held channel leaves it armed to retry next tick
-                    // (round-2 R1 - a consumed-in-silence bark is a lost
+                    // (a consumed-in-silence bark is a lost
                     // event)
                     if ((windowAt == 0 || now - windowAt >= 60) &&
                         pocketllm::AmbientAdmissionQuiet(s.lastPlayerChatAt, now))
@@ -1131,7 +1130,7 @@ void PlayerbotLlmChatter::Tick()
                 {
                     if (BatchInFlight().load())
                         break;  // a busy lane skips this roll entirely - the
-                                // authored floor is EMERGENCY-only (round-1 R1)
+                                // authored floor is EMERGENCY-only
                     DeviceJob job;
                     job.layer = pocketllm::LAYER_GLOBAL;
                     job.speakerGuid = speaker->GetGUIDLow();
@@ -1148,7 +1147,7 @@ void PlayerbotLlmChatter::Tick()
                 else
                 {
                     // EMERGENCY global: the authored floor headline, held
-                    // to the same line-safety law (round-2 R1/R6)
+                    // to the same line-safety law
                     size_t const headlineTpl = 2;
                     std::string const headline = pocketllm::ClampMurmurBytes(
                         pocketllm::RenderFloorTemplate(headlineTpl, speaker->GetName(),

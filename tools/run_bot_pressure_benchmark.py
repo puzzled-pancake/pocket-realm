@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MariaDB-vs-SQLite bot pressure benchmark driver (the DEC-10 bot legs).
+"""MariaDB-vs-SQLite bot pressure benchmark driver.
 
 Stages the host-prepared o11 generation (dbc+maps+vmaps+mmaps from the
 user's own client; tools/prepare_o11_bot_data.py) into the app's
@@ -41,11 +41,12 @@ O11_STORE = ROOT / "build" / "o11-bot-data" / "o11-server"
 
 def preflight_device_mode(apks: dict, out_dir: Path) -> None:
     """PC-side readiness gate before ANY contact with a production
-    device (the 2026-08-25 device window burned hours on seed SQL the
-    API-35 emulator masked): the sqlite APK's embedded seed is replayed
-    through the pinned 3.18/3.32 shells and digest-checked against the
+    device: the sqlite APK's embedded seed is replayed through the
+    pinned 3.18/3.32 shells and digest-checked against the
     baseline+lockfile, and the o11 staging source is proven present -
-    all host-side, before the first adb command."""
+    all host-side, before the first adb command. The gate exists because
+    the API-35 emulator masks seed-SQL failures that reproduce on
+    production hardware."""
     import importlib.util
     spec = importlib.util.spec_from_file_location(
         "verify_seed_sqlite_floor",
@@ -71,9 +72,9 @@ def stage_o11_run_as(base: str) -> None:
     import tempfile
     LANE.run([LANE.ADB, "shell", "rm", "-rf", base], check=False, timeout=60)
     # A prebuilt cache tar next to the store saves ~5 minutes of host
-    # gzip per staged engine inside a time-boxed device window. The
-    # o11 store is static content; if the cache is absent or empty the
-    # original per-run temp tar path is used unchanged.
+    # gzip per staged engine. The o11 store is static content; if the
+    # cache is absent or empty the original per-run temp tar path is
+    # used unchanged.
     cache = O11_STORE.parent / "o11-server.tar.gz"
     if cache.is_file() and cache.stat().st_size > 0:
         archive = cache
@@ -92,7 +93,7 @@ def stage_o11_run_as(base: str) -> None:
              check=True, timeout=60)
     # adb shell CONCATENATES argv and the device shell re-parses it: an
     # unquoted "sh -c <script>" reaches the device as separate words and
-    # -c sees only the first (the o09 quoting lesson, device edition) -
+    # -c sees only the first (the same quoting hazard as the o09 lane) -
     # the whole remote command must travel as ONE quoted argv string.
     LANE.run([LANE.ADB, "shell",
               "run-as com.pocketrealm mkdir -p files/content/o11-server"],

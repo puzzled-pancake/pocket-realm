@@ -1,10 +1,9 @@
 /*
- * Pocket Realm hardened SQLite backend (P2 of the MariaDB replacement plan).
+ * Pocket Realm hardened SQLite backend.
  *
  * Replaces native/cmangos/src/shared/Database/DatabaseSqlite.cpp under
- * DO_SQLITE builds only. Fixes (digest F26/F30 + DEC-02):
- *  - connection policy: WAL + synchronous=NORMAL (DEC-02 as amended
- *    2026-08-27 for the on-device-play decision: WAL keeps crash
+ * DO_SQLITE builds only. Fixes vs upstream:
+ *  - connection policy: WAL + synchronous=NORMAL (WAL keeps crash
  *    consistency, power cut rolls back to the last WAL checkpoint =
  *    bounded progress loss, no corruption; per-commit fsync (FULL) was
  *    retired for its battery/latency cost on consumer flash - game state
@@ -43,8 +42,8 @@
 #include "DatabaseSqlite.h"
 
 namespace {
-// Matches DatabaseSqliteConfigPolicy (the reviewed Kotlin-side source of
-// the same contract); tests pin both to the same values.
+// Matches DatabaseSqliteConfigPolicy (the Kotlin-side source of the same
+// contract); tests pin both to the same values.
 constexpr int POCKET_SQLITE_BUSY_TIMEOUT_MS = 500;
 constexpr int POCKET_SQLITE_BUSY_RETRIES = 3;
 }
@@ -68,7 +67,8 @@ bool SQLiteConnection::Initialize(const char* infoString)
         sLog.outError("Could not open SQLite database");
         return false;
     }
-    // DEC-02 (amended) durability + F30 contention window: file header.
+    // Durability + contention policy; the WAL journal mode persists in the
+    // database file header.
     sqlite3_exec(mSqlite, "PRAGMA journal_mode=WAL;", 0, 0, 0);
     sqlite3_exec(mSqlite, "PRAGMA synchronous=NORMAL;", 0, 0, 0);
     sqlite3_exec(mSqlite, "PRAGMA cache_size=-65536;", 0, 0, 0);
@@ -168,7 +168,7 @@ bool SQLiteConnection::_StepNoRows(sqlite3_stmt* stmt, char const* sql)
 {
     // busy_timeout already blocks up to 500 ms inside sqlite3_step; the
     // retry loop covers a second writer arriving inside the same window
-    // (the :realm/:world LoginDatabase pattern, F30) instead of silently
+    // (the :realm/:world LoginDatabase pattern) instead of silently
     // dropping the write like upstream did.
     for (int attempt = 0; ; ++attempt)
     {

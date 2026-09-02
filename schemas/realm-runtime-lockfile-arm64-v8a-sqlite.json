@@ -92,7 +92,7 @@
         "src/shared/Database/Database.cpp",
         "src/shared/Database/DatabaseImpl.h"
       ],
-      "reason": "Route all twelve async enqueue sites through SafeDelayOperation/SafeDelayQueryHolder: HaltDelayThread() nulls m_threadBody while the sticky async flag stays on across embedded restart cycles, so an unguarded enqueue after a halt is a null dereference (F50)."
+      "reason": "Route all twelve async enqueue sites through SafeDelayOperation/SafeDelayQueryHolder: HaltDelayThread() nulls m_threadBody while the sticky async flag stays on across embedded restart cycles, so an unguarded enqueue after a halt is a null dereference."
     },
     {
       "id": "fail-loud-backend-selection",
@@ -101,7 +101,7 @@
         "sqlite"
       ],
       "path": "CMakeLists.txt",
-      "reason": "Refuse the no-op -DDO_MYSQL/-DDO_SQLITE cache defines, refuse PostgreSQL, and print the selected backend at configure time; the real switch is the SQLITE cache variable with MySQL as the else-default (F41)."
+      "reason": "Refuse the no-op -DDO_MYSQL/-DDO_SQLITE cache defines, refuse PostgreSQL, and print the selected backend at configure time; the real switch is the SQLITE cache variable with MySQL as the else-default."
     },
     {
       "id": "runtime-dialect-truncate",
@@ -110,7 +110,7 @@
         "sqlite"
       ],
       "path": "src/game/Globals/ObjectMgr.cpp",
-      "reason": "P3/G5: route the two raw TRUNCATE sites through the backend _TRUNCATE_ macro (DELETE FROM under DO_SQLITE; TRUNCATE TABLE - semantically identical - under MySQL)."
+      "reason": "Route the two raw TRUNCATE sites through the backend _TRUNCATE_ macro (DELETE FROM under DO_SQLITE; TRUNCATE TABLE - semantically identical - under MySQL)."
     },
     {
       "id": "runtime-dialect-anticheat-prune",
@@ -119,7 +119,7 @@
         "sqlite"
       ],
       "path": "src/game/Anticheat/module/libanticheat.cpp",
-      "reason": "P3/G5: DELETE..ORDER BY..LIMIT is MySQL-only; under DO_SQLITE use the registered rowid-IN-subquery rewrite with the fingerprint predicate inside the subquery (exactly two positional binds unchanged, DEC-03)."
+      "reason": "DELETE..ORDER BY..LIMIT is MySQL-only; under DO_SQLITE use the registered rowid-IN-subquery rewrite with the fingerprint predicate inside the subquery (exactly two positional binds unchanged)."
     },
     {
       "id": "db-sqlite-connection-hardening",
@@ -133,7 +133,7 @@
         "src/shared/Database/QueryResultSqlite.cpp",
         "src/shared/Database/SqlOperations.cpp"
       ],
-      "reason": "DO_SQLITE-only hardened connection layer (P2/G3): WAL with synchronous=NORMAL rendered per connection (DEC-02 as amended 2026-08-27), busy_timeout 500ms with BUSY retry instead of silent false, BEGIN IMMEDIATE write transactions, begin-failure refusal + commit-failure rollback (F30), fully materialized query results under the connection lock, no leaked statement wrappers, explicit-length TRANSIENT text binds. DO_MYSQL builds are behaviorally unchanged."
+      "reason": "DO_SQLITE-only hardened connection layer: WAL with synchronous=NORMAL rendered per connection, busy_timeout 500ms with BUSY retry instead of silent false, BEGIN IMMEDIATE write transactions, begin-failure refusal + commit-failure rollback, fully materialized query results under the connection lock, no leaked statement wrappers, explicit-length TRANSIENT text binds. DO_MYSQL builds are behaviorally unchanged."
     }
   ],
   "playerbots_source_overlays": [
@@ -219,40 +219,40 @@
     }
   ],
   "patches_content": {
-    "native/patches/cmangos/DatabaseSqlite.cpp": "81c26e09071a77f0b7c87b2f9feb4a6670728da7cc8c390635347c61ac3d7f5f",
-    "native/patches/cmangos/DatabaseSqlite.h": "e425495750d35e4ee8c913339aef768ae293faa3d6843d7a8fa7d50b93e54725",
+    "native/patches/cmangos/DatabaseSqlite.cpp": "8086ae1fedb5d536e8a33e997b9ec2f752c468d49f777560a3c5891c23f060a7",
+    "native/patches/cmangos/DatabaseSqlite.h": "46e6953dda3d28cc380280a3f15a22b30a1af1dcdc7882d4c3173ecec581b0f6",
     "native/patches/cmangos/PocketRealmInteraction.cpp": "985b257079e62a7483537cdea4e1ada29103771be5e505000d3a93f54bd67916",
-    "native/patches/cmangos/QueryResultSqlite.cpp": "2e67767be52f4ee58f8d029211769cd215c42a0ac3557576719705409efaf26f",
-    "native/patches/cmangos/QueryResultSqlite.h": "d48fae9190a05b5d1a624efe71c4a4f98985a3e4f5ad171c2ae27737aa13942c",
+    "native/patches/cmangos/QueryResultSqlite.cpp": "c7f84c1b7e5e6ea70671a4ab2d7912b50f412916ac131201e35087bded0709b5",
+    "native/patches/cmangos/QueryResultSqlite.h": "122ecdabfafd5492df2ed313e2b6eaf6eb82c25c84930d3c4b7bcf2f9976d810",
     "native/patches/o11-cmangos-safe-mpq-listfile.patch": "54963ecc0e0c319cc65d3ea5daa9887eed5f23d648d73e4ca7ebdc3bce86d4cb",
-    "native/patches/playerbots/llm_banter_core.h": "b743753062517bee9cc77f2c4c15465da4a97445d412c31bb4f4c53914a76d1e",
+    "native/patches/playerbots/llm_banter_core.h": "0760ba42b8dd78f2cac432f0ebef8c76988b23c853c5e4d33f6834f17aed49ad",
     "native/patches/playerbots/PlayerbotLlamaRuntime.cpp": "787dfe60e8de21da31d34ddfd4f3d4fb1d0bb8d81ec9106f7889588744f324b4",
-    "native/patches/playerbots/PlayerbotLlamaRuntime.h": "3c1041c93b6e27e26589ca8a7d6cf0f6a5585baba0624356f8b60c4976dce06e",
-    "native/patches/playerbots/PlayerbotLlmBridge.cpp": "0f229b360f78f1eab1ae4907ebd4ff2a891a385cfe4df86a84e5c066e0a71586",
-    "native/patches/playerbots/PlayerbotLlmBridge.h": "d82a3dfb49ae8636be9ddae5f2c5e4decf25c5b117b2308812f89f83e2b44f6d",
-    "native/patches/playerbots/PlayerbotLlmChatter.cpp": "bdb098d1dbf27e186a53567a6a5f6daf8b9268f6f52da3973c89241f7829f616",
-    "native/patches/playerbots/PlayerbotLlmChatter.h": "1171a5f61966ed1cb68dba76dcd5f322dc0087836803d2efe6e26e111cb6f560",
-    "native/patches/playerbots/PlayerbotLlmChatterCore.h": "09c4e08c6b9f14b34beb165bfd75f56bdee8a003fe04abb46be8af6d373dee74",
-    "native/patches/playerbots/PlayerbotLlmFilters.cpp": "46a1a5c25dd41e737d2fef471580434ee254e5d37929d7d3092fe47b766ba9af",
-    "native/patches/playerbots/PlayerbotLlmFilters.h": "16c3c10900bbd6813c9ac1c793c3562c47f8e68be18bfed28c1a6a8c015c0524",
-    "native/patches/playerbots/PlayerbotLlmJson.h": "237bc26f5aadc611e389ec7490cbdb2878c77b6f7aa6476f8610d2435e528335",
-    "native/patches/playerbots/PlayerbotLlmMemory.cpp": "d14a8af62ebf4aa426568036d942066b85901bee50616692a9177dd2b2f313f3",
-    "native/patches/playerbots/PlayerbotLlmMemory.h": "2841459fd03eac9b29fc8e711561643b0ce24b200937736eb27ef531f1e485c0",
+    "native/patches/playerbots/PlayerbotLlamaRuntime.h": "9689f9bc57b27d5b1983c9050e2bd7324ffb02204eeba5dbf6189fc5317e72ab",
+    "native/patches/playerbots/PlayerbotLlmBridge.cpp": "1a04301a3d2d52c993fa6dedf503f2312396e13b9c50e011706ce1eab3357b9f",
+    "native/patches/playerbots/PlayerbotLlmBridge.h": "3e1493e27835be0642b062b41dc0940da124e244c00cf4ed80f71025c9e96dd0",
+    "native/patches/playerbots/PlayerbotLlmChatter.cpp": "cd3d0ba2d4f8cace4df667f8879d454dbeb0a752c3bd9c8ab10bd00a5c752741",
+    "native/patches/playerbots/PlayerbotLlmChatter.h": "8c005b67f3b6af676b51a58d18bec8a87d9ec9c773ef24a9e5f07a6114701960",
+    "native/patches/playerbots/PlayerbotLlmChatterCore.h": "77d18c87bcdf96bf7a0380117ceca6c60ecfe730c9c856949cc7f5ae68d4c93b",
+    "native/patches/playerbots/PlayerbotLlmFilters.cpp": "97715a2e38400b086a28217ffd536b05324a0f0f9a9507cae6f408e35e004e0a",
+    "native/patches/playerbots/PlayerbotLlmFilters.h": "096eb357f699f68743454ea441004acd6715c022384bd40483a803d843601b49",
+    "native/patches/playerbots/PlayerbotLlmJson.h": "f33aca69e42a01f9134577d5f77b39f5200116d12243f0fb40b1c52d425db6c8",
+    "native/patches/playerbots/PlayerbotLlmMemory.cpp": "9a09d14e6752e9d43124d92d4469086d100bc7cbf0c7b8ef67a6a11cc3b67e60",
+    "native/patches/playerbots/PlayerbotLlmMemory.h": "5063e8458c41038c7457173c349e22e9ae5317afed4c0e258248e4a66b2fa83e",
     "native/patches/playerbots/PlayerbotLlmPersona.cpp": "23a64e093f94be3681b7ac45c67ae0ba826dada596ccdc811b8a97347795f6f4",
-    "native/patches/playerbots/PlayerbotLlmPersona.h": "6e27152fe5b748ea22ef0bb10c96dd88e56c6ce732a751beb541d577be24196b",
-    "native/patches/playerbots/PlayerbotLlmPrompt.h": "a7dd4129d929b60bd269b6c187b37f72ddfd96766df2228ace699c05bfd71aac",
-    "native/patches/playerbots/PlayerbotLlmRecallCore.h": "ae03d150b608597d116b4c51d0144eb2e043f0699b7b133303cea44ee29300fb",
-    "native/patches/playerbots/PlayerbotLlmTools.cpp": "9306208a02a3f93a1c7facce43557eb349c04cc268ace68ee10653e3e20e9880",
-    "native/patches/playerbots/PlayerbotLlmTools.h": "2b2e7c14a05ee60823a89f008d5f046936323dc0baba200b56da575ab9924695",
-    "native/patches/playerbots/PlayerbotLlmToolsCore.h": "cf8a8fcf569ee5dbf092c2ba1dbb0df226177d8e4a976808b1cdf08ea751a07c",
-    "native/patches/playerbots/PlayerbotLlmTruthCore.h": "55a1ba99fe9464ef11e2230d0c03e31a4932e73634777b4cc768f9a69408b44e"
+    "native/patches/playerbots/PlayerbotLlmPersona.h": "636fd6e7c31a5efbcc6aaeb43543d0d41ccd014c505c31a8319274b5c6b26ca3",
+    "native/patches/playerbots/PlayerbotLlmPrompt.h": "e2b8432a1ad97917a12d122b6e4023eb1ff13365598d5edf4a560f6fff16f24f",
+    "native/patches/playerbots/PlayerbotLlmRecallCore.h": "117867c4eed8a21936d6867344bf04f1e84518f5c64800e7609c65c99d583425",
+    "native/patches/playerbots/PlayerbotLlmTools.cpp": "556f669dfdc9a344d2edd2acd4d13bfa6132be6db433883af7f34edff411b4d5",
+    "native/patches/playerbots/PlayerbotLlmTools.h": "9898b16015b044b74aced21c6ba757dd2ce3ce8bb870651ac70375656aceaa28",
+    "native/patches/playerbots/PlayerbotLlmToolsCore.h": "e4ee3c9d62400ff24c05b0eab068623a1674a488449c661ad70020ea921c1ed2",
+    "native/patches/playerbots/PlayerbotLlmTruthCore.h": "59b06b4454271f5d187b41be4a8bcfde4609d68d6fa12fba3ef46bdcf60aed60"
   },
   "mariadb_connector_c": null,
   "artifacts": [
     {
       "path": "native/.build-o09-arm64-v8a/realm-staging-sqlite/jniLibs/arm64-v8a/libpocket_realmd_runtime.so",
       "size": 5864584,
-      "sha256": "8adee87e780f05a04bce2e02d981c38386f90cfa69ea8ead3799b33302f3ab8e",
+      "sha256": "4e438ae99d57d65bfe52bf5d455a8bae71861d2bfefb2cb5de08b3a6a73dafea",
       "needed": [
         "libc.so",
         "libdl.so",
@@ -268,7 +268,7 @@
     {
       "path": "native/.build-o09-arm64-v8a/realm-staging-sqlite/jniLibs/arm64-v8a/libpocket_world_runtime.so",
       "size": 34144232,
-      "sha256": "7cd35ec23d5bc0d0dc4740015f224b8a3c4e04e8224c299319a756fc14ff6148",
+      "sha256": "0c7e4e30058830fcb3877dcf07549c720fa13d7000da0bff0813f8afdbf5a180",
       "needed": [
         "libc.so",
         "libdl.so",

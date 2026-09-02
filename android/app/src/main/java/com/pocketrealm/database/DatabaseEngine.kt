@@ -66,9 +66,9 @@ internal class DatabaseEngine(private val context: Context) {
     private val sqliteTranslationDir = File(roots.databaseRoot, "sqlite-translation")
     private val sqliteTranslationRecord = File(roots.databaseRoot, "sqlite-translation.json")
     private val secureImportDir = File(roots.databaseRoot, "import")
-    // P6: the SQLite provider's own datadir (sibling of the MariaDB
-    // datadir - the window keeps both providers' state distinct; the
-    // MariaDB datadir is the rollback anchor until P8) + its seals.
+    // The SQLite provider's own datadir (sibling of the MariaDB
+    // datadir - the dual-provider window keeps both providers' state
+    // distinct; the MariaDB datadir stays as the rollback anchor) + its seals.
     private val sqliteDatadir = File(roots.databaseRoot, DatabaseSqliteControlPlane.SQLITE_DATADIR_NAME)
     private val sqliteInitializedMarker = File(roots.databaseRoot, "sqlite-initialized.json")
     private val sqliteCleanMarker = File(roots.databaseRoot, "sqlite-clean-stop.json")
@@ -84,10 +84,11 @@ internal class DatabaseEngine(private val context: Context) {
         JSONObject(expectedMigrationManifest).getJSONArray("entries").length()
     }
     private val providerIdentity by lazy { loadAndVerifyProviderIdentity() }
-    // P6: the SQLite provider identity (window APKs only - the staged
+    // The SQLite provider identity (window APKs only - the staged
     // provenance asset is the single verified source; see
-    // loadAndVerifySqliteIdentity). Both identities coexist in the window:
-    // the MariaDB one still boots to export (F13/F44) until P8.
+    // loadAndVerifySqliteIdentity). Both identities coexist in the
+    // dual-provider window: the MariaDB one still boots to serve the
+    // user-state translation export.
     private val sqliteProvenance by lazy { runCatching { loadAndVerifySqliteIdentity() } }
     private val sqliteCapable by lazy {
         runCatching { context.assets.open(SQLITE_IDENTITY_ASSET).use { it.readBytes() } }.isSuccess
@@ -96,9 +97,10 @@ internal class DatabaseEngine(private val context: Context) {
     @Volatile private var daemonResult: DatabaseRunResult? = null
     @Volatile private var daemonThread: Thread? = null
     @Volatile private var projectedRealmEndpoint: String? = null
-    // I-91 (P5 R1 D constraint, P6 wiring): the minutes-long provisioning
-    // phases (translation export, seed replay, user-state import) run with
-    // `lock` FREE - only their state transitions take it. provisioningPhase
+    // The minutes-long provisioning phases (translation export, seed
+    // replay, user-state import) run with `lock` FREE - only their state
+    // transitions take it, so Binder callers are never blocked behind
+    // them. provisioningPhase
     // is what status() serves mid-phase; the depth+owner pair is the
     // single-writer guard every mutating method refuses under (nesting is
     // same-thread only: provision -> translate/import).
@@ -589,7 +591,7 @@ internal class DatabaseEngine(private val context: Context) {
             ))
             durableDelete(databaseTransaction)
             snapshotStore.retainNewest(2)
-            // P5: the datadir content just changed - any prior user-state
+            // The datadir content just changed - any prior user-state
             // translation staging is stale and must not be consumed.
             deleteSqliteTranslationStaging()
             JSONObject().put("ok", true).put("applied", applied).put("skipped", skipped)
@@ -609,25 +611,25 @@ internal class DatabaseEngine(private val context: Context) {
     }
 
     /**
-     * P5/G7 first-boot translation orchestrator (dual-provider window):
+     * First-boot translation orchestrator (dual-provider window):
      * export the sealed MariaDB datadir's user-state slice as batch-TSV
      * under databaseRoot/sqlite-translation/, behind the same fail-closed
      * seal gates as migrations (clean + current + stopped, no pending
      * transaction or restore verification). The OLD provider must still
-     * boot to export (F13/F44) - this method starts and clean-stops it
+     * boot to serve this export - this method starts and clean-stops it
      * through the existing seal machinery, leaving the MariaDB datadir
      * untouched (the export is read-only; staging is disposable).
      *
      * Export wire: per-page SELECT ... INTO OUTFILE (the mysqldump --tab
-     * mechanism itself - server-side escaping, no client-stdout boundary;
-     * P5 R1 I-77) under secure-file-priv, run as pocket_admin (FILE
+     * mechanism itself - server-side escaping, no client-stdout
+     * boundary) under secure-file-priv, run as pocket_admin (FILE
      * privilege); every table's staged row count is cross-checked
-     * against a source COUNT(*) (I-78) and pages are ordered by PRIMARY
+     * against a source COUNT(*) and pages are ordered by PRIMARY
      * KEY where one exists.
      *
      * The SQLite import leg (seed transcripts -> datadir -> INSERT OR
-     * REPLACE of these TSVs -> new provider identity seal) is the P6
-     * control-plane + P7 on-device validation lane; the per-table row
+     * REPLACE of these TSVs -> new provider identity seal) is the SQLite
+     * control plane's on-device validation lane; the per-table row
      * counts, sha256 digests, and source column lists recorded here are
      * the byte-for-byte baseline that leg verifies against. The record
      * is invalidated when the datadir content changes EXPLICITLY
@@ -635,23 +637,22 @@ internal class DatabaseEngine(private val context: Context) {
      * is detected by the recorded cleanStopSealSha256 — the sha of the
      * clean-stop seal this export's final stop() wrote (every later
      * start()/stop() cycle rewrites the seal with a fresh timestamp, so
-     * the P6/P7 import leg can mechanically refuse a baseline that
+     * the import leg can mechanically refuse a baseline that
      * predates any subsequent datadir writes).
      */
     fun translateUserStateToSqliteStaging(): JSONObject {
-        // I-91 (P5 R1, wired P6): the minutes-long export runs with `lock`
-        // FREE - only the entry gates and the internal daemon transitions
-        // take it - so status() stays answerable throughout via the
-        // @Volatile phase mirror.
+        // The minutes-long export runs with `lock` FREE - only the entry
+        // gates and the internal daemon transitions take it - so status()
+        // stays answerable throughout via the @Volatile phase mirror.
         synchronized(lock) {
             check(providerModeLocked() == DatabaseDurableState.ProviderMode.MARIADB) {
                 "DB-TRANSLATE: the MariaDB provider must be the active one to export"
             }
             requireProvisioningIdle()
             requireStopped()
-            // E's idempotent entry (P5 R4 registration): a still-consumable
-            // EXPORTED record is returned as-is instead of being swept by a
-            // retry - a headroom refusal must not destroy a valid export.
+            // Idempotent entry: a still-consumable EXPORTED record is
+            // returned as-is instead of being swept by a retry - a
+            // headroom refusal must not destroy a valid export.
             existingConsumableTranslation()?.let { return it }
             check(initialized() && migrationsCurrent() && cleanGeneration()) {
                 "DB-TRANSLATE: clean current initialized datadir required"
@@ -660,12 +661,11 @@ internal class DatabaseEngine(private val context: Context) {
             check(!restoreRecord.exists()) { "DB-TRANSLATE: restore verification is pending" }
             // Sweep stale staging BEFORE the storage gate so a failed prior
             // attempt is reclaimed even when headroom would refuse the retry
-            // (mirrors beginRestore's ordering; P5 R3 E idea 2). Staging from
+            // (mirrors beginRestore's ordering). Staging from
             // an interrupted attempt is disposable wholesale: the source
             // datadir was never mutated, so a fresh export is the correct
-            // recovery (the pre-registered interrupted-translation contract;
-            // the SQLite-side .partial/os.replace leg lives in the bridge
-            // Importer and is exercised by the host harness).
+            // recovery (the SQLite-side .partial/os.replace leg lives in
+            // the bridge Importer and is exercised by the host harness).
             deleteSqliteTranslationStaging()
             checkStorage(MIN_TRANSLATE_BYTES)
             beginProvisioning()
@@ -679,7 +679,7 @@ internal class DatabaseEngine(private val context: Context) {
         }
     }
 
-    /** The export body, executed with `lock` free (I-91); the internal
+    /** The export body, executed with `lock` free; the internal
      * start()/stop() transitions acquire it themselves. */
     private fun runTranslationExport(): JSONObject {
         sqliteTranslationDir.mkdirs()
@@ -715,8 +715,9 @@ internal class DatabaseEngine(private val context: Context) {
             // The export's final stop() re-sealed the generation; pin the
             // seal's bytes so the import leg can detect ANY later provider
             // cycle (start deletes the seal, stop rewrites it with a new
-            // timestamp - P5 R2 D2-1: normal operation after export was
-            // previously indistinguishable from a still-fresh baseline).
+            // timestamp - without the pin, normal operation after the
+            // export would be indistinguishable from a still-fresh
+            // baseline).
             val cleanStopSeal = cleanMarker.readText()
             atomicWrite(sqliteTranslationRecord, JSONObject(sqliteTranslationRecord.readText())
                 .put("phase", "EXPORTED")
@@ -747,7 +748,7 @@ internal class DatabaseEngine(private val context: Context) {
         }
     }
 
-    /** E's idempotent translate entry: the existing EXPORTED record when it
+    /** Idempotent translate entry: the existing EXPORTED record when it
      * would still pass every consumer gate (seal pin, identity, generation,
      * staging intactness) - a retry must not sweep a valid export. */
     private fun existingConsumableTranslation(): JSONObject? {
@@ -779,10 +780,10 @@ internal class DatabaseEngine(private val context: Context) {
 
     /** Dispose of any prior translation staging + record (disposable by
      * design; also the invalidation hook for datadir-changing events).
-     * Also sweeps leftover INTO OUTFILE page files (P5 R2 I-E6: a
-     * killed run's page files under import/sqlite-translation would
-     * otherwise linger forever whenever the next attempt never re-touches
-     * the same (table, offset) name). */
+     * Also sweeps leftover INTO OUTFILE page files (a killed run's page
+     * files under import/sqlite-translation would otherwise linger
+     * forever whenever the next attempt never re-touches the same
+     * (table, offset) name). */
     private fun deleteSqliteTranslationStaging() {
         if (sqliteTranslationDir.exists()) deleteTreeDurably(sqliteTranslationDir)
         durableDelete(sqliteTranslationRecord)
@@ -801,11 +802,12 @@ internal class DatabaseEngine(private val context: Context) {
     }
 
     // ==================================================================
-    // P6: the SQLite provider branch (G8). Daemon-less: the realm
+    // The SQLite provider branch. Daemon-less: the realm
     // runtimes open the datadir's databases in-process, so DATABASE
     // start/stop is seal + integrity bookkeeping, and the supervisor
     // contract (DATABASE -> REALM -> WORLD; stop saveWorld-first) is
-    // untouched. The MariaDB machinery above stays intact until P8.
+    // untouched. The MariaDB machinery above stays intact as the
+    // rollback provider.
     // ==================================================================
 
     fun sqliteInitialize(): JSONObject {
@@ -815,7 +817,7 @@ internal class DatabaseEngine(private val context: Context) {
             requireSqliteProvider()
             // Route by the record's provider (a MariaDB-kind record on a
             // fresh window install recovers the legacy datadir; a sqlite
-            // record runs the provisioning recovery below) - D7.
+            // record runs the provisioning recovery below).
             recoverIncompleteInitialization()
             if (sqliteInitializedSealValid()) {
                 when (DatabaseDurableState.initializedDisposition(
@@ -842,7 +844,7 @@ internal class DatabaseEngine(private val context: Context) {
             }
             checkStorage(MIN_SQLITE_SEED_BYTES)
             val generation = UUID.randomUUID().toString()
-            // R1 A3/E1: the record spans the ENTIRE provision (seed +
+            // The record spans the ENTIRE provision (seed +
             // verify + seals) and is deleted only after the commit block -
             // a crash anywhere recovers through quarantine-and-retry.
             atomicWrite(databaseTransaction, DatabaseDurableState.transaction(
@@ -860,7 +862,7 @@ internal class DatabaseEngine(private val context: Context) {
                 atomicWrite(sqliteInitializedMarker, DatabaseDurableState.initializedSeal(
                     sqliteIdentity(), generationUuid, now,
                 ))
-                // I-136/I-137: the seed already folded the manifest and
+                // The seed already folded the manifest and
                 // verifySqliteRevisions proved it, so the migration seal is
                 // stamped at birth - and CLEAN IS WRITTEN LAST (the
                 // sibling legs' order): KEEP_COMPLETED's liveSealsValid
@@ -871,7 +873,7 @@ internal class DatabaseEngine(private val context: Context) {
                 atomicWrite(sqliteMigrationMarker, DatabaseDurableState.migrationSeal(
                     sqliteIdentity(), generationUuid, now,
                 ))
-                // D6: a freshly initialized datadir is born clean-stopped
+                // A freshly initialized datadir is born clean-stopped
                 // (MariaDB parity - initialize's final stop() seals); the
                 // first boot then skips a spurious RECOVER detour.
                 atomicWrite(sqliteCleanMarker, DatabaseDurableState.cleanSeal(
@@ -893,9 +895,9 @@ internal class DatabaseEngine(private val context: Context) {
     }
 
     fun sqliteApplyPinnedMigrations(): JSONObject {
-        // P6.5 follow-up (addendum 6/7): an unclean death used to refuse
-        // here until a full uninstall cleared the datadir. Recover in
-        // place first; the heal admission keeps every fail-closed
+        // An unclean death must not wedge the provider until a full
+        // uninstall clears the datadir, so recover in place first; the
+        // heal admission keeps every fail-closed
         // invariant (valid seal, current migrations, NO pending
         // transaction - that record's own protocol owns it).
         var selfHealed = false
@@ -935,7 +937,7 @@ internal class DatabaseEngine(private val context: Context) {
     fun sqliteStart(): JSONObject {
         var selfHealed = false
         synchronized(lock) {
-            // A4/B-C/D4: the guard is acquired INSIDE the entry critical
+            // The guard is acquired INSIDE the entry critical
             // section (check-then-begin under one lock hold).
             requireProvisioningIdle()
             requireSqliteProvider()
@@ -951,8 +953,8 @@ internal class DatabaseEngine(private val context: Context) {
                 DatabaseDurableState.StartBlocker.MIGRATIONS_STALE ->
                     error("DB-REVISION: pinned migrations are not current")
                 // An unclean death recovers in place instead of refusing
-                // (addendum 6/7 follow-up: the refusal previously cleared
-                // only on a full uninstall). Note the pending-transaction
+                // until a full uninstall clears the datadir. The
+                // pending-transaction
                 // fail-closed invariant does NOT come from this ordering
                 // (startBlocker tests !clean before transactionPending) -
                 // sqliteSelfHealDirtyGeneration's own admission re-check
@@ -963,10 +965,10 @@ internal class DatabaseEngine(private val context: Context) {
                 null -> Unit
             }
             if (!selfHealed) {
-                // B-F: the clean seal is retired BEFORE any gate write (MariaDB
+                // The clean seal is retired BEFORE any gate write (MariaDB
                 // parity - startDaemon deletes it before starting), and the
-                // permit is acquired under this same entry critical section
-                // (A4) - the ONLY acquisition on the clean path.
+                // permit is acquired under this same entry critical
+                // section - the ONLY acquisition on the clean path.
                 durableDelete(sqliteCleanMarker)
                 beginProvisioning()
             }
@@ -977,7 +979,7 @@ internal class DatabaseEngine(private val context: Context) {
             // healed, and the normal-start sequence below applies as-is.
             sqliteSelfHealDirtyGeneration()
             synchronized(lock) {
-                // Retire the seal the heal just wrote (B-F) and take the
+                // Retire the seal the heal just wrote and take the
                 // permit the clean path already holds; the integrity phase
                 // runs under exactly one permit either way (the heal's own
                 // verify pass matches the explicit recover()+start()
@@ -989,9 +991,9 @@ internal class DatabaseEngine(private val context: Context) {
         }
         provisioningPhase = "INTEGRITY_CHECK"
         try {
-            // G8 boot integrity gate (lock-free: full integrity_check over
+            // Boot integrity gate (lock-free: full integrity_check over
             // the 1.36M-row world database is a long read; status() stays
-            // answerable - I-91 discipline).
+            // answerable via the @Volatile phase mirror).
             val gate = JSONObject()
             var rebuilt = false
             for (database in DatabaseSqliteControlPlane.DATABASES +
@@ -1001,12 +1003,12 @@ internal class DatabaseEngine(private val context: Context) {
                 gate.put(database, outcome)
                 rebuilt = rebuilt || outcome == "rebuilt"
             }
-            // E6: a rebuild replaced database bytes the revision probe
+            // A rebuild replaced database bytes the revision probe
             // validates - re-prove the pinned revisions after any rebuild.
             if (rebuilt) verifySqliteRevisions()
             synchronized(lock) {
                 state = State.RUNNING
-                // D3: refresh the marker idempotently - a crash inside a
+                // Refresh the marker idempotently - a crash inside a
                 // prior seal-commit block could have left it stale while
                 // the engine (and the resolved mode) already serve sqlite.
                 writeActiveProviderMarker(DatabaseDurableState.ProviderMode.SQLITE)
@@ -1033,16 +1035,16 @@ internal class DatabaseEngine(private val context: Context) {
             requireProvisioningIdle()
             check(state == State.RUNNING) { "database is not running" }
         }
-        // A2: the ACTIVE drain. The :world runtime's clean stop path never
+        // The ACTIVE drain. The :world runtime's clean stop path never
         // closes its database connections (Master::StopEmbedded ends with
-        // HaltDelayThread, F50) and the process is kill-retired 250 ms
+        // HaltDelayThread) and the process is kill-retired 250 ms
         // later - so passive sidecar absence can never be produced by the
         // runtimes. The engine itself performs the last-connection proof:
         // open read-write, checkpoint the WAL, close. If a peer process
         // still holds the database, the checkpoint leaves the sidecars in
         // place and the check below refuses (the supervisor's
         // saveWorld-first ordering was violated).
-        // R2 A1: the :world process is kill-retired ~250 ms AFTER its stop
+        // The :world process is kill-retired ~250 ms AFTER its stop
         // ack (the supervisor proceeds immediately), so the first drain
         // pass can legitimately race that window on a fast stop. Bounded
         // retry: after the world process dies, the engine's next open is
@@ -1064,7 +1066,7 @@ internal class DatabaseEngine(private val context: Context) {
             if (present.isEmpty()) break
             if (System.nanoTime() >= drainDeadline) {
                 synchronized(lock) {
-                    // B-E: leave the engine recover-eligible, not wedged in
+                    // Leave the engine recover-eligible, not wedged in
                     // RUNNING with nothing running.
                     state = State.FAILED
                 }
@@ -1141,9 +1143,9 @@ internal class DatabaseEngine(private val context: Context) {
     }
 
     /**
-     * Self-heal an unclean death in place (P6.5 follow-up, addendum 6/7):
-     * the DIRTY start blocker and the pre-migration clean check used to
-     * refuse until a full uninstall cleared the datadir. Admission here is
+     * Self-heal an unclean death in place: the DIRTY start blocker and
+     * the pre-migration clean check would otherwise refuse until a full
+     * uninstall cleared the datadir. Admission here is
      * exactly DatabaseDurableState.dirtyRecoveryPermitted, enforced
      * fail-closed: a valid initialized seal, current pinned migrations,
      * and NO pending init/migration transaction (that record's own
@@ -1192,7 +1194,7 @@ internal class DatabaseEngine(private val context: Context) {
                 gate.put(database, outcome)
                 rebuilt = rebuilt || outcome == "rebuilt"
             }
-            // E6 (the sqliteStart gate's discipline): a rebuild replaced
+            // The sqliteStart gate's discipline: a rebuild replaced
             // database bytes the revision probe validates - re-prove the
             // pinned revisions after any rebuild, or the clean re-seal
             // below would cover unrecovered salvage damage. The callers
@@ -1223,15 +1225,15 @@ internal class DatabaseEngine(private val context: Context) {
     }
 
     fun sqliteKillForTest(): JSONObject = synchronized(lock) {
-        // R2 A1: FAILED is accepted too - a refused stop (sidecar deadline)
+        // FAILED is accepted too - a refused stop (sidecar deadline)
         // leaves FAILED, and the supervisor's forceStop fallback routes
         // here; refusing would strand the fallback.
         check(state == State.RUNNING || state == State.STARTING || state == State.FAILED) {
             "database is not active"
         }
         // The daemon-less provider has no process of its own to kill; the
-        // debug injection models the lost clean-stop (the W7 dirty-kill
-        // matrix drives the REAL kills against :world).
+        // debug injection models the lost clean-stop (the real dirty-kill
+        // testing drives kills against :world).
         durableDelete(sqliteCleanMarker)
         state = State.FAILED
         atomicWrite(dirtyRecord, JSONObject().put("schema", 1).put("dirty", true)
@@ -1240,14 +1242,14 @@ internal class DatabaseEngine(private val context: Context) {
     }
 
     /**
-     * P6/G7 window wiring (the I-91 Binder surface): the SQLite
-     * provider's provisioning entry. Two variants share this method:
-     * the WINDOW TRANSITION (MariaDB active, sqlite datadir absent - run
-     * the P5 translation then import and activate) and the DELTA
-     * RE-PROVISION (SQLite active but the manifest advanced - fresh seed
-     * at the new corpus plus a sqlite-to-sqlite user-state carry from the
-     * outgoing datadir; the frozen MariaDB datadir is NOT the source
-     * here, or every post-cutover change would be lost).
+     * The SQLite provider's Binder provisioning entry (runs with `lock`
+     * free during the minutes-long phases). Two variants share this
+     * method: the WINDOW TRANSITION (MariaDB active, sqlite datadir
+     * absent - run the translation then import and activate) and the
+     * DELTA RE-PROVISION (SQLite active but the manifest advanced - fresh
+     * seed at the new corpus plus a sqlite-to-sqlite user-state carry
+     * from the outgoing datadir; the frozen MariaDB datadir is NOT the
+     * source here, or every post-cutover change would be lost).
      */
     fun provisionSqliteProvider(): JSONObject {
         val transition = synchronized(lock) {
@@ -1256,8 +1258,9 @@ internal class DatabaseEngine(private val context: Context) {
             requireSqliteProvider()
             val isTransition = when (providerModeLocked()) {
                 DatabaseDurableState.ProviderMode.MARIADB -> {
-                    // D1/E2 tombstone: a durable marker naming the SQLite
-                    // provider means a cutover ONCE completed - the MariaDB
+                    // Tombstone semantics: a durable marker naming the
+                    // SQLite provider means a cutover ONCE completed - the
+                    // MariaDB
                     // datadir is frozen pre-cutover state and must never be
                     // re-translated over a device whose live data is (or
                     // was) sqlite. Fail loud; the interrupted-provisioning
@@ -1274,7 +1277,7 @@ internal class DatabaseEngine(private val context: Context) {
                     }
                     check(!databaseTransaction.exists()) { "DB-TRANSACTION: init/migration transaction is pending" }
                     check(!restoreRecord.exists()) { "DB-SNAPSHOT: restore verification is pending" }
-                    // D idea 2: double-fault hardening - a non-empty sqlite
+                    // Double-fault hardening: a non-empty sqlite
                     // datadir means sqlite state EXISTS even if the marker
                     // is lost; the transition must not run over it.
                     check(sqliteDatadir.listFiles().isNullOrEmpty()) {
@@ -1299,7 +1302,7 @@ internal class DatabaseEngine(private val context: Context) {
                     false
                 }
             }
-            // A4/B-C/D4: acquired inside the entry critical section.
+            // Acquired inside the entry critical section.
             beginProvisioning()
             isTransition
         }
@@ -1322,8 +1325,9 @@ internal class DatabaseEngine(private val context: Context) {
 
     /** The import leg: seed a fresh sqlite datadir from the pinned
      * transcripts, then INSERT OR REPLACE the translation staging's user
-     * state over it (user wins; I-102 row-count contract per table),
-     * through the I-115 consumer gate. Runs ONLY under
+     * state over it (user wins; the per-table row counts recorded in the
+     * record are enforced at import time), through the translation
+     * consumer gate. Runs ONLY under
      * provisionSqliteProvider's provisioning guard (same thread). */
     private fun importSqliteUserState(): JSONObject {
         val recordText = synchronized(lock) {
@@ -1351,7 +1355,7 @@ internal class DatabaseEngine(private val context: Context) {
         }
         provisioningPhase = "SEEDING"
         val generationUuid = UUID.randomUUID().toString()
-        // R1 A3/E1: the record spans the ENTIRE provision (it is deleted
+        // The record spans the ENTIRE provision (it is deleted
         // only after the seal+marker commit below) - a kill during the
         // import/verify minutes recovers through quarantine-and-retry.
         atomicWrite(databaseTransaction, DatabaseDurableState.transaction(
@@ -1412,7 +1416,7 @@ internal class DatabaseEngine(private val context: Context) {
     private fun importUserStateTable(database: String, table: String, recorded: JSONObject, target: File): Long {
         val staged = File(sqliteTranslationDir, "$database.$table.tsv")
         val columns = sqliteTargetColumns(target, table)
-        // B's registered pin (P5 R4): the staged column list must match the
+        // The staged column list must match the
         // seeded target's columns by NAME AND ORDER before any positional
         // zip - a schema drift between corpus revisions fails loud here,
         // never as silently misbound columns.
@@ -1447,14 +1451,14 @@ internal class DatabaseEngine(private val context: Context) {
     /** The manifest-advance re-provision: fresh seed at the new corpus +
      * sqlite-to-sqlite user-state carry (same engine, same slice rule as
      * the translation), retiring the outgoing datadir to a FIXED name
-     * (E2/D1: the record is written BEFORE the move and spans the whole
+     * (the record is written BEFORE the move and spans the whole
      * provision, so every crash window recovers by RESTORING the retired
      * datadir - never by re-translating the frozen MariaDB one). */
     private fun reProvisionSqliteDatadir(): JSONObject {
         val carryFrom = sqliteDatadir
         val retired = File(roots.databaseRoot, RETIRED_DATADIR_NAME)
         val generationUuid = UUID.randomUUID().toString()
-        // R2 D1: symmetric with the other two provisioning callers - the
+        // Symmetric with the other two provisioning callers - the
         // fresh seed + WAL + carry run while the retired datadir also
         // occupies the volume; refuse BEFORE burning a seed.
         checkStorage(MIN_SQLITE_SEED_BYTES)
@@ -1558,22 +1562,22 @@ internal class DatabaseEngine(private val context: Context) {
         return rows
     }
 
-    // ---------------- seed replay machinery (I-56 + integrity) ---------
+    // ---------------- seed replay machinery + integrity ---------------
 
     /**
      * Seed the sqlite datadir from the pinned .sqlz transcripts. The
      * INIT transaction record is owned by the CALLER (written before
-     * entry, deleted only after the caller's seal+marker commit - R1
-     * A3/E1: the record spans the entire provision). This function only
+     * entry, deleted only after the caller's seal+marker commit - the
+     * record spans the entire provision). This function only
      * materializes the datadir: generation marker, one database at a
      * time into `<db>.sqlite3.partial` (single transaction per
-     * transcript, the DEC-02 synchronous=NORMAL commit happening exactly
+     * transcript, the synchronous=NORMAL commit happening exactly
      * once), integrity check, atomic rename, then the meta ledger
      * recording the folded manifest. NO seals - the callers own those.
      */
     private fun seedSqliteDatadir(generationUuid: String): JSONObject {
         val pins = sqliteProvenance().seeds
-        // E idea 3: repeated crash-loop provisioning would leak
+        // Repeated crash-loop provisioning would leak
         // datadir-sized quarantine dirs until the storage gate wedges -
         // a NEW seed means every prior partial is irrelevant; reclaim.
         roots.databaseRoot.listFiles()
@@ -1598,8 +1602,8 @@ internal class DatabaseEngine(private val context: Context) {
 
     /** One transcript: gunzip-verify-execute against a .partial database,
      * then atomically publish. Verifies BOTH the gzip bytes and the raw
-     * transcript bytes against the provenance pins (the I-50 chain,
-     * extended onto the device replay itself). */
+     * transcript bytes against the provenance pins, extended onto the
+     * device replay itself. */
     private fun replaySeedDatabase(database: String, pin: SqliteSeedPin): JSONObject {
         val live = DatabaseSqliteControlPlane.databaseFile(sqliteDatadir, database)
         val partial = DatabaseUserStateBridge.Importer.partialFor(live)
@@ -1615,7 +1619,7 @@ internal class DatabaseEngine(private val context: Context) {
             SQLiteDatabase.OPEN_READWRITE or SQLiteDatabase.CREATE_IF_NECESSARY,
         )
         try {
-            // E3: row-returning PRAGMAs (journal_mode, wal_checkpoint)
+            // Row-returning PRAGMAs (journal_mode, wal_checkpoint)
             // cannot cross execSQL on the framework API - route every
             // policy pragma through the rawQuery-based executor.
             for (pragma in DatabaseSqliteConfigPolicy.renderConnectionPragmas()) {
@@ -1632,7 +1636,7 @@ internal class DatabaseEngine(private val context: Context) {
                                     val read = reader.read(buffer)
                                     if (read < 0) break
                                     val chunk = String(buffer, 0, read)
-                                    // A1/C1: the pin is BYTES; a char count
+                                    // The pin is BYTES; a char count
                                     // would under-count the multibyte-dense
                                     // corpus (the z2815 row alone is
                                     // 1,041,717 bytes over <=800k chars).
@@ -1676,7 +1680,8 @@ internal class DatabaseEngine(private val context: Context) {
         return JSONObject().put("statements", executed).put("bytes", live.length())
     }
 
-    /** I-56 inheritance: exact statement index + offset on failure. */
+    /** Seed-statement failures carry the exact statement index + offset
+     * assigned by the seed splitter. */
     private fun executeSeedStatement(
         database: SQLiteDatabase,
         name: String,
@@ -1704,7 +1709,7 @@ internal class DatabaseEngine(private val context: Context) {
             SQLiteDatabase.OPEN_READWRITE or SQLiteDatabase.CREATE_IF_NECESSARY,
         )
         try {
-            // R2 A2/B2/E2: the I-127 policy applies to EVERY writable
+            // The connection policy applies to EVERY writable
             // engine open - this one included (mirrors replaySeedDatabase's
             // blanket pragma loop; busy_timeout rides the same list).
             for (pragma in DatabaseSqliteConfigPolicy.renderConnectionPragmas()) {
@@ -1787,7 +1792,7 @@ internal class DatabaseEngine(private val context: Context) {
         }
     }
 
-    /** The G8 revision probe: pragma_table_info over each component's
+    /** The SQLite revision probe: pragma_table_info over each component's
      * version table, plus the MANDATORY negative test (a deliberately
      * wrong expected column must be rejected). */
     private fun verifySqliteRevisions() {
@@ -1837,7 +1842,7 @@ internal class DatabaseEngine(private val context: Context) {
         check(integrityOk(file)) { "DB-SQLITE: integrity_check failed for ${file.name}" }
     }
 
-    /** G8 corruption story: verify or VACUUM INTO rebuild. Returns the
+    /** Corruption handling: verify or VACUUM INTO rebuild. Returns the
      * gate outcome for status evidence; throws when unrecoverable. */
     private fun verifyOrRebuildSqlite(file: File): String {
         if (integrityOk(file)) return "ok"
@@ -1849,7 +1854,7 @@ internal class DatabaseEngine(private val context: Context) {
         check(integrityOk(rebuilt)) {
             "DB-SQLITE: ${file.name} failed integrity_check and the VACUUM INTO rebuild is also not clean"
         }
-        // B-D: VACUUM INTO output carries a DELETE rollback journal, not
+        // VACUUM INTO output carries a DELETE rollback journal, not
         // WAL - restore the persisted journal mode before publishing.
         sqliteOpen(rebuilt, writable = true).use { database ->
             check(execPragma(database, "PRAGMA journal_mode=WAL;") == "wal") {
@@ -1907,9 +1912,9 @@ internal class DatabaseEngine(private val context: Context) {
             file.absolutePath, null,
             if (writable) SQLiteDatabase.OPEN_READWRITE else SQLiteDatabase.OPEN_READONLY,
         )
-        // B-B/E4: the engine's OWN connections must honor the same policy
-        // the runtimes apply (DEC-02 as amended: synchronous=NORMAL; the
-        // F30 busy_timeout) - the framework library's defaults do NOT
+        // The engine's OWN connections must honor the same policy
+        // the runtimes apply (WAL journal mode with synchronous=NORMAL;
+        // the busy_timeout) - the framework library's defaults do NOT
         // match the amalgamation recipe. journal_mode is persisted in the
         // file from the seed replay; re-asserting it is a no-op that
         // returns a row (execPragma handles that); synchronous and
@@ -1927,7 +1932,7 @@ internal class DatabaseEngine(private val context: Context) {
 
     /** Execute one PRAGMA on the framework SQLiteDatabase. PRAGMAs may
      * return a row (journal_mode, wal_checkpoint) - execSQL forbids that,
-     * so every pragma routes through rawQuery (E3). */
+     * so every pragma routes through rawQuery. */
     private fun execPragma(database: SQLiteDatabase, pragma: String): String? =
         database.rawQuery(pragma, null).use { cursor ->
             if (cursor.moveToFirst()) cursor.getString(0) else null
@@ -1946,7 +1951,7 @@ internal class DatabaseEngine(private val context: Context) {
 
     // ---------------- identity, mode, seals ----------------------------
 
-    /** P6 identity source: the staged provenance asset (byte-identical to
+    /** Identity source: the staged provenance asset (byte-identical to
      * the committed sibling lockfile - Gradle asserts the equality at
      * assembly). Every artifact the window APK actually packages is
      * verified here: the runtimes in nativeLibraryDir AND the four seed
@@ -2010,7 +2015,7 @@ internal class DatabaseEngine(private val context: Context) {
                 "DB-LINK: seed asset digest mismatch for $database"
             }
         }
-        // R2 B1: OWNSHIP FIELDS MUST BE CORPUS-STABLE. The provenance
+        // OWNSHIP FIELDS MUST BE CORPUS-STABLE. The provenance
         // pins the seed transcripts, so hashing the whole asset would
         // change the identity on every corpus advance - breaking seal
         // ownership exactly the way the MariaDB lane forbids
@@ -2094,7 +2099,7 @@ internal class DatabaseEngine(private val context: Context) {
         if (!databaseTransaction.isFile) return
         val raw = databaseTransaction.readText()
         if (runCatching { JSONObject(raw).optString("kind") }.getOrNull() != "INIT") return
-        // R1 A3/E1/E2: the record spans the ENTIRE provision (seed/import/
+        // The record spans the ENTIRE provision (seed/import/
         // carry/verify/seals). Every crash window in it recovers here:
         // KEEP a fully sealed datadir; DISCARD a record that predates any
         // move (the old datadir is intact); RESTORE the retired datadir
@@ -2106,7 +2111,7 @@ internal class DatabaseEngine(private val context: Context) {
         val action = DatabaseDurableState.provisioningRecovery(
             recordGenerationUuid = record.getString("generationUuid"),
             liveGenerationUuid = sqliteGenerationUuid(),
-            // I-137 hardening: "all seals stamped" must include the
+            // "All seals stamped" must include the
             // in-datadir migration marker's PRESENCE (not currency - a
             // legitimately corpus-stale marker must still KEEP), so the
             // KEEP_COMPLETED proxy can never bless a half-sealed datadir
@@ -2119,7 +2124,7 @@ internal class DatabaseEngine(private val context: Context) {
             DatabaseDurableState.ProvisioningRecovery.KEEP_COMPLETED ->
                 durableDelete(databaseTransaction)
             DatabaseDurableState.ProvisioningRecovery.DISCARD_RECORD -> {
-                // I-135 (E R3): the compound window - a kill during the
+                // The compound window - a kill during the
                 // interrupted generation's seal writes followed by a kill
                 // between the RESTORE move-back and its re-mint - leaves
                 // the RESTORED datadir under the interrupted generation's
@@ -2158,7 +2163,7 @@ internal class DatabaseEngine(private val context: Context) {
                     deleteTreeDurably(sqliteDatadir)
                 }
                 atomicMove(retired, sqliteDatadir)
-                // E-R2-1: a crash inside the new generation's commit block
+                // A crash inside the new generation's commit block
                 // left ITS partial seals in databaseRoot; re-mint the
                 // RESTORED generation's ownership seals (the retired
                 // datadir was initialized+clean when it was retired - the
@@ -2252,7 +2257,7 @@ internal class DatabaseEngine(private val context: Context) {
             .filter { it.isNotEmpty() }.toList()
         check(discovered.isNotEmpty()) { "DB-TRANSLATE: no base tables discovered in $database" }
         // A name outside SAFE_TABLE must refuse, not silently narrow the
-        // exported slice (the column leg already fails loud; P5 R3 A-3-2).
+        // exported slice (the column leg already fails loud).
         val rejected = discovered.filterNot { SAFE_TABLE.matches(it) }
         check(rejected.isEmpty()) {
             "DB-TRANSLATE: unsafe table name in $database: ${rejected.joinToString()}"
@@ -2262,8 +2267,8 @@ internal class DatabaseEngine(private val context: Context) {
 
     /** One table's paged INTO OUTFILE export into staging. Returns the
      * row count, sha256, byte size, source column list, and primary key
-     * the P7 import leg verifies against (count cross-checked against
-     * the source - I-78; pages ordered by PRIMARY KEY when present). */
+     * the import leg verifies against (count cross-checked against
+     * the source; pages ordered by PRIMARY KEY when present). */
     private fun exportUserStateTable(database: String, table: String): JSONObject {
         val columnsSql = fixedSql(
             "translate-columns",
@@ -2293,7 +2298,7 @@ internal class DatabaseEngine(private val context: Context) {
         val pkDiscovered = primaryKeyResult.stdout.lineSequence().map(String::trim)
             .filter { it.isNotEmpty() }.toList()
         // silent filtering here would order by a PK SUBSET (page-boundary
-        // ties) - refuse loud, symmetric with the table/column legs (R5 A)
+        // ties) - refuse loud, symmetric with the table/column legs
         val pkRejected = pkDiscovered.filterNot { SAFE_TABLE.matches(it) }
         check(pkRejected.isEmpty()) {
             "DB-TRANSLATE: unsafe primary key column in $database.$table: ${pkRejected.joinToString()}"
@@ -2346,7 +2351,7 @@ internal class DatabaseEngine(private val context: Context) {
         }
         // Source-truth cross-check: the staged row count must equal the
         // source COUNT(*) - catches any page-loss/duplication class
-        // independent of transport or ordering (I-78).
+        // independent of transport or ordering.
         val countResult = runClient(
             "pocket_core", readSecrets().core,
             fixedSql("translate-count", DatabaseUserStateBridge.countQuery(table)),
@@ -2445,7 +2450,7 @@ internal class DatabaseEngine(private val context: Context) {
         check(!databaseTransaction.exists()) { "DB-TRANSACTION: init/migration transaction is pending" }
         check(!restoreRecord.exists()) { "DB-SNAPSHOT: another restore verification is pending" }
         if (providerModeLocked() == DatabaseDurableState.ProviderMode.MARIADB) {
-            // P5: a restore swaps in different datadir content even though
+            // A restore swaps in different datadir content even though
             // the generation uuid stays the same - invalidate any prior
             // user-state translation staging at attempt time (conservative:
             // a failed+rolled-back restore also discards it). The SQLite
@@ -2895,7 +2900,7 @@ internal class DatabaseEngine(private val context: Context) {
         if (!databaseTransaction.isFile) return
         val raw = databaseTransaction.readText()
         if (runCatching { JSONObject(raw).optString("kind") }.getOrNull() != "INIT") return
-        // P6: a pending INIT written by the SQLite provider (seed replay /
+        // A pending INIT written by the SQLite provider (seed replay /
         // import interrupted) recovers against the SQLITE datadir even
         // while the MariaDB datadir is the active provider - the record's
         // identity field decides ownership (window crash window: mode is
@@ -2979,7 +2984,7 @@ internal class DatabaseEngine(private val context: Context) {
     /** The INIT/MIGRATION transaction record carries its provider's
      * identity flat in the JSON; the sqlite provider's transactions (seed
      * replay, import) must validate against the SQLITE identity, not the
-     * MariaDB one (P6: the record is the shared file's only
+     * MariaDB one (the record is the shared file's only
      * disambiguator during the window). */
     private fun transactionRecordIdentity(raw: String): DatabaseDurableState.Identity {
         val provider = runCatching { JSONObject(raw).getString("provider") }.getOrNull()
@@ -2987,7 +2992,7 @@ internal class DatabaseEngine(private val context: Context) {
     }
 
     private fun databaseCompatibility(generationUuid: String): JSONObject {
-        // D5: pin the ACTIVE provider's identity - a sqlite-datadir
+        // Pin the ACTIVE provider's identity - a sqlite-datadir
         // snapshot must not claim MariaDB compatibility.
         val identity = activeIdentity()
         return JSONObject()
@@ -3210,9 +3215,9 @@ internal class DatabaseEngine(private val context: Context) {
         private const val EXPORT_PAGE_ROWS = 500
         private val SQLITE_TRANSLATION_DATABASES = listOf("classicrealmd", "classiccharacters")
         /** The re-provision retire name (FIXED - recovery restores by
-         * convention; R1 E2/D1). */
+         * convention). */
         private const val RETIRED_DATADIR_NAME = "sqlite-retired"
-        /** R2 A1: the bounded stop-drain window - sized well above the
+        /** The bounded stop-drain window - sized well above the
          * :world 250 ms kill-retire delay, well inside the supervisor's
          * stop budget. */
         private const val SQLITE_DRAIN_TIMEOUT_SECONDS = 10L
@@ -3231,7 +3236,7 @@ internal class DatabaseEngine(private val context: Context) {
     }
 }
 
-/** The staged SQLite provenance asset, parsed and verified (P6): the
+/** The staged SQLite provenance asset, parsed and verified: the
  * verified provider identity plus the artifact/seed pins the replay
  * cross-checks against. */
 internal data class SqliteSeedPin(

@@ -16,13 +16,13 @@ import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 
 /**
- * Dedicated repository for unlimited named custom bot presets (brief §39).
+ * Dedicated repository for unlimited named custom bot presets.
  *
  * Storage: one versioned JSON document per app, written atomically
  * (temp file + atomic move) under an app-private directory. Revisions keep an
  * immutable per-save history so `usr5` identities already handed to a running
- * realm stay resolvable after the preset is edited again (launch snapshots,
- * §40). No preset-count cap is enforced beyond available storage (§36).
+ * realm stay resolvable after the preset is edited again (launch snapshots
+ * keep a full copy). No preset-count cap is enforced beyond available storage.
  */
 class BotPresetStore(private val directory: File) {
 
@@ -304,7 +304,7 @@ class BotPresetStore(private val directory: File) {
     }
 
     // -----------------------------------------------------------------
-    // Interchange (export/import) — §37 optional actions, consumer-ready.
+    // Interchange (export/import) — optional actions, consumer-ready.
     // -----------------------------------------------------------------
 
     /** Shareable preset document. The checksum covers the canonical configuration. */

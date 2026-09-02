@@ -52,7 +52,7 @@ public class DrawableManager extends XResourceManager implements XResourceManage
         }
 
         if (texture != null) {
-            /* The O06 protocol spike deliberately runs the X server headless.
+            /* The X server deliberately runs headless.
              * With no GL context, there is no renderer queue or allocated GLES
              * texture to release. The normal Winlator path still destroys the
              * texture on its renderer thread. */

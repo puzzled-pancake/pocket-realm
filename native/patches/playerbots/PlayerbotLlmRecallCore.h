@@ -1,14 +1,14 @@
 #ifndef _PlayerbotLlmRecallCore_h
 #define _PlayerbotLlmRecallCore_h
 
-// Pure, host-compilable core of the S8 memory-USE layer (A13 recall
-// beats / A16 tier ceremony / A19 gossip distortion): the fact
-// classifier, the recall question shapes, the beat-cargo builders (the
-// recallfix measured table - beats carry cargo, never bare
+// Pure, host-compilable core of the memory-USE layer (recall
+// beats / tier ceremony / gossip distortion): the fact
+// classifier, the recall question shapes, the beat-cargo builders (beats
+// carry cargo, never bare
 // instructions), the tier-ceremony wording, the deterministic
 // nickname/secret picks and the authored initiative line shapes.
 // PlayerbotLlmBridge.cpp + PlayerbotLlmMemory.cpp consume it in-tree,
-// and the host battery (tools/test_llm_recall.cpp, run by
+// and the host test suite (tools/test_llm_recall.cpp, run by
 // tests/test_llm_recall.py) compiles it standalone exactly like
 // ToolsCore/TruthCore, so the beat wording and the recall grammar are
 // pinned by tests instead of by inspection.
@@ -21,7 +21,7 @@
 
 namespace pocketllm {
 
-// ---- A13: fact classification over the append-only fact rows. The
+// ---- fact classification over the append-only fact rows. The
 // class decides which recall beat a fact can supply cargo for; the
 // category is the writer's own (log_fact tool), the text class is ours.
 enum FactClass
@@ -34,8 +34,8 @@ enum FactClass
 
 // The recall-surface MASK constants: GetNewestRecallFact takes a bit per
 // class, and a raw enum value is NOT its own mask (FACT_DEBT == 1 would
-// select PLAIN). Always compose masks from these - round-1 R1's P0 was
-// exactly a value-as-mask confusion at the bridge call sites.
+// select PLAIN). Always compose masks from these - a value-as-mask
+// confusion at the bridge call sites is exactly the bug this prevents.
 enum FactClassMask
 {
     FACT_MASK_PLAIN = 1 << FACT_PLAIN,
@@ -71,7 +71,7 @@ inline bool ContainsWord(std::string const& lower, std::string const& word)
 // signal that the token is a NAME (player names are capitalized, common
 // words in gossip prose are not). "Ash" matches "Ash lost a duel" but
 // neither "the ash of the fire" (lowercase) nor "Ashmar" (no right
-// boundary) - the round-1 R6 misattribution fix for GossipAbout.
+// boundary) - either match would misattribute the line in GossipAbout.
 inline bool ContainsWordExact(std::string const& text, std::string const& word)
 {
     size_t at = text.find(word);
@@ -121,9 +121,9 @@ inline FactClass FactClassOf(std::string const& factText, std::string const& cat
     return FACT_PLAIN;
 }
 
-// ---- A13 question shapes (negation-aware, the ContainsTrigger law):
+// ---- recall question shapes (negation-aware, the ContainsTrigger law):
 // the turn asks about a MEMORY CLASS, not about an entity - the entity
-// guard (A10) never fires on these because no unresolved name is present.
+// guard never fires on these because no unresolved name is present.
 inline bool IsDebtQuestion(std::string const& msg)
 {
     static char const* const triggers[] = {
@@ -252,7 +252,6 @@ static char const* const kCeremonyUpPhrases[] = {
 static char const* const kLongFormCue =
     "This one is worth telling properly - take a full breath and tell it whole, start to end.";
 // ---- end beat-cargo frames ----
-
 // every frame set must be uniform: CargoFlavor mods by ONE set's size,
 // so a divergent array would read out of bounds in the world process
 // (the python law block checks banklib; this assert holds the C++ side
@@ -271,11 +270,11 @@ static_assert(sizeof(kDebtCargoFrames) / sizeof(kDebtCargoFrames[0]) ==
     sizeof(kCeremonyUpFrames) / sizeof(kCeremonyUpFrames[0]), "flavor sets must be uniform");
 static_assert(sizeof(kDebtCargoFrames) / sizeof(kDebtCargoFrames[0]) ==
     sizeof(kCeremonyDownFrames) / sizeof(kCeremonyDownFrames[0]), "flavor sets must be uniform");
-// ---- A13 beat cargo (the measured table). Wording follows the
-// recallfix shapes: the fact arrives as cargo with its verdict named,
-// the instruction rides one short closing sentence. rev-3b (S11): the
+// ---- beat cargo. Wording follows the
+// trained shapes: the fact arrives as cargo with its verdict named,
+// the instruction rides one short closing sentence. The
 // frames are the persona-flavored VARIANT SETS emitted above - one
-// flavor per bot, GUID-stable, byte-identical to what the v2.3 banks
+// flavor per bot, GUID-stable, byte-identical to what the banks
 // train (the wording lock; regenerate, never hand-edit).
 
 inline std::string ReplaceAllCopy(std::string text, std::string const& mark,
@@ -341,7 +340,7 @@ inline std::string GossipCargo(std::string const& playerName, std::string const&
         "{G}", gossipText);
 }
 
-// ---- A16: the tier ceremony (plan wording; never names the mechanic).
+// ---- the tier ceremony (trained wording; never names the mechanic).
 inline std::string CeremonyUpCargo(std::string const& playerName, int tier,
     uint32_t botGuid)
 {
@@ -358,7 +357,7 @@ inline std::string CeremonyDownCargo(std::string const& playerName, uint32_t bot
     return ReplaceAllCopy(kCeremonyDownFrames[CargoFlavor(botGuid)], "{P}", playerName);
 }
 
-// ---- S11 P50/P51: the long-form licensing layer. The cue above is the
+// ---- the long-form licensing layer. The cue above is the
 // ONE frozen length signal (the wording lock: the banks train these
 // bytes); the bridge appends it to a beat's cargo only when the tier's
 // configured max new tokens clears the long bank - the threshold law
@@ -395,7 +394,7 @@ inline bool WantsOpenConfidence(std::string const& msg)
     return ContainsTrigger(msg, triggers, sizeof(triggers) / sizeof(triggers[0]));
 }
 
-// ---- S9/E4: the cheap system-colored progression line that rides the
+// ---- the cheap system-colored progression line that rides the
 // OBSERVED tier crossing (pure DB-derived, zero generation - it survives
 // even a governor-dropped ceremony turn). Player-facing surface wording:
 // never names the mechanic, never names a tier, ASCII only (the sys-line
@@ -428,7 +427,7 @@ inline std::string SecretCargo(std::string const& playerName, uint32_t botGuid)
         ". Tell it once, briefly, as your own choice - then let it be.";
 }
 
-// ---- A16: the Bonded address shift. Deterministic, host-pinned.
+// ---- the Bonded address shift. Deterministic, host-pinned.
 inline std::string NicknameOf(std::string const& playerName, uint32_t botGuid)
 {
     if (playerName.size() <= 4)
@@ -458,7 +457,7 @@ inline std::string NicknameTierNote(std::string const& playerName, uint32_t botG
         "\" - and it slips out more often than their real name.";
 }
 
-// the A16 procedure form (the Westfall law: disposition lines are
+// the procedure form (disposition lines are
 // ignored, procedures fire): the tier-5 ceremony ADOPTS the nickname in
 // the reply itself - the standing tierNote keeps it warm afterwards
 inline std::string NicknameAdoptionCargo(std::string const& playerName, uint32_t botGuid)
@@ -468,7 +467,7 @@ inline std::string NicknameAdoptionCargo(std::string const& playerName, uint32_t
         ". Use it in this reply - and when it suits you after.";
 }
 
-// ---- A13/A17 authored surface shapes (zero generation cost).
+// ---- authored surface shapes (zero generation cost).
 inline std::string AbsenceMagnitudeLine(std::string const& bucket)
 {
     if (bucket == "a few hours")
@@ -493,7 +492,7 @@ inline std::string GoalAskAfterLine(std::string const& playerName, std::string c
         FactDirect(factText) + "'. How goes it?";
 }
 
-// ---- A13/A16: money phrase extraction ("five silver") for the debt
+// ---- money phrase extraction ("five silver") for the debt
 // surfaces; empty when the fact carries no closed-class money shape.
 inline std::string MoneyPhrase(std::string const& factText)
 {
@@ -517,7 +516,7 @@ inline std::string MoneyPhrase(std::string const& factText)
     return "";
 }
 
-// ---- A19: distortion-per-hop. One deterministic drift per retelling
+// ---- distortion-per-hop. One deterministic drift per retelling
 // hop: hedged tellings sharpen, money inflates exactly one rung (the
 // legend grows the same way every retelling - deterministic beats
 // sampler, tricks-C law). The world row stays pristine; a believing

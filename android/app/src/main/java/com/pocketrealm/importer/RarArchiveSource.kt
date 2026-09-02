@@ -9,8 +9,8 @@ import java.nio.ByteBuffer
 
 /**
  * RAR lane over the staged file via libarchive (clean-room BSD-2 RAR4/RAR5
- * readers; GPL-3.0-compatible — see docs/plans/universal-client-installer-
- * plan.md §3). Streaming-only like 7z: inventory order IS archive order, the
+ * readers; GPL-3.0-compatible). Streaming-only like 7z: inventory order IS
+ * archive order, the
  * copy loop is one forward pass, and resume skips verified entries with
  * `archive_read_data_skip`.
  *

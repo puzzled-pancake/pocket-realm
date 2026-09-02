@@ -71,7 +71,7 @@ GUARD_PROBES = [
     ("does Fionna in Harlowe sell rune bread", "Fionna", "thing"),
 ]
 
-# invented-attribute diagnostic (known vendor + unknown item; the plan's
+# invented-attribute diagnostic (known vendor + unknown item; the
 # "does Fionna sell rune bread" class with a REAL vendor this time)
 ATTRIBUTE_PROBE = ("does Marshal Dughan sell rune bread",
                    "Dughan sells rune bread")
@@ -126,13 +126,13 @@ DENY_CUES = [r"never heard", r"don'?t know (the|any|him|her|a|of)",
 
 # real-world entity words: any capitalized token that names a lore card
 # key/title word is a REAL entity (Elwynn, Lordaeron), not an invention -
-# the plan's criterion is "never invent a REPLACEMENT entity"
+# the criterion is "never invent a REPLACEMENT entity"
 KNOWN_ENTITY_WORDS = set()
 
 
 def no_invented_nouns(reply, probe):
     """No capitalized entity in the reply beyond the input's own nouns
-    and real lore entities (the plan's 'never invent a replacement
+    and real lore entities (the 'never invent a replacement
     entity' check). Possessives fold and sentence-initial grammar
     capitals are not inventions."""
     def nouns(text):
@@ -426,7 +426,7 @@ def main():
                               cfg["sampling"], cfg["qwen"], bias)
                 low = r["content"].lower()
                 # sentence-local: an affirmation cue in a sentence that
-                # does not ALSO deflect fails the trap (round-1 R3 - the
+                # does not ALSO deflect fails the trap (the
                 # whole-reply override masked mixed replies)
                 import re as _re
                 sentences = [s.lower() for s in

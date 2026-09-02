@@ -1,4 +1,4 @@
-"""The S7 truth-guard battery (A10/A11/A12 host gate).
+"""The truth-guard battery (A10/A11/A12 host gate).
 
 Compiles the SHIPPED pure core (native/patches/playerbots/
 PlayerbotLlmTruthCore.h) on the host with -std=c++11 - like the json
@@ -83,7 +83,7 @@ def test_guard_merges_not_defers_in_the_bridge():
     text = BRIDGE_CPP.read_text(encoding="utf-8")
     # the question path runs BEFORE the ladder and lands in note.extra
     assert "guardExtra" in text
-    # S8: the merge is concat-aware (a recall beat's cargo may already
+    # the merge is concat-aware (a recall beat's cargo may already
     # ride the extra leg - guard second) but still an assignment, never
     # a deferral
     assert 'note.extra = note.extra.empty() ? guardExtra : note.extra + "\\n" + guardExtra' in text, (
@@ -145,7 +145,7 @@ def test_say_splitter_anchor_pinned_at_255():
     assert "never cut inside a multibyte sequence" in android
     upstream = driver.split('PB_SAY_SPLITTER_UPSTREAM = """')[1].split('"""')[0]
     assert "sentence.length() > 200" in upstream
-    # the backoff code itself, not just the comment (round-2: deleting
+    # the backoff code itself, not just the comment (deleting
     # the loops while keeping the comment used to pass)
     assert "0x80" in android and "0xC0" in android, (
         "the UTF-8 back-off loops must stay in the production splitter")

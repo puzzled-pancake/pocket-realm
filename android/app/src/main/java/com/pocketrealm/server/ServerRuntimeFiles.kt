@@ -178,15 +178,15 @@ internal class ServerRuntimeFiles(context: Context) {
         val snapshot = Settings(appContext).blockingSnapshot()
         val selected = LlmModelRegistry.byId(snapshot.llmModelId)
         val model = LlmModelCoordinator.modelPathFor(appContext, snapshot.llmModelId)
-        // S7/A11: stage the lore card index only when an LLM block can be
+        // Stage the lore card index only when an LLM block can be
         // emitted, and degrade to no-cards on any staging failure - a
         // lore asset problem must never fail a world start for a feature
-        // the user never enabled (round-1 R2)
+        // the user never enabled
         val lore = if (snapshot.llmEnabled || (BuildConfig.DEBUG && model.isFile))
             runCatching { stageLoreCards().absolutePath }.getOrNull()
         else
             null
-        // S10/E6: the power file is staged whenever the LLM subsystem can
+        // The power file is staged whenever the LLM subsystem can
         // run, carrying the CURRENT ambience toggle in its enabled flag -
         // the native scheduler re-reads it every tick, so the master
         // switch works mid-session in both directions (the conf keys
@@ -385,7 +385,7 @@ internal class ServerRuntimeFiles(context: Context) {
             // the HTTP and in-process paths)
             val debugLore = if (!loreFile.isNullOrBlank())
                 "\n            AiPlayerbot.LLMLoreFile = \"$loreFile\"" else ""
-            // S8-ledger (n): the banter toggle must gate the in-process debug
+            // The banter toggle must gate the in-process debug
             // path too - the native default (1) otherwise runs the authored
             // initiative layer regardless of the toggle
             val debugBanter =

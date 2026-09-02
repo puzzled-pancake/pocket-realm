@@ -73,9 +73,9 @@ class DatabaseStartPreparationTest {
     }
 
     // ------------------------------------------------------------------
-    // P6: provider-mode routing (the dual-provider window + the sqlite
-    // lifecycle). Keys absent (pre-P6 status) must behave exactly as the
-    // MariaDB-only policy did.
+    // Provider-mode routing (the dual-provider window + the sqlite
+    // lifecycle). Status keys absent from an older schema must behave
+    // exactly as the MariaDB-only policy did.
     // ------------------------------------------------------------------
 
     private fun windowStatus(

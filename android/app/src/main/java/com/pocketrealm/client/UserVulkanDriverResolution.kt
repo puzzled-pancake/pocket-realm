@@ -5,13 +5,13 @@ import java.io.File
 
 /**
  * The single seam where the user-imported Vulkan driver lane meets the launch
- * chain. Catalog ids keep their closed, fail-closed semantics untouched
- * (I1); `user-` namespace ids resolve through the app-private registry only
- * when the lane is enabled, and every failure carries its exact reason (I8).
+ * chain. Catalog ids keep their closed, fail-closed semantics untouched;
+ * `user-` namespace ids resolve through the app-private registry only
+ * when the lane is enabled, and every failure carries its exact reason.
  */
 object UserVulkanDriverResolution {
 
-    /** Canonical user-lane status strings (I8): the seam and the UI share these. */
+    /** Canonical user-lane status strings: the seam and the UI share these. */
     const val ADRENO_ONLY_REASON =
         "Imported Turnip drivers are Adreno-only and cannot run on this GPU; " +
             "the system Vortek bridge is the automatic choice here."
@@ -76,7 +76,7 @@ object UserVulkanDriverResolution {
     /**
      * Launch-chain gate (preflight, prefix preparation, generation identity):
      * the opt-in toggle is enforced here. Throws IllegalArgumentException
-     * with the exact reason — never substitutes (I1).
+     * with the exact reason — never substitutes.
      */
     fun requireSessionDriver(
         requestedId: String?,

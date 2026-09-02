@@ -11,7 +11,7 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 /**
- * Phase E: the user-driver crash guard state machine, its registry
+ * The user-driver crash guard state machine, its registry
  * persistence, and the diagnostics session record — all pure/JVM-side.
  */
 class UserVulkanCrashGuardTest {
@@ -80,8 +80,8 @@ class UserVulkanCrashGuardTest {
 
     @Test
     fun forcedStopInsideTheWindowIsStreakNeutral() {
-        // hang-then-kill must not wipe an ongoing crash streak (plan §9:
-        // only a clean exit or surviving past the window resets it).
+        // hang-then-kill must not wipe an ongoing crash streak (only
+        // a clean exit or surviving past the window resets it).
         val afterCrash = UserVulkanCrashGuard.onSessionOutcome(driver(), earlyDeath = true)
         val neutral = UserVulkanCrashGuard.onSessionOutcome(
             afterCrash, failed = true, forced = true, uptimeMs = 5_000,

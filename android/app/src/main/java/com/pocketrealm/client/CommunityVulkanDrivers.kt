@@ -8,7 +8,7 @@ package com.pocketrealm.client
  * artifact digest) and — when known — [librarySha256] (the inner `.so`,
  * which marks an entry "already imported" against the user registry). These
  * ids are manifest keys only: an imported community driver always enters the
- * `user-` namespace like any manual import (C3 — same gates, same guard).
+ * `user-` namespace like any manual import — same gates, same guard.
  */
 data class CommunityVulkanDriver(
     val id: String,

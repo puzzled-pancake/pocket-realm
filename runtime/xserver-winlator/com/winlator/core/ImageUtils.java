@@ -1,5 +1,5 @@
 /*
- * com.winlator.core.ImageUtils — TRIMMED for the O06 S-3 spike.
+ * com.winlator.core.ImageUtils — trimmed.
  *
  * Source: brunodev85/winlator-app ca3d735 (LGPL-2.1). Only `getScaledSize` is
  * referenced by the vendored renderer (GLRenderer.java). The upstream

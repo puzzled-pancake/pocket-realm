@@ -38,9 +38,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sanity_battery import MODELS, RESULTS_DIR, chat, start_server, stop_server
 
 # ---- the python mirrors of the frozen core wording. The C++ side is
-# byte-pinned by the host battery's TestFrozenWording; these mirrors were
-# hand-verified byte-identical at S10 close - a future drift here is
-# invisible to the battery (recorded S10 P2), so compare against the
+# byte-pinned by the host battery's TestFrozenWording; these mirrors are
+# hand-verified byte-identical against it - a future drift here is
+# invisible to the battery, so compare against the
 # battery pins when touching either side. -------------------------------
 
 def murmur_system(name, race, cls, zone, demeanor, quirk, gripe):
@@ -240,7 +240,7 @@ def main():
         }
 
     # ---- COMPOSER (cloud-class prompt on the lab model; the voice panel
-    # is human-read at review) ---------------------------------------------
+    # is human-read) -------------------------------------------------------
     composer_draws = []
     for i in range(3):
         result = chat(

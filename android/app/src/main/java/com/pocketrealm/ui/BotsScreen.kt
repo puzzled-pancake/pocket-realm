@@ -110,7 +110,7 @@ private val EditorSectionSaver = Saver<EditorSection, String>(
 )
 
 /**
- * Dedicated Bots destination (brief §6): presets rail | tabbed editor in
+ * Dedicated Bots destination: presets rail | tabbed editor in
  * landscape, editor with a preset bottom sheet in portrait. All Playerbots
  * configuration lives here; Settings keeps only general concerns. The four
  * tabs are pure views over one working configuration — switching never
@@ -141,7 +141,7 @@ fun BotsScreen() {
         supervisorClient.observeRealmState()
     }.collectAsState(initial = RealmState.Idle)
 
-    // One-time migration of a legacy advanced setup into a named preset (§42).
+    // One-time migration of a legacy advanced setup into a named preset.
     // Reuses an existing "Imported Advanced Setup" preset so a half-completed
     // earlier attempt (process death between store write and DataStore write)
     // can never leave duplicates behind.
@@ -1508,7 +1508,7 @@ private fun titleFor(target: EditorTarget?, working: BotCustomConfiguration): St
     null -> "Bots"
 }
 
-/** Direct numeric population entry (brief §11): not a %25 ladder, no 600 cap. */
+/** Direct numeric population entry: not a %25 ladder, no 600 cap. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CustomPopulationEditor(

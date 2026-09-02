@@ -103,7 +103,7 @@ class RealmSupervisorTest {
     @Test
     fun full_round_trip_idle_starting_running_saving_stopping_idle() {
         // This is the core lifecycle the service drives, and it specifically
-        // proves the M2 fix path: Saving -> Stopping -> Idle is a legal route
+        // proves the fix that made Saving -> Stopping -> Idle a legal route
         // (previously saveExit() called markIdle() before stop, so requestStop
         // rejected as already-Idle and Stopping was never observed).
         val s = RealmSupervisor()

@@ -7,13 +7,13 @@ import java.io.File
  * App-side pre-flight for the Hexagon NPU (HTP) path. Answers one question:
  * may the service spawn llama-server with the hexagon backend enabled?
  *
- * Why this must be conservative (findings log):
+ * Why this must be conservative:
  *  - a failed HTP session open poisons the ggml backend registry (null device)
  *    and takes the whole llama-server process down — CPU mode included — so a
- *    doomed first spawn must never happen (M1, 2026-08-19 + backend source);
+ *    doomed first spawn must never happen;
  *  - an unsatisfiable anon-for-DMA allocation at model load PANICS the kernel
- *    (whole-device reboot, no LMK rescue) — hence the MemAvailable load gate
- *    (2026-08-26 (d) HARD RULE: refuse below peak + ~0.7 GB margin);
+ *    (whole-device reboot, no LMK rescue) — hence the MemAvailable load gate:
+ *    refuse below peak + ~0.7 GB margin;
  *  - all signals readable from an app uid are best-effort: SELinux may deny
  *    sysfs reads. The authoritative verdict is the child's own session open,
  *    which the isolated :llm process + crash counter contain.
@@ -101,7 +101,7 @@ object HexagonProbe {
             )
         }
 
-        // 3. Memory gate (kernel-panic protection, findings 2026-08-26 (d)).
+        // 3. Memory gate (kernel-panic protection).
         val avail = memAvailableKb()
         val required = if (modelFile != null && modelFile.isFile) requiredMemKb(modelFile.length()) else 0
         if (required > 0 && avail < required) {

@@ -23,7 +23,7 @@
  * segments (temperament + habit) right after the backstory anchor.
  */
 #define POCKETREALM_LLAMA_PROMPT_FORMAT_VERSION 5
-// v5: A5 trained memory dialect (Relationship with/AbsenceLine/inline
+// v5: trained memory dialect (Relationship with/AbsenceLine/inline
 // facts) in BuildPromptContext - see PlayerbotLlmMemory.cpp
 
 // response marker for the duty-cycle governor's player-facing busy state

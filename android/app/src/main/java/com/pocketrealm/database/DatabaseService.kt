@@ -42,10 +42,10 @@ class DatabaseService : Service() {
         override fun applyPinnedMigrations(): String = guarded { engine.applyPinnedMigrations() }
         override fun provisionSqliteProvider(): String = guarded { engine.provisionSqliteProvider() }
         override fun translateUserStateToSqliteStaging(): String = guarded {
-            // P6.5/W9: the differential lane's Server-A dump leg (the P5
-            // export produces the canonical mysqldump-TSV staging the
-            // parity oracle consumes); also the registered P5 window
-            // exposure.
+            // The differential lane's Server-A dump leg: the export
+            // produces the canonical mysqldump-TSV staging the parity
+            // oracle consumes; also the dual-provider window's Binder
+            // exposure for the translation.
             engine.translateUserStateToSqliteStaging()
         }
         override fun stop(): String = guarded { engine.stop() }

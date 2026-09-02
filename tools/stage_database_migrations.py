@@ -3,7 +3,7 @@
 
 The source repos remain the source of truth. This script selects the exact
 Classic 1.12.1 inputs, records their pinned commits and SQL hashes in the
-reviewable schema manifest, and emits deterministic gzip assets for Android.
+schema manifest, and emits deterministic gzip assets for Android.
 """
 from __future__ import annotations
 

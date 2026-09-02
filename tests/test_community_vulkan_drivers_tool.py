@@ -1,8 +1,8 @@
-"""Contract for tools/generate_community_vulkan_drivers.py (plan
-community-turnip-list §7): the reviewed manifest is the only source of the
-generated Kotlin list, the checked-in projection is fresh, and the generator
-rejects unpinned or unprovenanced edits — with exactly the semantics the
-Kotlin data-class init will apply (full-match regexes, UTF-16 label length)."""
+"""Contract for tools/generate_community_vulkan_drivers.py: the committed
+manifest is the only source of the generated Kotlin list, the checked-in
+projection is fresh, and the generator rejects unpinned or unprovenanced
+edits — with exactly the semantics the Kotlin data-class init will apply
+(full-match regexes, UTF-16 label length)."""
 
 import importlib.util
 import json

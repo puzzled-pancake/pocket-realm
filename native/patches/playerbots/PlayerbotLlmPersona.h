@@ -49,7 +49,7 @@ public:
     // convenience: classify + fallback in one call
     static bool TryFallback(Player* bot, std::string const& message, bool whisper, std::string& line);
 
-    // ---- M6: the authored layer speaks for itself (all banter-core driven)
+    // ---- the authored layer speaks for itself (all banter-core driven)
 
     // governor-busy placeholder from the POOL_BUSY recency ring (per-bot,
     // tic-seasoned); falls back to the configured LLMBusyReply conf line

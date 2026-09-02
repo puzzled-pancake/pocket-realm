@@ -497,7 +497,7 @@ fun SettingsScreen(
                             UserVulkanDriverPresentation.IMPORT_IN_PROGRESS_NOTICE
                         scope.launch(Dispatchers.IO) {
                             try {
-                                // A failed import is a status line, never a crash (I2).
+                                // A failed import is a status line, never a crash.
                                 val outcome = runCatching {
                                     importUserVulkanDriverFromUri(context, uri)
                                 }.getOrElse { failure ->

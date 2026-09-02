@@ -167,7 +167,7 @@ static void TestCargoWording()
         std::string c = DebtCargo("P", "owes me 1 copper", 92);
         CHECK(a != b && b != c && a != c);
     }
-    // ---- S11 P50/P51: the long-form cue (frozen bytes) + the licensing
+    // ---- the long-form cue (frozen bytes) + the licensing
     // layer and its trigger shapes
     CHECK(std::string(kLongFormCue) ==
           "This one is worth telling properly - take a full breath "
@@ -185,7 +185,7 @@ static void TestCargoWording()
     CHECK(WantsOpenConfidence("tell me about yourself sometime"));
     CHECK(!WantsOpenConfidence("how much for the hammer"));
     CHECK(!WantsOpenConfidence("follow me to the quarry"));
-    // S9/E4: the system-colored progression line riding the observed
+    // the system-colored progression line riding the observed
     // crossing - never names the mechanic, ASCII only, both directions
     CHECK(TierShiftSysLine("Kromgrit", true) ==
           "Kromgrit seems warmer toward you.");

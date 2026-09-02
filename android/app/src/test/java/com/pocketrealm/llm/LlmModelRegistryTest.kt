@@ -8,7 +8,7 @@ import org.junit.Test
 
 /**
  * Registry contract (LLM-INTEGRATION.md §4.1): ids are stable selection keys,
- * tuned checkpoints carry verified 64-hex integrity pins (G-3), file names
+ * tuned checkpoints carry verified 64-hex integrity pins, file names
  * never collide in filesDir/models, and unknown persisted ids resolve to the
  * default rather than crashing a realm start.
  */
@@ -41,7 +41,7 @@ class LlmModelRegistryTest {
 
     @Test
     fun baseModelKeepsItsDownloadUrlAndLegacyNoVerifyPin() {
-        // the base pin is still upstream-unverified (plan G-3): empty sha
+        // the base pin is still upstream-unverified: empty sha
         // keeps the historical skip-download-verification semantics
         assertEquals("", LlmModelRegistry.BASE_E2B.sha256)
         assertFalse(LlmModelRegistry.BASE_E2B.localOnly)
@@ -73,8 +73,7 @@ class LlmModelRegistryTest {
             LlmModelRegistry.DEFAULT_MODEL_ID,
             LlmModelRegistry.byId("no-such-model-anymore").id,
         )
-        // S4 default flip: TUNED_E2B is the default; BASE is now a
-        // non-default selection
+        // the default is TUNED_E2B; BASE is a non-default selection
         assertEquals(
             LlmModelRegistry.TUNED_E2B.id,
             LlmModelRegistry.DEFAULT_MODEL_ID,

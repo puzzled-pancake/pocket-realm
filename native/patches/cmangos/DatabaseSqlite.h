@@ -1,5 +1,5 @@
 /*
- * Pocket Realm hardened SQLite backend (P2 of the MariaDB replacement plan).
+ * Pocket Realm hardened SQLite backend.
  *
  * Replaces native/cmangos/src/shared/Database/DatabaseSqlite.h under
  * DO_SQLITE builds only. Changes vs upstream:

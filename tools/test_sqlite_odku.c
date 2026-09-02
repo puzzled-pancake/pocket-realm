@@ -1,5 +1,5 @@
 /*
- * P3/G5 ODKU-threshold + benign-DDL fixture (MariaDB replacement plan).
+ * ODKU-threshold + benign-DDL fixture.
  *
  * Executes the EXACT rewritten runtime SQL shapes against the PINNED
  * amalgamation:
@@ -8,7 +8,7 @@
  *    boundaries (9->10, 29->30, 59->60), plus negative deltas, the
  *    fresh-insert path, and the INSERT OR IGNORE backstory shape;
  *  - the negative control: the MECHANICAL (unfolded) rewrite a naive
- *    port would produce, proving it lags the thresholds (F28/F43) - the
+ *    port would produce, proving it lags the thresholds - the
  *    fold is load-bearing;
  *  - TravelMgr's CREATE TABLE IF NOT EXISTS (the one benign runtime DDL)
  *    parses and round-trips;
@@ -145,7 +145,7 @@ int main(int argc, char** argv)
     scenario(db, ODKU_FOLDED, 109, 60, -1, &pts, tier, sizeof tier);
     CHECK(pts == 59 && strcmp(tier, "ally") == 0, "60-1 -> 59 ally");
 
-    /* Negative control (F28/F43): the MECHANICAL unfold lags - at 59+1 the
+    /* Negative control: the MECHANICAL unfold lags - at 59+1 the
      * pre-update points (59) pick 'ally' while points becomes 60. Prove
      * the trap is real so the fold can never be "simplified" away. */
     scenario(db, ODKU_UNFOLDED, 110, 59, 1, &pts, tier, sizeof tier);
@@ -173,7 +173,7 @@ int main(int argc, char** argv)
           "gossip expiry insert");
     {
         /* The id-omitting insert auto-assigned through the rowid alias
-         * (the I-41 translation requirement, made explicit). */
+         * (the translation requirement, made explicit). */
         sqlite3_stmt* stmt = NULL;
         CHECK(sqlite3_prepare_v2(db, "SELECT `id` FROM `world_gossip` WHERE `source_bot` = 300 "
                                  "AND `text` = 'hello';", -1, &stmt, NULL) == SQLITE_OK,
@@ -232,7 +232,7 @@ int main(int argc, char** argv)
     /* The SQLite-correct text escape (quote-doubling ONLY - SQLite
      * literals have no backslash escapes): a backslash+quote string
      * round-trips byte-identical, the behavior EscapeSql's DO_SQLITE
-     * branch (I-40) must produce. Doubling the backslash would store
+     * branch must produce. Doubling the backslash would store
      * "path \\o/ and it's" (18 bytes) instead of 17. */
     CHECK(exec(db, "CREATE TABLE t_escape(id INTEGER PRIMARY KEY, text TEXT);") == 0,
           "escape table");

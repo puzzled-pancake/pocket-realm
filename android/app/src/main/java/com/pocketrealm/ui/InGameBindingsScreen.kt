@@ -427,7 +427,7 @@ private fun BindingRow(
     val defaults = WowVanillaBindingCatalog.stockDefaultKeys(binding.id)
     val defaultKeys = defaults?.slots.orEmpty()
     // A reserved default key is never a valid modification baseline: the
-    // controller overlay owns whatever the stock default was (§7).
+    // controller overlay owns whatever the stock default was.
     val reservedDefault = defaultKeys.any { it in WowVanillaBindingCatalog.reservedKeys }
     val liveKeys = bindings?.filterValues { it == binding.id }?.keys?.toList()
     val primary = queued?.primary ?: liveKeys?.getOrNull(0)

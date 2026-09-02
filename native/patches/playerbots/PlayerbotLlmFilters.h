@@ -2,7 +2,7 @@
 #define _PlayerbotLlmFilters_h
 
 /*
- * The A12 post-generation hygiene stack (plan §3), applied to the
+ * The post-generation hygiene stack, applied to the
  * CLEANED reply text (tool blocks already extracted and queued):
  *
  *   deterministic, every reply:  markdown stripper -> ASCII clamp ->
@@ -15,7 +15,7 @@
  *                                exempt, rate-capped - see the bridge's
  *                                NoteMandatesContent)
  *
- * Plus the A11 era logit_bias: the always-ban terms resolved to token
+ * Plus the era logit_bias: the always-ban terms resolved to token
  * ids through the embedded server's /tokenize endpoint, cached for the
  * process, spliced into request bodies by GenerateHttp (fail-open - no
  * /tokenize means no bias; the guard and the backstop still hold).

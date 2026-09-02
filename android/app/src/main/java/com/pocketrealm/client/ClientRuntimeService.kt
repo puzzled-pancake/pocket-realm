@@ -41,7 +41,7 @@ class ClientRuntimeService : Service() {
      * True while a preparePrefix call is between its validation and its
      * prepared-ticket publication — the window in which Config.uvar/binding
      * writes may be in flight even though no session exists yet. The
-     * in-game settings editor treats this as "not stopped" (plan §5.3).
+     * in-game settings editor treats this as "not stopped".
      */
     @Volatile
     private var prepareInFlight: Boolean = false
@@ -766,7 +766,7 @@ class ClientRuntimeService : Service() {
     }
 
     /**
-     * Crash guard + diagnostics hook for the user Vulkan lane (Phase E).
+     * Crash guard + diagnostics hook for the user Vulkan lane.
      * SYSTEM/PACKAGED lanes are qualified and never reach this. Runs after
      * the session reached a terminal state, outside the session lock.
      */

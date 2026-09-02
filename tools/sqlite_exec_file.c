@@ -1,6 +1,6 @@
 /*
- * P4/G6 fidelity-harness executor: run a Route A seed transcript
- * through the PINNED amalgamation (MariaDB replacement plan).
+ * Fidelity-harness executor: run a seed transcript
+ * through the PINNED amalgamation.
  *
  * The seeder itself executes via Python's stdlib sqlite3, which may be a
  * different engine build than the one the runtime links. This executor
@@ -248,8 +248,8 @@ int main(int argc, char** argv)
     }
 
     if (failures == 0) {
-        /* Post-replay corruption gate (adopted P4 R3): the same
-         * integrity contract P6 will enforce at first boot, closing
+        /* Post-replay corruption gate: the same
+         * integrity contract first boot enforces, closing
          * the harness with a whole-database consistency proof for
          * near-zero cost (the replay itself dominates this leg). */
         sqlite3_stmt* chk = NULL;

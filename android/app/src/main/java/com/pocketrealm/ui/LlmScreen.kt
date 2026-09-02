@@ -109,7 +109,7 @@ internal fun LlmScreen(contentPadding: PaddingValues = PaddingValues()) {
         val model = LlmModelCoordinator.modelPathFor(context, snap.llmModelId)
         if (!model.isFile) return
         scope.launch(Dispatchers.IO) {
-            // §4.4: the staged non-thinking override arms the warm-up
+            // The staged non-thinking override arms the warm-up
             // probe's template retry (single-sourced with the supervisor's
             // pre-world launch). Staged off the main thread - flash IO,
             // however small.
@@ -329,10 +329,10 @@ internal fun LlmScreen(contentPadding: PaddingValues = PaddingValues()) {
             LlmCard("Model") {
                 val selected = LlmModelRegistry.byId(snap.llmModelId)
                 val model = LlmModelCoordinator.modelPathFor(context, snap.llmModelId)
-                // E5: small-first ordering with trade-off copy — the 501 MB
+                // Small-first ordering with trade-off copy — the 501 MB
                 // efficiency model is the "try it first" download, the 3.36 GB
                 // E2B is the upgrade. All three stay selectable; local-only
-                // entries stage by hand until §4.2 decides distribution.
+                // entries stage by hand (no download distribution yet).
                 ChoiceRow(
                     label = "Bot brain model",
                     selectedId = selected.id,
@@ -372,8 +372,8 @@ internal fun LlmScreen(contentPadding: PaddingValues = PaddingValues()) {
                 )
                 if (!modelState.present) {
                     if (selected.localOnly) {
-                        // registry models without a URL are staged by hand until
-                        // the distribution decision lands (plan §4.2)
+                        // registry models without a URL are staged by hand;
+                        // they have no download source
                         Text(
                             "This model is staged by hand (sideload/adb): ${model.name}",
                             style = MaterialTheme.typography.bodySmall,

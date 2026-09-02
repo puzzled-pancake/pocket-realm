@@ -16,7 +16,8 @@ import org.junit.runner.RunWith
 import java.io.File
 
 /**
- * O12: the archive lane mirrors O11's death-and-resume discipline. The debug
+ * The archive import lane mirrors the integrated-runtime lane's death-and-resume
+ * discipline. The debug
  * fixture provider serves synthetic archives (SyntheticClientArchives — no
  * Blizzard bytes) under the `archives` root as single documents.
  */

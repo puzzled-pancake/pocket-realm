@@ -80,7 +80,7 @@ class XServerInputSink(private val xServer: XServer) : InputSink {
  * Boundary: pure UI-process state, like the prior [ClientInputBridge] sets. It
  * only calls XServer primitives that already exist (`injectPointerMove`,
  * `injectPointerMoveDelta`, `injectPointerButtonPress/Release`,
- * `keyboard.onKeyEvent`). No AIDL, no native change, no Wine change. The topology decision's
+ * `keyboard.onKeyEvent`). No AIDL, no native change, no Wine change. The
  * "UI process owns input translation" invariant is preserved.
  *
  * Generation ownership: each [ClientDisplayHost] instance is one display/client
@@ -1577,7 +1577,7 @@ class InputContract(
         binding?.let { gamepadActionLocked(src, ControlOwner.Axis(axis), it, pressed) }
     }
 
-    /** PROFILED R2 participates in Select+R2 whether Android reports an axis or a key. */
+    /** The profiled R2 participates in Select+R2 whether Android reports an axis or a key. */
     private fun updateExternalRightTriggerLocked(
         src: Int,
         state: SourceState,

@@ -25,8 +25,7 @@ import java.util.concurrent.TimeUnit
  * one-shot instrumentation would tear everything down on exit).
  *
  * The host side is tools/world_console.py (adb root + push/pull of the
- * two files; run-as cannot cross the API-35 FUSE boundary — the o09
- * staging precedent).
+ * two files; run-as cannot cross the API-35 FUSE boundary).
  *
  * Ops (arg1/arg2 payload):
  *   db-status | db-health | db-stop
@@ -121,7 +120,7 @@ class WorldConsoleRelay {
                 // Both world exits retire the :world process (killForTest kills
                 // immediately; the clean stop arms the 250 ms retireCleanProcess
                 // fuse) - drop the stale proxy so the next world op rebinds to
-                // the fresh process (the runners' R1 D rule).
+                // the fresh process.
                 world?.close(); world = null
                 killed
             }

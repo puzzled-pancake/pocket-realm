@@ -318,7 +318,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
      * and the running process can never disagree.
      */
     private fun ensureLlmRuntime(snapshot: Settings.Snapshot, profileId: String) {
-        // S10/E6: the chatter power refresher runs in BOTH modes (embedded
+        // The chatter power refresher runs in BOTH modes (embedded
         // and external) - it only writes when the ambience switch is on,
         // and the native layer degrades to silence when the file goes
         // stale, so a dead refresher is always fail-safe. Started here so
@@ -346,7 +346,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         val config = LlmRuntimePolicy.runtimeConfig(
             snapshot,
             model.absolutePath,
-            // §4.4: stage the non-thinking chat template override so the
+            // Stage the non-thinking chat template override so the
             // service's warm-up probe can retry a thinking template with
             // --chat-template <staged content> (same single source as
             // LlmScreen's Start-now)

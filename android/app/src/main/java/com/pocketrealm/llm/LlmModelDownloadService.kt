@@ -213,7 +213,7 @@ class LlmModelDownloadService : Service() {
         private const val EXTRA_MODEL_ID = "model_id"
 
         /** Downloads the registry model selected by [modelId] (default = registry default). */
-        // modelId null falls back to DEFAULT_MODEL_ID - since the S4 flip that is
+        // modelId null falls back to DEFAULT_MODEL_ID - the registry default is
         // the LOCAL-ONLY tuned model (no URL): a null-id download fails by
         // design. Production callers pass the selected descriptor's id.
         fun start(context: Context, modelId: String? = null) {

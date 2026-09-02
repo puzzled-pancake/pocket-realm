@@ -8,13 +8,13 @@
 #include <vector>
 
 /*
- * The A9 real-JSON response client core (header-only, C++11, no external
+ * The real-JSON response client core (header-only, C++11, no external
  * dependencies).
  *
  * The shipped endpoints - the embedded llama-server and external
  * OpenAI-compatible services - answer /v1/chat/completions with a JSON
  * envelope. The old client regexed the assistant text out of the raw HTTP
- * body: the reviewed end pattern `(")` truncates at the first escaped quote
+ * body: its end pattern `(")` truncates at the first escaped quote
  * inside the reply, a newline in the reply breaks the start-pattern match,
  * and every non-ASCII escape is passed through mangled. This header parses
  * the envelope for real and decodes `choices[0].message.content` with full
@@ -25,13 +25,12 @@
  * text shapes: bodies that do not parse as JSON are returned untouched by
  * the caller and flow through the conf-level patterns unchanged.
  *
- * Extracted as a pure header so the host battery
+ * Extracted as a pure header so the host test suite
  * (tools/test_llm_json_client.cpp, run by tests/test_llm_json_client.py)
  * compiles the exact shipped code with -std=c++11, like llm_banter_core.h.
- * (Size note: the plan sanctioned "a ~200-line parser" - the parser core
+ * (Size note: the parser core
  * in namespace detail is ~350 lines; the rest is the envelope/retry-splice/
- * trim/voicing-gate API the same A9 paragraph requires. Recorded as a
- * deliberate decision, not silent drift.)
+ * trim/voicing-gate API. Deliberate, not silent drift.)
  */
 namespace pocketllm
 {
@@ -468,7 +467,7 @@ struct CompletionEnvelope
     bool jsonParsable = false;     // body was a valid JSON document
     bool contentIsString = false;  // content was a JSON string (null is not)
     std::string content;           // decoded assistant text
-    bool reasoningPresent = false; // non-empty reasoning_content (the §1.4
+    bool reasoningPresent = false; // non-empty reasoning_content (the
                                    // thinking-preamble symptom)
     bool finishLength = false;     // finish_reason == "length"
 };
@@ -613,7 +612,7 @@ inline CompletionEnvelope ParseCompletionEnvelope(const std::string& body)
 }
 
 /** JSON-escape `value` for embedding inside a JSON string literal. */
-// A12 strict-UTF-8 sanitizer: drops INVALID sequences only (a lead
+// Strict-UTF-8 sanitizer: drops INVALID sequences only (a lead
 // byte without its continuations, an orphaned continuation) and keeps
 // valid 1-4 byte sequences whole. The request-side gate - a player line
 // with stray Latin-1 bytes would build a body the server rejects
@@ -655,7 +654,7 @@ inline std::string EscapeJsonString(const std::string& value)
     for (size_t i = 0; i < value.size(); ++i)
     {
         unsigned char c = static_cast<unsigned char>(value[i]);
-        // A12 strict-UTF-8 request-side gate (the S4 R6 finding, folded
+        // strict-UTF-8 request-side gate, folded
         // here so every request string passes it at the single choke
         // point): a player line with stray Latin-1 bytes would build a
         // body the server rejects outright - a silent dead generation.
@@ -790,7 +789,7 @@ inline bool LooksLikeVoicableText(const std::string& body)
  * would put the instruction on the wrong turn, so the whole splice is
  * refused); the caller then gives up quiet rather than guessing.
  *
- * Used for the §1.4 empty-content retry: the pinned base model spends the
+ * Used for the empty-content retry: the pinned base model spends the
  * whole budget on a thinking preamble routed into reasoning_content, so the
  * client resends once with a direct-answer instruction appended to the turn
  * being answered. The insertion is a pure byte splice at the closing quote:

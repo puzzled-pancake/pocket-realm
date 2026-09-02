@@ -29,7 +29,7 @@ namespace {
 // era-appropriate, deliberately tiny trigger lists: the bridge DECIDES,
 // so a false positive voices an off beat while a false negative is only a
 // missed one - precision beats recall at this layer (the recall levers
-// are A13's beat table and the v2.3 weights, not longer lists)
+// are the beat table and the tuned weights, not longer lists)
 char const* const kInsultTriggers[] = {
     "trash", "useless", "stupid", "idiot", "worthless", "garbage",
     "fool", "clumsy", "drunk gnome", "pig iron",
@@ -45,7 +45,7 @@ char const* const kNewsTriggers[] = {
     "any news", "what happened", "news from", "heard anything", "heard about",
 };
 
-// Negation-aware trigger scan (the S7 idiom fix): "don't thank me",
+// Negation-aware trigger scan: "don't thank me",
 // "that's not funny", "never follow me" must not fire their beats.
 bool ContainsAny(std::string const& text, char const* const* list, size_t count)
 {
@@ -56,7 +56,7 @@ bool ContainsAny(std::string const& text, char const* const* list, size_t count)
     return pocketllm::EarliestHit(lower, list, count) != std::string::npos;
 }
 
-// ---- A11: the lore card index (loaded once; empty key = loop off)
+// ---- the lore card index (loaded once; empty key = loop off)
 pocketllm::LoreIndex const* LoadedLore()
 {
     static std::mutex mutex;
@@ -92,11 +92,11 @@ void AddLoweredName(std::set<std::string>& names, std::string const& raw)
     names.insert(lower);
 }
 
-// The A10 known-name set, built once from the in-memory template caches
+// The known-name set, built once from the in-memory template caches
 // (creatures, quests, items) plus the DBC area table. Names arrive from
 // the pure extractor as alpha+space phrases. The build is mutex-guarded:
-// IsKnownName also runs on the async generation threads (the A12
-// invention post-filter), not just the world thread.
+// IsKnownName also runs on the async generation threads (the invention
+// post-filter), not just the world thread.
 std::set<std::string> const& KnownTemplateNames()
 {
     static std::mutex mutex;
@@ -120,8 +120,8 @@ std::set<std::string> const& KnownTemplateNames()
         // gameobjects round out the set: their storage is a hash map,
         // but the base-class data iterator walks it fine - folding them
         // here removes the only live DB query from name resolution
-        // (round-1 R1/R5: repeated unindexed gameobject_template scans
-        // ran per question turn, including from async threads)
+        // (repeated unindexed gameobject_template scans ran per question
+        // turn, including from async threads)
         for (auto itr = sGOStorage.getDataBegin<GameObjectInfo>();
              itr < sGOStorage.getDataEnd<GameObjectInfo>(); ++itr)
             AddLoweredName(names, itr->name);
@@ -130,8 +130,8 @@ std::set<std::string> const& KnownTemplateNames()
     return names;
 }
 
-// A10 known-entity resolution (the shared test behind BuildNoteInner's
-// guard and the A12 invention post-filter): the candidate is known when
+// Known-entity resolution (the shared test behind BuildNoteInner's
+// guard and the invention post-filter): the candidate is known when
 // the world DB knows it (creatures, quests, items, gameobjects, areas),
 // a lore card keys it, or an online player/bot carries it. Caller-side
 // caps bound the cost (the gameobject probe is the one live query).
@@ -150,7 +150,7 @@ bool IsKnownEntity(Player* bot, Player* player, std::string const& name)
     return PlayerbotLlmBridge::IsKnownName(name);
 }
 
-// ---- the per-generation license store (A2 executor cross-check)
+// ---- the per-generation license store (executor cross-check)
 std::mutex g_licenseMutex;
 std::map<uint32, PlayerbotLlmBridge::ToolLicense>& Licenses()
 {
@@ -159,7 +159,7 @@ std::map<uint32, PlayerbotLlmBridge::ToolLicense>& Licenses()
 }
 std::atomic<uint64_t> g_licenseStamp(0);
 
-// ---- S8 beat bookkeeping (in-memory, mutex-guarded; world-thread
+// ---- beat bookkeeping (in-memory, mutex-guarded; world-thread
 // note builds are the only writers):
 // the last tier whose transition the bridge already voiced a ceremony
 // for (per pairing). A fresh process seeds silently - a ceremony must
@@ -231,14 +231,14 @@ bool ConsumeGreetingGap(uint32 botGuid, uint32 playerGuid)
     return true;
 }
 
-// the A13 dedupe-exemption budget: at most ONE exempted generation per
-// bot per minute (round-1 R6: a player spamming "are we square?" would
+// the dedupe-exemption budget: at most ONE exempted generation per
+// bot per minute (a player spamming "are we square?" would
 // otherwise disable the only anti-parrot mechanism for a mandated beat
 // that re-fires verbatim every turn). Normal play never feels the cap -
 // mandated beats are at most one per turn and turn cadence exceeds a
 // minute under real chat; the attack collapses onto the capped path and
 // the do-not-repeat reroll takes over (the reply still carries the
-// cargo, freshly phrased - which is all the plan's exemption wants).
+// cargo, freshly phrased - which is all the exemption wants).
 std::map<uint32, time_t>& MandateExemptAt()
 {
     static std::map<uint32, time_t> instance;
@@ -299,7 +299,7 @@ std::string PlayerbotLlmBridge::LicensedLineFor(uint32 botGuid, uint64_t stamp,
     std::string const& tool)
 {
     // one locked read serves both the coverage check and the line fetch
-    // (round-1 P2: the former two-read form could straddle a record)
+    // (the former two-read form could straddle a record)
     ToolLicense const license = CurrentLicense(botGuid);
     if (license.stamp == 0 || license.stamp != stamp || !license.tools.count(tool))
         return "";
@@ -328,7 +328,7 @@ bool PlayerbotLlmBridge::NoteMandatesContent(uint32 botGuid, uint64_t stamp)
 
 bool PlayerbotLlmBridge::NoteLongFormCued(uint32 botGuid, uint64_t stamp)
 {
-    // the reply budget's per-turn earning (S11): the wide 4x255 chat
+    // the reply budget's per-turn earning: the wide 4x255 chat
     // budget is spent only by a generation whose OWN note carried the
     // frozen cue. Stamp-checked like NoteMandatesContent - a superseding
     // note never widens an older in-flight generation - and NO budget
@@ -408,15 +408,14 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
     PlayerbotLlmBridge::EventKind const eventKind =
         (PlayerbotLlmBridge::EventKind)state.eventKind;
 
-    // housekeeping event-nudge (A1's event beats): a world event turn
+    // housekeeping event-nudge: a world event turn
     // licenses ONE memory write about it, plus the KIND's own licensed
-    // extra (S8/A17-A19: a level-up earns the cheer emote the plan
-    // specced; a duel outcome earns the sentiment move the bridge
-    // decided - a fair win over the bot is earned regard, a flee is a
-    // slight). The [EVENT]-head-with-note compose combination is
-    // UNTRAINED (the corpus's event_turn rows carry no lines) - the S6
-    // chain battery measured the log_fact-only shape; the S8 gates
-    // measure the kind-bearing shapes. No guard and no card here: event
+    // extra (a level-up earns the cheer emote; a duel outcome earns the
+    // sentiment move the bridge decided - a fair win over the bot is
+    // earned regard, a flee is a slight). The [EVENT]-head-with-note
+    // compose combination is
+    // UNTRAINED (the corpus's event_turn rows carry no lines - only the
+    // bare log_fact shape is trained). No guard and no card here: event
     // text is bridge-authored, never a player-acted-on entity. The news
     // cargo is bridge-decided, so the note mandates its content.
     if (state.eventTurn)
@@ -447,7 +446,7 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
         return note;
     }
 
-    // ---- S7 A10/A11 question path, computed BEFORE the ladder so the
+    // ---- question path, computed BEFORE the ladder so the
     // outcome MERGES into whatever beat fires (merge-not-defer: deferring
     // a first-meeting log_fact permanently loses the memory). Exactly one
     // of: a [RESULT] card, or a guard directive on the FIRST unresolved
@@ -487,11 +486,11 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
         }
     }
 
-    // conversational ACT beats (A2/A11): an explicit, actionable request
+    // conversational ACT beats: an explicit, actionable request
     // outranks sentiment AND recall - the ask is the ask. The note
     // carries the ready-made line with the SPEAKER's name (target
     // consistency starts here: the model is asked to copy, the executor
-    // re-validates the name against the speaker). A16's Trusted
+    // re-validates the name against the speaker). The Trusted
     // discount procedure rides the give_item fill (warmth changes what
     // the bot DOES: a friend's price is the only price it knows).
     bool actBeat = false;
@@ -517,7 +516,7 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
                     note.fills = "A friend's price is the only price you know - say so "
                                  "while you hand it over.";
             }
-            // no noun extracted: fall through to the S5 ladder
+            // no noun extracted: fall through to the ladder
             break;
         }
         case pocketllm::BEAT_FOLLOW:
@@ -532,7 +531,7 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
             break;
         case pocketllm::BEAT_MOVE_TO:
         {
-            // S7/A11: the place must resolve against a POI card HERE -
+            // the place must resolve against a POI card HERE -
             // the licensed line carries the CANONICAL title (the
             // bridge-decided field), so the model cannot redirect the
             // move and the executor re-resolves the same way
@@ -554,7 +553,7 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
     }
 
     // insult beat: license the sentiment move the bridge has DECIDED on;
-    // the model only phrases the reason. Second-person gate (S5-logged):
+    // the model only phrases the reason. Second-person gate:
     // "this sword is trash" insults an object, not the bot - the beat
     // fires only when the turn addresses the bot (a second-person word
     // or the bot's name)
@@ -569,7 +568,6 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
 
     // gratitude/gift beat - same second-person gate as the insult beat:
     // "thank the innkeeper for me" thanks a third party, not the bot
-    // (round-1 P2 symmetry fix)
     else if (note.lines.empty() &&
         ContainsAny(normalizedMsg, kGratitudeTriggers,
             sizeof(kGratitudeTriggers) / sizeof(kGratitudeTriggers[0])) &&
@@ -579,7 +577,7 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
         note.fills = "Write in place of ...: the kindness or gift - the reason.";
     }
 
-    // ---- S8/A13 recall beats (the measured retrieval table): the
+    // ---- recall beats: the
     // player's turn references a MEMORY CLASS; the bridge supplies the
     // fact as cargo and the note mandates the content. One beat, before
     // first-meeting (a debt question on a first meeting has no debt to
@@ -612,7 +610,7 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
         }
     }
 
-    // ---- S11 P50 storytelling beat: an explicit ask for a telling. The
+    // ---- storytelling beat: an explicit ask for a telling. The
     // content is still bridge-anchored to a real shared event (the game
     // is truth - no event fact, no story), and the frozen long-form cue
     // rides the cargo only when this tier's max new tokens clears the
@@ -633,7 +631,7 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
         }
     }
 
-    // ---- S11 tier-5 Bonded open-confidence: a friend asking a friend to
+    // ---- tier-5 Bonded open-confidence: a friend asking a friend to
     // really talk, anchored to the player's own goal at length. Tier-5
     // only, second-person-gated (every trigger addresses the bot), and
     // the same long-form token gate.
@@ -667,12 +665,12 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
         if (!fact.empty())
         {
             note.extra = pocketllm::NewsCargo(player->GetName(), fact, bot->GetGUIDLow());
-            // S11 news deep-dive: the cue rides this recall path whenever
+            // news deep-dive: the cue rides this recall path whenever
             // the tier clears the long bank. The fact is event-class BY
             // CONSTRUCTION - GetNewestRecallFact(FACT_MASK_EVENT) selects
             // shared-event rows - so re-classifying here would be dead
-            // code (FactClassOf without the stored category reads PLAIN;
-            // round-1 R1's P0 was exactly that always-false gate).
+            // code (FactClassOf without the stored category reads PLAIN,
+            // so that gate would never fire).
             if (pocketllm::LongFormLicensed(sPlayerbotAIConfig.llmMaxNewTokens))
             {
                 note.extra += std::string("\n") + pocketllm::kLongFormCue;
@@ -684,9 +682,9 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
 
     // greeting-shape recall (once per absence gap): the first
     // conversational turn after hours-or-more away carries the weave
-    // pick, any unsettled grudge, and - A19's delivery priority - what
-    // the town is saying about the player. Absence is the PRE-STOMP
-    // read threaded in TurnState (the S5 law).
+    // pick, any unsettled grudge, and - first in delivery priority -
+    // what the town is saying about the player. Absence is the PRE-STOMP
+    // read threaded in TurnState.
     else if (note.lines.empty() && player && state.tier >= 2 &&
         (state.absence == "a few hours" || state.absence == "most of a day" ||
             state.absence == "many days") &&
@@ -697,7 +695,7 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
         if (!gossip.empty())
         {
             cargo = pocketllm::GossipCargo(player->GetName(), gossip, bot->GetGUIDLow());
-            // A19 belief row: the bot now carries the town's telling, one
+            // belief row: the bot now carries the town's telling, one
             // distortion hop deep (its own retellings drift from here -
             // the world row itself stays pristine). Bounded by gaps.
             PlayerbotLlmMemory::LogFact(bot->GetGUIDLow(), player->GetGUIDLow(),
@@ -761,14 +759,14 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
         note.lines.push_back("<<perform_emote emote=\"laugh\">>");
     }
 
-    // ---- S8/A16 tier ceremony: a transition the pre-stomp read
+    // ---- tier ceremony: a transition the pre-stomp read
     // OBSERVES (one turn after the crossing write landed - the write is
     // async-queued, so the pre-stomp read of the crossing turn still saw
     // the old tier; this is the honest cadence, not a lag bug). The
     // ceremony co-fires with a non-ACT beat only: an actionable request
     // outranks ceremony (the ask is the ask), and an ACT turn does NOT
-    // consume the crossing - the next non-ACT turn voices it (round-1
-    // R6: consuming-and-suppressing would let a player permanently eat
+    // consume the crossing - the next non-ACT turn voices it
+    // (consuming-and-suppressing would let a player permanently eat
     // the one-time moment). The Trusted unlock rides the tier-4
     // ceremony: the secret's one-time marker is the licensed log_fact
     // line (the executor persists the model's copy of the text - a
@@ -798,19 +796,19 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
                     bot->GetGUIDLow());
             }
             // the Bonded address shift rides the ceremony as a PROCEDURE
-            // (the Westfall law: the standing tierNote alone measured 0/3
-            // nickname surface on e2b-tuned - dispositions are ignored)
+            // (the standing tierNote alone never yields nicknames -
+            // dispositions are ignored - so the shift is spelled out)
             if (crossed > 0 && state.tier >= 5)
                 cargo += "\n" + pocketllm::NicknameAdoptionCargo(
                     player->GetName(), bot->GetGUIDLow());
             note.extra = note.extra.empty() ? cargo : note.extra + "\n" + cargo;
             note.mandatesContent = true;
 
-            // S9/E4 visible progression: the cheap system-colored line rides
+            // visible progression: the cheap system-colored line rides
             // the same OBSERVED crossing (pure DB-derived, zero generation) -
             // so the progression stays player-visible even when the ceremony
-            // generation itself is governor-dropped or silent (the S8-(e)
-            // ledger's swallowed-moment class). World thread: BuildNote runs
+            // generation itself is governor-dropped or silent. World thread:
+            // BuildNote runs
             // synchronously inside ChatReplyDo. Sent BEFORE the generation is
             // voiced, never after - it frames the bot's next words.
             if (player->GetSession())
@@ -819,9 +817,9 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
         }
     }
 
-    // A10 merge-not-defer lands here: the guard rides as note.extra with
+    // Merge-not-defer lands here: the guard rides as note.extra with
     // whatever beat lines the ladder chose (compose renders extra ABOVE
-    // the licensed lines inside the one note - the measured merge rule).
+    // the licensed lines inside the one note).
     // A guard with no beat becomes the note itself (extra-only notes get
     // the directive footer from ComposeUserTurn).
     if (!guardExtra.empty())
@@ -836,10 +834,10 @@ PlayerbotLlmBridge::Note PlayerbotLlmBridge::BuildNote(Player* bot, Player* play
     std::string const& normalizedMsg, TurnState const& state)
 {
     Note note = BuildNoteInner(bot, player, normalizedMsg, state);
-    // A2: the license is recorded at note-construction time - the single
+    // The license is recorded at note-construction time - the single
     // choke point every prompt path flows through, before the generation
     // whose emissions it will vet. The issued stamp rides the note out to
-    // the callers, which thread it into the generation (round-1 P1).
+    // the callers, which thread it into the generation.
     note.stamp = RecordLicense(bot ? bot->GetGUIDLow() : 0, note);
     return note;
 }
@@ -847,7 +845,7 @@ PlayerbotLlmBridge::Note PlayerbotLlmBridge::BuildNote(Player* bot, Player* play
 std::string PlayerbotLlmBridge::RenderLegacyTurn(Player* bot, Player* player,
     std::string const& msg, TurnState const& state, uint64_t* licenseStamp)
 {
-    // the nudge strip is event-only (round-1 P2): a player whisper that
+    // the nudge strip is event-only: a player whisper that
     // happens to end in the nudge-shaped suffix keeps its actual words
     std::string const normalized = state.eventTurn
         ? NormalizeTurn(bot->GetName(), msg) : msg;

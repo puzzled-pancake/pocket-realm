@@ -1,8 +1,8 @@
 /*
- * Pocket Realm hardened SQLite backend (P2 of the MariaDB replacement plan).
+ * Pocket Realm hardened SQLite backend.
  *
  * Replaces native/cmangos/src/shared/Database/QueryResultSqlite.cpp under
- * DO_SQLITE builds only. Fixes (digest F26 + the P2 review addendum):
+ * DO_SQLITE builds only. Fixes vs upstream:
  *  - no double scan: the upstream constructor stepped every row once to
  *    count them, reset the statement, then NextRow() stepped them again.
  *  - no post-reset column reads: upstream initialized the first row's

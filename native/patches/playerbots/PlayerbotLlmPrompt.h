@@ -2,8 +2,8 @@
 #define _PlayerbotLlmPrompt_h
 
 /*
- * The A4/A5 trained prompt-format renderer (header-only, C++11, no
- * external dependencies) plus the A4 native chat-request body builder.
+ * The trained prompt-format renderer (header-only, C++11, no
+ * external dependencies) plus the native chat-request body builder.
  *
  * Reproduces the TRAINED prompt contract byte-for-byte (banklib.py:
  * sysm_for_card / compose / card_state - the finetune source of truth) so
@@ -13,9 +13,9 @@
  *          -> bible + NO_NARRATE -> Backstory -> tier (Wary..Bonded 1-5)
  *          -> absence -> facts (inline, "; "-joined)
  *   user   = [say]/[EVENT]/[RESULT] head -> player line -> [Memories]
- *          -> [State] -> [BRIDGE AI] note (S5's bridge overlay appends it)
+ *          -> [State] -> [BRIDGE AI] note (the bridge overlay appends it)
  *
- * Extracted as a pure header so the host battery
+ * Extracted as a pure header so the host test suite
  * (tools/test_llm_prompt_format.cpp, run by tests/test_llm_prompt_format.py)
  * byte-diffs the SHIPPED renderer against banklib over generated vectors -
  * the host always tests the shipped code, never a copy. The verbatim
@@ -221,7 +221,7 @@ inline char const* TierLabel(int tier)
     }
 }
 
-/** DB storage tier -> trained tier number (A5: stranger/acquaintance/ally/
+/** DB storage tier -> trained tier number (stranger/acquaintance/ally/
  * trusted map onto the trained 1-5 scale; bonded is the >=120 derivation). */
 inline int TierFromStorage(std::string const& tier)
 {
@@ -412,9 +412,9 @@ inline std::string NpcSpotState(std::string const& zone)
 }
 
 /** banklib.compose twin (full shape: says/events/results head, [Memories]
- * tail (last 6), [State], and the [BRIDGE AI] note legs that S5's bridge
+ * tail (last 6), [State], and the [BRIDGE AI] note legs that the bridge
  * overlay will call with lines/fills/extra - identical string semantics,
- * so the byte-diff gate covers the S5 composition too). */
+ * so the byte-diff gate covers that composition too). */
 inline std::string ComposeUserTurn(std::string const& player,
     std::vector<std::string> const& says, std::vector<std::string> const& events,
     std::vector<std::string> const& results, std::string const& state,
@@ -482,11 +482,11 @@ struct HistoryTurn
         : assistant(isAssistant), content(text) {}
 };
 
-/** Per-tier request knobs (A6 + SS2.1/SS4.3). providerSafe strips the
+/** Per-tier request knobs. providerSafe strips the
  * llama.cpp-only fields for external endpoints that may reject unknown
  * body keys; thinkingKwargs emits chat_template_kwargs enable_thinking
  * false for model families whose export template defaults to thinking
- * (SS4.4 - the qwen family). */
+ * (the qwen family). */
 struct RequestSampling
 {
     float temperature = 1.0f;
@@ -514,9 +514,9 @@ inline std::string JsonNumber(double value)
     return buf;
 }
 
-/** The A4 native chat-request body: one JSON builder, no conf-string
+/** The native chat-request body: one JSON builder, no conf-string
  * surgery. Message order: system, prior turns (oldest first), the current
- * user turn LAST. Field order mirrors the app template S1 pinned. */
+ * user turn LAST. Field order mirrors the app template. */
 inline std::string BuildChatRequestBody(std::string const& model,
     std::string const& system, std::vector<HistoryTurn> const& history,
     std::string const& user, RequestSampling const& s)

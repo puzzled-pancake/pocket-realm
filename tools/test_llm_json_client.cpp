@@ -272,7 +272,7 @@ static void RunInvariants()
             MakeEnvelope("pretty printed reply", "stop", true));
         CHECK(e.parsed && e.content == "pretty printed reply", "pretty JSON parses");
     }
-    // reasoning-only envelope: the §1.4 pinned-base-model failure mode
+    // reasoning-only envelope: the pinned-base-model failure mode
     {
         std::string body = "{\"choices\":[{\"message\":{\"content\":\"\","
             "\"reasoning_content\":\"Thinking Process: the player wants...\"},"
@@ -355,7 +355,7 @@ static void RunInvariants()
               "NUL-bearing body refused");
         CHECK(!LooksLikeVoicableText("aa\x01\x02\x03\x04\x05" "bb"),
               "control-dense body refused");
-        // round-2 hardening: size cap, bracket-lead structure, key fragments
+        // hardening: size cap, bracket-lead structure, key fragments
         CHECK(!LooksLikeVoicableText(std::string(40000, 'a')),
               "oversize body refused (flood attempt)");
         CHECK(!LooksLikeVoicableText("[[[[[[[[[["),
@@ -425,7 +425,7 @@ static void RunInvariants()
         CompletionEnvelope ws = ParseCompletionEnvelope(
             "{\"choices\":[{\"message\":{\"content\":\" \\t \"}}]}");
         CHECK(ws.parsed && !ContentUsable(ws), "whitespace-only is not usable");
-        // round-2 hardening: per-lead continuation ranges, C1/DEL, size cap
+        // hardening: per-lead continuation ranges, C1/DEL, size cap
         {
             struct Case { const char* label; const char* bytes; bool usable; };
             const Case cases[] = {

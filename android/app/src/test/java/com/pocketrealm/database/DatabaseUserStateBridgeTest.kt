@@ -6,9 +6,9 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * P5/G7: JVM-pure legs of the user-state bridge (codec + query
+ * JVM-pure legs of the user-state bridge (codec + query
  * shaping). The SQLite-touching import legs are validated on device
- * (P7) against the host harness tests/test_sqlite_user_state_bridge.py,
+ * against the host harness tests/test_sqlite_user_state_bridge.py,
  * which proves the same contract byte-for-byte.
  */
 class DatabaseUserStateBridgeTest {
@@ -23,7 +23,7 @@ class DatabaseUserStateBridgeTest {
             "nul\u0000byte".toByteArray(),
             "mix\t\\\n\r\u0000end".toByteArray(),
             "multi-byte ã — 中文".toByteArray(),
-            "astral mail 😀! emoji 🎉".toByteArray(), // surrogate pairs (I-79)
+            "astral mail 😀! emoji 🎉".toByteArray(), // astral surrogate pairs
             ByteArray(0),                    // empty string
             null,                            // NULL
             "\\N".toByteArray(),             // the literal two-char string
@@ -116,7 +116,7 @@ class DatabaseUserStateBridgeTest {
     }
 
     @Test fun outfileExportQueryIsExactlyTheMysqldumpTabMechanism() {
-        // SHARED PARITY FIXTURE (P5 R3 I-107): this test and the host
+        // SHARED PARITY FIXTURE: this test and the host
         // twin's test_outfile_export_query_is_the_shipped_wire both
         // compare against the SAME checked-in canonical statement bytes
         // (tests/p5_outfile_wire_fixture.txt), so the two runtimes can
@@ -140,7 +140,7 @@ class DatabaseUserStateBridgeTest {
             "classiccharacters", "account_data", columns, "/p.tsv", offset = 0,
         )
         // the no-PK form is SECOND-fixture-pinned (both suites compare
-        // the same bytes - P5 R4, B/C idea 1)
+        // the same bytes)
         assertEquals(resolveFixture("p5_outfile_wire_fixture_nopk.txt"), q2)
         org.junit.Assert.assertTrue("ORDER BY `guid`, `name`, `data`, `flag`" in q2)
     }
@@ -157,8 +157,8 @@ class DatabaseUserStateBridgeTest {
 
     @Test fun decodeTsvBytesIsTheStrictStagedFileEntry() {
         // byte-level entry: no String boundary in front of the strict
-        // UTF-8 gate (C2-2); an interior empty line is one empty-string
-        // row (single-column table convention, C2-3); an unterminated
+        // UTF-8 gate; an interior empty line is one empty-string
+        // row (single-column table convention); an unterminated
         // trailing row fails loud
         val rows = listOf(
             listOf("1".toByteArray(), null),
@@ -193,11 +193,11 @@ class DatabaseUserStateBridgeTest {
         org.junit.Assert.assertFalse(
             DatabaseUserStateBridge.isExportBlobColumn("future_table", "payload", "VARCHAR"),
         )
-        // the two known F44 columns are pinned by name as defense in depth
+        // the two known blob columns are pinned by name as defense in depth
         org.junit.Assert.assertTrue(
             DatabaseUserStateBridge.isExportBlobColumn("account_data", "data", "SOMETHINGELSE"),
         )
-        // target side: the P4 translator normalizes the family to BLOB
+        // target side: the translator normalizes the family to BLOB
         org.junit.Assert.assertTrue(
             DatabaseUserStateBridge.isTargetBlobColumn("account_data", "data", "BLOB"),
         )
@@ -245,7 +245,7 @@ class DatabaseUserStateBridgeTest {
             DatabaseUserStateBridge.Importer.TargetColumn("name", "TEXT", true),
         )
         // NULL for a NOT NULL target (INSERT OR REPLACE would silently
-        // store the DEFAULT - the host-harness discovery)
+        // store the DEFAULT)
         org.junit.Assert.assertThrows(BridgeError::class.java) {
             DatabaseUserStateBridge.Importer.rowParams("characters", notNull, listOf(null, "x".toByteArray()))
         }

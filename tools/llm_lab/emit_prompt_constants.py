@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Emit the verbatim text constants for PlayerbotLlmPrompt.h from banklib.
 
-The A4/A5 byte-diff gate requires the shipped renderer to reproduce the
+The byte-diff gate requires the shipped renderer to reproduce the
 training text EXACTLY. Hand-transcription of ~6 KB of prompt text is a
 typo factory, so this script imports the training source of truth
 (G:\\NPU LLM\\scripts\\finetune\\banklib.py) and writes the C++ string
@@ -39,7 +39,7 @@ FRAME_ARRAYS = [
 
 def cpp_str(text: str) -> str:
     """C++11 string literal, split into quoted lines at newline boundaries
-    so every line of the multi-line constants stays reviewable (adjacent
+    so every line of the multi-line constants stays readable (adjacent
     literals concatenate; every line except the last carries \\n)."""
     lines = text.split("\n")
     out = []
@@ -83,7 +83,7 @@ def emit() -> str:
 
 
 def emit_recall() -> str:
-    """The beat-cargo variant frames (S11 rev-3b wording lock) as C++ array
+    """The beat-cargo variant frames (the wording lock) as C++ array
     constants for PlayerbotLlmRecallCore.h. The frames are authored in
     banklib.BEAT_CARGO_VARIANTS and byte-mirrored here; the bridge selects
     one per bot GUID-stably (flavor = botGuid % 3)."""

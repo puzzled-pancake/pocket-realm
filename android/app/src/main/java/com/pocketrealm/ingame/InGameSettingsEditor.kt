@@ -12,7 +12,7 @@ import org.json.JSONObject
 import java.io.File
 
 /**
- * UI-process editor facade (plan §5.1/§5.3). While the client is stopped it
+ * UI-process editor facade. While the client is stopped it
  * direct-edits the WTF files under the shared generation lease and the
  * exclusive edit lock (re-checking the stopped state *inside* the lock so a
  * prepare that just started is detected before any write); while the client
@@ -21,7 +21,7 @@ import java.io.File
  */
 internal class InGameSettingsEditor(private val context: Context) {
 
-    /** Client activity as the editor understands it (plan §5.3). */
+    /** Client activity as the editor understands it. */
     enum class ClientActivity { STOPPED, RUNNING, LAUNCHING, UNKNOWN }
 
     data class ReconcileSummary(val applied: Int, val superseded: Int, val blocked: Int)
@@ -284,7 +284,7 @@ internal class InGameSettingsEditor(private val context: Context) {
     // ------------------------------------------------------------ reconcile
 
     /**
-     * Editor-reopened-while-stopped reconcile (§5.1): drop delivered
+     * Editor-reopened-while-stopped reconcile: drop delivered
      * entries, classify applied vs superseded against the live files, keep
      * everything else (including blocked entries, which stay visibly
      * queued). Returns the three-term summary the hub renders.

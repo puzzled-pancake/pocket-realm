@@ -5,7 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * S10/E6: the power-ladder rung table (plan §4.6b). The mapping is pure
+ * The power-ladder rung table. The mapping is pure
  * ([ChatterPowerMonitor.computeRung]) and pinned here against the ladder
  * conditions; the constants mirror the native pocketllm::ChatterRung
  * enum, which the host battery pins on the C++ side.

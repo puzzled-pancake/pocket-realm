@@ -55,9 +55,9 @@ class WineSpikeTest {
     @Test
     fun t3_s3_x11_gdi_window() = runBlocking {
         val result = runner.runS3()
-        // S-3 is DEFERRED until the X-server harness is vendored. We do NOT
-        // weaken acceptance — the test fails honestly, recording the deferral.
-        // When the harness is ready, this assertion flips to result.ok.
+        // Requires the vendored X-server harness: without it the runner
+        // records NO_WINDOW_MAPPED and fails here. Acceptance is never
+        // weakened.
         assertTrue(
             "S-3 (X11/GDI window) not yet passing: ${result.code} :: ${result.detail.joinToString()}",
             result.ok

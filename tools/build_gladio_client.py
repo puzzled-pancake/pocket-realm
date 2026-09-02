@@ -84,7 +84,7 @@ PHASE3_GL_CALLS_SHA256 = "614693d16ae2cc20c5d78c6ed4073172124b3d05580ac934d1ac9c
 # head/tail commits, glDisableVertexAttribArray-style mirroring for
 # glEnableVertexAttribArray, and all-or-nothing texture/immediate-mode writes.
 # No request code or payload layout changes.  Applied last against the fully
-# mutated tree; every touched file is sha-locked to the reviewed content.
+# mutated tree; every touched file is sha-locked to the pinned content.
 PHASE4_PATCH = ROOT / "tools" / "patches" / "gladio-phase4-transport.patch"
 PHASE4_FILE_SHA256 = {
     "include/gladio.h":
@@ -511,7 +511,7 @@ static inline int computeTexImageDataSpan(
 
     # Phase-2 research corrections (see PHASE2_PATCH): applied after the
     # pixel-store/BGRA edits above so the unified diff context matches the
-    # generated tree exactly; fail closed on any drift from the reviewed
+    # generated tree exactly; fail closed on any drift from the expected
     # post-patch content.
     if TARGET_ABI != "x86_64":
         subprocess.run(

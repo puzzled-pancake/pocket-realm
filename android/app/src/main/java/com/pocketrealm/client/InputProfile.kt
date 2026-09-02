@@ -275,9 +275,9 @@ data class ClusterAnchor(val xFraction: Float, val yFraction: Float)
 /**
  * Mobile input UX — versioned logical input profile.
  *
- * Report §16.6/§16.8 require a persisted action map with per-device dead zones
- * that resets to a known layout when the screen aspect changes beyond a tested
- * threshold. The profile is deliberately small, but it is now persisted as a
+ * The persisted action map carries per-device dead zones
+ * and resets to a known layout when the screen aspect changes beyond a tested
+ * threshold. The profile is deliberately small, but it is persisted as a
  * versioned JSON record so a relaunch keeps the user's dead-zone and camera
  * sensitivity choices without carrying a layout across an incompatible aspect.
  *

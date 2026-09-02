@@ -80,10 +80,10 @@ abstract class ValidateConnectedAndroidTestTargetTask : DefaultTask() {
         // was captured from gradle.startParameter at configuration time, which a
         // cached configuration can serve stale. Under a Gradle daemon the
         // launcher JVM is the daemon itself, so its command line carries no
-        // build arguments and this check cannot verify anything (verification
-        // round C1) — it stays useful for no-daemon runs only. The durable fix
-        // is a settings ValueSource feeding a tracked property; tracked as
-        // remaining work. Do not claim coverage the check cannot provide.
+        // build arguments and this check cannot verify anything — it stays
+        // useful for no-daemon runs only. The durable fix is a settings
+        // ValueSource feeding a tracked property; tracked as remaining work.
+        // Do not claim coverage the check cannot provide.
         val launcherCommand = System.getProperty("sun.java.command", "")
         val launcherIsDaemon = launcherCommand.contains("GradleDaemon")
         val launcherSerialOptionPresent = launcherCommand
@@ -204,10 +204,10 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
     @get:Input
     abstract val lane: Property<String>
 
-    // P5 window: the provider selection is a task INPUT (the class doc
-    // mandates explicit properties so this task stays configuration-
-    // cache serializable - a script-instance reference from the action
-    // would break the store, P5 R1 I-83).
+    // The provider selection is a task INPUT: the class doc mandates
+    // explicit properties so this task stays configuration-cache
+    // serializable - a script-instance reference from the action
+    // would break the store.
     @get:Input
     abstract val sqliteProvider: Property<Boolean>
 
@@ -286,7 +286,7 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
         val required = buildList {
             add(File(nativeBuildRoot, "wine-spike-build/libwine_spike.so"))
             if (selectedLane == "full") {
-                // O23 on-device vanilla-tweaks patcher (produces WoW.exe.patched).
+                // On-device vanilla-tweaks patcher (produces WoW.exe.patched).
                 add(File(repoRoot,
                     "native/.build-vanilla-tweaks-$abi/staging/jniLibs/$abi/libpocket_vanilla_tweaks.so"))
                 add(File(nativeBuildRoot, "pocket-runtime-build/libpocketrealm.so"))
@@ -302,12 +302,12 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
                 if (abi == "arm64-v8a") {
                     add(File(nativeBuildRoot, "xserver-winlator-build/libvortekrenderer.so"))
                     add(File(nativeBuildRoot, "xserver-winlator-build/libvirglrenderer.so"))
-                    // Vendored llama.cpp runtime staged by O09 alongside the
-                    // world runtime it links into (in-process LLM backend).
-                    // The staging root follows the provider selection (P5
-                    // R2 D2-3): under -PsqliteProvider the APK packages the
-                    // SIBLING staging's llama closure, so the gate must
-                    // validate the sibling bytes, not the MariaDB-root ones.
+                    // Vendored llama.cpp runtime staged alongside the world
+                    // runtime it links into (in-process LLM backend). The
+                    // staging root follows the provider selection: under
+                    // -PsqliteProvider the APK packages the SIBLING staging's
+                    // llama closure, so the gate must validate the sibling
+                    // bytes, not the MariaDB-root ones.
                     val llamaRealmRoot = if (isSqliteProvider) "realm-staging-sqlite" else "realm-staging"
                     for (name in listOf("libllama.so", "libllama-common.so", "libggml.so",
                             "libggml-base.so", "libggml-cpu.so")) {
@@ -348,9 +348,9 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
             "libpocket_vmap_assembler.so", "libpocket_movemapgen.so",
         ).map { File(extractorStage, it) }
 
-        // The database lane is deliberately client-runtime-free. O11 data
-        // preparation is deferred to the full runtime lane, where the realm
-        // provider and its memory budget are available.
+        // The database lane is deliberately client-runtime-free. Extractor
+        // data preparation is deferred to the full runtime lane, where the
+        // realm provider and its memory budget are available.
         val laneSpecific = if (selectedLane == "full") serverLibraries + extractors else emptyList()
         val armGraphicsData = if (abi == "arm64-v8a" && selectedLane == "full") listOf(
             File(nativeBuildRoot, "xserver-winlator-build/VIRGL_BUILD_PROVENANCE.json"),
@@ -443,10 +443,10 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
                 virglServerProvenance["upstream_virgl_source_tree_id"] ==
                     "44f73c34d4a2cf4e21fcdbcfc4fc37a44837e1b9" &&
                 virglServerProvenance["adapted_source_sha256"] ==
-                    // Re-pinned 2026-08-17: the F1c xserver rebuild regenerated
+                    // Re-pinned 2026-08-17: the xserver rebuild regenerated
                     // the provenance with a new adapted_source_sha256 because
-                    // the build script self-hashes into it and the tooling
-                    // phase-4 toolbox refactor changed the script. The
+                    // the build script self-hashes into it and a toolbox
+                    // refactor in the tooling changed the script. The
                     // libvirglrenderer.so binary itself is byte-identical
                     // (sha/size pins above unchanged).
                     "ecde987136d772e99c289e882c19df18796e760fef2a232b963694ee544f1e15" &&
@@ -742,18 +742,18 @@ if (pocketLane !in supportedPocketLanes) {
             supportedPocketLanes.sorted().joinToString(),
     )
 }
-// P5 dual-provider window: with -PsqliteProvider the realm runtime comes
-// from the SQLITE lane's sibling staging root (validated against the
-// sibling lockfile schemas/realm-runtime-lockfile-<abi>-sqlite.json) and
-// the seed transcripts ship as compressed assets. Unset (default) keeps
-// the MariaDB-lane behavior byte-identical — that unchanged boot IS the
-// window's rollback. The MariaDB closure stays staged in BOTH modes: the
-// old provider must still boot to export the sealed datadir (F13/F44).
+// Dual-provider selection: with -PsqliteProvider the realm runtime comes
+// from the SQLite sibling staging root (validated against the sibling
+// lockfile schemas/realm-runtime-lockfile-<abi>-sqlite.json) and the seed
+// transcripts ship as compressed assets. Unset (default) keeps the
+// MariaDB-provider behavior byte-identical — that unchanged boot IS the
+// rollback path. The MariaDB closure stays staged in BOTH modes: the old
+// provider must still boot to export the sealed datadir.
 val sqliteProvider = providers.gradleProperty("sqliteProvider").isPresent
-// P6.5 (DEC-09): the differential parity lane's explicit, separately
-// named escape — permits x86_64+sqliteProvider for DEBUG-type assemblies
-// only (the lane APK is never shippable; the I-114 family shipping
-// refusals below stay intact for every release-type variant).
+// -PdifferentialTestLane is the differential parity build's explicit,
+// separately named escape — it permits x86_64+sqliteProvider for
+// DEBUG-type assemblies only (the resulting APK is never shippable; the
+// shipping refusals below stay intact for every release-type variant).
 val differentialTestLane = providers.gradleProperty("differentialTestLane").isPresent
 if (differentialTestLane && pocketLane != "full") {
     throw GradleException(
@@ -761,17 +761,17 @@ if (differentialTestLane && pocketLane != "full") {
     )
 }
 if (sqliteProvider && pocketLane != "full") {
-    // I-114: only the full lane packages/validates the sqlite provider;
-    // refuse the silently-inert combination instead of ignoring the flag.
+    // Only the full lane packages/validates the sqlite provider; refuse
+    // the silently-inert combination instead of ignoring the flag.
     throw GradleException(
         "refusing -PsqliteProvider for pocketLane=$pocketLane (full lane only)",
     )
 }
 if (sqliteProvider && pocketAbi != "arm64-v8a" && !differentialTestLane) {
     throw GradleException(
-        "The sqlite provider window is arm64-first (P8 ordering); " +
+        "The sqlite provider window is arm64-first; " +
             "refusing -PsqliteProvider for pocketAbi=$pocketAbi " +
-            "(the P6.5 differential lane must ALSO pass -PdifferentialTestLane)",
+            "(the x86_64 differential lane must ALSO pass -PdifferentialTestLane)",
     )
 }
 if (differentialTestLane && !sqliteProvider) {
@@ -790,9 +790,9 @@ if (differentialTestLane && gradle.startParameter.taskNames.any { it.contains("R
 if (differentialTestLane && gradle.startParameter.taskNames.any {
         // Aggregate requests resolve release-type tasks through the task
         // graph without any requested name containing "Release" — refuse
-        // them too (P6.5 R1 F + R2 C/F: qualified spellings keep their
-        // last path segment; the Needed/Dependents lifecycle aggregates
-        // resolve release work as well).
+        // them too. Qualified spellings keep their last path segment;
+        // the Needed/Dependents lifecycle aggregates resolve release
+        // work as well.
         val name = it.substringAfterLast(':')
         name.equals("build", ignoreCase = true) || name.equals("assemble", ignoreCase = true) ||
             name.equals("bundle", ignoreCase = true) || name.equals("check", ignoreCase = true) ||
@@ -863,13 +863,13 @@ android {
         // Bump-on-release discipline (update manifests compare codes).
         versionCode = 8
         versionName = "0.103.0-alpha"
-        // Two-APK distribution (owner decision 2026-09-02): the default build
-        // is the stable MariaDB-provider APK; -PsqliteProvider builds the
-        // experimental SQLite-provider APK with a visible versionName suffix
-        // so the two artifacts are distinguishable. The applicationId stays
-        // shared on purpose - the SQLite APK must still boot the MariaDB
-        // provider to export the sealed datadir (F13/F44), which reads the
-        // existing install's data directory.
+        // Two-APK distribution: the default build is the stable
+        // MariaDB-provider APK; -PsqliteProvider builds the experimental
+        // SQLite-provider APK with a visible versionName suffix so the two
+        // artifacts are distinguishable. The applicationId stays shared on
+        // purpose - the SQLite APK must still boot the MariaDB provider to
+        // export the sealed datadir, which reads the existing install's
+        // data directory.
         versionNameSuffix = if (sqliteProvider) "-sqlite-experimental" else null
         buildConfigField(
             "boolean", "ENABLE_CLIENT_DATA_PREPARATION", (pocketLane == "full").toString(),
@@ -886,7 +886,7 @@ android {
     }
 
     // The packaging experiment requires executing an APK-packaged PIE launcher from
-    // nativeLibraryDir. PKG-01 proved that AGP must extract native libraries to
+    // nativeLibraryDir. The experiment proved that AGP must extract native libraries to
     // disk with executable permissions. The historical pkgExperiment build
     // type remains for regression qualification; every product build type now
     // uses the same proven extraction policy below.
@@ -898,8 +898,8 @@ android {
             isMinifyEnabled = false
             // Signature continuity: the installed builds are debug-signed,
             // and an in-place update must carry the same signature or Android
-            // refuses it (the refusal protects the app's data). A dedicated
-            // release keystore is an open owner decision; until adopted,
+            // refuses it (the refusal protects the app's data). No dedicated
+            // release keystore exists yet; until one is provisioned,
             // release builds sign with the debug keystore (path overridable
             // via POCKET_RELEASE_KEYSTORE etc.). No keystore material is
             // committed.
@@ -938,20 +938,20 @@ android {
         create("clientRuntime") {
             initWith(getByName("debug"))
             matchingFallbacks += listOf("debug")
-            // O06's qualified x86DirectWine product lane.
+            // Qualified x86DirectWine product lane (the client runtime).
             isJniDebuggable = true
         }
         create("databaseRuntime") {
             initWith(getByName("debug"))
             matchingFallbacks += listOf("debug")
-            // O08's MariaDB/glibc ELFs execute from nativeLibraryDir, using the
-            // same qualified immutable-code packaging model as O06.
+            // The MariaDB/glibc ELFs execute from nativeLibraryDir, using the
+            // same qualified immutable-code packaging model as clientRuntime.
             isJniDebuggable = true
         }
         create("realmRuntime") {
             initWith(getByName("debug"))
             matchingFallbacks += listOf("debug")
-            // O09 integration lane: O08's executable MariaDB provider plus
+            // Realm runtime lane: the executable MariaDB provider plus
             // Android-native realmd/world libraries in separate processes.
             isJniDebuggable = true
         }
@@ -999,7 +999,7 @@ android {
                 "build/staged-jniLibs-$pocketAbi-$pocketLane"
             }
             jniLibs.srcDir(stagedJniDir)
-            // O06: Wine-owned PE modules as APK assets (the hash-verified
+            // Wine-owned PE modules as APK assets (the hash-verified
             // guest-code cache source). Generated by tools/stage_wine_runtime.py
             // into native/.build-<selected-target>/wine-staging/assets/.
             assets.srcDir("../../native/.build-$pocketNativeRootSuffix/wine-staging/assets")
@@ -1010,14 +1010,14 @@ android {
                 assets.srcDir("../../native/.build-$pocketNativeRootSuffix/mariadb-staging/assets")
             }
             if (pocketLane == "full" && sqliteProvider) {
-                // P5 window: the SQLite provider's seed transcripts (gzip,
-                // digest-bound to the reviewed baseline by the staging
-                // build). Lane-gated alongside the MariaDB assets above:
+                // The SQLite provider's seed transcripts (gzip,
+                // digest-pinned by the staging build's lockfile).
+                // Lane-gated alongside the MariaDB assets above:
                 // only the full lane's variants run validateRealmRuntime,
-                // so only they may package the seed bytes (ledger I-114).
+                // so only they may package the seed bytes.
                 assets.srcDir("../../native/.build-o09-$pocketAbi/realm-staging-sqlite/assets")
             }
-            // O06 S-3: Winlator X-server (vendored at ca3d735; trimmed/stubbed).
+            // Winlator X-server (vendored at ca3d735; trimmed/stubbed).
             // See docs/patches/wine-provider-provenance.md for the trim list.
             java.srcDir("../../runtime/xserver-winlator")
         }
@@ -1045,7 +1045,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
-        // O05: IPkgIsolation AIDL crosses the :pkg process boundary.
+        // IPkgIsolation AIDL crosses the :pkg process boundary.
         aidl = true
     }
 
@@ -1148,7 +1148,7 @@ val verifyGeneratedVulkanDriverCatalog = tasks.register<Exec>(
     "verifyGeneratedVulkanDriverCatalog",
 ) {
     group = "verification"
-    description = "Verify Kotlin Vulkan identities are generated from the reviewed catalog."
+    description = "Verify Kotlin Vulkan identities are generated from the curated catalog."
     val repoRoot = layout.projectDirectory.dir("../..").asFile
     workingDir(repoRoot)
     commandLine("python", "tools/generate_vulkan_driver_catalog.py", "--check")
@@ -1362,7 +1362,7 @@ stageRendererPackages?.let {
 
 // Stages the complete native dependency closure into an ABI-isolated build root.
 // APK assembly depends on this task. Packages only app-supplied libs (the realm
-// facade, the packaging JNI shim, the PIE launcher, the O06 Wine spike helper,
+// facade, the packaging JNI shim, the PIE launcher, the Wine spike helper,
 // and the Wine/glibc ELFs); platform libs (libc/libm/libdl/liblog) are supplied
 // by Android, never staged (except the glibc closure, which is a SEPARATE
 // Linux/glibc namespace — those are Wine's deps, not Android's).
@@ -1379,10 +1379,10 @@ val stageNativeLibs by tasks.registering(Sync::class) {
     val wineStaging = File(nativeBuildRoot, "wine-staging/jniLibs")
     val prootStage = File(repoRoot, "native/.build-$pocketProotRootSuffix/proot-stage")
     val mariadbStage = File(nativeBuildRoot, "mariadb-staging/jniLibs/$pocketAbi")
-    // P5 window (I-82): under -PsqliteProvider the APK packages the
-    // SQLITE-linked realm runtimes from the sibling staging root; the
-    // MariaDB closure above stays staged in both modes (the old provider
-    // must boot to export, F13/F44). Validation derives from the same
+    // Under -PsqliteProvider the APK packages the SQLITE-linked realm
+    // runtimes from the sibling staging root; the MariaDB closure above
+    // stays staged in both modes (the old provider must still boot to
+    // export the sealed datadir). Validation derives from the same
     // selection, so the bytes packaged and the bytes validated agree.
     val realmStage = File(
         repoRoot,
@@ -1399,43 +1399,43 @@ val stageNativeLibs by tasks.registering(Sync::class) {
     dependsOn(validateSelectedNativeClosure)
 
     into(stagedLib)
-    // Real realm facade (O04) — large APK-native .so, loaded by SONAME in PKG-02/06.
+    // Real realm facade — large APK-native .so, loaded by SONAME.
     if (pocketLane == "full") {
     from(File(rtBuild, "libpocketrealm.so"))
     // PKG JNI shim + dlopen/crash helper.
     from(File(pkgBuild, "libpocketpkgtest.so"))
-    // PKG-01 PIE launcher (a .so-named executable; extracted under the
+    // PIE launcher (a .so-named executable; extracted under the
     // experiment variant).
     from(File(pkgBuild, "libpocket_pkg_launcher.so"))
     }
-    // O06: Wine spike JNI helper (symlink-tree builder + loader launcher +
-    // /proc maps probe + PE cache + S-5 SIGSYS diagnostic + trampoline launcher).
+    // Wine spike JNI helper (symlink-tree builder + loader launcher +
+    // /proc maps probe + PE cache + SIGSYS diagnostic + trampoline launcher).
     // Runs in the Android/Bionic namespace.
     from(File(wineSpikeBuild, "libwine_spike.so"))
     if (pocketLane == "full") {
-    // O06 S-5(a): APK-packaged Bionic trampoline PIE (re-execve's the glibc
+    // APK-packaged Bionic trampoline PIE (re-execve's the glibc
     // loader). Named lib*.so so AGP extracts it with the +x bit; it is a PIE
     // executable, not a shared library.
     from(File(wineSpikeBuild, "libwine_trampoline.so"))
-    // O06 direct-glibc path: glibc LD_PRELOAD path/syscall shim, built in the
+    // Direct-glibc path: glibc LD_PRELOAD path/syscall shim, built in the
     // pinned Linux CGCT container by tools/build_wine_glibc_shim.py.  It is
     // x86_64-only; the ARM translated-Wine provider has a distinct closure.
     if (pocketAbi == "x86_64") {
         from(File(wineSpikeBuild, "libwine_android_shim.so"))
     }
-    // O06 S-5(b): proot fallback (termux/proot@a89b3732, Bionic PIE) + libtalloc.
+    // proot fallback (termux/proot@a89b3732, Bionic PIE) + libtalloc.
     // Required because Android's untrusted_app seccomp filter kills the glibc
-    // loader on its access(2) syscall (PROVEN via ptrace diagnostic). proot
+    // loader on its access(2) syscall (observed via ptrace diagnostic). proot
     // intercepts syscalls via ptrace and translates access->faccessat.
     from(File(prootStage, "libproot.so"))
     from(File(prootStage, "libtalloc.so"))
-    // O06 S-5(b): proot's in-tracee helper loader, staged APK-managed as
+    // proot's in-tracee helper loader, staged APK-managed as
     // libproot_loader.so. PROOT_LOADER=<nativeLibraryDir>/libproot_loader.so
     // makes proot use this immutable +x copy directly instead of extracting
     // one to writable PROOT_TMP_DIR (which the app domain forbids: noexec).
     from(File(prootStage, "libproot_loader.so"))
     from(File(prootStage, "libproot_loader32.so"))
-    // O06 S-3: Winlator X-server native transport (vendored source-matched from
+    // Winlator X-server native transport (vendored source-matched from
     // ca3d735). libwinlator.so provides the epoll accept loop, buffered X11
     // input/output with SCM_RIGHTS fd-passing, and Drawable BGRA ops. JNI
     // methods match the vendored Java classes' package paths exactly
@@ -1459,7 +1459,7 @@ val stageNativeLibs by tasks.registering(Sync::class) {
         File(ndk, "toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/$pocketNdkLibraryTriple/libc++_shared.so")
     })
     if (pocketLane == "full") {
-    // O06: the Wine + glibc ELF closure (53 files: glibc loader + libs, gcc-libs,
+    // The Wine + glibc ELF closure (53 files: glibc loader + libs, gcc-libs,
     // X11/font libs, Wine binaries + 36 unix .so modules). These run in the
     // SEPARATE Linux/glibc namespace (execve'd via the APK-managed loader).
     // Generated by tools/stage_wine_runtime.py.
@@ -1475,30 +1475,30 @@ val stageNativeLibs by tasks.registering(Sync::class) {
         rename { "ntdll.so" }
     }
     }
-    // O08: pinned MariaDB executables + their glibc DT_NEEDED closure. The
+    // Pinned MariaDB executables + their glibc DT_NEEDED closure. The
     // stage script assigns collision-safe lib*.so APK names and records every
     // source pathname/hash in BUILD_PROVENANCE.json.
     from(mariadbStage)
     if (pocketLane == "full") {
-    // O09: Android/Bionic, no-bot CMaNGOS components. Each library is loaded
+    // Android/Bionic, no-bot CMaNGOS components. Each library is loaded
     // only inside its dedicated :realm or :world process.
     from(realmStage)
     }
     if (pocketLane == "full") {
-        // O11: finite, fixed-purpose Android/Bionic PIE extractors. These are
+        // Finite, fixed-purpose Android/Bionic PIE extractors. These are
         // invoked only by the isolated import worker after managed-copy
         // publication in the full runtime lane.
         from(extractorStage)
     }
     if (pocketLane == "full") {
-        // O23: on-device vanilla-tweaks patcher belongs only to the client/full lane.
+        // On-device vanilla-tweaks patcher belongs only to the client/full lane.
         from(vanillaTweaksStage)
     }
 }
 
 val validateDatabaseRuntime by tasks.registering {
     group = "pocket realm"
-    description = "Require the generated O08 MariaDB provider and migration assets for $pocketAbi."
+    description = "Require the generated MariaDB provider and migration assets for $pocketAbi."
     val repoRoot = layout.projectDirectory.dir("../..").asFile
     val selectedAbi = pocketAbi
     val nativeRootSuffix = pocketNativeRootSuffix
@@ -1515,7 +1515,7 @@ val validateDatabaseRuntime by tasks.registering {
         )
         val missing = required.filterNot { it.isFile }
         check(missing.isEmpty()) {
-            "O08 MariaDB staging incomplete for $selectedAbi. Run the ABI-aware MariaDB staging and " +
+            "MariaDB staging incomplete for $selectedAbi. Run the ABI-aware MariaDB staging and " +
                 "tools/stage_database_migrations.py. Missing: ${missing.joinToString { it.name }}"
         }
         required.take(2).forEach { file ->
@@ -1543,7 +1543,7 @@ val validateDatabaseRuntime by tasks.registering {
     }
 }
 
-// Design note (P5 R2): this ad-hoc task deliberately declares NO
+// Design note: this ad-hoc task deliberately declares NO
 // outputs, so Gradle never marks it UP-TO-DATE — it executes on every
 // build that wires it. If outputs are ever added, the provider mode
 // must first become an explicit @Input (a stale-skip across
@@ -1556,7 +1556,7 @@ val validateRealmRuntime by tasks.registering {
     val expectedMachine = pocketElfMachine
     // Hoisted at configuration time: a doLast closure referencing the
     // script-level val would retain the build-script instance and break
-    // the configuration cache (this file's own rule, P5 R1 I-83).
+    // the configuration cache.
     val isSqliteProvider = sqliteProvider
     doLast {
         fun sha256Hex(file: File): String {
@@ -1571,17 +1571,17 @@ val validateRealmRuntime by tasks.registering {
             }
             return digest.digest().joinToString("") { "%02x".format(it) }
         }
-        // P5 window: the sqlite provider validates against the SIBLING
+        // Under the sqlite provider the artifacts validate against the SIBLING
         // staging root + sibling lockfile; the MariaDB pins never move.
         val realmRoot = if (isSqliteProvider) "realm-staging-sqlite" else "realm-staging"
         val lockPath = "native/.build-o09-$selectedAbi/$realmRoot/jniLibs/$selectedAbi/"
         val lockfile = if (isSqliteProvider) {
-            // The driver's sibling-lockfile naming mirrors its mysql lane:
+            // The sibling-lockfile naming mirrors the MariaDB lockfiles:
             // x86_64 has NO ABI suffix (realm-runtime-lockfile-sqlite.json),
             // arm64 does (realm-runtime-lockfile-arm64-v8a-sqlite.json) -
             // mirror the special case below or the first x86_64 sqlite
-            // assembly (the P6.5 differential lane) fails on a missing
-            // lockfile path (R1 F1).
+            // assembly (the differential-test build) fails on a missing
+            // lockfile path.
             if (selectedAbi == "x86_64") {
                 File(repoRoot, "schemas/realm-runtime-lockfile-sqlite.json")
             } else {
@@ -1605,7 +1605,7 @@ val validateRealmRuntime by tasks.registering {
             }
         }
         val provenance = File(repoRoot, "native/.build-o09-$selectedAbi/$realmRoot/BUILD_PROVENANCE.json")
-        check(provenance.isFile) { "O09 BUILD_PROVENANCE.json is missing; rebuild realm runtime" }
+        check(provenance.isFile) { "realm-runtime BUILD_PROVENANCE.json is missing; rebuild realm runtime" }
         val provenanceText = provenance.readText()
         val files = listOf("libpocket_realmd_runtime.so", "libpocket_world_runtime.so")
         for (name in files) {
@@ -1640,12 +1640,12 @@ val validateRealmRuntime by tasks.registering {
         }
         if (isSqliteProvider) {
             // The seed assets must match the sibling lockfile's
-            // seed_transcripts pins byte-for-byte (the I-50 chain,
-            // extended to the shipped APK assets).
+            // seed_transcripts pins byte-for-byte, extending those pins
+            // to the shipped APK assets.
             val seedDir = File(repoRoot, "native/.build-o09-$selectedAbi/realm-staging-sqlite/assets/seed")
             for (db in listOf("classicrealmd", "classiccharacters", "classiclogs", "classicmangos")) {
                 // .sqlz (NOT .sql.gz): AGP's asset merge auto-gunzips
-                // *.gz (I-93) - the migrations' convention applies here
+                // *.gz, so the migrations' convention applies here
                 val gz = File(seedDir, "$db.sqlz")
                 check(gz.isFile) { "missing staged seed asset: $gz" }
                 val pin = Regex(
@@ -1658,11 +1658,11 @@ val validateRealmRuntime by tasks.registering {
                     "seed asset SHA-256 disagrees with lockfile: $db"
                 }
             }
-            // P6 identity source: the APK's SQLite provider identity asset
+            // Identity source: the APK's SQLite provider identity asset
             // must be BYTE-IDENTICAL to the committed sibling lockfile (the
             // staging script writes the lock-record form for exactly this
             // pin; loadAndVerifySqliteIdentity consumes it on device). Any
-            // divergence between the reviewed lockfile and the shipped
+            // divergence between the committed lockfile and the shipped
             // identity fails the build here.
             val identityAsset = File(
                 repoRoot,
@@ -1703,12 +1703,12 @@ androidComponents {
                 it.name == "merge${cap}Assets" || it.name == "package${cap}" ||
                 it.name == "assemble${cap}" }
                 .configureEach {
-                    // P5 R2 (D2-2/F2-1): the realm byte-level gate (lockfile
-                    // sha match, database_backend, seed pins under
-                    // -PsqliteProvider) runs for every SHIPPING variant —
-                    // previously it was wired only into the realmRuntime
-                    // instrumentation type, so debug/release packaged the
-                    // realm runtimes with zero digest validation.
+                    // The realm byte-level gate (lockfile sha match,
+                    // database_backend, seed pins under -PsqliteProvider)
+                    // runs for every SHIPPING variant, not only the
+                    // realmRuntime instrumentation type — debug/release
+                    // must never package the realm runtimes without
+                    // digest validation.
                     dependsOn(validateDatabaseRuntime, validateRealmRuntime)
                 }
         }
@@ -1768,7 +1768,7 @@ dependencies {
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
 
-    // Host JVM unit tests (O04: RealmNative shim graceful-degradation test).
+    // Host JVM unit tests exercise the RealmNative shim graceful-degradation path.
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockwebserver3)

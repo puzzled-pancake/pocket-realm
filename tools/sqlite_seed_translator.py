@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """String-aware MySQL->SQLite SQL translation for the manifest-driven
-seeder (P4 Route A of the MariaDB replacement plan, DEC-01).
+seeder.
 
 The legacy tools/seed_realm_db.py translated with line-based comment
 stripping and ';' splitting: any '--' or '/*' inside a string literal
@@ -20,13 +20,13 @@ character-state scanner:
     expressions); @x substituted into later statements as a quoted literal
   - escape rewrites inside literals with EXACT counting: \\n -> newline,
     \\r -> CR, \\t -> tab, \\' -> '' , \\" -> " , \\\\ -> backslash (the
-    F52 class; the spec pins the expected total across exactly 3 files)
+    legacy-corruption class; the fidelity harness pins the expected total
+    across exactly 3 files)
   - DDL translation: ENGINE/CHARSET/ROW_FORMAT/COMMENT table tails,
     column COMMENTs, type rewrites to affinity-exact names (int(N)
     unsigned AUTO_INCREMENT + PRIMARY KEY(col) -> INTEGER PRIMARY KEY
-    AUTOINCREMENT rowid alias, per the P3->P4 addendum (d)), KEY/UNIQUE
-    KEY lines -> emitted CREATE [UNIQUE] INDEX after the table (addendum
-    (b)), enum('a','b') -> TEXT CHECK(col IN ('a','b')), ALTER..CHANGE
+    AUTOINCREMENT rowid alias), KEY/UNIQUE
+    KEY lines -> emitted CREATE [UNIQUE] INDEX after the table, enum('a','b') -> TEXT CHECK(col IN ('a','b')), ALTER..CHANGE
     no-op-with-audit under affinity, ALTER..ADD INDEX -> CREATE INDEX,
     TRUNCATE -> DELETE FROM, CHARACTER SET utf8mb3 stripped, LOCK/UNLOCK/
     USE/SET-session dropped.
@@ -35,7 +35,7 @@ character-state scanner:
     discardable - every SQLStorage load reads these tables with
     SELECT * and maps columns positionally, so a stripped AFTER shifts
     the whole tail (gameobject_template: moTransport.taxiPathId read
-    data1 instead of data0 -> world-boot SIGSEGV - I-189). A per-
+    data1 instead of data0 -> world-boot SIGSEGV). A per-
     database schema tracker follows CREATE/ALTER in replay order and
     re-emits positional ADDs as a full table rebuild (rename, re-create
     in MySQL-effective column order, copy, drop, re-emit indexes);
@@ -63,10 +63,10 @@ class TranslationReport:
         self.escape_files: set[str] = set()
         self.escape_per_file: dict[str, int] = {}
         self.escape_per_class: dict[str, int] = {}
-        # F52 external anchor: the research digest's legacy-corruption
-        # classes (\n \r \\) per file - pinned exactly in the baseline
-        # and asserted by the harness (49,242 sites / 3 files; the
-        # digest's 49,243 was one high - recorded in the ledger).
+        # Legacy-corruption anchor: the escape classes (\n \r \\) that
+        # corrupted the legacy line-based seed path, counted per file -
+        # pinned exactly in the baseline and asserted by the harness
+        # (49,242 sites / 3 files).
         self.f52_nr_backslash: dict[str, int] = {}
         self.set_vars_folded = 0
         self.indexes_emitted = 0
@@ -84,10 +84,10 @@ class TranslationReport:
         self.statements = 0
         # MySQL text columns default to case-insensitive collations
         # (server-default utf8*_general_ci); the NOCASE emission restores
-        # that direction on the SQLite lane (I-60).
+        # that direction on the SQLite lane.
         self.nocase_columns = 0
         self.decimal_rewrites = 0
-        # I-189: positional ADD COLUMN translation - each becomes a
+        # Positional ADD COLUMN translation - each becomes a
         # 4-statement table rebuild plus re-emitted indexes.
         self.positional_add_rebuilds = 0
         self.rename_rebuilds = 0
@@ -302,7 +302,7 @@ def _split_statements(text: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Per-database schema tracking (I-189: positional ADD COLUMN fidelity)
+# Per-database schema tracking (positional ADD COLUMN fidelity)
 # ---------------------------------------------------------------------------
 
 _TABLE_CONSTRAINT_WORDS = frozenset((
@@ -486,11 +486,10 @@ def _extract_position(stmt: str) -> tuple[str, str] | None:
 def _translate_alter_body(stmt: str, report: TranslationReport) -> str:
     """The ALTER-statement transformations shared by the plain and the
     positional ADD paths: strip column COMMENTs and MySQL positioning,
-    rename explicit collations (I-67), rewrite types, strip
-    unsigned/zerofill, blanket NOCASE (I-60). The positioning strips
+    rename explicit collations, rewrite types, strip
+    unsigned/zerofill, blanket NOCASE. The positioning strips
     are literal-aware (the detection at _extract_position already is;
-    a DEFAULT 'x AFTER y' string must never be rewritten - I-189/R1
-    lane-D mutation proof)."""
+    a DEFAULT 'x AFTER y' string must never be rewritten)."""
     stmt = _COL_COMMENT_RE.sub("", stmt)
     stmt = _sub_outside_literals(stmt, _AFTER_TAIL_RE, "",
                                  backticks=False)
@@ -512,7 +511,7 @@ def _emit_positional_rebuild(stmt: str, position: tuple[str, str],
                              pending: list[str],
                              db_state: "DBSchemaState | None") -> None:
     """Translate a positional ALTER..ADD COLUMN into a SQLite table
-    rebuild with the column at its MySQL-effective position (I-189):
+    rebuild with the column at its MySQL-effective position:
     rename away, re-create in the tracked order, copy rows, drop the
     old table, re-emit the table's tracked indexes (they died with the
     renamed-away table). Existing rows get the column's declared DEFAULT,
@@ -520,7 +519,7 @@ def _emit_positional_rebuild(stmt: str, position: tuple[str, str],
     if db_state is None:
         raise RuntimeError(
             "positional ADD COLUMN requires a schema-tracked pass "
-            "(DBSchemaState); refusing to strip the position (I-189): "
+            "(DBSchemaState); refusing to strip the position: "
             + " ".join(stmt.split())[:120])
     table = re.match(r"^ALTER\s+TABLE\s+`?(\w+)`?", stmt, re.I).group(1)
     tracked = db_state.tables.get(table)
@@ -528,11 +527,11 @@ def _emit_positional_rebuild(stmt: str, position: tuple[str, str],
         raise RuntimeError(
             f"positional ADD COLUMN on untracked table `{table}`: the "
             f"rebuild needs its CREATE body; refusing to strip the "
-            f"position (I-189)")
+            f"position")
     if tracked.opaque:
         raise RuntimeError(
             f"positional ADD COLUMN on opaque table `{table}` (created "
-            f"AS SELECT): effective column order is unknowable (I-189)")
+            f"AS SELECT): effective column order is unknowable")
     translated = _translate_alter_body(stmt, report)
     m = _ADD_COLUMN_RE.match(translated)
     if not m or m.group(1) != table:
@@ -544,7 +543,6 @@ def _emit_positional_rebuild(stmt: str, position: tuple[str, str],
         # multi-clause ALTER (ADD a ... AFTER x, ADD b ... AFTER y): the
         # def would swallow the second clause into the rebuilt CREATE -
         # refuse rather than emit a confusing SQLite syntax error
-        # (I-189 R1 lane-D finding)
         raise RuntimeError(
             "multi-clause positional ADD COLUMN is not translated "
             "(split the ALTER into single-clause statements): "
@@ -563,7 +561,7 @@ def _emit_positional_rebuild(stmt: str, position: tuple[str, str],
                 break
         if insert_at is None:
             raise RuntimeError(
-                f"AFTER `{target}` names no column of `{table}` (I-189)")
+                f"AFTER `{target}` names no column of `{table}`")
     old_cols = tracked.column_names()
     tracked.entries.insert(insert_at, f"`{col}` {col_def}")
     staging = f"{table}__pos_rebuild"
@@ -778,7 +776,7 @@ _TYPE_MAP = [
     (re.compile(r"\bchar\s*\(\d+\)", re.I), "TEXT"),
     # the N-variants and LONG VARCHAR are TEXT-affinity spellings MySQL
     # accepts; unmapped they would seed silent-BINARY columns that also
-    # evade the NOCASE blanket and tripwire (B-I-A, R4 polish)
+    # evade the NOCASE blanket and tripwire
     (re.compile(r"\bnvarchar\s*\(\d+\)", re.I), "TEXT"),
     (re.compile(r"\bnchar\s*\(\d+\)", re.I), "TEXT"),
     (re.compile(r"\blong\s+varchar\b", re.I), "TEXT"),
@@ -793,7 +791,7 @@ _TYPE_MAP = [
     # DECIMAL/NUMERIC are exact in MySQL; SQLite has no exact decimal
     # type, so REAL (C double) is the deliberate, counted rendering -
     # every runtime consumer reads these as float/double anyway
-    # (I-65: previously an uncounted NUMERIC-affinity fall-through).
+    # (previously this fell through to an uncounted NUMERIC affinity).
     (re.compile(r"\bdecimal\s*\(\d+\s*,\s*\d+\)", re.I), "REAL"),
     (re.compile(r"\bdecimal\b", re.I), "REAL"),
     (re.compile(r"\bnumeric\s*\(\d+\s*,\s*\d+\)", re.I), "REAL"),
@@ -966,9 +964,9 @@ _INSERT_VALUES_RE = re.compile(
 # amalgamation (sqlite3.c SQLITE_MAX_SQL_LENGTH), so the engine limit is
 # not the binding constraint today; the 800 KiB chunk bound is a
 # deliberate safety margin for any engine/host build with a tighter
-# limit and for bounded on-device replay buffers (I-62 records that the
-# measurement itself must be BYTES - multibyte-dense locale text
-# inflates char counts ~3x vs bytes).
+# limit and for bounded on-device replay buffers. The measurement
+# itself must be BYTES - multibyte-dense locale text
+# inflates char counts ~3x vs bytes.
 _INSERT_CHUNK_LIMIT = 800_000
 
 
@@ -991,7 +989,7 @@ def _split_value_rows(body: str) -> list[str] | None:
     in_q = False
     in_dq = False  # top-level "..." literals (ANSI_QUOTES off: MySQL
     # string literals). Mirrors _split_statements' dquote toggling so
-    # both scanners agree on boundaries (I-69).
+    # both scanners agree on boundaries.
     saw_comma = False
     i = 0
     n = len(body)
@@ -1066,10 +1064,10 @@ def _sub_outside_literals(stmt: str, pattern: re.Pattern[str],
     ('#value (0..100)' -> '#VALUES (0..100)' in mangos_string help
     text). `repl` may be a string or the callable re.sub accepts (used
     by the @var paths: MySQL never substitutes session variables inside
-    quoted literals - I-61). backticks=False serves the NOCASE pass:
+    quoted literals). backticks=False serves the NOCASE pass:
     column DEFINITIONS are backtick-dense (the identifier must join the
     same match as its TEXT type), so only quoted strings are excluded
-    there (I-68)."""
+    there."""
     out: list[str] = []
     i = 0
     n = len(stmt)
@@ -1123,7 +1121,7 @@ def _chunk_insert(stmt: str, report: TranslationReport) -> list[str]:
     chunk: list[str] = []
     size = len(head.encode("utf-8"))
     for row in rows:
-        # measure in UTF-8 BYTES everywhere (I-53/I-62): the entry gate
+        # measure in UTF-8 BYTES everywhere: the entry gate
         # above, the accumulation, and the post-flush reset must agree -
         # multibyte-dense statements must not skip chunking because
         # their CHAR count sits under the limit.
@@ -1171,7 +1169,7 @@ def _expand_insert_variables(stmt: str, variables: dict[str, str]) -> str:
                     f"it (silent 0-based numbering risk): {row[:100]!r}")
             counters[name] = counters[name] + inc
             return str(counters[name])
-        # Literal-aware (I-61): a '@name' inside a string literal is
+        # Literal-aware: a '@name' inside a string literal is
         # DATA, not a variable reference - MySQL never substitutes
         # session variables inside quoted literals.
         row = _sub_outside_literals(row, _RUNNING_VAR, running)
@@ -1226,7 +1224,7 @@ def _assert_no_unsubstituted_vars(stmt: str, filename: str) -> None:
         elif c == "`":
             in_bt = True
         elif c == "@":
-            # accept the backticked @`name` spelling too (I-71) - a
+            # accept the backticked @`name` spelling too - a
             # legitimate MySQL variable form that previously escaped
             # both the substitution and this fail-loud assert
             m = re.match(r"@`?(\w+)`?", stmt[i:])
@@ -1312,7 +1310,7 @@ def translate_statement(stmt: str, report: TranslationReport,
     Additional statements (e.g. emitted CREATE INDEX) are appended to
     `pending`. `db_state` carries per-database schema tracking so
     positional ADD COLUMN statements can rebuild tables in MySQL-effective
-    column order (I-189); positional adds without it fail loud."""
+    column order; positional adds without it fail loud."""
     stmt = stmt.strip()
     if not stmt:
         return None
@@ -1340,7 +1338,7 @@ def translate_statement(stmt: str, report: TranslationReport,
 
     # INSERT ... VALUE ( -> VALUES ( (MySQL allows the singular). Runs
     # BEFORE the @var expansion so row-aware counters work on the
-    # singular form too (I-70); literal-aware (I-48).
+    # singular form too; literal-aware.
     if stmt.upper().startswith("INSERT"):
         stmt = _sub_outside_literals(
             stmt, re.compile(r"\bVALUE\s*\(", re.I), "VALUES (")
@@ -1413,7 +1411,7 @@ def translate_statement(stmt: str, report: TranslationReport,
 
     # MySQL && / || logical operators (SQLite: AND / OR; || is concat in
     # SQLite - the corpus uses only &&, verified). Literal-aware: mangos
-    # help text carries '&&'/'value ('-shaped strings (I-48).
+    # help text carries '&&'/'value ('-shaped strings.
     stmt = _sub_outside_literals(stmt, re.compile(r"\s*&&\s*"), " AND ")
 
     # MySQL multi-table UPDATE .. JOIN -> correlated-subquery UPDATE.
@@ -1521,11 +1519,10 @@ def translate_statement(stmt: str, report: TranslationReport,
     # statement (SQLite append == MySQL semantics); POSITIONAL adds
     # (AFTER `col` / FIRST) rebuild the table - stripping the position
     # shifts every later column, and SELECT * loads map positionally
-    # (I-189: taxiPathId read data1, world boot SIGSEGV).
+    # (taxiPathId read data1, world boot SIGSEGV).
     if re.match(r"^ALTER\s+TABLE\b", stmt, re.I):
         # ALTER TABLE t RENAME TO u: SQLite-native; the tracker must
-        # follow so a later positional rebuild on the new name works
-        # (I-189 R1 lane-A finding: the rename hook was dead code).
+        # follow so a later positional rebuild on the new name works.
         m_rename = re.match(
             r"^ALTER\s+TABLE\s+`?(\w+)`?\s+RENAME\s+TO\s+`?(\w+)`?\s*$",
             stmt, re.I)
@@ -1574,7 +1571,7 @@ def translate_statement(stmt: str, report: TranslationReport,
     # ALTER .. CHANGE/MODIFY: when old != new name it is a rename. SQLite's
     # RENAME COLUMN is 3.25+ - older framework SQLite (the device floor is
     # 3.18-class, minSdk 26) fails to parse it - so a rename is emitted as
-    # the same schema-tracked table rebuild the positional ADDs use (I-189):
+    # the same schema-tracked table rebuild the positional ADDs use:
     # rename away, re-create with the renamed column, copy rows back mapping
     # old->new, drop the old, re-emit indexes. Type deltas ride along in the
     # rebuilt column def (no-ops under affinity when unchanged).
@@ -1664,7 +1661,7 @@ def translate_statement(stmt: str, report: TranslationReport,
     else:
         # Non-CREATE statements: type rewrites are unnecessary; only strip
         # the utf8mb3 clause and rewrite NOW() for portability
-        # (literal-aware: I-48).
+        # (literal-aware).
         stmt = _sub_outside_literals(stmt, _CHAR_SET_UTF8MB3, "")
         stmt = _sub_outside_literals(stmt, _NOW_RE, "CURRENT_TIMESTAMP")
 
@@ -1676,8 +1673,8 @@ _NOCASE_RE = re.compile(
     r"((?:\(|,|\bCOLUMN\s+|\bADD\s+"
     # after ADD, an index/constraint keyword means the next token is
     # NOT a column definition (an index NAMED "text" must not eat a
-    # COLLATE - I-76, post-convergence polish; the corruption was loud,
-    # but loud-miss is the only acceptable failure mode here)
+    # COLLATE - loud corruption is the only acceptable failure mode
+    # here)
     r"(?!(?:INDEX|KEY|UNIQUE|CONSTRAINT|PRIMARY|FOREIGN|FULLTEXT|"
     r"SPATIAL|CHECK)\b))"
     r"\s*`?[A-Za-z_]\w*`?[ \t]+TEXT\b)"
@@ -1690,10 +1687,10 @@ def _apply_nocase(stmt: str, report: TranslationReport) -> str:
     Column boundaries are '(' (body open), ',' (next column), the
     'COLUMN ' of an ALTER..ADD COLUMN clause, or a bare 'ADD ' (the
     ALTER..ADD form without the COLUMN keyword - the dominant in-corpus
-    ADD idiom; I-67). The negative lookahead stops at the next
+    ADD idiom). The negative lookahead stops at the next
     comma/newline so an explicit COLLATE later in the SAME column
     definition (renamed below to NOCASE/BINARY) suppresses the blanket
-    append. Literal-aware (I-68): the substitution never fires inside
+    append. Literal-aware: the substitution never fires inside
     string literals. Shared by the CREATE TABLE and ALTER paths."""
     def _nocase(match: re.Match) -> str:
         report.nocase_columns += 1
@@ -1710,9 +1707,7 @@ def _rename_explicit_collations(stmt: str) -> str:
     COLLATE NOCASE; *_bin/_cs and the bare MySQL collation name
     'binary' render as an explicit COLLATE BINARY (keeps the blanket
     NOCASE pass off those columns); unknown collations are stripped.
-    Literal-aware (I-68); shared by the CREATE TABLE and ALTER paths
-    (I-67: the ALTER branch previously never renamed, leaving a raw
-    collation name that failed loud at seed)."""
+    Literal-aware; shared by the CREATE TABLE and ALTER paths."""
     def _collate(m: re.Match) -> str:
         name = m.group(1).lower()
         if name.endswith("_ci"):
@@ -1734,7 +1729,7 @@ def _translate_create_table(stmt: str, report: TranslationReport,
     # Column COMMENTs.
     stmt = _COL_COMMENT_RE.sub("", stmt)
 
-    # KEY / UNIQUE KEY lines -> emitted indexes (addendum (b): UNIQUE KEY
+    # KEY / UNIQUE KEY lines -> emitted indexes (UNIQUE KEY
     # becomes CREATE UNIQUE INDEX). Emit AFTER the table.
     table_match = re.match(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?(\w+)`?", stmt, re.I)
     table_name = table_match.group(1) if table_match else "unknown"
@@ -1765,7 +1760,7 @@ def _translate_create_table(stmt: str, report: TranslationReport,
 
     # int(N)/INT/integer [unsigned] ... AUTO_INCREMENT column (any
     # modifier order) -> INTEGER PRIMARY KEY AUTOINCREMENT (the rowid
-    # alias, addendum (d)). The matching table-level PRIMARY KEY clause
+    # alias). The matching table-level PRIMARY KEY clause
     # is dropped below.
     def _autoinc_line(match: re.Match) -> str:
         return (f"{match.group(1)} INTEGER PRIMARY KEY AUTOINCREMENT"
@@ -1783,7 +1778,7 @@ def _translate_create_table(stmt: str, report: TranslationReport,
     stmt = _NOW_RE.sub("CURRENT_TIMESTAMP", stmt)
 
     # Type rewrites + modifiers. decimal/numeric are counted before the
-    # rewrite so the baseline pins the exact column count (I-65).
+    # rewrite so the baseline pins the exact column count.
     report.decimal_rewrites += len(re.findall(
         r"\b(?:decimal|numeric)\b", stmt, re.I))
     for pat, repl in _TYPE_MAP:
@@ -1797,10 +1792,10 @@ def _translate_create_table(stmt: str, report: TranslationReport,
     # TEXT defaults to BINARY - without this pass, live runtime lookups
     # (ObjectMgr::GetPlayerGuidByName "WHERE name = '%s'",
     # MiscHandler add-ignore; the character-creation duplicate-name
-    # check) silently change semantics on the SQLite lane (I-60).
-    # Recorded residual divergences: NOCASE folds ASCII only (not full
+    # check) silently change semantics on the SQLite lane.
+    # Residual divergences: NOCASE folds ASCII only (not full
     # utf8_general_ci), and MySQL ci space-padding equality is not
-    # replicated - registered as a P7 cross-engine parity probe.
+    # replicated - the cross-engine parity probes track this.
     stmt = _apply_nocase(stmt, report)
 
     # Clean dangling commas before the closing ')' - KEY/FK line drops
@@ -1826,7 +1821,7 @@ def _count_insert_rows(stmts: list[str]) -> int:
     1 per statement + the number of ')' ws ',' ws '(' separators outside
     literals. Permissive BY DESIGN (catches paren-depth over-tightness):
     the depth-aware splitter must account for every row the heuristic
-    sees, or the seed fails loud. This is the I-45 tripwire."""
+    sees, or the seed fails loud."""
     total = 0
     for stmt in stmts:
         if not stmt.upper().startswith("INSERT"):

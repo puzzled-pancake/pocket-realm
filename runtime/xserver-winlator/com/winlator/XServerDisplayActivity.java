@@ -1,5 +1,5 @@
 /*
- * com.winlator.XServerDisplayActivity — STUB for the O06 S-3 spike.
+ * com.winlator.XServerDisplayActivity — trimmed stub.
  *
  * Source: brunodev85/winlator-app ca3d735 (LGPL-2.1). The upstream class is a
  * full Android Activity that hosts the X-server UI (touchpad, input controls,

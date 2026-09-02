@@ -1,11 +1,11 @@
 /*
- * com.winlator.core.AppUtils — TRIMMED for the O06 S-3 spike.
+ * com.winlator.core.AppUtils — trimmed.
  *
  * Source: brunodev85/winlator-app ca3d735 (LGPL-2.1). The full upstream file
  * pulls in AppCompatActivity/PreferenceManager/TabLayout/R/SettingsFragment
  * (Winlator app-shell deps Pocket Realm does not have). Only `runDelayed` is
  * referenced by the vendored X-server (Keyboard.java). The rest of the upstream
- * methods are dropped for the spike. See docs/patches/wine-provider-provenance.md.
+ * methods are dropped. See docs/patches/wine-provider-provenance.md.
  */
 package com.winlator.core;
 

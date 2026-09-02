@@ -202,7 +202,7 @@ def main() -> int:
     ap.add_argument("--device", action="store_true",
                     help="also push + run on a connected device/emulator")
     ap.add_argument("--runtime", action="store_true",
-                    help="also smoke libpocketrealm.so (O04); with --device, run "
+                    help="also smoke libpocketrealm.so; with --device, run "
                          "the full on-device lifecycle test via run_realm_test.py")
     args = ap.parse_args()
     facts = ABI_FACTS[args.abi]
@@ -231,7 +231,7 @@ def main() -> int:
         for b in binaries:
             ok &= device_checks(b, facts)
 
-    # O04: the embeddable runtime facade. ELF-check libpocketrealm.so (it must
+    # The embeddable runtime facade. ELF-check libpocketrealm.so (it must
     # be a position-independent shared lib with 16 KB-aligned LOAD segments,
     # same as the standalone binaries), and with --device run the full on-device
     # create/start/health/save/stop/destroy x2 lifecycle test.

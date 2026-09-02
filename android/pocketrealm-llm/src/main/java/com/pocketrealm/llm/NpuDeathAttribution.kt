@@ -2,7 +2,7 @@ package com.pocketrealm.llm
 
 /**
  * Pure classification of a never-healthy NPU child's exit — the crash-block
- * counter's gate. Extracted from LlmRuntimeService so the decision table is
+ * counter's gate. Kept out of LlmRuntimeService so the decision table is
  * unit-testable without a device (the service supplies the waitpid status,
  * the uptime, and the server log tail; nothing here touches the filesystem).
  *

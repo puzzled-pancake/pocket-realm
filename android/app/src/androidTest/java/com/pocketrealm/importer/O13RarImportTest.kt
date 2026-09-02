@@ -11,11 +11,11 @@ import org.junit.runner.RunWith
 import java.io.File
 
 /**
- * O13: libarchive RAR lane (device-only — the JNI library ships in the APK).
+ * Libarchive RAR import lane (device-only — the JNI library ships in the APK).
  * Uses the BSD-licensed libarchive test-corpus RAR committed under
  * src/test/resources (no Blizzard bytes): rar4-client.rar holds one
  * `test.txt` entry, proving the full stage → list → extract pipeline. A real
- * client RAR end-to-end import runs in the Phase F device runbook.
+ * client RAR end-to-end import is exercised manually on a device.
  */
 @RunWith(AndroidJUnit4::class)
 class O13RarImportTest {

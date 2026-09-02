@@ -1,15 +1,14 @@
 #ifndef _PlayerbotLlmToolsCore_h
 #define _PlayerbotLlmToolsCore_h
 
-// Pure, host-compilable core of the LLM tool pipeline (A2/A3): the
+// Pure, host-compilable core of the LLM tool pipeline: the
 // `<<tool ...>>` scanner, the queue whitelist, the trained text-emote
 // table and the bridge's state-free beat predicates. No core/module
 // includes - PlayerbotLlmTools.cpp and PlayerbotLlmBridge.cpp consume
-// it in-tree, and the host battery (tools/test_llm_act_tools.cpp)
+// it in-tree, and the host test suite (tools/test_llm_act_tools.cpp)
 // compiles it standalone exactly like PlayerbotLlmJson.h, so the
 // queue-admission grammar and the emote mapping are pinned by tests
-// instead of by inspection (the S3-logged ExtractAndQueue host-battery
-// debt, discharged).
+// instead of by inspection.
 #include <cstdint>
 #include <cctype>
 #include <cstring>
@@ -28,7 +27,7 @@ struct ToolCall
 };
 
 // The trained tool vocabulary, mirroring banklib.VALID_TOOLS exactly:
-// the four persistence tools plus the six ACT tools (A2). Anything else
+// the four persistence tools plus the six ACT tools. Anything else
 // a generation emits is protocol leakage, never a queued call.
 inline bool IsKnownTool(std::string const& name)
 {
@@ -46,7 +45,7 @@ inline bool IsKnownTool(std::string const& name)
 // Extracts every `<<tool ...>>` block from raw model output and returns
 // the parsed calls; *cleaned receives the dialogue text with the blocks
 // (and any stray `>>` residue) removed. Semantics identical to the
-// pre-A2 inline scanner (quote-aware terminators, depth tracking for
+// original inline scanner (quote-aware terminators, depth tracking for
 // nested markers, unterminated-marker drop, stray-`>>` prose cut).
 inline std::vector<ToolCall> ExtractToolCalls(std::string const& raw, std::string* cleanedOut)
 {
@@ -220,7 +219,7 @@ inline std::vector<ToolCall> ExtractToolCalls(std::string const& raw, std::strin
                 call.fields.emplace_back(key, value);
             }
             // the base-model fieldless form `<<perform_emote laugh>>`
-            // (prtools rec #1, S6-ledger (j)) parsed name-only: the key
+            // parsed name-only in earlier scanners: the key
             // scanner dropped the bare token. Fold it into the emote field
             // so the queued call is self-describing. ONLY the pure form
             // normalizes - a single alphabetic token, no other fields - and
@@ -246,10 +245,10 @@ inline std::vector<ToolCall> ExtractToolCalls(std::string const& raw, std::strin
     return calls;
 }
 
-// ---- A3: the 19 trained emotes as 1.12 TEXT-emote ids (SharedDefines.h
+// ---- the 19 trained emotes as 1.12 TEXT-emote ids (SharedDefines.h
 // TEXTEMOTE_*). The values are duplicated here because this header must
 // compile on the host, where SharedDefines.h does not exist; a mismatch
-// would misroute the emote, so the mapping is pinned by the host battery
+// would misroute the emote, so the mapping is pinned by the host test suite
 // against the same table banklib carries.
 enum TextEmoteId : uint32_t
 {
@@ -275,8 +274,8 @@ enum TextEmoteId : uint32_t
 };
 
 // Resolves an emote= value to a 1.12 TEXTEMOTE id: the 19 trained names
-// first, then the measured off-whitelist fuzzy map (prtools: frown->no
-// and close kin; grin/shrug themselves are whitelisted now), then light
+// first, then the off-whitelist fuzzy map (near-miss names like
+// "frown"; grin/shrug themselves are whitelisted), then light
 // morphology (plural/gerund prefix containment). 0 = unresolvable, which
 // the executor treats as "play nothing" (never guess an animation).
 inline uint32_t ResolveTextEmote(std::string emote)
@@ -347,7 +346,7 @@ inline uint32_t ResolveTextEmote(std::string emote)
     return 0;
 }
 
-// ---- bridge beat predicates (A2/A6): the state-free trigger layer of
+// ---- bridge beat predicates: the state-free trigger layer of
 // PlayerbotLlmBridge::BuildNote. State gates (verified-event window,
 // first-meeting, relationship tier) stay in the bridge - these answer
 // only "what is the player asking for / doing in this text".
@@ -363,8 +362,8 @@ inline bool ContainsAnyLower(std::string const& text, char const* const* list, s
     return false;
 }
 
-// ---- S7 negation guard (the S6-logged idiom class): "don't duel me"
-// fired the duel beat - fail-closed at the executor but voiced wrong.
+// ---- negation guard: "don't duel me"
+// once fired the duel beat - fail-closed at the executor but voiced wrong.
 // A trigger hit is NEGATED when a negator ends within the 24 bytes
 // before it with only whitespace between ("don't just stand there, duel
 // me" is not negated - the comma breaks the window).
@@ -431,7 +430,7 @@ enum ConversationalBeat
     BEAT_GIVE_ITEM,     // player asks the bot for an item  -> give_item
     BEAT_FOLLOW,        // player asks the bot along        -> follow
     BEAT_PARTY_INVITE,  // player asks into the group       -> party_invite
-    BEAT_MOVE_TO,       // player asks to be led somewhere  -> move_to (S7/A11)
+    BEAT_MOVE_TO,       // player asks to be led somewhere  -> move_to
 };
 
 inline bool WantsDuel(std::string const& msg)
@@ -446,9 +445,10 @@ inline bool WantsDuel(std::string const& msg)
     return ContainsTrigger(msg, triggers, sizeof(triggers) / sizeof(triggers[0]));
 }
 
-// The insult beat's second-person gate (S5-logged): "this sword is
-// trash" insults an OBJECT, not the bot, and fired -1 with the wrong
-// attribution. An insult beat needs the bot addressed - a second-person
+// The insult beat's second-person gate: "this sword is
+// trash" insults an OBJECT, not the bot - without the gate the beat
+// would fire -1 with the wrong attribution. An insult beat needs the bot
+// addressed - a second-person
 // word or the bot's own name somewhere in the turn.
 inline bool IsSecondPerson(std::string const& msg, std::string const& botName)
 {
@@ -557,7 +557,7 @@ inline bool ExtractGiftItem(std::string const& msg, std::string* itemOut)
             continue;
         }
         // ANY word of the phrase, plural-stemmed: "a few minutes",
-        // "a second chance" are idioms too (round-2 P2), not item asks
+        // "a second chance" are idioms too, not item asks
         bool abstract = isWord(word, abstracts, sizeof(abstracts) / sizeof(abstracts[0]));
         if (!abstract && word.size() > 1 && word.back() == 's')
             abstract = isWord(word.substr(0, word.size() - 1), abstracts,
@@ -684,7 +684,8 @@ inline bool WantsMoveTo(std::string const& msg)
 // me, you pig-iron fool" - the challenge is the ask; the sentiment can
 // ride a later turn). move_to sits LAST: "follow me to the inn" is a
 // follow, and a place-naming ask that resolves to no POI falls through
-// to the rest of the ladder. BEAT_NONE leaves the turn to the S5 beats.
+// to the rest of the ladder. BEAT_NONE leaves the turn to the
+// lower-priority beats.
 inline ConversationalBeat SelectConversationalBeat(std::string const& msg)
 {
     if (WantsDuel(msg))
@@ -700,18 +701,18 @@ inline ConversationalBeat SelectConversationalBeat(std::string const& msg)
     return BEAT_NONE;
 }
 
-// ---- S9/E1 per-class voice budgets. Reply classes: 0 = conversational
+// ---- per-class voice budgets. Reply classes: 0 = conversational
 // (whisper-class: whispers plus the party/raid/say hard-trigger replies
 // that share the pipeline - at most TWO lines of 160 bytes, a note, not
 // an essay), 1 = ambient (autonomous RPG chatter: ONE line of 80). The
 // 255 splitter cap stays the hard channel bound; this is the voice
 // budget layered on top, after every hygiene filter (mandated recall
-// beats land inside one note by construction - the A13 cargo shapes are
-// single-reply). S11 long-form: a CUE-BEARING conversational turn
+// beats land inside one note by construction - the cargo shapes are
+// single-reply). Long-form: a CUE-BEARING conversational turn
 // (longFormCued - the generation's own note carried the frozen
 // long-form cue) on a tier whose max new tokens clear the long bank may
 // run to the splitter's own line budget - 150 words is ~900 bytes, 3-4
-// say lines at the 255 channel cap (plan §5.1: mechanically fine,
+// say lines at the 255 channel cap (mechanically fine,
 // pacing-budgeted). The widening is EARNED PER TURN, never tier-wide:
 // a plain conversational turn keeps 2 x 160 on every tier, and ambient
 // stays 1 x 80 everywhere. Over-budget lines truncate with the same
@@ -720,7 +721,7 @@ inline ConversationalBeat SelectConversationalBeat(std::string const& msg)
 // already extracted upstream of the line pipeline, so only voiced prose
 // can be cut).
 
-// S11 P50/P51 long-form licensing (the threshold law; the cue string
+// Long-form licensing (the threshold law; the cue string
 // itself lives in RecallCore's emitted block). A tier whose configured
 // max new tokens clears the long bank (150 words ~= 225 tokens at the
 // measured ~1.5 tok/word) may carry cue-bearing tellings; short tiers

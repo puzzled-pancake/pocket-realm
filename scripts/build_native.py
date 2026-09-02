@@ -77,7 +77,7 @@ PLAYERBOTS_IN_TREE = NATIVE / "cmangos" / "src" / "modules" / "PlayerBots"
 NDK_LINK = SDK / "ndk-link"
 TOOLCHAIN = NDK_LINK / "toolchains" / "llvm" / "prebuilt" / common.HOST_TAG
 API = 26
-# The embeddable realm lifecycle facade (O04). Built as libpocketrealm.so from
+# The embeddable realm lifecycle facade. Built as libpocketrealm.so from
 # native/pocket-runtime, linked against the same game/shared/playerbots static
 # libraries as mangosd but with POCKET_EMBEDDED defined (exit->throw).
 POCKET_RUNTIME = NATIVE / "pocket-runtime"
@@ -127,7 +127,8 @@ NINJA = next((CMAKE_DIR / v / "bin" / "ninja.exe" for v in _CMAKE_VERSIONS
 TOOLCHAIN_FILE = NDK_LINK / "build" / "cmake" / "android.toolchain.cmake"
 
 STAGES = ["openssl", "boost", "sqlite", "cmangos"]
-# O04 flags (off by default so O03's exact build is the default behavior).
+# Runtime facade flags (off by default so the default build is a plain
+# cmangos build).
 BUILD_RUNTIME = False       # set by --runtime; builds libpocketrealm.so
 BUILD_RUNTIME_TESTS = False # set by --runtime-tests; builds pocket_lifecycle_test
 
@@ -397,8 +398,8 @@ def cmangos() -> int:
            "-DBUILD_GAME_SERVER=ON", "-DBUILD_LOGIN_SERVER=ON",
            "-DBUILD_PLAYERBOTS=ON",
            "-DCMAKE_BUILD_TYPE=Release"]
-    # O04: build the embeddable lifecycle facade (libpocketrealm.so). Gated by
-    # --runtime so a plain `cmangos` stage stays bit-for-bit identical to O03
+    # Build the embeddable lifecycle facade (libpocketrealm.so). Gated by
+    # --runtime so a plain `cmangos` stage stays bit-for-bit identical
     # (the standalone mangosd/realmd are unaffected either way; POCKET_EMBEDDED
     # is only defined inside the pocketrealm target).
     if BUILD_RUNTIME:
@@ -419,7 +420,7 @@ def main() -> int:
                     help="target ABI (default arm64-v8a, the product target; "
                          "x86_64 is an emulator-only test target)")
     ap.add_argument("--runtime", action="store_true",
-                    help="also build libpocketrealm.so (O04 embeddable facade)")
+                    help="also build libpocketrealm.so (embeddable facade)")
     ap.add_argument("--runtime-tests", action="store_true",
                     help="also build the pocket_lifecycle_test native test binary")
     ap.add_argument("stages", nargs="*", default=["all"],

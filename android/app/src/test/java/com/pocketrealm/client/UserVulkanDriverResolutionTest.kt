@@ -10,9 +10,9 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 /**
- * Phase C: the resolution seam where the user lane meets the launch chain.
- * Catalog semantics must stay exactly as Phase 0 pinned them (I1); user-lane
- * outcomes fail closed with exact reasons (I8).
+ * The resolution seam where the user lane meets the launch chain.
+ * Catalog semantics stay exactly as the characterization suite pinned them;
+ * user-lane outcomes fail closed with exact reasons.
  */
 class UserVulkanDriverResolutionTest {
     @get:Rule
@@ -313,8 +313,8 @@ class UserVulkanDriverResolutionTest {
             userIcdFileName = UserVulkanDriver.ICD_FILE_NAME,
         )
         assertTrue(rp6.contains("TU_DEBUG=noconform,sysmem"))
-        // Packaged lanes never emit the alias (Phase-0 pin, restated here for
-        // the lane boundary).
+        // Packaged lanes never emit the alias (the characterization pin,
+        // restated here for the lane boundary).
         for (id in listOf(VulkanDriverCatalog.SYSTEM_DEFAULT, VulkanDriverCatalog.TURNIP_26_1)) {
             assertTrue(
                 ArmSessionEnvironment.driverEnv("dxvk", id, rootfs, "Generic Phone")

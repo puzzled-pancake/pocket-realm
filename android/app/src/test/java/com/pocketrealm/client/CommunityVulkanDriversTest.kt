@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Phase C: the curated community driver list is reviewed compile-time data —
+ * The curated community driver list is reviewed compile-time data —
  * pinned GitHub release digests, MIT Mesa builds only, ids that can never be
  * mistaken for catalog or user-lane driver ids.
  */
@@ -93,7 +93,7 @@ class CommunityVulkanDriversTest {
     @Test
     fun manifestProvenanceConstantsAreGenerated() {
         // Digest freshness (an upstream asset replaced after review) is a
-        // download-time check — CommunityVulkanDriverDownload (Phase D). Here
+        // download-time check — CommunityVulkanDriverDownload. Here
         // we pin that the projection carries the reviewed manifest's identity.
         assertEquals(1, GeneratedCommunityVulkanDrivers.SCHEMA)
         assertEquals("pinned-digest-download-only", GeneratedCommunityVulkanDrivers.POLICY)

@@ -78,7 +78,7 @@ inline void NeuterMarkers(char* text)
     if (!text) return;
     // Fixpoint: removing a pair can join two singles into a NEW pair
     // ("><x>" with x a pair -> ">>"), so repeat until a full pass removes
-    // nothing. Found by the fuzz battery; do not simplify back to one pass.
+    // nothing. Found by fuzzing; do not simplify back to one pass.
     bool removed = true;
     while (removed)
     {

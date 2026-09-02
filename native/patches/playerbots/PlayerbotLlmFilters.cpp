@@ -203,7 +203,7 @@ std::string ResolveEraBiasJson()
         return std::string(); // external endpoints: no llama bias keys
     // loopback only: the bias targets the EMBEDDED llama-server. A
     // hand-configured external endpoint must never receive the probe
-    // traffic (round-1 R1); the app's external mode is providerSafe-
+    // traffic; the app's external mode is providerSafe-
     // gated anyway, this covers the hand-conf edge
     {
         ParsedUrl const url = sPlayerbotAIConfig.llmEndPointUrl;
@@ -237,7 +237,7 @@ std::string ResolveEraBiasJson()
     {
         if (i)
             json += ",";
-        json += std::to_string(ids[i]) + ":-50"; // plan A11: -20/-50 class
+        json += std::to_string(ids[i]) + ":-50"; // -20/-50 class
     }
     json += "}";
     return json;
@@ -251,7 +251,7 @@ std::string PlayerbotLlmFilters::HygienePass(std::string const& cleaned, uint32 
     std::string out = pocketllm::StripMarkdown(cleaned);
     out = pocketllm::ClampAscii(out);
 
-    // A10's post-filter leg: reply sentences that introduce an unknown
+    // The invention post-filter leg: reply sentences that introduce an unknown
     // proper noun on a service/direction claim are stripped, not voiced
     std::vector<std::pair<size_t, size_t>> spans =
         pocketllm::InventionClaimSpans(out, IsKnownNameThunk, nullptr);

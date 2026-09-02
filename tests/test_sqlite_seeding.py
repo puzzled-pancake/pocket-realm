@@ -1,14 +1,14 @@
-"""P4/G6 seeding fidelity harness (MariaDB replacement plan, Route A).
+"""Seeding fidelity harness.
 
 Proves the manifest-driven rebuilt seeder end-to-end against the pinned
 412-entry migration manifest:
 
-  - SEED OK with ZERO statement errors in every database (the P4 exit
-    criterion) and a sanitized summary that byte-matches the append-only
-    baseline schemas/sqlite-seed-baseline.json (determinism);
-  - the P3->P4 addendum legs, live against the seeded artifacts:
+  - SEED OK with ZERO statement errors in every database and a sanitized
+    summary that byte-matches the append-only baseline
+    schemas/sqlite-seed-baseline.json (determinism);
+  - the addendum legs, live against the seeded artifacts:
     (a) bot_player_relationship PRIMARY KEY (bot, player) and
-        bot_backstory PRIMARY KEY (bot) survive translation (I-37),
+        bot_backstory PRIMARY KEY (bot) survive translation,
     (b) UNIQUE KEY -> CREATE UNIQUE INDEX is distinguished from
         KEY -> CREATE INDEX (concrete probe: account_idx_username vs
         account_idx_gmlevel),
@@ -18,9 +18,9 @@ Proves the manifest-driven rebuilt seeder end-to-end against the pinned
         `INTEGER PRIMARY KEY AUTOINCREMENT` (the rowid-alias rule), with
         the registered negative control: a naive `int(10) unsigned
         PRIMARY KEY` rendering FAILS the id-omitting INSERT;
-  - F29/F43 escape fidelity: every MySQL escape class round-trips
+  - escape fidelity: every MySQL escape class round-trips
     byte-identically through the translator + engine;
-  - the engine-parity leg (F31/F54): the per-database transcripts
+  - the engine-parity leg: the per-database transcripts
     execute cleanly under the PINNED amalgamation via
     tools/sqlite_exec_file.c - the exact engine build the APK ships,
     not Python's stdlib sqlite3 - with the engine's own literal-aware
@@ -60,7 +60,7 @@ def _isolated_seed_augments(tmp_path, monkeypatch):
 
 @pytest.fixture
 def _real_seed_augments(monkeypatch):
-    """Opt back into the reviewed repo augmentation set (baseline-bound
+    """Opt back into the repo's committed augmentation set (baseline-bound
     digest tests only)."""
     monkeypatch.setattr(seeder, "AUGMENT_DIR",
                         seeder.ROOT / "schemas" / "seed-augment")
@@ -76,7 +76,7 @@ DB_NAMES = ("classicrealmd", "classiccharacters", "classiclogs",
 
 # The full production define set from native/.deps/src/sqlite/
 # CMakeLists.txt target_compile_definitions - the host fixture legs
-# must compile the SAME engine configuration the APK ships (I-49).
+# must compile the SAME engine configuration the APK ships.
 PRODUCTION_DEFINES = [
     "-DSQLITE_ENABLE_FTS5",
     "-DSQLITE_ENABLE_RTREE",
@@ -127,7 +127,7 @@ def test_seed_reports_ok_with_zero_errors(seed_run) -> None:
 def test_sanitized_summary_matches_the_append_only_baseline(seed_run) -> None:
     """The baseline pins statement/row/rewrite counts (timings stripped).
     A drift here means the corpus or translator changed - update the
-    baseline deliberately, in its own reviewed change."""
+    baseline deliberately."""
     assert BASELINE.is_file(), "run the seeder with --write-baseline first"
     stored = json.loads(BASELINE.read_text(encoding="utf-8"))
     assert seeder.sanitize_summary(seed_run["summary"]) == stored
@@ -144,7 +144,7 @@ def _table_pk(path: Path, table: str) -> list[tuple[str, int]]:
 
 
 def test_addendum_a_composite_pks_survive_translation(seed_run) -> None:
-    """I-37: the ON CONFLICT(bot, player) upsert requires the composite
+    """The ON CONFLICT(bot, player) upsert requires the composite
     PK; bot_backstory keeps its single-column PK."""
     chars = seed_run["out"] / "classiccharacters.sqlite"
     rel = _table_pk(chars, "bot_player_relationship")
@@ -223,10 +223,10 @@ def test_addendum_d_rowid_alias_typing_and_negative_control(
 
 def test_addendum_e_runtime_statements_against_translated_schema(
         seed_run, tmp_path) -> None:
-    """Addendum (e) - BINDING: execute the P3 rewritten statement shapes
-    against the TRANSLATED schema (the seeded artifacts), not only the
-    fixture's hand-declared tables. A name/type/CHECK drift on any LLM
-    column fails HERE at prepare/execute - exactly the I-37/I-41 class
+    """Addendum (e) - BINDING: execute the rewritten runtime statement
+    shapes against the TRANSLATED schema (the seeded artifacts), not
+    only the fixture's hand-declared tables. A name/type/CHECK drift on
+    any LLM column fails HERE at prepare/execute - exactly the class
     that schema-presence probes cannot catch. Runs on COPIES: the
     module fixture's artifacts stay pristine for the other tests."""
     ODKU = ("INSERT INTO `bot_player_relationship` (`bot`, `player`, "
@@ -273,7 +273,7 @@ def test_addendum_e_runtime_statements_against_translated_schema(
         texts = [r[0] for r in conn.execute(
             "SELECT `text` FROM bot_backstory WHERE `bot`=5150")]
         assert texts == ["once"]
-        # id-omitting INSERT + ORDER BY id DESC read (the I-41 shape)
+        # id-omitting INSERT + ORDER BY id DESC read (the runtime shape)
         conn.execute("INSERT INTO `bot_player_facts` (`bot`, `player`, "
                      "`category`, `fact_text`) VALUES "
                      "(5150, 7, 'opinion', 'dislikes rain')")
@@ -282,7 +282,7 @@ def test_addendum_e_runtime_statements_against_translated_schema(
             "WHERE `bot`=5150 ORDER BY `id` DESC LIMIT 1").fetchone()
         assert row[1] == "dislikes rain" and isinstance(row[0], int) \
             and row[0] > 0
-        # REPLACE INTO rides the same translated schema (P3-R4)
+        # REPLACE INTO rides the same translated schema
         conn.execute("REPLACE INTO `bot_player_facts` (`id`, `bot`, "
                      "`player`, `category`, `fact_text`) VALUES "
                      "(?, 5150, 7, 'opinion', 'dislikes snow')",
@@ -318,7 +318,7 @@ def test_addendum_e_runtime_statements_against_translated_schema(
 
 
 def test_revision_probe_z2830_and_spell_coefficients(seed_run) -> None:
-    """P4 exit criterion: the world seed must reach the required z2830
+    """The world seed must reach the required z2830
     revision - the z2815 snapshot alone lacks the spell_template
     coefficient columns (they arrive via the manifest's Spell.sql), and
     the db_version CHANGE-chain must end at the z2830 column name."""
@@ -341,7 +341,7 @@ def test_revision_probe_z2830_and_spell_coefficients(seed_run) -> None:
 
 
 def test_addendum_c_d_named_extensions(seed_run) -> None:
-    """(c) R4 extension: world_gossip's KEY expires_at index must exist
+    """An extension of (c): world_gossip's KEY expires_at index must exist
     (the datetime prune's cost guard). (d) the addendum's NAMED tables -
     bot_player_facts.id and world_gossip.id - carry the exact rowid-
     alias typing, not just the same-shape proxy in realmd."""
@@ -424,7 +424,7 @@ def test_created_index_parity(seed_run) -> None:
 
 
 def test_literal_canary_value_paren_survives(seed_run) -> None:
-    """I-48 regression pin: the z2815 command help text carries
+    """Regression pin: the z2815 command help text carries
     '#value (0..100)' inside a string literal - the statement-wide
     VALUE->VALUES rewrite corrupted it to '#VALUES (0..100)' before
     the literal-aware substitution. The seeded data must carry the
@@ -444,12 +444,11 @@ def test_literal_canary_value_paren_survives(seed_run) -> None:
 
 
 def test_f52_escape_anchor_three_files_exact(seed_run) -> None:
-    """The F52 external anchor: the research digest's legacy-corruption
+    """External anchor: the legacy-corruption
     escape classes (\\n \\r \\\\) land in EXACTLY the 3 predicted files
-    with an exact per-file count - an expectation derived from the
-    research report, not from the translator's own totals (I-58). The
-    digest said 49,243; the measured corpus truth is 49,242 (the
-    digest was one high - reconciliation recorded in the plan ledger)."""
+    with an exact per-file count - an expectation derived from a
+    one-time corpus research pass, not from the translator's own
+    totals. The measured corpus truth is 49,242 backslash escapes."""
     f52 = seed_run["summary"]["translation"]["f52_nr_backslash"]
     expected = {
         "native/playerbots/sql/world/ai_playerbot_texts.sql": 43552,
@@ -461,7 +460,7 @@ def test_f52_escape_anchor_three_files_exact(seed_run) -> None:
 
 
 def test_escape_fidelity_all_classes_round_trip() -> None:
-    """F29/F43/F44: every MySQL escape class the translator rewrites
+    """Every MySQL escape class the translator rewrites
     (plus '' doubling, backslash-quote, and multi-byte UTF-8) must land
     byte-identically in the seeded engine. NUL is asserted at the
     translation level only: Python's sqlite3 wrapper refuses NUL inside
@@ -494,7 +493,7 @@ def test_escape_fidelity_all_classes_round_trip() -> None:
 
 
 def test_positional_add_column_rebuilds_in_mysql_order() -> None:
-    """I-189: AFTER/FIRST positioning is MySQL semantics SQLite ALTER
+    """AFTER/FIRST positioning is MySQL semantics SQLite ALTER
     cannot express; stripping it shifted every later column, and the
     SQLStorage loads read these tables with SELECT * positionally - the
     SQLite world lane read data1 as moTransport.taxiPathId and crashed
@@ -585,7 +584,8 @@ def test_positional_add_chain_first_and_renamed_target() -> None:
 
 def test_positional_add_fail_loud_without_fidelity() -> None:
     """A positional add the tracker cannot place must abort the seed,
-    never silently strip the position - that silence is exactly I-189."""
+    never silently strip the position - that silence is the column-shift
+    regression."""
     report = translator.TranslationReport()
     with pytest.raises(RuntimeError, match="DBSchemaState"):
         translator.translate_file_text(
@@ -629,11 +629,11 @@ def test_plain_add_column_appends_without_rebuild() -> None:
 
 
 def test_i189_seeded_crash_table_order_is_pinned(seed_run) -> None:
-    """Direct order pin on the REAL seeded database (I-189 R1 lane-D):
+    """Direct order pin on the REAL seeded database:
     gameobject_template must carry IconName at column 4 (the loader's
     srcfmt 's' position) and data0 at column 9 (the first data-union
-    field, moTransport.taxiPathId) - a synthetic-test-plus-digest
-    blanket alone would carry a silent ordering regression."""
+    field, moTransport.taxiPathId) - synthetic tests alone would carry
+    a silent ordering regression."""
     conn = sqlite3.connect(str(seed_run["out"] / "classicmangos.sqlite"))
     try:
         go = [r[1] for r in conn.execute(
@@ -654,9 +654,9 @@ def test_i189_seeded_crash_table_order_is_pinned(seed_run) -> None:
 
 
 def test_positioning_strip_is_literal_aware() -> None:
-    """I-189 R1 lane-D mutation proof: the plain-path AFTER/FIRST strip
-    must never rewrite inside literals (the exact silent-corruption
-    family I-189 was about)."""
+    """The plain-path AFTER/FIRST strip must never rewrite inside
+    literals (the exact silent-corruption family the positional rebuild
+    exists for)."""
     report = translator.TranslationReport()
     state = translator.DBSchemaState()
     stmts = translator.translate_file_text(
@@ -701,11 +701,11 @@ def test_full_corpus_translation_is_deterministic(seed_run, _real_seed_augments)
     variables: dict[str, str] = {}
     per_db: dict[str, list[str]] = {}
     # per-database schema tracking, mirroring the driver (positional
-    # ADD COLUMN rebuilds need it and fail loud without it - I-189)
+    # ADD COLUMN rebuilds need it and fail loud without it)
     db_states: dict[str, translator.DBSchemaState] = {}
     src_autoinc = 0
     for entry in manifest["entries"]:
-        # strict decode mirrors the driver (I-51); the module fixture's
+        # strict decode mirrors the driver; the module fixture's
         # own strict pass gates the corpus first, so this leg can no
         # longer silently re-introduce the replaced-error class.
         text = seeder.entry_bytes(entry).decode("utf-8")
@@ -741,7 +741,7 @@ def test_full_corpus_translation_is_deterministic(seed_run, _real_seed_augments)
         stored = _transcript_digests(seed_run["transcripts"])[db]
         assert fresh == stored, f"non-deterministic translation: {db}"
     # The baseline hash-binds the transcript BYTES (not just counts):
-    # count-preserving content drift fails here (I-50).
+    # count-preserving content drift fails here.
     pinned = seed_run["summary"].get("transcript_digests")
     assert pinned, "driver did not record transcript digests"
     assert pinned == _transcript_digests(seed_run["transcripts"])
@@ -779,18 +779,17 @@ def test_transcripts_execute_under_the_pinned_amalgamation(
 
 
 # ---------------------------------------------------------------------------
-# P4 Round-2 regression pins (I-60..I-66)
+# Translator regression pins
 # ---------------------------------------------------------------------------
 
 
 def test_var_substitution_is_literal_aware() -> None:
-    """I-61: @var substitution must never fire inside string literals -
+    """@var substitution must never fire inside string literals -
     MySQL never substitutes session variables there, so a '@name' inside
-    data text is DATA. Found independently by C/E/D in Round 2 as the
-    surviving I-48 corruption class in the @var path. P4 R3 (E3-1): all
-    FOUR substitution sites are pinned - the INSERT-values expansion
-    path, the INSERT fallback (INSERT..SELECT), and the generic
-    non-INSERT path."""
+    data text is DATA (the surviving literal-corruption class in the
+    @var path). All FOUR substitution sites are pinned - the
+    INSERT-values expansion path, the INSERT fallback (INSERT..SELECT),
+    and the generic non-INSERT path."""
     report = translator.TranslationReport()
     variables: dict[str, str] = {}
     stmts = translator.translate_file_text(
@@ -808,7 +807,7 @@ def test_var_substitution_is_literal_aware() -> None:
     assert "'ticket @n closed'" in joined, joined[:400]
     assert "'select literal @a here'" in joined, joined[:600]
     assert "'where literal @n'" in joined, joined[:600]
-    # R4 polish (E-I-A): literal-survival pin for the FOURTH site - the
+    # Literal-survival pin for the FOURTH site - the
     # running-counter substitution inside _expand_insert_variables.
     assert "'cnt @n := @n + 1 end'" in joined, joined[:600]
     # the real (outside-literal) uses still substitute
@@ -818,7 +817,7 @@ def test_var_substitution_is_literal_aware() -> None:
 
 
 def test_nocase_collation_preserves_mysql_ci_semantics(seed_run) -> None:
-    """I-60: MySQL text columns compare case-insensitively (server-
+    """MySQL text columns compare case-insensitively (server-
     default utf8*_general_ci); the translation emits COLLATE NOCASE so
     live lookups (ObjectMgr::GetPlayerGuidByName "WHERE name = '%s'",
     the add-ignore lookup, the character-creation duplicate-name check)
@@ -848,7 +847,7 @@ def test_nocase_collation_preserves_mysql_ci_semantics(seed_run) -> None:
 
 
 def test_decimal_columns_render_as_counted_real(seed_run) -> None:
-    """I-65: decimal/numeric map explicitly to REAL (counted in the
+    """decimal/numeric map explicitly to REAL (counted in the
     baseline), not an uncounted NUMERIC-affinity fall-through."""
     report = seed_run["summary"]["translation"]
     assert report["decimal_rewrites"] >= 6, report["decimal_rewrites"]
@@ -869,7 +868,7 @@ def test_decimal_columns_render_as_counted_real(seed_run) -> None:
 
 
 def test_multibyte_inserts_chunk_on_bytes_not_chars() -> None:
-    """I-62: the chunker's entry gate measures UTF-8 BYTES. A statement
+    """The chunker's entry gate measures UTF-8 BYTES. A statement
     under the CHAR limit but over the BYTE limit (multibyte-dense rows)
     must still chunk - the pinned corpus's broadcast_text_locale INSERT
     (1,041,717 bytes) previously skipped chunking on its char count."""
@@ -885,12 +884,12 @@ def test_multibyte_inserts_chunk_on_bytes_not_chars() -> None:
 
 
 def test_values_regex_reach_whitespace_and_multiline_columns() -> None:
-    """I-63: the VALUES regex family accepts `insert  into` (double
+    """The VALUES regex family accepts `insert  into` (double
     space; the realmd antispam corpus shape) and newline-carrying column
     lists (entry 0164) - previously both bypassed @-expansion and
-    chunking (row-parity held only vacuously for them). P4 R3 (E3-2):
-    the multiline leg carries an @var so the regex MUST fire (a
-    byte-identical passthrough can no longer satisfy it)."""
+    chunking (row-parity held only vacuously for them). The multiline
+    leg carries an @var so the regex MUST fire (a byte-identical
+    passthrough can no longer satisfy it)."""
     report = translator.TranslationReport()
     variables: dict[str, str] = {}
     out = translator.translate_file_text(
@@ -904,12 +903,11 @@ def test_values_regex_reach_whitespace_and_multiline_columns() -> None:
     # keeps its leading space from the corpus-style "( @n ...". The
     # plain @n in the third statement reads 7 - the PERSISTED final
     # counter value after the two running increments (5 -> 6 -> 7),
-    # pinning I-55's replay-order semantics alongside the reach fix.
+    # pinning the replay-order semantics alongside the reach fix.
     assert "VALUES\n(6),( 7)" in joined, joined[:400]
     # anchored to the expansion-path rendering (newline before the row):
     # the generic fallback would emit "VALUES (7, 9)" with a space, so
-    # a regex-family regression cannot be satisfied by the fallback
-    # (E-I-B, R4 polish).
+    # a regex-family regression cannot be satisfied by the fallback.
     assert "VALUES\n(7, 9)" in joined, joined[:400]
 
 
@@ -928,10 +926,10 @@ def _synthetic_manifest(tmp_path: Path, body: str) -> Path:
 
 
 def test_driver_first_error_aborts_and_dumps_binary_exact(tmp_path) -> None:
-    """I-66 (E-2): the fail-loud family is regression-pinned. First
+    """The fail-loud family is regression-pinned. First
     statement error (max_errors=0) aborts the seed loudly and the
     forensic dump carries the TRUE bytes (newline="": no Windows
-    text-mode mangling of literal CR/LF - gotcha #14)."""
+    text-mode mangling of literal CR/LF)."""
     manifest = _synthetic_manifest(tmp_path, (
         "CREATE TABLE `t` (`v` TEXT);\n"
         "INSERT INTO `t` VALUES ('ok');\n"
@@ -949,7 +947,7 @@ def test_driver_first_error_aborts_and_dumps_binary_exact(tmp_path) -> None:
 
 def test_write_baseline_refused_on_unclean_seed(tmp_path,
                                                  monkeypatch) -> None:
-    """I-52/I-66: --write-baseline refuses an unclean seed; the
+    """--write-baseline refuses an unclean seed; the
     append-only baseline is never clobbered by a failed run. The
     manifest-path guard is monkeypatched past (its own refusal is
     pinned separately below) so this exercises the not-clean branch."""
@@ -966,7 +964,7 @@ def test_write_baseline_refused_on_unclean_seed(tmp_path,
 
 def test_apply_seed_augments_guards(tmp_path) -> None:
     """The augmentation loader's fail-loud guards (the ;; corruption
-    class cost a pinned-engine replay debugging session once; every
+    class once cost a pinned-engine replay session to diagnose; every
     guard gets a regression pin)."""
     import gzip as gzip_mod
     report = translator.TranslationReport()
@@ -1028,8 +1026,8 @@ def test_apply_seed_augments_provenance_guard(tmp_path) -> None:
 
 
 def test_write_baseline_refused_for_foreign_manifest(tmp_path) -> None:
-    """P4 R3 (E idea 3): a synthetic/foreign manifest can never
-    overwrite the reviewed append-only baseline, even on a clean seed."""
+    """A synthetic/foreign manifest can never
+    overwrite the committed append-only baseline, even on a clean seed."""
     manifest = _synthetic_manifest(
         tmp_path, "CREATE TABLE `t` (`v` TEXT);\n")
     before = BASELINE.read_bytes()
@@ -1041,7 +1039,7 @@ def test_write_baseline_refused_for_foreign_manifest(tmp_path) -> None:
 
 
 def test_stale_sidecars_and_dump_reset_across_runs(tmp_path) -> None:
-    """I-54/I-66: stale -wal/-shm/-journal sidecars and a stale
+    """Stale -wal/-shm/-journal sidecars and a stale
     failed-statements.sql from an earlier run are cleared before the
     fresh seed (no cross-run contamination of artifacts or evidence)."""
     manifest = _synthetic_manifest(
@@ -1063,14 +1061,13 @@ def test_stale_sidecars_and_dump_reset_across_runs(tmp_path) -> None:
 
 
 def test_collation_edge_shapes_are_pinned() -> None:
-    """I-67/I-68 (P4 R3) + R4 polish: the bare ALTER..ADD form (no
+    """The bare ALTER..ADD form (no
     COLUMN keyword - the dominant in-corpus ADD idiom, corpus-numeric
     today), the _bin/_cs and bare-`binary` explicit collations, the
     ALTER-branch collation rename, uppercase ENUM, the N-variant text
     types, the index-named-'text' boundary guard, and the DEFAULT
-    literal canary (an I-68 pin that R3 claimed but never landed -
-    I-75) all translate correctly. Each shape is corpus-absent today;
-    this is the append-path pin."""
+    literal canary all translate correctly. Each shape is corpus-absent
+    today; this is the append-path pin."""
     report = translator.TranslationReport()
     out = translator.translate_file_text(
         "CREATE TABLE `c` (\n"
@@ -1096,10 +1093,10 @@ def test_collation_edge_shapes_are_pinned() -> None:
     assert "`nat` TEXT COLLATE NOCASE" in joined, joined
     assert report.enum_columns == 1, report.enum_columns
     assert "CHECK(`e` IN ('x', 'Y'))" in joined, joined
-    # I-75 canary: the literal-aware NOCASE routing must leave literal
+    # Literal canary: the literal-aware NOCASE routing must leave literal
     # interiors verbatim (a ', x TEXT'-shaped DEFAULT is DATA).
     assert "'a, b TEXT c'" in joined, joined
-    # I-76: an index NAMED 'text' must not eat a COLLATE (the boundary
+    # An index NAMED 'text' must not eat a COLLATE (the boundary
     # guard); the statement stays a CREATE INDEX.
     assert "COLLATE NOCASE (`a`)" not in joined, joined
     assert "ADD INDEX" in joined or "CREATE" in joined, joined
@@ -1107,11 +1104,11 @@ def test_collation_edge_shapes_are_pinned() -> None:
 
 def test_every_translated_text_column_carries_a_collation(
         seed_run) -> None:
-    """B idea 1 (adopted P4 R3): schema-level NOCASE invariant - every
+    """Schema-level NOCASE invariant - every
     TEXT-family column in the seeded schemas must carry an explicit
     COLLATE (NOCASE for the ci default, BINARY for explicit _bin/_cs).
     A future manifest append whose text column escapes the blanket
-    (the I-67 class) fails HERE, loudly, instead of seeding BINARY
+    fails HERE, loudly, instead of seeding BINARY
     silently behind a green harness."""
     missing = []
     raw_collate = []
@@ -1125,7 +1122,7 @@ def test_every_translated_text_column_carries_a_collation(
                         r"(?m)^(\s*`?[A-Za-z_]\w*`?\s+TEXT\b)"
                         r"(?!\s*COLLATE)", sql):
                     missing.append(f"{db}.{name}: {m.group(1).strip()}")
-                # R4 polish (E idea 2): a raw collation NAME that is
+                # A raw collation NAME that is
                 # neither NOCASE nor BINARY means an explicit-collation
                 # rename escaped on some path - SQLite would reject it
                 # at first use, but catch it here, path-independently.
@@ -1139,12 +1136,12 @@ def test_every_translated_text_column_carries_a_collation(
 
 
 def test_baseline_pins_manifest_hash_and_transcript_sizes(seed_run) -> None:
-    """D-idea-1/F-idea-1 (adopted Round 2): the baseline names the exact
+    """The baseline names the exact
     manifest state it was seeded from (O(1) mismatch diagnosis) and
-    pins the per-database transcript byte sizes - the F31 seed
-    footprint for the P5 dual-provider window (~118 MiB raw)."""
+    pins the per-database transcript byte sizes - the seed
+    footprint for the dual-provider window (~118 MiB raw)."""
     stored = json.loads(BASELINE.read_text(encoding="utf-8"))
-    # LF-normalized input (F3-1): the repo's canonical form is LF
+    # LF-normalized input: the repo's canonical form is LF
     # (.gitattributes), so a fresh LF checkout hashes identically to
     # this CRLF working tree.
     assert stored["manifest_sha256"] == hashlib.sha256(

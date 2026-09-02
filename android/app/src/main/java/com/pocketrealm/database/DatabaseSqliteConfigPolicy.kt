@@ -1,8 +1,7 @@
 package com.pocketrealm.database
 
 /**
- * Fixed connection policy for the in-tree SQLite backend (DEC-02, amended
- * 2026-08-27 for the on-device-play decision).
+ * Fixed connection policy for the in-tree SQLite backend.
  *
  * Durability contract: SQLite WAL with `synchronous=NORMAL`. WAL keeps
  * crash consistency - a power cut or process kill rolls back to the last
@@ -20,7 +19,7 @@ package com.pocketrealm.database
  * cache build).
  *
  * These pragmas are applied per connection by the hardened DO_SQLITE
- * backend; this object is the single reviewed source both the native policy
+ * backend; this object is the single source of truth both the native policy
  * and the SQLite provider are checked against.
  */
 internal object DatabaseSqliteConfigPolicy {

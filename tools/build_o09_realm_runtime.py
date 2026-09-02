@@ -114,25 +114,25 @@ CMANGOS_OVERLAYS = [
             "src/shared/Database/Database.cpp",
             "src/shared/Database/DatabaseImpl.h",
         ],
-        "reason": "Route all twelve async enqueue sites through SafeDelayOperation/SafeDelayQueryHolder: HaltDelayThread() nulls m_threadBody while the sticky async flag stays on across embedded restart cycles, so an unguarded enqueue after a halt is a null dereference (F50).",
+        "reason": "Route all twelve async enqueue sites through SafeDelayOperation/SafeDelayQueryHolder: HaltDelayThread() nulls m_threadBody while the sticky async flag stays on across embedded restart cycles, so an unguarded enqueue after a halt is a null dereference.",
     },
     {
         "id": "fail-loud-backend-selection",
         "backends": ["mysql", "sqlite"],
         "path": "CMakeLists.txt",
-        "reason": "Refuse the no-op -DDO_MYSQL/-DDO_SQLITE cache defines, refuse PostgreSQL, and print the selected backend at configure time; the real switch is the SQLITE cache variable with MySQL as the else-default (F41).",
+        "reason": "Refuse the no-op -DDO_MYSQL/-DDO_SQLITE cache defines, refuse PostgreSQL, and print the selected backend at configure time; the real switch is the SQLITE cache variable with MySQL as the else-default.",
     },
     {
         "id": "runtime-dialect-truncate",
         "backends": ["mysql", "sqlite"],
         "path": "src/game/Globals/ObjectMgr.cpp",
-        "reason": "P3/G5: route the two raw TRUNCATE sites through the backend _TRUNCATE_ macro (DELETE FROM under DO_SQLITE; TRUNCATE TABLE - semantically identical - under MySQL).",
+        "reason": "Route the two raw TRUNCATE sites through the backend _TRUNCATE_ macro (DELETE FROM under DO_SQLITE; TRUNCATE TABLE - semantically identical - under MySQL).",
     },
     {
         "id": "runtime-dialect-anticheat-prune",
         "backends": ["mysql", "sqlite"],
         "path": "src/game/Anticheat/module/libanticheat.cpp",
-        "reason": "P3/G5: DELETE..ORDER BY..LIMIT is MySQL-only; under DO_SQLITE use the registered rowid-IN-subquery rewrite with the fingerprint predicate inside the subquery (exactly two positional binds unchanged, DEC-03).",
+        "reason": "DELETE..ORDER BY..LIMIT is MySQL-only; under DO_SQLITE use the registered rowid-IN-subquery rewrite with the fingerprint predicate inside the subquery (exactly two positional binds unchanged).",
     },
     {
         "id": "db-sqlite-connection-hardening",
@@ -144,7 +144,7 @@ CMANGOS_OVERLAYS = [
             "src/shared/Database/QueryResultSqlite.cpp",
             "src/shared/Database/SqlOperations.cpp",
         ],
-        "reason": "DO_SQLITE-only hardened connection layer (P2/G3): WAL with synchronous=NORMAL rendered per connection (DEC-02 as amended 2026-08-27), busy_timeout 500ms with BUSY retry instead of silent false, BEGIN IMMEDIATE write transactions, begin-failure refusal + commit-failure rollback (F30), fully materialized query results under the connection lock, no leaked statement wrappers, explicit-length TRANSIENT text binds. DO_MYSQL builds are behaviorally unchanged.",
+        "reason": "DO_SQLITE-only hardened connection layer: WAL with synchronous=NORMAL rendered per connection, busy_timeout 500ms with BUSY retry instead of silent false, BEGIN IMMEDIATE write transactions, begin-failure refusal + commit-failure rollback, fully materialized query results under the connection lock, no leaked statement wrappers, explicit-length TRANSIENT text binds. DO_MYSQL builds are behaviorally unchanged.",
     },
 ]
 POCKET_INTERACT_SOURCE = NATIVE / "patches" / "cmangos" / "PocketRealmInteraction.cpp"
@@ -153,10 +153,10 @@ POCKET_INTERACT_SOURCE = NATIVE / "patches" / "cmangos" / "PocketRealmInteractio
 def patches_content_digests() -> dict[str, str]:
     """sha256 of EVERY patch file under native/patches/ that rides a
     build (whole-file replacement sources; the anchor-replacement
-    constants live in this driver and are covered by its own review).
-    Recorded in the lockfile so any patches edit - including a parallel
-    session's - makes the committed lockfile mechanically stale
-    (pre-P5 checklist item 3; the I-40 carry-forward's retirement)."""
+    constants live in this driver).
+    Recorded in the lockfile so any patches edit makes the committed
+    lockfile mechanically stale - an edited patch file must force a
+    deliberate lockfile regeneration, never a silent ride-along."""
     patches = NATIVE / "patches"
     out: dict[str, str] = {}
     for path in sorted(patches.rglob("*")):
@@ -407,12 +407,12 @@ RESULT_QUEUE_ANDROID = """void SqlResultQueue::Update()
     }
 }
 """
-# P3/G5 runtime-dialect rewrites. The raw TRUNCATE pair routes through the
+# Runtime-dialect rewrites. The raw TRUNCATE pair routes through the
 # backend _TRUNCATE_ macro (DELETE FROM under DO_SQLITE, TRUNCATE TABLE
 # under MySQL - semantically identical MySQL behavior); the anticheat
 # prune uses the registered rowid-IN-subquery rewrite under DO_SQLITE
 # (DELETE..ORDER BY..LIMIT would need the never-vendored UPDATE/DELETE
-# LIMIT build flag - DEC-03), keeping the fingerprint predicate INSIDE
+# LIMIT build flag), keeping the fingerprint predicate INSIDE
 # the subquery so the existing two positional binds are unchanged.
 OBJECTMGR_TRUNCATE_CREATURE_UPSTREAM = '''    WorldDatabase.DirectExecute("TRUNCATE creature_zone");'''
 OBJECTMGR_TRUNCATE_CREATURE_ANDROID = '''    WorldDatabase.DirectExecute(_TRUNCATE_ " creature_zone");'''
@@ -808,7 +808,7 @@ PB_MGR_SCAN_CALL_ANDROID = """    // Match the core active-zone cadence; do not 
     {
         lowCpuTelemetryTimer = now;
         LogPlayerLocation();
-        // S10/E6: the world-chatter scheduler rides the same 10 s world-
+        // The world-chatter scheduler rides the same 10 s world-
         // thread cadence (power reconcile + queue drain + batch rolls;
         // every gate lives inside - a no-op when chatter is off)
         PlayerbotLlmChatter::Tick();
@@ -864,9 +864,9 @@ PB_LLM_CONFIG_HEADER_ANDROID = """    ParsedUrl llmEndPointUrl;
     uint32 llmEraBias;
     float llmTemp, llmTopP, llmRepeatPenalty;
     // S9/T4: bounded TCP connect for the HTTP client (the blocking default
-    // hangs for minutes on a dead external endpoint; §2.1 T4 = 10 s)
+    // hangs for minutes on a dead external endpoint; the cap is 10 s)
     uint32 llmConnectTimeout;
-    // S10/E6 world chatter (§4.6b): the master ambience switch (default 0
+    // World chatter: the master ambience switch (default 0
     // - silence is the default state), the app-refreshed power file, and
     // the cloud composer endpoint (parsed once like the main endpoint)
     uint32 llmChatterEnabled;
@@ -937,7 +937,7 @@ PB_LLM_CONFIG_CPP_ANDROID = """    //LLM START
     // 4096 default (which would overwrite this); PB_LLM_CTX_REREAD removes
     // that legacy re-read so this is the single authoritative read.
     llmContextLength = config.GetIntDefault("AiPlayerbot.LLMContextLength", 8192);
-    // S10/E6: the world-chatter layer (§4.6b). Enabled defaults 0 - the
+    // The world-chatter layer. Enabled defaults 0 - the
     // silence doctrine; the app emits 1 whenever it stages the power
     // file, and the FILE's enabled flag is the master switch (re-read
     // every scheduler tick, so the ambience toggle works mid-session in
@@ -1009,10 +1009,10 @@ public:
     // persistence tools attribute to the interlocutor, never the owner.
     static std::string Generate(const std::string& prompt, uint32 botGuid, uint32 speakerGuid, PlayerbotLlamaRuntime::LlmCallSource source, uint64_t licenseStamp, int timeOutSeconds, int maxGenerations, std::vector<std::string>& debugLines);
 
-    // S10/E6 ambient admission surfaces, shared with PlayerbotLlmChatter:
+    // Ambient admission surfaces, shared with PlayerbotLlmChatter:
     // GovernorAdmit is the SAME duty-cycle check+consume Generate runs
     // (hoisted into a shared function so the ambient path cannot bypass
-    // the S3 governor); PostChatHttp is the raw chat-completions POST for
+    // the governor); PostChatHttp is the raw chat-completions POST for
     // paths that own their validation (the murmur/composer workers -
     // never the canned-deflection voice-filter chain); the in-flight
     // count lets ambient work yield the interactive lane entirely.
@@ -1320,15 +1320,14 @@ std::string PlayerbotLLMInterface::Generate(const std::string& prompt, uint32 bo
     }
 
     // Empty-content guard: the pinned base model burns the whole token
-    // budget on a thinking preamble routed into reasoning_content (plan
-    // §1.4). ONE retry with a direct-answer instruction spliced onto the
+    // budget on a thinking preamble routed into reasoning_content. ONE retry with a direct-answer instruction spliced onto the
     // same user turn, then give up quiet - the player never sees a literal
     // envelope fragment or an empty promise (fail-quiet law). The retry is
     // skipped when the budget was already exhausted mid-thinking
     // (finish_reason "length"): on the pinned base model every empty
-    // draw at the production budget was length-class (C:/llm-lab/results/
-    // a9_retry_e2b-base.json; §1.4 measured 51/51 empty at <=200 under
-    // the trained prompt shapes), and the thinking toll is budget-elastic
+    // draw at the production budget was length-class (every measured
+    // empty draw at <=200 tokens under the trained prompt shapes was
+    // length-class), and the thinking toll is budget-elastic
     // and always precedes content - an identical-budget resend cannot pay
     // it, so failing quiet immediately beats doubling the player's wait.
     // The retry stays armed for the recoverable class: the model finished
@@ -1464,7 +1463,7 @@ PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBacken
         sPlayerbotAIConfig.llmEnabled > 0)
         PlayerbotLlmMemory::QueueCrowdEmote(bot, gateSpeaker);
 
-    // S10/E6 interruption rule: player chat owns the channel - stamp
+    // Interruption rule: player chat owns the channel - stamp
     // every real-player conversational trigger so ambient murmur/party
     // delivery pauses around the player's own words (the global set
     // piece is exempt - general chat is not the player's channel).
@@ -1553,7 +1552,7 @@ PB_SAY_RECORDER_ANDROID = """    std::vector<std::string> lines = PlayerbotLLMIn
             std::to_string(PlayerbotLlmMemory::ConversationCount()));
 """
 
-# S9/E1: the pacing call. Upstream is the single 200 ms/char call whose
+# The pacing call. Upstream is the single 200 ms/char call whose
 # timeDiff credit zeroed after the first line.
 PB_SAY_PACE_CALL_UPSTREAM = """    delayedPackets packets, debugPackets;
 
@@ -1573,7 +1572,7 @@ PB_SAY_PACE_CALL_ANDROID = """    delayedPackets packets, debugPackets;
         busyReply ? 0 : 35, emoteTemplate, busyReply ? 0 : timeDiff);
 """
 
-# S9/E1: the timeDiff credit becomes a running budget consumed across all
+# The timeDiff credit becomes a running budget consumed across all
 # lines (both delay blocks share the shape; the sLog lines make the tail
 # block unique).
 PB_SAY_TIMEDIFF_HEAD_UPSTREAM = """                auto sentenceSplit = sentence.substr(0, splitPos);
@@ -2020,8 +2019,8 @@ PB_IFACE_CONNECT_ANDROID = """    bool connected = false;
         return "error";
     }
 """
-# M2/M3/M4/M5 overlays applied after the stage-1 LLM overlays above.
-# S9/T4: select() needs its own header on bionic (sys/socket.h does not
+# Companion overlays applied after the stage-1 LLM overlays above.
+# select() needs its own header on bionic (sys/socket.h does not
 # pull it in).
 PB_IFACE_SOCKINCLUDE_UPSTREAM = """#include <fcntl.h>
 #include <errno.h>
@@ -2597,7 +2596,7 @@ PB_LLM_CONF_ANDROID = """# Time in seconds the server will wait for the generati
 # rare bot2bot exchange when a player walks up, and the crowd tier's
 # deterministic emotes on ambient /say (never a generation; 1 line per bot
 # per 10 min - the zero-spam cap). 0 keeps bots reply-only.
-# S10/E6 world chatter (the LLM-voiced ambient layers): party banter,
+# World chatter (the LLM-voiced ambient layers): party banter,
 # proximity murmur, rare general-chat set pieces, all event-gated (silence
 # is the default - no fact-bank row, no line). The app emits these
 # whenever it stages the power file; the FILE's enabled flag is the
@@ -2626,7 +2625,7 @@ PB_IFACE_EP_KEY_ANDROID = """    std::string const& chatApiKey = apiKeyOverride 
     if (!chatApiKey.empty())
         request << "Authorization: Bearer " << chatApiKey << "\\r\\n";
 """
-# core hooks for the M3 event allowlist
+# core hooks for the LLM companion event allowlist
 # the SendPacket line makes the anchor unique: PLAYER_NEXT_LEVEL_XP is also
 # set in InitStatsForLevel (login-time stat init) and only GiveLevel precedes
 # it with the packet send - first-match-by-file-order alone hooked the right
@@ -2644,7 +2643,7 @@ CORE_GIVELEVEL_ANDROID = """    GetSession()->SendPacket(data);
     PlayerbotLlmMemory::OnPlayerLevelUp(this, level);
 #endif
 """
-# A14: the duel-outcome hook. The anchor sits before the duel state is
+# The duel-outcome hook. The anchor sits before the duel state is
 # deleted (duel->opponent still live); this one function covers all nine
 # outcome call sites - Unit.cpp's damage win calls DuelComplete on the
 # LOSER with DUEL_WON, the flee/interrupt sites on the fleeing/leaving
@@ -2661,7 +2660,7 @@ CORE_DUELCOMPLETE_ANDROID = """    // restore health/mana view for friendly play
     PlayerbotLlmMemory::OnDuelComplete(this, duel->opponent, type);
 #endif
 """
-# S9/E2: the one-time first-contact onboarding line rides login (gating +
+# The one-time first-contact onboarding line rides login (gating +
 # the once-per-character no-pairing-yet check live in the memory layer;
 # the world conf is only LLM-armed when the app started the runtime
 # before the world - the supervisor's measured ordering). The two
@@ -2722,7 +2721,7 @@ CORE_LOOT_INCLUDE_ANDROID = """#include "Entities/Player.h"
 #include "playerbot/PlayerbotLlmMemory.h"
 #endif
 """
-# --- M6: Unit::Kill hook for authored kill banter ---------------------------
+# --- Unit::Kill hook for authored kill banter ---------------------------
 # The once-per-kill credit block (tapper is the loot-recipient Player*, the
 # reward lines make the anchor unique within Unit.cpp). The memory layer does
 # its own gating: real players only, 4% roll, party stagger, ambient cooldown.
@@ -2758,7 +2757,7 @@ CORE_UNIT_KILL_ANDROID = """    // Reward player, his pets, and group/raid membe
         PlayerbotLlmMemory::OnPlayerGroupKill(tapper, victim);
 #endif
 """
-# --- M6: neuter tool markers in the player's raw words ----------------------
+# --- neuter tool markers in the player's raw words ----------------------
 # The <initial message> placeholder is the only path where player text enters
 # the prompt un-choked (history writes all funnel through the neutered
 # AppendTurn). The statement line is unique within SayAction.cpp.
@@ -2813,13 +2812,13 @@ PB_LLM_IFACE_UNESCAPE_ANDROID = """    // A9: this rewrite strips the escaped-qu
 """
 PB_LLM_IFACE_DELETE_UPSTREAM = """    if (!deletePattern.empty()) {
 """
-PB_LLM_IFACE_DELETE_ANDROID = """    // A9: the reviewed delete pattern targets JSON-era escape residue
+PB_LLM_IFACE_DELETE_ANDROID = """    // The delete pattern targets JSON-era escape residue
     // (`\\n`, `\\uXXXX`) that never exists in decoded prose - but its
     // `\\[^ ]+` alternative eats a literal backslash and the word after
     // it. Decoded content skips it; the raw fallback path keeps it.
     if (!(llmGenerationState & POCKET_LLM_GEN_JSON_DECODED) && !deletePattern.empty()) {
 """
-# --- M6: GenerateHttp external-endpoint hardening ---------------------------
+# --- GenerateHttp external-endpoint hardening -------------------------------
 # The raw body under the header block was returned as-is: a non-200 error
 # page became the "completion" (the start pattern then yields "" - silent
 # bot) and a chunked body kept its hex chunk framing. Both break any real
@@ -2905,9 +2904,9 @@ PB_MGR_LOGIN_ANDROID = """void RandomPlayerbotMgr::OnBotLoginInternal(Player * c
     sLog.outDetail("%u/%d Bot %s logged in", GetPlayerbotsAmount(), sRandomPlayerbotMgr.GetMaxAllowedBotCount(), bot->GetName());
 """
 
-# --- DB async null-guard overlays (P0 of the MariaDB replacement plan) ------
+# --- DB async null-guard overlays -------------------------------------------
 # HaltDelayThread() nulls m_threadBody while m_allowAsyncTransactions stays
-# sticky-true across POCKET_EMBEDDED restart cycles (research digest F50: the
+# sticky-true across POCKET_EMBEDDED restart cycles (the
 # production restart path re-enters session 2 with CharacterDatabase async-on
 # against freshly-halted thread state). Every async enqueue site must tolerate
 # a halted worker: fall back to direct execution on the async connection
@@ -3031,10 +3030,10 @@ DB_GUARD_HOLDER_ANDROID = (
     "new MaNGOS::QueryCallback(std::move(callback)));"
 )
 
-# Fail-loud backend selection (G1): the DO_* variables are derived compile
+# Fail-loud backend selection: the DO_* variables are derived compile
 # definitions, never inputs. The real switches are the POSTGRESQL/SQLITE cache
 # variables (MySQL = else-default); a -DDO_SQLITE=ON on the command line
-# selects nothing and silently builds MySQL (research digest F41).
+# selects nothing and silently builds MySQL.
 BACKEND_SELECT_UPSTREAM = """if(POSTGRESQL)
   set(DEFINITIONS ${DEFINITIONS} DO_POSTGRESQL)
 elseif(SQLITE)
@@ -3064,12 +3063,12 @@ else()
 endif()
 """
 
-# P2/G3: commit-failure rollback + begin-failure refusal for the DO_SQLITE
+# Commit-failure rollback + begin-failure refusal for the DO_SQLITE
 # lane. Upstream ignored BeginTransaction()'s return (a failed BEGIN ran the
 # batch in autocommit - non-atomic partial application) and returned false
 # from a failed COMMIT with the transaction still open ("cannot start a
-# transaction within a transaction" - session-long write wedge, F30 chain
-# B). The #ifdef keeps DO_MYSQL builds behaviorally unchanged.
+# transaction within a transaction" - session-long write wedge).
+# The #ifdef keeps DO_MYSQL builds behaviorally unchanged.
 SQLITE_TXN_COMMIT_UPSTREAM = """    conn->BeginTransaction();
 
     const int nItems = m_queue.size();
@@ -3190,7 +3189,7 @@ def verify_db_async_null_guards(cmangos: Path) -> None:
     """Tripwire: every async enqueue site routes through the guarded helpers.
 
     HaltDelayThread() nulls m_threadBody while m_allowAsyncTransactions stays
-    sticky-true across POCKET_EMBEDDED restart cycles (F50); an unguarded
+    sticky-true across POCKET_EMBEDDED restart cycles; an unguarded
     enqueue after a halt is a null dereference, so the only tolerated
     m_threadBody->Delay is the one inside Database::SafeDelayOperation and
     the only tolerated holder->Execute is the guarded call inside
@@ -3214,7 +3213,7 @@ def verify_db_async_null_guards(cmangos: Path) -> None:
 
 
 def apply_sqlite_hardening(cmangos: Path) -> None:
-    """Swap in the hardened DO_SQLITE connection layer (P2/G3).
+    """Swap in the hardened DO_SQLITE connection layer.
 
     Full-file replacements from native/patches/cmangos/ plus the
     SqlOperations commit-failure-rollback anchor overlay. Only ever applied
@@ -3511,9 +3510,9 @@ def prepare_cmangos_source() -> None:
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_RAID_CASE_UPSTREAM, PB_SAY_RAID_CASE_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "DebugAction.cpp", PB_DEBUG_GEN_UPSTREAM, PB_DEBUG_GEN_ANDROID)
     replace_anchor(bot_root / "PlayerbotAI.cpp", PB_SESSION_LIFETIME_UPSTREAM, PB_SESSION_LIFETIME_ANDROID)
-    # LLM companion M2-M5 overlays (applied on top of the stage-1 LLM edits)
+    # LLM companion overlays (applied on top of the stage-1 LLM edits)
     replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_IFACE_INCLUDE_UPSTREAM, PB_IFACE_INCLUDE_ANDROID)
-    # S9/T4: bounded TCP connect (non-blocking connect + select)
+    # bounded TCP connect (non-blocking connect + select)
     replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_IFACE_SOCKINCLUDE_UPSTREAM, PB_IFACE_SOCKINCLUDE_ANDROID)
     replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_IFACE_CONNECT_UPSTREAM, PB_IFACE_CONNECT_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_INCLUDE_UPSTREAM, PB_SAY_INCLUDE_ANDROID)
@@ -3521,57 +3520,57 @@ def prepare_cmangos_source() -> None:
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_PROMPT_V2_UPSTREAM, PB_SAY_PROMPT_V2_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_RECORDER_UPSTREAM, PB_SAY_RECORDER_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_SPLITTER_UPSTREAM, PB_SAY_SPLITTER_ANDROID)
-    # S9/E1: pacing law (running timeDiff credit, 35 ms/char, instant busy)
+    # Pacing law (running timeDiff credit, 35 ms/char, instant busy)
     # and the per-class voice-budget call threading
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_TIMEDIFF_HEAD_UPSTREAM, PB_SAY_TIMEDIFF_HEAD_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_TIMEDIFF_TAIL_UPSTREAM, PB_SAY_TIMEDIFF_TAIL_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_PACE_CALL_UPSTREAM, PB_SAY_PACE_CALL_ANDROID)
     replace_anchor(bot_root / "PlayerbotAI.cpp", PB_UPDATEAI_UPSTREAM, PB_UPDATEAI_ANDROID)
     replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_INCLUDE_UPSTREAM, PB_AI_INCLUDE_ANDROID)
-    # S8/A18: persona-paced say-reply staggering (queue delay override)
+    # Persona-paced say-reply staggering (queue delay override)
     replace_anchor(bot_root / "PlayerbotAI.h", PB_AI_QUEUE_DECL_UPSTREAM, PB_AI_QUEUE_DECL_ANDROID)
     replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_QUEUE_DEF_UPSTREAM, PB_AI_QUEUE_DEF_ANDROID)
     replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_QUEUE_CALL_UPSTREAM, PB_AI_QUEUE_CALL_ANDROID)
     replace_anchor(bot_root / "aiplayerbot.conf.dist.in", PB_LLM_CONF_UPSTREAM, PB_LLM_CONF_ANDROID)
-    # M2 writer migration: the manual NPC-chat debug store moves from the
+    # Writer migration: the manual NPC-chat debug store moves from the
     # cross-bot global key to a per-(bot,target) key so no old-format writer
     # survives (behavior change: conversations with one NPC are no longer
     # shared between bots)
     replace_all(bot_root / "strategy" / "actions" / "RpgSubActions.cpp", PB_RPG_MANUAL_GET_UPSTREAM, PB_RPG_MANUAL_GET_ANDROID)
     replace_all(bot_root / "strategy" / "actions" / "RpgSubActions.cpp", PB_RPG_MANUAL_SET_UPSTREAM, PB_RPG_MANUAL_SET_ANDROID)
-    # core hooks for the M3 event allowlist
+    # core hooks for the LLM companion event allowlist
     replace_anchor(cmangos / "src" / "game" / "Entities" / "Player.cpp", CORE_PLAYER_INCLUDE_UPSTREAM, CORE_PLAYER_INCLUDE_ANDROID)
     replace_anchor(cmangos / "src" / "game" / "Entities" / "Player.cpp", CORE_GIVELEVEL_UPSTREAM, CORE_GIVELEVEL_ANDROID)
-    # A14: the duel-outcome hook (all nine call sites through one function)
+    # The duel-outcome hook (all nine call sites through one function)
     replace_anchor(cmangos / "src" / "game" / "Entities" / "Player.cpp", CORE_DUELCOMPLETE_UPSTREAM, CORE_DUELCOMPLETE_ANDROID)
-    # S9/E2: first-contact onboarding line at login (once per character)
+    # First-contact onboarding line at login (once per character)
     replace_anchor(cmangos / "src" / "game" / "Entities" / "Player.cpp", CORE_LOGIN_ONBOARDING_UPSTREAM, CORE_LOGIN_ONBOARDING_ANDROID)
-    # S6: ChatReplyDo's event-turn flag (threaded from the drain; the
+    # ChatReplyDo's event-turn flag (threaded from the drain; the
     # "(event) " text prefix is retired as a signal)
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.h", PB_SAY_CHATREPLY_DECL_UPSTREAM, PB_SAY_CHATREPLY_DECL_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_CHATREPLY_DEF_UPSTREAM, PB_SAY_CHATREPLY_DEF_ANDROID)
     replace_anchor(cmangos / "src" / "game" / "Loot" / "LootHandler.cpp", CORE_LOOT_INCLUDE_UPSTREAM, CORE_LOOT_INCLUDE_ANDROID)
     replace_anchor(cmangos / "src" / "game" / "Loot" / "LootHandler.cpp", CORE_LOOT_UPSTREAM, CORE_LOOT_ANDROID)
-    # M6 core hook: authored kill banter
+    # Core hook: authored kill banter
     replace_anchor(cmangos / "src" / "game" / "Entities" / "Unit.cpp", CORE_UNIT_INCLUDE_UPSTREAM, CORE_UNIT_INCLUDE_ANDROID)
     replace_anchor(cmangos / "src" / "game" / "Entities" / "Unit.cpp", CORE_UNIT_KILL_UPSTREAM, CORE_UNIT_KILL_ANDROID)
-    # M6: injection hygiene + external-endpoint hardening
+    # Injection hygiene + external-endpoint hardening
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_NEUTER_UPSTREAM, PB_SAY_NEUTER_ANDROID)
     replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_LLM_IFACE_HTTP_UPSTREAM, PB_LLM_IFACE_HTTP_ANDROID)
-    # S2/A9: truncation-aware, decode-aware ParseResponse (consumes the JSON
+    # Truncation-aware, decode-aware ParseResponse (consumes the JSON
     # client's per-generation state; gates the JSON-era residue transforms)
     replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_LLM_IFACE_PARSE_UPSTREAM, PB_LLM_IFACE_PARSE_ANDROID)
     replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_LLM_IFACE_UNESCAPE_UPSTREAM, PB_LLM_IFACE_UNESCAPE_ANDROID)
     replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_LLM_IFACE_DELETE_UPSTREAM, PB_LLM_IFACE_DELETE_ANDROID)
-    # S4/A6: per-tier generation timeout default
+    # Per-tier generation timeout default
     replace_anchor(bot_root / "PlayerbotAIConfig.cpp", PB_LLM_TIMEOUT_UPSTREAM, PB_LLM_TIMEOUT_ANDROID)
-    # S10: the composer endpoint/key override legs inside GenerateHttp
+    # The composer endpoint/key override legs inside GenerateHttp
     replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_IFACE_EP_URL_UPSTREAM, PB_IFACE_EP_URL_ANDROID)
     replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_IFACE_EP_KEY_UPSTREAM, PB_IFACE_EP_KEY_ANDROID)
-    # DB async null-guard (P0) + fail-loud backend selection (G1) overlays
+    # DB async null-guard + fail-loud backend selection overlays
     apply_db_null_guard_overlays(cmangos / "src" / "shared" / "Database")
     replace_anchor(cmangos / "CMakeLists.txt", BACKEND_SELECT_UPSTREAM, BACKEND_SELECT_ANDROID)
-    # P2/G3: the sqlite lane swaps in the hardened connection-layer
+    # The sqlite lane swaps in the hardened connection-layer
     # replacement files; mysql builds never touch them.
     if BACKEND == "sqlite":
         apply_sqlite_hardening(cmangos)
@@ -3786,9 +3785,9 @@ def configure_and_build(force: bool, backend: str = "mysql", configure_only: boo
               f"-DCMAKE_TOOLCHAIN_FILE={toolchain}", f"-DANDROID_ABI={TARGET_ABI}",
               "-DANDROID_PLATFORM=android-26", "-DCMAKE_BUILD_TYPE=Release",
               "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"]
-    # G1 fail-loud backend selection: the SQLITE cache variable is the real
+    # Fail-loud backend selection: the SQLITE cache variable is the real
     # switch (MySQL = else-default). The historical -DDO_MYSQL/-DDO_SQLITE
-    # pair selected nothing and is now refused at configure time (F41).
+    # pair selected nothing and is refused at configure time.
     backend_flags = ["-DSQLITE=ON"] if backend == "sqlite" else ["-DSQLITE=OFF"]
     mysql_flags = []
     if backend == "mysql":
@@ -3800,7 +3799,7 @@ def configure_and_build(force: bool, backend: str = "mysql", configure_only: boo
     if backend == "sqlite":
         # Explicit paths like every other dep: the NDK toolchain's find-root
         # re-rooting makes prefix-path discovery unreliable, and the pinned
-        # amalgamation library is the only acceptable source (F32/F41).
+        # amalgamation library is the only acceptable source.
         sqlite_flags = [
             f"-DSQLite3_INCLUDE_DIR={deps / 'include'}",
             f"-DSQLite3_LIBRARY={deps / 'lib' / 'libsqlite3.a'}",
@@ -3812,8 +3811,8 @@ def configure_and_build(force: bool, backend: str = "mysql", configure_only: boo
         # linger in cached build trees and now trip the fail-loud assert.
         # Removing them inside the same invocation as the configure keeps the
         # assert catching real misuse, not our own stale cache from before
-        # the G1 fix (cmake -U takes a glob; bare names remove exactly those
-        # entries).
+        # the fail-loud assert landed (cmake -U takes a glob; bare names
+        # remove exactly those entries).
         legacy_cache_cleanup = ["-UDO_MYSQL", "-UDO_SQLITE", "-UDO_POSTGRESQL"]
         # A mysql configure leaves MYSQL_* cache entries behind; under sqlite
         # they must not bleed connector include/library paths into the build.
@@ -3872,9 +3871,9 @@ def configure_and_build(force: bool, backend: str = "mysql", configure_only: boo
     run([cmake, "--build", CMANGOS_BUILD, "--target", "pocket_realmd_runtime",
          "pocket_world_runtime", "-j", str(os.cpu_count() or 4)])
     if backend == "sqlite":
-        # G2/P1 CI check: a SQLITE=ON build must carry zero mariadbclient
-        # references anywhere in the link. DEC-07 still applies: no staging
-        # into the shared MariaDB staging dir until the P5/P6 window - the
+        # A SQLITE=ON build must carry zero mariadbclient
+        # references anywhere in the link. No staging
+        # into the shared MariaDB staging dir - the
         # artifacts stay in the build tree.
         purity = verify_sqlite_link_purity(llvm)
         marker = CMANGOS_BUILD / "POCKET_BACKEND_VERIFY.sqlite.json"
@@ -3887,7 +3886,7 @@ def configure_and_build(force: bool, backend: str = "mysql", configure_only: boo
         marker.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
         print(f"sqlite-lane build verified mariadb-free; artifacts built in "
               f"{CMANGOS_BUILD / 'pocket-runtime-build'} and staged into the "
-              "sibling realm-staging-sqlite root (P5 window, DEC-07 inverted)")
+              "sibling realm-staging-sqlite root")
     else:
         # Symmetric completion stamp for the mysql lane: the marker's
         # generated_at_utc alone cannot distinguish configure-verified from
@@ -3949,7 +3948,7 @@ def verify_sqlite_link_purity(llvm: Path) -> dict:
 def verify_backend_selection(backend: str, configure_stdout: str = "") -> None:
     """Prove the selected backend from configure output, not from the flags.
 
-    Two legs of evidence (F41: a SQLITE=ON claim without configure or link
+    Two legs of evidence (a SQLITE=ON claim without configure or link
     evidence proves nothing): (1) the fail-loud CMake overlay's status line
     in the configure output, and (2) the DO_* compile defines actually
     written into the generated Ninja build graph. flags.make is a
@@ -3988,8 +3987,8 @@ def package_seed_transcripts(stage_root: Path) -> dict:
     """Run the manifest seeder (host) and ship its four transcripts as
     deterministic gzip assets (mtime=0) under assets/seed/, verifying
     the raw transcript digests against the append-only baseline first -
-    a staging build never ships seed content the reviewed baseline does
-    not pin (I-50 integrity chain, extended to the APK assets)."""
+    a staging build never ships seed content the baseline does
+    not pin (the integrity chain, extended to the APK assets)."""
     import gzip
     import sys
     import tempfile
@@ -4028,8 +4027,7 @@ def package_seed_transcripts(stage_root: Path) -> dict:
             # 118.7 MiB transcripts deflated instead of the pinned
             # 22.71 MiB gzip and break the on-device GZIPInputStream
             # read. The MariaDB migrations ship as .sqlz for exactly
-            # this reason; the seed adopts the same convention (P5 R1
-            # I-93, found in the first-ever window APK assembly).
+            # this reason; the seed adopts the same convention.
             (assets / f"{db}.sqlz").write_bytes(packed)
             out[db] = {
                 "sha256": digest,
@@ -4041,9 +4039,9 @@ def package_seed_transcripts(stage_root: Path) -> dict:
 
 
 def stage(llvm: Path) -> dict:
-    # DEC-07 inversion (P5): the sqlite lane stages into a SIBLING root -
+    # The sqlite lane stages into a SIBLING root -
     # never the shared MariaDB staging dir (that would poison Gradle's
-    # committed-lockfile realm gate, the I-08 hazard class) - and ships
+    # committed-lockfile realm gate) - and ships
     # the seed transcripts as gzip assets, digest-verified against the
     # append-only baseline.
     stage_root = BUILD / ("realm-staging-sqlite" if BACKEND == "sqlite"
@@ -4108,7 +4106,7 @@ def stage(llvm: Path) -> dict:
             if BACKEND in entry.get("backends", ("mysql", "sqlite"))],
         "playerbots_source_overlays": PLAYERBOTS_OVERLAYS,
         # Content pin of every native/patches/ file compiled into this
-        # build (pre-P5 checklist item 3): an edited patch file makes
+        # build: an edited patch file makes
         # the committed lockfile stale, loudly.
         "patches_content": patches_content_digests(),
         "mariadb_connector_c": {"url": CONNECTOR_URL, "commit": CONNECTOR_COMMIT,
@@ -4120,15 +4118,15 @@ def stage(llvm: Path) -> dict:
                                "vendored": "native/llm/prebuilt/arm64-v8a"}
     if BACKEND == "sqlite":
         # The dual-provider window ships the seed as COMPRESSED assets
-        # (F31: ~22.7 MiB gzip vs ~118.7 MiB raw), digest-bound to the
-        # reviewed append-only baseline.
+        # (~22.7 MiB gzip vs ~118.7 MiB raw), digest-bound to the
+        # append-only baseline.
         record["seed_transcripts"] = package_seed_transcripts(stage_root)
     provenance.parent.mkdir(parents=True, exist_ok=True)
     provenance.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
     lock_record = {key: value for key, value in record.items() if key != "built_at_utc"}
     # The committed MariaDB-lane lockfile is the shipped-provider pin verified
     # by Gradle; a SQLite-lane build records itself in a sibling file so the
-    # dual-provider window (P5-P8) never moves the MariaDB pin implicitly.
+    # dual-provider window never moves the MariaDB pin implicitly.
     lockfile = LOCKFILE
     if BACKEND == "sqlite":
         lockfile = LOCKFILE.with_name(
@@ -4136,12 +4134,12 @@ def stage(llvm: Path) -> dict:
     lock_bytes = (json.dumps(lock_record, indent=2) + "\n").encode("utf-8")
     lockfile.write_bytes(lock_bytes)
     if BACKEND == "sqlite":
-        # P6 identity source: the APK asset the Kotlin control plane's
+        # Identity source: the APK asset the Kotlin control plane's
         # loadAndVerifySqliteIdentity consumes. The asset bytes are the
         # LOCK-RECORD form (built_at_utc excluded), byte-identical to the
         # committed sibling lockfile by construction - Gradle's
         # validateRealmRuntime asserts asset == lockfile, so the engine's
-        # verified identity and the reviewed lockfile pin can never diverge.
+        # verified identity and the lockfile pin can never diverge.
         # Byte-stability matters: built_at_utc would make every rebuild a
         # different asset; the lock-record is deterministic for the same
         # inputs.
@@ -4159,7 +4157,7 @@ def main() -> int:
                         help="database backend: the SQLITE cache variable is the real "
                              "CMake switch (MySQL is the else-default). sqlite builds "
                              "skip connector-c and stage into the sibling realm-staging-sqlite "
-                             "root with the sibling -sqlite lockfile (DEC-06/07).")
+                             "root with the sibling -sqlite lockfile.")
     parser.add_argument("--configure-only", action="store_true",
                         help="apply overlays, run the CMake configure, verify the "
                              "fail-loud backend selection, restore, and stop. No "
@@ -4171,7 +4169,7 @@ def main() -> int:
     BACKEND = args.backend
     if not args.configure_only and args.backend == "mysql":
         # Connector/C is a MySQL-lane dependency only; a sqlite full build
-        # must not touch the MariaDB mirror at all (DEC-05).
+        # must not touch the MariaDB mirror at all.
         prepare_connector_source()
     # Refuse to consume arbitrary working-tree edits.  Only after this clean
     # check succeeds is cleanup armed; a rejected dirty tree is never touched.
@@ -4196,7 +4194,7 @@ def main() -> int:
         llvm, _ = configure_and_build(args.force, backend=args.backend,
                                       configure_only=args.configure_only)
         if not args.configure_only:
-            # P5 DEC-07 inversion: BOTH backends stage. The sqlite lane
+            # BOTH backends stage. The sqlite lane
             # stages into its sibling root + sibling lockfile; the MariaDB
             # staging dir and committed lockfile are never touched by it.
             record = stage(llvm)

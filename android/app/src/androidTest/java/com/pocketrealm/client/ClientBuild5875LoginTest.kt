@@ -99,7 +99,7 @@ class ClientBuild5875LoginTest {
         delay(1_000)
         closeDisplay()
 
-        // The plan's Phase 1 preservation assertion: a user CVar line seeded
+        // Preservation assertion: a user CVar line seeded
         // before a prepare survives the merge-based rewrite (the old template
         // model silently reset every client-persisted CVar each launch).
         val managedRoot = ManagedClientStore(context).load(ClientRuntimeContract.WOW_5875_ID).root

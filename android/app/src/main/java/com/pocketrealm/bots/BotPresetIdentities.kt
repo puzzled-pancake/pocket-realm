@@ -3,7 +3,7 @@ package com.pocketrealm.bots
 import java.security.MessageDigest
 
 /**
- * Versioned identity for saved custom presets (brief §41):
+ * Versioned identity for saved custom presets:
  * `usr5-<preset-id-32hex>-<revision-base36>-<digest-8hex>`.
  *
  * Unlike adv4, the identity does not embed the resolved values (custom

@@ -10,7 +10,7 @@
 class Player;
 
 /*
- * Tool-calling for the LLM backends (A0: both the in-process llama runtime
+ * Tool-calling for the LLM backends (both the in-process llama runtime
  * and the HTTP chat-completions path route their generations through
  * ExtractAndQueue before anything is voiced). One decode pass may emit
  * dialogue text plus zero or more structured side-effects in the form
@@ -20,7 +20,7 @@ class Player;
  * from the raw generation output BEFORE ParseResponse runs (its regexes
  * corrupt JSON-ish payloads).
  *
- * Since A2 the vocabulary is the full trained set - the four persistence
+ * The vocabulary is the full trained set - the four persistence
  * tools plus the six ACT tools (duel_challenge, give_item, follow,
  * party_invite, move_to, loot_roll) - and admission is LICENSED: a call
  * queues only when the bridge's note for that generation carried the
@@ -28,11 +28,11 @@ class Player;
  * Nothing executes off raw model output: parsed calls are queued inert
  * and executed on the WORLD thread by PlayerbotAI::UpdateAI, validated
  * against live game state at execution time - never against the model's
- * claims. move_to stays executor-gated until S7's POI resolution;
+ * claims. move_to stays executor-gated on the lore loop's POI resolution;
  * combat and pathing outside the licensed set stay out of scope.
  *
  * The scanner, whitelist, trained emote table and beat predicates live
- * in PlayerbotLlmToolsCore.h (pure, host-compilable, battery-pinned).
+ * in PlayerbotLlmToolsCore.h (pure, host-compilable, test-pinned).
  */
 class PlayerbotLlmTools
 {
@@ -45,8 +45,8 @@ public:
         uint32 speakerGuid, PlayerbotLlamaRuntime::LlmCallSource source,
         uint64_t licenseStamp);
 
-    // A7: the TRAINED TOOLS_NOTE wording (prtools3 v3.2 instruction
-    // paragraph + the F7 example-block rotation, keyed on the bot's GUID)
+    // The TRAINED TOOLS_NOTE wording (the trained instruction
+    // paragraph + the example-block rotation, keyed on the bot's GUID)
     // - identical text and selection discipline to the trained system
     // prompt's segment 2 (PlayerbotLlmPrompt.h), so every prompt path
     // speaks the instruction distribution the weights were trained on.
@@ -58,7 +58,7 @@ public:
     // and applies its side-effect. Call from PlayerbotAI::UpdateAI only.
     static void ExecutePending(Player* bot);
 
-    // S8/A18: the deterministic text-emote path shared by the licensed
+    // The deterministic text-emote path shared by the licensed
     // perform_emote executor and the authored crowd tier (SMSG_TEXT_EMOTE
     // through HandleTextEmoteOpcode - the authentic "X grins." line plus
     // the EmotesText.dbc animation). No license involved: the caller

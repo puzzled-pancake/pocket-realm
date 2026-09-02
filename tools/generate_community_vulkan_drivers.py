@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the Kotlin community driver list from the reviewed JSON manifest."""
+"""Generate the Kotlin community driver list from the pinned JSON manifest."""
 
 from __future__ import annotations
 

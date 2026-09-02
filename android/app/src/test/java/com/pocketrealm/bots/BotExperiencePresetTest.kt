@@ -31,7 +31,7 @@ class BotExperiencePresetTest {
         assertEquals(320, alive.selectedTarget)
         assertEquals(50, alive.initialTarget)
         assertEquals(50, alive.minimumOnline)
-        // ~12% active of 320 ≈ 38 normally-active bots (brief §8).
+        // ~12% active of 320 ≈ 38 normally-active bots.
         assertEquals(38, BotCustomConfiguration.fromProfile(alive).estimatedActiveBots())
         assertEquals(15, alive.iterationsPerTick)
         assertEquals(2_000, alive.randomBotUpdateIntervalMs)
@@ -120,7 +120,7 @@ class BotExperiencePresetTest {
     }
 
     @Test fun customPopulationIsNotCappedAtTheBuiltInCeiling() {
-        // §10: custom values beyond every historical UI cap must validate
+        // custom values beyond every historical UI cap must validate
         // against real constraints, not substitute one cap for another.
         assertTrue(BotPopulationPolicy.MAX_SUPPORTED_TARGET > 600)
         assertTrue(BotPopulationPolicy.MAX_SUPPORTED_TARGET > 700)
@@ -135,7 +135,7 @@ class BotExperiencePresetTest {
         assertTrue(
             configuration.accountCount * BotPopulationPolicy.CHARACTERS_PER_BOT_ACCOUNT >= 725,
         )
-        // §11: direct entry of arbitrary valid numbers (not %-25 ladders).
+        // direct entry of arbitrary valid numbers (not %-25 ladders).
         val profile = configuration.resolve(
             BotPresetIdentities.mint("a".repeat(32), 1, configuration), "725 experiment",
         )
@@ -161,7 +161,7 @@ class BotExperiencePresetTest {
 
     @Test fun accountPoolAutoSizesFromTheVerifiedCharactersPerAccount() {
         // Verified against the pinned RandomPlayerbotFactory: 9 characters
-        // per classic bot account, +20% headroom (brief §12 example).
+        // per classic bot account, +20% headroom.
         assertEquals(9, BotPopulationPolicy.CHARACTERS_PER_BOT_ACCOUNT)
         assertEquals(81, BotPopulationPolicy.requiredAccounts(725))
         val allocated = BotPopulationPolicy.allocatedAccounts(725)
@@ -172,7 +172,7 @@ class BotExperiencePresetTest {
     }
 
     @Test fun activityAndPlaystyleAreIndependentlyCombinable() {
-        // §13: 600 bots + Smart AI must be constructible — warnings are fine,
+        // 600 bots + Smart AI must be constructible — warnings are fine,
         // artificial blocking is not.
         val massiveSmart = BotCustomConfiguration.fromBasePreset(BotProfiles.MASSIVE_REALM_600)
             .let(BotActivityPreset.SMART::applyTo)
@@ -198,7 +198,7 @@ class BotExperiencePresetTest {
         assertEquals(320, snapshot.botPopulationTarget)
         assertNull(snapshot.botSavedPresetId)
         // Legacy advanced defaults mirror the recommended preset exactly, so
-        // opening the old advanced editor can never shift a value (§53).
+        // opening the old advanced editor can never shift a value.
         assertEquals(
             BotAdvancedSettings.fromProfile(BotProfiles.ALIVE_REALM_320),
             snapshot.botAdvanced,

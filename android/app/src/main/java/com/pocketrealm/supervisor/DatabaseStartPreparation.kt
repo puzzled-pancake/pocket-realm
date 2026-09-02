@@ -53,7 +53,7 @@ internal object DatabaseStartPreparation {
             }
             else -> {
                 // MariaDB must be fully prepared first: the window
-                // translation boots it to export (F13/F44), so its gates
+                // translation boots it to serve the export, so its gates
                 // (initialized, clean, migrations current) precede the
                 // cutover decision.
                 if (!status.optBoolean("initialized")) return Action.INITIALIZE

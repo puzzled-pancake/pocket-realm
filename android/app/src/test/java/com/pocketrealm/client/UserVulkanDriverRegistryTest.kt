@@ -13,7 +13,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 /**
- * Phase B: offline validation + registry semantics for user-imported Turnip
+ * Offline validation + registry semantics for user-imported Turnip
  * drivers. Every fixture is synthetic — no real driver binaries, no device.
  */
 class UserVulkanDriverValidatorTest {
@@ -410,7 +410,7 @@ class UserVulkanDriverRegistryTest {
             "Extra", zipOf("lib.so" to elf64(), "readme.md" to "hi".toByteArray()),
         ) as UserVulkanDriverImport.Rejected
         assertTrue(extra.reason.contains("unexpected: readme.md"))
-        // The allowed-set wording must name the meta.json carve-out (C9).
+        // The allowed-set wording must name the meta.json carve-out.
         assertTrue(extra.reason.contains("optional AdrenoTools meta.json"))
 
         val traversal = registry.import(

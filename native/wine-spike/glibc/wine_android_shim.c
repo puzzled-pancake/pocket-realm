@@ -1,5 +1,5 @@
 /*
- * Narrow glibc-side Android compatibility shim for the O06 x86_64 spike.
+ * Narrow glibc-side Android compatibility shim for the x86_64 Wine spike.
  *
  * Wine's Linux build assumes an FHS installation and a writable /tmp.  The
  * APK deliberately keeps executable ELFs immutable in nativeLibraryDir while

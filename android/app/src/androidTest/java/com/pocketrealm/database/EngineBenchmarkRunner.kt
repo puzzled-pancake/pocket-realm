@@ -21,13 +21,13 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
- * DB-scope engine benchmark (P6.5 follow-up, DEC-10-gated-host answer to
- * "how does SQLite compare to MariaDB under CMaNGOS"): runs IDENTICALLY on
+ * DB-scope engine benchmark (the host-answerable piece of "how does
+ * SQLite compare to MariaDB under CMaNGOS"): runs IDENTICALLY on
  * Server A (MariaDB) and Server B (SQLite) and measures what the world-less
  * host can measure — lifecycle timings (start/stop/health/migrate/backup),
  * query latency over the SAME fixed-seed statement battery on the SAME
- * seeded data, write-burst latency under the DEC-02 (amended 2026-08-27)
- * synchronous=NORMAL + WAL contract, and footprint (datadir bytes + RSS of the database processes).
+ * seeded data, write-burst latency under the synchronous=NORMAL + WAL
+ * connection contract, and footprint (datadir bytes + RSS of the database processes).
  *
  * Representation notes (disclosed in every evidence bundle):
  * - SQLite numbers are IN-PROCESS (SQLiteDatabase on a copy of the real
@@ -37,10 +37,10 @@ import java.util.concurrent.TimeUnit
  *   per-statement latency therefore approximates server-side execution,
  *   NOT the C-connector round trip CMaNGOS runtime uses. The client-spawn
  *   round trip is measured separately (20x SELECT 1) — that cost is what
- *   bootstrap/migrations pay (F20), not steady-state gameplay.
+ *   bootstrap/migrations pay, not steady-state gameplay.
  * - The world-driven metrics (tick p99, saveall-ack under bots, probe
- *   delay under load) stay DEC-10/DEC-04-gated; this benchmark does not
- *   substitute for the P7 device legs.
+ *   delay under load) need real-device runs; this benchmark does not
+ *   measure them.
  */
 @RunWith(AndroidJUnit4::class)
 class EngineBenchmarkRunner {
@@ -134,7 +134,8 @@ class EngineBenchmarkRunner {
 
     /** SQLite leg: in-process over a COPY of the production datadir (the
      * production files stay untouched; the copy carries the same schema,
-     * volumes, and page layout; the amended connection policy applies). */
+     * volumes, and page layout; the WAL + synchronous=NORMAL connection
+     * policy applies). */
     private fun sqliteBattery(ids: JSONObject): JSONObject {
         val roots = StorageRoots.get(context)
         val source = DatabaseSqliteControlPlane.databaseFile(
@@ -196,7 +197,7 @@ class EngineBenchmarkRunner {
             battery.put("scansJoinsMs", scans)
         }
 
-        // Write burst under the amended WAL+NORMAL contract on the copy.
+        // Write burst under the WAL + synchronous=NORMAL contract on the copy.
         SQLiteDatabase.openDatabase(copy.absolutePath, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
             db.execSQL("PRAGMA synchronous=NORMAL")
             db.execSQL("DROP TABLE IF EXISTS bench_scratch")
@@ -277,7 +278,8 @@ class EngineBenchmarkRunner {
             return elapsedMs to DatabaseRunResult.parse(raw)
         }
 
-        // Spawn/connect baseline: the F20 cost one CLI statement pays.
+        // Spawn/connect baseline: the fixed process-spawn cost one CLI
+        // statement pays.
         val spawnSamples = ArrayList<Long>()
         repeat(20) {
             val (ms, result) = clientRun("SELECT 1;", "pocket_core", core, "classicmangos")
@@ -288,9 +290,10 @@ class EngineBenchmarkRunner {
         battery.put("clientRoundTripMedianMs", spawnBaselineMs)
         battery.put("clientRoundTripSamplesMs", JSONArray(spawnSamples))
 
-        // PK discovery (the engine's own translate-columns pattern). P4
-        // proved cross-engine column-name parity — a disagreement here
-        // would itself be a parity finding, recorded in the evidence.
+        // PK discovery (the engine's own translate-columns pattern);
+        // cross-engine column names are expected to agree — a
+        // disagreement here would itself be a parity finding, recorded
+        // in the evidence.
         val discoverySql = buildString {
             for (table in ids.keys()) {
                 append("SELECT COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE ")

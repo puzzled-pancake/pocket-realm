@@ -109,7 +109,7 @@ internal fun rememberInGameRuntime(): X86DirectWineRuntime {
 
 /**
  * Shared editor state: client activity polling, loaded file values, and the
- * direct-edit/stage dispatch (§5.1) with a surfaced error line.
+ * direct-edit/stage dispatch with a surfaced error line.
  */
 internal class InGameSettingsState(
     val context: android.content.Context,

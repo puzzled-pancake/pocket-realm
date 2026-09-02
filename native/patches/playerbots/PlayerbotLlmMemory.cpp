@@ -265,15 +265,15 @@ std::map<uint32, std::pair<time_t, std::string>>& GossipCache()
     return instance;
 }
 
-// S9/E1: per-pairing acknowledgment rate limiter (the never-cleaned
-// GUID-statics class, bounded by pairing populations - S6-ledger (d))
+// per-pairing acknowledgment rate limiter (the never-cleaned
+// GUID-statics class, bounded by pairing populations)
 std::map<uint64, time_t>& AckTimestamps()
 {
     static std::map<uint64, time_t> instance;
     return instance;
 }
 
-// S9/E2: the onboarding line's once-per-character dedupe.
+// The onboarding line's once-per-character dedupe.
 // SendInitialPacketsAfterAddToMap runs at login AND on every cross-map far
 // teleport (MoveWorldportAck) - the DB no-pairing gate alone would re-voice
 // the line at every portal. One world-process voice per character GUID
@@ -284,7 +284,7 @@ std::set<uint32>& OnboardedPlayers()
     return instance;
 }
 
-// S9/E4: the standing one-liner's once-per-session dedupe (one world-process
+// The standing one-liner's once-per-session dedupe (one world-process
 // voice per pairing - "first whisper of a session")
 std::set<uint64>& StandingVoicedPairs()
 {
@@ -292,7 +292,7 @@ std::set<uint64>& StandingVoicedPairs()
     return instance;
 }
 
-// S9/E4: player-facing conversations counter (diagnostics; relaxed - a
+// Player-facing conversations counter (diagnostics; relaxed - a
 // monotonic count with no ordering requirement)
 std::atomic<uint64_t>& ConversationCounter()
 {
@@ -308,7 +308,7 @@ std::string PlayerbotLlmMemory::ScrubControlTokens(std::string const& text)
         "[BRIDGE AI]", "[EVENT]", "[RESULT]", "[say]", "[Memories]", "[State]",
     };
     std::string out = text;
-    // FIXPOINT pass (round-2 R6): deleting one token can FUSE the
+    // Fixpoint pass: deleting one token can FUSE the
     // remains of another ("[RESU[Memories]LT]" -> "[RESULT]"), and a
     // single ordered sweep re-checks only the token it is currently
     // deleting - the fused live token was already scanned. Loop the
@@ -420,7 +420,7 @@ std::string PlayerbotLlmMemory::BuildPromptContext(Player* bot, Player* player, 
     out << pocketllm::DemeanorSeasoning(pocketllm::DemeanorOf(botGuid)) << "\n";
     out << pocketllm::QuirkSeasoning(pocketllm::QuirkOf(botGuid)) << "\n";
 
-    // segment 2: relationship tier in the TRAINED dialect (A5: "Relationship
+    // segment 2: relationship tier in the TRAINED dialect ("Relationship
     // with X: Warm (tier 3 of 5)." - the DB's four storage tiers map onto
     // the trained 1-5 scale, Bonded deriving from points >= 120 on read),
     // plus the wall-clock absence line in the trained shape
@@ -453,12 +453,12 @@ std::string PlayerbotLlmMemory::BuildPromptContext(Player* bot, Player* player, 
                    // can land whole inside <initial message>) + saved custom prompt
         if (sPlayerbotAIConfig.llmToolsEnabled)
             reserve += PlayerbotLlmTools::ToolInstructions(bot->GetGUIDLow()).size();
-        reserve += 256; // S5/A1: the bridge note block appended to <post prompt>
+        reserve += 256; // the bridge note block appended to <post prompt>
     }
     auto fits = [&](size_t cost) { return !window || used + reserve + cost <= window; };
 
     // segment 3: injected facts, append-only, category-prioritized, stable
-    // order - TRAINED dialect (A5): inline, "; "-joined, oldest-first
+    // order - TRAINED dialect: inline, "; "-joined, oldest-first
     if (player)
     {
         auto result = CharacterDatabase.PQuery(
@@ -588,9 +588,9 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
     promptPlayer.cls = ClassName(player->getClass());
     promptPlayer.level = player->GetLevel();
 
-    // the PRE-STOMP tier threaded from ChatReplyDo (the S5 law: a fresh
+    // the PRE-STOMP tier threaded from ChatReplyDo (a fresh
     // read races the async relationship write; the caller captured this
-    // before the stomp queued). A16's Bonded address shift rides the
+    // before the stomp queued). The Bonded address shift rides the
     // tierNote leg (the banklib sysm field exists for exactly this):
     // warmth changes what the bot DOES - a Bonded bot calls the player
     // by its private name.
@@ -599,7 +599,7 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
         persona.tierNote = pocketllm::NicknameTierNote(player->GetName(), botGuid);
 
     // ---- facts: newest-first fetch, oldest-first stable render, tier-capped
-    // (§2.1 memory depth); the [Memories] tail re-surfaces the newest rows -
+    // (trained memory depth); the [Memories] tail re-surfaces the newest rows -
     // the training corpus duplicates the recalled fact between the system
     // facts and the tail by design (recall cue, not redundancy)
     std::vector<std::string> facts;
@@ -614,8 +614,8 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
             do
             {
                 std::string text = result->Fetch()[0].GetString();
-                // tone rows render WITHOUT the machine prefix (round-1 R6:
-                // a "(tone -)" prefix in the system facts segment is an
+                // tone rows render WITHOUT the machine prefix (a
+                // "(tone -)" prefix in the system facts segment is an
                 // echoable non-word); the journal strip, generalized
                 size_t const toneEnd = text.find(") ");
                 if (text.rfind("(tone", 0) == 0 && toneEnd != std::string::npos)
@@ -635,7 +635,7 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
 
     // ---- history: role-separated, the just-recorded current turn excluded
     // (it IS this request's user message); last 8 turns - except the
-    // ambient SAY channel, which A18 caps at the last 5 lines (the
+    // ambient SAY channel, which caps at the last 5 lines (the
     // cross-injection window: a town scene, not a transcript). The
     // per-key rotation counter (state flavors) advances once per REQUEST
     // so it alternates regardless of window saturation or turn parity.
@@ -682,7 +682,7 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
         // rotate exactly ["on the road with {player}", "at camp with
         // {player}"] in peaceful turns, with "in a hard fight beside
         // {player}" as the combat override (banklib card_state) - no
-        // invented flavors (round-1 R6 P1). Rotation comes from the
+        // invented flavors. Rotation comes from the
         // per-key request counter read under the history lock above.
         static char const* const flavors[2] = {
             "on the road with {p}", "at camp with {p}",
@@ -694,11 +694,10 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
     else
         state = pocketllm::NpcSpotState(persona.zone);
 
-    // S5/A1: the caller captured the bucket BEFORE the relationship
+    // The caller captured the bucket BEFORE the relationship
     // stomp (the async write would race a fresh read) - one read serves
     // both the absence line and the bridge's first-meeting beat. The
-    // former live-read fallback was a trap for callers (the S5 record's
-    // "assert or remove"): the contract is now explicit - an empty
+    // contract is explicit: an empty
     // bucket is a caller bug and degrades to the first-meeting reading,
     // never to a racing read.
     std::string const absenceBucket = preStompAbsence.empty()
@@ -706,7 +705,7 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
     std::string const sysm = pocketllm::SysmForCard(persona, promptPlayer, tier,
         AbsenceLineFor(player->GetName(), absenceBucket), facts);
 
-    // A1: the bridge owns the turn. Event reactions render through the
+    // The bridge owns the turn. Event reactions render through the
     // trained [EVENT] head + speak-first directive (no player words this
     // turn); conversational turns carry at most ONE note (ONE-NOTE law).
     // The history already holds the RAW event text (AppendTurn recorded it
@@ -715,10 +714,10 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
     // The event flag is the drain flag threaded from the event site -
     // never derived from the text (the "(event) " prefix was player-
     // forgeable and is retired as a signal).
-    // the nudge strip is event-only (round-1 P2): a player whisper that
+    // the nudge strip is event-only: a player whisper that
     // happens to end in the nudge-shaped suffix keeps its actual words.
-    // The CURRENT turn is scrubbed of prompt furniture before compose
-    // (round-1 R6): a player line carrying "[RESULT] ..." or
+    // The CURRENT turn is scrubbed of prompt furniture before compose:
+    // a player line carrying "[RESULT] ..." or
     // "[BRIDGE AI] ..." would otherwise render as bridge-authored truth
     // in the very turn that teaches the model to trust those tokens;
     // markers were already neuted upstream (SayAction's fill site)
@@ -734,7 +733,7 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
     PlayerbotLlmBridge::Note const note =
         PlayerbotLlmBridge::BuildNote(bot, player, turnText, turnState);
     // the note's license stamp rides out to the caller, which threads it
-    // into the generation (A2 stamp threading)
+    // into the generation (stamp threading)
     if (licenseStamp)
         *licenseStamp = note.stamp;
     std::string noteExtra = note.extra;
@@ -743,7 +742,7 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
     std::vector<std::string> events;
     if (turnState.eventTurn)
         events.push_back(turnText);
-    // A11: the lore loop's card rides the turn head as [RESULT] (the
+    // The lore loop's card rides the turn head as [RESULT] (the
     // trained compose furniture renders it; full card density, the
     // denial-card shortcut is banned by design)
     std::vector<std::string> results;
@@ -764,9 +763,9 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
     sampling.thinkingKwargs = sPlayerbotAIConfig.llmThinkingKwargs != 0;
     sampling.providerSafe = sPlayerbotAIConfig.llmApiProviderSafe != 0;
 
-    // M1a prompt-dump hook: one JSON line per trained-format generation so
+    // prompt-dump hook: one JSON line per trained-format generation so
     // the byte-diff contract can be verified on-device against the same
-    // vectors the host battery uses. The line is assembled whole and handed
+    // vectors the host test suite uses. The line is assembled whole and handed
     // to the stream in one write() call, which keeps the common case (a
     // sub-buffer line) atomic under O_APPEND; very large lines can still
     // interleave across stream-buffer flushes - accepted for a dev-only
@@ -841,7 +840,7 @@ void PlayerbotLlmMemory::AddRelationshipPoints(Player* bot, Player* player, int3
         // SQLite reads PRE-update column values in DO UPDATE (MySQL's ODKU
         // assigns left-to-right), so the increment is folded into every
         // threshold test: the tier must reflect the POST-increment points
-        // or the 10/30/60 boundaries lag one interaction behind (F28/F43).
+        // or the 10/30/60 boundaries lag one interaction behind.
         // The stored enum stays the schema's four values - the trained
         // scale's fifth step (Bonded) derives from the point total on READ
         // (GetTrainedTier), so no migration is needed and the CHECK/enum
@@ -889,7 +888,7 @@ void PlayerbotLlmMemory::AddBoundedSentimentInput(uint32 bot, uint32 player, int
             AddRelationshipPoints(botPlayer, target, clampedDelta);
             if (!reason.empty())
             {
-                // S8/A13: the tone prefix carries the bridge-decided SIGN
+                // The tone prefix carries the bridge-decided SIGN
                 // - the grudge surface reads it ("any unsettled grudge":
                 // the newest opinion row negative). GetJournal strips
                 // every "(tone ...)" shape.
@@ -915,8 +914,8 @@ std::string PlayerbotLlmMemory::GetAbsenceBucket(Player* bot, Player* player)
 #ifdef DO_SQLITE
         // %%s: PExecute printf-formats the template; the SQL the engine
         // sees is strftime('%s', ...). Epoch is UTC on SQLite vs MySQL's
-        // session tz (the P3 tz footnote) - values are engine-internal and
-        // the P5 export bridge normalizes to UTC.
+        // session tz - values are engine-internal and
+        // the export bridge normalizes to UTC.
         "SELECT strftime('%%s', `last_interaction_at`) FROM `bot_player_relationship` "
         "WHERE `bot` = '%u' AND `player` = '%u'",
 #else
@@ -947,9 +946,9 @@ std::string PlayerbotLlmMemory::GetAbsenceBucket(Player* bot, Player* player)
 PlayerbotLlmMemory::PreStompState PlayerbotLlmMemory::GetPreStompState(Player* bot, Player* player)
 {
     PreStompState out;
-    // ONE query serves both S8 reads (absence bucket + the tier the A16
+    // ONE query serves both reads (absence bucket + the tier the
     // ceremony observes), taken before the relationship stomp queues -
-    // a fresh read after the push races the async write (the S5 law).
+    // a fresh read after the push races the async write.
     auto result = CharacterDatabase.PQuery(
 #ifdef DO_SQLITE
         "SELECT strftime('%%s', `last_interaction_at`), `tier`, `points` FROM `bot_player_relationship` "
@@ -1060,7 +1059,7 @@ bool PlayerbotLlmMemory::HasFactPrefix(uint32 bot, uint32 player, std::string co
     // player-identity is the tier-4 ceremony's licensed log_fact line
     // (the bridge decides the category). A model-filled fact copying a
     // player-whispered "secret told: ..." lands in shared-event and must
-    // not lock the real secret out (the round-1 R6 forgery vector).
+    // not lock the real secret out (the forgery vector).
     std::string const safe = EscapeSql(prefix);
     auto result = CharacterDatabase.PQuery(
         "SELECT 1 FROM `bot_player_facts` WHERE `bot` = '%u' AND `player` = '%u' "
@@ -1071,11 +1070,11 @@ bool PlayerbotLlmMemory::HasFactPrefix(uint32 bot, uint32 player, std::string co
 
 std::string PlayerbotLlmMemory::GossipAbout(std::string const& playerName)
 {
-    // A19 delivery priority: the newest rows matched in code (no LIKE -
+    // Delivery priority: the newest rows matched in code (no LIKE -
     // player names are arbitrary strings and %/_ would be wildcards),
     // CASE-SENSITIVELY on word boundaries: the capitalization is what
     // makes a token a name ("Ash" is not "the ash of the fire" and not
-    // "Ashmar" - the round-1 R6 misattribution fix). The world pool is
+    // "Ashmar" - either match would misattribute the line). The world pool is
     // small, pruned, and this runs once per greeting gap - the newest-8
     // fetch bounds the scan.
     if (playerName.empty())
@@ -1116,7 +1115,7 @@ std::vector<std::string> PlayerbotLlmMemory::GetJournal(Player* bot, Player* pla
         else if (cat == "opinion") label = "Feels";
         else if (cat == "player-identity") label = "Knows";
         std::string text = fields[0].GetString();
-        // every tone shape strips ("(tone) " legacy rows, the S8 signed
+        // every tone shape strips ("(tone) " legacy rows, the signed
         // "(tone -)/(tone +)" rows): the journal is a player-read surface
         size_t const toneEnd = text.find(") ");
         if (text.rfind("(tone", 0) == 0 && toneEnd != std::string::npos)
@@ -1150,7 +1149,7 @@ void PlayerbotLlmMemory::ShareGossip(uint32 bot, std::string const& text, std::s
     WorldDatabase.PExecute(
 #ifdef DO_SQLITE
         // datetime('now', ...) is UTC; MySQL's NOW() reads the session tz
-        // (the P3 tz footnote) - each engine is internally consistent
+        // - each engine is internally consistent
         // between this write and the CURRENT_TIMESTAMP reads below.
         "INSERT INTO `world_gossip` (`text`, `category`, `source_bot`, `expires_at`) "
         "VALUES ('%s', '%s', '%u', datetime('now', '+7 day'))",
@@ -1321,7 +1320,7 @@ void PlayerbotLlmMemory::OnDuelComplete(Player* participant, Player* opponent,
     if (!duelPlayer->isRealPlayer())
         return;
 
-    // S10/E6 party-banter event note: a duel by/against a real player
+    // party-banter event note: a duel by/against a real player
     // outranks the party layer's idle timer (the event-bark cadence).
     // Player-vs-player duels involve no bot and reach no observer here.
     PlayerbotLlmChatter::OnDuelCompleted(participant, opponent);
@@ -1378,7 +1377,7 @@ void PlayerbotLlmMemory::OnDuelComplete(Player* participant, Player* opponent,
     // beat may voice it as gossip
     NoteVerifiedEvent(bot->GetGUIDLow(), 0);
 
-    // S8/A13+A19: the outcome becomes MEMORY - the bot's own fact (the
+    // The outcome becomes MEMORY - the bot's own fact (the
     // news-recall beat's cargo) and a player-subject world_gossip row
     // (the cheapest legend mechanic: "the world knows what I did").
     // Both texts are bridge-authored from server-side names, so the
@@ -1400,7 +1399,7 @@ void PlayerbotLlmMemory::OnDuelComplete(Player* participant, Player* opponent,
     }
 }
 
-// ---- M6 authored kill banter (rare by design) ------------------------------
+// ---- authored kill banter (rare by design) ------------------------------
 // The cadence contract: most kills pass in silence. Even when the dice hit,
 // one bot speaks at most, its TOTAL bot-initiated chatter (kill quips + idle
 // mood lines) is capped by the shared ambient slot, and the party hears at
@@ -1431,16 +1430,16 @@ bool PlayerbotLlmMemory::TryClaimAmbientSlot(uint32 botGuid, uint32 minIntervalS
     return true;
 }
 
-// ---- S8/A17: the initiative scheduler --------------------------------------
+// ---- the initiative scheduler --------------------------------------
 namespace {
 
 // per-bot cadence: initiative classes scan at most this often
 uint32 const INITIATIVE_SCAN_SECS = 20;
-// the plan's zero-spam gate: one bot-initiated line per bot per 10 min
+// the zero-spam gate: one bot-initiated line per bot per 10 min
 uint32 const INITIATIVE_MIN_INTERVAL = 600;
 // a player counts as RETURNING after this long out of the bot's range
 time_t const INITIATIVE_RETURN_GAP = 900;
-// the A18 crowd tier: staggered emote delay bounds (seconds)
+// the crowd tier: staggered emote delay bounds (seconds)
 uint32 const CROWD_DELAY_MIN = 2, CROWD_DELAY_MAX = 5;
 
 std::map<uint32, time_t>& InitiativeScanAt()
@@ -1464,7 +1463,7 @@ std::map<uint64, std::set<uint32>>& InitiatedFactIds()
     return instance;
 }
 
-// the A18 crowd-tier throttle: at most a couple of emotes per short
+// the crowd-tier throttle: at most a couple of emotes per short
 // window, world-wide (ambient say events fan out to every bot in range;
 // the cap belongs to the EVENT, not the bot)
 time_t& LastCrowdEmoteAt()
@@ -1488,11 +1487,11 @@ std::string PlayerbotLlmMemory::AuthoredArrivalGreeting(Player* bot, Player* pla
     std::string line = PlayerbotLlmPersona::GreetingLine(bot, player);
     if (line.empty())
         return "";
-    // A13: the absence beat carries MAGNITUDE, never a passive line
+    // The absence beat carries MAGNITUDE, never a passive line
     std::string const magnitude = pocketllm::AbsenceMagnitudeLine(absenceBucket);
     if (!magnitude.empty())
         line += " " + magnitude;
-    // A19: what the town says about the player rides the greeting (the
+    // What the town says about the player rides the greeting (the
     // belief row logs with one distortion hop - the world's telling
     // drifts as it travels)
     std::string const gossip = GossipAbout(player->GetName());
@@ -1523,14 +1522,14 @@ bool PlayerbotLlmMemory::QueueCrowdEmote(Player* bot, Player* speaker)
     }
     if (!TryClaimAmbientSlot(bot->GetGUIDLow(), INITIATIVE_MIN_INTERVAL))
         return false;
-    // stamp only on a confirmed emote (round-1 R5/R6: a rejected claim
+    // stamp only on a confirmed emote (a rejected claim
     // must not burn the world window in silence - the kill-banter law)
     {
         std::lock_guard<std::mutex> lock(StateMutex());
         LastCrowdEmoteAt() = time(nullptr);
     }
 
-    // A18: deterministic text emotes only - the crowd tier never pays a
+    // Deterministic text emotes only - the crowd tier never pays a
     // generation (the fallback library was measured better on calm
     // beats). Persona-paced 2-5s stagger, seeded by the bot.
     static char const* const emotes[] = {
@@ -1584,8 +1583,8 @@ void PlayerbotLlmMemory::TickInitiative(Player* bot)
     }
 
     // arrival detection: a REMEMBERED player newly back in range after a
-    // long gap earns the greet-first packet (the validated finding: bots
-    // must speak first). "Remembered" = a relationship row exists.
+    // long gap earns the greet-first packet: bots must speak first.
+    // "Remembered" = a relationship row exists.
     std::vector<Player*> arrivals;
     {
         std::lock_guard<std::mutex> lock(StateMutex());
@@ -1604,7 +1603,7 @@ void PlayerbotLlmMemory::TickInitiative(Player* bot)
 
     for (Player* player : arrivals)
     {
-        // eligibility FIRST, slot claim LAST (round-1 R1/R5: a stranger's
+        // eligibility FIRST, slot claim LAST (a stranger's
         // arrival or an empty greeting draw must not burn the bot's whole
         // 10-minute initiative budget in silence)
         std::string const absence = GetAbsenceBucket(bot, player);
@@ -1623,7 +1622,7 @@ void PlayerbotLlmMemory::TickInitiative(Player* bot)
         // a rare authored exchange, staggered so it reads as two voices.
         // One fact-free opener set only (weather, blades, roads): an
         // authored line must never fabricate ledger state. The reply
-        // matches its OWN opener (round-1 R1) and answers on /say, the
+        // matches its OWN opener and answers on /say, the
         // channel the bystander heard the opener on.
         if (urand(1, 6) == 1)
         {
@@ -1692,7 +1691,7 @@ void PlayerbotLlmMemory::TickInitiative(Player* bot)
 
         std::string line;
         uint32 usedFactId = 0;
-        // one tier read per player per scan (round-1 R5: the per-row
+        // one tier read per player per scan (the per-row
         // GetTrainedTier re-query was the one wasteful shape in the scan)
         int const playerTier = GetTrainedTier(bot, player);
         for (auto const& row : rows)
@@ -1809,7 +1808,7 @@ bool PlayerbotLlmMemory::DrainEventReaction(uint32 botGuid, EventReaction& react
     auto itr = reactions.find(botGuid);
     if (itr == reactions.end() || itr->second.empty())
         return false;
-    // S8/A18 pacing: a staggered reaction waits its turn (front of the
+    // Pacing: a staggered reaction waits its turn (front of the
     // queue - later reactions never jump ahead of it)
     if (itr->second.front().notBefore > time(nullptr))
         return false;
@@ -1831,13 +1830,12 @@ bool PlayerbotLlmMemory::PrewarmDue(uint32 botGuid)
 }
 
 
-// ---- S9: the player surface (E1 pacing, E2 first contact, E4 progression)
+// ---- the player surface (pacing, first contact, progression)
 
 bool PlayerbotLlmMemory::PlayerHasAnyPairing(uint32 playerGuid)
 {
-    // plain existence read, valid on both SQL dialects (the S7 one-time-set
-    // class); the login/first-contact call sites are world-thread sync
-    // reads, the accepted TickInitiative class
+    // plain existence read, valid on both SQL dialects; the
+    // login/first-contact call sites are world-thread sync reads
     auto result = CharacterDatabase.PQuery(
         "SELECT 1 FROM `bot_player_relationship` WHERE `player` = '%u' LIMIT 1",
         playerGuid);
@@ -1859,8 +1857,8 @@ void PlayerbotLlmMemory::AcknowledgeWhisper(Player* bot, Player* player)
             return;
         last = now;
     }
-    // E1: turn to face + one deterministic text emote ("X nods."), through
-    // A3's own delivery path - no generation, no governor budget
+    // turn to face + one deterministic text emote ("X nods."), on its
+    // own delivery path - no generation, no governor budget
     bot->SetFacingToObject(player);
     PlayerbotLlmTools::PlayTextEmote(bot, player,
         (bot->GetGUIDLow() & 1) ? "nod" : "wave");
@@ -1892,7 +1890,7 @@ void PlayerbotLlmMemory::OnPlayerLogin(Player* player)
         if (!OnboardedPlayers().insert(player->GetGUIDLow()).second)
             return;
     }
-    // E2: once per character - the line rides logins only while the player
+    // Once per character - the line rides logins only while the player
     // has never contacted a bot (pure DB read; the first pairing silences
     // it forever). ASCII hyphen: the sys-line channel predates the clamp.
     if (PlayerHasAnyPairing(player->GetGUIDLow()))
@@ -1904,9 +1902,9 @@ void PlayerbotLlmMemory::OnPlayerLogin(Player* player)
 void PlayerbotLlmMemory::MaybeSessionStandingLine(Player* bot, Player* player,
     std::string const& preStompAbsence)
 {
-    // E4: "standing" one-liner on the first whisper of a session (one voice
+    // "standing" one-liner on the first whisper of a session (one voice
     // per pairing per world process). A first meeting has no standing worth
-    // voicing - the E2 welcome owns that moment.
+    // voicing - the welcome owns that moment.
     if (!bot || !player || !player->isRealPlayer() || !player->GetSession())
         return;
     if (preStompAbsence == "a first meeting")
@@ -1924,7 +1922,7 @@ void PlayerbotLlmMemory::MaybeSessionStandingLine(Player* bot, Player* player,
 
 std::string PlayerbotLlmMemory::AuthoredFirstContactWelcome(Player* bot, Player* player)
 {
-    // E2: the player's first-ever bot contact is scripted - a reliable,
+    // The player's first-ever bot contact is scripted - a reliable,
     // in-character first impression even on a cold model - and hints that
     // bots remember, which is true: the pairing's first-meeting fact
     // forms right here through the same native write the licensed

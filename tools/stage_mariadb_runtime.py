@@ -96,10 +96,10 @@ def load_metadata(refresh: bool = False) -> tuple[dict, str]:
     """Fetch the termux gpkg index, PINNED to the committed lockfile.
 
     The index is live upstream metadata: without a pin, any full staging run
-    silently moves package versions (observed twice during the 2026-08
-    Phase 4 window). Default behavior: refuse an index whose hash differs
+    silently moves package versions (observed twice in practice). Default
+    behavior: refuse an index whose hash differs
     from schemas/mariadb-runtime-lockfile.json's metadata_sha256; --refresh
-    explicitly accepts the new index and rewrites the lockfile for review.
+    explicitly accepts the new index and rewrites the lockfile.
     """
     BUILD.mkdir(parents=True, exist_ok=True)
     path = BUILD / "gpkg.json"

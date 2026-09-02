@@ -994,7 +994,7 @@ function AP:InitializeModules()
     local talkOn = self:IsModuleEnabled("talk")
     if self.FrameMover and moverOn then self.FrameMover:Initialize() end
     if self.Hud and hudOn then self.Hud:Initialize() end
-    -- E3: the Talk module owns no frames at init; Initialize only marks it
+    -- The Talk module owns no frames at init; Initialize only marks it
     -- ready (a re-entry guard — the radial action re-checks the module
     -- switch inside Talk:Open)
     if self.Talk and talkOn then self.Talk:Initialize() end

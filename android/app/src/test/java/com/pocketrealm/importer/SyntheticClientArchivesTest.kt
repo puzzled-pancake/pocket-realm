@@ -11,7 +11,7 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 /**
- * Phase 0 characterization of the synthetic archive fixture factory: every
+ * Characterization of the synthetic archive fixture factory: every
  * builder must round-trip through commons-compress exactly as the detection
  * and extraction code will read real archives. Also pins the committed
  * libarchive-corpus RAR fixtures (BSD-2, no Blizzard bytes).

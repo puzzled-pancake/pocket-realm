@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 r"""PC-side device-readiness preflight for the SQLite seed APK (the
-"verify before you stage" gate - the device window of 2026-08-25 burned
-three hours on defects the emulator's newer framework SQLite masked:
+"verify before you stage" gate - the emulator's newer framework SQLite
+masks version-gated defects that reproduce on real devices:
 UPDATE..FROM needs 3.33+, native concat() needs 3.44+; a later replay
 ladder also caught RENAME COLUMN at 3.25+).
 
@@ -19,7 +19,7 @@ What is verified, WITHOUT touching any device:
   2. Seed integrity: every assets/seed/<db>.sqlz is gunzipped in
      memory; the raw sha256 must match BOTH the append-only baseline
      (schemas/sqlite-seed-baseline.json) and the sqlite realm lockfile
-     pinned for that APK's ABI (the I-50 chain extended to the artifact
+     pinned for that APK's ABI (the hash chain extended to the artifact
      that actually ships).
   3. Floor replay: every transcript is executed start-to-finish by the
      pinned old sqlite3 shells (.bail on, exit 0, empty stderr). A parse

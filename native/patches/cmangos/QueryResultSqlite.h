@@ -1,12 +1,12 @@
 /*
- * Pocket Realm hardened SQLite backend (P2 of the MariaDB replacement plan).
+ * Pocket Realm hardened SQLite backend.
  *
  * Replaces native/cmangos/src/shared/Database/QueryResultSqlite.h under
  * DO_SQLITE builds only. Upstream keeps a live sqlite3_stmt* and lazily
  * steps it in NextRow() after the connection lock is released, double-scans
  * every result set to count rows, reads columns after sqlite3_reset
- * (bogus initial values), and leaks the 8-byte stmt wrapper per query
- * (research digest F26). This replacement materializes the whole result
+ * (bogus initial values), and leaks the 8-byte stmt wrapper per query.
+ * This replacement materializes the whole result
  * set inside the constructor - which runs while the caller still holds the
  * SqlConnection lock - and finalizes the statement immediately, so result
  * iteration never touches the connection again.

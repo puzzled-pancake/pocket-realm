@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the Kotlin Vulkan package identities from the reviewed JSON catalog."""
+"""Generate the Kotlin Vulkan package identities from the pinned JSON catalog."""
 
 from __future__ import annotations
 

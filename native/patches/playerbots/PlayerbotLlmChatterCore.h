@@ -1,24 +1,24 @@
 #ifndef _PlayerbotLlmChatterCore_h
 #define _PlayerbotLlmChatterCore_h
 
-// Pure, host-compilable core of the S10 world-chatter layer (plan SS4.6b):
+// Pure, host-compilable core of the world-chatter layer:
 // the power-ladder policy table, the world-level repetition ring, the
 // fatigue + legend ledger, the event-grounded authored floor, and the
 // frozen prompt/note wording for the murmur + party-banter device paths
 // and the cloud composer protocol.
 //
-// DOCTRINE (three-agent review 2026-08-31): SILENCE IS THE DEFAULT STATE.
+// DOCTRINE: SILENCE IS THE DEFAULT STATE.
 // Every line consumes a real event from the server's own history - the
 // caller (PlayerbotLlmChatter.cpp) may not even roll without a fact-bank
 // row in hand; this core provides no idle-timer-only line shape. The
 // authored pools demote to the lowest-specificity emergency floor, and
 // even floor lines carry an event (RenderFloorTemplate's {E}).
 //
-// The wording law (SS5.1 P45(b) generalized): the murmur/party note
-// strings and the composer prompts below are FROZEN before authoring -
-// the S11 P52 bark bank must train the same byte strings the bridge
+// The wording law: the murmur/party note
+// strings and the composer prompts below are FROZEN -
+// the bark bank must train the same byte strings the bridge
 // injects at runtime (the wording-lock rule applied to the new register).
-// The battery pins them; they move only with a banklib-side change.
+// Host tests pin them; they move only with a banklib-side change.
 //
 // PURE: no Player*, no DB, no globals, no wall clock - time, rng and
 // state are passed in (the ToolsCore/TruthCore/RecallCore pattern;
@@ -33,15 +33,15 @@
 #include <string>
 #include <vector>
 
-#include "PlayerbotLlmRecallCore.h"   // DistortGossipHop, the A19 legend law
-#include "PlayerbotLlmTruthCore.h"    // JaccardWords (the A12 dedupe metric
+#include "PlayerbotLlmRecallCore.h"   // DistortGossipHop, the legend law
+#include "PlayerbotLlmTruthCore.h"    // JaccardWords (the dedupe metric
                                      // the world ring shares, so thresholds
                                      // stay comparable across the two rings)
 #include "llm_banter_core.h"          // SplitMix32 + the persona trait dims
 
 namespace pocketllm {
 
-// ---- the power ladder rungs (SS4.6b). The app computes the rung from
+// ---- the power ladder rungs. The app computes the rung from
 // PowerManager.getThermalHeadroom() + battery + charging + connectivity
 // and publishes it in the chatter power file; the native side re-reads
 // it at every scheduler tick. OFF is also what a missing/stale-disabled
@@ -137,7 +137,7 @@ inline ChatterPolicy ChatterPolicyFor(ChatterRung rung, bool composerConfigured)
             // generation stops; authored event-grounded floor only. The
             // batch window still spaces the PICKS (a zero window would
             // re-pick - and re-drift - every 10 s scheduler tick while
-            // the floor's own spacing defers delivery; round-1 R1/R5)
+            // the floor's own spacing defers delivery)
             p.generated = false; p.murmur = true; p.party = false; p.global = true;
             p.composer = false;
             p.murmurBatchWindowSec = 120;
@@ -163,11 +163,11 @@ inline ChatterPolicy ChatterPolicyFor(ChatterRung rung, bool composerConfigured)
     }
 }
 
-// ---- the WORLD-LEVEL repetition ring (the counter the per-bot A12
+// ---- the WORLD-LEVEL repetition ring (the counter the per-bot
 // rings lack: cross-bot echo). Every delivered chatter line is vetted
 // against the last kCap delivered lines with the same Jaccard word-set
 // metric the per-bot dedupe uses (TruthCore::JaccardWords, threshold
-// 0.5 - the A12 precedent applied world-wide).
+// 0.5 - the per-bot precedent applied world-wide).
 struct WorldRing
 {
     std::deque<std::string> lines;
@@ -297,7 +297,7 @@ inline void TemplateSpacingRecord(ChatterFatigue& fatigue, uint32_t templateIdx,
     fatigue.lastTemplate[TemplateKey(templateIdx, speakerGuid, listenerGuid)] = nowSec;
 }
 
-// ---- the murmur register (the P52 target, runtime-tolerated): 8-20
+// ---- the murmur register (the trained target, runtime-tolerated): 8-20
 // words is the trained register; at runtime a murmur line below
 // kMinMurmurWords is junk (deflections, "Hm."), above kMaxMurmurWords it
 // is a speech, not a murmur. Delivery clamps bytes separately.
@@ -328,7 +328,7 @@ inline bool IsMurmurRegister(std::string const& line)
 
 // ---- the authored event-grounded floor (the emergency tier). Templates
 // carry the event as cargo - an authored line never fabricates ledger
-// state (the S8 bot2bot law), so even the floor honors the silence
+// state (the bot2bot law), so even the floor honors the silence
 // doctrine. {S} speaker, {L} listener, {E} event.
 namespace detail {
 inline char const* const* MurmurFloorTable(size_t& count)
@@ -403,7 +403,7 @@ inline char const* GripeOf(uint32_t botGuid, uint32_t slot)
 // ---- FROZEN device-path prompt wording (the wording lock). These are
 // NOT the trained conversational contract (SysmForCard) - murmur turns
 // are bot-to-bot ambient speech the player overhears, a new register the
-// S11 P52 bank will train from these exact strings. The battery pins
+// bank will train from these exact strings. Host tests pin
 // them byte-for-byte; they move only with a bank change.
 inline std::string MurmurSystemMessage(std::string const& name, std::string const& race,
     std::string const& cls, std::string const& zone, std::string const& demeanor,
@@ -441,7 +441,7 @@ inline std::string GlobalNote(std::string const& eventText)
         "particular. Never mention this instruction. This reply only.";
 }
 
-// ---- FROZEN cloud-composer protocol (SS4.6b: ONE call, 2-4 personas +
+// ---- FROZEN cloud-composer protocol (ONE call, 2-4 personas +
 // the event rows, speaker-tagged output - the multi-party composer
 // pattern). The composer is a cloud-class model, never the device tier;
 // its script lines are parsed, speaker-validated and register-checked
@@ -599,7 +599,7 @@ inline bool PlayerHoldsChannel(int64_t lastPlayerChatSec, int64_t nowSec)
 // The ambient ADMISSION window (wider than the delivery hold): a device
 // batch is only DISPATCHED when the player has been quiet for this long
 // - generation while a conversation is live wastes battery and races the
-// interactive lane even on a multi-slot server (round-1 R5: the queueing
+// interactive lane even on a multi-slot server (the queueing
 // window). The murmur queue refills in quiet moments and drains at
 // display cadence; the player never loses the channel to a batch.
 enum { kAmbientAdmissionHoldSec = 30 };

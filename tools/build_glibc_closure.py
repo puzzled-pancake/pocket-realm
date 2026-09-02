@@ -339,7 +339,7 @@ def apply_16k_linker_overlay(repo: Path) -> None:
 
 
 def vendor_build_harness(repo: Path) -> str:
-    """Vendor the Termux build harness at an exact, reviewable commit."""
+    """Vendor the Termux build harness at an exact, reproducible commit."""
     marker = repo / ".termux-packages-harness-commit"
     current = marker.read_text(encoding="ascii").strip() if marker.is_file() else ""
     required = ("build-package.sh", "clean.sh", "packages", "x11-packages",

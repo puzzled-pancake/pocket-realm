@@ -418,7 +418,7 @@ class Settings(private val context: Context) {
          */
         val llmBanter: Boolean = true,
         /**
-         * S10 world chatter (§4.6b): the LLM-voiced ambient layers — party
+         * World chatter: the LLM-voiced ambient layers — party
          * banter, proximity murmur, rare general-chat set pieces — every
          * line event-gated (silence is the default; no fact-bank row, no
          * line). The power ladder (thermal headroom + battery + charging +

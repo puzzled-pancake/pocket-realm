@@ -55,7 +55,7 @@ data class WowGameSettingsConfig(
     }
 
     companion object {
-        /** Sized from the full-catalog worst case (§4.2): 211 bindings ≈ 31 KiB
+        /** Sized from the full-catalog worst case: 211 bindings ≈ 31 KiB
          *  plus ~118 settings ≈ 8 KiB, with margin under the 64 KiB control cap. */
         const val MAX_JSON_BYTES: Int = 48 * 1024
         const val SCOPE_CONFIG: String = "config"
@@ -107,7 +107,7 @@ data class WowGameSettingsConfig(
 /**
  * The latest delivery per setting/command id + scope, persisted inside
  * `managed-safe-profile.json` and carried forward across prepares (pruned
- * against the oldest revision still queued, §5.2).
+ * against the oldest revision still queued).
  */
 data class GameSettingsDeliveryEntry(
     val key: String,
@@ -142,7 +142,7 @@ data class GameSettingsDeliveryEntry(
 data class BindingAssignment(val command: String, val primary: String?, val secondary: String?)
 
 /**
- * Pure apply-once planner (§5.1/§5.2). A queued entry delivers only when its
+ * Pure apply-once planner. A queued entry delivers only when its
  * revision outranks the revision last delivered for the same id+scope; a
  * delivered override is never re-applied, so later in-game edits survive and
  * are reported as superseded at the next editor visit. Entries stranded on a
@@ -249,7 +249,7 @@ object GameSettingsDeliveryPlanner {
     }
 
     /**
-     * Carry forward + prune rule (§5.2): merge new deliveries over the
+     * Carry forward + prune rule: merge new deliveries over the
      * previous map, then drop carried entries older than the oldest revision
      * still queued in any queue — future stagings always carry higher
      * revisions, so a pruned entry can never matter again.

@@ -26,11 +26,11 @@ struct QueuedCall
     std::string name;
     std::vector<std::pair<std::string, std::string>> fields;
     PlayerbotLlamaRuntime::LlmCallSource source = PlayerbotLlamaRuntime::LLM_SRC_CHAT_REPLY;
-    // A0 interlocutor fix: the real player whose turn triggered the
+    // interlocutor attribution: the real player whose turn triggered the
     // generation. Facts/sentiment must attribute to the SPEAKER - at scale
     // the whisperer is usually not the bot's owner (GetMaster()).
     uint32 speakerGuid = 0;
-    // A2 license stamp: identifies the note that licensed this call; the
+    // license stamp: identifies the note that licensed this call; the
     // executor admits the call only while the bot's live license still
     // carries this stamp AND the tool name (via LicensedLineFor).
     uint64_t licenseStamp = 0;
@@ -60,7 +60,7 @@ std::string ToLower(std::string const& text)
     return lower;
 }
 
-// A2 give_item lookup: the bot's own bags, by item NAME (the trained
+// give_item lookup: the bot's own bags, by item NAME (the trained
 // give_item carries a plain noun, not an item link, and
 // InventoryParseItems only resolves links/ids/special words). Exact
 // match first, then substring (the player says "hammer", the bag holds
@@ -108,7 +108,7 @@ Item* FindBagItemByName(Player* bot, std::string const& name)
     return nullptr;
 }
 
-// A2's "??"-level pre-commit guard (plan wording: the strictest class of
+// Pre-commit duel guard (the strictest class of
 // live-state validation before the duel cast): every condition is
 // checked against the world, none against what the model said. Mirrors
 // RpgDuelAction::isUseful's area legality plus both-sides duel state,
@@ -159,9 +159,9 @@ std::string LicensedField(std::string const& licensedLine, std::string const& ke
 
 std::string PlayerbotLlmTools::ToolInstructions(uint32 botGuid)
 {
-    // A7: the trained wording, verbatim - the same per-GUID variant
+    // The trained wording, verbatim - the same per-GUID variant
     // selection the trained system prompt uses (crc32 % 4 over the stable
-    // persona id). The pre-A7 hardcoded text is retired: it licensed
+    // persona id). The earlier hardcoded text licensed
     // model-initiated tool use from free chat ("use them only when they
     // fit"), which the trained contract replaces with note-driven
     // dispatch (no note -> no tools).
@@ -178,7 +178,7 @@ std::string PlayerbotLlmTools::ExtractAndQueue(std::string const& raw, uint32 bo
     if (calls.empty())
         return cleaned;
 
-    // A2 admission, at queue time: a call must be a KNOWN tool (the
+    // Admission, at queue time: a call must be a KNOWN tool (the
     // banklib vocabulary - anything else is protocol leakage) and must
     // be licensed by the note THAT DROVE THIS GENERATION - the stamp is
     // threaded from the generation's own note build, not read from the
@@ -257,12 +257,12 @@ void PlayerbotLlmTools::ExecutePending(Player* bot)
     // about the world is never trusted on its own
     for (QueuedCall const& call : calls)
     {
-        // A2 executor license cross-check (the S5-logged gap, now
-        // mechanical): a queued call executes only when the note that
+        // Executor license cross-check: a queued call executes only when
+        // the note that
         // licensed its QUEUE entry still matches the bot's live license -
         // same stamp, same tool. Zero executions from unlicensed turns,
         // by construction, on every backend. ONE locked read gates and
-        // fetches together (round-2 P2: RecordLicense fills tools and
+        // fetches together (RecordLicense fills tools and
         // lineByTool in the same loop, so a non-empty line IS the
         // coverage proof - a separate check would double the locked
         // copies and could straddle a concurrent record). The licensed
@@ -274,7 +274,7 @@ void PlayerbotLlmTools::ExecutePending(Player* bot)
         if (licensedLine.empty())
             continue; // superseded, unlicensed, or note-less
 
-        // A0 interlocutor fix: persistence/ACT tools attribute to and act
+        // interlocutor attribution: persistence/ACT tools attribute to and act
         // toward the player who actually SPOKE (carried through the
         // generation), resolved live at execution time - never the bot's
         // owner (GetMaster()), which at scale is a different player than
@@ -310,7 +310,7 @@ void PlayerbotLlmTools::ExecutePending(Player* bot)
         }
         else if (call.name == "adjust_sentiment")
         {
-            // direction is bridge-decided (prtools rec #3: judgment is the
+            // direction is bridge-decided (judgment is the
             // model's weakest axis - the note supplies it ready-made); only
             // the reason string is the model's
             std::string const direction = LicensedField(licensedLine, "direction");
@@ -329,7 +329,7 @@ void PlayerbotLlmTools::ExecutePending(Player* bot)
         }
         else if (call.name == "perform_emote")
         {
-            // A3: the module's TEXT-emote path (SMSG_TEXT_EMOTE through
+            // The module's TEXT-emote path (SMSG_TEXT_EMOTE through
             // HandleTextEmoteOpcode resolves the animation via
             // EmotesText.dbc where one exists AND prints the authentic
             // "X grins." line to every nearby player). The emote VALUE is
@@ -337,7 +337,7 @@ void PlayerbotLlmTools::ExecutePending(Player* bot)
             // delivery is the same path the authored crowd tier uses.
             PlayTextEmote(bot, player, LicensedField(licensedLine, "emote"));
         }
-        // ---- A2 ACT tools: mapped to existing playerbots surfaces.
+        // ---- ACT tools: mapped to existing playerbots surfaces.
         // Every bridge-decided field executes from the LICENSED line, so
         // the acting target is always the SPEAKER the bridge licensed (a
         // model-rewritten name/item is a mismatch the license does not
@@ -369,8 +369,8 @@ void PlayerbotLlmTools::ExecutePending(Player* bot)
             // the RpgTradeUsefulAction idiom: open the trade toward the
             // player, then hand the item through the trade handler. A trade
             // window already open with SOMEONE ELSE must not receive the
-            // item (TradeAction adds to whatever trade is live) - round-1
-            // P1 fix: hand only into a trade with the licensed speaker.
+            // item (TradeAction adds to whatever trade is live) - hand
+            // only into a trade with the licensed speaker.
             Player* const trader = bot->GetTrader();
             if (trader && trader != player)
                 continue;
@@ -410,8 +410,9 @@ void PlayerbotLlmTools::ExecutePending(Player* bot)
         }
         else if (call.name == "loot_roll")
         {
-            // banklib LOOT_CHOICES parity from the LICENSED line (no S6
-            // beat licenses a roll yet - the branch lights up when an
+            // loot choice parity with the trained LOOT_CHOICES, read from
+            // the LICENSED line (no beat licenses a roll yet - the branch
+            // lights up when an
             // event nudge carries one; the roll handler itself no-ops
             // when no roll is actually open for the bot)
             std::string const choice = LicensedField(licensedLine, "choice");
@@ -423,7 +424,7 @@ void PlayerbotLlmTools::ExecutePending(Player* bot)
         }
         else if (call.name == "move_to")
         {
-            // S7/A11: un-gated by the lore loop's POI cards. The place
+            // move_to: resolved against the lore loop's POI cards. The place
             // executes from the LICENSED line (bridge-resolved canonical
             // title), re-resolved against the index here - the world (or
             // the corpus) may have changed since the note was built, and
