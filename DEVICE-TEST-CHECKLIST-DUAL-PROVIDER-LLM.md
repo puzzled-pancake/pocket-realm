@@ -98,7 +98,7 @@ Build the two artifacts first (on the build host, not the device):
 - [ ] Companion-mode reload: `SetCompanionMode` mid-session → in-place
       free+load completes; prewarm requests during the reload window are
       dropped (not stalled); generation continues after reload.
-- [ ] Model download (~2.8 GB): cancel mid-stream → resume via
+- [ ] Model download (~2.6 GB): cancel mid-stream → resume via
       `.part`/`.etag` sidecars (If-Range always sent; a 206 without an
       ETag must not blank the validator); POST_NOTIFICATIONS grant;
       foreground-service tap-through on Android 12+.

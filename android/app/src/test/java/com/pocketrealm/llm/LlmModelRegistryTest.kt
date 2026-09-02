@@ -40,10 +40,11 @@ class LlmModelRegistryTest {
     }
 
     @Test
-    fun baseModelKeepsItsDownloadUrlAndLegacyNoVerifyPin() {
-        // the base pin is still upstream-unverified: empty sha
-        // keeps the historical skip-download-verification semantics
-        assertEquals("", LlmModelRegistry.BASE_E2B.sha256)
+    fun baseModelKeepsItsDownloadUrlAndUpstreamPin() {
+        // the base pin is resolved from the upstream hub metadata (LFS
+        // sha256), so downloads verify exactly like the tuned models
+        assertEquals("e531007218dfab990486a5de7676a6932d6ea8dea233d1f698d7c21cf8a16889", LlmModelRegistry.BASE_E2B.sha256)
+        assertEquals(2_620_370_976L, LlmModelRegistry.BASE_E2B.size)
         assertFalse(LlmModelRegistry.BASE_E2B.localOnly)
         assertTrue(LlmModelRegistry.BASE_E2B.url.startsWith("https://huggingface.co/"))
     }

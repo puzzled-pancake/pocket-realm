@@ -138,10 +138,10 @@ object LlmModelRegistry {
         fileName = "gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
         url = "https://huggingface.co/unsloth/gemma-4-E2B-it-qat-GGUF/resolve/main/" +
             "gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
-        size = 2_815_000_000L,
-        // upstream pin still unverified: empty sha skips download
-        // verification exactly as before; the tuned pins do not.
-        sha256 = "",
+        size = 2_620_370_976L,
+        // LFS sha256 of the upstream file (huggingface.co/unsloth/
+        // gemma-4-E2B-it-qat-GGUF), resolved from the hub's tree metadata.
+        sha256 = "e531007218dfab990486a5de7676a6932d6ea8dea233d1f698d7c21cf8a16889",
         profile = LlmSamplingProfile(
             // Same 210 clearing rationale as the tuned Qwen tier — the
             // base tier serves the same corpus; it stays short-licensed.
