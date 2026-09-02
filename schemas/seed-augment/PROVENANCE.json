@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "description": "Binds the precomputed playerbot cache capture to the migrations manifest it was taken against. The world's cache-load branches have no version check; this file is the only staleness tripwire - a manifest advance must fail the seed until the capture is re-validated.",
+  "manifest_sha256": "6a0d7571e5023512237279901989df007c2d0f5ca17dac797920a36f6d721dd6",
+  "captured_from": "differential lane x86_64 emulator, first-boot world build of 2026-08-27 (run 20260827-172613 lineage)",
+  "captured_at": "2026-08-28",
+  "tables": [
+    "ai_playerbot_rnditem_cache",
+    "ai_playerbot_equip_cache"
+  ]
+}

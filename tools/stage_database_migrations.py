@@ -133,6 +133,12 @@ def select_inputs() -> list[Input]:
     )
     selected.append(Input("world", classic / "ACID/acid_classic.sql"))
     selected.append(Input("world", classic / "utilities/cmangos_custom.sql"))
+    # Pocket Realm LLM memory schema. These files live in native/llm/sql/,
+    # which no glob above covers, and are appended ONLY here at the very tail:
+    # a new mid-array discovery would renumber every later migration_id and
+    # replay already-applied SQL on upgrade (append-only ledger invariant).
+    selected.append(Input("playerbot-characters", ROOT / "native/llm/sql/ai_playerbot_llm_memory.sql"))
+    selected.append(Input("playerbot-world", ROOT / "native/llm/sql/world_gossip.sql"))
     missing = [str(item.path) for item in selected if not item.path.is_file()]
     if missing:
         raise RuntimeError(f"missing pinned SQL inputs: {missing}")

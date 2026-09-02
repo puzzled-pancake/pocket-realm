@@ -1,0 +1,4 @@
+SET time_zone = '+00:00';
+SET NAMES utf8mb4;
+SET SESSION sql_mode='';
+SELECT `guid`, `name`, HEX(`data`), CAST(`flag` AS UNSIGNED) FROM `classiccharacters`.`account_data` ORDER BY `guid`, `name`, `data`, `flag` LIMIT 500 OFFSET 0 INTO OUTFILE '/p.tsv' FIELDS TERMINATED BY '\t' ENCLOSED BY '' ESCAPED BY '\\' LINES TERMINATED BY '\n';

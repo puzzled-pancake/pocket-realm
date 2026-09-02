@@ -40,6 +40,14 @@ class DatabaseService : Service() {
             engine.projectRealmEndpoint(address, worldPort)
         }
         override fun applyPinnedMigrations(): String = guarded { engine.applyPinnedMigrations() }
+        override fun provisionSqliteProvider(): String = guarded { engine.provisionSqliteProvider() }
+        override fun translateUserStateToSqliteStaging(): String = guarded {
+            // P6.5/W9: the differential lane's Server-A dump leg (the P5
+            // export produces the canonical mysqldump-TSV staging the
+            // parity oracle consumes); also the registered P5 window
+            // exposure.
+            engine.translateUserStateToSqliteStaging()
+        }
         override fun stop(): String = guarded { engine.stop() }
         override fun stopOwned(instanceToken: String): String = guarded {
             ownership.requireOwner(instanceToken)

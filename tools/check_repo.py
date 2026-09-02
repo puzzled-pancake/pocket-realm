@@ -50,6 +50,7 @@ BLOB_ALLOWLIST_PREFIXES = (
     "runtime/xserver-winlator/",
     "tests/avd/",
     "android/app/src/main/assets/",
+    "android/pocketrealm-llm/prebuilt/",
     "schemas/",
 )
 

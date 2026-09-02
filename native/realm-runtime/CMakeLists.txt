@@ -35,7 +35,6 @@ foreach(target pocket_realmd_runtime pocket_world_runtime)
         ${CMAKE_SOURCE_DIR}/src/mangosd
         ${CMAKE_SOURCE_DIR}/src/realmd
         ${CMAKE_SOURCE_DIR}/dep/include/gsoap
-        ${MYSQL_INCLUDE_DIR}
     )
     target_link_options(${target} PRIVATE
         "-Wl,-z,max-page-size=0x4000"
@@ -44,11 +43,26 @@ foreach(target pocket_realmd_runtime pocket_world_runtime)
     set_target_properties(${target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endforeach()
 
+# Database backend link: exactly one engine's client library. Under SQLITE
+# the in-tree backend links the pinned amalgamation static library and the
+# MariaDB connector must not appear anywhere in the link (fail-loud backend
+# selection, G1/G2); MySQL is the else-default.
+if(SQLITE)
+    set(POCKET_DB_LIBS SQLite::SQLite3)
+else()
+    set(POCKET_DB_LIBS ${MYSQL_LIBRARY})
+    # Connector headers are a MySQL-lane input; under SQLITE the imported
+    # SQLite3 target carries the include path and no MariaDB header may
+    # enter the compile.
+    target_include_directories(pocket_realmd_runtime PRIVATE ${MYSQL_INCLUDE_DIR})
+    target_include_directories(pocket_world_runtime PRIVATE ${MYSQL_INCLUDE_DIR})
+endif()
+
 target_link_libraries(pocket_realmd_runtime PRIVATE
-    shared ${MYSQL_LIBRARY} OpenSSL::SSL OpenSSL::Crypto z dl
+    shared ${POCKET_DB_LIBS} OpenSSL::SSL OpenSSL::Crypto z dl
 )
 target_link_libraries(pocket_world_runtime PRIVATE
-    game shared gsoap ${MYSQL_LIBRARY} OpenSSL::SSL OpenSSL::Crypto z dl
+    game shared gsoap ${POCKET_DB_LIBS} OpenSSL::SSL OpenSSL::Crypto z dl
 )
 if(BUILD_PLAYERBOTS)
     # CMaNGOS applies this directory-locally to game/mangosd, so the embedded
@@ -71,6 +85,12 @@ endif()
 if(POCKETREALM_LLAMA)
     if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
         message(FATAL_ERROR "POCKETREALM_LLAMA is only supported on aarch64 builds")
+    endif()
+    if(NOT EXISTS "${POCKETREALM_LLAMA_PREBUILT}/libllama.so")
+        message(FATAL_ERROR "POCKETREALM_LLAMA_PREBUILT does not contain the vendored llama libraries")
+    endif()
+    if(NOT EXISTS "${POCKETREALM_LLAMA_INCLUDE}/llama.h")
+        message(FATAL_ERROR "POCKETREALM_LLAMA_INCLUDE does not contain llama.h")
     endif()
     target_compile_definitions(playerbots PRIVATE POCKETREALM_LLAMA)
     target_include_directories(playerbots PRIVATE ${POCKETREALM_LLAMA_INCLUDE})

@@ -7,9 +7,14 @@
   "auction_house_bot": false,
   "cmangos_commit": "082afd606f8e37ea939df6fdfcd4af81f8085e6e",
   "playerbots_commit": "3b77c5f423a6139d69930bcee9643af7f198df1e",
+  "database_backend": "mysql",
   "cmangos_source_overlays": [
     {
       "id": "authenticated-nearby-use-open",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
       "paths": [
         "src/game/World/World.h",
         "src/game/World/World.cpp",
@@ -21,31 +26,110 @@
     },
     {
       "id": "mmap-disabled-load-guard",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
       "path": "src/game/Maps/GridMap.cpp",
       "reason": "Do not enter MMapManager::loadMap when mmap.enabled=0; the disabled manager intentionally has no map instance."
     },
     {
       "id": "mmap-loadmap-graceful-miss",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
       "path": "src/game/MotionGenerators/MoveMap.cpp",
       "reason": "Entering a map whose navmesh was never registered (missing mmaps/NNN.mmap) must disable pathfinding for that map, not abort the world process."
     },
     {
       "id": "mmap-loadallmaptiles-graceful-miss",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
       "path": "src/game/MotionGenerators/MoveMap.cpp",
       "reason": "The Playerbots tile preload path must degrade to a logged skip on an unregistered map instead of aborting the world process."
     },
     {
       "id": "embedded-world-thread-rearm",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
       "path": "src/mangosd/Master.cpp",
       "reason": "Re-arm CMaNGOS process-global stop state immediately before each embedded world-thread launch."
     },
     {
       "id": "result-callback-outside-queue-lock",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
       "path": "src/shared/Database/SqlOperations.cpp",
       "reason": "Execute async result callbacks outside the result-queue mutex so callbacks may safely issue direct statements while the database worker publishes another result."
+    },
+    {
+      "id": "llm-companion-event-hooks",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "paths": [
+        "src/game/Entities/Player.cpp",
+        "src/game/Loot/LootHandler.cpp"
+      ],
+      "reason": "Level-up and rare-loot interception points that feed the playerbot LLM companion's event allowlist (bounded party reactions, deterministic relationship milestones, verified-event window for share_gossip)."
+    },
+    {
+      "id": "db-async-null-guard",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "paths": [
+        "src/shared/Database/Database.h",
+        "src/shared/Database/Database.cpp",
+        "src/shared/Database/DatabaseImpl.h"
+      ],
+      "reason": "Route all twelve async enqueue sites through SafeDelayOperation/SafeDelayQueryHolder: HaltDelayThread() nulls m_threadBody while the sticky async flag stays on across embedded restart cycles, so an unguarded enqueue after a halt is a null dereference (F50)."
+    },
+    {
+      "id": "fail-loud-backend-selection",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "path": "CMakeLists.txt",
+      "reason": "Refuse the no-op -DDO_MYSQL/-DDO_SQLITE cache defines, refuse PostgreSQL, and print the selected backend at configure time; the real switch is the SQLITE cache variable with MySQL as the else-default (F41)."
+    },
+    {
+      "id": "runtime-dialect-truncate",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "path": "src/game/Globals/ObjectMgr.cpp",
+      "reason": "P3/G5: route the two raw TRUNCATE sites through the backend _TRUNCATE_ macro (DELETE FROM under DO_SQLITE; TRUNCATE TABLE - semantically identical - under MySQL)."
+    },
+    {
+      "id": "runtime-dialect-anticheat-prune",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "path": "src/game/Anticheat/module/libanticheat.cpp",
+      "reason": "P3/G5: DELETE..ORDER BY..LIMIT is MySQL-only; under DO_SQLITE use the registered rowid-IN-subquery rewrite with the fingerprint predicate inside the subquery (exactly two positional binds unchanged, DEC-03)."
     }
   ],
   "playerbots_source_overlays": [
+    {
+      "id": "portable-unary-not-character-query",
+      "paths": [
+        "playerbot/RandomPlayerbotMgr.cpp"
+      ],
+      "reason": "Upstream emits MySQL unary-'!' NOT in the character-selection query (' OR !' + wasRand); SQLite fails the whole query with `unrecognized token: \"!\"`, starving the need-to-increase bot-selection branch on SQLite. Replace with standard NOT (identical semantics in MySQL)."
+    },
     {
       "id": "bounded-resumable-mobile-generation",
       "paths": [
@@ -88,17 +172,67 @@
         "playerbot/PlayerbotAIConfig.cpp",
         "playerbot/PlayerbotLLMInterface.h",
         "playerbot/PlayerbotLLMInterface.cpp",
+        "playerbot/llm_banter_core.h",
         "playerbot/PlayerbotLlamaRuntime.h",
         "playerbot/PlayerbotLlamaRuntime.cpp",
+        "playerbot/PlayerbotLlmMemory.h",
+        "playerbot/PlayerbotLlmMemory.cpp",
+        "playerbot/PlayerbotLlmTools.h",
+        "playerbot/PlayerbotLlmTools.cpp",
+        "playerbot/PlayerbotLlmToolsCore.h",
+        "playerbot/PlayerbotLlmPersona.h",
+        "playerbot/PlayerbotLlmPersona.cpp",
+        "playerbot/PlayerbotLlmJson.h",
+        "playerbot/PlayerbotLlmPrompt.h",
+        "playerbot/PlayerbotLlmBridge.h",
+        "playerbot/PlayerbotLlmBridge.cpp",
+        "playerbot/PlayerbotLlmTruthCore.h",
+        "playerbot/PlayerbotLlmRecallCore.h",
+        "playerbot/PlayerbotLlmFilters.h",
+        "playerbot/PlayerbotLlmFilters.cpp",
+        "playerbot/PlayerbotLlmChatter.h",
+        "playerbot/PlayerbotLlmChatterCore.h",
+        "playerbot/PlayerbotLlmChatter.cpp",
         "playerbot/strategy/actions/SayAction.h",
         "playerbot/strategy/actions/SayAction.cpp",
         "playerbot/strategy/actions/RpgSubActions.cpp",
         "playerbot/strategy/actions/DebugAction.cpp",
-        "playerbot/PlayerbotAI.cpp"
+        "playerbot/PlayerbotAI.cpp",
+        "playerbot/PlayerbotAI.h",
+        "aiplayerbot.conf.dist.in"
       ],
-      "reason": "Link the vendored llama.cpp kai build into the world runtime behind PlayerbotLLMInterface: pinned mid-core worker, watchdog abort, per-bot warm slots, hard-trigger gate, and delayed-packet session-lifetime guards."
+      "reason": "Link the vendored llama.cpp kai build into the world runtime behind PlayerbotLLMInterface: pinned mid-core worker, watchdog abort, per-bot warm slots, hard-trigger gate with duty-cycle governor, byte-stable memory segments (backstory/facts/relationship/gossip), world-thread tool executor, persona fallbacks, journal surface, and delayed-packet session-lifetime guards."
     }
   ],
+  "patches_content": {
+    "native/patches/cmangos/DatabaseSqlite.cpp": "81c26e09071a77f0b7c87b2f9feb4a6670728da7cc8c390635347c61ac3d7f5f",
+    "native/patches/cmangos/DatabaseSqlite.h": "e425495750d35e4ee8c913339aef768ae293faa3d6843d7a8fa7d50b93e54725",
+    "native/patches/cmangos/PocketRealmInteraction.cpp": "985b257079e62a7483537cdea4e1ada29103771be5e505000d3a93f54bd67916",
+    "native/patches/cmangos/QueryResultSqlite.cpp": "2e67767be52f4ee58f8d029211769cd215c42a0ac3557576719705409efaf26f",
+    "native/patches/cmangos/QueryResultSqlite.h": "d48fae9190a05b5d1a624efe71c4a4f98985a3e4f5ad171c2ae27737aa13942c",
+    "native/patches/o11-cmangos-safe-mpq-listfile.patch": "54963ecc0e0c319cc65d3ea5daa9887eed5f23d648d73e4ca7ebdc3bce86d4cb",
+    "native/patches/playerbots/llm_banter_core.h": "b743753062517bee9cc77f2c4c15465da4a97445d412c31bb4f4c53914a76d1e",
+    "native/patches/playerbots/PlayerbotLlamaRuntime.cpp": "787dfe60e8de21da31d34ddfd4f3d4fb1d0bb8d81ec9106f7889588744f324b4",
+    "native/patches/playerbots/PlayerbotLlamaRuntime.h": "3c1041c93b6e27e26589ca8a7d6cf0f6a5585baba0624356f8b60c4976dce06e",
+    "native/patches/playerbots/PlayerbotLlmBridge.cpp": "0f229b360f78f1eab1ae4907ebd4ff2a891a385cfe4df86a84e5c066e0a71586",
+    "native/patches/playerbots/PlayerbotLlmBridge.h": "d82a3dfb49ae8636be9ddae5f2c5e4decf25c5b117b2308812f89f83e2b44f6d",
+    "native/patches/playerbots/PlayerbotLlmChatter.cpp": "bdb098d1dbf27e186a53567a6a5f6daf8b9268f6f52da3973c89241f7829f616",
+    "native/patches/playerbots/PlayerbotLlmChatter.h": "1171a5f61966ed1cb68dba76dcd5f322dc0087836803d2efe6e26e111cb6f560",
+    "native/patches/playerbots/PlayerbotLlmChatterCore.h": "09c4e08c6b9f14b34beb165bfd75f56bdee8a003fe04abb46be8af6d373dee74",
+    "native/patches/playerbots/PlayerbotLlmFilters.cpp": "46a1a5c25dd41e737d2fef471580434ee254e5d37929d7d3092fe47b766ba9af",
+    "native/patches/playerbots/PlayerbotLlmFilters.h": "16c3c10900bbd6813c9ac1c793c3562c47f8e68be18bfed28c1a6a8c015c0524",
+    "native/patches/playerbots/PlayerbotLlmJson.h": "237bc26f5aadc611e389ec7490cbdb2878c77b6f7aa6476f8610d2435e528335",
+    "native/patches/playerbots/PlayerbotLlmMemory.cpp": "d14a8af62ebf4aa426568036d942066b85901bee50616692a9177dd2b2f313f3",
+    "native/patches/playerbots/PlayerbotLlmMemory.h": "2841459fd03eac9b29fc8e711561643b0ce24b200937736eb27ef531f1e485c0",
+    "native/patches/playerbots/PlayerbotLlmPersona.cpp": "23a64e093f94be3681b7ac45c67ae0ba826dada596ccdc811b8a97347795f6f4",
+    "native/patches/playerbots/PlayerbotLlmPersona.h": "6e27152fe5b748ea22ef0bb10c96dd88e56c6ce732a751beb541d577be24196b",
+    "native/patches/playerbots/PlayerbotLlmPrompt.h": "a7dd4129d929b60bd269b6c187b37f72ddfd96766df2228ace699c05bfd71aac",
+    "native/patches/playerbots/PlayerbotLlmRecallCore.h": "ae03d150b608597d116b4c51d0144eb2e043f0699b7b133303cea44ee29300fb",
+    "native/patches/playerbots/PlayerbotLlmTools.cpp": "9306208a02a3f93a1c7facce43557eb349c04cc268ace68ee10653e3e20e9880",
+    "native/patches/playerbots/PlayerbotLlmTools.h": "2b2e7c14a05ee60823a89f008d5f046936323dc0baba200b56da575ab9924695",
+    "native/patches/playerbots/PlayerbotLlmToolsCore.h": "cf8a8fcf569ee5dbf092c2ba1dbb0df226177d8e4a976808b1cdf08ea751a07c",
+    "native/patches/playerbots/PlayerbotLlmTruthCore.h": "55a1ba99fe9464ef11e2230d0c03e31a4932e73634777b4cc768f9a69408b44e"
+  },
   "mariadb_connector_c": {
     "url": "https://github.com/MariaDB/mariadb-connector-c.git",
     "commit": "de6305915f86bb33c83b1fe782a2b8a76920aec1",
@@ -107,8 +241,8 @@
   "artifacts": [
     {
       "path": "native/.build-o09-arm64-v8a/realm-staging/jniLibs/arm64-v8a/libpocket_realmd_runtime.so",
-      "size": 5445976,
-      "sha256": "bbcd5181add9f0adc94854a5462ce6d1139c68172aedbb662a1e7c3f8157cd62",
+      "size": 5446264,
+      "sha256": "97015ff40a288ca038591245a5e5ed8d880ef60202afc51ae422c5e53a7e63d4",
       "needed": [
         "libc.so",
         "libdl.so",
@@ -123,8 +257,8 @@
     },
     {
       "path": "native/.build-o09-arm64-v8a/realm-staging/jniLibs/arm64-v8a/libpocket_world_runtime.so",
-      "size": 32251448,
-      "sha256": "77252ccf4815f5e361e8baf85fbab00fa2774af6955f4cc20272a2deff81dee2",
+      "size": 32882232,
+      "sha256": "513dc6f71787232d14e0ecc4ac9c67245c03344a7a28c05ac768e92f92d6ff0c",
       "needed": [
         "libc.so",
         "libdl.so",
@@ -146,36 +280,86 @@
       "path": "native/.build-o09-arm64-v8a/realm-staging/jniLibs/arm64-v8a/libggml-base.so",
       "size": 1140464,
       "sha256": "6d901cacc60873a0218cae5b407ac30aa7b618f2889a0be3b391e6d33f757496",
-      "needed": [],
-      "load_alignments": []
+      "needed": [
+        "libc.so",
+        "libdl.so",
+        "libm.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
     },
     {
       "path": "native/.build-o09-arm64-v8a/realm-staging/jniLibs/arm64-v8a/libggml-cpu.so",
       "size": 1601152,
       "sha256": "eab6c71e0cba93e1da745b2a3201fcb9789d3f2ad9b90ade85f5d15e301d02a6",
-      "needed": [],
-      "load_alignments": []
+      "needed": [
+        "libc.so",
+        "libdl.so",
+        "libggml-base.so",
+        "libm.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
     },
     {
       "path": "native/.build-o09-arm64-v8a/realm-staging/jniLibs/arm64-v8a/libggml.so",
       "size": 121848,
       "sha256": "63d25ad462e30b506e533a558523197d76b4102638742786ecb6bda450b09454",
-      "needed": [],
-      "load_alignments": []
+      "needed": [
+        "libc.so",
+        "libdl.so",
+        "libggml-base.so",
+        "libggml-cpu.so",
+        "libm.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
     },
     {
       "path": "native/.build-o09-arm64-v8a/realm-staging/jniLibs/arm64-v8a/libllama-common.so",
       "size": 4648120,
       "sha256": "488edb5155235f7055b212a407bff59dfd2769cceeb62a3496c24a6a934ed485",
-      "needed": [],
-      "load_alignments": []
+      "needed": [
+        "libc.so",
+        "libdl.so",
+        "libggml-base.so",
+        "libggml-cpu.so",
+        "libggml.so",
+        "libllama.so",
+        "libm.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
     },
     {
       "path": "native/.build-o09-arm64-v8a/realm-staging/jniLibs/arm64-v8a/libllama.so",
       "size": 3084736,
       "sha256": "ebdddbf08658c81d7a6866a7d5f4bbf516d1cb78ba1ff2143eaa39a4d3dc24f9",
-      "needed": [],
-      "load_alignments": []
+      "needed": [
+        "libc.so",
+        "libdl.so",
+        "libggml-base.so",
+        "libggml-cpu.so",
+        "libggml.so",
+        "libm.so"
+      ],
+      "load_alignments": [
+        16384,
+        16384,
+        16384
+      ]
     }
   ],
   "llama_cpp": {

@@ -3,9 +3,9 @@
   "app_build_id": "o08-g2-mariadb-v1",
   "ordering": "exact array order; stop realm/world before apply",
   "source_commits": {
-    "cmangos": "c096bada9e4ed23ad4ca706c67160a26d7121337",
+    "cmangos": "082afd606f8e37ea939df6fdfcd4af81f8085e6e",
     "classic_db": "be1a5206bedccc8dc088b7c79dae31fcf3dbbfce",
-    "playerbots": "1abeac646f4be02bfb47abcc779f3f9089d67f3e"
+    "playerbots": "3b77c5f423a6139d69930bcee9643af7f198df1e"
   },
   "expected_revisions": {
     "realm": "required_z2820_01_realmd_joindate_datetime",
@@ -4523,6 +4523,28 @@
       "sql_size": 8707,
       "sql_sha256": "25028a08deb3a3fe208c78447f46338c8f472805779abf98b9b0de4c716778ea",
       "asset_sha256": "12e86379ca4018540ecc0716f346edfdf7be6d92fef71085caa1d00ddf7287a3"
+    },
+    {
+      "migration_id": "0411-playerbot-characters-ai_playerbot_llm_memory",
+      "component": "playerbot-characters",
+      "database": "classiccharacters",
+      "source_path": "native/llm/sql/ai_playerbot_llm_memory.sql",
+      "asset": "database/migrations/0411.sqlz",
+      "compression": "gzip",
+      "sql_size": 1426,
+      "sql_sha256": "44bcce014bbb3e265c9d1d0635c2ff111576cb05550385d7ada03d3ba41ac2a6",
+      "asset_sha256": "4d0860123163c73259f8b495cabcfb4bc58c89f821e7dce312c0a5e0b48ece11"
+    },
+    {
+      "migration_id": "0412-playerbot-world-world_gossip",
+      "component": "playerbot-world",
+      "database": "classicmangos",
+      "source_path": "native/llm/sql/world_gossip.sql",
+      "asset": "database/migrations/0412.sqlz",
+      "compression": "gzip",
+      "sql_size": 646,
+      "sql_sha256": "fe0562d2f76c59e442cbe578c0fe04e29f90f21712455fb72e4d6443ba46a97a",
+      "asset_sha256": "0618f3cf3c88033f3a1c6f072778fc677e5ec9446845044134a41e02e16267ed"
     }
   ]
 }

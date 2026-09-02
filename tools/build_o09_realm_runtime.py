@@ -37,6 +37,7 @@ CONNECTOR_COMMIT = "de6305915f86bb33c83b1fe782a2b8a76920aec1"
 CMANGOS_COMMIT = "082afd606f8e37ea939df6fdfcd4af81f8085e6e"
 PLAYERBOTS_COMMIT = "3b77c5f423a6139d69930bcee9643af7f198df1e"
 MAX_PAGE = 0x4000
+BACKEND = "mysql"
 
 
 def select_abi(abi: str) -> None:
@@ -56,6 +57,7 @@ def select_abi(abi: str) -> None:
 CMANGOS_OVERLAYS = [
     {
         "id": "authenticated-nearby-use-open",
+        "backends": ["mysql", "sqlite"],
         "paths": [
             "src/game/World/World.h",
             "src/game/World/World.cpp",
@@ -67,31 +69,100 @@ CMANGOS_OVERLAYS = [
     },
     {
         "id": "mmap-disabled-load-guard",
+        "backends": ["mysql", "sqlite"],
         "path": "src/game/Maps/GridMap.cpp",
         "reason": "Do not enter MMapManager::loadMap when mmap.enabled=0; the disabled manager intentionally has no map instance.",
     },
     {
         "id": "mmap-loadmap-graceful-miss",
+        "backends": ["mysql", "sqlite"],
         "path": "src/game/MotionGenerators/MoveMap.cpp",
         "reason": "Entering a map whose navmesh was never registered (missing mmaps/NNN.mmap) must disable pathfinding for that map, not abort the world process.",
     },
     {
         "id": "mmap-loadallmaptiles-graceful-miss",
+        "backends": ["mysql", "sqlite"],
         "path": "src/game/MotionGenerators/MoveMap.cpp",
         "reason": "The Playerbots tile preload path must degrade to a logged skip on an unregistered map instead of aborting the world process.",
     },
     {
         "id": "embedded-world-thread-rearm",
+        "backends": ["mysql", "sqlite"],
         "path": "src/mangosd/Master.cpp",
         "reason": "Re-arm CMaNGOS process-global stop state immediately before each embedded world-thread launch.",
     },
     {
         "id": "result-callback-outside-queue-lock",
+        "backends": ["mysql", "sqlite"],
         "path": "src/shared/Database/SqlOperations.cpp",
         "reason": "Execute async result callbacks outside the result-queue mutex so callbacks may safely issue direct statements while the database worker publishes another result.",
     },
+    {
+        "id": "llm-companion-event-hooks",
+        "backends": ["mysql", "sqlite"],
+        "paths": [
+            "src/game/Entities/Player.cpp",
+            "src/game/Loot/LootHandler.cpp",
+        ],
+        "reason": "Level-up and rare-loot interception points that feed the playerbot LLM companion's event allowlist (bounded party reactions, deterministic relationship milestones, verified-event window for share_gossip).",
+    },
+    {
+        "id": "db-async-null-guard",
+        "backends": ["mysql", "sqlite"],
+        "paths": [
+            "src/shared/Database/Database.h",
+            "src/shared/Database/Database.cpp",
+            "src/shared/Database/DatabaseImpl.h",
+        ],
+        "reason": "Route all twelve async enqueue sites through SafeDelayOperation/SafeDelayQueryHolder: HaltDelayThread() nulls m_threadBody while the sticky async flag stays on across embedded restart cycles, so an unguarded enqueue after a halt is a null dereference (F50).",
+    },
+    {
+        "id": "fail-loud-backend-selection",
+        "backends": ["mysql", "sqlite"],
+        "path": "CMakeLists.txt",
+        "reason": "Refuse the no-op -DDO_MYSQL/-DDO_SQLITE cache defines, refuse PostgreSQL, and print the selected backend at configure time; the real switch is the SQLITE cache variable with MySQL as the else-default (F41).",
+    },
+    {
+        "id": "runtime-dialect-truncate",
+        "backends": ["mysql", "sqlite"],
+        "path": "src/game/Globals/ObjectMgr.cpp",
+        "reason": "P3/G5: route the two raw TRUNCATE sites through the backend _TRUNCATE_ macro (DELETE FROM under DO_SQLITE; TRUNCATE TABLE - semantically identical - under MySQL).",
+    },
+    {
+        "id": "runtime-dialect-anticheat-prune",
+        "backends": ["mysql", "sqlite"],
+        "path": "src/game/Anticheat/module/libanticheat.cpp",
+        "reason": "P3/G5: DELETE..ORDER BY..LIMIT is MySQL-only; under DO_SQLITE use the registered rowid-IN-subquery rewrite with the fingerprint predicate inside the subquery (exactly two positional binds unchanged, DEC-03).",
+    },
+    {
+        "id": "db-sqlite-connection-hardening",
+        "backends": ["sqlite"],
+        "paths": [
+            "src/shared/Database/DatabaseSqlite.h",
+            "src/shared/Database/DatabaseSqlite.cpp",
+            "src/shared/Database/QueryResultSqlite.h",
+            "src/shared/Database/QueryResultSqlite.cpp",
+            "src/shared/Database/SqlOperations.cpp",
+        ],
+        "reason": "DO_SQLITE-only hardened connection layer (P2/G3): WAL with synchronous=NORMAL rendered per connection (DEC-02 as amended 2026-08-27), busy_timeout 500ms with BUSY retry instead of silent false, BEGIN IMMEDIATE write transactions, begin-failure refusal + commit-failure rollback (F30), fully materialized query results under the connection lock, no leaked statement wrappers, explicit-length TRANSIENT text binds. DO_MYSQL builds are behaviorally unchanged.",
+    },
 ]
 POCKET_INTERACT_SOURCE = NATIVE / "patches" / "cmangos" / "PocketRealmInteraction.cpp"
+
+
+def patches_content_digests() -> dict[str, str]:
+    """sha256 of EVERY patch file under native/patches/ that rides a
+    build (whole-file replacement sources; the anchor-replacement
+    constants live in this driver and are covered by its own review).
+    Recorded in the lockfile so any patches edit - including a parallel
+    session's - makes the committed lockfile mechanically stale
+    (pre-P5 checklist item 3; the I-40 carry-forward's retirement)."""
+    patches = NATIVE / "patches"
+    out: dict[str, str] = {}
+    for path in sorted(patches.rglob("*")):
+        if path.is_file():
+            out[path.relative_to(ROOT).as_posix()] = sha256(path)
+    return out
 POCKET_WORLD_H_UPSTREAM = """    CONFIG_BOOL_ADDON_CHANNEL,
     CONFIG_BOOL_CORPSE_EMPTY_LOOT_SHOW,
 """
@@ -173,6 +244,13 @@ POCKET_CHAT_ANDROID = """        case CHAT_MSG_WHISPER:
 """
 PLAYERBOTS_OVERLAYS = [
     {
+        "id": "portable-unary-not-character-query",
+        "paths": [
+            "playerbot/RandomPlayerbotMgr.cpp",
+        ],
+        "reason": "Upstream emits MySQL unary-'!' NOT in the character-selection query (' OR !' + wasRand); SQLite fails the whole query with `unrecognized token: \"!\"`, starving the need-to-increase bot-selection branch on SQLite. Replace with standard NOT (identical semantics in MySQL).",
+    },
+    {
         "id": "bounded-resumable-mobile-generation",
         "paths": [
             "playerbot/PlayerbotAIConfig.h",
@@ -214,15 +292,36 @@ PLAYERBOTS_OVERLAYS = [
             "playerbot/PlayerbotAIConfig.cpp",
             "playerbot/PlayerbotLLMInterface.h",
             "playerbot/PlayerbotLLMInterface.cpp",
+            "playerbot/llm_banter_core.h",
             "playerbot/PlayerbotLlamaRuntime.h",
             "playerbot/PlayerbotLlamaRuntime.cpp",
+            "playerbot/PlayerbotLlmMemory.h",
+            "playerbot/PlayerbotLlmMemory.cpp",
+            "playerbot/PlayerbotLlmTools.h",
+            "playerbot/PlayerbotLlmTools.cpp",
+            "playerbot/PlayerbotLlmToolsCore.h",
+            "playerbot/PlayerbotLlmPersona.h",
+            "playerbot/PlayerbotLlmPersona.cpp",
+            "playerbot/PlayerbotLlmJson.h",
+            "playerbot/PlayerbotLlmPrompt.h",
+            "playerbot/PlayerbotLlmBridge.h",
+            "playerbot/PlayerbotLlmBridge.cpp",
+            "playerbot/PlayerbotLlmTruthCore.h",
+            "playerbot/PlayerbotLlmRecallCore.h",
+            "playerbot/PlayerbotLlmFilters.h",
+            "playerbot/PlayerbotLlmFilters.cpp",
+            "playerbot/PlayerbotLlmChatter.h",
+            "playerbot/PlayerbotLlmChatterCore.h",
+            "playerbot/PlayerbotLlmChatter.cpp",
             "playerbot/strategy/actions/SayAction.h",
             "playerbot/strategy/actions/SayAction.cpp",
             "playerbot/strategy/actions/RpgSubActions.cpp",
             "playerbot/strategy/actions/DebugAction.cpp",
             "playerbot/PlayerbotAI.cpp",
+            "playerbot/PlayerbotAI.h",
+            "aiplayerbot.conf.dist.in",
         ],
-        "reason": "Link the vendored llama.cpp kai build into the world runtime behind PlayerbotLLMInterface: pinned mid-core worker, watchdog abort, per-bot warm slots, hard-trigger gate, and delayed-packet session-lifetime guards.",
+        "reason": "Link the vendored llama.cpp kai build into the world runtime behind PlayerbotLLMInterface: pinned mid-core worker, watchdog abort, per-bot warm slots, hard-trigger gate with duty-cycle governor, byte-stable memory segments (backstory/facts/relationship/gossip), world-thread tool executor, persona fallbacks, journal surface, and delayed-packet session-lifetime guards.",
     },
 ]
 MMAP_GUARD_UPSTREAM = """    if (!MMAP::MMapFactory::createOrGetMMapManager()->IsMMapIsLoaded(m_mapId, x, y))
@@ -308,6 +407,25 @@ RESULT_QUEUE_ANDROID = """void SqlResultQueue::Update()
     }
 }
 """
+# P3/G5 runtime-dialect rewrites. The raw TRUNCATE pair routes through the
+# backend _TRUNCATE_ macro (DELETE FROM under DO_SQLITE, TRUNCATE TABLE
+# under MySQL - semantically identical MySQL behavior); the anticheat
+# prune uses the registered rowid-IN-subquery rewrite under DO_SQLITE
+# (DELETE..ORDER BY..LIMIT would need the never-vendored UPDATE/DELETE
+# LIMIT build flag - DEC-03), keeping the fingerprint predicate INSIDE
+# the subquery so the existing two positional binds are unchanged.
+OBJECTMGR_TRUNCATE_CREATURE_UPSTREAM = '''    WorldDatabase.DirectExecute("TRUNCATE creature_zone");'''
+OBJECTMGR_TRUNCATE_CREATURE_ANDROID = '''    WorldDatabase.DirectExecute(_TRUNCATE_ " creature_zone");'''
+OBJECTMGR_TRUNCATE_GAMEOBJECT_UPSTREAM = '''    WorldDatabase.DirectExecute("TRUNCATE gameobject_zone");'''
+OBJECTMGR_TRUNCATE_GAMEOBJECT_ANDROID = '''    WorldDatabase.DirectExecute(_TRUNCATE_ " gameobject_zone");'''
+ANTICHEAT_PRUNE_UPSTREAM = '''        auto prune = LoginDatabase.CreateStatement(pruneLog, "DELETE FROM system_fingerprint_usage WHERE fingerprint = ? ORDER BY `time` ASC LIMIT ?");'''
+ANTICHEAT_PRUNE_ANDROID = '''#ifdef DO_SQLITE
+        auto prune = LoginDatabase.CreateStatement(pruneLog,
+            "DELETE FROM system_fingerprint_usage WHERE rowid IN "
+            "(SELECT rowid FROM system_fingerprint_usage WHERE fingerprint = ? ORDER BY `time` ASC LIMIT ?)");
+#else
+        auto prune = LoginDatabase.CreateStatement(pruneLog, "DELETE FROM system_fingerprint_usage WHERE fingerprint = ? ORDER BY `time` ASC LIMIT ?");
+#endif'''
 PB_CONFIG_HEADER_UPSTREAM = """    bool randomBotAutoCreate;
     uint32 minRandomBots, maxRandomBots;
 """
@@ -527,6 +645,7 @@ PB_MGR_INCLUDE_UPSTREAM = """#include "WorldPosition.h"
 #include <list>
 """
 PB_MGR_INCLUDE_ANDROID = """#include "WorldPosition.h"
+#include "PlayerbotLlmChatter.h"
 #include <deque>
 #include <map>
 #include <list>
@@ -689,6 +808,10 @@ PB_MGR_SCAN_CALL_ANDROID = """    // Match the core active-zone cadence; do not 
     {
         lowCpuTelemetryTimer = now;
         LogPlayerLocation();
+        // S10/E6: the world-chatter scheduler rides the same 10 s world-
+        // thread cadence (power reconcile + queue drain + batch rolls;
+        // every gate lives inside - a no-op when chatter is off)
+        PlayerbotLlmChatter::Tick();
     }
 """
 PB_MGR_TELEPORT_UPSTREAM = """            bot->TeleportTo(loc.mapid, x, y, z, 0);
@@ -705,6 +828,13 @@ PB_MGR_RANDOMIZE_ANDROID = """    PlayerbotFactory factory(bot, level);
     factory.Randomize(false, false);
     lowCpuRerandomizeEvents.push_back(time(nullptr));
 """
+# Standard-SQL NOT: upstream builds the character-selection query with
+# MySQL's unary '!' (" OR !" + wasRand); SQLite rejects the token outright
+# (device evidence 2026-08-27: `unrecognized token: "!"`), so the
+# need-to-increase selection branch returns no rows on SQLite. "NOT" is
+# standard and semantically identical in MySQL.
+PB_MGR_QUERY_NOT_UPSTREAM = '                            query += " OR !" + wasRand;'
+PB_MGR_QUERY_NOT_ANDROID = '                            query += " OR NOT " + wasRand;'
 PB_MGR_LOGIN_UPSTREAM = """void RandomPlayerbotMgr::OnBotLoginInternal(Player * const bot)
 {
     sLog.outDetail("%u/%d Bot %s logged in", GetPlayerbotsAmount(), sRandomPlayerbotMgr.GetMaxAllowedBotCount(), bot->GetName());
@@ -720,8 +850,29 @@ PB_LLM_CONFIG_HEADER_ANDROID = """    ParsedUrl llmEndPointUrl;
     // in-process llama.cpp backend (arm64-v8a only; compiled out elsewhere)
     enum { LLM_BACKEND_HTTP = 0, LLM_BACKEND_LLAMA = 1 };
     uint32 llmBackend, llmThreads, llmCpuFirstCore, llmCtxSize, llmSlots, llmTopK, llmMaxNewTokens;
-    std::string llmModelPath;
+    uint32 llmGovernorWindow, llmGovernorBotMax, llmGovernorGlobalMax, llmToolsEnabled;
+    uint32 llmBanterEnabled;
+    // A4/A5 trained prompt format: 1 = the native messages builder speaks
+    // the trained contract (PlayerbotLlmPrompt.h); 0 = legacy conf template
+    uint32 llmPromptFormat, llmThinkingKwargs, llmFactsCap, llmMemoriesTail, llmApiProviderSafe;
+    float llmMinP, llmPresencePenalty;
+    std::string llmModelPath, llmBusyReply;
+    std::string llmApiModel, llmPromptDumpFile;
+    // S7/A11: lore card index file (empty = the retrieval loop is off)
+    // and the era logit-bias switch (resolved via /tokenize, fail-open)
+    std::string llmLoreFile;
+    uint32 llmEraBias;
     float llmTemp, llmTopP, llmRepeatPenalty;
+    // S9/T4: bounded TCP connect for the HTTP client (the blocking default
+    // hangs for minutes on a dead external endpoint; §2.1 T4 = 10 s)
+    uint32 llmConnectTimeout;
+    // S10/E6 world chatter (§4.6b): the master ambience switch (default 0
+    // - silence is the default state), the app-refreshed power file, and
+    // the cloud composer endpoint (parsed once like the main endpoint)
+    uint32 llmChatterEnabled;
+    std::string llmChatterPowerFile;
+    std::string llmChatterComposerUrl, llmChatterComposerModel, llmChatterComposerKey;
+    ParsedUrl llmChatterComposerUrlParsed;
 """
 PB_LLM_CONFIG_CPP_UPSTREAM = """    //LLM START
     llmEnabled = config.GetIntDefault("AiPlayerbot.LLMEnabled", 1);
@@ -736,11 +887,95 @@ PB_LLM_CONFIG_CPP_ANDROID = """    //LLM START
     llmCtxSize = config.GetIntDefault("AiPlayerbot.LLMCtxSize", 4096);
     llmSlots = config.GetIntDefault("AiPlayerbot.LLMSlots", 4);
     llmTopK = config.GetIntDefault("AiPlayerbot.LLMTopK", 64);
-    llmMaxNewTokens = config.GetIntDefault("AiPlayerbot.LLMMaxNewTokens", 120);
+    llmMaxNewTokens = config.GetIntDefault("AiPlayerbot.LLMMaxNewTokens", 200);
     llmTemp = config.GetFloatDefault("AiPlayerbot.LLMTemp", 0.8f);
     llmTopP = config.GetFloatDefault("AiPlayerbot.LLMTopP", 0.95f);
     llmRepeatPenalty = config.GetFloatDefault("AiPlayerbot.LLMRepeatPenalty", 1.1f);
+    llmGovernorWindow = config.GetIntDefault("AiPlayerbot.LLMGovernorWindow", 60);
+    llmGovernorBotMax = config.GetIntDefault("AiPlayerbot.LLMGovernorBotMax", 8);
+    llmGovernorGlobalMax = config.GetIntDefault("AiPlayerbot.LLMGovernorGlobalMax", 24);
+    llmToolsEnabled = config.GetIntDefault("AiPlayerbot.LLMToolsEnabled", 1);
+    // A4/A5: the trained prompt format on the HTTP path - 1 = the native
+    // messages builder (PlayerbotLlmPrompt.h, byte-diffed against banklib
+    // by the host battery); 0 = the legacy conf-template fill. The request
+    // model name and the sampling fields below feed the native builder.
+    llmPromptFormat = config.GetIntDefault("AiPlayerbot.LLMPromptFormat", 0);
+    llmApiModel = config.GetStringDefault("AiPlayerbot.LLMApiModel", "local");
+    llmMinP = config.GetFloatDefault("AiPlayerbot.LLMMinP", 0.0f);
+    llmPresencePenalty = config.GetFloatDefault("AiPlayerbot.LLMPresencePenalty", 0.0f);
+    // SS4.4: emit chat_template_kwargs {"enable_thinking": false} for model
+    // families whose export template defaults to thinking (the qwen family;
+    // the app sets this from the registry descriptor flag)
+    llmThinkingKwargs = config.GetIntDefault("AiPlayerbot.LLMThinkingKwargs", 0);
+    // SS2.1 memory depth: system-segment facts cap + [Memories] tail size
+    llmFactsCap = config.GetIntDefault("AiPlayerbot.LLMFactsCap", 12);
+    llmMemoriesTail = config.GetIntDefault("AiPlayerbot.LLMMemoriesTail", 6);
+    // 1 for external OpenAI-compatible endpoints that reject unknown body
+    // keys (strips top_k/repeat_penalty/min_p/presence_penalty from the
+    // native request body)
+    llmApiProviderSafe = config.GetIntDefault("AiPlayerbot.LLMProviderSafe", 0);
+    // M1a prompt-dump hook: one JSON line per trained-format generation
+    // (device-side verification of the byte-diff contract)
+    llmPromptDumpFile = config.GetStringDefault("AiPlayerbot.LLMPromptDumpFile", "");
+    // S7/A11: the lore retrieval loop's card file (empty disables the
+    // loop; the app stages the asset and emits the absolute path) and
+    // the era always-ban logit bias (1 = resolve token ids via the
+    // embedded server's /tokenize and bias them; fails open)
+    llmLoreFile = config.GetStringDefault("AiPlayerbot.LLMLoreFile", "");
+    llmEraBias = config.GetIntDefault("AiPlayerbot.LLMEraBias", 1);
+    llmBusyReply = config.GetStringDefault("AiPlayerbot.LLMBusyReply", "Hm. I will be thinking on that a while.");
+    // authored banter layer (kill quips, tier greetings, idle/mood lines);
+    // free - no generation behind any of it
+    llmBanterEnabled = config.GetIntDefault("AiPlayerbot.LLMBanterEnabled", 1);
     llmApiEndpoint = config.GetStringDefault("AiPlayerbot.LLMApiEndpoint", "http://127.0.0.1:5001/api/v1/generate");
+    // BuildPromptContext budgets its segments against this CHARACTER window,
+    // but the real llama constraint is per-slot TOKENS (LLMCtxSize, ~3.5
+    // chars each). The legacy 4096-char default would routinely squeeze the
+    // rolling history to a fraction of its 3000-char cap while the slot sits
+    // mostly empty; 8192 keeps the worst-case composition under the window
+    // with full richness. The upstream tree re-reads the key later with the
+    // 4096 default (which would overwrite this); PB_LLM_CTX_REREAD removes
+    // that legacy re-read so this is the single authoritative read.
+    llmContextLength = config.GetIntDefault("AiPlayerbot.LLMContextLength", 8192);
+    // S10/E6: the world-chatter layer (§4.6b). Enabled defaults 0 - the
+    // silence doctrine; the app emits 1 whenever it stages the power
+    // file, and the FILE's enabled flag is the master switch (re-read
+    // every scheduler tick, so the ambience toggle works mid-session in
+    // both directions; missing/stale = chatter stops or degrades to the
+    // authored floor - see PlayerbotLlmChatter.cpp). The composer
+    // endpoint is a CLOUD-class script generator; empty = the NORMAL
+    // rung degrades to device single-line batches. parseUrl throws on
+    // non-URL text, so the (default-empty) composer URL is parsed under
+    // the same guard the main endpoint uses.
+    llmChatterEnabled = config.GetIntDefault("AiPlayerbot.LLMChatterEnabled", 0);
+    llmChatterPowerFile = config.GetStringDefault("AiPlayerbot.LLMChatterPowerFile", "");
+    llmChatterComposerUrl = config.GetStringDefault("AiPlayerbot.LLMChatterComposerUrl", "");
+    // parseUrl throws on anything non-URL-shaped - and the DEFAULT is the
+    // empty string (composer unconfigured), so the parse must be guarded
+    // exactly like the main endpoint below or every world boot without a
+    // composer row aborts init (round-1 R6 P0). std::exception (not just
+    // invalid_argument): parseUrl's stoi throws out_of_range on a huge
+    // port too (round-2 R1).
+    if (!llmChatterComposerUrl.empty())
+        try {
+            llmChatterComposerUrlParsed = parseUrl(llmChatterComposerUrl);
+        }
+        catch (const std::exception& e) {
+            sLog.outError("Unable to parse LLMChatterComposerUrl: %s", e.what());
+        }
+    llmChatterComposerModel = config.GetStringDefault("AiPlayerbot.LLMChatterComposerModel", "local");
+    llmChatterComposerKey = config.GetStringDefault("AiPlayerbot.LLMChatterComposerKey", "");
+"""
+# The pristine tree reads AiPlayerbot.LLMContextLength a second time ~10 lines
+# after the block above, with the legacy 4096 default — last assignment wins,
+# so without this overlay the 8192 default above would be silently overwritten
+# on every driver rebuild.
+PB_LLM_CTX_REREAD_UPSTREAM = """    llmApiJson = config.GetStringDefault("AiPlayerbot.LLMApiJson", "{ \\"max_length\\": 100, \\"prompt\\": \\"[<pre prompt>]<context> <prompt> <post prompt>\\"}");
+    llmContextLength = config.GetIntDefault("AiPlayerbot.LLMContextLength", 4096);
+"""
+PB_LLM_CTX_REREAD_ANDROID = """    llmApiJson = config.GetStringDefault("AiPlayerbot.LLMApiJson", "{ \\"max_length\\": 100, \\"prompt\\": \\"[<pre prompt>]<context> <prompt> <post prompt>\\"}");
+    // (the earlier LLMContextLength read above already applied the key with
+    // the intended 8192 default; this legacy re-read used to overwrite it)
 """
 PB_LLM_IFACE_HEADER_UPSTREAM = """#include <atomic>
 #include <string>
@@ -768,27 +1003,360 @@ public:
 
     // routes to the in-process llama runtime when AiPlayerbot.LLMBackend = 1,
     // otherwise to the HTTP endpoint. botGuid/source identify the caller for
-    // per-bot warm slots and the duty-cycle governor.
-    static std::string Generate(const std::string& prompt, uint32 botGuid, PlayerbotLlamaRuntime::LlmCallSource source, int timeOutSeconds, int maxGenerations, std::vector<std::string>& debugLines);
+    // per-bot warm slots, the duty-cycle governor (hoisted above the backend
+    // branch, A0) and tool-queue tagging; speakerGuid is the real player
+    // whose turn triggered the generation (0 on autonomous turns) so queued
+    // persistence tools attribute to the interlocutor, never the owner.
+    static std::string Generate(const std::string& prompt, uint32 botGuid, uint32 speakerGuid, PlayerbotLlamaRuntime::LlmCallSource source, uint64_t licenseStamp, int timeOutSeconds, int maxGenerations, std::vector<std::string>& debugLines);
+
+    // S10/E6 ambient admission surfaces, shared with PlayerbotLlmChatter:
+    // GovernorAdmit is the SAME duty-cycle check+consume Generate runs
+    // (hoisted into a shared function so the ambient path cannot bypass
+    // the S3 governor); PostChatHttp is the raw chat-completions POST for
+    // paths that own their validation (the murmur/composer workers -
+    // never the canned-deflection voice-filter chain); the in-flight
+    // count lets ambient work yield the interactive lane entirely.
+    static bool GovernorAdmit(uint32 botGuid);
+    static std::string PostChatHttp(const std::string& body, int timeOutSeconds, ParsedUrl const* endpointOverride, std::string const* apiKeyOverride);
+    static bool InteractiveGenerationInFlight();
 """
 PB_LLM_IFACE_PRIVATE_UPSTREAM = """    static void LimitContext(std::string& context, int currentLength);
 private:
 """
 PB_LLM_IFACE_PRIVATE_ANDROID = """    static void LimitContext(std::string& context, int currentLength);
 private:
-    static std::string GenerateHttp(const std::string& prompt, int timeOutSeconds, int maxGenerations, std::vector<std::string>& debugLines);
+    // S10: endpoint/key overrides let the cloud-composer path POST to its
+    // own endpoint through the same hardened client (null = the conf
+    // endpoint, exactly the pre-S10 behavior)
+    static std::string GenerateHttp(const std::string& prompt, int timeOutSeconds, int maxGenerations, std::vector<std::string>& debugLines, ParsedUrl const* endpointOverride = nullptr, std::string const* apiKeyOverride = nullptr);
+    // S7/A12: the voice-filter chain (leak/era regeneration, hygiene,
+    // dedupe reroll) - private static so it can drive GenerateHttp
+    static std::string PocketLlmVoiceFilter(const std::string& raw, uint32 botGuid, uint32 speakerGuid, PlayerbotLlamaRuntime::LlmCallSource source, uint64_t licenseStamp, const std::string& body, int timeOutSeconds, int maxGenerations, std::vector<std::string>& debugLines, int& generationState, bool firstTruncated);
 """
 PB_LLM_IFACE_CPP_UPSTREAM = """std::string PlayerbotLLMInterface::Generate(const std::string& prompt, int timeOutSeconds, int maxGenerations, std::vector<std::string> & debugLines) {
     bool debug = !debugLines.empty();
 """
-PB_LLM_IFACE_CPP_ANDROID = """std::string PlayerbotLLMInterface::Generate(const std::string& prompt, uint32 botGuid, PlayerbotLlamaRuntime::LlmCallSource source, int timeOutSeconds, int maxGenerations, std::vector<std::string> & debugLines) {
-    if (sPlayerbotAIConfig.llmBackend == PlayerbotAIConfig::LLM_BACKEND_LLAMA)
-        return PlayerbotLlamaRuntime::Generate(prompt, botGuid, source, timeOutSeconds, debugLines);
+PB_LLM_IFACE_CPP_ANDROID = """namespace
+{
+    // A9: per-generation state set by the HTTP JSON-client leg and consumed
+    // (read-and-clear) by ParseResponse on the same async worker thread:
+    // TRUNCATED - the envelope's finish_reason was "length", so the
+    // dangling partial sentence a truncated generation ends with is
+    // trimmed before line splitting; JSON_DECODED - the reply arrived as
+    // envelope content decoded with full JSON string semantics, so the
+    // JSON-era residue transforms in ParseResponse (the escaped-quote
+    // rewrite and the backslash-eating delete pattern) must be skipped.
+    // Reset at the top of every Generate so a later llama-path parse never
+    // sees a stale flag.
+    enum PocketLlmGenerationFlags
+    {
+        POCKET_LLM_GEN_TRUNCATED = 1,
+        POCKET_LLM_GEN_JSON_DECODED = 2
+    };
+    thread_local int pocketLlmGenerationState = 0;
 
-    return GenerateHttp(prompt, timeOutSeconds, maxGenerations, debugLines);
 }
 
-std::string PlayerbotLLMInterface::GenerateHttp(const std::string& prompt, int timeOutSeconds, int maxGenerations, std::vector<std::string> & debugLines) {
+// A12 voice-filter chain for one HTTP generation: the leak/era class
+// is checked on the RAW content BEFORE any tool extraction (a
+// rejected reply must not leave queued calls behind), regenerates at
+// most twice with the same body (fresh sampling), then falls back to
+// a canned in-character deflection. The accepted reply alone is
+// extracted + hygiene-passed; marker terms are checked on the
+// CLEANED text (the << >> markers are legal in raw tool replies).
+// The dedupe reroll resamples ONCE with a hidden do-not-repeat tail
+// note (content-mandating notes are exempt from it, rate-capped - the
+// bridge's NoteMandatesContent claim). The
+// generation-state bits reflect the envelope that was ACCEPTED.
+// (Private static member: it drives GenerateHttp.)
+std::string PlayerbotLLMInterface::PocketLlmVoiceFilter(std::string const& raw, uint32 botGuid,
+    uint32 speakerGuid, PlayerbotLlamaRuntime::LlmCallSource source,
+    uint64_t licenseStamp, std::string const& body, int timeOutSeconds,
+    int maxGenerations, std::vector<std::string>& debugLines,
+    int& generationState, bool firstTruncated)
+{
+    // EXACTLY ONE reply is ever extracted+queued: the finally-chosen
+    // content (round-1 R1/R5/R6 - the old form queued the original
+    // before the marker check and BOTH draws on the dedupe reroll).
+    // Pre-extraction checks use the PURE scanner (ExtractToolCalls
+    // returns cleaned text without queueing).
+    std::string content = raw;
+    bool truncated = firstTruncated;
+    for (int attempt = 0; attempt < 2 &&
+         PlayerbotLlmFilters::LeakFailureRaw(content, body); ++attempt)
+    {
+        if (!debugLines.empty())
+            debugLines.push_back("leak/era filter hit - regenerating");
+        pocketllm::CompletionEnvelope retry = pocketllm::ParseCompletionEnvelope(
+            PlayerbotLLMInterface::GenerateHttp(body, timeOutSeconds, maxGenerations, debugLines));
+        if (!retry.parsed || !pocketllm::ContentUsable(retry))
+            break;
+        content = retry.content;
+        truncated = retry.finishLength != 0;
+    }
+    if (PlayerbotLlmFilters::LeakFailureRaw(content, body))
+    {
+        if (!debugLines.empty())
+            debugLines.push_back("leak/era filter exhausted - canned deflection");
+        std::string const deflection = PlayerbotLlmFilters::Deflection(botGuid);
+        PlayerbotLlmFilters::RememberReply(botGuid, deflection);
+        generationState = POCKET_LLM_GEN_JSON_DECODED;
+        return deflection;
+    }
+    // marker preview on the CLEANED text (the << >> markers are legal in
+    // the raw tool-bearing reply) - checked BEFORE anything queues; the
+    // same preview feeds the dedupe check (tool-line words would dilute
+    // the Jaccard against the ring's voiced entries)
+    std::string cleanedPreview;
+    pocketllm::ExtractToolCalls(content, &cleanedPreview);
+    if (pocketllm::ContainsMarkerTerms(cleanedPreview))
+    {
+        if (!debugLines.empty())
+            debugLines.push_back("marker terms survived extraction - canned deflection");
+        std::string const deflection = PlayerbotLlmFilters::Deflection(botGuid);
+        PlayerbotLlmFilters::RememberReply(botGuid, deflection);
+        generationState = POCKET_LLM_GEN_JSON_DECODED;
+        return deflection;
+    }
+    // dedupe reroll happens PRE-EXTRACTION: only the winner is
+    // extracted below (one queue per turn, by construction).
+    // S8/A13 beat-content exemption: a note that MANDATED content
+    // (recall cargo, ceremony, event news) is SUPPOSED to produce a
+    // reply resembling its mandated words - "you still owe me five
+    // silver" wants to sound like the last mention. Stamp-checked AND
+    // rate-capped (one exempted generation per bot per minute - a
+    // same-cargo spam turn falls back to the reroll, which rephrases
+    // while keeping the cargo).
+    if (!PlayerbotLlmBridge::NoteMandatesContent(botGuid, licenseStamp) &&
+        PlayerbotLlmFilters::DuplicateOfRecent(botGuid, cleanedPreview))
+    {
+        std::string retryBody = body;
+        if (pocketllm::AppendInstructionToLastUserMessage(retryBody,
+                " Do not repeat your last reply; say something new."))
+        {
+            if (!debugLines.empty())
+                debugLines.push_back("duplicate reply - one do-not-repeat resample");
+            pocketllm::CompletionEnvelope retry = pocketllm::ParseCompletionEnvelope(
+                PlayerbotLLMInterface::GenerateHttp(retryBody, timeOutSeconds, maxGenerations, debugLines));
+            std::string cleanedRetry;
+            bool usable = retry.parsed && pocketllm::ContentUsable(retry) &&
+                !PlayerbotLlmFilters::LeakFailureRaw(retry.content, retryBody);
+            if (usable)
+                pocketllm::ExtractToolCalls(retry.content, &cleanedRetry);
+            if (usable && !pocketllm::ContainsMarkerTerms(cleanedRetry))
+            {
+                content = retry.content; // still a dupe: accepted (one resample, by law)
+                truncated = retry.finishLength != 0;
+            }
+        }
+    }
+    generationState = POCKET_LLM_GEN_JSON_DECODED |
+        (truncated ? POCKET_LLM_GEN_TRUNCATED : 0);
+    // THE single extraction: the finally-chosen reply alone queues
+    std::string voiced = PlayerbotLlmFilters::HygienePass(
+        PlayerbotLlmTools::ExtractAndQueue(content, botGuid, speakerGuid, source, licenseStamp),
+        botGuid);
+    PlayerbotLlmFilters::RememberReply(botGuid, voiced);
+    return voiced;
+}
+
+// The duty-cycle governor (S3's A0 hoist, extracted for S10): check AND
+// consume one admission for botGuid inside the shared window state, so
+// the ambient murmur path pays the exact budget a conversational turn
+// pays - never a bypass. Same windows, same order, same mutex as the
+// inline block that lived in Generate before the extraction (the
+// structural contract is pinned by tests/test_llm_chatter.py; the
+// pre-extraction text exists in no artifact, so the pin is the
+// evidence).
+bool PlayerbotLLMInterface::GovernorAdmit(uint32 botGuid)
+{
+    time_t const now = time(nullptr);
+    static std::mutex governorMutex;
+    static std::map<uint32, std::deque<time_t>> perBot;
+    static std::deque<time_t> globalWindow;
+    std::lock_guard<std::mutex> lock(governorMutex);
+
+    time_t const cutoff = now - std::max<uint32>(1, sPlayerbotAIConfig.llmGovernorWindow);
+    std::deque<time_t>& botWindow = perBot[botGuid];
+    while (!botWindow.empty() && botWindow.front() < cutoff)
+        botWindow.pop_front();
+    while (!globalWindow.empty() && globalWindow.front() < cutoff)
+        globalWindow.pop_front();
+
+    bool const allowed =
+        botWindow.size() < std::max<uint32>(1, sPlayerbotAIConfig.llmGovernorBotMax) &&
+        globalWindow.size() < std::max<uint32>(1, sPlayerbotAIConfig.llmGovernorGlobalMax);
+    if (allowed)
+    {
+        botWindow.push_back(now);
+        globalWindow.push_back(now);
+    }
+    return allowed;
+}
+
+// S10: the raw chat-completions POST for callers that own their
+// validation chain (the murmur/composer workers fail SILENT - the
+// canned-deflection voice filter is for conversational turns, and a
+// deflection addressed to nobody would be worse than no line).
+std::string PlayerbotLLMInterface::PostChatHttp(std::string const& body,
+    int timeOutSeconds, ParsedUrl const* endpointOverride,
+    std::string const* apiKeyOverride)
+{
+    std::vector<std::string> noDebug;
+    return GenerateHttp(body, timeOutSeconds, 1, noDebug, endpointOverride, apiKeyOverride);
+}
+
+// S10: ambient work yields the interactive lane entirely - the murmur
+// batch only fires when no conversational generation is in flight (the
+// plan's "lane 0 empty" admission).
+bool PlayerbotLLMInterface::InteractiveGenerationInFlight()
+{
+    return sPlayerbotLLMInterface.generationCount.load() > 0;
+}
+
+std::string PlayerbotLLMInterface::Generate(const std::string& prompt, uint32 botGuid, uint32 speakerGuid, PlayerbotLlamaRuntime::LlmCallSource source, uint64_t licenseStamp, int timeOutSeconds, int maxGenerations, std::vector<std::string> & debugLines) {
+    pocketLlmGenerationState = 0;
+
+    // A0 governor hoist: the duty-cycle governor sits ABOVE the backend
+    // branch - the HTTP path's only limiter used to be a concurrency counter
+    // (default 100) against a serial single-slot server with a
+    // queue-inclusive timeout, so a flood of whispers legally queued for
+    // minutes. Over the density threshold the autonomous RPG path goes
+    // silent and player-facing paths show the configured busy line instead
+    // of silently queuing behind degraded decode - on both backends.
+    // (S10: the check+consume itself is the shared GovernorAdmit.)
+    bool allowed = GovernorAdmit(botGuid);
+
+    if (!allowed)
+    {
+        if (!debugLines.empty())
+            debugLines.push_back("duty-cycle governor busy");
+        return source == PlayerbotLlamaRuntime::LLM_SRC_RPG_CHAT ? std::string() : std::string(POCKETREALM_LLM_BUSY);
+    }
+
+    // A11 era logit bias: the always-ban terms, resolved once through the
+    // embedded server's /tokenize endpoint (fail-open - no endpoint, no
+    // bias; the guard and the era backstop still hold), ride every HTTP
+    // request body. Spliced once here so every HTTP leg (first try, the
+    // filter regenerations, the A9 retry) carries it; a body that already
+    // declares a logit_bias (a hand-configured LLMApiJson) is untouched,
+    // and providerSafe external endpoints never see llama-only keys.
+    std::string promptBody = prompt;
+    if (sPlayerbotAIConfig.llmBackend != PlayerbotAIConfig::LLM_BACKEND_LLAMA &&
+        !sPlayerbotAIConfig.llmApiProviderSafe)
+    {
+        std::string const& eraBias = PlayerbotLlmFilters::EraBiasJson();
+        size_t const close = promptBody.rfind('}');
+        // tail-clean guard (round-1 R6): splice only when the last '}'
+        // is really the body's close - a hand-configured template with
+        // junk after it (or a '}' inside a trailing string value) must
+        // not be corrupted into a body the server silently rejects
+        bool tailClean = close != std::string::npos;
+        for (size_t i = close + 1; tailClean && i < promptBody.size(); ++i)
+            if (!isspace(static_cast<unsigned char>(promptBody[i])))
+                tailClean = false;
+        if (!eraBias.empty() && tailClean &&
+            promptBody.find("\\"logit_bias\\"") == std::string::npos)
+            promptBody.insert(close, ",\\"logit_bias\\":" + eraBias);
+    }
+
+    if (sPlayerbotAIConfig.llmBackend == PlayerbotAIConfig::LLM_BACKEND_LLAMA)
+    {
+        std::string raw = PlayerbotLlamaRuntime::Generate(prompt, botGuid, source, timeOutSeconds, debugLines);
+        if (raw.empty() || raw == "error")
+            return raw;
+
+        // M4: tool blocks are stripped from the raw output here, before
+        // ParseResponse's regexes can corrupt them, and queued for the
+        // world-thread executor (tagged with this generation's source and
+        // speaker so the executor can refuse persistence tools from
+        // autonomous turns and attribute the rest to the interlocutor).
+        // A12 deterministic hygiene applies (the debug backend regenerates
+        // nothing - the leak/era class is HTTP-path machinery).
+        return PlayerbotLlmFilters::HygienePass(
+            PlayerbotLlmTools::ExtractAndQueue(raw, botGuid, speakerGuid, source, licenseStamp),
+            botGuid);
+    }
+
+    // A9 real JSON client: the shipped endpoints (embedded llama-server and
+    // external OpenAI-compatible services) answer /v1/chat/completions with
+    // an envelope, so the assistant text is decoded here with full JSON
+    // string semantics. Bodies that do not parse as a known envelope keep
+    // the legacy regex path (their raw body flows to ParseResponse and the
+    // conf-level patterns apply - the reviewed fallback for endpoints that
+    // return non-OpenAI prose shapes).
+    std::string const httpBody = GenerateHttp(promptBody, timeOutSeconds, maxGenerations, debugLines);
+    pocketllm::CompletionEnvelope envelope = pocketllm::ParseCompletionEnvelope(httpBody);
+    if (!envelope.parsed)
+    {
+        // A body that parses as JSON but carries no completion (an error
+        // envelope, an unexpected shape) must never be voiced raw - fail
+        // quiet. A body that is not JSON at all keeps the legacy regex
+        // fallback ONLY when it plausibly is prose: error pages, BOM
+        // remnants and binary garbage would otherwise reach chat unfiltered
+        // (the app empties the conf patterns, so nothing else stops them).
+        if (envelope.jsonParsable || !pocketllm::LooksLikeVoicableText(httpBody))
+        {
+            if (!debugLines.empty())
+                debugLines.push_back("response carries no voicable text - staying quiet");
+            return std::string();
+        }
+        // A0: the HTTP branch runs the SAME tool extraction the in-process
+        // branch always had - G-1 closed: <<tool>> calls from an envelope
+        // reply are queued for the world-thread executor (speaker-tagged),
+        // and the markers never reach the chat lines.
+        return PlayerbotLlmFilters::HygienePass(
+            PlayerbotLlmTools::ExtractAndQueue(httpBody, botGuid, speakerGuid, source, licenseStamp),
+            botGuid);
+    }
+
+    if (pocketllm::ContentUsable(envelope))
+    {
+        if (!debugLines.empty())
+            debugLines.push_back("LLM content: " + envelope.content);
+        return PocketLlmVoiceFilter(envelope.content, botGuid, speakerGuid,
+            source, licenseStamp, promptBody, timeOutSeconds, maxGenerations,
+            debugLines, pocketLlmGenerationState, envelope.finishLength != 0);
+    }
+
+    // Empty-content guard: the pinned base model burns the whole token
+    // budget on a thinking preamble routed into reasoning_content (plan
+    // §1.4). ONE retry with a direct-answer instruction spliced onto the
+    // same user turn, then give up quiet - the player never sees a literal
+    // envelope fragment or an empty promise (fail-quiet law). The retry is
+    // skipped when the budget was already exhausted mid-thinking
+    // (finish_reason "length"): on the pinned base model every empty
+    // draw at the production budget was length-class (C:/llm-lab/results/
+    // a9_retry_e2b-base.json; §1.4 measured 51/51 empty at <=200 under
+    // the trained prompt shapes), and the thinking toll is budget-elastic
+    // and always precedes content - an identical-budget resend cannot pay
+    // it, so failing quiet immediately beats doubling the player's wait.
+    // The retry stays armed for the recoverable class: the model finished
+    // thinking (stop) but still produced no content.
+    if (envelope.reasoningPresent && !envelope.finishLength)
+    {
+        std::string retryBody = promptBody;
+        if (pocketllm::AppendInstructionToLastUserMessage(retryBody, " Answer directly."))
+        {
+            if (!debugLines.empty())
+                debugLines.push_back("empty content with reasoning present - one direct-answer retry");
+            pocketllm::CompletionEnvelope retry = pocketllm::ParseCompletionEnvelope(
+                GenerateHttp(retryBody, timeOutSeconds, maxGenerations, debugLines));
+            if (retry.parsed && pocketllm::ContentUsable(retry))
+            {
+                return PocketLlmVoiceFilter(retry.content, botGuid, speakerGuid,
+                    source, licenseStamp, retryBody, timeOutSeconds, maxGenerations,
+                    debugLines, pocketLlmGenerationState, retry.finishLength != 0);
+            }
+        }
+    }
+
+    if (!debugLines.empty())
+        debugLines.push_back("no usable content in the response envelope - staying quiet");
+    return std::string();
+}
+
+std::string PlayerbotLLMInterface::GenerateHttp(const std::string& prompt, int timeOutSeconds, int maxGenerations, std::vector<std::string> & debugLines, ParsedUrl const* endpointOverride, std::string const* apiKeyOverride) {
     bool debug = !debugLines.empty();
 """
 PB_SAY_HEADER_UPSTREAM = """#pragma once
@@ -806,8 +1374,10 @@ PB_SAY_GEN_DECL_UPSTREAM = """        static delayedPackets GenerateResponsePack
             , const WorldPacket chatTemplate, const WorldPacket emoteTemplate, const WorldPacket systemTemplate, const std::string startPattern, const std::string endPattern, const std::string deletePattern, const std::string splitPattern, bool debug = false);
 """
 PB_SAY_GEN_DECL_ANDROID = """        static delayedPackets GenerateResponsePackets(const std::string json
-            , uint32 botGuid, PlayerbotLlamaRuntime::LlmCallSource source
-            , const WorldPacket chatTemplate, const WorldPacket emoteTemplate, const WorldPacket systemTemplate, const std::string startPattern, const std::string endPattern, const std::string deletePattern, const std::string splitPattern, bool debug = false);
+            , uint32 botGuid, uint32 speakerGuid, PlayerbotLlamaRuntime::LlmCallSource source, uint64_t licenseStamp
+            , uint32 playerOrChannel, std::string botName
+            , const WorldPacket chatTemplate, const WorldPacket emoteTemplate, const WorldPacket systemTemplate, const std::string startPattern, const std::string endPattern, const std::string deletePattern, const std::string splitPattern, bool debug = false
+            , uint32 replyClass = 0, bool longFormCued = false);
 """
 PB_SAY_GEN_DEF_UPSTREAM = """delayedPackets ChatReplyAction::GenerateResponsePackets(const std::string json
     , const WorldPacket chatTemplate, const WorldPacket emoteTemplate, const WorldPacket systemTemplate, const std::string startPattern, const std::string endPattern, const std::string deletePattern, const std::string splitPattern, bool debug)
@@ -822,35 +1392,84 @@ PB_SAY_GEN_DEF_UPSTREAM = """delayedPackets ChatReplyAction::GenerateResponsePac
     std::string response = PlayerbotLLMInterface::Generate(json, sPlayerbotAIConfig.llmGenerationTimeout, sPlayerbotAIConfig.llmMaxSimultaniousGenerations, debugLines);
 """
 PB_SAY_GEN_DEF_ANDROID = """delayedPackets ChatReplyAction::GenerateResponsePackets(const std::string json
-    , uint32 botGuid, PlayerbotLlamaRuntime::LlmCallSource source
-    , const WorldPacket chatTemplate, const WorldPacket emoteTemplate, const WorldPacket systemTemplate, const std::string startPattern, const std::string endPattern, const std::string deletePattern, const std::string splitPattern, bool debug)
+    , uint32 botGuid, uint32 speakerGuid, PlayerbotLlamaRuntime::LlmCallSource source, uint64_t licenseStamp
+    , uint32 playerOrChannel, std::string botName
+    , const WorldPacket chatTemplate, const WorldPacket emoteTemplate, const WorldPacket systemTemplate, const std::string startPattern, const std::string endPattern, const std::string deletePattern, const std::string splitPattern, bool debug
+    , uint32 replyClass, bool longFormCued)
 {
     std::vector<std::string> debugLines;
 
     if (debug)
         debugLines = { json };
 
-    // M1 gate: autonomous RPG chatter stays off the in-process backend until
-    // the M3 duty-cycle governor lands; only player-facing conversation runs
-    if (source == PlayerbotLlamaRuntime::LLM_SRC_RPG_CHAT && sPlayerbotAIConfig.llmBackend == PlayerbotAIConfig::LLM_BACKEND_LLAMA)
-        return {};
+    // the governor lives above the backend branch inside Generate (A0);
+    // autonomous RPG chatter goes silently over budget, player-facing
+    // paths show the busy line
 
     auto startTime = time(nullptr);
 
-    std::string response = PlayerbotLLMInterface::Generate(json, botGuid, source, sPlayerbotAIConfig.llmGenerationTimeout, sPlayerbotAIConfig.llmMaxSimultaniousGenerations, debugLines);
+    std::string response = PlayerbotLLMInterface::Generate(json, botGuid, speakerGuid, source, licenseStamp, sPlayerbotAIConfig.llmGenerationTimeout, sPlayerbotAIConfig.llmMaxSimultaniousGenerations, debugLines);
+
+    // governor busy placeholder: player-visible feedback instead of a silent
+    // queue; the autonomous RPG path never gets here (it returns empty).
+    // Captured BEFORE the substitution so the recorder below can tell the
+    // placeholder apart from a genuine generation.
+    bool const busyReply = response == POCKETREALM_LLM_BUSY;
+    if (busyReply)
+    {
+        // M6: the busy placeholder is drawn from the banter core's POOL_BUSY
+        // recency ring (per-bot, novelty-weighted, tic-seasoned) instead of
+        // the old global counter rotation; BusyReply falls back to the
+        // configured LLMBusyReply conf line if a draw ever fails.
+        response = PlayerbotLlmPersona::BusyReply(botGuid);
+    }
+    else if (response == "error" || response.empty())
+    {
+        // a hard backend failure never reaches the player as a literal
+        // "error" - the bot stays silent rather than break character
+        response = "";
+    }
 """
 PB_SAY_GATE_UPSTREAM = """    if (bot->GetPlayerbotAI() && sPlayerbotAIConfig.llmEnabled > 0 && (bot->GetPlayerbotAI()->HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3) && chatChannelSource != ChatChannelSource::SRC_UNDEFINED && sPlayerbotAIConfig.llmBlockedReplyChannels.find(chatChannelSource) == sPlayerbotAIConfig.llmBlockedReplyChannels.end()
         )
 """
 PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBackend == PlayerbotAIConfig::LLM_BACKEND_LLAMA;
 
-    // hard-trigger gate: the in-process backend only ever answers direct
-    // conversation (whisper / party / raid). Everything else is a non-trigger.
-    // The full event allowlist and duty-cycle governor arrive with M3.
-    bool hardTriggerAllowed = !useLlamaBackend ||
+    // A0: the hard-trigger gate is backend-independent (G-6 closed: the
+    // llama-only gate meant the HTTP path answered trade/general/bystander
+    // chatter). Direct conversation only - whispers to the bot, or
+    // party/raid/say chat that addresses the bot by name (say additionally
+    // requires a real player, so ambient bot chatter never pays a
+    // generation). Everything else (trade, general, bystander chatter) is a
+    // non-trigger, not a low-priority one. Case-insensitive: players
+    // routinely type bot names in lowercase, and a dropped trigger is
+    // silent (canned fallback).
+    bool addressedToBot = !msg.empty() && boost::algorithm::icontains(msg, bot->GetName());
+    // resolved here (not inside the gated block) so the say trigger can
+    // require a real player without touching the later `player` declaration
+    Player* gateSpeaker = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, guid1));
+    bool hardTriggerAllowed =
         chatChannelSource == ChatChannelSource::SRC_WHISPER ||
-        chatChannelSource == ChatChannelSource::SRC_PARTY ||
-        chatChannelSource == ChatChannelSource::SRC_RAID;
+        ((chatChannelSource == ChatChannelSource::SRC_PARTY || chatChannelSource == ChatChannelSource::SRC_RAID) && addressedToBot) ||
+        (chatChannelSource == ChatChannelSource::SRC_SAY && addressedToBot && gateSpeaker && gateSpeaker->isRealPlayer());
+
+    // S8/A18 crowd arbiter: a real player's ambient /say that names no
+    // bot is a NON-trigger for generations, but the street may still
+    // react - one or two nearby bots answer with a deterministic,
+    // staggered text emote (never a generation: the authored layer was
+    // measured better on calm beats and costs nothing). The world thread
+    // runs here; the emote queues with its own 2-5s pacing.
+    if (!hardTriggerAllowed && chatChannelSource == ChatChannelSource::SRC_SAY &&
+        gateSpeaker && gateSpeaker->isRealPlayer() &&
+        sPlayerbotAIConfig.llmEnabled > 0)
+        PlayerbotLlmMemory::QueueCrowdEmote(bot, gateSpeaker);
+
+    // S10/E6 interruption rule: player chat owns the channel - stamp
+    // every real-player conversational trigger so ambient murmur/party
+    // delivery pauses around the player's own words (the global set
+    // piece is exempt - general chat is not the player's channel).
+    if (hardTriggerAllowed && gateSpeaker && gateSpeaker->isRealPlayer())
+        PlayerbotLlmChatter::NotePlayerInteraction(gateSpeaker->GetGUIDLow());
 
     if (bot->GetPlayerbotAI() && sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed && (bot->GetPlayerbotAI()->HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3) && chatChannelSource != ChatChannelSource::SRC_UNDEFINED && sPlayerbotAIConfig.llmBlockedReplyChannels.find(chatChannelSource) == sPlayerbotAIConfig.llmBlockedReplyChannels.end()
         )
@@ -886,6 +1505,174 @@ PB_SAY_PROMPT_ANDROID = """                std::string json;
                     }
                 }
 """
+PB_SAY_RECORDER_UPSTREAM = """    std::vector<std::string> lines = PlayerbotLLMInterface::ParseResponse(response, startPattern, endPattern, deletePattern, splitPattern, debugLines);
+"""
+PB_SAY_RECORDER_ANDROID = """    std::vector<std::string> lines = PlayerbotLLMInterface::ParseResponse(response, startPattern, endPattern, deletePattern, splitPattern, debugLines);
+
+    // E1 per-class voice budgets (pure core, applied before the recorder so
+    // history and the player see the same words): whisper-class replies are
+    // a note, not an essay - at most two 160-byte lines; the ambient RPG
+    // class speaks one 80-byte line. The 255 splitter cap stays the hard
+    // channel bound underneath. S11: a CUE-BEARING turn (longFormCued -
+    // the generation's own note carried the frozen long-form cue, resolved
+    // stamp-checked at the call site) on a long-form-licensed tier may run
+    // to the splitter's own 3-4 line budget; a plain turn keeps the short
+    // budget on every tier (the widening is earned per turn, never tier-wide).
+    pocketllm::ApplyReplyBudget(lines, replyClass, sPlayerbotAIConfig.llmMaxNewTokens, longFormCued);
+
+    // the bot's own reply joins the shared rolling history so the next prompt
+    // is never a one-sided transcript (mutex-guarded; async thread safe).
+    // Only genuine generations are recorded - never the busy placeholder
+    // or a raw error string, which would pollute every later prompt.
+    // Backend-agnostic: the embedded llama-server path (LLMBackend = 0)
+    // speaks through the same lines pipeline and needs the same history.
+    if (playerOrChannel && !botName.empty()
+        && !busyReply && response != "error" && !lines.empty())
+    {
+        std::string joined;
+        for (std::string const& line : lines)
+        {
+            if (!joined.empty())
+                joined += " ";
+            joined += line;
+        }
+        if (!joined.empty())
+        {
+            PlayerbotLlmMemory::AppendTurn(botGuid, playerOrChannel, true, botName, joined);
+            // E4 diagnostics: one player-facing conversation per genuine
+            // voiced reply - exactly this gate's own definition
+            PlayerbotLlmMemory::NoteConversation();
+        }
+    }
+
+    // E4 diagnostics: the counter's only in-tree read (the app-side
+    // transport is the declared Workstream-A dependency; the debug path
+    // is the sanctioned dev surface)
+    if (debug)
+        debugLines.push_back("LLM conversations this session: " +
+            std::to_string(PlayerbotLlmMemory::ConversationCount()));
+"""
+
+# S9/E1: the pacing call. Upstream is the single 200 ms/char call whose
+# timeDiff credit zeroed after the first line.
+PB_SAY_PACE_CALL_UPSTREAM = """    delayedPackets packets, debugPackets;
+
+    packets = LinesToPackets(lines, chatTemplate, false, 200, emoteTemplate, timeDiff);
+"""
+PB_SAY_PACE_CALL_ANDROID = """    delayedPackets packets, debugPackets;
+
+    // E1 pacing law: the generation wait is credited across ALL lines (the
+    // old credit zeroed after the first line, which then still dribbled -
+    // a 100-char line waited 20 s AFTER an 8 s generation at 200 ms/char),
+    // and the typing pace drops to 35 ms/char (the journal keeps its
+    // diary pace of 4, the debug path 1; the A18 say stagger lives ahead
+    // of this pipeline and is untouched). The busy placeholder is an
+    // admission-control acknowledgment, not prose: it lands instantly -
+    // the E1 busy-within-1s law.
+    packets = LinesToPackets(lines, chatTemplate, false,
+        busyReply ? 0 : 35, emoteTemplate, busyReply ? 0 : timeDiff);
+"""
+
+# S9/E1: the timeDiff credit becomes a running budget consumed across all
+# lines (both delay blocks share the shape; the sLog lines make the tail
+# block unique).
+PB_SAY_TIMEDIFF_HEAD_UPSTREAM = """                auto sentenceSplit = sentence.substr(0, splitPos);
+                auto delay = sentenceSplit.size() * MsPerChar;
+                if (timeDiff)
+                {
+                    if (timeDiff >= delay)
+                    {
+                        delay = 0;
+                    }
+                    else
+                    {
+                        delay -= timeDiff;
+                    }
+                    timeDiff = 0;
+                }
+"""
+PB_SAY_TIMEDIFF_HEAD_ANDROID = """                auto sentenceSplit = sentence.substr(0, splitPos);
+                auto delay = sentenceSplit.size() * MsPerChar;
+                // E1: the generation credit is a RUNNING budget - consumed
+                // across every line (the old form zeroed it after the first
+                // line, which then still paid its full per-char delay)
+                if (timeDiff)
+                {
+                    if (timeDiff >= delay)
+                    {
+                        timeDiff -= delay;
+                        delay = 0;
+                    }
+                    else
+                    {
+                        delay -= timeDiff;
+                        timeDiff = 0;
+                    }
+                }
+"""
+PB_SAY_TIMEDIFF_TAIL_UPSTREAM = """            auto delay = sentence.size() * MsPerChar;
+            if (timeDiff)
+            {
+                if (timeDiff >= delay)
+                {
+                    delay = 0;
+                    sLog.outError("delay packet removed: %lu", delay);
+                }
+                else
+                {
+                    delay -= timeDiff;
+                    sLog.outError("delay packet reduced to %lu", delay);
+                }
+                timeDiff = 0;
+            }
+"""
+PB_SAY_TIMEDIFF_TAIL_ANDROID = """            auto delay = sentence.size() * MsPerChar;
+            // E1: same running-budget credit as the head block. The
+            // upstream outError diagnostics drop to debug level: with the
+            // credit now surviving past the head, the covered-line branch
+            // fires on ordinary fast replies (every generation >= the
+            // last line's pace) and error-level spam filled the device log
+            if (timeDiff)
+            {
+                if (timeDiff >= delay)
+                {
+                    timeDiff -= delay;
+                    delay = 0;
+                    sLog.outDebug("delay packet removed: %lu", delay);
+                }
+                else
+                {
+                    delay -= timeDiff;
+                    timeDiff = 0;
+                    sLog.outDebug("delay packet reduced to %lu", delay);
+                }
+            }
+"""
+PB_SAY_SPLITTER_UPSTREAM = """        std::string sentence = line;
+        while (sentence.length() > 200) {
+            size_t splitPos = sentence.rfind(' ', 200);
+            if (splitPos == std::string::npos) {
+                splitPos = 200;
+            }
+"""
+PB_SAY_SPLITTER_ANDROID = """        std::string sentence = line;
+        // A12: the /say client cap is 255 bytes - ONE documented number
+        // (the old constant split at 200 while the client cut at 255).
+        // The hard fallback cut backs off UTF-8 sequence bytes so a line
+        // never ends mid-character (defensive: the ASCII clamp runs
+        // upstream on the LLM paths).
+        while (sentence.length() > 255) {
+            size_t splitPos = sentence.rfind(' ', 255);
+            if (splitPos == std::string::npos) {
+                splitPos = 255;
+                while (splitPos > 0 &&
+                       ((unsigned char)sentence[splitPos - 1] & 0xC0) == 0x80)
+                    --splitPos; // never cut inside a multibyte sequence
+                if (splitPos > 0 &&
+                    ((unsigned char)sentence[splitPos - 1] & 0xC0) == 0xC0)
+                    --splitPos; // nor right after an orphaned lead byte
+            }
+"""
 PB_SAY_JSON_DUP_UPSTREAM = """                splitPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseSplitPattern, placeholders);
 
                 std::string json = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmApiJson, jsonFill);
@@ -896,13 +1683,19 @@ PB_SAY_JSON_DUP_ANDROID = """                splitPattern = PlayerbotTextMgr::Ge
 
                 if (useLlamaBackend)
                 {
-                    // raw completion output: no JSON markers to cut around,
-                    // let only the delete/split patterns shape the reply
+                    // raw completion output: no JSON start marker to cut
+                    // around. The end pattern is replaced with a pure
+                    // speaker-cut - the config default also cuts at a bare
+                    // quote (right for JSON, wrong for prose) - so the bot
+                    // can never voice the other party's continued turn
                     startPattern.clear();
-                    endPattern.clear();
+                    endPattern = std::string("\\\\b(?!") + bot->GetName() + "\\\\b)(\\\\w+):";
                 }
-                else
+                else if (json.empty())
                 {
+                    // legacy conf-template fill only: under the trained
+                    // prompt format (A4) the native builder already built
+                    // the request body - the template must not clobber it
                     json = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmApiJson, jsonFill);
 
                     json = PlayerbotTextMgr::GetReplacePlaceholders(json, placeholders);
@@ -910,15 +1703,115 @@ PB_SAY_JSON_DUP_ANDROID = """                splitPattern = PlayerbotTextMgr::Ge
 """
 PB_SAY_ASYNC_UPSTREAM = """                futurePackets futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug);
 """
-PB_SAY_ASYNC_ANDROID = """                futurePackets futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, bot->GetGUIDLow(), PlayerbotLlamaRuntime::LLM_SRC_CHAT_REPLY, chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug);
+PB_SAY_ASYNC_ANDROID = """                uint32 llmHistoryKey = (chatChannelSource == ChatChannelSource::SRC_WHISPER && player)
+                    ? player->GetGUIDLow()
+                    : (0x80000000u | static_cast<uint32>(chatChannelSource));
+                // A0 interlocutor fix: persistence tools attribute to the
+                // player who actually spoke (whisperer or party/raid/say
+                // speaker), carried through to the queued tool calls - not
+                // to the bot's owner. Bot-to-bot talk passes 0 (autonomous).
+                uint32 llmSpeakerGuid = (player && player->isRealPlayer() && player != bot)
+                    ? player->GetGUIDLow() : 0;
+                // E1 reply class 0: conversational (whisper-class budgets);
+                // S11: the long-form widening is earned per TURN - the
+                // flag resolves against the generation's own license stamp,
+                // so a plain turn keeps the short budget on every tier
+                futurePackets futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, bot->GetGUIDLow(), llmSpeakerGuid, PlayerbotLlamaRuntime::LLM_SRC_CHAT_REPLY, llmLicenseStamp, llmHistoryKey, bot->GetName(), chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug, 0u, PlayerbotLlmBridge::NoteLongFormCued(bot->GetGUIDLow(), llmLicenseStamp));
 """
 PB_RPG_ASYNC_UPSTREAM = """    futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug);
 """
-PB_RPG_ASYNC_ANDROID = """    futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, bot->GetGUIDLow(), PlayerbotLlamaRuntime::LLM_SRC_RPG_CHAT, chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug);
+PB_RPG_ASYNC_ANDROID = """    // E1 reply class 1: ambient (one 80-byte line - a bark, not a speech);
+    // longFormCued explicit false - ambient never earns the widening
+    // (defaults do not bind through the std::async function pointer)
+    futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, bot->GetGUIDLow(), uint32(0), PlayerbotLlamaRuntime::LLM_SRC_RPG_CHAT, uint64_t(0), 0, bot->GetName(), chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug, 1u, false);
+"""
+# The RPG ambient-chatter path (bot <-> NPC barks) still built the HTTP JSON
+# envelope and kept the JSON start pattern, which drops every plain-prose
+# line the in-process backend returns (silent world) while still running the
+# extracted tool side effects. Under llama it must send the raw completion
+# prompt exactly like the SayAction path.
+PB_RPG_PROMPT_UPSTREAM = """    for (auto& prompt : jsonFill)
+    {
+        prompt.second = PlayerbotLLMInterface::SanitizeForJson(prompt.second);
+    }
+
+    for (auto& prompt : placeholders) //Sanitize now instead of earlier to prevent double Sanitation
+    {
+        prompt.second = PlayerbotLLMInterface::SanitizeForJson(prompt.second);
+    }
+
+    std::string startPattern, endPattern, deletePattern, splitPattern;
+    startPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseStartPattern, placeholders);
+    endPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseEndPattern, placeholders);
+    deletePattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseDeletePattern, placeholders);
+    splitPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseSplitPattern, placeholders);
+
+    std::string json = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmApiJson, jsonFill);
+
+    json = PlayerbotTextMgr::GetReplacePlaceholders(json, placeholders);
+"""
+PB_RPG_PROMPT_ANDROID = """    std::string startPattern, endPattern, deletePattern, splitPattern;
+    startPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseStartPattern, placeholders);
+    endPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseEndPattern, placeholders);
+    deletePattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseDeletePattern, placeholders);
+    splitPattern = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmResponseSplitPattern, placeholders);
+
+    std::string json;
+    if (sPlayerbotAIConfig.llmBackend == PlayerbotAIConfig::LLM_BACKEND_LLAMA)
+    {
+        // raw completion prompt: the in-process backend takes plain text, no
+        // JSON envelope and no JSON escaping, and the JSON start pattern would
+        // drop every generated line. The end pattern is replaced with a pure
+        // speaker-cut (the config default also cuts at a bare quote, right
+        // for JSON, wrong for prose - quoted RPG lines would vanish).
+        json = jsonFill["<pre prompt>"] + " " + jsonFill["<context>"] + " " + jsonFill["<prompt>"] + " " + jsonFill["<post prompt>"];
+        startPattern.clear();
+        endPattern = std::string("\\\\b(?!") + bot->GetName() + "\\\\b)(\\\\w+):";
+    }
+    else
+    {
+        for (auto& prompt : jsonFill)
+        {
+            prompt.second = PlayerbotLLMInterface::SanitizeForJson(prompt.second);
+        }
+
+        for (auto& prompt : placeholders) //Sanitize now instead of earlier to prevent double Sanitation
+        {
+            prompt.second = PlayerbotLLMInterface::SanitizeForJson(prompt.second);
+        }
+
+        json = PlayerbotTextMgr::GetReplacePlaceholders(sPlayerbotAIConfig.llmApiJson, jsonFill);
+
+        json = PlayerbotTextMgr::GetReplacePlaceholders(json, placeholders);
+    }
+"""
+# The upstream reply-type switch has no SRC_RAID case, so a raid mention
+# (a supported hard trigger) fell through to the CHAT_MSG_WHISPER default and
+# the bot answered raid banter in private tells.
+PB_SAY_RAID_CASE_UPSTREAM = """                case ChatChannelSource::SRC_PARTY:
+                {
+                    type = CHAT_MSG_PARTY;
+                    break;
+                }
+                case ChatChannelSource::SRC_GUILD:
+"""
+PB_SAY_RAID_CASE_ANDROID = """                case ChatChannelSource::SRC_PARTY:
+                {
+                    type = CHAT_MSG_PARTY;
+                    break;
+                }
+                case ChatChannelSource::SRC_RAID:
+                {
+                    type = CHAT_MSG_RAID;
+                    break;
+                }
+                case ChatChannelSource::SRC_GUILD:
 """
 PB_DEBUG_GEN_UPSTREAM = """    std::string response = PlayerbotLLMInterface::Generate(json, sPlayerbotAIConfig.llmGenerationTimeout, sPlayerbotAIConfig.llmMaxSimultaniousGenerations, debugLines);
 """
-PB_DEBUG_GEN_ANDROID = """    std::string response = PlayerbotLLMInterface::Generate(json, bot->GetGUIDLow(), PlayerbotLlamaRuntime::LLM_SRC_DEBUG, sPlayerbotAIConfig.llmGenerationTimeout, sPlayerbotAIConfig.llmMaxSimultaniousGenerations, debugLines);
+PB_DEBUG_GEN_ANDROID = """    std::string response = PlayerbotLLMInterface::Generate(json, bot->GetGUIDLow(), uint32(0), PlayerbotLlamaRuntime::LLM_SRC_DEBUG, uint64_t(0), sPlayerbotAIConfig.llmGenerationTimeout, sPlayerbotAIConfig.llmMaxSimultaniousGenerations, debugLines);
+    if (response == POCKETREALM_LLM_BUSY)
+        response = "(governor busy)";
 """
 PB_SESSION_LIFETIME_UPSTREAM = """void PlayerbotAI::SendDelayedPacket(WorldSession* session, futurePackets futPackets)
 {
@@ -976,8 +1869,8 @@ void PlayerbotAI::ReceiveDelayedPacket(futurePackets futPackets)
 {
     PacketHandlingHelper* handler = &botOutgoingPacketHandlers;
     ObjectGuid botGuid = bot->GetObjectGuid();
-    std::thread t([handler, botGuid, futPacket = std::move(futPackets)]() mutable {
-        for (auto& delayedPacket : futPacket.get())
+    std::thread t([handler, botGuid, futPackets = std::move(futPackets)]() mutable {
+        for (auto& delayedPacket : futPackets.get())
         {
             // the bot (and with it this PlayerbotAI and its packet handlers)
             // may be gone by the time the generation finishes
@@ -993,16 +1886,1379 @@ void PlayerbotAI::ReceiveDelayedPacket(futurePackets futPackets)
 
     t.detach();
 }"""
+
+# A6: the 600s queue-inclusive generation timeout let a whisper legally sit
+# behind minutes of queued chatter; 60s is the T1/T3 tier value (the app
+# emits the selected tier's value: T2 45, T4 30). Anchor is the unique
+# timeout read in the pristine config block.
+PB_LLM_TIMEOUT_UPSTREAM = """    llmGenerationTimeout = config.GetIntDefault("AiPlayerbot.LLMGenerationTimeout", 600);
+"""
+PB_LLM_TIMEOUT_ANDROID = """    // A6: queue-inclusive per-tier timeout; the app emits the tier's value
+    llmGenerationTimeout = config.GetIntDefault("AiPlayerbot.LLMGenerationTimeout", 60);
+    // S9/T4: the connect leg of the tier budget (10 s; the blocking default
+    // hangs minutes on a dead external endpoint). Clamped 1-60: a zero or
+    // negative hand value must not void the budget (select with tv_sec<=0
+    // or a wrapped uint32 would hang or instantly-fail every connect).
+    llmConnectTimeout = std::max(1u, std::min(60u, uint32(config.GetIntDefault("AiPlayerbot.LLMConnectTimeout", 10))));
+"""
+# S9/T4: bound the TCP connect. Non-blocking connect + select(), so a dead
+# external endpoint fails inside the tier budget instead of hanging for the
+# OS default; the socket returns to blocking mode for the send/recv legs.
+PB_IFACE_CONNECT_UPSTREAM = """    if (connect(sock, res->ai_addr, res->ai_addrlen) < 0) {
+        if (debug)
+            debugLines.push_back("Connection to server failed");
+
+#ifdef _WIN32
+        sLog.outError("BotLLM: Connection to server failed. Error: %d", WSAGetLastError());
+        closesocket(sock);
+        WSACleanup();
+#else
+        sLog.outError("BotLLM: Connection to server failed. Error: %s", strerror(errno));
+        close(sock);
+#endif
+        freeaddrinfo(res);
+        sPlayerbotLLMInterface.generationCount--;
+        return "error";
+    }
+"""
+PB_IFACE_CONNECT_ANDROID = """    bool connected = false;
+    int connectErr = 0;
+    {
+#ifdef _WIN32
+        u_long nonBlocking = 1;
+        ioctlsocket(sock, FIONBIO, &nonBlocking);
+#else
+        int const sockFlags = fcntl(sock, F_GETFL, 0);
+        fcntl(sock, F_SETFL, sockFlags | O_NONBLOCK);
+#endif
+        int const connectRc = connect(sock, res->ai_addr, res->ai_addrlen);
+        if (connectRc == 0)
+            connected = true;
+        else
+        {
+#ifdef _WIN32
+            connectErr = WSAGetLastError();
+            bool const connectPending = (connectErr == WSAEWOULDBLOCK);
+#else
+            connectErr = errno;
+            bool const connectPending = (connectErr == EINPROGRESS);
+#endif
+            if (connectPending)
+            {
+                fd_set writeSet, errSet;
+                FD_ZERO(&writeSet);
+                FD_ZERO(&errSet);
+                FD_SET(sock, &writeSet);
+                FD_SET(sock, &errSet);
+                struct timeval connectTv;
+                connectTv.tv_sec = sPlayerbotAIConfig.llmConnectTimeout;
+                connectTv.tv_usec = 0;
+                int const selected = select(static_cast<int>(sock) + 1, nullptr, &writeSet, &errSet, &connectTv);
+                if (selected > 0)
+                {
+                    int soError = 0;
+                    // socklen_t (POSIX everywhere; the WIN32 debug lane is
+                    // MinGW, which defines it through the ws2tcpip.h the
+                    // file already includes - an int here fails bionic's
+                    // socklen_t* prototype)
+                    socklen_t soLen = sizeof(soError);
+                    if (getsockopt(sock, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&soError), &soLen) == 0)
+                        connected = (soError == 0);
+                    if (!connected && soError != 0)
+                        connectErr = soError;
+                }
+                else if (selected == 0)
+                    connectErr = ETIMEDOUT;
+                // selected < 0 (EINTR etc.) falls through as a connect
+                // failure: fail-safe direction, recorded - a retry here is
+                // not worth the interleaving surface
+            }
+        }
+#ifdef _WIN32
+        u_long blockingAgain = 0;
+        ioctlsocket(sock, FIONBIO, &blockingAgain);
+#else
+        fcntl(sock, F_SETFL, sockFlags);
+#endif
+        // S9/T4 completeness: the generation budget must bound EVERY socket
+        // leg, not just connect - the blocking TLS handshake (SSL_connect)
+        // and the request write against a stalled peer would otherwise hang
+        // the async generation thread past the budget and hold its
+        // generation slot forever. Socket-level send/recv deadlines cover
+        // both (the recv legs keep their own elapsed-deadline loops on top;
+        // where the socket runs non-blocking these socket timeouts are
+        // simply inert).
+        if (connected && timeOutSeconds > 0)
+        {
+            struct timeval ioTv;
+            ioTv.tv_sec = timeOutSeconds;
+            ioTv.tv_usec = 0;
+#ifdef _WIN32
+            DWORD ioMs = static_cast<DWORD>(timeOutSeconds) * 1000;
+            setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<char const*>(&ioMs), sizeof(ioMs));
+            setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<char const*>(&ioMs), sizeof(ioMs));
+#else
+            setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &ioTv, sizeof(ioTv));
+            setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &ioTv, sizeof(ioTv));
+#endif
+        }
+    }
+    if (!connected) {
+        if (debug)
+            debugLines.push_back("Connection to server failed or timed out");
+
+#ifdef _WIN32
+        sLog.outError("BotLLM: Connection to server failed. Error: %d", connectErr);
+        closesocket(sock);
+        WSACleanup();
+#else
+        sLog.outError("BotLLM: Connection to server failed. Error: %s", strerror(connectErr));
+        close(sock);
+#endif
+        freeaddrinfo(res);
+        sPlayerbotLLMInterface.generationCount--;
+        return "error";
+    }
+"""
+# M2/M3/M4/M5 overlays applied after the stage-1 LLM overlays above.
+# S9/T4: select() needs its own header on bionic (sys/socket.h does not
+# pull it in).
+PB_IFACE_SOCKINCLUDE_UPSTREAM = """#include <fcntl.h>
+#include <errno.h>
+"""
+PB_IFACE_SOCKINCLUDE_ANDROID = """#include <fcntl.h>
+#include <errno.h>
+#include <sys/select.h>
+"""
+PB_IFACE_INCLUDE_UPSTREAM = """#include "PlayerbotTextMgr.h"
+"""
+PB_IFACE_INCLUDE_ANDROID = """#include "PlayerbotTextMgr.h"
+#include "PlayerbotLlmTools.h"
+#include "PlayerbotLlmJson.h"
+#include "PlayerbotLlmTruthCore.h"
+#include "PlayerbotLlmToolsCore.h"
+#include "PlayerbotLlmFilters.h"
+#include "PlayerbotLlmBridge.h"
+#include <cctype>
+#include <cstdlib>
+#include <deque>
+#include <map>
+#include <mutex>
+"""
+PB_SAY_INCLUDE_UPSTREAM = """#include "playerbot/PlayerbotTextMgr.h"
+#include "Chat/ChannelMgr.h"
+"""
+PB_SAY_INCLUDE_ANDROID = """#include "playerbot/PlayerbotTextMgr.h"
+#include "playerbot/PlayerbotLlmMemory.h"
+#include "playerbot/PlayerbotLlmPersona.h"
+#include "playerbot/PlayerbotLlmTools.h"
+#include "playerbot/PlayerbotLlmToolsCore.h"
+#include "playerbot/PlayerbotLlmBridge.h"
+#include "playerbot/PlayerbotLlmChatter.h"
+#include "playerbot/llm_banter_core.h"
+#include "Chat/ChannelMgr.h"
+#include <atomic>
+"""
+PB_SAY_CONTEXT_UPSTREAM = """        std::string llmContext = AI_VALUE(std::string, "manual string::llmcontext" + llmChannel);
+
+        if (player)
+        {
+            std::string playerName = player->GetName();
+"""
+PB_SAY_CONTEXT_ANDROID = """        std::string llmContext = AI_VALUE(std::string, "manual string::llmcontext" + llmChannel);
+
+        // S5/A1, S8: the PRE-STOMP pairing read - absence bucket AND the
+        // trained tier - captured BEFORE the relationship touch queues
+        // (the write is async, so a read after the queue push races it and
+        // the first-meeting beat would double-fire or never fire). One
+        // read, threaded to the sysm absence line, the bridge's beats and
+        // the A16 tier ceremony.
+        std::string llmAbsencePre;
+        int llmTierPre = 1;
+        // the event-turn drain flag + kind, hoisted beside the capture so
+        // the request-builder block below can carry them into the trained
+        // builder and the bridge
+        bool const llmEventTurn = isEventTurn;
+        uint32 const llmEventKind = eventKind;
+        // A2 stamp threading: the license stamp of the note THIS turn's
+        // builders record (BuildNote runs synchronously below), captured
+        // at note time and carried into the generation so its emissions
+        // are vetted against exactly that note - never the bot's live
+        // license at completion time (round-1 P1: an interleaved newer
+        // note or a note-less autonomous generation could otherwise be
+        // adopted). Zero seals the turn: nothing queues.
+        uint64_t llmLicenseStamp = 0;
+
+        if (player && player->isRealPlayer())
+        {
+            // E1 pacing law: acknowledge the whisper BEFORE the memory reads
+            // and the generation queue - face the speaker, one deterministic
+            // text emote, zero LLM cost, rate-capped per pairing (the world
+            // thread runs here; the ack lands inside the same world update
+            // that delivered the whisper, comfortably under the 1 s law).
+            // Whispers only: say/party answers already carry the A18
+            // persona-paced stagger.
+            if (chatChannelSource == ChatChannelSource::SRC_WHISPER && !llmEventTurn)
+                PlayerbotLlmMemory::AcknowledgeWhisper(bot, player);
+
+            // M6: the memory layer serves BOTH backends now - the journal,
+            // persona beats and the byte-stable context builder are pure
+            // string/DB work, so an external HTTP endpoint gets the same
+            // persistent memory the in-process backend always had.
+            // bot-to-bot chatter still never pays the memory cost.
+            PlayerbotLlmMemory::PreStompState const llmPre =
+                PlayerbotLlmMemory::GetPreStompState(bot, player);
+            llmAbsencePre = llmPre.absence;
+            llmTierPre = llmPre.tier;
+
+            // E4 visible progression: the standing one-liner rides the
+            // FIRST whisper of a session (once per pairing per process,
+            // system-colored, zero generation) - it frames the reply
+            // before any path voices it. A first meeting skips (the E2
+            // welcome owns that moment).
+            if (chatChannelSource == ChatChannelSource::SRC_WHISPER && !llmEventTurn)
+                PlayerbotLlmMemory::MaybeSessionStandingLine(bot, player, llmAbsencePre);
+
+            // M6 greeting + S8/A13-A19: a bare "hi" from someone the bot
+            // has not spoken with in hours or days gets the AUTHORED
+            // relationship-tier greeting (the tier state IS the warmth,
+            // and the welcome costs nothing) - now carrying the absence
+            // MAGNITUDE (never a passive line) and what the town says
+            // about the player. Falls through to the normal path for
+            // short absences (generation handles those).
+            if (sPlayerbotAIConfig.llmBanterEnabled &&
+                chatChannelSource == ChatChannelSource::SRC_WHISPER &&
+                !llmEventTurn &&
+                PlayerbotLlmPersona::IsSimpleGreeting(msg))
+            {
+                if (llmAbsencePre == "most of a day" || llmAbsencePre == "many days")
+                {
+                    std::string const greetLine =
+                        PlayerbotLlmMemory::AuthoredArrivalGreeting(bot, player, llmAbsencePre);
+                    if (!greetLine.empty())
+                    {
+                        bot->Whisper(greetLine, LANG_UNIVERSAL, player->GetObjectGuid());
+                        PlayerbotLlmMemory::AppendTurn(bot->GetGUIDLow(), player->GetGUIDLow(),
+                            false, player->GetName(), msg);
+                        PlayerbotLlmMemory::AppendTurn(bot->GetGUIDLow(), player->GetGUIDLow(),
+                            false, bot->GetName(), greetLine);
+                        PlayerbotLlmMemory::AddRelationshipPoints(bot, player, 1);
+                        return;
+                    }
+                }
+            }
+
+            // E2 first-contact onboarding: the player's FIRST-EVER bot
+            // contact is scripted (authored welcome that hints bots
+            // remember; the pairing's first-meeting fact forms inside
+            // through the native write - a scripted voice cannot emit tool
+            // markers). Whisper-class, never an event turn; empty falls
+            // through to the normal first-meeting beat for every pairing
+            // after the first.
+            if (chatChannelSource == ChatChannelSource::SRC_WHISPER && !llmEventTurn &&
+                llmAbsencePre == "a first meeting")
+            {
+                std::string const welcomeLine =
+                    PlayerbotLlmMemory::AuthoredFirstContactWelcome(bot, player);
+                if (!welcomeLine.empty())
+                {
+                    bot->Whisper(welcomeLine, LANG_UNIVERSAL, player->GetObjectGuid());
+                    PlayerbotLlmMemory::AppendTurn(bot->GetGUIDLow(), player->GetGUIDLow(),
+                        false, player->GetName(), msg);
+                    PlayerbotLlmMemory::AppendTurn(bot->GetGUIDLow(), player->GetGUIDLow(),
+                        false, bot->GetName(), welcomeLine);
+                    PlayerbotLlmMemory::AddRelationshipPoints(bot, player, 1);
+                    return;
+                }
+            }
+
+            // M5 journal interception: the bot's fact rows as a readable
+            // surface ("Bygdok's Journal"), zero generation cost
+            std::string lowerMsg = boost::algorithm::to_lower_copy(msg);
+            if (lowerMsg == "journal")
+            {
+                // the journal can run to several KB: it answers the
+                // whisperer in the whisper channel only, paced line by line
+                // like a diary being read out (LinesToPackets also enforces
+                // the 255-char per-packet line limit) - one multi-KB SMSG
+                // renders as a single unreadable wall of text in the chat
+                // frame. Light MsPerChar: diary pace, not chat-typing pace.
+                WorldPacket journalTemplate = GetPacketTemplate(CMSG_MESSAGECHAT, CHAT_MSG_WHISPER, bot, player);
+                futurePackets futJournal = std::async(std::launch::async,
+                    ChatReplyAction::LinesToPackets, PlayerbotLlmMemory::GetJournalLines(bot, player),
+                    journalTemplate, false, 4, WorldPacket(), 0);
+                ai->SendDelayedPacket(bot->GetSession(), std::move(futJournal));
+                return;
+            }
+
+            // E4 keyword surfaces (whisper only; zero generation):
+            // "standing" - the tier one-liner the journal header carries;
+            // "gossip" - the town-talk rows the greeting surfaces render.
+            // Deliberately NO relationship points: these are player-
+            // initiated reads, not conversations (the journal awards none
+            // either - round-1 R6: an uncapped +1 per keyword whisper was
+            // a zero-cost tier-5 farm).
+            if (chatChannelSource == ChatChannelSource::SRC_WHISPER && !llmEventTurn)
+            {
+                if (lowerMsg == "standing")
+                {
+                    std::string const standing = PlayerbotLlmMemory::StandingLine(bot, player);
+                    if (!standing.empty())
+                    {
+                        bot->Whisper(standing, LANG_UNIVERSAL, player->GetObjectGuid());
+                        return;
+                    }
+                }
+                else if (lowerMsg == "gossip")
+                {
+                    std::vector<std::string> const gossipLines =
+                        PlayerbotLlmMemory::GossipLines(bot, player);
+                    if (!gossipLines.empty())
+                    {
+                        WorldPacket gossipTemplate = GetPacketTemplate(CMSG_MESSAGECHAT, CHAT_MSG_WHISPER, bot, player);
+                        futurePackets futGossip = std::async(std::launch::async,
+                            ChatReplyAction::LinesToPackets, gossipLines,
+                            gossipTemplate, false, 4, WorldPacket(), 0);
+                        ai->SendDelayedPacket(bot->GetSession(), std::move(futGossip));
+                        return;
+                    }
+                    // nothing on the street: fall through and let the reply
+                    // say so in voice (an empty authored surface is not a
+                    // silent dead end)
+                }
+            }
+
+            // M5 persona fallback: known-hard improv categories get an
+            // authored beat instead of freeform generation. Both the
+            // triggering line and the beat are recorded under the same
+            // key convention as the normal path, and the relationship
+            // touch is kept. S8 fold (S5-logged): a FIRST MEETING never
+            // routes here - the first-meeting log_fact beat must fire, so
+            // the pairing's opening moment becomes memory.
+            std::string personaLine;
+            if (llmAbsencePre != "a first meeting" &&
+                PlayerbotLlmPersona::TryFallback(bot, msg,
+                    chatChannelSource == ChatChannelSource::SRC_WHISPER, personaLine))
+            {
+                uint32 llmPersonaKey = chatChannelSource == ChatChannelSource::SRC_WHISPER
+                    ? player->GetGUIDLow()
+                    : (0x80000000u | static_cast<uint32>(chatChannelSource));
+                PlayerbotLlmMemory::AppendTurn(bot->GetGUIDLow(), llmPersonaKey,
+                    chatChannelSource != ChatChannelSource::SRC_WHISPER, player->GetName(), msg);
+                if (chatChannelSource == ChatChannelSource::SRC_WHISPER)
+                    bot->Whisper(personaLine, LANG_UNIVERSAL, player->GetObjectGuid());
+                else if (chatChannelSource == ChatChannelSource::SRC_RAID)
+                    bot->GetPlayerbotAI()->SayToRaid(personaLine);
+                else if (chatChannelSource == ChatChannelSource::SRC_SAY)
+                    bot->Say(personaLine, LANG_UNIVERSAL);
+                else
+                    bot->GetPlayerbotAI()->SayToParty(personaLine);
+                PlayerbotLlmMemory::AppendTurn(bot->GetGUIDLow(), llmPersonaKey,
+                    chatChannelSource != ChatChannelSource::SRC_WHISPER, bot->GetName(), personaLine);
+                PlayerbotLlmMemory::AddRelationshipPoints(bot, player, 1);
+                return;
+            }
+
+            // M2: the byte-stable ordered segment builder replaces the ad-hoc
+            // rolling string for the in-process backend (backstory -> tier ->
+            // absence -> facts -> gossip -> rolling turns)
+            // the absence bucket reads last_interaction_at, so the
+            // relationship touch that stomps it happens only AFTER the
+            // context is built. Whisper history is per (bot, player);
+            // party/raid history is shared per (bot, channel) - including
+            // the bot's own reply lines (recorded post-generation).
+            uint32 llmTurnKey = chatChannelSource == ChatChannelSource::SRC_WHISPER
+                ? player->GetGUIDLow()
+                : (0x80000000u | static_cast<uint32>(chatChannelSource));
+            // synthetic event prompts are recorded under an "(event)" pseudo
+            // speaker so later prompts read as narration, never as the
+            // player saying stage directions. The flag is the drain flag
+            // threaded from the event site - never derived from msg text
+            // (the former "(event) " prefix was player-forgeable).
+            bool const eventTurn = llmEventTurn;
+            std::string turnText = msg;
+            if (eventTurn)
+            {
+                // the event drain appends a one-shot "say something!" cue to
+                // make the bot answer; persisting it would replay a stale
+                // imperative in every later prompt. It still reaches the
+                // CURRENT generation through the <prompt> template, whose
+                // <initial message> placeholder is filled from the untrimmed
+                // msg.
+                std::string const nudge = std::string(" ") + bot->GetName() + ", say something!";
+                if (turnText.size() >= nudge.size() &&
+                    turnText.compare(turnText.size() - nudge.size(), nudge.size(), nudge) == 0)
+                    turnText.resize(turnText.size() - nudge.size());
+            }
+            PlayerbotLlmMemory::AppendTurn(bot->GetGUIDLow(), llmTurnKey,
+                chatChannelSource != ChatChannelSource::SRC_WHISPER,
+                eventTurn ? "(event)" : player->GetName(), turnText);
+            llmContext = PlayerbotLlmMemory::BuildPromptContext(bot, player, (int)chatChannelSource, chanName);
+            PlayerbotLlmMemory::AddRelationshipPoints(bot, player, 1);
+        }
+
+        if (player)
+        {
+            std::string playerName = player->GetName();
+"""
+PB_SAY_PROMPT_V2_UPSTREAM = """                std::string json;
+
+                if (useLlamaBackend)
+                {
+                    // raw completion prompt - the in-process backend takes
+                    // plain text, no JSON envelope and no escaping
+                    json = jsonFill["<pre prompt>"] + " " + jsonFill["<context>"] + " " + jsonFill["<prompt>"] + " " + jsonFill["<post prompt>"];
+                }
+"""
+PB_SAY_PROMPT_V2_ANDROID = """                std::string json;
+
+                // A4/A5: the trained prompt format builds the request
+                // NATIVELY (messages array in the trained contract,
+                // byte-diffed against the training renderer by the host
+                // battery) - no conf-template surgery. Falls back to the
+                // template paths below when LLMPromptFormat = 0 (hand-
+                // configured servers) or the llama debug backend.
+                if (sPlayerbotAIConfig.llmPromptFormat && !useLlamaBackend && player && player->isRealPlayer())
+                {
+                    uint32 const llmTrainedKey = (chatChannelSource == ChatChannelSource::SRC_WHISPER && player)
+                        ? player->GetGUIDLow()
+                        : (0x80000000u | static_cast<uint32>(chatChannelSource));
+                    json = PlayerbotLlmMemory::BuildTrainedChatRequest(bot, player, msg, llmTrainedKey, llmAbsencePre, llmTierPre, llmEventTurn, llmEventKind, &llmLicenseStamp);
+                }
+
+                // A0: tool instructions ride BOTH backends (G-1: they were
+                // llama-only, so the shipped HTTP config could never elicit
+                // a tool call). The instruction text lands in the <pre
+                // prompt> fill: raw concatenation for the in-process
+                // backend, JSON-escaped into the system message by the
+                // template path below. (Under the trained format the tools
+                // note rides the system message already.)
+                if (json.empty() && sPlayerbotAIConfig.llmToolsEnabled)
+                    jsonFill["<pre prompt>"] += " " + PlayerbotLlmTools::ToolInstructions(bot->GetGUIDLow());
+
+                // A1: the bridge's note rides the legacy paths too - ONE
+                // bridge, every backend (the trained path bridges inside
+                // BuildTrainedChatRequest). Event turns render through the
+                // trained [EVENT] head + speak-first directive here as well.
+                if (json.empty() && player && player->isRealPlayer())
+                {
+                    PlayerbotLlmBridge::TurnState llmTurn;
+                    llmTurn.absence = llmAbsencePre;
+                    llmTurn.tier = llmTierPre;
+                    llmTurn.eventTurn = llmEventTurn;
+                    llmTurn.eventKind = llmEventKind;
+                    std::string const llmBridgeTurn =
+                        PlayerbotLlmBridge::RenderLegacyTurn(bot, player, msg, llmTurn, &llmLicenseStamp);
+                    if (!llmBridgeTurn.empty())
+                        jsonFill["<post prompt>"] += llmBridgeTurn;
+                }
+
+                if (json.empty() && useLlamaBackend)
+                {
+                    // raw completion prompt - the in-process backend takes
+                    // plain text, no JSON envelope and no escaping
+                    json = jsonFill["<pre prompt>"] + " " + jsonFill["<context>"] + " " + jsonFill["<prompt>"] + " " + jsonFill["<post prompt>"];
+                }
+"""
+# --- S8/A18: persona-paced say-reply staggering -------------------------------
+# The LLM path queued with noDelay (instant) on every channel - instant
+# uniform replies are uncanny in a crowd. Whispers stay instant (E1's
+# <1s ack is S9 law); a name-mention /say answer staggers 2-5s; the
+# random-bot path keeps its own legacy 10-20s roll (delaySecs -1).
+PB_AI_QUEUE_DECL_UPSTREAM = """    void QueueChatResponse(uint32 msgType, ObjectGuid guid1, ObjectGuid guid2, std::string message, std::string chanName, std::string name, bool noDelay = false);
+"""
+PB_AI_QUEUE_DECL_ANDROID = """    void QueueChatResponse(uint32 msgType, ObjectGuid guid1, ObjectGuid guid2, std::string message, std::string chanName, std::string name, bool noDelay = false, int32 delaySecs = -1);
+"""
+PB_AI_QUEUE_DEF_UPSTREAM = """void PlayerbotAI::QueueChatResponse(uint32 msgType, ObjectGuid guid1, ObjectGuid guid2, std::string message, std::string chanName, std::string name, bool noDelay)
+{
+    std::scoped_lock lock(chatRepliesMutex);
+    chatReplies.push(ChatQueuedReply(msgType, guid1.GetCounter(), guid2.GetCounter(), message, chanName, name, time(0) + (noDelay ? 0 : urand(inCombat ? 15 : 10, inCombat ? 30 : 20))));
+}
+"""
+PB_AI_QUEUE_DEF_ANDROID = """void PlayerbotAI::QueueChatResponse(uint32 msgType, ObjectGuid guid1, ObjectGuid guid2, std::string message, std::string chanName, std::string name, bool noDelay, int32 delaySecs)
+{
+    std::scoped_lock lock(chatRepliesMutex);
+    chatReplies.push(ChatQueuedReply(msgType, guid1.GetCounter(), guid2.GetCounter(), message, chanName, name, time(0) + (noDelay ? 0 : (delaySecs >= 0 ? delaySecs : urand(inCombat ? 15 : 10, inCombat ? 30 : 20)))));
+}
+"""
+PB_AI_QUEUE_CALL_UPSTREAM = """                MANGOS_ASSERT(!message.empty());     
+                QueueChatResponse(msgtype, guid1, ObjectGuid(), message, chanName, name, isAiChat);
+"""
+PB_AI_QUEUE_CALL_ANDROID = """                MANGOS_ASSERT(!message.empty());
+                // S8/A18 pacing: the LLM path answers whispers/part/raid
+                // the moment generation finishes (noDelay), but a /say
+                // ANSWER (a name mention - the only say that generates)
+                // staggers 2-5s so a street scene reads as people, not a
+                // chorus. A NON-mention say passes undelayed: it never
+                // reaches a generation (the hard-trigger gate refuses
+                // it), and the crowd tier's own 2-5s notBefore is the
+                // whole pacing that class needs (round-1 R5: stacking
+                // both delays made crowd emotes land 4-10s late). The
+                // random-bot path keeps the legacy roll.
+                int32 llmSayStagger = -1;
+                bool llmSayNoDelay = isAiChat;
+                if (isAiChat && !isMentioned &&
+                    GetChatChannelSource(bot, msgtype, chanName) == ChatChannelSource::SRC_SAY)
+                    llmSayNoDelay = true;
+                else if (isAiChat && isMentioned &&
+                    GetChatChannelSource(bot, msgtype, chanName) == ChatChannelSource::SRC_SAY)
+                {
+                    llmSayStagger = int32(urand(2, 5));
+                    llmSayNoDelay = false;
+                }
+                QueueChatResponse(msgtype, guid1, ObjectGuid(), message, chanName, name, llmSayNoDelay, llmSayStagger);
+"""
+PB_UPDATEAI_UPSTREAM = """void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
+{
+    AiObjectContext* context = aiObjectContext;
+"""
+PB_UPDATEAI_ANDROID = """void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
+{
+    // world-thread executor for LLM tool side-effects (validated against
+    // live state at execution time) and the M3/M6 event reactions
+    if (bot->IsInWorld() && !minimal)
+    {
+        PlayerbotLlmTools::ExecutePending(bot);
+
+        if (sPlayerbotAIConfig.llmEnabled)
+        {
+            PlayerbotLlmMemory::EventReaction reaction;
+            if (PlayerbotLlmMemory::DrainEventReaction(bot->GetGUIDLow(), reaction))
+            {
+                if (reaction.authored && reaction.emote)
+                {
+                    // S8/A18 crowd tier: the reaction's text is an emote
+                    // name - the deterministic text-emote path (the
+                    // licensed perform_emote executor's own delivery).
+                    Player* emoteTarget = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, reaction.playerGuid));
+                    PlayerbotLlmTools::PlayTextEmote(bot, emoteTarget, reaction.text);
+                }
+                else if (reaction.authored)
+                {
+                    // M6 authored banter (kill quips): the text is final -
+                    // rendered and tic-seasoned at queue time. No generation
+                    // is behind it, so it just speaks on the party channel.
+                    // S8: a SAY-tagged authored reaction (the bot2bot reply,
+                    // which answers on the channel the bystander heard the
+                    // opener on) speaks on /say even when grouped.
+                    if (reaction.msgtype == CHAT_MSG_SAY)
+                        bot->Say(reaction.text, LANG_UNIVERSAL);
+                    else if (bot->GetGroup())
+                        bot->GetPlayerbotAI()->SayToParty(reaction.text);
+                    else
+                        bot->Say(reaction.text, LANG_UNIVERSAL);
+                }
+                else
+                {
+                    Player* eventPlayer = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, reaction.playerGuid));
+                    if (eventPlayer)
+                        ChatReplyAction::ChatReplyDo(bot,
+                            reaction.msgtype ? reaction.msgtype : uint32(CHAT_MSG_PARTY),
+                            reaction.playerGuid, 0,
+                            reaction.text + " " + bot->GetName() + ", say something!", "",
+                            eventPlayer->GetName(), /*isEventTurn=*/true, reaction.eventKind);
+                }
+            }
+
+            // M6 rare ambient banter: authored idle/mood lines while
+            // adventuring with the master. All gating (banter flag, combat,
+            // proximity, 90s cadence, 1-in-16 roll, shared 15-min ambient
+            // slot) lives inside the call; it is a no-op when any gate fails.
+            PlayerbotLlmPersona::MaybeAmbientLine(bot);
+
+            // S8/A17 initiative scheduler: the authored speak-first layer
+            // (arrival greet-first, debt reminders, tier-gated ask-afters,
+            // the rare bot2bot exchange). Every gate lives inside the call
+            // (banter flag, combat, the 10-min zero-spam cap); no-op when
+            // any fails.
+            PlayerbotLlmMemory::TickInitiative(bot);
+
+            // keep the active-party slots warm: KV cache is cheap relative
+            // to weights on E2B, so nobody in the party is ever cold. Prefill
+            // only (no sampled tokens, no governor budget spent), in-process
+            // backend only, in the exact prompt shape a real party turn uses
+            // so the warmed prefix is actually reusable.
+            if (sPlayerbotAIConfig.llmBackend == PlayerbotAIConfig::LLM_BACKEND_LLAMA &&
+                PlayerbotLlmMemory::PrewarmDue(bot->GetGUIDLow()))
+            {
+                if (Player* master = bot->GetPlayerbotAI()->GetMaster())
+                {
+                    // byte-for-byte the pre-prompt of a real party turn:
+                    // full placeholder set, the bot's saved custom prompt,
+                    // then the tool instructions - so the warmed KV prefix
+                    // actually matches the next real generation
+                    std::map<std::string, std::string> prewarmPlaceholders;
+                    ChatReplyAction::GetAIChatPlaceholders(prewarmPlaceholders, bot, master);
+                    ChatReplyAction::GetAIChatPlaceholders(prewarmPlaceholders, bot, "bot");
+                    ChatReplyAction::GetAIChatPlaceholders(prewarmPlaceholders, master, "other");
+                    prewarmPlaceholders["<channel name>"] = "in party chat";
+                    std::string llmPromptCustom = aiObjectContext->GetValue<std::string>("manual saved string::llmdefaultprompt")
+                        ? aiObjectContext->GetValue<std::string>("manual saved string::llmdefaultprompt")->Get()
+                        : std::string();
+                    std::string prePrompt = BOT_TEXT2(sPlayerbotAIConfig.llmPrePrompt + " " + llmPromptCustom, prewarmPlaceholders);
+                    if (sPlayerbotAIConfig.llmToolsEnabled)
+                        prePrompt += " " + PlayerbotLlmTools::ToolInstructions(bot->GetGUIDLow());
+                    PlayerbotLlamaRuntime::PreWarmSlot(bot->GetGUIDLow(),
+                        prePrompt + " " + PlayerbotLlmMemory::BuildPromptContext(bot, master, (int)ChatChannelSource::SRC_PARTY, ""));
+                }
+            }
+        }
+    }
+
+    AiObjectContext* context = aiObjectContext;
+"""
+PB_RPG_MANUAL_GET_UPSTREAM = """GAI_VALUE2(std::string, "global string", "llmcontext manual" + std::to_string(target.GetCounter()))"""
+PB_RPG_MANUAL_GET_ANDROID = """AI_VALUE(std::string, "manual string::llmcontext manual" + std::to_string(target.GetCounter()))"""
+PB_RPG_MANUAL_SET_UPSTREAM = """SET_GAI_VALUE2(std::string, "global string", "llmcontext manual" + std::to_string(target.GetCounter()), llmContext)"""
+PB_RPG_MANUAL_SET_ANDROID = """SET_AI_VALUE(std::string, "manual string::llmcontext manual" + std::to_string(target.GetCounter()), llmContext)"""
+PB_LLM_CONF_UPSTREAM = """# Time in seconds the server will wait for the generation to finish. This includes waiting in queue.
+# AiPlayerbot.LLMGenerationTimeout = 600
+"""
+PB_LLM_CONF_ANDROID = """# Time in seconds the server will wait for the generation to finish. This includes waiting in queue.
+# A6: 60 is the T1/T3 tier default (the app emits the selected tier's value: T2 45, T4 30).
+# AiPlayerbot.LLMGenerationTimeout = 60
+# S9/T4: bounded TCP connect for the endpoint (seconds). A dead external
+# endpoint fails inside this budget instead of hanging for the OS default;
+# loopback embedded connects are instant either way.
+# AiPlayerbot.LLMConnectTimeout = 10
+# In-process llama.cpp backend (arm64 devices only): 0 = http endpoint, 1 = embedded runtime.
+# AiPlayerbot.LLMBackend = 0
+# Trained prompt format (A4/A5): 1 = the native messages builder speaks the
+# training contract (system = identity/TOOLS_NOTE/bible/backstory/tier/
+# absence/facts; user = [Memories]/[State] tail; role-separated history);
+# 0 = the legacy LLMApiJson template fill below. Requires a
+# /v1/chat/completions endpoint.
+# AiPlayerbot.LLMPromptFormat = 0
+# Request model name for the native builder (the app emits its tier's).
+# AiPlayerbot.LLMApiModel = local
+# 1 = emit chat_template_kwargs {"enable_thinking": false} for model
+# families whose export template defaults to thinking (qwen; SS4.4).
+# AiPlayerbot.LLMThinkingKwargs = 0
+# 1 = strip llama.cpp-only body fields (top_k/repeat_penalty/min_p/
+# presence_penalty) for external endpoints that reject unknown keys.
+# AiPlayerbot.LLMProviderSafe = 0
+# Memory depth (SS2.1): system-segment facts cap + [Memories] tail size.
+# AiPlayerbot.LLMFactsCap = 12
+# AiPlayerbot.LLMMemoriesTail = 6
+# Prompt-dump hook (M1a): one JSON line per trained-format generation is
+# appended to this file (device-side byte-diff verification; dev-only -
+# grows unbounded).
+# AiPlayerbot.LLMPromptDumpFile =
+# S7/A11: the lore card index (jsonl, one card per line: title/text/
+# keys/poi) built from the era-scrubbed vanilla corpus by
+# tools/llm_lab/build_lore_cards.py. Empty = the lore retrieval loop is
+# off (question turns get no [RESULT] cards and move_to stays refused);
+# the entity guard still works without it.
+# AiPlayerbot.LLMLoreFile =
+# S7/A11: 1 = bias the always-ban era terms (shattrath, draenei,
+# pandaren, acherus) by resolving their token ids once through the
+# embedded server's /tokenize endpoint (-50 both token cases). Fails
+# open when /tokenize is unavailable; external (providerSafe) endpoints
+# never receive the key.
+# AiPlayerbot.LLMEraBias = 1
+# Extra sampling knobs for the trained builder AND the in-process backend
+# (the legacy template carries its own copy of all sampling values):
+# AiPlayerbot.LLMMinP = 0.0
+# AiPlayerbot.LLMPresencePenalty = 0.0
+# Absolute path of the GGUF model for the embedded runtime.
+# AiPlayerbot.LLMModelPath =
+# Threads pinned to the mid cores (first core + N consecutive cores).
+# AiPlayerbot.LLMThreads = 3
+# AiPlayerbot.LLMCpuFirstCore = 3
+# Context size and warm slots per party.
+# AiPlayerbot.LLMCtxSize = 4096
+# AiPlayerbot.LLMSlots = 4
+# Sampling: temp / top-k / top-p / repeat penalty.
+# AiPlayerbot.LLMTemp = 0.8
+# AiPlayerbot.LLMTopK = 64
+# AiPlayerbot.LLMTopP = 0.95
+# AiPlayerbot.LLMRepeatPenalty = 1.1
+# New tokens per reply (A6 hand-configured fallback 200; the app emits
+# the tier's value: 230 T1, 210 T2/T3, 300 T4 - the S11 raise). At >= 225
+# the long-form cue arms (the P50 bank's licensed tellings); a hand
+# config that raises this while leaving a hand-written LLMApiJson at a
+# lower max_tokens would arm the cue and truncate the telling - keep the
+# two in lockstep.
+# AiPlayerbot.LLMMaxNewTokens = 200
+# Duty-cycle governor: max generations per bot / globally inside the window.
+# AiPlayerbot.LLMGovernorWindow = 60
+# AiPlayerbot.LLMGovernorBotMax = 8
+# AiPlayerbot.LLMGovernorGlobalMax = 24
+# Busy placeholder shown when the governor trips on a player-facing path. A
+# closing statement, not a promise - nothing is ever scheduled afterwards.
+# AiPlayerbot.LLMBusyReply = Hm. I will be thinking on that a while.
+# Tool-calling (log_fact / adjust_sentiment / share_gossip / perform_emote).
+# AiPlayerbot.LLMToolsEnabled = 1
+# Authored banter layer (rare kill quips, tier greetings, idle/mood lines) -
+# costs nothing, no model calls. 0 = bots only ever speak in reply.
+# AiPlayerbot.LLMBanterEnabled = 1
+# S8: the authored INITIATIVE layer rides the same switch - greet-first on
+# a remembered player's return, debt reminders, tier-gated ask-afters, the
+# rare bot2bot exchange when a player walks up, and the crowd tier's
+# deterministic emotes on ambient /say (never a generation; 1 line per bot
+# per 10 min - the zero-spam cap). 0 keeps bots reply-only.
+# S10/E6 world chatter (the LLM-voiced ambient layers): party banter,
+# proximity murmur, rare general-chat set pieces, all event-gated (silence
+# is the default - no fact-bank row, no line). The app emits these
+# whenever it stages the power file; the FILE's enabled flag is the
+# master switch (re-read every tick, so the ambience toggle works
+# mid-session in both directions) and carries the live power-ladder rung
+# the app refreshes (missing/stale = chatter stops or degrades to the
+# authored floor). The composer endpoint is the optional cloud script
+# generator (empty = device single-line batches).
+# AiPlayerbot.LLMChatterEnabled = 0
+# AiPlayerbot.LLMChatterPowerFile =
+# AiPlayerbot.LLMChatterComposerUrl =
+# AiPlayerbot.LLMChatterComposerModel = local
+# AiPlayerbot.LLMChatterComposerKey =
+"""
+# S10: the endpoint/key override legs inside GenerateHttp - the composer
+# path POSTs to its own endpoint through the same hardened client. Both
+# anchors patch pristine lines the driver never touched before.
+PB_IFACE_EP_URL_UPSTREAM = """    ParsedUrl parsedUrl = sPlayerbotAIConfig.llmEndPointUrl;
+"""
+PB_IFACE_EP_URL_ANDROID = """    ParsedUrl parsedUrl = endpointOverride ? *endpointOverride : sPlayerbotAIConfig.llmEndPointUrl;
+"""
+PB_IFACE_EP_KEY_UPSTREAM = """    if (!sPlayerbotAIConfig.llmApiKey.empty())
+        request << "Authorization: Bearer " << sPlayerbotAIConfig.llmApiKey << "\\r\\n";
+"""
+PB_IFACE_EP_KEY_ANDROID = """    std::string const& chatApiKey = apiKeyOverride ? *apiKeyOverride : sPlayerbotAIConfig.llmApiKey;
+    if (!chatApiKey.empty())
+        request << "Authorization: Bearer " << chatApiKey << "\\r\\n";
+"""
+# core hooks for the M3 event allowlist
+# the SendPacket line makes the anchor unique: PLAYER_NEXT_LEVEL_XP is also
+# set in InitStatsForLevel (login-time stat init) and only GiveLevel precedes
+# it with the packet send - first-match-by-file-order alone hooked the right
+# function only by accident of layout
+CORE_GIVELEVEL_UPSTREAM = """    GetSession()->SendPacket(data);
+
+    SetUInt32Value(PLAYER_NEXT_LEVEL_XP, sObjectMgr.GetXPForLevel(level));
+"""
+CORE_GIVELEVEL_ANDROID = """    GetSession()->SendPacket(data);
+
+    SetUInt32Value(PLAYER_NEXT_LEVEL_XP, sObjectMgr.GetXPForLevel(level));
+
+#ifdef ENABLE_PLAYERBOTS
+    // LLM companion event allowlist: level-up of any group member
+    PlayerbotLlmMemory::OnPlayerLevelUp(this, level);
+#endif
+"""
+# A14: the duel-outcome hook. The anchor sits before the duel state is
+# deleted (duel->opponent still live); this one function covers all nine
+# outcome call sites - Unit.cpp's damage win calls DuelComplete on the
+# LOSER with DUEL_WON, the flee/interrupt sites on the fleeing/leaving
+# player - so a single hook sees every outcome.
+CORE_DUELCOMPLETE_UPSTREAM = """    // restore health/mana view for friendly player
+    ForceHealthAndPowerUpdate();
+    duel->opponent->ForceHealthAndPowerUpdate();
+"""
+CORE_DUELCOMPLETE_ANDROID = """    // restore health/mana view for friendly player
+    ForceHealthAndPowerUpdate();
+    duel->opponent->ForceHealthAndPowerUpdate();
+
+#ifdef ENABLE_PLAYERBOTS
+    PlayerbotLlmMemory::OnDuelComplete(this, duel->opponent, type);
+#endif
+"""
+# S9/E2: the one-time first-contact onboarding line rides login (gating +
+# the once-per-character no-pairing-yet check live in the memory layer;
+# the world conf is only LLM-armed when the app started the runtime
+# before the world - the supervisor's measured ordering). The two
+# "must be after add to map" comment lines make the tail of
+# SendInitialPacketsAfterAddToMap unique.
+CORE_LOGIN_ONBOARDING_UPSTREAM = """    SendEnchantmentDurations();                             // must be after add to map
+    SendItemDurations();                                    // must be after add to map
+}
+"""
+CORE_LOGIN_ONBOARDING_ANDROID = """    SendEnchantmentDurations();                             // must be after add to map
+    SendItemDurations();                                    // must be after add to map
+
+#ifdef ENABLE_PLAYERBOTS
+    PlayerbotLlmMemory::OnPlayerLogin(this);
+#endif
+}
+"""
+# S6: ChatReplyDo gains the event-turn flag threaded from the event
+# drain (the former "(event) " string prefix was player-forgeable: any
+# whisper could have claimed the event path). Defaulted so the upstream
+# call sites (the chat dispatch holder, the debug gen path) compile
+# unchanged and are simply never event turns.
+PB_SAY_CHATREPLY_DECL_UPSTREAM = """        static void ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32 guid2, std::string msg, std::string chanName, std::string name);
+"""
+PB_SAY_CHATREPLY_DECL_ANDROID = """        static void ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32 guid2, std::string msg, std::string chanName, std::string name, bool isEventTurn = false, uint32 eventKind = 0);
+"""
+PB_SAY_CHATREPLY_DEF_UPSTREAM = """void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32 guid2, std::string msg, std::string chanName, std::string name)
+{"""
+PB_SAY_CHATREPLY_DEF_ANDROID = """void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32 guid2, std::string msg, std::string chanName, std::string name, bool isEventTurn, uint32 eventKind)
+{"""
+CORE_PLAYER_INCLUDE_UPSTREAM = """#ifdef ENABLE_PLAYERBOTS
+#include "playerbot/playerbot.h"
+#include "playerbot/PlayerbotAIConfig.h"
+#endif
+"""
+CORE_PLAYER_INCLUDE_ANDROID = """#ifdef ENABLE_PLAYERBOTS
+#include "playerbot/playerbot.h"
+#include "playerbot/PlayerbotAIConfig.h"
+#include "playerbot/PlayerbotLlmMemory.h"
+#endif
+"""
+CORE_LOOT_UPSTREAM = """    InventoryResult result = loot->SendItem(_player, lootItem);
+"""
+CORE_LOOT_ANDROID = """    InventoryResult result = loot->SendItem(_player, lootItem);
+
+#ifdef ENABLE_PLAYERBOTS
+    // LLM companion event allowlist: rare-or-better loot by a group member
+    if (result == EQUIP_ERR_OK)
+        PlayerbotLlmMemory::OnPlayerRareLoot(_player, lootItem->itemId);
+#endif
+"""
+CORE_LOOT_INCLUDE_UPSTREAM = """#include "Entities/Player.h"
+#include "Globals/ObjectAccessor.h"
+"""
+CORE_LOOT_INCLUDE_ANDROID = """#include "Entities/Player.h"
+#include "Globals/ObjectAccessor.h"
+#ifdef ENABLE_PLAYERBOTS
+#include "playerbot/PlayerbotLlmMemory.h"
+#endif
+"""
+# --- M6: Unit::Kill hook for authored kill banter ---------------------------
+# The once-per-kill credit block (tapper is the loot-recipient Player*, the
+# reward lines make the anchor unique within Unit.cpp). The memory layer does
+# its own gating: real players only, 4% roll, party stagger, ambient cooldown.
+CORE_UNIT_INCLUDE_UPSTREAM = """#include "Globals/ObjectMgr.h"
+"""
+CORE_UNIT_INCLUDE_ANDROID = """#include "Globals/ObjectMgr.h"
+#ifdef ENABLE_PLAYERBOTS
+#include "playerbot/PlayerbotLlmMemory.h"
+#endif
+"""
+CORE_UNIT_KILL_UPSTREAM = """    // Reward player, his pets, and group/raid members
+    if (tapper != victim)
+    {
+        if (tapperGroup)
+            tapperGroup->RewardGroupAtKill(victim, tapper);
+        else if (tapper)
+            tapper->RewardSinglePlayerAtKill(victim);
+    }
+"""
+CORE_UNIT_KILL_ANDROID = """    // Reward player, his pets, and group/raid members
+    if (tapper != victim)
+    {
+        if (tapperGroup)
+            tapperGroup->RewardGroupAtKill(victim, tapper);
+        else if (tapper)
+            tapper->RewardSinglePlayerAtKill(victim);
+    }
+
+#ifdef ENABLE_PLAYERBOTS
+    // LLM companion authored kill banter: one hook per kill (world thread);
+    // OnPlayerGroupKill rolls, staggers and rate-limits internally.
+    if (tapper)
+        PlayerbotLlmMemory::OnPlayerGroupKill(tapper, victim);
+#endif
+"""
+# --- M6: neuter tool markers in the player's raw words ----------------------
+# The <initial message> placeholder is the only path where player text enters
+# the prompt un-choked (history writes all funnel through the neutered
+# AppendTurn). The statement line is unique within SayAction.cpp.
+PB_SAY_NEUTER_UPSTREAM = """                placeholders["<initial message>"] = msg;
+"""
+PB_SAY_NEUTER_ANDROID = """                // injection hygiene: tool markers AND prompt furniture in
+                // the player's words die here - the model must never see
+                // live protocol it could echo back as a forged call, nor
+                // a forged "[RESULT]"/"[BRIDGE AI]" line on the legacy
+                // path (AppendTurn scrubs history writes; the trained
+                // builder scrubs its own turn; this covers the direct
+                // placeholder echo on the conf-template/llama paths)
+                msg = pocketllm::NeuterMarkersCopy(PlayerbotLlmMemory::ScrubControlTokens(msg).c_str());
+                placeholders["<initial message>"] = msg;
+"""
+# --- S2/A9: truncation-aware, decode-aware line splitting --------------------
+# Generate's HTTP JSON-client leg sets thread_local state bits; ParseResponse
+# (same async worker thread) reads and clears them: TRUNCATED drops the
+# dangling partial sentence a finish_reason=="length" reply ends with, and
+# JSON_DECODED skips the two JSON-era residue transforms below (they exist
+# for raw-body extraction and mangle decoded prose). Both anchor lines are
+# unique: "start pattern:" appears once, the ReplaceAll call once.
+PB_LLM_IFACE_PARSE_UPSTREAM = """    std::string actualResponse = response;
+
+    if (debug)
+        debugLines.push_back("start pattern:" + startPattern);
+"""
+PB_LLM_IFACE_PARSE_ANDROID = """    std::string actualResponse = response;
+
+    // A9 per-generation state (set by Generate's HTTP JSON-client leg on
+    // this same worker thread). Read-and-clear: the llama path sets neither
+    // bit and a later parse must never see a stale one.
+    int const llmGenerationState = pocketLlmGenerationState;
+    pocketLlmGenerationState = 0;
+    if (llmGenerationState & POCKET_LLM_GEN_TRUNCATED)
+    {
+        actualResponse = pocketllm::TrimTruncatedTail(actualResponse);
+        if (debug)
+            debugLines.push_back("truncated generation: dangling tail trimmed");
+    }
+
+    if (debug)
+        debugLines.push_back("start pattern:" + startPattern);
+"""
+PB_LLM_IFACE_UNESCAPE_UPSTREAM = """    PlayerbotTextMgr::ReplaceAll(actualResponse, R"(\\")", "'");
+"""
+PB_LLM_IFACE_UNESCAPE_ANDROID = """    // A9: this rewrite strips the escaped-quote residue of RAW-body regex
+    // extraction; on the JSON-decoded path the quotes are already decoded,
+    // and rewriting them would mangle ordinary quoted speech.
+    if (!(llmGenerationState & POCKET_LLM_GEN_JSON_DECODED))
+        PlayerbotTextMgr::ReplaceAll(actualResponse, R"(\\")", "'");
+"""
+PB_LLM_IFACE_DELETE_UPSTREAM = """    if (!deletePattern.empty()) {
+"""
+PB_LLM_IFACE_DELETE_ANDROID = """    // A9: the reviewed delete pattern targets JSON-era escape residue
+    // (`\\n`, `\\uXXXX`) that never exists in decoded prose - but its
+    // `\\[^ ]+` alternative eats a literal backslash and the word after
+    // it. Decoded content skips it; the raw fallback path keeps it.
+    if (!(llmGenerationState & POCKET_LLM_GEN_JSON_DECODED) && !deletePattern.empty()) {
+"""
+# --- M6: GenerateHttp external-endpoint hardening ---------------------------
+# The raw body under the header block was returned as-is: a non-200 error
+# page became the "completion" (the start pattern then yields "" - silent
+# bot) and a chunked body kept its hex chunk framing. Both break any real
+# external endpoint (OpenAI, OpenRouter, ...); llama-server is unaffected.
+PB_LLM_IFACE_HTTP_UPSTREAM = """    size_t pos = response.find("\\r\\n\\r\\n");
+    if (pos != std::string::npos) {
+        response = response.substr(pos + 4);
+        if (debug)
+            debugLines.push_back("HTTP Body: " + response);
+    }
+
+    return response;
+"""
+PB_LLM_IFACE_HTTP_ANDROID = """    // status + framing hardening for real-world endpoints
+    {
+        size_t const headerEnd = response.find("\\r\\n\\r\\n");
+        std::string const headers = headerEnd == std::string::npos ? response : response.substr(0, headerEnd);
+        std::string body = headerEnd == std::string::npos ? std::string() : response.substr(headerEnd + 4);
+
+        // status line: "HTTP/1.x NNN ...". A 0 (unparseable) keeps the
+        // legacy lenient behavior; any non-2xx is a hard error.
+        {
+            size_t const lineEnd = headers.find("\\r\\n");
+            std::string const statusLine = headers.substr(0, lineEnd == std::string::npos ? headers.size() : lineEnd);
+            size_t const sp1 = statusLine.find(' ');
+            int statusCode = 0;
+            if (sp1 != std::string::npos)
+                statusCode = atoi(statusLine.c_str() + sp1 + 1);
+            if (statusCode && (statusCode < 200 || statusCode >= 300))
+            {
+                if (debug)
+                    debugLines.push_back("HTTP status " + std::to_string(statusCode) + " - treating as error");
+                sLog.outError("BotLLM: HTTP status %d from the LLM endpoint", statusCode);
+                return "error";
+            }
+        }
+
+        // de-chunk a Transfer-Encoding: chunked body (hex sizes, final 0
+        // chunk whose trailer is dropped with the loop break)
+        {
+            std::string lowerHeaders = headers;
+            for (char& c : lowerHeaders)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (lowerHeaders.find("transfer-encoding: chunked") != std::string::npos)
+            {
+                std::string decoded;
+                size_t read = 0;
+                while (read < body.size())
+                {
+                    size_t const eol = body.find("\\r\\n", read);
+                    if (eol == std::string::npos)
+                        break;
+                    unsigned long const chunkLen = strtoul(body.c_str() + read, nullptr, 16);
+                    read = eol + 2;
+                    if (chunkLen == 0)
+                        break;
+                    if (read + chunkLen > body.size())
+                        break;
+                    decoded.append(body, read, chunkLen);
+                    read += chunkLen + 2;
+                }
+                body.swap(decoded);
+            }
+        }
+
+        if (debug)
+            debugLines.push_back("HTTP Body: " + body);
+        return body;
+    }
+
+    return response;
+"""
+PB_AI_INCLUDE_UPSTREAM = """#include "PlayerbotDbStore.h"
+"""
+PB_AI_INCLUDE_ANDROID = """#include "PlayerbotDbStore.h"
+#include "PlayerbotLlmMemory.h"
+#include "PlayerbotLlmPersona.h"
+#include "PlayerbotLlmTools.h"
+"""
 PB_MGR_LOGIN_ANDROID = """void RandomPlayerbotMgr::OnBotLoginInternal(Player * const bot)
 {
     lowCpuLoginEvents.push_back(time(nullptr));
     sLog.outDetail("%u/%d Bot %s logged in", GetPlayerbotsAmount(), sRandomPlayerbotMgr.GetMaxAllowedBotCount(), bot->GetName());
 """
 
+# --- DB async null-guard overlays (P0 of the MariaDB replacement plan) ------
+# HaltDelayThread() nulls m_threadBody while m_allowAsyncTransactions stays
+# sticky-true across POCKET_EMBEDDED restart cycles (research digest F50: the
+# production restart path re-enters session 2 with CharacterDatabase async-on
+# against freshly-halted thread state). Every async enqueue site must tolerate
+# a halted worker: fall back to direct execution on the async connection
+# rather than dereference a dead queue or silently drop the operation.
+DB_GUARD_HEADER_UPSTREAM = """        void StopServer();
+
+        // factory method to create SqlConnection objects
+"""
+DB_GUARD_HEADER_ANDROID = """        void StopServer();
+
+        // Pocket Realm: null-guarded async enqueue. HaltDelayThread() nulls
+        // m_threadBody while m_allowAsyncTransactions stays sticky-true across
+        // POCKET_EMBEDDED restart cycles, so async enqueue sites must tolerate
+        // a halted worker: fall back to direct execution on the async
+        // connection rather than dereference a dead queue or drop the op.
+        bool SafeDelayOperation(SqlOperation* op);
+        bool SafeDelayQueryHolder(SqlQueryHolder* holder, MaNGOS::IQueryCallback* callback);
+
+        // factory method to create SqlConnection objects
+"""
+DB_GUARD_HELPERS_UPSTREAM = """    m_delayThread = nullptr;
+    m_threadBody = nullptr;
+}
+
+void Database::ThreadStart()
+"""
+DB_GUARD_HELPERS_ANDROID = """    m_delayThread = nullptr;
+    m_threadBody = nullptr;
+}
+
+bool Database::SafeDelayOperation(SqlOperation* op)
+{
+    if (!op)
+        return false;
+
+    if (m_threadBody)
+    {
+        m_threadBody->Delay(op);
+        return true;
+    }
+
+    // Pocket Realm restart window: the async worker is halted while the
+    // connection pool lives on. Execute inline on the async connection --
+    // exactly what the async-off path does, including ownership: the worker
+    // queue deletes ops after Execute, so the inline path must too
+    // (mirrors CommitTransactionDirect).
+    if (!m_pAsyncConn)
+    {
+        delete op;
+        return false;
+    }
+    const bool ok = op->Execute(m_pAsyncConn);
+    delete op;
+    return ok;
+}
+
+bool Database::SafeDelayQueryHolder(SqlQueryHolder* holder, MaNGOS::IQueryCallback* callback)
+{
+    if (!holder || !callback)
+        return false;
+
+    if (m_threadBody)
+        return holder->Execute(callback, m_threadBody, m_pResultQueue);
+
+    if (!m_pAsyncConn || !m_pResultQueue)
+    {
+        // The caller allocated the callback; refuse-branches must not leak it
+        // (SqlQueryHolder::Execute refuses without taking ownership too).
+        delete callback;
+        return false;
+    }
+
+    // Pocket Realm restart window: SqlQueryHolder::Execute would silently
+    // drop the whole query set on a null thread; run it inline instead. The
+    // callback still syncs back through the result queue.
+    SqlQueryHolderEx holderEx(holder, callback, m_pResultQueue);
+    return holderEx.Execute(m_pAsyncConn);
+}
+
+void Database::ThreadStart()
+"""
+DB_GUARD_EXEC_UPSTREAM = """        // Simple sql statement
+        m_threadBody->Delay(new SqlPlainRequest(sql));
+    }
+
+    return true;
+"""
+DB_GUARD_EXEC_ANDROID = """        // Simple sql statement
+        return SafeDelayOperation(new SqlPlainRequest(sql));
+    }
+
+    return true;
+"""
+DB_GUARD_COMMIT_UPSTREAM = """    // add SqlTransaction to the async queue
+    m_threadBody->Delay(m_currentTransaction.release());
+    return true;
+"""
+DB_GUARD_COMMIT_ANDROID = """    // add SqlTransaction to the async queue
+    return SafeDelayOperation(m_currentTransaction.release());
+"""
+DB_GUARD_STMT_UPSTREAM = """        // Simple sql statement
+        m_threadBody->Delay(new SqlPreparedRequest(id.ID(), params));
+    }
+
+    return true;
+"""
+DB_GUARD_STMT_ANDROID = """        // Simple sql statement
+        return SafeDelayOperation(new SqlPreparedRequest(id.ID(), params));
+    }
+
+    return true;
+"""
+DB_GUARD_ASYNC_QUERY_UPSTREAM = "m_threadBody->Delay(new SqlQuery("
+DB_GUARD_ASYNC_QUERY_ANDROID = "SafeDelayOperation(new SqlQuery("
+DB_GUARD_HOLDER_UPSTREAM = (
+    "holder->Execute(new MaNGOS::QueryCallback(std::move(callback)), "
+    "m_threadBody, m_pResultQueue);"
+)
+DB_GUARD_HOLDER_ANDROID = (
+    "SafeDelayQueryHolder(holder, "
+    "new MaNGOS::QueryCallback(std::move(callback)));"
+)
+
+# Fail-loud backend selection (G1): the DO_* variables are derived compile
+# definitions, never inputs. The real switches are the POSTGRESQL/SQLITE cache
+# variables (MySQL = else-default); a -DDO_SQLITE=ON on the command line
+# selects nothing and silently builds MySQL (research digest F41).
+BACKEND_SELECT_UPSTREAM = """if(POSTGRESQL)
+  set(DEFINITIONS ${DEFINITIONS} DO_POSTGRESQL)
+elseif(SQLITE)
+  set(DEFINITIONS ${DEFINITIONS} DO_SQLITE)
+else()
+  set(DEFINITIONS ${DEFINITIONS} DO_MYSQL)
+endif()
+"""
+BACKEND_SELECT_ANDROID = """# Pocket Realm: fail-loud backend selection (G1). The DO_* variables are
+# derived compile definitions, never inputs: -DDO_MYSQL/-DDO_SQLITE on the
+# command line select nothing (the real switches are the POSTGRESQL/SQLITE
+# cache variables, MySQL is the else-default) and a flipped DO_ flag silently
+# builds the wrong engine. Refuse the no-op form and print the selected
+# backend so every configure log carries the evidence.
+if(DEFINED CACHE{DO_MYSQL} OR DEFINED CACHE{DO_SQLITE} OR DEFINED CACHE{DO_POSTGRESQL})
+  message(FATAL_ERROR "Pocket Realm: -DDO_MYSQL/-DDO_SQLITE/-DDO_POSTGRESQL are derived no-op defines; select the backend with -DSQLITE=ON (MySQL is the default when SQLITE is off)")
+endif()
+if(POSTGRESQL)
+  message(FATAL_ERROR "Pocket Realm: the PostgreSQL backend is not shipped; use -DSQLITE=ON or the MySQL default")
+endif()
+if(SQLITE)
+  message(STATUS "Pocket Realm database backend: SQLITE (in-tree DO_SQLITE backend)")
+  set(DEFINITIONS ${DEFINITIONS} DO_SQLITE)
+else()
+  message(STATUS "Pocket Realm database backend: MYSQL (default; pass -DSQLITE=ON for the in-tree SQLite backend)")
+  set(DEFINITIONS ${DEFINITIONS} DO_MYSQL)
+endif()
+"""
+
+# P2/G3: commit-failure rollback + begin-failure refusal for the DO_SQLITE
+# lane. Upstream ignored BeginTransaction()'s return (a failed BEGIN ran the
+# batch in autocommit - non-atomic partial application) and returned false
+# from a failed COMMIT with the transaction still open ("cannot start a
+# transaction within a transaction" - session-long write wedge, F30 chain
+# B). The #ifdef keeps DO_MYSQL builds behaviorally unchanged.
+SQLITE_TXN_COMMIT_UPSTREAM = """    conn->BeginTransaction();
+
+    const int nItems = m_queue.size();
+    for (int i = 0; i < nItems; ++i)
+    {
+        SqlOperation* pStmt = m_queue[i];
+
+        if (!pStmt->Execute(conn))
+        {
+            conn->RollbackTransaction();
+            return false;
+        }
+    }
+
+    return conn->CommitTransaction();
+}
+"""
+SQLITE_TXN_COMMIT_ANDROID = """#ifdef DO_SQLITE
+    // Pocket Realm DO_SQLITE hardening (G3): refuse to run the batch at all
+    // when BEGIN fails (upstream fell through to autocommit - non-atomic
+    // partial application), and roll the open transaction back on a failed
+    // COMMIT (upstream left it open, wedging the connection for the session
+    // - F30 chain B).
+    if (!conn->BeginTransaction())
+        return false;
+
+    const int nItems = m_queue.size();
+    for (int i = 0; i < nItems; ++i)
+    {
+        SqlOperation* pStmt = m_queue[i];
+
+        if (!pStmt->Execute(conn))
+        {
+            conn->RollbackTransaction();
+            return false;
+        }
+    }
+
+    const bool committed = conn->CommitTransaction();
+    if (!committed)
+        conn->RollbackTransaction();
+    return committed;
+#else
+    conn->BeginTransaction();
+
+    const int nItems = m_queue.size();
+    for (int i = 0; i < nItems; ++i)
+    {
+        SqlOperation* pStmt = m_queue[i];
+
+        if (!pStmt->Execute(conn))
+        {
+            conn->RollbackTransaction();
+            return false;
+        }
+    }
+
+    return conn->CommitTransaction();
+#endif
+}
+"""
+
+
+def apply_db_null_guard_overlays(shared_dir: Path) -> None:
+    """Apply the async null-guard overlays to a src/shared/Database directory.
+
+    Split out from prepare_cmangos_source so the tripwire test can exercise
+    the exact overlay pair against a pristine copy of the pinned sources.
+    """
+    database_h = shared_dir / "Database.h"
+    database_cpp = shared_dir / "Database.cpp"
+    database_impl = shared_dir / "DatabaseImpl.h"
+    replace_anchor(database_h, DB_GUARD_HEADER_UPSTREAM, DB_GUARD_HEADER_ANDROID)
+    replace_anchor(database_cpp, DB_GUARD_HELPERS_UPSTREAM, DB_GUARD_HELPERS_ANDROID)
+    replace_anchor(database_cpp, DB_GUARD_EXEC_UPSTREAM, DB_GUARD_EXEC_ANDROID)
+    replace_anchor(database_cpp, DB_GUARD_COMMIT_UPSTREAM, DB_GUARD_COMMIT_ANDROID)
+    replace_anchor(database_cpp, DB_GUARD_STMT_UPSTREAM, DB_GUARD_STMT_ANDROID)
+    replace_all(database_impl, DB_GUARD_ASYNC_QUERY_UPSTREAM, DB_GUARD_ASYNC_QUERY_ANDROID)
+    replace_all(database_impl, DB_GUARD_HOLDER_UPSTREAM, DB_GUARD_HOLDER_ANDROID)
+
+
+def restore_db_null_guard_overlays(shared_dir: Path) -> None:
+    """Undo the async null-guard overlays; idempotent like restore_anchor."""
+    database_h = shared_dir / "Database.h"
+    database_cpp = shared_dir / "Database.cpp"
+    database_impl = shared_dir / "DatabaseImpl.h"
+    restore_anchor(database_h, DB_GUARD_HEADER_ANDROID, DB_GUARD_HEADER_UPSTREAM)
+    restore_anchor(database_cpp, DB_GUARD_HELPERS_ANDROID, DB_GUARD_HELPERS_UPSTREAM)
+    restore_anchor(database_cpp, DB_GUARD_EXEC_ANDROID, DB_GUARD_EXEC_UPSTREAM)
+    restore_anchor(database_cpp, DB_GUARD_COMMIT_ANDROID, DB_GUARD_COMMIT_UPSTREAM)
+    restore_anchor(database_cpp, DB_GUARD_STMT_ANDROID, DB_GUARD_STMT_UPSTREAM)
+    restore_all(database_impl, DB_GUARD_ASYNC_QUERY_ANDROID, DB_GUARD_ASYNC_QUERY_UPSTREAM)
+    restore_all(database_impl, DB_GUARD_HOLDER_ANDROID, DB_GUARD_HOLDER_UPSTREAM)
+
+
+def restore_all(path: Path, applied: str, original: str) -> None:
+    """Undo a replace_all overlay if present, while staying idempotent."""
+    data = path.read_bytes()
+    for applied_bytes, original_bytes in (
+        (applied.encode("utf-8"), original.encode("utf-8")),
+        (
+            applied.replace("\n", "\r\n").encode("utf-8"),
+            original.replace("\n", "\r\n").encode("utf-8"),
+        ),
+    ):
+        if applied_bytes in data:
+            path.write_bytes(data.replace(applied_bytes, original_bytes))
+            return
+    original_variants = (
+        original.encode("utf-8"),
+        original.replace("\n", "\r\n").encode("utf-8"),
+    )
+    if not any(original_bytes in data for original_bytes in original_variants):
+        raise RuntimeError(f"source overlay cleanup anchor drift: {path}")
+
+
+def verify_db_async_null_guards(cmangos: Path) -> None:
+    """Tripwire: every async enqueue site routes through the guarded helpers.
+
+    HaltDelayThread() nulls m_threadBody while m_allowAsyncTransactions stays
+    sticky-true across POCKET_EMBEDDED restart cycles (F50); an unguarded
+    enqueue after a halt is a null dereference, so the only tolerated
+    m_threadBody->Delay is the one inside Database::SafeDelayOperation and
+    the only tolerated holder->Execute is the guarded call inside
+    Database::SafeDelayQueryHolder. Runs after every overlay application.
+    """
+    database_cpp = (cmangos / "src" / "shared" / "Database" / "Database.cpp").read_text(
+        encoding="utf-8", errors="replace")
+    database_impl = (cmangos / "src" / "shared" / "Database" / "DatabaseImpl.h").read_text(
+        encoding="utf-8", errors="replace")
+    cpp_delays = database_cpp.count("m_threadBody->Delay(")
+    if cpp_delays != 1 or "SafeDelayOperation" not in database_cpp:
+        raise RuntimeError(
+            "DB async null-guard tripwire: Database.cpp must contain exactly one "
+            f"m_threadBody->Delay (inside SafeDelayOperation); found {cpp_delays}. "
+            "New async enqueue sites must route through the guarded helper.")
+    if "holder->Execute(" in database_impl or "m_threadBody->Delay(" in database_impl:
+        raise RuntimeError(
+            "DB async null-guard tripwire: DatabaseImpl.h still contains an "
+            "unguarded async enqueue site (m_threadBody->Delay/holder->Execute); "
+            "route it through SafeDelayOperation/SafeDelayQueryHolder.")
+
+
+def apply_sqlite_hardening(cmangos: Path) -> None:
+    """Swap in the hardened DO_SQLITE connection layer (P2/G3).
+
+    Full-file replacements from native/patches/cmangos/ plus the
+    SqlOperations commit-failure-rollback anchor overlay. Only ever applied
+    for --backend sqlite; DO_MYSQL builds are behaviorally unchanged (the
+    rollback overlay is #ifdef'd to DO_SQLITE).
+    """
+    shared = cmangos / "src" / "shared" / "Database"
+    for name in ("DatabaseSqlite.h", "DatabaseSqlite.cpp",
+                 "QueryResultSqlite.h", "QueryResultSqlite.cpp"):
+        (shared / name).write_bytes((NATIVE / "patches" / "cmangos" / name).read_bytes())
+    replace_anchor(shared / "SqlOperations.cpp",
+                   SQLITE_TXN_COMMIT_UPSTREAM, SQLITE_TXN_COMMIT_ANDROID)
+
+
+def restore_sqlite_hardening(cmangos: Path) -> None:
+    """Restore the pristine connection-layer files (git-tracked, verified
+    clean before the overlays were applied, so checkout is byte-exact)."""
+    shared = cmangos / "src" / "shared" / "Database"
+    replace_anchor(shared / "SqlOperations.cpp",
+                   SQLITE_TXN_COMMIT_ANDROID, SQLITE_TXN_COMMIT_UPSTREAM)
+    for name in ("DatabaseSqlite.h", "DatabaseSqlite.cpp",
+                 "QueryResultSqlite.h", "QueryResultSqlite.cpp"):
+        run(["git", "checkout", "--", f"src/shared/Database/{name}"], cmangos)
+
 
 def run(args: list[str | Path], cwd: Path | None = None) -> None:
     print("+", " ".join(map(str, args)))
     subprocess.run([str(value) for value in args], cwd=cwd, check=True)
+
+
+def run_capture(args: list[str | Path], cwd: Path | None = None) -> str:
+    """Run a command, print it, and return its combined stdout/stderr text."""
+    printed = " ".join(map(str, args))
+    print("+", printed)
+    try:
+        completed = subprocess.run([str(value) for value in args], cwd=cwd, check=True,
+                                   capture_output=True, text=True, encoding="utf-8",
+                                   errors="replace")
+    except subprocess.CalledProcessError as error:
+        # Surface the captured output of the failed step; swallowing it made
+        # configure failures undiagnosable.
+        print((error.stdout or "") + (error.stderr or ""))
+        raise
+    return (completed.stdout or "") + (completed.stderr or "")
 
 
 def output(args: list[str | Path], cwd: Path | None = None) -> str:
@@ -1028,6 +3284,18 @@ def tools() -> tuple[Path, Path, Path, Path]:
     if not ndks or not cmakes:
         raise RuntimeError("NDK/CMake missing from Android SDK")
     ndk, cmake_root = ndks[-1], cmakes[-1]
+    # The fail-loud backend overlay uses `if(DEFINED CACHE{VAR})`, which
+    # requires CMake >= 3.21; on an older cmake it degrades silently to a
+    # non-firing check - the guard's own failure mode would be quiet.
+    try:
+        cmake_version = output([cmake_root / "bin" / "cmake.exe", "--version"]).split()[2]
+        cmake_major_minor = tuple(int(part) for part in cmake_version.split(".")[:2])
+    except (IndexError, ValueError):
+        raise RuntimeError(f"cannot parse cmake version for {cmake_root}")
+    if cmake_major_minor < (3, 21):
+        raise RuntimeError(
+            f"cmake {cmake_version} at {cmake_root} is older than 3.21; the "
+            "fail-loud backend selection overlay would silently not fire")
     bin_dir = ndk / "toolchains" / "llvm" / "prebuilt" / "windows-x86_64" / "bin"
     return ndk, cmake_root / "bin" / "cmake.exe", cmake_root / "bin" / "ninja.exe", bin_dir
 
@@ -1052,6 +3320,25 @@ def replace_anchor(path: Path, old: str, new: str) -> None:
             path.write_bytes(data.replace(old_bytes, new_bytes, 1))
             return
     for _old_bytes, new_bytes in variants:
+        if new_bytes in data:
+            return
+    raise RuntimeError(f"source overlay anchor drift: {path}: {old}")
+
+
+def replace_all(path: Path, old: str, new: str) -> None:
+    """Replace every occurrence (pure textual migration, e.g. a key rename)."""
+    data = path.read_bytes()
+    for old_bytes, new_bytes in (
+        (old.encode("utf-8"), new.encode("utf-8")),
+        (old.replace("\n", "\r\n").encode("utf-8"), new.replace("\n", "\r\n").encode("utf-8")),
+    ):
+        if old_bytes in data:
+            path.write_bytes(data.replace(old_bytes, new_bytes))
+            return
+    for _old_bytes, new_bytes in (
+        (old.encode("utf-8"), new.encode("utf-8")),
+        (new.replace("\n", "\r\n").encode("utf-8"), new.replace("\n", "\r\n").encode("utf-8")),
+    ):
         if new_bytes in data:
             return
     raise RuntimeError(f"source overlay anchor drift: {path}: {old}")
@@ -1124,6 +3411,21 @@ def prepare_cmangos_source() -> None:
         RESULT_QUEUE_UPSTREAM,
         RESULT_QUEUE_ANDROID,
     )
+    replace_anchor(
+        cmangos / "src" / "game" / "Globals" / "ObjectMgr.cpp",
+        OBJECTMGR_TRUNCATE_CREATURE_UPSTREAM,
+        OBJECTMGR_TRUNCATE_CREATURE_ANDROID,
+    )
+    replace_anchor(
+        cmangos / "src" / "game" / "Globals" / "ObjectMgr.cpp",
+        OBJECTMGR_TRUNCATE_GAMEOBJECT_UPSTREAM,
+        OBJECTMGR_TRUNCATE_GAMEOBJECT_ANDROID,
+    )
+    replace_anchor(
+        cmangos / "src" / "game" / "Anticheat" / "module" / "libanticheat.cpp",
+        ANTICHEAT_PRUNE_UPSTREAM,
+        ANTICHEAT_PRUNE_ANDROID,
+    )
     replace_anchor(cmangos / "src" / "game" / "World" / "World.h", POCKET_WORLD_H_UPSTREAM, POCKET_WORLD_H_ANDROID)
     replace_anchor(cmangos / "src" / "game" / "World" / "World.h", POCKET_WORLD_UINT_UPSTREAM, POCKET_WORLD_UINT_ANDROID)
     replace_anchor(cmangos / "src" / "game" / "World" / "World.cpp", POCKET_WORLD_CPP_UPSTREAM, POCKET_WORLD_CPP_ANDROID)
@@ -1152,6 +3454,11 @@ def prepare_cmangos_source() -> None:
     replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_DB_LOGIN_GATE_UPSTREAM, PB_MGR_DB_LOGIN_GATE_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_DB_SCHEDULE_UPSTREAM, PB_MGR_DB_SCHEDULE_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_DB_CALLBACK_UPSTREAM, PB_MGR_DB_CALLBACK_ANDROID)
+    # exactly two SendHolders overloads (BotInfos const& / BotPool*) share
+    # this anchor in PlayerbotLoginMgr.cpp: two consecutive calls patch the
+    # first match each, covering both - a third upstream site would stay
+    # unpatched (and removing one call here would silently revert one
+    # overload to the raw ping)
     replace_anchor(bot_root / "PlayerbotLoginMgr.cpp", PB_LOGIN_DB_SCHEDULE_UPSTREAM, PB_LOGIN_DB_SCHEDULE_ANDROID)
     replace_anchor(bot_root / "PlayerbotLoginMgr.cpp", PB_LOGIN_DB_SCHEDULE_UPSTREAM, PB_LOGIN_DB_SCHEDULE_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotMgr.h", PB_MGR_INCLUDE_UPSTREAM, PB_MGR_INCLUDE_ANDROID)
@@ -1162,12 +3469,33 @@ def prepare_cmangos_source() -> None:
     replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_SCAN_CALL_UPSTREAM, PB_MGR_SCAN_CALL_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_TELEPORT_UPSTREAM, PB_MGR_TELEPORT_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_RANDOMIZE_UPSTREAM, PB_MGR_RANDOMIZE_ANDROID)
+    replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_QUERY_NOT_UPSTREAM, PB_MGR_QUERY_NOT_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_LOGIN_UPSTREAM, PB_MGR_LOGIN_ANDROID)
     # LLM in-process backend overlays
+    (bot_root / "llm_banter_core.h").write_bytes((NATIVE / "patches" / "playerbots" / "llm_banter_core.h").read_bytes())
     (bot_root / "PlayerbotLlamaRuntime.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlamaRuntime.h").read_bytes())
     (bot_root / "PlayerbotLlamaRuntime.cpp").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlamaRuntime.cpp").read_bytes())
+    (bot_root / "PlayerbotLlmMemory.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmMemory.h").read_bytes())
+    (bot_root / "PlayerbotLlmMemory.cpp").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmMemory.cpp").read_bytes())
+    (bot_root / "PlayerbotLlmTools.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmTools.h").read_bytes())
+    (bot_root / "PlayerbotLlmTools.cpp").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmTools.cpp").read_bytes())
+    (bot_root / "PlayerbotLlmToolsCore.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmToolsCore.h").read_bytes())
+    (bot_root / "PlayerbotLlmPersona.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmPersona.h").read_bytes())
+    (bot_root / "PlayerbotLlmPersona.cpp").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmPersona.cpp").read_bytes())
+    (bot_root / "PlayerbotLlmJson.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmJson.h").read_bytes())
+    (bot_root / "PlayerbotLlmPrompt.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmPrompt.h").read_bytes())
+    (bot_root / "PlayerbotLlmBridge.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmBridge.h").read_bytes())
+    (bot_root / "PlayerbotLlmBridge.cpp").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmBridge.cpp").read_bytes())
+    (bot_root / "PlayerbotLlmTruthCore.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmTruthCore.h").read_bytes())
+    (bot_root / "PlayerbotLlmRecallCore.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmRecallCore.h").read_bytes())
+    (bot_root / "PlayerbotLlmFilters.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmFilters.h").read_bytes())
+    (bot_root / "PlayerbotLlmFilters.cpp").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmFilters.cpp").read_bytes())
+    (bot_root / "PlayerbotLlmChatter.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmChatter.h").read_bytes())
+    (bot_root / "PlayerbotLlmChatterCore.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmChatterCore.h").read_bytes())
+    (bot_root / "PlayerbotLlmChatter.cpp").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmChatter.cpp").read_bytes())
     replace_anchor(bot_root / "PlayerbotAIConfig.h", PB_LLM_CONFIG_HEADER_UPSTREAM, PB_LLM_CONFIG_HEADER_ANDROID)
     replace_anchor(bot_root / "PlayerbotAIConfig.cpp", PB_LLM_CONFIG_CPP_UPSTREAM, PB_LLM_CONFIG_CPP_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAIConfig.cpp", PB_LLM_CTX_REREAD_UPSTREAM, PB_LLM_CTX_REREAD_ANDROID)
     replace_anchor(bot_root / "PlayerbotLLMInterface.h", PB_LLM_IFACE_HEADER_UPSTREAM, PB_LLM_IFACE_HEADER_ANDROID)
     replace_anchor(bot_root / "PlayerbotLLMInterface.h", PB_LLM_IFACE_PRIVATE_UPSTREAM, PB_LLM_IFACE_PRIVATE_ANDROID)
     replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_LLM_IFACE_CPP_UPSTREAM, PB_LLM_IFACE_CPP_ANDROID)
@@ -1179,8 +3507,75 @@ def prepare_cmangos_source() -> None:
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_JSON_DUP_UPSTREAM, PB_SAY_JSON_DUP_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_ASYNC_UPSTREAM, PB_SAY_ASYNC_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "RpgSubActions.cpp", PB_RPG_ASYNC_UPSTREAM, PB_RPG_ASYNC_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "RpgSubActions.cpp", PB_RPG_PROMPT_UPSTREAM, PB_RPG_PROMPT_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_RAID_CASE_UPSTREAM, PB_SAY_RAID_CASE_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "DebugAction.cpp", PB_DEBUG_GEN_UPSTREAM, PB_DEBUG_GEN_ANDROID)
     replace_anchor(bot_root / "PlayerbotAI.cpp", PB_SESSION_LIFETIME_UPSTREAM, PB_SESSION_LIFETIME_ANDROID)
+    # LLM companion M2-M5 overlays (applied on top of the stage-1 LLM edits)
+    replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_IFACE_INCLUDE_UPSTREAM, PB_IFACE_INCLUDE_ANDROID)
+    # S9/T4: bounded TCP connect (non-blocking connect + select)
+    replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_IFACE_SOCKINCLUDE_UPSTREAM, PB_IFACE_SOCKINCLUDE_ANDROID)
+    replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_IFACE_CONNECT_UPSTREAM, PB_IFACE_CONNECT_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_INCLUDE_UPSTREAM, PB_SAY_INCLUDE_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_CONTEXT_UPSTREAM, PB_SAY_CONTEXT_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_PROMPT_V2_UPSTREAM, PB_SAY_PROMPT_V2_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_RECORDER_UPSTREAM, PB_SAY_RECORDER_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_SPLITTER_UPSTREAM, PB_SAY_SPLITTER_ANDROID)
+    # S9/E1: pacing law (running timeDiff credit, 35 ms/char, instant busy)
+    # and the per-class voice-budget call threading
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_TIMEDIFF_HEAD_UPSTREAM, PB_SAY_TIMEDIFF_HEAD_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_TIMEDIFF_TAIL_UPSTREAM, PB_SAY_TIMEDIFF_TAIL_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_PACE_CALL_UPSTREAM, PB_SAY_PACE_CALL_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAI.cpp", PB_UPDATEAI_UPSTREAM, PB_UPDATEAI_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_INCLUDE_UPSTREAM, PB_AI_INCLUDE_ANDROID)
+    # S8/A18: persona-paced say-reply staggering (queue delay override)
+    replace_anchor(bot_root / "PlayerbotAI.h", PB_AI_QUEUE_DECL_UPSTREAM, PB_AI_QUEUE_DECL_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_QUEUE_DEF_UPSTREAM, PB_AI_QUEUE_DEF_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_QUEUE_CALL_UPSTREAM, PB_AI_QUEUE_CALL_ANDROID)
+    replace_anchor(bot_root / "aiplayerbot.conf.dist.in", PB_LLM_CONF_UPSTREAM, PB_LLM_CONF_ANDROID)
+    # M2 writer migration: the manual NPC-chat debug store moves from the
+    # cross-bot global key to a per-(bot,target) key so no old-format writer
+    # survives (behavior change: conversations with one NPC are no longer
+    # shared between bots)
+    replace_all(bot_root / "strategy" / "actions" / "RpgSubActions.cpp", PB_RPG_MANUAL_GET_UPSTREAM, PB_RPG_MANUAL_GET_ANDROID)
+    replace_all(bot_root / "strategy" / "actions" / "RpgSubActions.cpp", PB_RPG_MANUAL_SET_UPSTREAM, PB_RPG_MANUAL_SET_ANDROID)
+    # core hooks for the M3 event allowlist
+    replace_anchor(cmangos / "src" / "game" / "Entities" / "Player.cpp", CORE_PLAYER_INCLUDE_UPSTREAM, CORE_PLAYER_INCLUDE_ANDROID)
+    replace_anchor(cmangos / "src" / "game" / "Entities" / "Player.cpp", CORE_GIVELEVEL_UPSTREAM, CORE_GIVELEVEL_ANDROID)
+    # A14: the duel-outcome hook (all nine call sites through one function)
+    replace_anchor(cmangos / "src" / "game" / "Entities" / "Player.cpp", CORE_DUELCOMPLETE_UPSTREAM, CORE_DUELCOMPLETE_ANDROID)
+    # S9/E2: first-contact onboarding line at login (once per character)
+    replace_anchor(cmangos / "src" / "game" / "Entities" / "Player.cpp", CORE_LOGIN_ONBOARDING_UPSTREAM, CORE_LOGIN_ONBOARDING_ANDROID)
+    # S6: ChatReplyDo's event-turn flag (threaded from the drain; the
+    # "(event) " text prefix is retired as a signal)
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.h", PB_SAY_CHATREPLY_DECL_UPSTREAM, PB_SAY_CHATREPLY_DECL_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_CHATREPLY_DEF_UPSTREAM, PB_SAY_CHATREPLY_DEF_ANDROID)
+    replace_anchor(cmangos / "src" / "game" / "Loot" / "LootHandler.cpp", CORE_LOOT_INCLUDE_UPSTREAM, CORE_LOOT_INCLUDE_ANDROID)
+    replace_anchor(cmangos / "src" / "game" / "Loot" / "LootHandler.cpp", CORE_LOOT_UPSTREAM, CORE_LOOT_ANDROID)
+    # M6 core hook: authored kill banter
+    replace_anchor(cmangos / "src" / "game" / "Entities" / "Unit.cpp", CORE_UNIT_INCLUDE_UPSTREAM, CORE_UNIT_INCLUDE_ANDROID)
+    replace_anchor(cmangos / "src" / "game" / "Entities" / "Unit.cpp", CORE_UNIT_KILL_UPSTREAM, CORE_UNIT_KILL_ANDROID)
+    # M6: injection hygiene + external-endpoint hardening
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_NEUTER_UPSTREAM, PB_SAY_NEUTER_ANDROID)
+    replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_LLM_IFACE_HTTP_UPSTREAM, PB_LLM_IFACE_HTTP_ANDROID)
+    # S2/A9: truncation-aware, decode-aware ParseResponse (consumes the JSON
+    # client's per-generation state; gates the JSON-era residue transforms)
+    replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_LLM_IFACE_PARSE_UPSTREAM, PB_LLM_IFACE_PARSE_ANDROID)
+    replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_LLM_IFACE_UNESCAPE_UPSTREAM, PB_LLM_IFACE_UNESCAPE_ANDROID)
+    replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_LLM_IFACE_DELETE_UPSTREAM, PB_LLM_IFACE_DELETE_ANDROID)
+    # S4/A6: per-tier generation timeout default
+    replace_anchor(bot_root / "PlayerbotAIConfig.cpp", PB_LLM_TIMEOUT_UPSTREAM, PB_LLM_TIMEOUT_ANDROID)
+    # S10: the composer endpoint/key override legs inside GenerateHttp
+    replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_IFACE_EP_URL_UPSTREAM, PB_IFACE_EP_URL_ANDROID)
+    replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_IFACE_EP_KEY_UPSTREAM, PB_IFACE_EP_KEY_ANDROID)
+    # DB async null-guard (P0) + fail-loud backend selection (G1) overlays
+    apply_db_null_guard_overlays(cmangos / "src" / "shared" / "Database")
+    replace_anchor(cmangos / "CMakeLists.txt", BACKEND_SELECT_UPSTREAM, BACKEND_SELECT_ANDROID)
+    # P2/G3: the sqlite lane swaps in the hardened connection-layer
+    # replacement files; mysql builds never touch them.
+    if BACKEND == "sqlite":
+        apply_sqlite_hardening(cmangos)
+    verify_db_async_null_guards(cmangos)
 
 
 def restore_cmangos_source() -> None:
@@ -1217,11 +3612,74 @@ def restore_cmangos_source() -> None:
         WORLD_THREAD_ANDROID,
         WORLD_THREAD_UPSTREAM,
     )
-    restore_anchor(
+    replace_anchor(
         NATIVE / "cmangos" / "src" / "shared" / "Database" / "SqlOperations.cpp",
         RESULT_QUEUE_ANDROID,
         RESULT_QUEUE_UPSTREAM,
     )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "Globals" / "ObjectMgr.cpp",
+        OBJECTMGR_TRUNCATE_CREATURE_ANDROID,
+        OBJECTMGR_TRUNCATE_CREATURE_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "Globals" / "ObjectMgr.cpp",
+        OBJECTMGR_TRUNCATE_GAMEOBJECT_ANDROID,
+        OBJECTMGR_TRUNCATE_GAMEOBJECT_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "Anticheat" / "module" / "libanticheat.cpp",
+        ANTICHEAT_PRUNE_ANDROID,
+        ANTICHEAT_PRUNE_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "Loot" / "LootHandler.cpp",
+        CORE_LOOT_ANDROID,
+        CORE_LOOT_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "Loot" / "LootHandler.cpp",
+        CORE_LOOT_INCLUDE_ANDROID,
+        CORE_LOOT_INCLUDE_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "Entities" / "Player.cpp",
+        CORE_GIVELEVEL_ANDROID,
+        CORE_GIVELEVEL_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "Entities" / "Player.cpp",
+        CORE_DUELCOMPLETE_ANDROID,
+        CORE_DUELCOMPLETE_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "Entities" / "Player.cpp",
+        CORE_LOGIN_ONBOARDING_ANDROID,
+        CORE_LOGIN_ONBOARDING_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "Entities" / "Player.cpp",
+        CORE_PLAYER_INCLUDE_ANDROID,
+        CORE_PLAYER_INCLUDE_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "Entities" / "Unit.cpp",
+        CORE_UNIT_KILL_ANDROID,
+        CORE_UNIT_KILL_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "Entities" / "Unit.cpp",
+        CORE_UNIT_INCLUDE_ANDROID,
+        CORE_UNIT_INCLUDE_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "CMakeLists.txt",
+        BACKEND_SELECT_ANDROID,
+        BACKEND_SELECT_UPSTREAM,
+    )
+    if BACKEND == "sqlite":
+        restore_sqlite_hardening(NATIVE / "cmangos")
+    restore_db_null_guard_overlays(NATIVE / "cmangos" / "src" / "shared" / "Database")
 
 
 def restore_anchor(path: Path, applied: str, original: str) -> None:
@@ -1249,44 +3707,66 @@ def restore_anchor(path: Path, applied: str, original: str) -> None:
         raise RuntimeError(f"source overlay cleanup anchor drift: {path}")
 
 
-def configure_and_build(force: bool) -> tuple[Path, Path]:
+def configure_and_build(force: bool, backend: str = "mysql", configure_only: bool = False) -> tuple[Path, Path]:
     ndk, cmake, ninja, llvm = tools()
     deps = NATIVE / ".deps" / ("prefix-x86_64" if TARGET_ABI == "x86_64" else "prefix-arm64")
     required = [deps / "include" / "openssl" / "ssl.h", deps / "lib" / "libssl.a",
                 deps / "lib" / "libcrypto.a", deps / "lib" / "cmake" / "Boost-1.86.0"]
+    if backend == "sqlite":
+        # The in-tree SQLite backend needs only the pinned amalgamation
+        # static library; no connector-c, no MySQL flags.
+        required = required + [deps / "lib" / "libsqlite3.a"]
     if not all(path.exists() for path in required):
         raise RuntimeError(
             f"{TARGET_ABI} OpenSSL/Boost dependencies are missing; "
             "run scripts/build_native.py first"
         )
-    connector_cache = CONNECTOR_BUILD / "CMakeCache.txt"
-    cached_source_matches = (not connector_cache.is_file() or
-        f"CMAKE_HOME_DIRECTORY:INTERNAL={SOURCE.as_posix()}" in
-        connector_cache.read_text(encoding="utf-8", errors="replace").replace("\\", "/"))
-    if force or not cached_source_matches:
-        shutil.rmtree(CONNECTOR_BUILD, ignore_errors=True)
+    connector = None
+    if backend == "mysql":
+        # The include dir / library path are needed at configure time even
+        # when the connector build itself is skipped (configure-only mode);
+        # find_package(MySQL) trusts the cache values without stat-ing them.
+        connector = CONNECTOR_BUILD / "libmariadb" / "libmariadbclient.a"
+        if not configure_only:
+            connector_cache = CONNECTOR_BUILD / "CMakeCache.txt"
+            cached_source_matches = (not connector_cache.is_file() or
+                f"CMAKE_HOME_DIRECTORY:INTERNAL={SOURCE.as_posix()}" in
+                connector_cache.read_text(encoding="utf-8", errors="replace").replace("\\", "/"))
+            if force or not cached_source_matches:
+                shutil.rmtree(CONNECTOR_BUILD, ignore_errors=True)
+            CONNECTOR_BUILD.mkdir(parents=True, exist_ok=True)
+            toolchain = ndk / "build" / "cmake" / "android.toolchain.cmake"
+            ndk_triple = "x86_64-linux-android" if TARGET_ABI == "x86_64" else "aarch64-linux-android"
+            zlib = ndk / "toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib" / ndk_triple / "26/libz.so"
+            common = ["-G", "Ninja", f"-DCMAKE_MAKE_PROGRAM={ninja}",
+                      f"-DCMAKE_TOOLCHAIN_FILE={toolchain}", f"-DANDROID_ABI={TARGET_ABI}",
+                      "-DANDROID_PLATFORM=android-26", "-DCMAKE_BUILD_TYPE=Release",
+                      "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"]
+            run([cmake, "-S", SOURCE, "-B", CONNECTOR_BUILD, *common,
+                 "-DWITH_SSL=OPENSSL", f"-DOPENSSL_ROOT_DIR={deps}",
+                 f"-DOPENSSL_INCLUDE_DIR={deps / 'include'}",
+                 f"-DOPENSSL_SSL_LIBRARY={deps / 'lib' / 'libssl.a'}",
+                 f"-DOPENSSL_CRYPTO_LIBRARY={deps / 'lib' / 'libcrypto.a'}",
+                 "-DWITH_CURL=OFF", "-DWITH_DYNCOL=OFF", "-DWITH_UNIT_TESTS=OFF",
+                 "-DWITH_MYSQLCOMPAT=OFF",
+                 "-DCMAKE_C_FLAGS_RELEASE=-O3 -DNDEBUG -Wno-error=deprecated-non-prototype"])
+            run([cmake, "--build", CONNECTOR_BUILD, "--target", "mariadbclient", "-j", str(os.cpu_count() or 4)])
+            if not connector.is_file():
+                raise RuntimeError("Connector/C static library missing after build")
     if force:
+        # A --force rebuild of ONE backend must not destroy the OTHER
+        # backend's evidence markers living in the same build dir (only
+        # this backend's own marker is invalidated - it is regenerated
+        # right after the configure below).
+        preserved_markers: dict[str, bytes] = {}
+        if CMANGOS_BUILD.is_dir():
+            for marker_path in CMANGOS_BUILD.glob("POCKET_BACKEND_VERIFY.*.json"):
+                if marker_path.name != f"POCKET_BACKEND_VERIFY.{backend}.json":
+                    preserved_markers[marker_path.name] = marker_path.read_bytes()
         shutil.rmtree(CMANGOS_BUILD, ignore_errors=True)
-    CONNECTOR_BUILD.mkdir(parents=True, exist_ok=True)
-    toolchain = ndk / "build" / "cmake" / "android.toolchain.cmake"
-    ndk_triple = "x86_64-linux-android" if TARGET_ABI == "x86_64" else "aarch64-linux-android"
-    zlib = ndk / "toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib" / ndk_triple / "26/libz.so"
-    common = ["-G", "Ninja", f"-DCMAKE_MAKE_PROGRAM={ninja}",
-              f"-DCMAKE_TOOLCHAIN_FILE={toolchain}", f"-DANDROID_ABI={TARGET_ABI}",
-              "-DANDROID_PLATFORM=android-26", "-DCMAKE_BUILD_TYPE=Release",
-              "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"]
-    run([cmake, "-S", SOURCE, "-B", CONNECTOR_BUILD, *common,
-         "-DWITH_SSL=OPENSSL", f"-DOPENSSL_ROOT_DIR={deps}",
-         f"-DOPENSSL_INCLUDE_DIR={deps / 'include'}",
-         f"-DOPENSSL_SSL_LIBRARY={deps / 'lib' / 'libssl.a'}",
-         f"-DOPENSSL_CRYPTO_LIBRARY={deps / 'lib' / 'libcrypto.a'}",
-         "-DWITH_CURL=OFF", "-DWITH_DYNCOL=OFF", "-DWITH_UNIT_TESTS=OFF",
-         "-DWITH_MYSQLCOMPAT=OFF",
-         "-DCMAKE_C_FLAGS_RELEASE=-O3 -DNDEBUG -Wno-error=deprecated-non-prototype"])
-    run([cmake, "--build", CONNECTOR_BUILD, "--target", "mariadbclient", "-j", str(os.cpu_count() or 4)])
-    connector = CONNECTOR_BUILD / "libmariadb" / "libmariadbclient.a"
-    if not connector.is_file():
-        raise RuntimeError("Connector/C static library missing after build")
+        CMANGOS_BUILD.mkdir(parents=True, exist_ok=True)
+        for marker_name, marker_blob in preserved_markers.items():
+            (CMANGOS_BUILD / marker_name).write_bytes(marker_blob)
 
     cmangos = NATIVE / "cmangos"
     CMANGOS_BUILD.mkdir(parents=True, exist_ok=True)
@@ -1299,11 +3779,53 @@ def configure_and_build(force: bool) -> tuple[Path, Path]:
             f"-DPOCKETREALM_LLAMA_PREBUILT={ROOT / 'native/llm/prebuilt/arm64-v8a'}",
             f"-DPOCKETREALM_LLAMA_INCLUDE={ROOT / 'native/llm/include'}",
         ]
-    run([cmake, "-S", cmangos, "-B", CMANGOS_BUILD, *common,
+    toolchain = ndk / "build" / "cmake" / "android.toolchain.cmake"
+    ndk_triple = "x86_64-linux-android" if TARGET_ABI == "x86_64" else "aarch64-linux-android"
+    zlib = ndk / "toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib" / ndk_triple / "26/libz.so"
+    common = ["-G", "Ninja", f"-DCMAKE_MAKE_PROGRAM={ninja}",
+              f"-DCMAKE_TOOLCHAIN_FILE={toolchain}", f"-DANDROID_ABI={TARGET_ABI}",
+              "-DANDROID_PLATFORM=android-26", "-DCMAKE_BUILD_TYPE=Release",
+              "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"]
+    # G1 fail-loud backend selection: the SQLITE cache variable is the real
+    # switch (MySQL = else-default). The historical -DDO_MYSQL/-DDO_SQLITE
+    # pair selected nothing and is now refused at configure time (F41).
+    backend_flags = ["-DSQLITE=ON"] if backend == "sqlite" else ["-DSQLITE=OFF"]
+    mysql_flags = []
+    if backend == "mysql":
+        mysql_flags = [
+            f"-DMYSQL_INCLUDE_DIR={SOURCE / 'include'}", f"-DMYSQL_LIBRARY={connector}",
+            f"-DMYSQL_EXTRA_LIBRARIES={zlib}",
+        ]
+    sqlite_flags = []
+    if backend == "sqlite":
+        # Explicit paths like every other dep: the NDK toolchain's find-root
+        # re-rooting makes prefix-path discovery unreliable, and the pinned
+        # amalgamation library is the only acceptable source (F32/F41).
+        sqlite_flags = [
+            f"-DSQLite3_INCLUDE_DIR={deps / 'include'}",
+            f"-DSQLite3_LIBRARY={deps / 'lib' / 'libsqlite3.a'}",
+        ]
+    cache = CMANGOS_BUILD / "CMakeCache.txt"
+    legacy_cache_cleanup = []
+    if cache.is_file():
+        # Historical builds passed the no-op -DDO_* pair; those entries
+        # linger in cached build trees and now trip the fail-loud assert.
+        # Removing them inside the same invocation as the configure keeps the
+        # assert catching real misuse, not our own stale cache from before
+        # the G1 fix (cmake -U takes a glob; bare names remove exactly those
+        # entries).
+        legacy_cache_cleanup = ["-UDO_MYSQL", "-UDO_SQLITE", "-UDO_POSTGRESQL"]
+        # A mysql configure leaves MYSQL_* cache entries behind; under sqlite
+        # they must not bleed connector include/library paths into the build.
+        if backend == "sqlite":
+            legacy_cache_cleanup += ["-UMYSQL_INCLUDE_DIR", "-UMYSQL_LIBRARY",
+                                     "-UMYSQL_EXTRA_LIBRARIES"]
+    capture = run_capture([cmake, "-S", cmangos, "-B", CMANGOS_BUILD, *common,
+         *legacy_cache_cleanup,
          "-DBUILD_GAME_SERVER=ON", "-DBUILD_LOGIN_SERVER=ON", "-DBUILD_SCRIPTDEV=ON",
          "-DBUILD_EXTRACTORS=OFF", "-DBUILD_PLAYERBOTS=ON", "-DBUILD_AHBOT=OFF",
          "-DBUILD_DEPRECATED_PLAYERBOT=OFF", "-DBUILD_POCKET_RUNTIME=ON",
-         f"-DPOCKET_RUNTIME_DIR={NATIVE / 'realm-runtime'}", "-DDO_MYSQL=ON", "-DDO_SQLITE=OFF",
+         f"-DPOCKET_RUNTIME_DIR={NATIVE / 'realm-runtime'}", *backend_flags,
          *llama_flags,
          f"-DBOOST_ROOT={deps}", f"-DBoost_DIR={deps / 'lib' / 'cmake' / 'Boost-1.86.0'}",
          f"-DCMAKE_PREFIX_PATH={deps}",
@@ -1320,16 +3842,215 @@ def configure_and_build(force: bool) -> tuple[Path, Path]:
          f"-DOPENSSL_ROOT_DIR={deps}", f"-DOPENSSL_INCLUDE_DIR={deps / 'include'}",
          f"-DOPENSSL_SSL_LIBRARY={deps / 'lib' / 'libssl.a'}",
          f"-DOPENSSL_CRYPTO_LIBRARY={deps / 'lib' / 'libcrypto.a'}",
-         f"-DMYSQL_INCLUDE_DIR={SOURCE / 'include'}", f"-DMYSQL_LIBRARY={connector}",
-         f"-DMYSQL_EXTRA_LIBRARIES={zlib}",
-         f"-DCMAKE_CXX_FLAGS=-I{CONNECTOR_BUILD / 'include'}", "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"])
+         *mysql_flags,
+         *sqlite_flags,
+         "-DCMAKE_CXX_FLAGS=" + (f"-I{CONNECTOR_BUILD / 'include'}" if connector else ""),
+         "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"])
+    verify_backend_selection(backend, capture)
+    # Durable evidence, self-healing on every lane rebuild: the sqlite-side
+    # proof is otherwise ephemeral (stdout only), so every verified configure
+    # leaves a per-backend marker (one backend's verification never
+    # overwrites the other's).
+    marker = CMANGOS_BUILD / f"POCKET_BACKEND_VERIFY.{backend}.json"
+    status_line = next((line.strip() for line in capture.splitlines()
+                        if "Pocket Realm database backend:" in line), "")
+    marker.write_text(json.dumps({
+        "backend": backend,
+        "abi": TARGET_ABI,
+        "cmangos_commit": CMANGOS_COMMIT,
+        "driver": "tools/build_o09_realm_runtime.py",
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "configure_status_line": status_line,
+        "evidence": ["configure status line", "build.ninja DO_* defines"],
+    }, indent=2) + "\n", encoding="utf-8")
+    stale_marker = CMANGOS_BUILD / "POCKET_BACKEND_VERIFY.json"
+    if stale_marker.exists():
+        stale_marker.unlink()
+    if configure_only:
+        print(f"configure-only: backend={backend} verified in {CMANGOS_BUILD}")
+        return llvm, cmake
     run([cmake, "--build", CMANGOS_BUILD, "--target", "pocket_realmd_runtime",
          "pocket_world_runtime", "-j", str(os.cpu_count() or 4)])
+    if backend == "sqlite":
+        # G2/P1 CI check: a SQLITE=ON build must carry zero mariadbclient
+        # references anywhere in the link. DEC-07 still applies: no staging
+        # into the shared MariaDB staging dir until the P5/P6 window - the
+        # artifacts stay in the build tree.
+        purity = verify_sqlite_link_purity(llvm)
+        marker = CMANGOS_BUILD / "POCKET_BACKEND_VERIFY.sqlite.json"
+        record = json.loads(marker.read_text(encoding="utf-8")) if marker.is_file() else {}
+        record["link_purity"] = "verified"
+        # Distinct from generated_at_utc (configure time): this stamp says
+        # when the compiled evidence itself was produced.
+        record["build_completed_at_utc"] = datetime.now(timezone.utc).isoformat()
+        record["runtime_sha256"] = purity
+        marker.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+        print(f"sqlite-lane build verified mariadb-free; artifacts built in "
+              f"{CMANGOS_BUILD / 'pocket-runtime-build'} and staged into the "
+              "sibling realm-staging-sqlite root (P5 window, DEC-07 inverted)")
+    else:
+        # Symmetric completion stamp for the mysql lane: the marker's
+        # generated_at_utc alone cannot distinguish configure-verified from
+        # fully-built.
+        marker = CMANGOS_BUILD / "POCKET_BACKEND_VERIFY.mysql.json"
+        record = json.loads(marker.read_text(encoding="utf-8")) if marker.is_file() else {}
+        record["build_completed_at_utc"] = datetime.now(timezone.utc).isoformat()
+        marker.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
     return llvm, cmake
 
 
+def verify_sqlite_link_purity(llvm: Path) -> dict:
+    """A SQLITE=ON build must contain zero mariadbclient references.
+
+    Checks the generated build graph for connector paths and the built
+    runtime objects for connector symbols (the full mysql_/mariadb_ API
+    prefixes only exist in libmariadbclient.a; matching them means the
+    connector leaked into the link). Also proves the sqlite side is
+    positively present (sqlite3_* symbols), so the check cannot pass
+    vacuously. Returns the runtime sha256 evidence for the verify marker.
+    """
+    graph = (CMANGOS_BUILD / "build.ninja").read_text(encoding="utf-8", errors="replace")
+    for needle in ("mariadbclient", "libmariadb", "MYSQL_LIBRARY"):
+        if needle in graph:
+            raise RuntimeError(
+                f"sqlite link purity: {needle!r} appears in the generated "
+                "build graph; the MariaDB connector must not enter a "
+                "SQLITE=ON build")
+    if "libsqlite3.a" not in graph:
+        raise RuntimeError(
+            "sqlite link purity: the pinned amalgamation library does not "
+            "appear in the build graph; the check would pass vacuously")
+    nm = llvm / "llvm-nm.exe"
+    evidence = {}
+    for name in ("libpocket_realmd_runtime.so", "libpocket_world_runtime.so"):
+        binary = CMANGOS_BUILD / "pocket-runtime-build" / name
+        if not binary.is_file():
+            raise RuntimeError(f"sqlite link purity: expected build output missing: {binary}")
+        symbols = output([nm, binary])
+        leaked = sorted({
+            line.split()[-1] for line in symbols.splitlines()
+            if line.split() and (
+                line.split()[-1].startswith("mysql_") or
+                line.split()[-1].startswith("mariadb_"))})
+        if leaked:
+            preview = ", ".join(leaked[:5])
+            raise RuntimeError(
+                f"sqlite link purity: connector symbols present in {name} "
+                f"({preview}...); a SQLITE=ON build must be mariadb-free")
+        if not any(line.split() and line.split()[-1].startswith("sqlite3_")
+                   for line in symbols.splitlines()):
+            raise RuntimeError(
+                f"sqlite link purity: no sqlite3_* symbols in {name}; the "
+                "backend did not actually link SQLite")
+        evidence[name] = sha256(binary)
+    return evidence
+
+
+def verify_backend_selection(backend: str, configure_stdout: str = "") -> None:
+    """Prove the selected backend from configure output, not from the flags.
+
+    Two legs of evidence (F41: a SQLITE=ON claim without configure or link
+    evidence proves nothing): (1) the fail-loud CMake overlay's status line
+    in the configure output, and (2) the DO_* compile defines actually
+    written into the generated Ninja build graph. flags.make is a
+    Makefiles-generator artifact and never exists under this driver's
+    `-G Ninja`, so build.ninja is the ground-truth source.
+    """
+    status = None
+    for line in configure_stdout.splitlines():
+        if "Pocket Realm database backend:" in line:
+            status = line.split("Pocket Realm database backend:", 1)[1].strip()
+    expected_status = "SQLITE" if backend == "sqlite" else "MYSQL"
+    if status is None or not status.startswith(expected_status):
+        raise RuntimeError(
+            f"backend selection not verified: configure status={status!r}, "
+            f"expected {expected_status} (the fail-loud CMake overlay is "
+            "required evidence; never trust a SQLITE claim without it)")
+    build_ninja = CMANGOS_BUILD / "build.ninja"
+    if not build_ninja.is_file():
+        raise RuntimeError(
+            f"backend selection not verified: {build_ninja} missing; the "
+            "generated build graph is the ground-truth evidence")
+    ninja = build_ninja.read_text(encoding="utf-8", errors="replace")
+    expected_define = "DO_SQLITE" if backend == "sqlite" else "DO_MYSQL"
+    other_define = "DO_MYSQL" if backend == "sqlite" else "DO_SQLITE"
+    if f"-D{expected_define}" not in ninja:
+        raise RuntimeError(
+            f"backend selection compile define -D{expected_define} absent "
+            f"from {build_ninja}")
+    if f"-D{other_define}" in ninja:
+        raise RuntimeError(
+            f"backend selection compile define -D{other_define} unexpectedly "
+            f"present in {build_ninja}")
+
+
+def package_seed_transcripts(stage_root: Path) -> dict:
+    """Run the manifest seeder (host) and ship its four transcripts as
+    deterministic gzip assets (mtime=0) under assets/seed/, verifying
+    the raw transcript digests against the append-only baseline first -
+    a staging build never ships seed content the reviewed baseline does
+    not pin (I-50 integrity chain, extended to the APK assets)."""
+    import gzip
+    import sys
+    import tempfile
+    sys.path.insert(0, str(ROOT / "tools"))
+    import seed_sqlite_from_manifest as seeder  # noqa: E402
+    baseline = json.loads(
+        (ROOT / "schemas" / "sqlite-seed-baseline.json")
+        .read_text(encoding="utf-8"))
+    with tempfile.TemporaryDirectory() as tmp:
+        rc, summary = seeder.seed(Path(tmp) / "db", Path(tmp) / "tr",
+                                  False, 0)
+        if rc != 0:
+            raise RuntimeError("seed failed; refusing to stage transcripts")
+        digests = summary.get("transcript_digests")
+        if digests != baseline.get("transcript_digests"):
+            raise RuntimeError(
+                "seed transcript digests diverge from the append-only "
+                "baseline - regenerate the baseline deliberately (clean "
+                "--write-baseline run) before staging")
+        assets = stage_root / "assets" / "seed"
+        assets.mkdir(parents=True, exist_ok=True)
+        # a staging dir rewritten across the .gz -> .sqlz rename must
+        # not ship BOTH names (the stale .gz would gunzip to the raw
+        # transcript inside the APK alongside the compressed .sqlz)
+        for stale in assets.glob("*.sql.gz"):
+            stale.unlink()
+        out: dict[str, dict] = {}
+        for db, digest in sorted(digests.items()):
+            raw = (Path(tmp) / "tr" / f"{db}.sql").read_bytes()
+            if hashlib.sha256(raw).hexdigest() != digest:
+                raise RuntimeError(f"{db}: transcript digest mismatch")
+            packed = gzip.compress(raw, 9, mtime=0)
+            # .sqlz, NOT .sql.gz: AGP's asset merge transparently
+            # gunzips *.gz assets (extension-keyed - it decompresses and
+            # strips the suffix at merge), which would ship the raw
+            # 118.7 MiB transcripts deflated instead of the pinned
+            # 22.71 MiB gzip and break the on-device GZIPInputStream
+            # read. The MariaDB migrations ship as .sqlz for exactly
+            # this reason; the seed adopts the same convention (P5 R1
+            # I-93, found in the first-ever window APK assembly).
+            (assets / f"{db}.sqlz").write_bytes(packed)
+            out[db] = {
+                "sha256": digest,
+                "size": len(raw),
+                "gzip_sha256": hashlib.sha256(packed).hexdigest(),
+                "gzip_size": len(packed),
+            }
+        return out
+
+
 def stage(llvm: Path) -> dict:
-    STAGE.mkdir(parents=True, exist_ok=True)
+    # DEC-07 inversion (P5): the sqlite lane stages into a SIBLING root -
+    # never the shared MariaDB staging dir (that would poison Gradle's
+    # committed-lockfile realm gate, the I-08 hazard class) - and ships
+    # the seed transcripts as gzip assets, digest-verified against the
+    # append-only baseline.
+    stage_root = BUILD / ("realm-staging-sqlite" if BACKEND == "sqlite"
+                          else "realm-staging")
+    stage = stage_root / "jniLibs" / TARGET_ABI
+    provenance = stage_root / "BUILD_PROVENANCE.json"
+    stage.mkdir(parents=True, exist_ok=True)
     records = []
     readelf = llvm / "llvm-readelf.exe"
     strip = llvm / "llvm-strip.exe"
@@ -1338,7 +4059,7 @@ def stage(llvm: Path) -> dict:
         allowed |= {"libllama.so", "libllama-common.so", "libggml.so", "libggml-base.so", "libggml-cpu.so"}
     for name in ("libpocket_realmd_runtime.so", "libpocket_world_runtime.so"):
         source = CMANGOS_BUILD / "pocket-runtime-build" / name
-        target = STAGE / name
+        target = stage / name
         shutil.copy2(source, target)
         run([strip, "--strip-unneeded", target])
         dynamic = output([readelf, "-dW", target])
@@ -1356,38 +4077,102 @@ def stage(llvm: Path) -> dict:
         # vendored llama.cpp runtime ships as staged shared libraries so the
         # Gradle jniLibs Sync picks them up with the world runtime
         for source in sorted((ROOT / "native/llm/prebuilt/arm64-v8a").glob("*.so")):
-            target = STAGE / source.name
+            target = stage / source.name
             shutil.copy2(source, target)
+            # vendored libs face the same ELF gates as the runtime libs: a
+            # re-vendored build with 4K LOAD segments or new transitive deps
+            # must fail here, not at dlopen on a 16K-page device
+            dynamic = output([readelf, "-dW", target])
+            needed = sorted(line.split("[")[1].split("]")[0] for line in dynamic.splitlines() if "(NEEDED)" in line)
+            unexpected = set(needed) - allowed
+            if unexpected:
+                raise RuntimeError(f"unexpected DT_NEEDED for {source.name}: {sorted(unexpected)}")
+            program = output([readelf, "-lW", target])
+            aligns = [int(line.split()[-1], 16) for line in program.splitlines() if line.lstrip().startswith("LOAD ")]
+            if not aligns or max(aligns) < MAX_PAGE or any(value < MAX_PAGE for value in aligns):
+                raise RuntimeError(f"{source.name} is not 16 KB page-compatible: {aligns}")
             records.append({"path": target.relative_to(ROOT).as_posix(), "size": target.stat().st_size,
-                            "sha256": sha256(target), "needed": [], "load_alignments": []})
+                            "sha256": sha256(target), "needed": needed, "load_alignments": aligns})
     record = {
         "schema": 1, "built_at_utc": datetime.now(timezone.utc).isoformat(), "abi": TARGET_ABI,
         "min_api": 26, "elf_max_page_size": "0x4000", "playerbots": True,
         "auction_house_bot": False, "cmangos_commit": CMANGOS_COMMIT,
         "playerbots_commit": PLAYERBOTS_COMMIT,
-        "cmangos_source_overlays": CMANGOS_OVERLAYS,
+        "database_backend": BACKEND,
+        # Record only the overlays actually applied to THIS build: registry
+        # entries may declare a "backends" filter (e.g. the sqlite-only
+        # connection hardening must not appear in a mysql lockfile's
+        # provenance).
+        "cmangos_source_overlays": [
+            dict(entry) for entry in CMANGOS_OVERLAYS
+            if BACKEND in entry.get("backends", ("mysql", "sqlite"))],
         "playerbots_source_overlays": PLAYERBOTS_OVERLAYS,
+        # Content pin of every native/patches/ file compiled into this
+        # build (pre-P5 checklist item 3): an edited patch file makes
+        # the committed lockfile stale, loudly.
+        "patches_content": patches_content_digests(),
         "mariadb_connector_c": {"url": CONNECTOR_URL, "commit": CONNECTOR_COMMIT,
-                                "license": "LGPL-2.1-or-later"},
+                                "license": "LGPL-2.1-or-later"} if BACKEND == "mysql" else None,
         "artifacts": records,
     }
     if TARGET_ABI == "arm64-v8a":
         record["llama_cpp"] = {"commit": "6d05498314db1b57f81c271080018aa2d0b89be9",
                                "vendored": "native/llm/prebuilt/arm64-v8a"}
-    PROVENANCE.parent.mkdir(parents=True, exist_ok=True)
-    PROVENANCE.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    if BACKEND == "sqlite":
+        # The dual-provider window ships the seed as COMPRESSED assets
+        # (F31: ~22.7 MiB gzip vs ~118.7 MiB raw), digest-bound to the
+        # reviewed append-only baseline.
+        record["seed_transcripts"] = package_seed_transcripts(stage_root)
+    provenance.parent.mkdir(parents=True, exist_ok=True)
+    provenance.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
     lock_record = {key: value for key, value in record.items() if key != "built_at_utc"}
-    LOCKFILE.write_text(json.dumps(lock_record, indent=2) + "\n", encoding="utf-8")
+    # The committed MariaDB-lane lockfile is the shipped-provider pin verified
+    # by Gradle; a SQLite-lane build records itself in a sibling file so the
+    # dual-provider window (P5-P8) never moves the MariaDB pin implicitly.
+    lockfile = LOCKFILE
+    if BACKEND == "sqlite":
+        lockfile = LOCKFILE.with_name(
+            LOCKFILE.name.replace(".json", "-sqlite.json"))
+    lock_bytes = (json.dumps(lock_record, indent=2) + "\n").encode("utf-8")
+    lockfile.write_bytes(lock_bytes)
+    if BACKEND == "sqlite":
+        # P6 identity source: the APK asset the Kotlin control plane's
+        # loadAndVerifySqliteIdentity consumes. The asset bytes are the
+        # LOCK-RECORD form (built_at_utc excluded), byte-identical to the
+        # committed sibling lockfile by construction - Gradle's
+        # validateRealmRuntime asserts asset == lockfile, so the engine's
+        # verified identity and the reviewed lockfile pin can never diverge.
+        # Byte-stability matters: built_at_utc would make every rebuild a
+        # different asset; the lock-record is deterministic for the same
+        # inputs.
+        asset = stage_root / "assets" / "database" / "provider-sqlite" / \
+            "BUILD_PROVENANCE.json"
+        asset.parent.mkdir(parents=True, exist_ok=True)
+        asset.write_bytes(lock_bytes)
     return record
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--abi", choices=("x86_64", "arm64-v8a"), default="x86_64")
+    parser.add_argument("--backend", choices=("mysql", "sqlite"), default="mysql",
+                        help="database backend: the SQLITE cache variable is the real "
+                             "CMake switch (MySQL is the else-default). sqlite builds "
+                             "skip connector-c and stage into the sibling realm-staging-sqlite "
+                             "root with the sibling -sqlite lockfile (DEC-06/07).")
+    parser.add_argument("--configure-only", action="store_true",
+                        help="apply overlays, run the CMake configure, verify the "
+                             "fail-loud backend selection, restore, and stop. No "
+                             "compile, no staging.")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
     select_abi(args.abi)
-    prepare_connector_source()
+    global BACKEND
+    BACKEND = args.backend
+    if not args.configure_only and args.backend == "mysql":
+        # Connector/C is a MySQL-lane dependency only; a sqlite full build
+        # must not touch the MariaDB mirror at all (DEC-05).
+        prepare_connector_source()
     # Refuse to consume arbitrary working-tree edits.  Only after this clean
     # check succeeds is cleanup armed; a rejected dirty tree is never touched.
     cmangos = NATIVE / "cmangos"
@@ -1395,16 +4180,39 @@ def main() -> int:
         subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=cmangos).returncode != 0
     untracked = output(["git", "ls-files", "--others", "--exclude-standard"], cmangos)
     if tracked_dirty or untracked:
-        raise RuntimeError("CMaNGOS submodule has unrecorded changes; clean it before building")
+        raise RuntimeError(
+            "CMaNGOS submodule has unrecorded changes; clean it before "
+            "building. If a previous build was killed mid-run (its restore "
+            "was skipped), the overlaid files are still applied - restore "
+            "the tracked ones with: git -C native/cmangos checkout -- . "
+            "(the backend-selection overlay touches the submodule ROOT "
+            "CMakeLists.txt, not just src/) and remove the untracked "
+            "overlay file with: git -C native/cmangos clean -fd "
+            "src/game/Chat/PocketRealmInteraction.cpp")
     cleanup_armed = True
+    record = None
     try:
         prepare_cmangos_source()
-        llvm, _ = configure_and_build(args.force)
-        record = stage(llvm)
+        llvm, _ = configure_and_build(args.force, backend=args.backend,
+                                      configure_only=args.configure_only)
+        if not args.configure_only:
+            # P5 DEC-07 inversion: BOTH backends stage. The sqlite lane
+            # stages into its sibling root + sibling lockfile; the MariaDB
+            # staging dir and committed lockfile are never touched by it.
+            record = stage(llvm)
     finally:
         if cleanup_armed:
             restore_cmangos_source()
-    print(json.dumps(record, indent=2))
+            # Invariant, not convention: after every completed build the
+            # submodule must be byte-pristine. A restore miss here would
+            # otherwise surface only as the NEXT run's refusal.
+            leftover = output(["git", "status", "--porcelain"], cmangos)
+            if leftover:
+                raise RuntimeError(
+                    "post-build submodule drift (restore missed a file):\n"
+                    f"{leftover}")
+    if record is not None:
+        print(json.dumps(record, indent=2))
     return 0
 
 

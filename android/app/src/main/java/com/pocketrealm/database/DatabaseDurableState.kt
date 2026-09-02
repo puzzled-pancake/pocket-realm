@@ -386,10 +386,230 @@ internal object DatabaseDurableState {
         else -> false
     }
 
+    // ------------------------------------------------------------------
+    // P5/G7 -> P6 handoff: the translation-record consumer gate (I-115,
+    // registered R3/R4/R5 with D's identity-pin strengthening + E's
+    // staging-intactness refusal). Pure and JVM-testable by design; the
+    // engine supplies the staged-file verification as a predicate.
+    // ------------------------------------------------------------------
+
+    enum class TranslationConsumption {
+        CONSUMABLE,
+        NOT_EXPORTED,          // phase != EXPORTED (mid-export or failed)
+        MISSING_SEAL_PIN,      // EXPORTED without the cleanStopSealSha256 pin
+        SEAL_PIN_MISMATCH,     // any later provider cycle (start deletes the
+                               // seal, stop rewrites it with a fresh timestamp)
+        IDENTITY_MISMATCH,     // record predates a provider/manifest update
+        GENERATION_MISMATCH,   // record predates a re-initialization
+        EMPTY_BASELINE,        // no databases/tables recorded
+        STAGING_INCOMPLETE,    // a recorded table's staged TSV failed verification
+        INVALID_RECORD,
+    }
+
+    /**
+     * Decide whether the P5 translation staging may be consumed by the
+     * SQLite import leg. Every refusal leg is a documented user promise:
+     * a stale baseline (post-export datadir writes, restores, provider
+     * updates, re-inits) must never be imported over. The
+     * [stagedTableVerified] predicate receives each recorded table's
+     * (database, table, rows, sha256, bytes) and must verify the staged
+     * file byte-for-byte (existence + recorded values) before any
+     * INSERT happens on the consumer side.
+     */
+    fun translationConsumable(
+        recordText: String?,
+        liveCleanSealText: String?,
+        identity: Identity,
+        liveGenerationUuid: String?,
+        stagedTableVerified: (database: String, table: String, rows: Long, sha256: String, bytes: Long) -> Boolean,
+    ): TranslationConsumption {
+        if (recordText == null) return TranslationConsumption.INVALID_RECORD
+        val record = runCatching {
+            val value = JSONObject(recordText)
+            check(value.getInt("schema") == 1)
+            value
+        }.getOrNull() ?: return TranslationConsumption.INVALID_RECORD
+        if (record.optString("phase") != "EXPORTED") return TranslationConsumption.NOT_EXPORTED
+        val pin = record.optString("cleanStopSealSha256")
+        if (!SHA256.matches(pin)) return TranslationConsumption.MISSING_SEAL_PIN
+        val liveSeal = liveCleanSealText ?: return TranslationConsumption.SEAL_PIN_MISMATCH
+        if (com.pocketrealm.fs.FileDigests.sha256(liveSeal) != pin) {
+            return TranslationConsumption.SEAL_PIN_MISMATCH
+        }
+        if (record.optString("providerClosureSha256") != identity.providerClosureSha256 ||
+            record.optString("migrationManifestSha256") != identity.migrationManifestSha256 ||
+            record.optInt("migrationCount", -1) != identity.migrationCount
+        ) return TranslationConsumption.IDENTITY_MISMATCH
+        if (record.optString("generationUuid") != liveGenerationUuid) {
+            return TranslationConsumption.GENERATION_MISMATCH
+        }
+        val databases = record.optJSONObject("databases")
+            ?: return TranslationConsumption.EMPTY_BASELINE
+        var tables = 0
+        val databasesIterator = databases.keys()
+        while (databasesIterator.hasNext()) {
+            val database = databasesIterator.next()
+            val tablesObject = databases.optJSONObject(database) ?: continue
+            val tablesIterator = tablesObject.keys()
+            while (tablesIterator.hasNext()) {
+                val table = tablesIterator.next()
+                val entry = tablesObject.optJSONObject(table)
+                    ?: return TranslationConsumption.INVALID_RECORD
+                tables++
+                val ok = runCatching {
+                    stagedTableVerified(
+                        database, table,
+                        entry.getLong("rows"), entry.getString("sha256"), entry.getLong("bytes"),
+                    )
+                }.getOrDefault(false)
+                if (!ok) return TranslationConsumption.STAGING_INCOMPLETE
+            }
+        }
+        if (tables == 0) return TranslationConsumption.EMPTY_BASELINE
+        return TranslationConsumption.CONSUMABLE
+    }
+
     private const val BASE_SEAL_FIELDS = 6 // schema + four identity fields + generation
     private const val TRANSACTION_FIELDS_V1 = 11
     private const val TRANSACTION_FIELDS_V2 = 12
     private const val SNAPSHOT_COMPATIBILITY_FIELDS = 6
+
+    // ------------------------------------------------------------------
+    // P6: provider-mode resolution + the active-provider marker. Pure and
+    // JVM-testable; the engine and ServerRuntimeFiles (separate processes)
+    // must reach the SAME decision from durable state, so the decision is
+    // a function and its durable cache is a codec pair.
+    // ------------------------------------------------------------------
+
+    enum class ProviderMode { MARIADB, SQLITE }
+
+    /**
+     * The active-provider decision, in precedence order:
+     * 1. A VALID SQLite initialized seal AND a sqlite-capable APK mean the
+     *    cutover completed - SQLite serves. (A non-sqlite APK with a
+     *    dormant sqlite datadir stays MariaDB: that is the window's
+     *    APK-level rollback - the MariaDB datadir is never deleted before
+     *    P8.)
+     * 2. No MariaDB initialized marker at all (fresh install - including
+     *    a failed/partial prior init, whose marker only appears at
+     *    completion) on a sqlite-capable APK goes straight to SQLite: the
+     *    window never bootstraps MariaDB it will immediately translate
+     *    away. A non-capable APK bootstraps MariaDB as today.
+     * 3. Otherwise MariaDB: an existing MariaDB generation (current or
+     *    not - a stale seal must recover through the OLD provider's
+     *    fail-closed paths, never silently discard) keeps MariaDB until
+     *    the window translation completes.
+     */
+    fun resolveProviderMode(
+        sqliteCapable: Boolean,
+        sqliteInitializedSealValid: Boolean,
+        mariadbInitializedMarkerPresent: Boolean,
+    ): ProviderMode = when {
+        sqliteCapable && sqliteInitializedSealValid -> ProviderMode.SQLITE
+        sqliteCapable && !mariadbInitializedMarkerPresent -> ProviderMode.SQLITE
+        else -> ProviderMode.MARIADB
+    }
+
+    /** The durable cache of [resolveProviderMode], written by the engine
+     * at every provider transition so :realm/:world can shape their
+     * DatabaseInfo without re-deriving (or disagreeing with) the engine. */
+    const val ACTIVE_PROVIDER_MARKER_NAME = "active-provider.json"
+
+    fun activeProviderMarker(mode: ProviderMode, providerId: String, generationUuid: String?): String {
+        require(providerId.matches(Regex("[A-Za-z0-9._+-]{1,96}")))
+        if (mode == ProviderMode.SQLITE) {
+            require(generationUuid == null || UUID.matches(generationUuid))
+        } else {
+            requireNotNull(generationUuid) { "MariaDB mode pins the live generation" }
+            check(UUID.matches(generationUuid))
+        }
+        return JSONObject()
+            .put("schema", 1)
+            .put("mode", mode.name)
+            .put("provider", providerId)
+            .put("generationUuid", generationUuid ?: JSONObject.NULL)
+            .toString()
+    }
+
+    data class ActiveProvider(val mode: ProviderMode, val providerId: String, val generationUuid: String?)
+
+    fun parseActiveProviderMarker(text: String?): ActiveProvider? = runCatching {
+        val marker = JSONObject(requireNotNull(text))
+        check(marker.length() == 4 && marker.getInt("schema") == 1)
+        val mode = when (marker.getString("mode")) {
+            "MARIADB" -> ProviderMode.MARIADB
+            "SQLITE" -> ProviderMode.SQLITE
+            else -> return@runCatching null
+        }
+        val provider = marker.getString("provider")
+        check(provider.matches(Regex("[A-Za-z0-9._+-]{1,96}")))
+        check(mode == ProviderMode.MARIADB || provider.startsWith("sqlite-")) {
+            "sqlite mode must name a sqlite provider"
+        }
+        check(mode == ProviderMode.SQLITE || provider.startsWith("mariadb-")) {
+            "mariadb mode must name a mariadb provider"
+        }
+        val generation = if (marker.isNull("generationUuid")) null else marker.getString("generationUuid")
+        check(mode == ProviderMode.MARIADB || generation == null || UUID.matches(generation))
+        check(mode == ProviderMode.SQLITE || generation != null)
+        ActiveProvider(mode, provider, generation)
+    }.getOrNull()
+
+    // ------------------------------------------------------------------
+    // P6 R1 (A3/B-A/D2/E1/E2): the interrupted-provisioning recovery
+    // decision. The INIT transaction record spans the ENTIRE provision
+    // (record written first; deleted only after the final seal+marker
+    // commit), so every crash window is covered. The re-provision variant
+    // moves the live datadir to a FIXED retire name (recorded by
+    // convention) before seeding - recovery restores it rather than ever
+    // re-translating from the frozen MariaDB datadir (the recorded design
+    // decision: post-cutover user state must never be silently discarded).
+    // ------------------------------------------------------------------
+
+    enum class ProvisioningRecovery { KEEP_COMPLETED, DISCARD_RECORD, RESTORE_RETIRED, QUARANTINE_AND_RETRY }
+
+    /**
+     * I-133 (R2 B): the SQLite provider's OWNSHIP closure digest - the
+     * provenance asset with `seed_transcripts` REMOVED, canonically
+     * re-serialized, hashed. The exclusion is load-bearing: the seed pins
+     * change with every corpus advance, and ownership must stay
+     * corpus-stable (the MariaDB lane's migration-only-update contract);
+     * the corpus rides the migration-manifest identity instead. Pure and
+     * JVM-tested: a seed_transcripts-only change leaves the digest
+     * unchanged; any provider-build change moves it.
+     */
+    fun sqliteClosureDigest(provenanceText: String): String =
+        com.pocketrealm.fs.FileDigests.sha256(
+            JSONObject(provenanceText).apply { remove("seed_transcripts") }.toString(),
+        )
+
+    /**
+     * Decide how to recover a pending sqlite INIT transaction. Inputs:
+     * the record's generation, the LIVE datadir's generation marker (null
+     * when absent/empty), whether the live sqlite seals are currently
+     * valid, and whether the fixed retire directory exists. Decision
+     * order: a fully sealed live datadir owned by the record completes;
+     * a live datadir from a DIFFERENT generation means the record predates
+     * any move (the old state is intact - discard the record); a retire
+     * directory means a re-provision moved the old datadir out (discard
+     * the partial and restore it); a partial datadir owned by the record
+     * with no retire is a fresh provision (quarantine and retry).
+     */
+    fun provisioningRecovery(
+        recordGenerationUuid: String?,
+        liveGenerationUuid: String?,
+        liveSealsValid: Boolean,
+        retiredPresent: Boolean,
+    ): ProvisioningRecovery = when {
+        recordGenerationUuid == null -> ProvisioningRecovery.DISCARD_RECORD
+        liveGenerationUuid == recordGenerationUuid && liveSealsValid ->
+            ProvisioningRecovery.KEEP_COMPLETED
+        liveGenerationUuid != null && liveGenerationUuid != recordGenerationUuid ->
+            ProvisioningRecovery.DISCARD_RECORD
+        retiredPresent -> ProvisioningRecovery.RESTORE_RETIRED
+        liveGenerationUuid == recordGenerationUuid -> ProvisioningRecovery.QUARANTINE_AND_RETRY
+        else -> ProvisioningRecovery.DISCARD_RECORD
+    }
 }
 
 /** Pure mutation gate used before any datadir rename/delete/restore. */

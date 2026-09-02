@@ -2,7 +2,7 @@
   "schema": 1,
   "reference_document": "docs/wiki/README.md",
   "description": "Pinned upstream source manifest for the Pocket Realm offline build. Every active entry has an exact commit, license, and redistribution verdict. This file governs source selection only.",
-  "updated": "2026-08-18 (alpha 0.100.0-alpha cleanup)",
+  "updated": "2026-08-22 (sqlite-amalgamation pin for the gated SQLite lane; P1)",
   "toolchain": {
     "android_sdk_root_env": "ANDROID_SDK_ROOT / ANDROID_HOME (machine-local; not pinned here)",
     "ndk": {
@@ -25,7 +25,7 @@
       "dependencies_built": {
         "openssl": "3.4.3 (libcrypto.a, libssl.a; static, no-asm)",
         "boost": "1.86.0 (program_options, thread, regex, serialization, filesystem, system; static runtime)",
-        "sqlite": "3.46.1 amalgamation (historical exploratory backend; not the production database baseline)"
+        "sqlite": "3.46.1 amalgamation, pinned as sources[] entry sqlite-amalgamation-3460100 (the in-tree DO_SQLITE lane; MariaDB stays the production baseline until the P8 cutover)"
       },
       "playerbots_integration": "BUILD_PLAYERBOTS=ON; cmangos FetchContent (SOURCE_DIR form) reads native/playerbots mirrored into native/cmangos/src/modules/PlayerBots by build_native.py ensure_playerbots()",
       "emulator_test_abi": "x86_64 is the required development and integration ABI via the fixed Android AVD lanes. arm64-v8a remains the physical release ABI; any distributed x86 artifact must be explicitly declared by the release matrix.",
@@ -223,6 +223,34 @@
       "redistribution": {
         "verdict": "source-redistributable-under-LGPL-2.1-or-later",
         "notes": "The exact public commit, deterministic source overlays, Android toolchain inputs, static archive build, and resulting server-library hashes are recorded by the checked-in build script and schemas/realm-runtime-lockfile.json."
+      }
+    },
+    {
+      "id": "sqlite-amalgamation-3460100",
+      "kind": "prebuilt-archive",
+      "upstream_url": "https://sqlite.org/",
+      "artifact": "sqlite-amalgamation-3460100.zip",
+      "artifact_url": "https://sqlite.org/2024/sqlite-amalgamation-3460100.zip",
+      "artifact_sha256": "77823cb110929c2bcb0f5d48e4833b5c59a8a6e40cdea3936b99e199dbbe5784",
+      "content_sha256": {
+        "sqlite3.c": "6c35bc5f7f85eac9c49928bacbb02bb694b547aabf69197e058cca245ad80e83",
+        "sqlite3.h": "89b62c671c5964e137409ce034941b7b05a3af2c9875aba41f47f9483d0c2515"
+      },
+      "role": "SQLite 3.46.1 amalgamation compiled by the pinned recipe (native/.deps/src/sqlite/CMakeLists.txt) into static libsqlite3.a per ABI for the in-tree DO_SQLITE backend lane. MariaDB remains the production database baseline until the P8 cutover; this pin is the provenance foundation for the gated SQLite lane.",
+      "build_script": "tools/stage_sqlite_amalgamation.py",
+      "license": "Public Domain",
+      "redistribution": {
+        "verdict": "public-domain-no-restrictions",
+        "notes": "sqlite3.c is expressly public domain (sqlite.org/copyright.html); the amalgamation zip is fetched and sha-verified by tools/fetch_provider.py and staged by tools/stage_sqlite_amalgamation.py."
+      },
+      "built_artifacts": {
+        "note": "Deterministic rebuild reference: same zip + recipe + pinned toolchain reproduce these byte-identical static libraries; enforced by tests/test_sqlite_amalgamation_pin.py. An NDK/cmake bump that changes the bytes must update this block in the same reviewed change.",
+        "ndk": "30.0.15729638",
+        "cmake": "4.1.2",
+        "libsqlite3.a": {
+          "x86_64": "fb12d8b13f277aca8e97a0fd2459ea21c17d284e4251655a0f16c31d379e5e12",
+          "arm64-v8a": "d1cdd619e770dacbd958c8d5f21d229afb62136418e3823aa5445cf02e67b92f"
+        }
       }
     },
     {

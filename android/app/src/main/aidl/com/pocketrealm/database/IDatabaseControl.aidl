@@ -3,8 +3,10 @@ package com.pocketrealm.database;
 import android.os.IBinder;
 
 /**
- * Fixed, same-APK control surface for the fault-isolated MariaDB service.
- * Every response is bounded JSON. No method accepts a path, executable,
+ * Fixed, same-APK control surface for the fault-isolated database service
+ * (the MariaDB provider, and - in dual-provider window builds - the
+ * in-tree SQLite provider behind the same opaque lifecycle). Every
+ * response is bounded JSON. No method accepts a path, executable,
  * environment, SQL string, or credential from the caller.
  */
 interface IDatabaseControl {
@@ -15,6 +17,8 @@ interface IDatabaseControl {
     String queryHealth();
     String projectRealmEndpoint(String instanceToken, String address, int worldPort);
     String applyPinnedMigrations();
+    String provisionSqliteProvider();
+    String translateUserStateToSqliteStaging();
     String stop();
     String stopOwned(String instanceToken);
     String forceStopOwned(String instanceToken);

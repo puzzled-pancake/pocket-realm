@@ -2,6 +2,7 @@ package com.pocketrealm.database
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -261,5 +262,240 @@ class DatabaseDurableStateTest {
         assertFalse(DatabaseMutationGate.permits(true, false, false, false))
         assertFalse(DatabaseMutationGate.permits(true, false, true, true))
         assertFalse(DatabaseMutationGate.permits(false, false, true, false))
+    }
+    @Test fun translationConsumerGateRefusesEveryStalenessLeg() {
+        // I-115: the P5 translation-record consumer gate, pure and
+        // JVM-tested per refusal leg before the P6 import leg consumes it.
+        val sealText = "the-clean-stop-seal-bytes"
+        val sealSha = com.pocketrealm.fs.FileDigests.sha256(sealText)
+        val recordGeneration = "012348af-1234-4123-8123-0123456789ab"
+        fun record(
+            phase: String = "EXPORTED",
+            sealPin: String? = sealSha,
+            generationUuid: String = recordGeneration,
+            closure: String = identity.providerClosureSha256,
+            manifest: String = identity.migrationManifestSha256,
+            count: Int = identity.migrationCount,
+            databases: JSONObject? = JSONObject().put(
+                "classiccharacters", JSONObject().put(
+                    "characters", JSONObject()
+                        .put("rows", 2).put("sha256", "d".repeat(64)).put("bytes", 99),
+                ),
+            ),
+        ): String {
+            val value = JSONObject().put("schema", 1).put("phase", phase)
+                .put("generationUuid", generationUuid)
+                .put("providerClosureSha256", closure)
+                .put("migrationManifestSha256", manifest)
+                .put("migrationCount", count)
+                .put("databases", databases ?: JSONObject())
+            if (sealPin != null) value.put("cleanStopSealSha256", sealPin)
+            return value.toString()
+        }
+        fun decide(
+            recordText: String?,
+            liveSeal: String? = sealText,
+            liveGeneration: String? = recordGeneration,
+            stagedOk: Boolean = true,
+        ) = DatabaseDurableState.translationConsumable(
+            recordText, liveSeal, identity, liveGeneration,
+        ) { _, _, _, _, _ -> stagedOk }
+
+        // the happy path
+        assertEquals(DatabaseDurableState.TranslationConsumption.CONSUMABLE, decide(record()))
+        // mid-export / failed phases are never consumable
+        assertEquals(
+            DatabaseDurableState.TranslationConsumption.NOT_EXPORTED,
+            decide(record(phase = "EXPORTING")),
+        )
+        assertEquals(
+            DatabaseDurableState.TranslationConsumption.NOT_EXPORTED,
+            decide(record(phase = "EXPORT_FAILED")),
+        )
+        // EXPORTED without the seal pin (crash between stop and record)
+        assertEquals(
+            DatabaseDurableState.TranslationConsumption.MISSING_SEAL_PIN,
+            decide(record(sealPin = null)),
+        )
+        // any later provider cycle rewrites the seal -> pin mismatch
+        assertEquals(
+            DatabaseDurableState.TranslationConsumption.SEAL_PIN_MISMATCH,
+            decide(record(), liveSeal = "a-later-stop-seal-with-a-fresh-timestamp"),
+        )
+        assertEquals(
+            DatabaseDurableState.TranslationConsumption.SEAL_PIN_MISMATCH,
+            decide(record(), liveSeal = null), // start() deleted the seal
+        )
+        // provider/manifest updates invalidate the baseline
+        assertEquals(
+            DatabaseDurableState.TranslationConsumption.IDENTITY_MISMATCH,
+            decide(record(closure = "e".repeat(64))),
+        )
+        assertEquals(
+            DatabaseDurableState.TranslationConsumption.IDENTITY_MISMATCH,
+            decide(record(manifest = "f".repeat(64))),
+        )
+        assertEquals(
+            DatabaseDurableState.TranslationConsumption.IDENTITY_MISMATCH,
+            decide(record(count = 414)),
+        )
+        // re-initialization changed the generation
+        assertEquals(
+            DatabaseDurableState.TranslationConsumption.GENERATION_MISMATCH,
+            decide(record(), liveGeneration = "012348af-1234-4123-8123-0123456789cd"),
+        )
+        // empty baselines are vacuous and must refuse
+        assertEquals(
+            DatabaseDurableState.TranslationConsumption.EMPTY_BASELINE,
+            decide(record(databases = JSONObject())),
+        )
+        // any recorded table whose staged TSV fails byte verification
+        assertEquals(
+            DatabaseDurableState.TranslationConsumption.STAGING_INCOMPLETE,
+            decide(record(), stagedOk = false),
+        )
+        // structurally broken records refuse
+        assertEquals(
+            DatabaseDurableState.TranslationConsumption.INVALID_RECORD,
+            decide(null),
+        )
+        assertEquals(
+            DatabaseDurableState.TranslationConsumption.INVALID_RECORD,
+            decide("not-json"),
+        )
+    }
+
+    // ------------------------------------------------------------------
+    // P6: provider-mode resolution + the active-provider marker.
+    // ------------------------------------------------------------------
+
+    @Test fun providerModeResolutionCoversWindowAndRollbackStates() {
+        fun resolve(capable: Boolean, sqliteSeal: Boolean, mariadbMarker: Boolean) =
+            DatabaseDurableState.resolveProviderMode(capable, sqliteSeal, mariadbMarker)
+
+        // cutover completed on a capable APK: SQLite serves
+        assertEquals(DatabaseDurableState.ProviderMode.SQLITE, resolve(true, true, true))
+        assertEquals(DatabaseDurableState.ProviderMode.SQLITE, resolve(true, true, false))
+        // APK-level rollback: the same datadir on a NON-capable (default)
+        // APK must boot MariaDB - the old datadir is never deleted pre-P8
+        assertEquals(DatabaseDurableState.ProviderMode.MARIADB, resolve(false, true, true))
+        // fresh install of a window APK: straight to SQLite, no MariaDB
+        // bootstrap that would immediately be translated away
+        assertEquals(DatabaseDurableState.ProviderMode.SQLITE, resolve(true, false, false))
+        // fresh install of a default APK: MariaDB as always
+        assertEquals(DatabaseDurableState.ProviderMode.MARIADB, resolve(false, false, false))
+        // the window transition state: MariaDB generation present, sqlite
+        // datadir not yet provisioned - the old provider stays active
+        assertEquals(DatabaseDurableState.ProviderMode.MARIADB, resolve(true, false, true))
+    }
+
+    @Test fun activeProviderMarkerRoundTripsAndRefusesCrossModeSpoofs() {
+        val mariadb = DatabaseDurableState.activeProviderMarker(
+            DatabaseDurableState.ProviderMode.MARIADB,
+            "mariadb-12.3.2-termux-bionic-arm64",
+            "0f0e3442-2d3f-4a5b-8c9d-0e1f2a3b4c5d",
+        )
+        val parsedMariaDb = DatabaseDurableState.parseActiveProviderMarker(mariadb)
+        assertEquals(DatabaseDurableState.ProviderMode.MARIADB, parsedMariaDb?.mode)
+        assertEquals("mariadb-12.3.2-termux-bionic-arm64", parsedMariaDb?.providerId)
+
+        val sqlite = DatabaseDurableState.activeProviderMarker(
+            DatabaseDurableState.ProviderMode.SQLITE,
+            DatabaseRuntimeContract.SQLITE_PROVIDER_ID,
+            null,
+        )
+        val parsedSqlite = DatabaseDurableState.parseActiveProviderMarker(sqlite)
+        assertEquals(DatabaseDurableState.ProviderMode.SQLITE, parsedSqlite?.mode)
+        assertEquals("sqlite-3.46.1-in-tree", parsedSqlite?.providerId)
+        assertNull(parsedSqlite?.generationUuid)
+
+        // a marker naming the WRONG provider family for its mode refuses
+        assertNull(DatabaseDurableState.parseActiveProviderMarker(
+            DatabaseDurableState.activeProviderMarker(
+                DatabaseDurableState.ProviderMode.SQLITE,
+                "mariadb-12.3.2-termux-bionic-arm64",
+                null,
+            ),
+        ))
+        // MariaDB mode without a generation refuses AT CONSTRUCTION (the
+        // marker pins the live generation for :realm/:world config shaping)
+        assertTrue(
+            runCatching {
+                DatabaseDurableState.activeProviderMarker(
+                    DatabaseDurableState.ProviderMode.MARIADB,
+                    "mariadb-12.3.2-termux-bionic-arm64",
+                    null,
+                )
+            }.isFailure,
+        )
+        assertNull(DatabaseDurableState.parseActiveProviderMarker(null))
+        assertNull(DatabaseDurableState.parseActiveProviderMarker("{not json"))
+    }
+
+    // ------------------------------------------------------------------
+    // P6 R1 (A3/B-A/D2/E1/E2): the interrupted-provisioning recovery.
+    // ------------------------------------------------------------------
+
+    @Test fun provisioningRecoveryCoversEveryCrashWindow() {
+        val newGen = "33333333-3333-4333-8333-333333333333"
+        val oldGen = "44444444-4444-4444-8444-444444444444"
+        fun decide(record: String?, live: String?, seals: Boolean = false, retired: Boolean = false) =
+            DatabaseDurableState.provisioningRecovery(record, live, seals, retired)
+
+        // a fully sealed datadir owned by the record: the crash hit the
+        // final commit window - the provision is complete
+        assertEquals(DatabaseDurableState.ProvisioningRecovery.KEEP_COMPLETED,
+            decide(newGen, newGen, seals = true))
+        // the record predates a re-provision's move: the OLD live datadir
+        // is intact - discard the record and retry later
+        assertEquals(DatabaseDurableState.ProvisioningRecovery.DISCARD_RECORD,
+            decide(newGen, oldGen))
+        // a re-provision moved the old datadir out (partial or absent
+        // live): restore the retired datadir - NEVER re-translate
+        assertEquals(DatabaseDurableState.ProvisioningRecovery.RESTORE_RETIRED,
+            decide(newGen, null, retired = true))
+        assertEquals(DatabaseDurableState.ProvisioningRecovery.RESTORE_RETIRED,
+            decide(newGen, newGen, seals = false, retired = true))
+        // a fresh provision died mid-seed/import: quarantine and retry
+        assertEquals(DatabaseDurableState.ProvisioningRecovery.QUARANTINE_AND_RETRY,
+            decide(newGen, newGen, seals = false))
+        // nothing happened yet
+        assertEquals(DatabaseDurableState.ProvisioningRecovery.DISCARD_RECORD,
+            decide(newGen, null))
+        // an unparseable record never silently discards anything
+        assertEquals(DatabaseDurableState.ProvisioningRecovery.DISCARD_RECORD,
+            decide(null, newGen))
+    }
+
+    @Test fun sqliteClosureDigestIsCorpusStableButBuildSensitive() {
+        // I-133: ownership must survive a corpus advance (only the seed
+        // pins move) and must move when the provider build moves.
+        val artifact = org.json.JSONObject()
+            .put("path", "native/x/libpocket_world_runtime.so")
+            .put("sha256", "a".repeat(64))
+        val seeds = org.json.JSONObject()
+            .put("classicmangos", org.json.JSONObject()
+                .put("sha256", "b".repeat(64)).put("size", 122363148L))
+        val base = org.json.JSONObject()
+            .put("schema", 1).put("abi", "arm64-v8a")
+            .put("database_backend", "sqlite")
+            .put("cmangos_commit", "082afd60")
+            .put("artifacts", org.json.JSONArray().put(artifact))
+            .put("seed_transcripts", seeds)
+        val corpusAdvanced = org.json.JSONObject(base.toString()).put(
+            "seed_transcripts",
+            org.json.JSONObject().put("classicmangos", org.json.JSONObject()
+                .put("sha256", "c".repeat(64)).put("size", 125000000L)),
+        )
+        val buildAdvanced = org.json.JSONObject(base.toString())
+            .put("cmangos_commit", "ffffffff")
+        assertEquals(
+            DatabaseDurableState.sqliteClosureDigest(base.toString()),
+            DatabaseDurableState.sqliteClosureDigest(corpusAdvanced.toString()),
+        )
+        assertFalse(
+            DatabaseDurableState.sqliteClosureDigest(base.toString()) ==
+                DatabaseDurableState.sqliteClosureDigest(buildAdvanced.toString()),
+        )
     }
 }
