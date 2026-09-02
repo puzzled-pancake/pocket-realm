@@ -43,7 +43,10 @@ libllama at runtime).
 
 LICENSES: llama.cpp (llama-server, libllama-server-impl.so, libmtmd.so and
 the app-side llama closure) is MIT: https://github.com/ggml-org/llama.cpp .
-The geniex Hexagon backend (hexagon/libggmlhex.so) and the Qualcomm HTP DSP
-skels (hexagon/dsp/*.so) were obtained as prebuilt binaries; their
-redistribution terms are NOT recorded here — an owner action to confirm and
-document before external release.
+The Hexagon NPU backend (hexagon/libggmlhex.so) and the HTP DSP skels
+(hexagon/dsp/*.so) come from Qualcomm's GenieX distribution
+(github.com/qualcomm/GenieX, v0.5.0), which is BSD-3-Clause
+(Copyright (c) 2024-2026, Qualcomm Technologies, Inc. and/or its
+subsidiaries); that license and Qualcomm's Terms of Use are acknowledged in
+android/app/src/main/assets/THIRD_PARTY_NOTICES.md, which must ride any
+distribution of these binaries.
