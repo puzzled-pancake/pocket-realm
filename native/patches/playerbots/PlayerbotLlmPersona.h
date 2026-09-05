@@ -75,6 +75,14 @@ public:
     // recency-ring draw), rendered {P} and tic-seasoned
     static std::string GrudgeRefusalLine(Player* bot, Player* player);
 
+    // plan RP E0: authored gate-refusal for the security whisper family
+    // (the "invite me" gates: invite/leader/full-group denials - never the
+    // beg refusals). Draws the bot's archetype cell of POOL_SECURITY_REFUSE
+    // through the recency ring; returns the configured busy line only on a
+    // draw failure (never expected). E3 wires the PlayerbotSecurity call
+    // site - no caller yet.
+    static std::string SecurityRefusalLine(Player* bot);
+
     // plan v5 W8: one authored in-character nudge for the /notice scene
     // read (POOL_SCENE_NUDGE recency-ring draw), rendered {P}/{B}
     static std::string SceneNudgeLine(Player* bot, Player* player);

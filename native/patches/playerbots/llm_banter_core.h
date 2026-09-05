@@ -198,7 +198,22 @@ enum PoolId {
     POOL_MOOD_SMITTEN, POOL_MOOD_GRUDGE, POOL_MOOD_GRIEF,
     POOL_GRUDGE_REFUSE,
     POOL_SCENE_NUDGE,
-    POOL_WILDCARD, POOL_COUNT
+    POOL_WILDCARD,
+    // plan RP E0: two 4x12 archetype banks, appended AFTER POOL_WILDCARD so
+    // every pre-existing pool keeps its number. Street short-reactions are
+    // the A6 fallback for a player's unaddressed /say landing near a street
+    // bot (data now - the interim street behavior stays emote-only; A6
+    // wires it). The security refusals voice the .whisper invite-family
+    // gates (invite/leader/full-group denials - never the beg refusals,
+    // which are the persona refuseLine cells' ground) and are drawn by
+    // PlayerbotLlmPersona::SecurityRefusalLine (E3 wires the call site).
+    // Pool() serves the flattened 48 for the content invariants; the game
+    // draws 12-line per-archetype cells (StreetShortCell/SecurityRefuseCell).
+    // Neither bank joins the seeded path: InitBanterState and the existing
+    // pools are untouched, and their state keys live on the
+    // guid<<24 | (pool+1) lane (the guid<<8 persona lane is full).
+    POOL_STREET_SHORT, POOL_SECURITY_REFUSE,
+    POOL_COUNT
 };
 
 enum { kMinPoolLines = 6, kMaxRing = 16, kWildcardCooldownMs = 120000,
@@ -614,6 +629,127 @@ static char const* const kWildcard[] = {
     "If the wind had a face I'd punch it. It knows what it did.",
     "Quiet now. The trees are listening and they gossip worse than townsfolk.",
 };
+// plan RP E0: street short-reactions - what a bot nearby mutters when a
+// player's unaddressed /say lands on a street (A6's fallback when the
+// cloud street lane is off or its quota is spent; the interim street
+// behavior stays emote-only, so this bank is data now and A6 wires it).
+// Four speaker archetypes x 12 short reactive lines, all placeholder-free.
+static char const* const kStreetShort[4][12] = {
+    // speaker 0: the street guard - gruff, watchful, mildly threatening
+    {"Loud talk draws eyes. Keep it down.",
+     "Heard worse on this street. Not by much.",
+     "Say it again and the watch will mind.",
+     "Mind your tongue. This corner is watched.",
+     "The curfew bell rings soon. Talk faster.",
+     "Every fool with a mouth finds this street.",
+     "Aye. And I've a post to stand.",
+     "You shout like the walls owe you coin.",
+     "The watch heard you. So did the alley.",
+     "Save the speeches. Petitions go to the magistrate at dawn.",
+     "Bold words for a street this fond of knives.",
+     "Move along. This corner is taken."},
+    // speaker 1: the market vendor - hawker's ear, commerce on the mind
+    {"Heard that. Now, care for an apple?",
+     "Talk is cheap at this stall. Pie is not.",
+     "Strangest pitch I've heard all market day, that.",
+     "Buy something or mutter elsewhere, friend.",
+     "Every day a new prophet. None of them buy fish.",
+     "Aye aye. The cabbages heard you too.",
+     "You'd bargain better with fewer speeches.",
+     "Half the market agrees. The other half haggles.",
+     "Words never filled a stew pot, stranger.",
+     "My prices hold firm, whatever you just said.",
+     "Spices from the south! Forgive me. Habit.",
+     "Loud ones are good for trade, bad for naps."},
+    // speaker 2: the nervous commoner - skittish, eager to be elsewhere
+    {"Oh! I wasn't listening. I mean, I was.",
+     "Is that true? Please say it isn't.",
+     "Don't drag me into anything. My bread is rising.",
+     "The last loud stranger brought the guards running.",
+     "My mother said never answer strangers. Sorry.",
+     "You people and your proclamations. I'm just sweeping here.",
+     "Nothing to see here. Well. Clearly something.",
+     "I agree? Please don't ask me with what.",
+     "Strangers keep saying things at me this week.",
+     "If trouble is coming, I'll be indoors.",
+     "That's brave talk. Brave talk gets remembered.",
+     "I nod at everyone. It's cheaper than talking."},
+    // speaker 3: the worldly traveler - wry, has seen it all twice
+    {"Heard stranger in Booty Bay, and that is saying something.",
+     "Every port has a corner like this one.",
+     "The road teaches you to talk less, mostly.",
+     "Aye, well. The desert says that differently.",
+     "I once crossed a mountain range for a shorter argument.",
+     "You talk like the far provinces. Good for you.",
+     "There's a song in that. A bad one.",
+     "The sea taught me patience. Streets teach me caution.",
+     "Caravans run on gossip heavier than cargo.",
+     "I've been shouted at in six dialects. Yours is polite.",
+     "Somewhere east of here, that would be a compliment.",
+     "Travel light, talk light. That's the trick."},
+};
+// plan RP E0: gate security refusals - the .whisper "invite me" family
+// (invite/leader/full-group denials), voiced as diegetic distrust of
+// strangers. Never the beg-refusal triggers (those are the persona
+// refuseLine cells' ground) and never an actionable number - the
+// numbered denials keep their facts elsewhere; these are vibe-only.
+// Rows are indexed by PlayerbotLlmPersona::Archetype (gruff/shy/noble/
+// rogueish, in order) and the bank is placeholder-free so the no-player
+// export can draw lines verbatim.
+static char const* const kSecurityRefuse[4][12] = {
+    // ARCHETYPE_GRUFF
+    {"No. I don't know you from a bandit.",
+     "I don't march with strangers.",
+     "Not while the watch has eyes on me.",
+     "My blade is already sworn to this company.",
+     "You talk like a recruiting sergeant. No.",
+     "A full pack and a full party. Both stay shut.",
+     "Lead your own road. I'll walk mine.",
+     "The answer is no, and it isn't personal.",
+     "I've buried enough strangers to be picky.",
+     "No strangers in my line. The rule keeps us breathing.",
+     "Come back when your face means something to me.",
+     "Busy. And wary. Mostly wary."},
+    // ARCHETYPE_SHY
+    {"I - I don't join groups. Sorry.",
+     "Oh. No, thank you. I'm safer alone. I think.",
+     "Strangers make me nervous. It isn't you. Well.",
+     "I can't. My master would worry where I went.",
+     "Please don't be hurt. The answer is still no.",
+     "I barely know you. Sorry. Truly.",
+     "Small groups. Very small. This one is full.",
+     "Oh! No. I'd only slow you down. Really.",
+     "Someone I trust said never follow strangers.",
+     "I'm waiting for someone. I can't leave.",
+     "No. Um. That's my whole answer, I'm afraid.",
+     "It sounds nice. It still sounds like trouble."},
+    // ARCHETYPE_NOBLE
+    {"I must decline. I do not know your character.",
+     "My company is by bond, not by chance.",
+     "Your invitation does you credit. The answer is no.",
+     "I do not hand my banner to strangers.",
+     "The company I keep is already sworn full.",
+     "Ask again when we have shared a road.",
+     "Honour forbids me following an unproven name.",
+     "I am obliged elsewhere, and by older vows.",
+     "Trust is earned in leagues, not asked in doorways.",
+     "Were we acquainted, my answer might differ. We are not.",
+     "A place in my company is not mine to give.",
+     "I decline with respect, and finally."},
+    // ARCHETYPE_ROGUEISH
+    {"Tempting. No. Well. No.",
+     "I work alone. Ask around. It's safer for everyone.",
+     "You don't want me in your group. Trust me.",
+     "My price for trust is higher than your purse.",
+     "A stranger asking to join? My, the nerve.",
+     "Not today. Not tomorrow. Ask the day after.",
+     "Full house. Card sharp's honor.",
+     "I don't follow leaders I can't out-drink.",
+     "First rule: never join a group you can't leave loudly.",
+     "Busy. There's a complicated errand. Don't ask.",
+     "Lead? Friend, I don't even lead myself.",
+     "You seem trustworthy. That's exactly what worries me."},
+};
 } // namespace detail
 
 // plan v5 C4: the drama exchange accessor - kind 0 reunion, 1 rivalry,
@@ -663,8 +799,29 @@ inline char const* const* Pool(PoolId p, size_t& count)
         case POOL_GRUDGE_REFUSE: count = sizeof(kGrudgeRefuse)/sizeof(void*); return kGrudgeRefuse;
         case POOL_SCENE_NUDGE: count = sizeof(kSceneNudge)/sizeof(void*); return kSceneNudge;
         case POOL_WILDCARD: count = sizeof(kWildcard)/sizeof(void*); return kWildcard;
+        // E0: the flattened 4x12 banks - row-major, so the 48 pointers are
+        // contiguous and valid to walk as one pool (the content-invariants
+        // leg does); the game draws per-archetype 12-line cells instead
+        case POOL_STREET_SHORT: count = sizeof(kStreetShort)/sizeof(void*); return kStreetShort[0];
+        case POOL_SECURITY_REFUSE: count = sizeof(kSecurityRefuse)/sizeof(void*); return kSecurityRefuse[0];
         default: count = 0; return 0;
     }
+}
+
+// plan RP E0: the 4x12 archetype cell accessors. The caller picks the row
+// (the persona's Archetype enum orders the security bank's rows; A6 picks
+// the street speaker group) and the recency ring picks the line. An
+// out-of-range group folds to row 0 - the caller never gets a short cell.
+inline char const* const* StreetShortCell(size_t group, size_t& count)
+{
+    count = sizeof(detail::kStreetShort[0]) / sizeof(void*);
+    return detail::kStreetShort[group < 4 ? group : 0];
+}
+
+inline char const* const* SecurityRefuseCell(size_t group, size_t& count)
+{
+    count = sizeof(detail::kSecurityRefuse[0]) / sizeof(void*);
+    return detail::kSecurityRefuse[group < 4 ? group : 0];
 }
 
 // ------------------------------------------------------------ mood state ----

@@ -674,6 +674,31 @@ std::string PlayerbotLlmPersona::GrudgeRefusalLine(Player* bot, Player* player)
     return line;
 }
 
+// plan RP E0: the gate-refusal bank draw. No Classify and no message -
+// the CALLER decides this is a gate denial (the invite-family whispers);
+// this only voices it in the bot's archetype. The bank is placeholder-free
+// so the raw line ships verbatim (rendered only by a later, wired caller
+// if it ever grows names). Falls back to the configured busy line when
+// the draw somehow fails (the BusyReply precedent).
+std::string PlayerbotLlmPersona::SecurityRefusalLine(Player* bot)
+{
+    if (!bot)
+        return "";
+    Archetype const archetype = ArchetypeFor(bot);
+    uint64_t const stateKey =
+        ((uint64_t)bot->GetGUIDLow() << 24) | (uint64_t)(pocketllm::POOL_SECURITY_REFUSE + 1);
+    StateRef stateRef = StateFor(stateKey, bot->GetGUIDLow());
+    size_t count = 0;
+    char const* const* lines = pocketllm::SecurityRefuseCell((size_t)archetype, count);
+    pocketllm::BanterResult const r =
+        pocketllm::SelectLine(stateRef.state, lines, count, nullptr, 0, 0, 0);
+    if (!r.line)
+        return sPlayerbotAIConfig.llmBusyReply;
+    std::string line(r.line);
+    ApplyTic(stateRef.state, bot->GetGUIDLow(), line);
+    return line;
+}
+
 std::string PlayerbotLlmPersona::SceneNudgeLine(Player* bot, Player* player)
 {
     if (!bot || !player)
