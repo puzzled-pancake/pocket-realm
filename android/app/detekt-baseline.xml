@@ -364,7 +364,7 @@
     <ID>LongParameterList:AddonsScreen.kt$( addon: CatalogAddon, installed: InstalledAddon?, updateAvailable: Boolean, busy: Boolean, onInstall: () -&gt; Unit, onRemove: () -&gt; Unit, )</ID>
     <ID>LongParameterList:AddonsScreen.kt$( operationLabel: String?, repositoryLabel: String?, progress: Float?, cancellable: Boolean, onCancel: () -&gt; Unit, notice: String?, errorTitle: String?, error: String?, )</ID>
     <ID>LongParameterList:AutoLoginPolicy.kt$AutoLoginCredentialProof$( expectedOwner: ComponentOwner, expectedAccountId: Long, expectedGmLevel: Int, responseOk: Boolean, passwordVerified: Boolean, accountExists: Boolean, accountId: Long, gmLevel: Int, ownerSessionId: String?, ownerInstanceToken: String?, )</ID>
-    <ID>LongParameterList:BotLlmSpeech.kt$BotLlmSpeech.Companion$( replyTokens: Int, botToBotChatChance: Int, factsCap: Int, memoriesTail: Int, packDeltas: Map&lt;String, Boolean&gt; = emptyMap(), initiative: Int = -1, volatility: Int = -1, reactivity: Int = -1, longForm: Int = -1, )</ID>
+    <ID>LongParameterList:BotLlmSpeech.kt$BotLlmSpeech.Companion$( replyTokens: Int, botToBotChatChance: Int, factsCap: Int, memoriesTail: Int, packDeltas: Map&lt;String, Boolean&gt; = emptyMap(), initiative: Int = -1, volatility: Int = -1, reactivity: Int = -1, longForm: Int = -1, chatterRung: Int = CHATTER_RUNG_FOLLOW, )</ID>
     <ID>LongParameterList:BotsScreen.kt$( label: String, value: Int, range: IntRange, step: Int, tag: String, onChange: (Int) -&gt; Unit, )</ID>
     <ID>LongParameterList:BotsScreen.kt$( preset: BotPresetStore.SavedPreset, selected: Boolean, onSelect: () -&gt; Unit, onToggleFavorite: (Boolean) -&gt; Unit, onRename: () -&gt; Unit, onDuplicate: () -&gt; Unit, onExport: () -&gt; Unit, onDelete: () -&gt; Unit, )</ID>
     <ID>LongParameterList:BotsScreen.kt$( presets: List&lt;BotPresetStore.SavedPreset&gt;, selectedSavedId: String?, selectedBuiltinId: String?, search: String, onSearch: (String) -&gt; Unit, onSelectBuiltIn: (com.pocketrealm.bots.BotProfile) -&gt; Unit, onSelectSaved: (BotPresetStore.SavedPreset) -&gt; Unit, onNew: () -&gt; Unit, onImport: () -&gt; Unit, onExport: (BotPresetStore.SavedPreset) -&gt; Unit, onToggleFavorite: (String, Boolean) -&gt; Unit, onDuplicate: (String) -&gt; Unit, onRename: (String) -&gt; Unit, onDelete: (String) -&gt; Unit, listModifier: Modifier = Modifier, )</ID>
@@ -566,7 +566,6 @@
     <ID>MagicNumber:BotProfiles.kt$BotAdvancedSettings$25</ID>
     <ID>MagicNumber:BotProfiles.kt$BotAdvancedSettings$250</ID>
     <ID>MagicNumber:BotProfiles.kt$BotAdvancedSettings$2_880</ID>
-    <ID>MagicNumber:BotProfiles.kt$BotAdvancedSettings$30</ID>
     <ID>MagicNumber:BotProfiles.kt$BotAdvancedSettings$300</ID>
     <ID>MagicNumber:BotProfiles.kt$BotAdvancedSettings$32</ID>
     <ID>MagicNumber:BotProfiles.kt$BotAdvancedSettings$50</ID>

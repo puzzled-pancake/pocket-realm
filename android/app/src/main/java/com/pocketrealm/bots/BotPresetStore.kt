@@ -106,6 +106,7 @@ class BotPresetStore(private val directory: File) {
                 .put("llmVolatility", configuration.llmSpeech.volatility)
                 .put("llmReactivity", configuration.llmSpeech.reactivity)
                 .put("llmLongForm", configuration.llmSpeech.longForm)
+                .put("llmChatterRung", configuration.llmSpeech.chatterRung)
                 .put(
                     "admission", JSONObject()
                         .put("maxWorldP99Ms", admission.maxWorldP99Ms)
@@ -188,6 +189,7 @@ class BotPresetStore(private val directory: File) {
                     volatility = json.optInt("llmVolatility", -1),
                     reactivity = json.optInt("llmReactivity", -1),
                     longForm = json.optInt("llmLongForm", -1),
+                    chatterRung = json.optInt("llmChatterRung", -1),
                 ),
             )
         }

@@ -261,7 +261,11 @@ def test_kotlin_emission_surface():
     runtime_files = (ROOT / "android" / "app" / "src" / "main" / "java" /
                      "com" / "pocketrealm" / "server" / "ServerRuntimeFiles.kt").read_text(encoding="utf-8")
     assert "val chatterPower = if (snapshot.llmEnabled)" in runtime_files
-    assert "ChatterPowerMonitor.refreshOnce(appContext, enabled = snapshot.llmAmbience).absolutePath" in runtime_files
+    # D3 (plan v2.3 s5): the refresh keeps the ambience flag as the master
+    # and threads the selected profile's rung cap into the staged file
+    assert "enabled = snapshot.llmAmbience," in runtime_files
+    assert "rungCap = profile.llmSpeech.chatterRung," in runtime_files
+    assert "ChatterPowerMonitor.refreshOnce(" in runtime_files
     monitor = MONITOR_KT.read_text(encoding="utf-8")
     # the rung constants mirror the native enum
     for line in ("RUNG_OFF = 0", "RUNG_EMERGENCY = 1", "RUNG_CRITICAL = 2",

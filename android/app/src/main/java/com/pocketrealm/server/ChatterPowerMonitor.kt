@@ -87,10 +87,15 @@ internal object ChatterPowerMonitor {
      * The `at` line is a diagnostic stamp (write time); the native side
      * reads only `enabled` and `rung` — writer and world live and die in
      * the same process, so there is no staleness protocol to keep.
+     *
+     * D3 (plan v2.3 §5): `rungCap` is the selected profile's per-preset
+     * chatter-rung cap (-1 = follow the computed ambience state). The cap
+     * may only LOWER the computed rung — the ambience toggle (enabled=0
+     * stays RUNG_OFF) and the low-battery courtesy dim always win.
      */
-    fun refreshOnce(context: Context, enabled: Boolean): File {
+    fun refreshOnce(context: Context, enabled: Boolean, rungCap: Int = -1): File {
         val target = powerFile(context)
-        val rung = if (enabled) currentRung(context) else RUNG_OFF
+        val rung = if (!enabled) RUNG_OFF else applyRungCap(currentRung(context), rungCap)
         val dimmed = enabled && rung == RUNG_CONSTRAINED
         target.parentFile?.mkdirs()
         val content =
@@ -99,8 +104,9 @@ internal object ChatterPowerMonitor {
                 "rung=$rung\n" +
                 "at=${System.currentTimeMillis() / 1000L}\n"
         // The native scheduler re-reads this file every tick: skip the
-        // write when enabled+dim are unchanged so a battery broadcast that
-        // changes nothing doesn't bump mtime and wake the reader for nothing.
+        // write when enabled+dim+rung are unchanged so a battery broadcast
+        // that changes nothing doesn't bump mtime and wake the reader for
+        // nothing.
         val current = runCatching { target.readText() }.getOrNull()
         if (current != null && samePowerState(current, content)) return target
         val temp = File(
@@ -115,13 +121,25 @@ internal object ChatterPowerMonitor {
         return target
     }
 
+    /**
+     * D3: apply the per-preset rung cap. A cap outside the rung band is
+     * ignored (follow); inside the band it may only lower the computed
+     * rung — min(), never max(), never a resurrection of a disabled or
+     * dimmed state.
+     */
+    fun applyRungCap(computed: Int, cap: Int): Int =
+        if (cap in RUNG_OFF..RUNG_NORMAL) minOf(computed, cap) else computed
+
     private fun samePowerState(current: String, next: String): Boolean {
         fun field(text: String, key: String): String? =
             text.lineSequence()
                 .map { it.trim() }
                 .firstOrNull { it.startsWith("$key=") }
+        // rung participates in the skip-decision (D3: a cap change must
+        // restage the file even when enabled+dim are unchanged)
         return field(current, "enabled") == field(next, "enabled") &&
-            field(current, "dim") == field(next, "dim")
+            field(current, "dim") == field(next, "dim") &&
+            field(current, "rung") == field(next, "rung")
     }
 
     /**

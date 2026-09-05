@@ -229,7 +229,13 @@ internal class ServerRuntimeFiles(context: Context) {
         // (the silence doctrine).
         val chatterPower = if (snapshot.llmEnabled)
             runCatching {
-                ChatterPowerMonitor.refreshOnce(appContext, enabled = snapshot.llmAmbience).absolutePath
+                // D3: the selected profile's per-preset rung cap rides the
+                // staged power file (-1 follows the computed ambience state)
+                ChatterPowerMonitor.refreshOnce(
+                    appContext,
+                    enabled = snapshot.llmAmbience,
+                    rungCap = profile.llmSpeech.chatterRung,
+                ).absolutePath
             }.getOrNull()
         else
             null

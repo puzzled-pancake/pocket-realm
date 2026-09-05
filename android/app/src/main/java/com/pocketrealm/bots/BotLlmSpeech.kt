@@ -52,6 +52,18 @@ data class BotLlmSpeech(
     val volatility: Int = -1,
     val reactivity: Int = -1,
     val longForm: Int = -1,
+    /**
+     * D3 (plan v2.3 §5): per-preset cap on the staged chatter-power rung
+     * (`AiPlayerbot.LLMChatterPowerFile` in the appended LLM conf names the
+     * staged file; the RUNG line inside it is what the native scheduler
+     * re-reads every tick). -1 = follow the computed ambience state (the
+     * default - staged bytes unchanged); 0 forces this preset's chatter
+     * OFF even when the ambience toggle is on; 1..4 cap the rung. The cap
+     * may only LOWER the computed rung: the low-battery courtesy dim and
+     * the master ambience toggle always win, and a preset can never force
+     * chatter against either.
+     */
+    val chatterRung: Int = CHATTER_RUNG_FOLLOW,
 ) {
     init {
         require(replyTokens == 0 || replyTokens in MIN_REPLY_TOKENS..MAX_REPLY_TOKENS)
@@ -62,13 +74,14 @@ data class BotLlmSpeech(
         require(volatility == RP_FOLLOW_SENTINEL || volatility in MIN_RP_DIAL..MAX_RP_DIAL)
         require(reactivity == RP_FOLLOW_SENTINEL || reactivity in MIN_RP_DIAL..MAX_RP_DIAL)
         require(longForm == RP_FOLLOW_SENTINEL || longForm in MIN_RP_DIAL..MAX_RP_DIAL)
+        require(chatterRung == CHATTER_RUNG_FOLLOW || chatterRung in CHATTER_RUNG_OFF..CHATTER_RUNG_NORMAL)
     }
 
     /** True when every knob still sits at its "follow the model" sentinel. */
     fun isDefault(): Boolean =
         replyTokens == 0 && botToBotChatChance == -1 && factsCap == 0 && memoriesTail == 0 &&
             packDeltas.isEmpty() && initiative == -1 && volatility == -1 &&
-            reactivity == -1 && longForm == -1
+            reactivity == -1 && longForm == -1 && chatterRung == CHATTER_RUNG_FOLLOW
 
     companion object {
         const val MIN_REPLY_TOKENS = 24
@@ -81,6 +94,19 @@ data class BotLlmSpeech(
         const val MIN_RP_DIAL = 0
         const val MAX_RP_DIAL = 100
         const val RP_FOLLOW_SENTINEL = -1
+
+        /**
+         * D3: chatter-power rung values — must move with the native
+         * pocketllm::ChatterRung enum (and ChatterPowerMonitor's copy).
+         * The sentinel follows the computed ambience state; 0..4 mirror
+         * the rungs the staged power file carries.
+         */
+        const val CHATTER_RUNG_FOLLOW = -1
+        const val CHATTER_RUNG_OFF = 0
+        const val CHATTER_RUNG_EMERGENCY = 1
+        const val CHATTER_RUNG_CRITICAL = 2
+        const val CHATTER_RUNG_CONSTRAINED = 3
+        const val CHATTER_RUNG_NORMAL = 4
 
         /**
          * Known seasoning block ids a preset may override. References the
@@ -120,6 +146,7 @@ data class BotLlmSpeech(
             volatility: Int = -1,
             reactivity: Int = -1,
             longForm: Int = -1,
+            chatterRung: Int = CHATTER_RUNG_FOLLOW,
         ): BotLlmSpeech = BotLlmSpeech(
             replyTokens = if (replyTokens <= 0) 0
             else replyTokens.coerceIn(MIN_REPLY_TOKENS, MAX_REPLY_TOKENS),
@@ -134,6 +161,8 @@ data class BotLlmSpeech(
             volatility = normalizeDial(volatility),
             reactivity = normalizeDial(reactivity),
             longForm = normalizeDial(longForm),
+            chatterRung = if (chatterRung < 0) CHATTER_RUNG_FOLLOW
+            else chatterRung.coerceIn(CHATTER_RUNG_OFF, CHATTER_RUNG_NORMAL),
         )
     }
 }

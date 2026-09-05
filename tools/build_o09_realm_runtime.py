@@ -649,6 +649,7 @@ PB_MGR_INCLUDE_ANDROID = """#include "WorldPosition.h"
 #include "PlayerbotLlmChatter.h"
 #include <deque>
 #include <map>
+#include <unordered_map>
 #include <list>
 """
 PB_MGR_TELEMETRY_TYPE_UPSTREAM = """class PerformanceMonitorOperation;
@@ -689,6 +690,12 @@ PB_MGR_FIELDS_ANDROID = """        uint32 botCount = 0;
         std::deque<time_t> lowCpuLoginEvents;
         std::deque<time_t> lowCpuTeleportEvents;
         std::deque<time_t> lowCpuRerandomizeEvents;
+        // D1/D4 (plan v2.3 s5): login-spread pending set (bot guid -> mode:
+        // 1 = near-player/plain spread, 2 = village-ring placement) and the
+        // per-spawn-cell settler bookkeeping (designated race + count; the
+        // settler marker itself persists via the "settler" event value).
+        std::unordered_map<uint32, uint8> pocketLoginSpreadPending;
+        std::map<uint64, std::pair<uint32, uint32>> pocketVillageCells;
 """
 PB_MGR_SCAN_UPSTREAM = """void RandomPlayerbotMgr::LogPlayerLocation()
 {
@@ -839,6 +846,416 @@ PB_MGR_QUERY_NOT_ANDROID = '                            query += " OR NOT " + wa
 PB_MGR_LOGIN_UPSTREAM = """void RandomPlayerbotMgr::OnBotLoginInternal(Player * const bot)
 {
     sLog.outDetail("%u/%d Bot %s logged in", GetPlayerbotsAmount(), sRandomPlayerbotMgr.GetMaxAllowedBotCount(), bot->GetName());
+"""
+
+# --- WS-D (plan v2.3 s5): D1 spawn-stack relief + D4 village ring --------
+# RandomPlayerbotMgr / PlayerbotAIConfig / aiplayerbot.conf.dist.in are
+# anchor-managed: D1's login-only forced relocation and D4's settler ring
+# extend the payload pairs below. The forced path bypasses the level<5
+# guard ONLY through the pending set armed at the login site (the
+# PocketArmLoginSpread call appended to PB_MGR_LOGIN_ANDROID); every other
+# RandomTeleport caller keeps today's semantics byte-for-byte. D4 ships
+# DARK: the native VillageRingCount default is 0 and no preset emits the
+# keys until a profile sets villageRingCount > 0.
+PB_MGR_RTEL_DECL_UPSTREAM = """        void RandomTeleport(Player* bot);
+        void RandomTeleport(Player* bot, std::vector<WorldLocation> &locs, bool hearth = false, bool activeOnly = false);
+"""
+PB_MGR_RTEL_DECL_ANDROID = """        void RandomTeleport(Player* bot);
+        void RandomTeleport(Player* bot, std::vector<WorldLocation> &locs, bool hearth = false, bool activeOnly = false, bool force = false);
+        // D1/D4 (plan v2.3 s5): login-site spawn-stack relief + village ring
+        void PocketArmLoginSpread(Player* bot);
+        void PocketLoginSpreadTeleport(Player* bot);
+        void PocketPlaceVillageRing(Player* bot);
+        Player* PocketPickSpreadAnchor(Player* bot) const;
+        uint64 PocketVillageCellKey(Player const* bot) const;
+"""
+PB_MGR_LEVEL_GUARD_UPSTREAM = """	if (bot->GetLevel() < 5)
+		return;
+"""
+PB_MGR_LEVEL_GUARD_ANDROID = """	// D1 (plan v2.3 s5): the forced (login-spread) path bypasses the guard
+	// below level 5 - exactly the stacked sync band; every other caller
+	// keeps today's guard.
+	if (bot->GetLevel() < 5 && !force)
+		return;
+"""
+PB_MGR_RANDOMIZE_SETTLER_UPSTREAM = """            if (randomiser)
+            {
+                Randomize(player);
+                return true;
+            }
+"""
+PB_MGR_RANDOMIZE_SETTLER_ANDROID = """            if (GetEventValue(bot, "settler"))
+            {
+                // D4 (plan v2.3 s5): designated villagers are stable - the
+                // randomize event (level/gear reroll) would churn the
+                // village, so settlers skip it and just re-arm the cadence.
+                ScheduleRandomize(bot);
+                return true;
+            }
+            if (randomiser)
+            {
+                Randomize(player);
+                return true;
+            }
+"""
+PB_MGR_TELEPORT_EVENT_UPSTREAM = """        uint32 teleport = GetEventValue(bot, "teleport");
+        if (!teleport && players.size())
+        {
+            if (sPlayerbotAIConfig.enableRandomTeleports)
+            {
+                sLog.outDetail("Bot #%d %s:%d <%s>: sent to grind", bot, player->GetTeam() == ALLIANCE ? "A" : "H", player->GetLevel(), player->GetName());
+                RandomTeleportForLevel(player, true);
+                ScheduleTeleport(bot);
+            }
+            else
+            {
+                sLog.outDetail("Bot #%d %s:%d <%s>: supposed to be sent to grind, but enableRandomTeleports = false", bot, player->GetTeam() == ALLIANCE ? "A" : "H", player->GetLevel(), player->GetName());
+            }
+            return true;
+        }
+"""
+PB_MGR_TELEPORT_EVENT_ANDROID = """        uint32 teleport = GetEventValue(bot, "teleport");
+        // D1 (plan v2.3 s5): the login-spread pending set fires on the same
+        // event, with or without players online (a stacked world with zero
+        // real players still spreads; the no-player leg places
+        // level-appropriately).
+        uint8 spreadMode = 0;
+        if (!teleport)
+        {
+            auto const pendingSpread = pocketLoginSpreadPending.find(bot);
+            if (pendingSpread != pocketLoginSpreadPending.end())
+                spreadMode = pendingSpread->second;
+        }
+        if ((!teleport && players.size()) || spreadMode)
+        {
+            if (sPlayerbotAIConfig.enableRandomTeleports)
+            {
+                if (spreadMode)
+                {
+                    sLog.outDetail("Bot #%d %s:%d <%s>: login spread", bot, player->GetTeam() == ALLIANCE ? "A" : "H", player->GetLevel(), player->GetName());
+                    PocketLoginSpreadTeleport(player);
+                    ScheduleTeleport(bot);
+                }
+                else
+                {
+                    sLog.outDetail("Bot #%d %s:%d <%s>: sent to grind", bot, player->GetTeam() == ALLIANCE ? "A" : "H", player->GetLevel(), player->GetName());
+                    RandomTeleportForLevel(player, true);
+                    ScheduleTeleport(bot);
+                }
+            }
+            else
+            {
+                // random teleports disabled: drop the pending entry too, the
+                // spread must not outlive its own event
+                pocketLoginSpreadPending.erase(bot);
+                sLog.outDetail("Bot #%d %s:%d <%s>: supposed to be sent to grind, but enableRandomTeleports = false", bot, player->GetTeam() == ALLIANCE ? "A" : "H", player->GetLevel(), player->GetName());
+            }
+            return true;
+        }
+"""
+PB_MGR_SPREAD_HELPERS_UPSTREAM = """void RandomPlayerbotMgr::ScheduleTeleport(uint32 bot, uint32 time)
+{
+    if (!time)
+        time = 60 + urand(sPlayerbotAIConfig.randomBotTeleportMinInterval, sPlayerbotAIConfig.randomBotTeleportMaxInterval);
+    SetEventValue(bot, "teleport", 1, time);
+}
+"""
+PB_MGR_SPREAD_HELPERS_ANDROID = """void RandomPlayerbotMgr::ScheduleTeleport(uint32 bot, uint32 time)
+{
+    if (!time)
+        time = 60 + urand(sPlayerbotAIConfig.randomBotTeleportMinInterval, sPlayerbotAIConfig.randomBotTeleportMaxInterval);
+    SetEventValue(bot, "teleport", 1, time);
+}
+
+namespace
+{
+    // D1 ring geometry: the near-player placement ring stays inside say
+    // range (ListenRange.Say = 25 yd) so relocated bots hear the anchor
+    // player.
+    float const POCKET_SPREAD_RING_MIN_YD = 10.0f;
+    float const POCKET_SPREAD_RING_MAX_YD = 25.0f;
+    // The stagger window keeps the spread's grid loads off the login wave's.
+    uint32 const POCKET_SPREAD_STAGGER_MIN_SEC = 5;
+    uint32 const POCKET_SPREAD_STAGGER_SPAN_SEC = 25;
+    uint8 const POCKET_SPREAD_NEAR_PLAYER = 1;
+    uint8 const POCKET_SPREAD_VILLAGE = 2;
+    // Keep-best narrowing cap: the forced fallback never walks more than a
+    // handful of candidates near the anchor.
+    size_t const POCKET_SPREAD_KEEP_BEST = 8;
+    // D4 village-ring placement attempts before keeping the stacked spot.
+    uint32 const POCKET_VILLAGE_ATTEMPTS = 8;
+}
+
+uint64 RandomPlayerbotMgr::PocketVillageCellKey(Player const* bot) const
+{
+    // 10-yd grid cell of the spawn point, offset-encoded to stay unsigned:
+    // mapId (20 bits) | cellX (22) | cellY (22).
+    float const POCKET_VILLAGE_CELL_YD = 10.0f;
+    int64 const cellX = (int64)(bot->GetPositionX() / POCKET_VILLAGE_CELL_YD) + (1LL << 21);
+    int64 const cellY = (int64)(bot->GetPositionY() / POCKET_VILLAGE_CELL_YD) + (1LL << 21);
+    return ((uint64)bot->GetMapId() << 44) | ((uint64)cellX << 22) | (uint64)cellY;
+}
+
+void RandomPlayerbotMgr::PocketArmLoginSpread(Player* bot)
+{
+    // D1 (plan v2.3 s5): fresh level 1-4 bots log in stacked at the exact
+    // racial-start coordinates (saved-position login; the periodic teleport
+    // hard-returns below level 5 and only fires with players online;
+    // RandomizeFirst early-returns at the starting level). Arm a ONE-SHOT
+    // forced relocation that rides the normal "teleport" event with a short
+    // stagger, so teleport grid loads do not stack on the login wave.
+    if (!sPlayerbotAIConfig.randomBotLoginSpread)
+        return;
+    if (!bot || !bot->IsInWorld() || !bot->GetPlayerbotAI())
+        return;
+    if (bot->IsBeingTeleported() || (bot->GetSession() && bot->GetSession()->isLogingOut()))
+        return;
+    if (bot->InBattleGround() || bot->InBattleGroundQueue())
+        return;
+    if (bot->GetLevel() < 1 || bot->GetLevel() >= 5)
+        return;
+
+    uint32 const botId = bot->GetGUIDLow();
+    bool settler = GetEventValue(botId, "settler") != 0;
+
+    // D4: persisted villagers re-arm their ring placement (and re-register
+    // the cell for this session); a spawn point that still has ring slots
+    // designates new SAME-RACE settlers. Villagers stay exempt from the D1
+    // relocation itself - the two items pull opposite directions on the
+    // same bots, resolved here.
+    if (sPlayerbotAIConfig.villageRingCount > 0)
+    {
+        uint64 const cell = PocketVillageCellKey(bot);
+        auto cellEntry = pocketVillageCells.find(cell);
+        if (cellEntry != pocketVillageCells.end())
+        {
+            if (!settler && cellEntry->second.first == bot->getRace() &&
+                cellEntry->second.second < sPlayerbotAIConfig.villageRingCount)
+            {
+                ++cellEntry->second.second;
+                SetEventValue(botId, "settler", 1, -1);
+                settler = true;
+            }
+        }
+        else
+        {
+            pocketVillageCells[cell] = std::make_pair(bot->getRace(), 1);
+            if (!settler)
+            {
+                SetEventValue(botId, "settler", 1, -1);
+                settler = true;
+            }
+        }
+    }
+
+    uint8 const mode = settler ? POCKET_SPREAD_VILLAGE : POCKET_SPREAD_NEAR_PLAYER;
+    if (pocketLoginSpreadPending.emplace(botId, mode).second)
+        ScheduleTeleport(botId, POCKET_SPREAD_STAGGER_MIN_SEC + urand(0, POCKET_SPREAD_STAGGER_SPAN_SEC));
+}
+
+Player* RandomPlayerbotMgr::PocketPickSpreadAnchor(Player* bot) const
+{
+    // Nearest real player on the bot's own map (the relocation stays
+    // local; cross-map pulls are the periodic path's job, not the login
+    // spread's).
+    Player* best = nullptr;
+    float bestDist = 0.0f;
+    for (auto const& entry : players)
+    {
+        Player* player = entry.second;
+        if (!player || !player->IsInWorld() || player->IsGameMaster())
+            continue;
+        if (player->GetMapId() != bot->GetMapId())
+            continue;
+        float const dist = sServerFacade.GetDistance2d(bot, player);
+        if (!best || dist < bestDist)
+        {
+            best = player;
+            bestDist = dist;
+        }
+    }
+    return best;
+}
+
+void RandomPlayerbotMgr::PocketLoginSpreadTeleport(Player* bot)
+{
+    auto const pendingSpread = pocketLoginSpreadPending.find(bot->GetGUIDLow());
+    if (pendingSpread == pocketLoginSpreadPending.end())
+        return;
+    uint8 const mode = pendingSpread->second;
+    pocketLoginSpreadPending.erase(pendingSpread);
+
+    if (mode == POCKET_SPREAD_VILLAGE)
+    {
+        PocketPlaceVillageRing(bot);
+        return;
+    }
+
+    // Near-player placement: a mob-avoiding ring offset around the nearest
+    // real player (the FleeManager pattern - the candidate ring at the
+    // given radius around the startPosition, hostile orientations excluded,
+    // nearest-mob distance maximized), z snapped like the placement loop.
+    Player* anchor = PocketPickSpreadAnchor(bot);
+    if (anchor && anchor->GetMap())
+    {
+        Map* map = anchor->GetMap();
+        FleeManager manager(bot, frand(POCKET_SPREAD_RING_MIN_YD, POCKET_SPREAD_RING_MAX_YD), 0.0f, false, WorldPosition(anchor));
+        float rx, ry, rz;
+        if (manager.CalculateDestination(&rx, &ry, &rz))
+        {
+            float ground;
+#ifdef MANGOSBOT_TWO
+            ground = map->GetHeight(bot->GetPhaseMask(), rx, ry, rz + 0.5f);
+#else
+            ground = map->GetHeight(rx, ry, rz + 0.5f);
+#endif
+            if (ground > INVALID_HEIGHT)
+            {
+                if (bot->IsTaxiFlying())
+                    bot->GetMotionMaster()->MovementExpired();
+                bot->GetMotionMaster()->Clear();
+                bot->TeleportTo(anchor->GetMapId(), rx, ry, 0.05f + ground, 0);
+                lowCpuTeleportEvents.push_back(time(nullptr));
+                bot->SendHeartBeat();
+                bot->GetPlayerbotAI()->Reset(true);
+                sLog.outDetail("Login spread: bot %s ringed near player %s", bot->GetName(), anchor->GetName());
+                return;
+            }
+        }
+    }
+
+    // No real player online, or the ring found no valid point: plain
+    // level-appropriate teleport with the level guard bypassed - never a
+    // stay-stacked no-op. The near-player keep-best narrowing resolves
+    // BEFORE RandomTeleport is entered (and independent of activeOnly: the
+    // forced leg enters with activeOnly = false), so the empty-candidate
+    // recursion inside - which re-enters WITHOUT the force flag and
+    // dead-ends on the level guard for exactly this population - is never
+    // reached from the forced path and can never bypass this filter.
+    std::vector<WorldLocation> locs = locsPerLevelCache[bot->GetLevel()];
+    if (anchor)
+    {
+        std::vector<WorldLocation> near;
+        WorldLocation const* bestAny = nullptr;
+        float bestAnyDist = 0.0f;
+        for (auto const& loc : locs)
+        {
+            if (loc.mapid != anchor->GetMapId())
+            {
+                float const d = WorldPosition(loc).fDist(WorldPosition(anchor));
+                if (!bestAny || d < bestAnyDist)
+                {
+                    bestAny = &loc;
+                    bestAnyDist = d;
+                }
+                continue;
+            }
+            near.push_back(loc);
+        }
+        if (!near.empty())
+        {
+            std::sort(near.begin(), near.end(), [anchor](WorldLocation const& a, WorldLocation const& b)
+            {
+                return WorldPosition(a).fDist(WorldPosition(anchor)) < WorldPosition(b).fDist(WorldPosition(anchor));
+            });
+            if (near.size() > POCKET_SPREAD_KEEP_BEST)
+                near.resize(POCKET_SPREAD_KEEP_BEST);
+            locs.swap(near);
+        }
+        else if (bestAny)
+        {
+            locs.clear();
+            locs.push_back(*bestAny);
+        }
+    }
+    RandomTeleport(bot, locs, false, false, true);
+}
+
+void RandomPlayerbotMgr::PocketPlaceVillageRing(Player* bot)
+{
+    // D4: place the settler on a ring around its spawn point (its current
+    // stacked position), between the conf yd bounds, z snapped via GetHeight
+    // exactly like the RandomTeleport placement loop. Persistence is
+    // emergent: the 150-yd proximity freeze holds members, wander leaks
+    // slowly, and there is deliberately no re-forming machinery.
+    Map* map = bot->GetMap();
+    if (!map)
+        return;
+
+    float ringMin = (float)sPlayerbotAIConfig.villageRingMinYd;
+    float ringMax = (float)sPlayerbotAIConfig.villageRingMaxYd;
+    if (ringMax < ringMin)
+        ringMax = ringMin;
+    if (ringMin < 1.0f)
+        ringMin = 1.0f;
+
+    for (uint32 attempt = 0; attempt < POCKET_VILLAGE_ATTEMPTS; ++attempt)
+    {
+        float const angle = frand(0.0f, 2.0f * M_PI_F);
+        float const radius = frand(ringMin, ringMax);
+        float const x = bot->GetPositionX() + cos(angle) * radius;
+        float const y = bot->GetPositionY() + sin(angle) * radius;
+        float ground;
+#ifdef MANGOSBOT_TWO
+        ground = map->GetHeight(bot->GetPhaseMask(), x, y, bot->GetPositionZ() + 0.5f);
+#else
+        ground = map->GetHeight(x, y, bot->GetPositionZ() + 0.5f);
+#endif
+        if (ground <= INVALID_HEIGHT)
+            continue;
+
+        bot->GetMotionMaster()->Clear();
+        bot->TeleportTo(bot->GetMapId(), x, y, 0.05f + ground, 0);
+        lowCpuTeleportEvents.push_back(time(nullptr));
+        bot->SendHeartBeat();
+        bot->GetPlayerbotAI()->Reset(true);
+        sLog.outDetail("Village ring: bot %s placed %f yd off the spawn point", bot->GetName(), radius);
+        return;
+    }
+
+    sLog.outError("Village ring: no valid ring offset for bot %s - kept the stacked position", bot->GetName());
+}
+"""
+PB_D1_CONFIG_HEADER_UPSTREAM = """    uint32 randomBotTeleportNearPlayerMaxAmount;
+    float randomBotTeleportNearPlayerMaxAmountRadius;
+    uint32 randomBotTeleportMinInterval, randomBotTeleportMaxInterval;
+"""
+PB_D1_CONFIG_HEADER_ANDROID = """    uint32 randomBotTeleportNearPlayerMaxAmount;
+    float randomBotTeleportNearPlayerMaxAmountRadius;
+    uint32 randomBotTeleportMinInterval, randomBotTeleportMaxInterval;
+    // D1/D4 (plan v2.3 s5): login-site spawn-stack relief + village ring
+    bool randomBotLoginSpread;
+    uint32 villageRingCount;
+    uint32 villageRingMinYd;
+    uint32 villageRingMaxYd;
+"""
+PB_D1_CONFIG_CPP_UPSTREAM = """    randomBotTeleportNearPlayerMaxAmount = config.GetIntDefault("AiPlayerbot.RandomBotTeleportNearPlayerMaxAmount", 0);
+    randomBotTeleportNearPlayerMaxAmountRadius = config.GetFloatDefault("AiPlayerbot.RandomBotTeleportNearPlayerMaxAmountRadius", 0.0f);
+"""
+PB_D1_CONFIG_CPP_ANDROID = """    randomBotTeleportNearPlayerMaxAmount = config.GetIntDefault("AiPlayerbot.RandomBotTeleportNearPlayerMaxAmount", 0);
+    randomBotTeleportNearPlayerMaxAmountRadius = config.GetFloatDefault("AiPlayerbot.RandomBotTeleportNearPlayerMaxAmountRadius", 0.0f);
+    // D1/D4 (plan v2.3 s5): login-site spawn-stack relief + village ring.
+    // RandomBotLoginSpread = 0 disables the forced relocation entirely;
+    // VillageRingCount = 0 (the shipped default on every preset) keeps the
+    // settler machinery dark.
+    randomBotLoginSpread = config.GetBoolDefault("AiPlayerbot.RandomBotLoginSpread", true);
+    villageRingCount = config.GetIntDefault("AiPlayerbot.VillageRingCount", 0);
+    villageRingMinYd = config.GetIntDefault("AiPlayerbot.VillageRingMinYd", 10);
+    villageRingMaxYd = config.GetIntDefault("AiPlayerbot.VillageRingMaxYd", 25);
+"""
+PB_D1_CONF_DIST_UPSTREAM = """# Limit whithin what distance between other bots they teleport to points in zones around real player
+# AiPlayerbot.RandomBotTeleportNearPlayerMaxAmountRadius = 0
+"""
+PB_D1_CONF_DIST_ANDROID = """# Limit whithin what distance between other bots they teleport to points in zones around real player
+# AiPlayerbot.RandomBotTeleportNearPlayerMaxAmountRadius = 0
+
+# D1 (rp-depth-fix-plan v2.3): move freshly logged-in level 1-4 bots off the racial-start stack. With a real player online they land on a mob-avoiding ring 10-25 yd around the nearest one; without any player online they get a plain level-appropriate teleport. 0 disables.
+# AiPlayerbot.RandomBotLoginSpread = 1
+
+# D4 (rp-depth-fix-plan v2.3): per-spawn-point village ring. While a spawn point has fewer than VillageRingCount same-race level 1-4 settlers designated, new level 1-4 logins there become villagers: exempt from the D1 relocation and from the randomize event, placed on a ring between the yd bounds (inside say range, 25 yd). 0 = off (the shipped default).
+# AiPlayerbot.VillageRingCount = 0
+# AiPlayerbot.VillageRingMinYd = 10
+# AiPlayerbot.VillageRingMaxYd = 25
 """
 
 # --- LLM in-process backend overlays ---------------------------------------
@@ -3834,6 +4251,10 @@ PB_MGR_LOGIN_ANDROID = """void RandomPlayerbotMgr::OnBotLoginInternal(Player * c
 {
     lowCpuLoginEvents.push_back(time(nullptr));
     sLog.outDetail("%u/%d Bot %s logged in", GetPlayerbotsAmount(), sRandomPlayerbotMgr.GetMaxAllowedBotCount(), bot->GetName());
+    // D1 (plan v2.3 s5): the login site - arm the one-shot spawn-stack
+    // spread (no-op above level 4, when disabled, or for designated
+    // villagers re-arming their ring placement).
+    PocketArmLoginSpread(bot);
 """
 
 # --- DB async null-guard overlays -------------------------------------------
@@ -4402,6 +4823,15 @@ def prepare_cmangos_source() -> None:
     replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_RANDOMIZE_UPSTREAM, PB_MGR_RANDOMIZE_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_QUERY_NOT_UPSTREAM, PB_MGR_QUERY_NOT_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_LOGIN_UPSTREAM, PB_MGR_LOGIN_ANDROID)
+    # WS-D (plan v2.3 s5): D1 spawn-stack relief + D4 village ring
+    replace_anchor(bot_root / "PlayerbotAIConfig.cpp", PB_D1_CONFIG_CPP_UPSTREAM, PB_D1_CONFIG_CPP_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAIConfig.h", PB_D1_CONFIG_HEADER_UPSTREAM, PB_D1_CONFIG_HEADER_ANDROID)
+    replace_anchor(bot_root / "aiplayerbot.conf.dist.in", PB_D1_CONF_DIST_UPSTREAM, PB_D1_CONF_DIST_ANDROID)
+    replace_anchor(bot_root / "RandomPlayerbotMgr.h", PB_MGR_RTEL_DECL_UPSTREAM, PB_MGR_RTEL_DECL_ANDROID)
+    replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_LEVEL_GUARD_UPSTREAM, PB_MGR_LEVEL_GUARD_ANDROID)
+    replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_RANDOMIZE_SETTLER_UPSTREAM, PB_MGR_RANDOMIZE_SETTLER_ANDROID)
+    replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_TELEPORT_EVENT_UPSTREAM, PB_MGR_TELEPORT_EVENT_ANDROID)
+    replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_SPREAD_HELPERS_UPSTREAM, PB_MGR_SPREAD_HELPERS_ANDROID)
     # LLM in-process backend overlays
     (bot_root / "llm_banter_core.h").write_bytes((NATIVE / "patches" / "playerbots" / "llm_banter_core.h").read_bytes())
     (bot_root / "PlayerbotLlamaRuntime.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlamaRuntime.h").read_bytes())

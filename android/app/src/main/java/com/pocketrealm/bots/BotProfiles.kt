@@ -54,6 +54,27 @@ data class BotProfile(
      * fallback default stays 4_000 (documented, unchanged).
      */
     val passiveDelayMs: Int = 10_000,
+    /**
+     * D1 companion (plan v2.3 §5): enable the existing "range"/"map" login
+     * criteria on this preset — login candidates near real players (and on
+     * their map) are kept preferentially, concentrating bot logins where
+     * the players are. Default false emits nothing, keeping every legacy
+     * preset's [playerbotConfig] byte-identical (the adv digest hashes
+     * that text); the seven experience presets enable it.
+     */
+    val loginPreferNearPlayer: Boolean = false,
+    /**
+     * D4 (plan v2.3 §5): per-spawn-point village ring. 0 = off — the
+     * shipped state on EVERY preset (the machinery ships dark; the native
+     * [AiPlayerbot.VillageRingCount] carries the same 0 default). When a
+     * preset sets 3-5, up to that many same-race level 1-4 bots per spawn
+     * point become "settlers": exempt from the D1 relocation and the
+     * randomize event, placed on a ring between the yd bounds (inside say
+     * range — the native ListenRange.Say is 25 yd, hence the 25 cap).
+     */
+    val villageRingCount: Int = 0,
+    val villageRingMinYd: Int = VILLAGE_RING_DEFAULT_MIN_YD,
+    val villageRingMaxYd: Int = VILLAGE_RING_DEFAULT_MAX_YD,
     val admission: BotAdmissionLimits,
     /**
      * Per-preset AI speech overrides. Deliberately NOT part of
@@ -90,6 +111,11 @@ data class BotProfile(
         require(nearPlayerTeleportRadius in 0..1_000)
         require((nearPlayerTeleportMaxAmount == 0) == (nearPlayerTeleportRadius == 0))
         require(passiveDelayMs in 1_000..60_000)
+        // D4: count is off (0) or a village of 3-5; the yd band stays inside
+        // say range (ListenRange.Say = 25 yd) with a sane minimum.
+        require(villageRingCount == 0 || villageRingCount in VILLAGE_RING_MIN_COUNT..VILLAGE_RING_MAX_COUNT)
+        require(villageRingMinYd in 1..VILLAGE_RING_DEFAULT_MAX_YD)
+        require(villageRingMaxYd in villageRingMinYd..VILLAGE_RING_DEFAULT_MAX_YD)
         require(teleportMinIntervalSeconds in 60..172_800)
         require(teleportMaxIntervalSeconds in teleportMinIntervalSeconds..172_800)
         require(syncLevelMaxAbove in 0..10 && syncLevelNoPlayer in 1..60)
@@ -179,9 +205,24 @@ data class BotProfile(
         AiPlayerbot.CommandServerPort = 0
         AiPlayerbot.PerfMonEnabled = 0
         AiPlayerbot.LLMEnabled = 0
-        AiPlayerbot.ShowProgressBars = 0
+        AiPlayerbot.ShowProgressBars = 0${loginCriteriaLine()}${villageRingLines()}
     """.trimIndent() + "\n"
 }
+
+/** D1 companion (plan v2.3 §5): the "range"/"map" login-criteria line,
+ * emitted only when the preset opts in — the default (absent line) keeps
+ * every legacy preset's base emission byte-identical. */
+private fun BotProfile.loginCriteriaLine(): String =
+    if (!loginPreferNearPlayer) ""
+    else "\n        AiPlayerbot.DefaultLoginCriteria = maxbots,spareroom,offline,range,map"
+
+/** D4 (plan v2.3 §5): the village-ring staging keys; empty while DARK
+ * (count = 0, the shipped state of every preset). */
+private fun BotProfile.villageRingLines(): String =
+    if (villageRingCount == 0) ""
+    else "\n        AiPlayerbot.VillageRingCount = $villageRingCount" +
+        "\n        AiPlayerbot.VillageRingMinYd = $villageRingMinYd" +
+        "\n        AiPlayerbot.VillageRingMaxYd = $villageRingMaxYd"
 
 /**
  * User-facing overrides for a measured profile. Every value is bounded and
@@ -194,6 +235,15 @@ data class BotProfile(
  * minimum must parse). */
 private const val TELEPORT_MIN_BOUND_MINUTES = 10
 private const val TELEPORT_MINUTE_GRANULARITY = 5
+
+/** D4 (plan v2.3 §5): the village-ring law — count is off (0) or a
+ * village of 3-5 settlers per spawn point, and the ring band sits inside
+ * say range (the native ListenRange.Say = 25 yd; 10/25 are the plan's
+ * defaults). */
+private const val VILLAGE_RING_MIN_COUNT = 3
+private const val VILLAGE_RING_MAX_COUNT = 5
+internal const val VILLAGE_RING_DEFAULT_MIN_YD = 10
+internal const val VILLAGE_RING_DEFAULT_MAX_YD = 25
 
 data class BotAdvancedSettings(
     val nearbyBotLimit: Int = 12,
@@ -784,7 +834,9 @@ object BotProfiles {
         enableOffSpecStrategies = false,
         admission = BotAdmissionLimits(250, 768, 2_048, 3 * 60_000L, 10, 10,
             5 * 60_000L, 10_000L),
-        passiveDelayMs = 3_000,)
+        passiveDelayMs = 3_000,
+        loginPreferNearPlayer = true,
+        llmSpeech = BotLlmSpeech(chatterRung = BotLlmSpeech.CHATTER_RUNG_NORMAL),)
 
     /**
      * B4 (plan v2.3) benchmark twin: the proposed LOW_POWER_80 retune
@@ -867,7 +919,9 @@ object BotProfiles {
         enableOffSpecStrategies = true,
         admission = BotAdmissionLimits(250, 1_024, 2_048, 3 * 60_000L, 20, 20,
             5 * 60_000L, 10_000L),
-        passiveDelayMs = 3_000,)
+        passiveDelayMs = 3_000,
+        loginPreferNearPlayer = true,
+        llmSpeech = BotLlmSpeech(chatterRung = BotLlmSpeech.CHATTER_RUNG_NORMAL),)
 
     /** Responsive, populated realm. Strong quest/group behaviour. */
     val BUSY_WORLD_240 = BotProfile(
@@ -905,7 +959,9 @@ object BotProfiles {
         enableOffSpecStrategies = true,
         admission = BotAdmissionLimits(250, 1_536, 2_048, 4 * 60_000L, 25, 25,
             5 * 60_000L, 10_000L),
-        passiveDelayMs = 3_000,)
+        passiveDelayMs = 3_000,
+        loginPreferNearPlayer = true,
+        llmSpeech = BotLlmSpeech(chatterRung = BotLlmSpeech.CHATTER_RUNG_NORMAL),)
 
     /**
      * Recommended default. A populated Vanilla realm where bots around humans
@@ -949,7 +1005,9 @@ object BotProfiles {
         enableOffSpecStrategies = true,
         admission = BotAdmissionLimits(250, 2_048, 2_048, 4 * 60_000L, 25, 25,
             5 * 60_000L, 10_000L),
-        passiveDelayMs = 3_000,)
+        passiveDelayMs = 3_000,
+        loginPreferNearPlayer = true,
+        llmSpeech = BotLlmSpeech(chatterRung = BotLlmSpeech.CHATTER_RUNG_NORMAL),)
 
     /**
      * B4 (plan v2.3) benchmark twin: the proposed ALIVE_REALM_320 retune
@@ -1042,7 +1100,9 @@ object BotProfiles {
         enableOffSpecStrategies = true,
         admission = BotAdmissionLimits(250, 2_048, 2_048, 4 * 60_000L, 25, 25,
             5 * 60_000L, 10_000L),
-        passiveDelayMs = 3_000,)
+        passiveDelayMs = 3_000,
+        loginPreferNearPlayer = true,
+        llmSpeech = BotLlmSpeech(chatterRung = BotLlmSpeech.CHATTER_RUNG_NORMAL),)
 
     /** High population; foreground fast, background reduced. */
     val FULL_REALM_500 = BotProfile(
@@ -1082,7 +1142,9 @@ object BotProfiles {
         enableOffSpecStrategies = false,
         admission = BotAdmissionLimits(250, 2_048, 2_048, 5 * 60_000L, 50, 25,
             5 * 60_000L, 10_000L),
-        passiveDelayMs = 3_000,)
+        passiveDelayMs = 3_000,
+        loginPreferNearPlayer = true,
+        llmSpeech = BotLlmSpeech(chatterRung = BotLlmSpeech.CHATTER_RUNG_NORMAL),)
 
     /**
      * Largest curated built-in. Population/locality focused: humans and their
@@ -1126,7 +1188,9 @@ object BotProfiles {
         enableOffSpecStrategies = false,
         admission = BotAdmissionLimits(250, 2_048, 2_048, 5 * 60_000L, 50, 25,
             5 * 60_000L, 10_000L),
-        passiveDelayMs = 3_000,)
+        passiveDelayMs = 3_000,
+        loginPreferNearPlayer = true,
+        llmSpeech = BotLlmSpeech(chatterRung = BotLlmSpeech.CHATTER_RUNG_NORMAL),)
 
     /** Headless benchmark twins of the measured mobile tiers. Identical
      * to their sources except AiPlayerbot.RandomBotLoginWithPlayer = 0:

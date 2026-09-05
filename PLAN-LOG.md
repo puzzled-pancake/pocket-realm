@@ -1272,3 +1272,84 @@ hand-edit); --write-lockfiles + test_db_async_null_guard after any
 overlay edit or submodule bump; check_repo + check_sources OK; new
 behavior lands WITH its pins; commit with --no-verify ONLY after
 verifying the suite yourself; append the PLAN-LOG entry per batch.
+
+## Batch D (continuation run 2): D1 + D4 + D3 (WS-D complete)
+
+**Outcome: complete, green, committed.** The prior session's D-lane
+subagent died at DISPATCH with nothing landed; this batch rebuilt
+D1/D3/D4 from scratch per §5 + §0.b.
+
+- **D1 (spawn-stack relief)**: eight new anchor pairs in the build
+  driver (RandomPlayerbotMgr.cpp/.h + PlayerbotAIConfig.cpp/.h +
+  aiplayerbot.conf.dist.in). A login-only forced path: OnBotLoginInternal
+  (the login site) arms a one-shot pending entry + a SHORT staggered
+  ScheduleTeleport (5-30 s) so grid loads do not stack with the login
+  wave; the "teleport" event site executes it. With a real player online
+  the placement is a mob-avoiding ring 10-25 yd around the nearest
+  same-map player (FleeManager::CalculateDestination with the player as
+  startPosition); with no player (or a failed ring) a plain
+  level-appropriate RandomTeleport with force=true - never stay-stacked.
+  The level<5 guard gains `&& !force`; every non-forced caller is
+  byte-identical. Kill-switch `AiPlayerbot.RandomBotLoginSpread` (native,
+  default 1, 0 disables; operator-docs line in conf.dist). Companion:
+  the seven experience presets emit
+  `AiPlayerbot.DefaultLoginCriteria = maxbots,spareroom,offline,range,map`
+  (conditional line - every other preset's playerbotConfig() byte-identical;
+  the adv digest hashes that text).
+- **Logged interpretation (R8 to judge)**: "the near-player filter
+  resolved keep-best BEFORE the :2574 recursion, not gated on activeOnly"
+  is implemented at the forced call site rather than inside RandomTeleport:
+  the ring placement takes precedence, the keep-best narrowing (closest
+  candidates on the anchor map; a cross-map best survives so the list is
+  never emptied) resolves BEFORE the forced RandomTeleport call, and the
+  forced leg enters with activeOnly=false + force=true - so the
+  empty-candidate recursion, which re-enters WITHOUT the force flag and
+  dead-ends on the level guard for exactly this population, is never
+  reached from the forced path. D1's kill-switch is a native conf key
+  (RandomBotLoginSpread) rather than a preset field - §0.a's
+  "D1/D4 preset fields = keyless" row cannot express a default-on
+  behavior with no preset field of its own; D4's own text ("behind new
+  keys - §0.a's honest label") is the precedent followed.
+- **D4 (village ring)**: preset fields villageRingCount (law: 0 = off or
+  3-5) + villageRingMinYd/MaxYd (defaults 10/25, capped at 25 = inside
+  ListenRange.Say) with CONDITIONAL emission (nothing emitted while DARK;
+  no catalog profile sets them). Native keys
+  AiPlayerbot.VillageRingCount/MinYd/MaxYd (default 0/10/25). Settler
+  designation: up to villageRingCount same-race level 1-4 logins per 10-yd
+  spawn cell become settlers (persistent "settler" event value), exempt
+  from D1 relocation and from the randomize event (the exemption re-arms
+  the cadence so it cannot re-enter per pass); ring placement snaps z via
+  GetHeight like the RandomTeleport placement loop. Both placement sites
+  feed lowCpuTeleportEvents (T4's teleportsLast60s).
+- **D3 (street life via Chatter)**: `chatterRung` on BotLlmSpeech (-1 =
+  follow the computed ambience state; 0 forces this preset's chatter off;
+  1-4 CAP the rung) rides the staged power file - the file
+  AiPlayerbot.LLMChatterPowerFile names. A real rung exists (the native
+  pocketllm::ChatterRung enum, RUNG_NORMAL = 4), so the seven experience
+  presets stage CHATTER_RUNG_NORMAL per the plan's "non-OFF rung"
+  instruction; the cap is min() only - the ambience toggle and the
+  low-battery courtesy dim always win. The rung joined the skip-decision
+  in samePowerState (a cap change must restage). RandomBotSayWithoutMaster
+  stays 0 on every catalog profile (pinned both sides). chatterRung
+  round-trips through BotPresetStore (schema-additive key, opt-default -1).
+- **Logged interpretation (R8 to judge)**: D3's "stage on experience
+  presets" lands as the per-preset rung CAP + a NORMAL declaration - the
+  power file was already staged and ambience-gated before D3, so the
+  per-preset delta is the cap semantic (0/1-4), not a new staging path.
+- Detekt: :app:detektBaseline regenerated as a SEPARATE invocation (the
+  BotLlmSpeech.normalize LongParameterList signature gained chatterRung;
+  one stale MagicNumber entry dropped with it). Never hand-edited.
+- Pins: tests/test_llm_d_workstream.py (14 host tests: byte-present
+  UPSTREAM drift guard vs pristine, registration, the force law, login
+  hook + stagger, keep-best-before-the-call ordering, FleeManager ring,
+  kill-switch defaults, conf.dist docs, settler exemptions, telemetry
+  feeds, Kotlin surface) + BotWorldAlivenessTest.kt (10 gradle tests:
+  experience-preset criteria, legacy byte-identity absence, DARK
+  shipping, field law, emission, the RandomBotSayWithoutMaster = 0
+  negative pin, rung normalize/cap matrix). The chatter staging pin in
+  test_llm_chatter.py updated equal-or-stronger (the refresh call now
+  threads rungCap; the ambience master-gate assertion kept).
+- Suite: **8 failed (the documented pre-existing set), 562 passed,
+  4 skipped**; gradle :app:testDebugUnitTest + :app:detekt green;
+  materialize_anchors replays 149 ops clean; check_repo/check_sources OK.
+  No overlay files or submodules touched (no lockfile regen required).
