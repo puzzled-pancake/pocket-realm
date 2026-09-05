@@ -1353,3 +1353,51 @@ D1/D3/D4 from scratch per §5 + §0.b.
   4 skipped**; gradle :app:testDebugUnitTest + :app:detekt green;
   materialize_anchors replays 149 ops clean; check_repo/check_sources OK.
   No overlay files or submodules touched (no lockfile regen required).
+
+## Batch E1 (continuation run 2): the authored corpus targets
+
+**Outcome: complete, green, committed.** The v2.2 target table is
+superseded and not in the tree, so the target vector was re-derived
+from the plan text (logged for R8 to judge): the seven families + the
+seasoning bank sum to the reconciled ~1,100 law.
+
+- **Target vector (landed)**: greet tiers 40 -> 330 (83/81/83/83),
+  busy 12 -> 132, silence 12 -> 104, idle 18 -> 190, kill 14 -> 142,
+  floor 10 -> 120, cheer 0 -> 24, seasoning 48 (4x12) - corpus total
+  1,090 (~1,100; condolence/shaken 96 already done in E0).
+- **Additive archetype seasoning**: kArchetypePhrase[4][12] (GRUFF/SHY/
+  NOBLE/ROGUEISH rows, persona Archetype order) composed onto the drawn
+  greet tier line in GreetingLine (SeasonGreeting helper - the tier
+  draw stays the backbone, never a replacement draw). The phrase draw
+  rides its own guid<<24 lane with the 0x400 bit set AND RACE mixed
+  into the lane key (the plan's "add race to the seed" option) - the
+  header's stale "(class + race seeds)" claim on ArchetypeFor is now
+  true of the seasoning path. The compose respects the chat byte
+  budget (>195 bytes stays unseasoned) and applies to BOTH the draw and
+  the C7 redraw (the persisted greet guard compares seasoned lines).
+- **Cheer pool + delivery**: POOL_CHEER (24 lines) appended after
+  POOL_SECURITY_REFUSE (no pool renumbers); PlayerbotLlmPersona::
+  CheerLine draws it ring-deduped; the small delivery decision at the
+  event drain: OnPlayerLevelUp additionally has ONE grouped bot voice
+  an authored cheer 2-5 s after the generated note (the E0 condolence
+  QueueAuthoredReaction pattern, gated llmBanterEnabled +
+  llmEventReactionsEnabled). The generated event note is untouched.
+- **Floor templates**: 10 -> 120, every template exactly one {E} and
+  one {L}, own words >= 3 (renders >= 5 with a two-word {E}), rendered
+  words <= 24, bytes < 120 with the long test event - the harness pin
+  updated equal-or-stronger (count + the two-word-event render check).
+- **FNV golden re-pinned twice in-commit** (the kill pool changed, then
+  changed again from lint fixes): 3291cab38a475afd -> de4bd8227a3ab0d1.
+- **Pins**: tests/test_llm_e1_corpus.py (19 tests) - the exact target
+  vector, the register lint (banned tokens, mechanic words, chat
+  acronyms as lowercase words - ALL-CAPS emphasis is the authored house
+  style the pre-existing lines set, digits, ASCII, braces-only-
+  placeholders, word bounds per pool, lead-char law), no duplicates
+  within/across pools, no verbatim collision with the E0 banks,
+  POOL_CHEER append-only order, the seasoning wiring contracts, the
+  cheer delivery wiring, the floor authoring rule.
+- Overlays touched (llm_banter_core.h, PlayerbotLlmPersona.cpp/.h,
+  PlayerbotLlmChatterCore.h, PlayerbotLlmMemory.cpp): lockfiles
+  regenerated, null-guard battery green.
+- Suite: **8 failed (pre-existing set), 581 passed, 4 skipped**; gradle
+  testDebugUnitTest + detekt green; check_repo/check_sources OK.

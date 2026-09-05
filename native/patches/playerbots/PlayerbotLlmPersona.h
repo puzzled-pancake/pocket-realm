@@ -59,6 +59,10 @@ public:
     // and tic-seasoned. Empty only if the pool draw failed (never expected).
     static std::string KillBanterLine(Player* bot, Player* killer);
 
+    // plan RP E1: authored level-up cheer from POOL_CHEER (the event
+    // drain's authored leg; the generated note keeps its own cadence)
+    static std::string CheerLine(Player* bot, Player* forPlayer);
+
     // plan v5 W1: authored event-reaction cells (12 lines x 4 archetypes,
     // the FallbackLine corpus law), rendered {P} and tic-seasoned.
     // REACTION_CONDOLENCE voices a bot standing over the fallen player;

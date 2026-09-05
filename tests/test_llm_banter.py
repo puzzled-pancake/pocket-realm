@@ -58,7 +58,7 @@ def test_invariants_golden_pin_is_stable(banter_binary):
     # commit - an accidental change must fail here instead. (The hash is
     # FNV-1a64 over 4x500 deterministic selections of the shipped KILL
     # pool, so the pin is stable across machines and compilers.)
-    GOLDEN_FNV1A64 = "3291cab38a475afd"
+    GOLDEN_FNV1A64 = "de4bd8227a3ab0d1"
     result = _run(banter_binary, "invariants")
     golden = [l for l in result.stdout.splitlines() if l.startswith("golden_fnv1a64=")]
     assert golden, "golden fingerprint line missing"

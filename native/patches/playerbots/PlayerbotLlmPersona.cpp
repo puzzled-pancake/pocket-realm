@@ -531,6 +531,28 @@ std::string PlayerbotLlmPersona::KillBanterLine(Player* bot, Player* killer)
     return line;
 }
 
+// plan RP E1: the level-up cheer. The generated event note keeps its
+// cadence (generation + emote marker); this is the AUTHORED leg ONE
+// grouped bot voices at the event drain (the E0 condolence delivery
+// pattern). Never names the mechanic - the authored voice celebrates
+// the person, not the number.
+std::string PlayerbotLlmPersona::CheerLine(Player* bot, Player* forPlayer)
+{
+    if (!bot || !forPlayer)
+        return "";
+    uint64_t const stateKey = ((uint64_t)bot->GetGUIDLow() << 24) | (uint64_t)(pocketllm::POOL_CHEER + 1);
+    StateRef stateRef = StateFor(stateKey, bot->GetGUIDLow());
+    size_t count = 0;
+    char const* const* lines = pocketllm::Pool(pocketllm::POOL_CHEER, count);
+    pocketllm::BanterResult const r =
+        pocketllm::SelectLine(stateRef.state, lines, count, nullptr, 0, 0, 0);
+    if (!r.line)
+        return "";
+    std::string line = Rendered(r.line, forPlayer, bot);
+    ApplyTic(stateRef.state, bot->GetGUIDLow(), line);
+    return line;
+}
+
 // plan v5 W1: the event-reaction cells. 12 lines x 4 archetypes per kind,
 // the FallbackLine corpus law. Condolence speaks over the fallen player's
 // body (party channel); shaken speaks when a wiped party reforms. Both
@@ -749,6 +771,39 @@ std::string PlayerbotLlmPersona::SceneNudgeLine(Player* bot, Player* player)
     return line;
 }
 
+// plan RP E1: additive archetype seasoning - one spoken phrase composed
+// onto the drawn tier line. The phrase draw rides its own guid<<24 lane
+// (the 0x400 bit keeps it clear of every pool lane) with RACE mixed into
+// the lane key, so same-class bots of different races vary their phrase -
+// the plan's fix for ArchetypeFor being class-only. The tier draw stays
+// the greeting's backbone (never a replacement draw, which would strand
+// half the population in SHY); the compose respects the chat byte budget -
+// a seasoning that would not fit stays unsaid.
+static std::string SeasonGreeting(Player* bot, Player* player, std::string const& tierLine)
+{
+    if (!bot || tierLine.empty())
+        return tierLine;
+    PlayerbotLlmPersona::Archetype const archetype = PlayerbotLlmPersona::ArchetypeFor(bot);
+    size_t count = 0;
+    char const* const* phrases = pocketllm::ArchetypePhraseRow((int)archetype, count);
+    if (!phrases || !count)
+        return tierLine;
+    uint64_t const stateKey = ((uint64_t)bot->GetGUIDLow() << 24) |
+        (uint64_t)0x400 | ((uint64_t)(bot->getRace() & 0xF) << 4) |
+        (uint64_t)((uint32_t)archetype + 1);
+    StateRef stateRef = StateFor(stateKey, bot->GetGUIDLow());
+    pocketllm::BanterResult r =
+        pocketllm::SelectLine(stateRef.state, phrases, count, nullptr, 0, 0, 0);
+    if (!r.line)
+        return tierLine;
+    std::string phrase = Rendered(r.line, player, bot);
+    ApplyTic(stateRef.state, bot->GetGUIDLow(), phrase);
+    std::string seasoned = tierLine + " " + phrase;
+    if (seasoned.size() > 195)
+        return tierLine;
+    return seasoned;
+}
+
 std::string PlayerbotLlmPersona::GreetingLine(Player* bot, Player* player)
 {
     if (!bot || !player)
@@ -776,7 +831,7 @@ std::string PlayerbotLlmPersona::GreetingLine(Player* bot, Player* player)
     // cannot see the previous boot's draw). One redraw past the
     // persisted line; the ring still guarantees novelty inside the
     // process.
-    std::string line = Rendered(r.line, player, bot);
+    std::string line = SeasonGreeting(bot, player, Rendered(r.line, player, bot));
     if (sPlayerbotAIConfig.llmGreetMemory)
     {
         std::string const lastVoiced =
@@ -785,7 +840,7 @@ std::string PlayerbotLlmPersona::GreetingLine(Player* bot, Player* player)
         {
             r = pocketllm::SelectLine(stateRef.state, lines, count, nullptr, 0, 0, 0);
             if (r.line)
-                line = Rendered(r.line, player, bot);
+                line = SeasonGreeting(bot, player, Rendered(r.line, player, bot));
         }
     }
     ApplyTic(stateRef.state, bot->GetGUIDLow(), line);

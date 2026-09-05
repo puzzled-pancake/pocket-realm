@@ -1622,6 +1622,37 @@ void PlayerbotLlmMemory::OnPlayerLevelUp(Player* player, uint32 newLevel)
     out << player->GetName() << " just reached level " << newLevel
         << " while fighting at our side.";
     QueueForPartyBots(player, out.str(), 2, PlayerbotLlmBridge::EVENT_LEVEL_UP);
+
+    // plan RP E1: the authored cheer leg - the small delivery decision at
+    // the event drain. ONE grouped bot (the condolence pattern's bounded
+    // speaker pick) also voices a pool cheer 2-5 s after the event via the
+    // authored reaction queue; the generated note above keeps its own
+    // cadence, so the beat is generation + a guaranteed voiced line.
+    if (!sPlayerbotAIConfig.llmBanterEnabled || !sPlayerbotAIConfig.llmEventReactionsEnabled)
+        return;
+    if (Group* cheerGroup = player->GetGroup())
+    {
+        std::vector<Player*> cheerers;
+        for (GroupReference* itr = cheerGroup->GetFirstMember(); itr; itr = itr->next())
+        {
+            Player* member = itr->getSource();
+            if (member && member != player && member->GetPlayerbotAI() && member->IsInWorld())
+                cheerers.push_back(member);
+        }
+        if (cheerers.empty())
+            return;
+        Player* speaker = cheerers[urand(0, uint32(cheerers.size() - 1))];
+        std::string const cheer = PlayerbotLlmPersona::CheerLine(speaker, player);
+        if (cheer.empty())
+            return;
+        EventReaction cheerReaction;
+        cheerReaction.authored = true;
+        cheerReaction.playerGuid = player->GetGUIDLow();
+        cheerReaction.text = cheer;
+        cheerReaction.msgtype = CHAT_MSG_PARTY;
+        cheerReaction.notBefore = time(nullptr) + urand(2, 5);
+        QueueAuthoredReaction(speaker, cheerReaction);
+    }
 }
 
 void PlayerbotLlmMemory::OnPlayerRareLoot(Player* player, uint32 itemId)

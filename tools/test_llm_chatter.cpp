@@ -223,11 +223,15 @@ void TestRegisterAndFloor()
 
     // every floor template renders with all placeholders substituted,
     // stays ASCII and bounded
-    CHECK(MurmurFloorTemplateCount() == 10);
+    // plan RP E1: the floor corpus target (10 -> 120 templates).
+    CHECK(MurmurFloorTemplateCount() == 120);
     for (size_t i = 0; i < MurmurFloorTemplateCount(); ++i)
     {
         std::string const rendered = RenderFloorTemplate(i, "Kromgrit", "Ashmar",
             "the mill burned down last night");
+        // the E1 floor authoring rule: a template renders at least
+        // five words even with a two-word event
+        CHECK(CountWords(RenderFloorTemplate(i, "Kromgrit", "Ashmar", "two words")) >= 5);
         CHECK(rendered.find("{") == std::string::npos);
         CHECK(rendered.find("}") == std::string::npos);
         CHECK(rendered.find('<') == std::string::npos);
