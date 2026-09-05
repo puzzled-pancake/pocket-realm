@@ -75,9 +75,9 @@ static void TestFactDirect()
 static void TestCargoWording()
 {
     using namespace pocketllm;
-    // the measured table's shapes, byte-pinned per FLAVOR (rev-3b: three
-    // persona-flavored variant sets, GUID-stable per bot - flavor 0 is the
-    // original S8 wording; 30/31/32 are three consecutive guids so each
+    // the measured table's shapes, byte-pinned per FLAVOR (rev-3b: six
+    // persona-flavored variants per kind, GUID-stable per bot - flavor 0 is
+    // the original S8 wording; 30/31/32 are three consecutive guids so each
     // pins one flavor)
     std::string const debt = DebtCargo("Brannoc", "he owes me 5 silver from the ale", 30);
     CHECK(debt == "Brannoc owes you 5 silver from the ale. "
@@ -156,16 +156,79 @@ static void TestCargoWording()
     CHECK(CeremonyDownCargo("Brannoc", 32) ==
           "You trust Brannoc less than you did. Keep that to yourself - "
           "it shows in deeds, never in words.");
+// flavors 3-5 (guids 33/34/35): byte-pinned like 0-2 above
+    CHECK(DebtCargo("Brannoc", "he owes me 5 silver from the ale", 33) ==
+          "Brannoc owes you 5 silver from the ale. The ledger does not forget, and neither do you. Collect with a grin, not a snarl.");
+    CHECK(DebtCargo("Brannoc", "he owes me 5 silver from the ale", 34) ==
+          "Brannoc owes you 5 silver from the ale. Owed is owed. Remind them the way old friends do - sharp, fond, and impossible to dodge.");
+    CHECK(DebtCargo("Brannoc", "he owes me 5 silver from the ale", 35) ==
+          "Brannoc owes you 5 silver from the ale. Debts age like ale with you: stronger, louder, and harder to ignore. Say so.");
+    CHECK(NewsCargo("Brannoc", "he beat you in a duel, fair and square", 33) ==
+          "News, and it is yours to carry: beat you in a duel, fair and square. Brannoc gets it from you first - make it land.");
+    CHECK(NewsCargo("Brannoc", "he beat you in a duel, fair and square", 34) ==
+          "You were there - or heard it from one who was: beat you in a duel, fair and square. Tell Brannoc straight.");
+    CHECK(NewsCargo("Brannoc", "he beat you in a duel, fair and square", 35) ==
+          "This just happened, and Brannoc should hear it from a friend: beat you in a duel, fair and square. Tell it whole.");
+    CHECK(MemoryCargo("Brannoc", "hates spiders since the basement job", false, 33) ==
+          "That thing about Brannoc - hates spiders since the basement job - has been sitting with you. Spend it now, once, like it just surfaced.");
+    CHECK(MemoryCargo("Brannoc", "hates spiders since the basement job", false, 34) ==
+          "You carry this about Brannoc: hates spiders since the basement job. Drop it into the talk sideways, the way real remembering works.");
+    CHECK(MemoryCargo("Brannoc", "hates spiders since the basement job", false, 35) ==
+          "Of all you know of Brannoc, this rises now: hates spiders since the basement job. Voice it once, then let the moment pass.");
+    CHECK(MemoryCargo("Brannoc", "is saving for a ram", true, 33) ==
+          "That goal of Brannoc - is saving for a ram - still hangs open. Pull the thread: how fares it?");
+    CHECK(MemoryCargo("Brannoc", "is saving for a ram", true, 34) ==
+          "Brannoc wanted this: is saving for a ram. You kept it in mind all this time. Ask, and mean it.");
+    CHECK(MemoryCargo("Brannoc", "is saving for a ram", true, 35) ==
+          "So - Brannoc and is saving for a ram. Time has passed; curiosity has not. Ask after it properly.");
+    CHECK(GrudgeCargo("called your cooking pig swill", 33) ==
+          "That old business - called your cooking pig swill - still smarts when pressed. Let the chill show in what you do, not what you say.");
+    CHECK(GrudgeCargo("called your cooking pig swill", 34) ==
+          "called your cooking pig swill. You have not forgotten, and forgiveness is not on the menu tonight. Edge, not accusation.");
+    CHECK(GrudgeCargo("called your cooking pig swill", 35) ==
+          "The scar of it - called your cooking pig swill - itches in this company. Short answers, long memory.");
+    CHECK(GossipCargo("Brannoc", "won a duel against Grumph", 33) ==
+          "Something is being said about Brannoc: 'won a duel against Grumph'. Poke at it once, softly - then leave it be.");
+    CHECK(GossipCargo("Brannoc", "won a duel against Grumph", 34) ==
+          "You caught wind of this about Brannoc: 'won a duel against Grumph'. One curious question, no more.");
+    CHECK(GossipCargo("Brannoc", "won a duel against Grumph", 35) ==
+          "Rumor brushes Brannoc: 'won a duel against Grumph'. Brush back - lightly, once, and watch the reaction.");
+    CHECK(CeremonyUpCargo("Brannoc", 4, 33) ==
+          "It has crept up on you: Brannoc is a true friend to you now. A warmer word, unannounced.");
+    CHECK(CeremonyUpCargo("Brannoc", 4, 34) ==
+          "No ceremony, no speech - but Brannoc is a true friend, and it shows in how you stand nearer.");
+    CHECK(CeremonyUpCargo("Brannoc", 4, 35) ==
+          "You catch yourself smiling when Brannoc arrives. That is new. That is a true friend. Let it be seen, briefly.");
+    CHECK(CeremonyDownCargo("Brannoc", 33) ==
+          "A small frost where Brannoc is concerned. No words about it - fewer favors, slower nods.");
+    CHECK(CeremonyDownCargo("Brannoc", 34) ==
+          "You hold Brannoc a little more at arm's length now. Polite. Distant. Final.");
+    CHECK(CeremonyDownCargo("Brannoc", 35) ==
+          "The easy warmth with Brannoc is gone. Courtesy remains; closeness does not.");
+
     // the flavor law: GUID-stable, rotating across consecutive guids, and
-    // ONE flavor per bot across every cargo class
-    CHECK(CargoFlavor(30) == 0 && CargoFlavor(31) == 1 && CargoFlavor(32) == 2);
+    // ONE flavor per bot across every cargo class (six flavors per kind)
+    CHECK(CargoFlavor(30) == 0 && CargoFlavor(31) == 1 && CargoFlavor(35) == 5);
+    CHECK(CargoFlavor(36) == 0);
     CHECK(DebtCargo("P", "owes me 1 copper", 77) ==
           DebtCargo("P", "owes me 1 copper", 77));
     {
-        std::string a = DebtCargo("P", "owes me 1 copper", 90);
-        std::string b = DebtCargo("P", "owes me 1 copper", 91);
-        std::string c = DebtCargo("P", "owes me 1 copper", 92);
-        CHECK(a != b && b != c && a != c);
+        // every kind rotates six DISTINCT frames across six consecutive
+        // guids (a collapsed or duplicated emitted array fails here)
+        for (int g0 : {90, 96, 102})
+            for (int i = 0; i < 6; ++i)
+                for (int j = i + 1; j < 6; ++j)
+                {
+                    unsigned const gi = (unsigned)(g0 + i), gj = (unsigned)(g0 + j);
+                    CHECK(DebtCargo("P", "owes me 1 copper", gi) != DebtCargo("P", "owes me 1 copper", gj));
+                    CHECK(NewsCargo("P", "won the dice game", gi) != NewsCargo("P", "won the dice game", gj));
+                    CHECK(MemoryCargo("P", "hates spiders", false, gi) != MemoryCargo("P", "hates spiders", false, gj));
+                    CHECK(MemoryCargo("P", "is saving for a ram", true, gi) != MemoryCargo("P", "is saving for a ram", true, gj));
+                    CHECK(GrudgeCargo("called the stew thin", gi) != GrudgeCargo("called the stew thin", gj));
+                    CHECK(GossipCargo("P", "won a duel", gi) != GossipCargo("P", "won a duel", gj));
+                    CHECK(CeremonyUpCargo("P", 4, gi) != CeremonyUpCargo("P", 4, gj));
+                    CHECK(CeremonyDownCargo("P", gi) != CeremonyDownCargo("P", gj));
+                }
     }
     // ---- the long-form cue (frozen bytes) + the licensing
     // layer and its trigger shapes
@@ -176,6 +239,18 @@ static void TestCargoWording()
     CHECK(LongFormLicensed(300));
     CHECK(!LongFormLicensed(224));
     CHECK(!LongFormLicensed(200));
+    // Phase-3 longForm dial: 0 raises the bar to 300, 100 lowers to 150
+    CHECK(LongFormLicensed(225, 50));
+    CHECK(!LongFormLicensed(225, 0));
+    CHECK(LongFormLicensed(300, 0));
+    CHECK(LongFormLicensed(150, 100));
+    // mid-band probes: the stepped dial holds BETWEEN endpoints too
+    // (dial 70 sits in the 26-74 rung: bar 225; dial 80 in the >=75 rung)
+    CHECK(!LongFormLicensed(224, 70));
+    CHECK(LongFormLicensed(150, 80));
+    CHECK(!LongFormLicensed(149, 80));
+    CHECK(!LongFormLicensed(149, 100));
+    CHECK(LongFormLicensed(225, 999));
     CHECK(WantsStorytelling("come on, tell me a story from the road"));
     CHECK(WantsStorytelling("what happened at the tower last night?"));
     CHECK(WantsStorytelling("walk me through the fight"));
@@ -260,6 +335,35 @@ static void TestMoneyAndDistortion()
           "a bard played at the inn");
 }
 
+static void TestCuriosityBank()
+{
+    using namespace pocketllm;
+    // plan v5 W5: the 16-wide question bank - ASCII, bounded length,
+    // {P} rendered, and the out-of-range guard returns empty
+    CHECK(CuriosityQuestionCount() == 16);
+    for (size_t i = 0; i < CuriosityQuestionCount(); ++i)
+    {
+        std::string q = CuriosityQuestionLine(i, "Brannoc");
+        CHECK(!q.empty());
+        CHECK(q.find("Brannoc") != std::string::npos);
+        CHECK(q.find("{P}") == std::string::npos);
+        bool ascii = true;
+        for (char c : q)
+            if (static_cast<unsigned char>(c) < 0x20 || static_cast<unsigned char>(c) > 0x7E)
+                ascii = false;
+        CHECK(ascii);
+        CHECK(q.size() >= 20 && q.size() <= 200);
+    }
+    CHECK(CuriosityQuestionLine(99, "Brannoc").empty());
+    CHECK(CuriosityQuestionLine(3, "Ash") == CuriosityQuestionLine(3, "Ash"));
+    // distinctness: the bank must not carry a duplicate question (the
+    // cargo distinctness law - a repeated ask breaks the once-per-question
+    // promise in spirit)
+    for (size_t i = 0; i < CuriosityQuestionCount(); ++i)
+        for (size_t j = i + 1; j < CuriosityQuestionCount(); ++j)
+            CHECK(CuriosityQuestionLine(i, "Ash") != CuriosityQuestionLine(j, "Ash"));
+}
+
 static void TestAuthoredShapes()
 {
     using namespace pocketllm;
@@ -278,6 +382,84 @@ static void TestAuthoredShapes()
           "I remember what you were after, Brannoc: 'is saving for a ram'. How goes it?");
 }
 
+static void TestLegends()
+{
+    using namespace pocketllm;
+    // anniversary buckets: 30/100/365 with EXACT boundaries (the >= law),
+    // below-30 silent
+    CHECK(AnniversaryBucket(0) == 0);
+    CHECK(AnniversaryBucket(29) == 0);
+    CHECK(AnniversaryBucket(30) == 30);
+    CHECK(AnniversaryBucket(99) == 30);
+    CHECK(AnniversaryBucket(100) == 100);
+    CHECK(AnniversaryBucket(364) == 100);
+    CHECK(AnniversaryBucket(365) == 365);
+    CHECK(AnniversaryBucket(400) == 365);
+    CHECK(std::string(AnniversaryLine(0)).empty());
+    CHECK(std::string(AnniversaryLine(100)) ==
+          "A hundred days of crossings. The road keeps bringing you back.");
+    CHECK(std::string(AnniversaryLine(30)).find("month") != std::string::npos);
+    CHECK(std::string(AnniversaryLine(365)).find("year") != std::string::npos);
+    // counter escalation: silent at 0, escalates 1-4 (byte-pinned - a
+    // substring pin once let a "Practically a legend" mutant through),
+    // then the 5-cap RETIRES (telling 5 renders the plain fact)
+    CHECK(std::string(CounterEscalation(0)).empty());
+    CHECK(std::string(CounterEscalation(1)) == "Once more, then.");
+    CHECK(std::string(CounterEscalation(2)) == "Again - the telling grows.");
+    CHECK(std::string(CounterEscalation(3)) == "Still the talk. The legend thickens.");
+    CHECK(std::string(CounterEscalation(4)) == "Practically legend by now.");
+    CHECK(LegendCounterLine("Beat Brannoc fair.", 0) == "Beat Brannoc fair.");
+    CHECK(LegendCounterLine("Beat Brannoc fair.", 1) == "Beat Brannoc fair. Once more, then.");
+    CHECK(LegendCounterLine("Beat Brannoc fair.", 4) == "Beat Brannoc fair. Practically legend by now.");
+    CHECK(LegendCounterLine("Beat Brannoc fair.", 5) == "Beat Brannoc fair.");
+    CHECK(LegendCounterLine("Beat Brannoc fair.", 9) == "Beat Brannoc fair.");
+    // tier beats: three kinds, GUID-flavored, player-named, marker-free
+    for (int k = 0; k < 3; ++k)
+    {
+        std::string beat = TierBeatCargo("Brannoc", k, 7u);
+        CHECK(beat.find("Brannoc") != std::string::npos);
+        CHECK(beat.find("<<") == std::string::npos && beat.find(">>") == std::string::npos);
+    }
+    CHECK(TierBeatCargo("Brannoc", 99, 7u).find("Brannoc") != std::string::npos);
+    // journal-facing beats: third-person prose (never a bot instruction)
+    CHECK(std::string(TierBeatJournalLine(0)) ==
+          "Would vouch for you anywhere; that word was earned.");
+    CHECK(std::string(TierBeatJournalLine(1)) ==
+          "The old debt is settled square; the air is lighter for it.");
+    CHECK(std::string(TierBeatJournalLine(2)) ==
+          "Sharp, fond bickering - the kind only old friends can afford.");
+    // the authored legend surface is ASCII-only: these lines ride the
+    // whisper/journal paths that bypass the LLM output clamp, and the
+    // 1.12 client renders anything wider as mojibake
+    {
+        auto ascii = [](std::string const& s)
+        {
+            for (size_t i = 0; i < s.size(); ++i)
+                if ((unsigned char)s[i] > 127)
+                {
+                    CHECK(false);
+                    return;
+                }
+        };
+        for (int k = 0; k < 3; ++k)
+            for (unsigned g = 0; g < 6; ++g)
+                ascii(TierBeatCargo("Brannoc", k, g));
+        for (int t = 0; t <= 5; ++t)
+            ascii(LegendCounterLine("Beat Brannoc fair.", t));
+        ascii(AnniversaryLine(30));
+        ascii(AnniversaryLine(100));
+        ascii(AnniversaryLine(365));
+        ascii(TierBeatJournalLine(0));
+        ascii(TierShiftSysLine("Kromgrit", true));
+        ascii(TierShiftSysLine("Kromgrit", false));
+    }
+    // POI-biased sampling: place-named rows travel farther
+    static char const* const pois[] = { "Goldshire", "Deadmines" };
+    CHECK(RumorNamesPlace("Brannoc won at Goldshire.", pois, 2));
+    CHECK(!RumorNamesPlace("Brannoc won a duel.", pois, 2));
+    CHECK(!RumorNamesPlace("Brannoc won a duel.", 0, 0));
+}
+
 int main()
 {
     TestFactClasses();
@@ -287,6 +469,8 @@ int main()
     TestDeterminism();
     TestMoneyAndDistortion();
     TestAuthoredShapes();
+    TestCuriosityBank();
+    TestLegends();
     if (g_failures)
     {
         std::cout << g_failures << " failures\n";

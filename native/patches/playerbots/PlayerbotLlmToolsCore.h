@@ -726,25 +726,37 @@ inline ConversationalBeat SelectConversationalBeat(std::string const& msg)
 // max new tokens clears the long bank (150 words ~= 225 tokens at the
 // measured ~1.5 tok/word) may carry cue-bearing tellings; short tiers
 // never see the cue and never earn the wider reply budget below.
-inline bool LongFormLicensed(unsigned int maxNewTokens)
+// Phase-3 longForm dial (0-100, 50 = default, >100 = follow): 0 raises
+// the bar to 300 tokens (short-model discipline), 100 lowers it to 150
+// (storytelling presets on capable tiers). The token floor is absolute:
+// no dial can license long-form below 150 tokens.
+inline bool LongFormLicensed(unsigned int maxNewTokens, unsigned int longFormDial = 50)
 {
-    return maxNewTokens >= 225;
+    unsigned int bar = 225;
+    if (longFormDial <= 100)
+    {
+        if (longFormDial <= 25)
+            bar = 300;
+        else if (longFormDial >= 75)
+            bar = 150;
+    }
+    return maxNewTokens >= bar;
 }
 
 inline size_t ReplyBudgetBytes(uint32_t replyClass, unsigned int maxNewTokens,
-    bool longFormCued)
+    bool longFormCued, unsigned int longFormDial = 50)
 {
     if (replyClass == 1)
         return 80;
-    return (longFormCued && LongFormLicensed(maxNewTokens)) ? 255 : 160;
+    return (longFormCued && LongFormLicensed(maxNewTokens, longFormDial)) ? 255 : 160;
 }
 
 inline size_t ReplyBudgetLines(uint32_t replyClass, unsigned int maxNewTokens,
-    bool longFormCued)
+    bool longFormCued, unsigned int longFormDial = 50)
 {
     if (replyClass == 1)
         return 1;
-    return (longFormCued && LongFormLicensed(maxNewTokens)) ? 4 : 2;
+    return (longFormCued && LongFormLicensed(maxNewTokens, longFormDial)) ? 4 : 2;
 }
 
 inline std::string ClampLineBytes(std::string const& line, size_t maxBytes)
@@ -763,10 +775,10 @@ inline std::string ClampLineBytes(std::string const& line, size_t maxBytes)
 }
 
 inline void ApplyReplyBudget(std::vector<std::string>& lines, uint32_t replyClass,
-    unsigned int maxNewTokens, bool longFormCued)
+    unsigned int maxNewTokens, bool longFormCued, unsigned int longFormDial = 50)
 {
-    size_t const maxLines = ReplyBudgetLines(replyClass, maxNewTokens, longFormCued);
-    size_t const maxBytes = ReplyBudgetBytes(replyClass, maxNewTokens, longFormCued);
+    size_t const maxLines = ReplyBudgetLines(replyClass, maxNewTokens, longFormCued, longFormDial);
+    size_t const maxBytes = ReplyBudgetBytes(replyClass, maxNewTokens, longFormCued, longFormDial);
     for (size_t i = 0; i < lines.size(); ++i)
     {
         if (i < maxLines)

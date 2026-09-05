@@ -29,15 +29,27 @@ class BotPresetStore(private val directory: File) {
     companion object {
         const val SCHEMA_VERSION = 1
         const val FILE_NAME = "bot_presets.json"
-        const val MAX_REVISIONS_PER_PRESET = 32
-        const val EXPORT_KIND = "pocketrealm.bot-preset"
-        const val EXPORT_SCHEMA = 1
 
         /** Highest revision retained per preset; bounds file growth. */
+        const val MAX_REVISIONS_PER_PRESET = 32
+        const val EXPORT_KIND = "pocketrealm.bot-preset"
+        // Schema 2 adds the RP-layer configuration keys (llmPackDeltas,
+        // llmInitiative, llmVolatility, llmReactivity, llmLongForm) to the
+        // canonical form the checksum covers. Schema-1 files verify
+        // against the v4-keys-stripped legacy form so pre-RP exports
+        // still import (see importJson).
+        const val EXPORT_SCHEMA = 2
+        private val SCHEMA_1_LEGACY_KEYS = arrayOf(
+            "llmPackDeltas", "llmInitiative", "llmVolatility",
+            "llmReactivity", "llmLongForm",
+        )
+
+        /** Preset-name charset/length rule (letters, digits, punctuation, spaces). */
         private val ALLOWED_NAME = Regex("[\\p{L}\\p{N}\\p{P}\\p{Zs}'’-]{1,48}")
 
         /** Shared with the editor so dialogs reject names the store would refuse. */
-        fun isValidName(name: String): Boolean = name.matches(ALLOWED_NAME)
+        fun isValidName(name: String): Boolean =
+            name.isNotBlank() && name.matches(ALLOWED_NAME)
 
         /** Editor draft persistence across navigation/process death. */
         fun encodeConfiguration(configuration: BotCustomConfiguration): String =
@@ -85,6 +97,15 @@ class BotPresetStore(private val directory: File) {
                 .put("groupNearby", configuration.groupNearby)
                 .put("wanderWhenIdle", configuration.wanderWhenIdle)
                 .put("enableOffSpecStrategies", configuration.enableOffSpecStrategies)
+                .put("llmReplyTokens", configuration.llmSpeech.replyTokens)
+                .put("llmBotToBotChatChance", configuration.llmSpeech.botToBotChatChance)
+                .put("llmFactsCap", configuration.llmSpeech.factsCap)
+                .put("llmMemoriesTail", configuration.llmSpeech.memoriesTail)
+                .put("llmPackDeltas", JSONObject(configuration.llmSpeech.packDeltas))
+                .put("llmInitiative", configuration.llmSpeech.initiative)
+                .put("llmVolatility", configuration.llmSpeech.volatility)
+                .put("llmReactivity", configuration.llmSpeech.reactivity)
+                .put("llmLongForm", configuration.llmSpeech.longForm)
                 .put(
                     "admission", JSONObject()
                         .put("maxWorldP99Ms", admission.maxWorldP99Ms)
@@ -147,6 +168,26 @@ class BotPresetStore(private val directory: File) {
                     increaseStep = admission.getInt("increaseStep"),
                     healthyRampMs = admission.getLong("healthyRampMs"),
                     changeCooldownMs = admission.getLong("changeCooldownMs"),
+                ),
+                // opt* reads: presets saved before the AI/RP tabs carry no
+                // llmSpeech object and must resolve to the sentinels
+                llmSpeech = BotLlmSpeech.normalize(
+                    replyTokens = json.optInt("llmReplyTokens", 0),
+                    botToBotChatChance = json.optInt("llmBotToBotChatChance", -1),
+                    factsCap = json.optInt("llmFactsCap", 0),
+                    memoriesTail = json.optInt("llmMemoriesTail", 0),
+                    packDeltas = runCatching {
+                        val deltas = json.optJSONObject("llmPackDeltas")
+                        buildMap {
+                            deltas?.keys()?.forEachRemaining { key ->
+                                put(key, deltas.getBoolean(key))
+                            }
+                        }
+                    }.getOrDefault(emptyMap()),
+                    initiative = json.optInt("llmInitiative", -1),
+                    volatility = json.optInt("llmVolatility", -1),
+                    reactivity = json.optInt("llmReactivity", -1),
+                    longForm = json.optInt("llmLongForm", -1),
                 ),
             )
         }
@@ -337,9 +378,18 @@ class BotPresetStore(private val directory: File) {
         require(schema in 1..EXPORT_SCHEMA) { "unsupported preset file schema $schema" }
         val configurationJson = document.getJSONObject("configuration")
         val canonical = writeConfiguration(readConfiguration(configurationJson))
-        require(configurationChecksum(canonical) == document.getString("checksum")) {
-            "preset file failed its integrity check"
-        }
+        val storedChecksum = document.getString("checksum")
+        val checksumOk = configurationChecksum(canonical) == storedChecksum ||
+            // schema-1 files predate the RP-layer keys: their checksum
+            // covers the canonical form WITHOUT them. Accept the legacy
+            // digest rather than failing a legitimate old export with a
+            // misleading tamper error.
+            (schema < 2 && run {
+                val legacy = JSONObject(canonical.toString())
+                SCHEMA_1_LEGACY_KEYS.forEach { legacy.remove(it) }
+                configurationChecksum(legacy) == storedChecksum
+            })
+        require(checksumOk) { "preset file failed its integrity check" }
         val name = document.getString("name")
         require(name.matches(ALLOWED_NAME)) { "invalid preset name" }
         val preset = SavedPreset(
@@ -413,8 +463,14 @@ class BotPresetStore(private val directory: File) {
         val schema = document.getInt("schema")
         require(schema in 1..SCHEMA_VERSION) { "unsupported preset schema $schema" }
         val array = document.getJSONArray("presets")
+        // One corrupt entry must not discard the whole store: skip and
+        // keep the survivors (the load path still quarantines a copy of
+        // the raw document for diagnosis).
         return buildList {
-            for (i in 0 until array.length()) add(readPreset(array.getJSONObject(i)))
+            for (i in 0 until array.length()) {
+                runCatching { readPreset(array.getJSONObject(i)) }
+                    .onSuccess { add(it) }
+            }
         }
     }
 
@@ -446,7 +502,14 @@ class BotPresetStore(private val directory: File) {
                 ))
             }
         }
-        require(revisions.map { it.revision } == revisions.map { it.revision }.sorted())
+        // Strictly increasing by exactly 1: a plain sorted-check would
+        // accept duplicates such as [1, 1]. No "starts at 1" requirement:
+        // save() trims history with takeLast(MAX_REVISIONS_PER_PRESET),
+        // so a long-lived preset legitimately starts above 1.
+        val numbers = revisions.map { it.revision }
+        require(numbers.zipWithNext().all { (a, b) -> b == a + 1 }) {
+            "preset revisions must be consecutive"
+        }
         return SavedPreset(
             id = json.getString("id"),
             schemaVersion = json.getInt("schemaVersion"),

@@ -4,6 +4,7 @@
 #include "PlayerbotLlmPrompt.h"
 #include "PlayerbotLlmRecallCore.h"
 #include "PlayerbotLlmToolsCore.h"
+#include "llm_banter_core.h"   // MOOD_* (ceremony mood nudges)
 #include "playerbot/playerbot.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "Chat/Chat.h"
@@ -231,6 +232,18 @@ bool ConsumeGreetingGap(uint32 botGuid, uint32 playerGuid)
     return true;
 }
 
+// plan v5 H3: the once-per-session lore card set, per (bot, player)
+// pairing (a name-drop is grounded once; a repeat is wasted prefill).
+// CHECK-AND-CLAIM in one: the first claim returns false (not yet seen)
+// and marks; later claims return true
+bool ClaimLoreCardOnce(uint32 botGuid, uint32 playerGuid, std::string const& title)
+{
+    std::lock_guard<std::mutex> lock(g_beatMutex);
+    static std::set<uint64_t> seen;
+    return !seen.insert(
+        PairKey(botGuid, playerGuid) ^ (std::hash<std::string>()(title) & 0x7FFFFFFFull)).second;
+}
+
 // the dedupe-exemption budget: at most ONE exempted generation per
 // bot per minute (a player spamming "are we square?" would
 // otherwise disable the only anti-parrot mechanism for a mandated beat
@@ -408,25 +421,43 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
     PlayerbotLlmBridge::EventKind const eventKind =
         (PlayerbotLlmBridge::EventKind)state.eventKind;
 
+    // plan v5 W5: an armed curiosity ask consumes the player's next
+    // conversational reply as a fact (deterministic capture - the 0.8B
+    // fallback's licensed log_fact fires unreliably, and a vanished
+    // answer is a broken promise). Event turns never consume the arm
+    if (player && bot && !state.eventTurn)
+        PlayerbotLlmMemory::ConsumePendingAnswer(bot->GetGUIDLow(),
+            player->GetGUIDLow(), normalizedMsg);
+
     // housekeeping event-nudge: a world event turn
     // licenses ONE memory write about it, plus the KIND's own licensed
     // extra (a level-up earns the cheer emote; a duel outcome earns the
     // sentiment move the bridge decided - a fair win over the bot is
-    // earned regard, a flee is a slight). The [EVENT]-head-with-note
-    // compose combination is
+    // earned regard, a flee is a slight; rare loot earns a congratulatory
+    // cheer, a long-absence arrival earns a warm second cheer). The
+    // [EVENT]-head-with-note compose combination is
     // UNTRAINED (the corpus's event_turn rows carry no lines - only the
     // bare log_fact shape is trained). No guard and no card here: event
     // text is bridge-authored, never a player-acted-on entity. The news
     // cargo is bridge-decided, so the note mandates its content.
+    // Phase-3 reactivity: dial <= 25 strips the licensed EXTRAS (the
+    // memory write still lands - quiet bots remember, they just cheer
+    // less); default 50+ keeps base behavior.
     if (state.eventTurn)
     {
         note.mandatesContent = true;
         note.lines.push_back("<<log_fact text=\"...\" category=\"shared-event\">>");
         note.fills = "Write in place of ...: the news - one line about what just happened.";
+        bool const exuberant = sPlayerbotAIConfig.llmRpReactivity > 25;
         switch (eventKind)
         {
         case PlayerbotLlmBridge::EVENT_LEVEL_UP:
-            note.lines.push_back("<<perform_emote emote=\"cheer\">>");
+            if (exuberant)
+                note.lines.push_back("<<perform_emote emote=\"cheer\">>");
+            break;
+        case PlayerbotLlmBridge::EVENT_RARE_LOOT:
+            if (exuberant)
+                note.lines.push_back("<<perform_emote emote=\"cheer\">>");
             break;
         case PlayerbotLlmBridge::EVENT_DUEL_LOST:
             note.lines.push_back("<<adjust_sentiment direction=\"+1\" reason=\"...\">>");
@@ -440,8 +471,17 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
                          "just happened. In place of the second ...: why the fleeing sat "
                          "poorly with you.";
             break;
+        case PlayerbotLlmBridge::EVENT_DEBT_SETTLED:
+            // plan v5 F1: the trade hook retired the debt row before this
+            // turn queued - the shipped-but-unwired kind-1 (debt-forgiven)
+            // beat finally has its event source. The cargo rides the
+            // note's directive leg; the log_fact above still persists the
+            // settlement as the bot's own memory
+            note.extra = pocketllm::TierBeatCargo(player ? player->GetName() : "",
+                1, bot ? bot->GetGUIDLow() : 0);
+            break;
         default:
-            break; // rare loot, a won duel, the bot's own flee: log only
+            break; // a won duel, the bot's own flee: log only
         }
         return note;
     }
@@ -459,6 +499,21 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
         if (pocketllm::LoreIndex const* lore = LoadedLore())
             if (pocketllm::LoreCard const* card = lore->BestCard(normalizedMsg))
                 note.result = card->text;
+    }
+    // plan v5 H3: keyword-triggered lore (world-info lite) - a canonical
+    // POI/figure TITLE in a QUESTION-OR-STAKES-shaped turn (the widened
+    // gate: imperatives like "take me to X" ground their card too; pure
+    // declaratives stay ungated - the trained question path above keeps
+    // first claim). Once per card per session per pairing: a name-drop
+    // is grounded once, a repeat is wasted prefill on the local tier.
+    if (note.result.empty() && bot && player &&
+        pocketllm::IsQuestionOrStakesShape(normalizedMsg))
+    {
+        if (pocketllm::LoreIndex const* lore = LoadedLore())
+            if (pocketllm::LoreCard const* card = lore->BestCard(normalizedMsg))
+                if (!ClaimLoreCardOnce(bot->GetGUIDLow(), player->GetGUIDLow(),
+                        card->title))
+                    note.result = card->text;
     }
     if (note.result.empty() &&
         pocketllm::IsQuestionOrStakesShape(normalizedMsg))
@@ -618,7 +673,7 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
     // own address ("tell me"), unlike the insult/follow idioms.
     else if (note.lines.empty() && player &&
         pocketllm::WantsStorytelling(normalizedMsg) &&
-        pocketllm::LongFormLicensed(sPlayerbotAIConfig.llmMaxNewTokens))
+        pocketllm::LongFormLicensed(sPlayerbotAIConfig.llmMaxNewTokens, sPlayerbotAIConfig.llmRpLongForm))
     {
         std::string const fact = PlayerbotLlmMemory::GetNewestRecallFact(
             bot->GetGUIDLow(), player->GetGUIDLow(), pocketllm::FACT_MASK_EVENT);
@@ -638,7 +693,7 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
     else if (note.lines.empty() && player && state.tier >= 5 &&
         pocketllm::WantsOpenConfidence(normalizedMsg) &&
         pocketllm::IsSecondPerson(normalizedMsg, bot ? bot->GetName() : "") &&
-        pocketllm::LongFormLicensed(sPlayerbotAIConfig.llmMaxNewTokens))
+        pocketllm::LongFormLicensed(sPlayerbotAIConfig.llmMaxNewTokens, sPlayerbotAIConfig.llmRpLongForm))
     {
         std::string const fact = PlayerbotLlmMemory::GetNewestRecallFact(
             bot->GetGUIDLow(), player->GetGUIDLow(), pocketllm::FACT_MASK_GOAL);
@@ -671,7 +726,7 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
             // shared-event rows - so re-classifying here would be dead
             // code (FactClassOf without the stored category reads PLAIN,
             // so that gate would never fire).
-            if (pocketllm::LongFormLicensed(sPlayerbotAIConfig.llmMaxNewTokens))
+            if (pocketllm::LongFormLicensed(sPlayerbotAIConfig.llmMaxNewTokens, sPlayerbotAIConfig.llmRpLongForm))
             {
                 note.extra += std::string("\n") + pocketllm::kLongFormCue;
                 note.longFormCued = true;
@@ -782,6 +837,11 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
             : ConsumeTierTransition(bot->GetGUIDLow(), player->GetGUIDLow(), state.tier);
         if (crossed && !actBeat)
         {
+            // the crossing folds into the mood weather: a Bonded
+            // ceremony brightens it, a tier loss quiets it (the bucket
+            // rotation keeps either from sticking forever)
+            PlayerbotLlmMemory::NudgeMood(bot->GetGUIDLow(),
+                crossed > 0 ? pocketllm::MOOD_SMITTEN : pocketllm::MOOD_GRIEF);
             std::string cargo = crossed > 0
                 ? pocketllm::CeremonyUpCargo(player->GetName(), state.tier, bot->GetGUIDLow())
                 : pocketllm::CeremonyDownCargo(player->GetName(), bot->GetGUIDLow());
@@ -824,6 +884,30 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
     // the directive footer from ComposeUserTurn).
     if (!guardExtra.empty())
         note.extra = note.extra.empty() ? guardExtra : note.extra + "\n" + guardExtra;
+
+    // plan v5 W7b: the scene/homeland furniture - ONE line, riding the
+    // bridge extra leg (never the trained [State] fill, never a new
+    // segment), default OFF pending the bake-off. Precedence: stealth >
+    // home ground > enemy capital; conversational turns only
+    if (!state.eventTurn && bot && sPlayerbotAIConfig.llmWorldTruthFurniture)
+    {
+        std::string sceneLine;
+        if (bot->HasStealthAura())
+            sceneLine = "You are moving unseen - keep your voice low and your words few.";
+        else if (AreaTableEntry const* zone = bot->GetPlayerbotAI()
+                ? bot->GetPlayerbotAI()->GetCurrentZone() : nullptr)
+        {
+            std::string const zoneName =
+                pocketllm::LowerCopy(bot->GetPlayerbotAI()->GetLocalizedAreaName(zone));
+            char const* const home = pocketllm::HomeZoneOfRace(bot->getRace());
+            if (*home && zoneName.find(home) != std::string::npos)
+                sceneLine = "This is home ground for you; you stand easier here, and it shows.";
+            else if (pocketllm::IsEnemyCapitalZone(zoneName, bot->getRace()))
+                sceneLine = "This is enemy ground; keep your voice down and your eyes up.";
+        }
+        if (!sceneLine.empty())
+            note.extra = note.extra.empty() ? sceneLine : note.extra + "\n" + sceneLine;
+    }
 
     return note; // plain conversational turn: no note, no tools
 }

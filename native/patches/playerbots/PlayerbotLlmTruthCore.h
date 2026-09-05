@@ -1102,6 +1102,120 @@ inline std::string ClampAscii(std::string const& text)
     return out;
 }
 
+// Thinking-trace stripper: reasoning models (and thinking-template
+// misfires) leak chain-of-thought into the reply text — <think>...</think>
+// blocks, <thinking> variants, "Thinking Process:" preambles, and bare
+// "thought:"/chain lines. NONE of that may ever reach chat: the player
+// sees spoken words only. Runs FIRST in HygienePass (before markdown:
+// a trace can carry markers that must die with it). Case-insensitive
+// openers, pairing loop capped at 16 passes, then two sweeps: unclosed
+// openers (whole-reply thinking fails quiet; a head of real text is
+// kept) and stray closers (an endpoint that consumed the opener but
+// leaked the closer — and same-name nesting leftovers — never voice a
+// literal </think>).
+inline std::string StripThinking(std::string const& text)
+{
+    std::string out = text;
+    static char const* const blockTags[][2] = {
+        {"<think>", "</think>"}, {"<thinking>", "</thinking>"},
+        {"<thought>", "</thought>"}, {"<reasoning>", "</reasoning>"},
+        {"<analysis>", "</analysis>"},
+    };
+    for (int pass = 0; pass < 16; ++pass)
+    {
+        std::string lower = LowerAscii(out);
+        size_t bestOpen = std::string::npos, bestClose = std::string::npos;
+        size_t bestCloseLen = 0;
+        for (size_t t = 0; t < sizeof(blockTags) / sizeof(blockTags[0]); ++t)
+        {
+            // innermost-first for same-name nesting: locate the first
+            // closer, then the LAST opener before it, so the pair that
+            // dies is the innermost one and outer shells collapse in
+            // later passes instead of stranding their content
+            size_t close = lower.find(blockTags[t][1]);
+            if (close == std::string::npos)
+                continue;
+            size_t open = lower.rfind(blockTags[t][0], close);
+            if (open == std::string::npos)
+                continue;
+            if (bestOpen == std::string::npos || open < bestOpen)
+            {
+                bestOpen = open;
+                bestClose = close;
+                bestCloseLen = std::string(blockTags[t][1]).size();
+            }
+        }
+        if (bestOpen == std::string::npos)
+            break;
+        out.erase(bestOpen, bestClose + bestCloseLen - bestOpen);
+    }
+    // unclosed opener: cut from the opener to end ONLY when nothing
+    // spoken precedes it; else keep the head (truncated reply, not a
+    // thinking dump — TrimTruncatedTail shapes it downstream)
+    {
+        std::string lower = LowerAscii(out);
+        size_t earliest = std::string::npos;
+        static char const* const openers[] = {
+            "<think>", "<thinking>", "<thought>", "<reasoning>", "<analysis>",
+        };
+        for (size_t t = 0; t < sizeof(openers) / sizeof(openers[0]); ++t)
+        {
+            size_t at = lower.find(openers[t]);
+            if (at != std::string::npos &&
+                (earliest == std::string::npos || at < earliest))
+                earliest = at;
+        }
+        if (earliest != std::string::npos)
+        {
+            std::string head = out.substr(0, earliest);
+            std::string trimmed = head;
+            while (!trimmed.empty() &&
+                (trimmed.back() == ' ' || trimmed.back() == '\n' ||
+                 trimmed.back() == '\r' || trimmed.back() == '\t'))
+                trimmed.pop_back();
+            if (trimmed.empty())
+                return std::string();
+            out = head;
+        }
+    }
+    // stray closers: no opener remains, so any closer tag is endpoint
+    // debris (the server consumed the opener but leaked the closer, or
+    // same-name nesting left one behind after the pairing passes) - the
+    // tag itself must never voice
+    for (int pass = 0; pass < 16; ++pass)
+    {
+        std::string lower = LowerAscii(out);
+        size_t hit = std::string::npos;
+        size_t hitLen = 0;
+        for (size_t t = 0; t < sizeof(blockTags) / sizeof(blockTags[0]); ++t)
+        {
+            size_t at = lower.find(blockTags[t][1]);
+            if (at != std::string::npos &&
+                (hit == std::string::npos || at < hit))
+            {
+                hit = at;
+                hitLen = std::string(blockTags[t][1]).size();
+            }
+        }
+        if (hit == std::string::npos)
+            break;
+        out.erase(hit, hitLen);
+    }
+    // "Thinking Process:" preamble line (the pinned-base failure shape):
+    // drop the first line when it opens with the preamble
+    {
+        size_t eol = out.find('\n');
+        std::string first = LowerAscii(out.substr(0, eol));
+        size_t s = first.find_first_not_of(" \t\r");
+        if (s != std::string::npos &&
+            (first.compare(s, 17, "thinking process:") == 0 ||
+             first.compare(s, 9, "thought: ") == 0 ||
+             first.compare(s, 8, "thought:") == 0))
+            out = (eol == std::string::npos) ? std::string() : out.substr(eol + 1);
+    }
+    return out;
+}
+
 // The /say line cap: the client cuts at 255 bytes, so the splitter cuts
 // FIRST at word boundaries (never mid-word, never mid-UTF-8 - though the
 // ASCII clamp runs before this in the stack, defensive trimming keeps

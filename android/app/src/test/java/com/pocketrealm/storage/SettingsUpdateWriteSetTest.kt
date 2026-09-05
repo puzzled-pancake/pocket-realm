@@ -51,6 +51,10 @@ class SettingsUpdateWriteSetTest {
                 llmBanter = false,
                 llmAmbience = true,
                 llmModelId = "gemma4-E2B-TUNED-q4_0",
+                llmAdvanced = true,
+                llmMaxNewTokens = 9_000,
+                llmGenerationTimeout = 7,
+                llmPromptPackJson = "  {\"custom\": true}  ",
             ),
             display,
         )
@@ -72,6 +76,13 @@ class SettingsUpdateWriteSetTest {
                 banter = false,
                 ambience = true,
                 modelId = "gemma4-E2B-TUNED-q4_0",
+                advanced = true,
+                // override clamps: 9000 -> ceiling 600, 7 -> floor 15
+                maxNewTokens = 600,
+                generationTimeout = 15,
+                // pack JSON persists verbatim (mid-typing rule); resolution
+                // happens at read/stage time via LlmPromptPack.resolve
+                promptPackJson = "  {\"custom\": true}  ",
             ),
             prefs.readLlmSnapshotFields(),
         )
@@ -94,6 +105,24 @@ class SettingsUpdateWriteSetTest {
     }
 
     @Test
+    fun llmAdvancedOverrideEncodingsClampAndPersistUnderReviewedNames() {
+        val prefs = mutablePreferencesOf()
+        prefs.writeSnapshotWrites(
+            Settings.Snapshot(llmAdvanced = true, llmMaxNewTokens = 9_000, llmGenerationTimeout = 7),
+            display,
+        )
+        assertEquals(1, prefs[intPreferencesKey("llm_advanced")])
+        // 9000 clamps to the reply-length ceiling, 7 to the timeout floor
+        assertEquals(600, prefs[intPreferencesKey("llm_max_new_tokens")])
+        assertEquals(15, prefs[intPreferencesKey("llm_generation_timeout")])
+        // a zero override is the "follow the model profile" sentinel and persists as 0
+        val defaults = mutablePreferencesOf()
+        defaults.writeSnapshotWrites(Settings.Snapshot(llmAdvanced = true), display)
+        assertEquals(0, defaults[intPreferencesKey("llm_max_new_tokens")])
+        assertEquals(0, defaults[intPreferencesKey("llm_generation_timeout")])
+    }
+
+    @Test
     fun defaultSnapshotPersistsTheReviewedLlmOffContract() {
         val prefs = mutablePreferencesOf()
         prefs.writeSnapshotWrites(Settings.Snapshot(), display)
@@ -112,7 +141,33 @@ class SettingsUpdateWriteSetTest {
         // ambience costs generation: default OFF (the silence doctrine)
         assertFalse(llm.ambience)
         assertEquals(LlmModelRegistry.DEFAULT_MODEL_ID, llm.modelId)
+        // advanced disclosure OFF; overrides follow the model/tier profiles
+        assertFalse(llm.advanced)
+        assertEquals(0, llm.maxNewTokens)
+        assertEquals(0, llm.generationTimeout)
+        // no custom pack: empty resolves to the default at stage time
+        assertEquals("", llm.promptPackJson)
+        assertEquals("", prefs[stringPreferencesKey("llm_prompt_pack")])
         assertEquals(0, prefs[intPreferencesKey("llm_enabled")])
+    }
+
+    @Test
+    fun corruptPackJsonFailsOpenToDefaultAtResolveTime() {
+        // the write-set never validates pack JSON (mid-typing rule); the
+        // reader resolves: corrupt/empty input restores the default pack
+        val prefs = mutablePreferencesOf()
+        prefs.writeSnapshotWrites(
+            Settings.Snapshot(llmPromptPackJson = "{corrupt"),
+            display,
+        )
+        assertEquals("{corrupt", prefs[stringPreferencesKey("llm_prompt_pack")])
+        val resolved = com.pocketrealm.llm.LlmPromptPack.resolve(
+            prefs.readLlmSnapshotFields().promptPackJson,
+        )
+        assertEquals(
+            com.pocketrealm.llm.LlmPromptPack().blocks.map { it.id },
+            resolved.blocks.map { it.id },
+        )
     }
 
     @Test
@@ -220,6 +275,8 @@ class SettingsUpdateWriteSetTest {
                 "llm_threads", "llm_offload_layers",
                 "llm_external_mode", "llm_external_url", "llm_external_api_key",
                 "llm_external_model", "llm_banter", "llm_ambience", "llm_model_id",
+                "llm_advanced", "llm_max_new_tokens", "llm_generation_timeout",
+                "llm_prompt_pack",
             ),
             prefs.asMap().keys.map { it.name }.toSet(),
         )

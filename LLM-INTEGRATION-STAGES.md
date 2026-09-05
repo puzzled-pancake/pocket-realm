@@ -1008,7 +1008,8 @@ desktop harness measures intent, the tree needed the pin).**
   verify + restore-to-blocking); SO_RCVTIMEO/SO_SNDTIMEO = the
   generation budget bound the TLS-handshake + write legs (round-1
   fix; a stuck SSL_connect previously leaked generation slots
-  forever). The 30 s T4 gen timeout was already emitted.
+  forever). The 30 s T4 gen timeout was already emitted (since raised
+  to 60 s by the plan-v4 API-tier retune).
   **E2** — one-time login onboarding sys line (Player.cpp anchor at
   SendInitialPacketsAfterAddToMap -> OnPlayerLogin; real players only;
   once per character per world process via the OnboardedPlayers
@@ -1216,7 +1217,9 @@ lanes + lockfiles fresh at close).**
   copy-only detached threads under catch-all wrappers (a spawn throw or
   bad_alloc can neither strand the batch flag nor kill the world);
   composer turns deliver IN ORDER (monotone base+i*perTurn stagger).
-  **Kotlin**: ChatterPowerMonitor (the pure rung table vs
+  **Kotlin** (pre-collapse record — the plan-v4 collapse replaced the
+  ladder/refresher/staleness design; see LLM-INTEGRATION.md POWER
+  STATE): ChatterPowerMonitor (the pure rung table vs
   getThermalHeadroom/battery/charging/connectivity; atomic 60s power
   file; epoch-keyed refresher armed at every world start in BOTH
   modes), the two-directional master toggle (the conf arms the

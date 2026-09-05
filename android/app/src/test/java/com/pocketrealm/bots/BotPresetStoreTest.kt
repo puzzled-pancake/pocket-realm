@@ -192,6 +192,40 @@ class BotPresetStoreTest {
         assertEquals(725, BotProfiles.find(identity)?.selectedTarget)
     }
 
+    @Test fun preRPSchemaOnePresetFilesStillImport() = runTest {
+        // A schema-1 export predates the RP-layer keys: its checksum
+        // covers the canonical form WITHOUT them. Stripping the v4 keys
+        // from a current export reproduces exactly that document - the
+        // import must accept the legacy digest, not report tampering.
+        val store = newStore()
+        val preset = store.create("Old friend", base = BotProfiles.LOW_POWER_80)
+        val current = org.json.JSONObject(store.exportJson(preset))
+        val legacyConfig = org.json.JSONObject(
+            current.getJSONObject("configuration").toString(),
+        )
+        arrayOf(
+            "llmPackDeltas", "llmInitiative", "llmVolatility",
+            "llmReactivity", "llmLongForm",
+        ).forEach { legacyConfig.remove(it) }
+        val legacy = org.json.JSONObject()
+            .put("kind", current.optString("kind"))
+            .put("schema", 1)
+            .put("name", current.optString("name"))
+            .put("basePresetId", current.opt("basePresetId"))
+            .put("favorite", current.optBoolean("favorite", false))
+            .put("configuration", legacyConfig)
+        // checksum over the legacy canonical form (what an old build stored)
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(legacyConfig.toString().toByteArray(Charsets.UTF_8))
+        legacy.put(
+            "checksum",
+            digest.take(4).joinToString("") { "%02x".format(it.toInt() and 0xff) },
+        )
+
+        val imported = store.importJson(legacy.toString())
+        assertEquals("Old friend", imported.name)
+    }
+
     @Test fun tamperedPresetFilesAreRejected() = runTest {
         val store = newStore()
         val preset = store.create("Guarded export", base = BotProfiles.LOW_POWER_80)

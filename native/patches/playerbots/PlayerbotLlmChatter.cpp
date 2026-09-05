@@ -106,9 +106,14 @@ struct PendingLine
     size_t templateIdx;    // authored floor rows (else kNoTemplate)
     time_t notBefore;
     bool floor;            // authored floor entry (EMERGENCY class)
+    // plan v5 F4b: a staged long-form block line. The block is ONE
+    // performance: it bypasses the per-line F7 charge (charged once at
+    // enqueue) and the per-line fatigue vet (the daily quota is the cap)
+    bool longForm;
     PendingLine()
         : layer(pocketllm::LAYER_MURMUR), speakerGuid(0), listenerGuid(0),
-          originator(false), templateIdx(0), notBefore(0), floor(false) {}
+          originator(false), templateIdx(0), notBefore(0), floor(false),
+          longForm(false) {}
 };
 
 size_t const kNoTemplate = static_cast<size_t>(-1);
@@ -125,8 +130,15 @@ struct ChatterState
     time_t lastGlobalAt = 0;
     time_t lastGlobalWindowAt = 0;
     time_t lastFloorAt = 0;
+    time_t lastDramaAt = 0;   // plan v5 C4: the authored drama set piece
     std::map<uint32, time_t> partyWindowAt;    // per master guid
     std::map<uint32, time_t> partyDuelNoteAt;  // per master guid (consumed on fire)
+    // plan v5 C3: the master's latest party line (the roundtable row)
+    std::map<uint32, std::pair<time_t, std::string>> partyLineAt;
+    // plan v5 C2: pending narrator sys-lines (player -> lines) marshalled
+    // by worker threads and delivered on the WORLD thread in Tick - no
+    // chat packet is ever sent from a worker (the module's own law)
+    std::map<uint32, std::vector<std::string>> pendingSysLines;
     // the reconciled power state (RUNG_OFF until a fresh file is seen)
     pocketllm::ChatterRung rung = pocketllm::RUNG_OFF;
     uint32 rng = 0;
@@ -144,19 +156,19 @@ std::atomic<bool>& BatchInFlight()
     return instance;
 }
 
-// ---- the power file (AiPlayerbot.LLMChatterPowerFile): three flat
-// lines "enabled=N", "rung=N", "at=N" (epoch seconds), refreshed by the
-// app's ChatterPowerMonitor. Missing/unparseable = OFF; stale beyond
-// kPowerFreshSec = the authored floor only (the writer died; fail toward
-// silence, never toward unbounded generation).
-time_t const kPowerFreshSec = 600;
-
-bool ParsePowerFile(std::string const& path, bool& enabled, int& rung, time_t& at)
+// ---- the power file (AiPlayerbot.LLMChatterPowerFile): flat lines
+// "enabled=N", "dim=N", "rung=N", "at=N" (diagnostic stamp), staged by the
+// app's ChatterPowerMonitor at world start and re-staged on battery events
+// (low battery / plugged / unplugged). Missing/unparseable = OFF. There is
+// deliberately no staleness window: writer and world share one process, so
+// a stale file means "long session", never "dead writer" - and the file is
+// the authority for the whole session.
+bool ParsePowerFile(std::string const& path, bool& enabled, int& rung)
 {
     std::ifstream in(path.c_str());
     if (!in.is_open())
         return false;
-    enabled = false; rung = 0; at = 0;
+    enabled = false; rung = 0;
     std::string line;
     while (std::getline(in, line))
     {
@@ -166,13 +178,12 @@ bool ParsePowerFile(std::string const& path, bool& enabled, int& rung, time_t& a
         std::string const val = line.substr(eq + 1);
         if (key == "enabled") enabled = atoi(val.c_str()) != 0;
         else if (key == "rung") rung = atoi(val.c_str());
-        else if (key == "at") at = (time_t)atoll(val.c_str());
     }
     return true;
 }
 
 // Reconciles the rung from the conf + the file. Called under the mutex.
-void ReconcilePower(time_t now)
+void ReconcilePower()
 {
     ChatterState& s = State();
     if (!sPlayerbotAIConfig.llmEnabled || !sPlayerbotAIConfig.llmChatterEnabled ||
@@ -182,8 +193,8 @@ void ReconcilePower(time_t now)
         s.queue.clear();
         return;
     }
-    bool enabled = false; int rung = 0; time_t at = 0;
-    if (!ParsePowerFile(sPlayerbotAIConfig.llmChatterPowerFile, enabled, rung, at))
+    bool enabled = false; int rung = 0;
+    if (!ParsePowerFile(sPlayerbotAIConfig.llmChatterPowerFile, enabled, rung))
     {
         s.rung = pocketllm::RUNG_OFF;
         s.queue.clear();
@@ -195,27 +206,7 @@ void ReconcilePower(time_t now)
         s.queue.clear();  // the master toggle kill: drop pending lines too
         return;
     }
-    // a stale writer degrades to the authored floor: generated batches
-    // stop, and already-generated queue entries are dropped ("generation
-    // stops; authored texture floor only");
-    // event-grounded floor lines may continue (documented fail-safe).
-    // A missing/zero stamp or one from the future (a clock jump after
-    // the writer died) counts as stale - never as fresh forever.
-    bool const stale = at <= 0 || at > now + kPowerFreshSec ||
-        (now > at && now - at > kPowerFreshSec);
-    if (stale)
-    {
-        for (auto itr = s.queue.begin(); itr != s.queue.end();)
-        {
-            if (!itr->floor)
-                itr = s.queue.erase(itr);
-            else
-                ++itr;
-        }
-        s.rung = pocketllm::RUNG_EMERGENCY;
-    }
-    else
-        s.rung = (pocketllm::ChatterRung)rung;
+    s.rung = (pocketllm::ChatterRung)rung;
 }
 
 // ---- candidate events. SILENCE DEFAULT: every picker returns false
@@ -227,6 +218,22 @@ struct ChatterEventRow
     std::string text;
     bool originatorForSpeaker = false;  // speaker == source_bot
     bool valid = false;
+};
+
+// Phase-4 rumor-mill POI set: stable subset of the lore POI titles
+// (the staged index carries the full 137; this frozen 40-entry list
+// biases the gossip pick toward place-named rows without a lore
+// dependency here - unique titles, one entry per place).
+static char const* const kRumorPoiTitles[] = {
+    "Goldshire", "Stormwind", "Ironforge", "Darnassus", "Orgrimmar",
+    "Deadmines", "Westfall", "Elwynn", "Redridge", "Duskwood",
+    "Wetlands", "Ashenvale", "Thousand Needles", "Stranglethorn",
+    "Booty Bay", "Ratchet", "Gadgetzan", "Everlook", "Auberdine",
+    "Astranaar", "Crossroads", "Camp Taurajo", "Brill", "Deathknell",
+    "Kharanos", "Coldridge Valley", "Northshire", "Lakeshire",
+    "Darkshire", "Menethil Harbor", "Southshore", "Hillsbrad",
+    "Arathi", "Hammerfall", "Kargath", "Badlands", "Uldaman",
+    "Gnomeregan", "Karazhan", "Raven Hill",
 };
 
 bool PickGossipRow(uint32 speakerGuid, bool preferDuelClass, ChatterEventRow& out)
@@ -246,16 +253,40 @@ bool PickGossipRow(uint32 speakerGuid, bool preferDuelClass, ChatterEventRow& ou
         rows.push_back(std::make_pair(f[0].GetUInt32(), cols));
     } while (result->NextRow());
 
-    // player-subject rows (the duel class) get delivery priority on every
-    // layer; when the preferred query found none, a plain pass picks any
-    // fresh row but still prefers the duel class by ordering
+    // player-subject rows (the duel/kill/wipe classes) get delivery
+    // priority on every layer; when the preferred query found none, a
+    // plain pass picks any fresh row but still prefers the player-subject
+    // classes by ordering. Phase-4:
+    // POI-named rows travel farther — a row naming a place (Goldshire,
+    // Deadmines, Ironforge, ...) sorts ahead of a placeless one within
+    // the same class, so the player hears their own legend warped across
+    // distance. The place list is the stable POI title set (the staged
+    // lore index carries the same titles); matching is pure substring.
+    // plan v5 W3: kill (elite fells) and wipe rows join the duel class -
+    // the player-as-legend classes all outrank generic town talk
     if (preferDuelClass && rows.empty())
         return false;
     if (!preferDuelClass)
         std::stable_sort(rows.begin(), rows.end(),
             [](std::pair<uint32, std::array<std::string, 3>> const& a,
                std::pair<uint32, std::array<std::string, 3>> const& b)
-            { return a.second[1] == "duel" && b.second[1] != "duel"; });
+            {
+                auto const playerSubject = [](std::string const& category)
+                {
+                    return category == "duel" || category == "kill" ||
+                        category == "wipe";
+                };
+                bool const aDuel = playerSubject(a.second[1]);
+                bool const bDuel = playerSubject(b.second[1]);
+                if (aDuel != bDuel) return aDuel;
+                bool const aPoi = pocketllm::RumorNamesPlace(a.second[0],
+                    kRumorPoiTitles,
+                    sizeof(kRumorPoiTitles) / sizeof(kRumorPoiTitles[0]));
+                bool const bPoi = pocketllm::RumorNamesPlace(b.second[0],
+                    kRumorPoiTitles,
+                    sizeof(kRumorPoiTitles) / sizeof(kRumorPoiTitles[0]));
+                return aPoi && !bPoi;
+            });
 
     std::lock_guard<std::mutex> lock(State().mutex);
     for (auto const& row : rows)
@@ -278,16 +309,54 @@ bool PickGossipRow(uint32 speakerGuid, bool preferDuelClass, ChatterEventRow& ou
 
 // party topic: the group's newest debt/goal/event fact about the master,
 // else any fresh gossip row. speakerGuid only gates the gossip credence.
+// plan v5 W6: an unvoiced DYAD event between two grouped bots outranks
+// generic gossip - "Kor and Bren felled VanCleef together" is the
+// witnessed-history callback the player overhears
 bool PickPartyTopic(Player* master, uint32 speakerGuid, ChatterEventRow& out)
 {
     Group* group = master->GetGroup();
     if (group)
     {
+        std::vector<Player*> members;
         for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
         {
             Player* member = itr->getSource();
             if (!member || !member->GetPlayerbotAI() || member == master)
                 continue;
+            members.push_back(member);
+        }
+        for (size_t i = 0; i < members.size(); ++i)
+        {
+            for (size_t j = i + 1; j < members.size(); ++j)
+            {
+                // fatigue FIRST, claim LAST: a claimed-but-fatigued event
+                // is consumed in silence (the file's own law)
+                std::string event;
+                if (!PlayerbotLlmMemory::PeekNewestDyadEvent(
+                        members[i]->GetGUIDLow(), members[j]->GetGUIDLow(), event))
+                    continue;
+                std::string const key = "d:" +
+                    std::to_string(members[i]->GetGUIDLow()) + ":" +
+                    std::to_string(members[j]->GetGUIDLow()) + ":" +
+                    std::to_string(std::hash<std::string>()(event));
+                {
+                    std::lock_guard<std::mutex> lock(State().mutex);
+                    if (!pocketllm::FatigueAdmits(State().fatigue, key))
+                        continue;
+                }
+                if (!PlayerbotLlmMemory::ClaimNewestDyadEvent(
+                        members[i]->GetGUIDLow(), members[j]->GetGUIDLow(), event))
+                    continue; // a concurrent scan claimed it first
+                out.factKey = key;
+                out.text = std::string(members[i]->GetName()) + " and " +
+                    members[j]->GetName() + " " + event;
+                out.originatorForSpeaker = true;  // the group lived it
+                out.valid = true;
+                return true;
+            }
+        }
+        for (Player* member : members)
+        {
             auto result = CharacterDatabase.PQuery(
                 "SELECT `id`, `fact_text`, `category` FROM `bot_player_facts` "
                 "WHERE `bot` = '%u' AND `player` = '%u' ORDER BY `id` DESC LIMIT 6",
@@ -329,11 +398,20 @@ bool PickPartyTopic(Player* master, uint32 speakerGuid, ChatterEventRow& out)
 // ---- the legend telling: computed at PICK time (the generation needs
 // the text); the tellings COUNT burns only at delivery, so a dropped
 // batch costs at most one drift of color, never a retirement.
+// Phase-4: the counter escalation rides the telling — the Nth delivery
+// of the same factKey grows ("again", "still", "legend by now") via
+// LegendCounterLine, then retires at the 5-telling cap.
 std::string TellingTextFor(ChatterEventRow const& row)
 {
     std::lock_guard<std::mutex> lock(State().mutex);
-    return pocketllm::LegendTellingText(State().fatigue, row.factKey,
+    std::string telling = pocketllm::LegendTellingText(State().fatigue, row.factKey,
         row.text, row.originatorForSpeaker);
+    std::map<std::string, pocketllm::FactFatigue>::const_iterator it =
+        State().fatigue.perFact.find(row.factKey);
+    int const n = it == State().fatigue.perFact.end() ? 0 : (int)it->second.tellings;
+    if (n >= 1)
+        telling = pocketllm::LegendCounterLine(telling, n);
+    return telling;
 }
 
 // ---- async batch jobs (copied values only; no Player* crosses threads)
@@ -496,9 +574,10 @@ void RunDeviceBatchInner(DeviceJob const& job)
         job.persona.name, job.persona.race, job.persona.cls, job.persona.zone,
         job.persona.demeanor, job.persona.quirk, job.persona.gripe);
     std::string const user = note;
+    pocketllm::RequestSampling const ambient = AmbientSampling();
     std::string const body = pocketllm::BuildChatRequestBody(
         sPlayerbotAIConfig.llmApiModel, system, std::vector<pocketllm::HistoryTurn>(),
-        user, AmbientSampling());
+        user, ambient, ambient.providerSafe);
     std::string const http = PlayerbotLLMInterface::PostChatHttp(
         body, sPlayerbotAIConfig.llmGenerationTimeout, nullptr, nullptr);
     pocketllm::CompletionEnvelope envelope = pocketllm::ParseCompletionEnvelope(http);
@@ -537,7 +616,8 @@ void RunComposerBatchInner(ComposerJob const& job)
             s.minP = 0.05f;
             s.providerSafe = true;  // cloud endpoints reject unknown keys
             return s;
-        }());
+        }(),
+        true); // composer is always a cloud reasoning-capable model
     std::string const http = PlayerbotLLMInterface::PostChatHttp(
         body, 30, &sPlayerbotAIConfig.llmChatterComposerUrlParsed,
         &sPlayerbotAIConfig.llmChatterComposerKey);
@@ -597,9 +677,10 @@ PersonaDims DimsOf(Player* bot, time_t now)
 // Returns false ONLY for the interruption deferral (the entry goes back
 // with a short delay); every other failure is a final fail-silent drop -
 // the queue refills on the next batch.
-bool DeliverLine(PendingLine& entry, time_t now)
+bool DeliverLine(PendingLine& entry, time_t now, bool& delivered)
 {
     ChatterState& s = State();
+    delivered = false;
     Player* speaker = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, entry.speakerGuid));
     if (!speaker || !speaker->IsInWorld() || !speaker->GetPlayerbotAI() ||
         !speaker->IsAlive() || speaker->IsInCombat())
@@ -610,13 +691,15 @@ bool DeliverLine(PendingLine& entry, time_t now)
     // re-vet at delivery: the ring may have moved under the queued line
     if (!pocketllm::RingAdmits(s.ring, entry.text))
         return true;
-    if (!pocketllm::FatigueAdmits(s.fatigue, entry.factKey))
+    // F4b: long-form blocks skip the per-line fatigue vet - the saga key
+    // is unique per performance and the daily quota is the real cap
+    if (!entry.longForm && !pocketllm::FatigueAdmits(s.fatigue, entry.factKey))
         return true;
     if (pocketllm::PlayerHoldsChannel(s.lastPlayerChatAt, now) &&
         entry.layer != pocketllm::LAYER_GLOBAL)
         return false;  // player chat owns the channel; retry shortly
 
-    bool delivered = false;
+    // `delivered` is the out-param now (cleared at the top)
     Player* listener = entry.listenerGuid
         ? sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, entry.listenerGuid))
         : nullptr;
@@ -674,7 +757,8 @@ bool DeliverLine(PendingLine& entry, time_t now)
 
     // ---- the delivery-time ledger (the counter Skyrim lacked)
     pocketllm::RingRemember(s.ring, entry.text);
-    pocketllm::FatigueRecordTelling(s.fatigue, entry.factKey);
+    if (!entry.longForm)
+        pocketllm::FatigueRecordTelling(s.fatigue, entry.factKey);
     PlayerbotLlmFilters::RememberReply(entry.speakerGuid, entry.text);
     if (entry.floor && entry.templateIdx != kNoTemplate)
         pocketllm::TemplateSpacingRecord(s.fatigue, entry.templateIdx,
@@ -770,9 +854,215 @@ void DispatchComposerJob(ComposerJob job)
     }
 }
 
+// ---- plan v5 F4b: the long-form delivery lane. The murmur queue's laws
+// (120-byte clamp, the 5-telling fatigue cap per fact key) structurally
+// cannot carry a staged saga - this enqueue gives long-form blocks their
+// own vetting: the 200-byte line law, the ring, the queue cap, a per-line
+// stagger, ONE fatigue telling for the whole block, and F7's global
+// ceiling charged once (the block is one performance, not N lines)
+void EnqueueLongFormLines(pocketllm::ChatterLayer layer, uint32 speakerGuid,
+    std::vector<std::string> const& lines, std::string const& factKey)
+{
+    if (lines.empty())
+        return;
+    std::vector<std::string> safe;
+    for (std::string const& raw : lines)
+        if (pocketllm::ChatterLongLineSafe(raw))
+            safe.push_back(raw);
+    if (safe.empty())
+        return;
+
+    // prechecks FIRST, charge LAST: a full queue or a fully-ringed block
+    // must not burn the scene budget in silence
+    {
+        std::lock_guard<std::mutex> lock(State().mutex);
+        if (State().queue.size() + safe.size() > kQueueCap * 2)
+            return; // a saga never floods out the ambient lanes
+        size_t ringAdmitted = 0;
+        for (std::string const& line : safe)
+            if (pocketllm::RingAdmits(State().ring, line))
+                ++ringAdmitted;
+        if (!ringAdmitted)
+            return;
+    }
+
+    // F7 charged ONCE for the whole block, OUTSIDE the chatter lock (the
+    // memory->chatter lock order must never invert; the drain loop's own
+    // arbiter call is outside the lock for the same reason)
+    if (!PlayerbotLlmMemory::AuthoredLineAdmits(PlayerbotLlmMemory::ARB_SCENE,
+            /*exempt=*/false))
+        return;
+
+    std::lock_guard<std::mutex> lock(State().mutex);
+    time_t base = time(nullptr) + 4;
+    for (size_t i = 0; i < safe.size(); ++i)
+    {
+        // NOTE: no ring re-check here - the block was prechecked and
+        // charged as one performance; re-vetting per line after the
+        // charge is the burn-in-silence window (over-admitting a raced
+        // line is cheaper than a charged, undelivered block)
+        PendingLine entry;
+        entry.layer = layer;
+        entry.speakerGuid = speakerGuid;
+        entry.text = safe[i];
+        entry.factKey = factKey;
+        entry.originator = true;
+        entry.templateIdx = kNoTemplate;
+        entry.longForm = true;
+        entry.notBefore = base + (time_t)(i * 9); // ~9s per staged line
+        State().queue.push_back(entry);
+    }
+}
+
+// ---- plan v5 C1: the campfire saga worker (cloud tier only). One call
+// turns the pairing's real fact rows into a staged telling; the first
+// safe line becomes the headline gossip row the town retells
+struct SagaJob
+{
+    uint32 storytellerGuid;
+    PersonaDims persona;
+    std::string playerName;
+    std::vector<std::string> facts;
+};
+std::atomic<bool>& SagaInFlight()
+{
+    static std::atomic<bool> instance(false);
+    return instance;
+}
+
+void RunSagaBatchInner(SagaJob const& job)
+{
+    // re-check the tier IN the thread: a conf flip while the job sat
+    // queued must never route a cloud call to a now-local endpoint
+    if (!PlayerbotLlmMemory::ExternalApiTierActive())
+        return;
+    std::string const body = pocketllm::BuildChatRequestBody(
+        sPlayerbotAIConfig.llmApiModel,
+        pocketllm::SagaSystemPrompt(),
+        std::vector<pocketllm::HistoryTurn>(),
+        pocketllm::SagaUserPrompt(job.persona.name, job.playerName, job.facts),
+        [&]
+        {
+            pocketllm::RequestSampling s;
+            s.temperature = 1.0f;
+            s.topP = 0.95f;
+            s.maxTokens = 600;
+            s.minP = 0.05f;
+            s.providerSafe = true; // cloud endpoints reject unknown keys
+            return s;
+        }(),
+        true);
+    std::string const http = PlayerbotLLMInterface::PostChatHttp(
+        body, sPlayerbotAIConfig.llmGenerationTimeout, nullptr, nullptr);
+    pocketllm::CompletionEnvelope envelope = pocketllm::ParseCompletionEnvelope(http);
+    if (!envelope.parsed || !pocketllm::ContentUsable(envelope))
+        return; // fail-closed: a dead endpoint means silence, never a stuck lane
+    std::vector<std::string> const lines = pocketllm::SplitNarratorBlock(envelope.content);
+    if (lines.size() < 3)
+        return;
+    // the world row: the headline (first safe line) joins the rumor mill
+    // under the saga class - the player-as-legend classes sort together
+    PlayerbotLlmMemory::ShareGossip(job.storytellerGuid, lines[0], "saga");
+    EnqueueLongFormLines(pocketllm::LAYER_PARTY, job.storytellerGuid, lines,
+        "saga:" + std::to_string(job.storytellerGuid) + ":" +
+            std::to_string(time(nullptr)));
+}
+
+void RunSagaBatch(SagaJob job)
+{
+    try
+    {
+        RunSagaBatchInner(job);
+    }
+    catch (...)
+    {
+    }
+    SagaInFlight().store(false);
+}
+
+void DispatchSagaJob(SagaJob job)
+{
+    SagaInFlight().store(true);
+    try
+    {
+        std::thread(RunSagaBatch, job).detach();
+    }
+    catch (...)
+    {
+        SagaInFlight().store(false);
+    }
+}
+
 } // namespace
 
 // ---- public entry points (world thread) ------------------------------------
+
+void PlayerbotLlmChatter::EnqueueLongForm(pocketllm::ChatterLayer layer,
+    uint32 speakerGuid, std::vector<std::string> const& lines, std::string const& factKey)
+{
+    EnqueueLongFormLines(layer, speakerGuid, lines, factKey);
+}
+
+bool PlayerbotLlmChatter::TryBeginCampfireSaga(Player* master)
+{
+    // quota + tier + posture gates live here (world thread); the
+    // generation itself is one cloud call, fail-closed
+    if (!master || !sPlayerbotAIConfig.llmEnabled || !sPlayerbotAIConfig.llmChatterEnabled)
+        return false;
+    if (!sPlayerbotAIConfig.llmSagaEnabled || !PlayerbotLlmMemory::ExternalApiTierActive())
+        return false;
+    if (SagaInFlight().load() || BatchInFlight().load())
+        return false;
+    // the campfire posture: the master sits at rest with companions near
+    if (master->getStandState() != UNIT_STAND_STATE_SIT || master->IsInCombat())
+        return false;
+    {
+        std::lock_guard<std::mutex> lock(State().mutex);
+        if (!pocketllm::AmbientAdmissionQuiet(State().lastPlayerChatAt, time(nullptr)))
+            return false;
+    }
+    Group* group = master->GetGroup();
+    if (!group)
+        return false;
+
+    // the storyteller: the first grouped bot at tier >= 3 holding real
+    // shared-event memories of the master
+    for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
+    {
+        Player* bot = itr->getSource();
+        if (!bot || bot == master || !bot->GetPlayerbotAI() || !bot->IsAlive())
+            continue;
+        if (PlayerbotLlmMemory::GetTrainedTier(bot, master) < 3)
+            continue;
+        auto result = CharacterDatabase.PQuery(
+            "SELECT `fact_text` FROM `bot_player_facts` WHERE `bot` = '%u' AND `player` = '%u' "
+            "AND `category` = 'shared-event' ORDER BY `id` DESC LIMIT 5",
+            bot->GetGUIDLow(), master->GetGUIDLow());
+        if (!result)
+            continue;
+        SagaJob job;
+        job.storytellerGuid = bot->GetGUIDLow();
+        job.persona = DimsOf(bot, time(nullptr));
+        job.playerName = master->GetName();
+        do
+        {
+            std::string text = result->Fetch()[0].GetString();
+            size_t const toneEnd = text.find(") ");
+            if (text.rfind("(tone", 0) == 0 && toneEnd != std::string::npos)
+                text = text.substr(toneEnd + 2);
+            if (!text.empty())
+                job.facts.push_back(text);
+        } while (result->NextRow());
+        if (job.facts.size() < 2)
+            continue; // a saga needs at least two truths to weave
+        // the roster-level daily quota (one saga per roster, not per bot)
+        if (!PlayerbotLlmMemory::CloudQuotaAdmits("saga", sPlayerbotAIConfig.llmSagaPerDay))
+            return false;
+        DispatchSagaJob(job);
+        return true;
+    }
+    return false;
+}
 
 void PlayerbotLlmChatter::NotePlayerInteraction(uint32 playerGuid)
 {
@@ -795,8 +1085,80 @@ void PlayerbotLlmChatter::OnDuelCompleted(Player* participant, Player* opponent)
     State().partyDuelNoteAt[real->GetGUIDLow()] = time(nullptr);
 }
 
+void PlayerbotLlmChatter::NotePartyLine(uint32 playerGuid, std::string const& line)
+{
+    if (line.empty() || line.size() > 160)
+        return;
+    std::lock_guard<std::mutex> lock(State().mutex);
+    State().partyLineAt[playerGuid] = std::make_pair(time(nullptr), line);
+}
+
+// plan v5 C2: workers hand narrator lines here; Tick delivers them on the
+// world thread (chat packets never cross threads)
+void PlayerbotLlmChatter::DeliverSysLines(uint32 playerGuid,
+    std::vector<std::string> const& lines)
+{
+    if (!playerGuid || lines.empty())
+        return;
+    std::lock_guard<std::mutex> lock(State().mutex);
+    std::vector<std::string>& queued = State().pendingSysLines[playerGuid];
+    for (std::string const& line : lines)
+        if (queued.size() < 12)
+            queued.push_back(line);
+}
+
+// the world-thread drain (called at the top of Tick): resolves the player
+// fresh and fails closed when they left - a narrator line is never worth
+// a lifetime gamble
+void DrainPendingSysLines()
+{
+    std::map<uint32, std::vector<std::string>> due;
+    {
+        std::lock_guard<std::mutex> lock(State().mutex);
+        due.swap(State().pendingSysLines);
+    }
+    for (auto& entry : due)
+    {
+        Player* player = sObjectAccessor.FindPlayer(
+            ObjectGuid(HIGHGUID_PLAYER, entry.first));
+        if (!player || !player->GetSession() || !player->isRealPlayer())
+            continue;
+        for (std::string const& line : entry.second)
+            ChatHandler(player->GetSession()).SendSysMessage(line.c_str());
+    }
+}
+
+// plan v5 C3: the roundtable row - the master's fresh PARTY line joins
+// the composer exchange as an event row so the group argues about what
+// the PLAYER said (quota-capped; C3's one-call shape rides the composer)
+bool TakeRoundtableRow(uint32 masterGuid, std::string const& masterName,
+    std::string& rowOut)
+{
+    std::string line;
+    {
+        std::lock_guard<std::mutex> lock(State().mutex);
+        auto itr = State().partyLineAt.find(masterGuid);
+        if (itr == State().partyLineAt.end())
+            return false;
+        if (time(nullptr) - itr->second.first > 120)
+            return false; // stale: the exchange must argue a live line
+        line = itr->second.second;
+        State().partyLineAt.erase(itr);
+    }
+    if (!PlayerbotLlmMemory::CloudQuotaAdmits("roundtable",
+            sPlayerbotAIConfig.llmRoundtablePerDay))
+        return false;
+    rowOut = masterName + " just said: \"" + line + "\"";
+    return true;
+}
+
 void PlayerbotLlmChatter::Tick()
 {
+    // plan v5 C2: narrator sys-lines marshalled by workers deliver HERE,
+    // on the world thread - BEFORE the chatter gate, because the recap is
+    // not a chatter feature and must deliver with ambience off too
+    DrainPendingSysLines();
+
     if (!sPlayerbotAIConfig.llmEnabled || !sPlayerbotAIConfig.llmChatterEnabled)
         return;
 
@@ -809,7 +1171,7 @@ void PlayerbotLlmChatter::Tick()
     pocketllm::ChatterPolicy policy;
     {
         std::lock_guard<std::mutex> lock(s.mutex);
-        ReconcilePower(now);
+        ReconcilePower();
         if (s.rung == pocketllm::RUNG_OFF)
             return;
         composerConfigured =
@@ -842,12 +1204,44 @@ void PlayerbotLlmChatter::Tick()
         }
         for (PendingLine& entry : due)
         {
-            std::lock_guard<std::mutex> lock(s.mutex);
-            if (!DeliverLine(entry, now))
+            // plan v5 F7: the authored-line hourly budget bounds the SUM of
+            // lanes (murmur shares the ambient cap; party/global set pieces
+            // count toward the global ceiling only, their own cadences
+            // govern them). Checked OUTSIDE the chatter lock - the arbiter
+            // takes the memory state lock, and the reverse order already
+            // exists at OnDuelComplete (ABBA otherwise). A spent budget is
+            // a fail-silent drop; the queue refills on a later batch.
+            uint32 const arbCat = entry.layer == pocketllm::LAYER_MURMUR
+                ? PlayerbotLlmMemory::ARB_AMBIENT
+                : PlayerbotLlmMemory::ARB_SCENE;
+            // F4b: a staged long-form block was charged ONCE at enqueue;
+            // its lines deliver exempt (a 10-line saga must not eat the
+            // hourly ceiling line by line)
+            if (!entry.longForm &&
+                !PlayerbotLlmMemory::AuthoredBudgetHasRoom(arbCat))
+                continue;
+            bool delivered = false;
+            bool deferredLine = false;
             {
-                entry.notBefore = now + 10;  // the player holds the channel
-                deferred.push_back(entry);
+                std::lock_guard<std::mutex> lock(s.mutex);
+                // DeliverLine's return contract: false ONLY for the
+                // player-holds-channel interruption (the entry goes back
+                // with a short delay); true means a FINAL outcome -
+                // delivered, or a fail-silent drop (speaker gone, ring or
+                // fatigue veto) that must never retry
+                if (!DeliverLine(entry, now, delivered))
+                {
+                    entry.notBefore = now + 10;  // the player holds the channel
+                    deferredLine = true;
+                }
             }
+            if (deferredLine)
+                deferred.push_back(entry);
+            // the stamp lands only on a CONFIRMED delivery - a vetoed or
+            // deferred line never consumes the budget (the arbiter's own
+            // invariant: a stamp can never land without its line)
+            else if (delivered && !entry.longForm)
+                PlayerbotLlmMemory::AuthoredLineAdmits(arbCat, /*exempt=*/false);
         }
         if (!deferred.empty())
         {
@@ -882,8 +1276,11 @@ void PlayerbotLlmChatter::Tick()
             quiet = pocketllm::AmbientAdmissionQuiet(s.lastPlayerChatAt, now);
         }
         if (quiet && murmurQueued < policy.murmurQueueLowWater &&
-            (lastBatch == 0 || now - lastBatch >= policy.murmurBatchWindowSec))
+            (lastBatch == 0 || now - lastBatch >= policy.murmurBatchWindowSec) &&
+            PlayerbotLlmMemory::AuthoredBudgetHasRoom(PlayerbotLlmMemory::ARB_AMBIENT))
         {
+            // F7: a spent ambient budget skips the batch entirely - the
+            // device never generates lines the ceiling will drop
             {
                 std::lock_guard<std::mutex> lock(s.mutex);
                 s.lastMurmurBatchAt = now;
@@ -941,13 +1338,17 @@ void PlayerbotLlmChatter::Tick()
                 }
                 else
                 {
-                    // EMERGENCY: the authored event-grounded floor. The
-                    // template draw is fatigue-spaced per (template x
-                    // speaker x listener) - the authored law. The
-                    // line-safety law covers the floor too: the DB event
-                    // text can carry pipes/newlines past the write chain
-                    // (model-authored share_gossip rows) - fail silent,
-                    // never voice them.
+                    // authored event-grounded floor. DORMANT under the
+                    // collapsed ladder: every live rung generates (the
+                    // dim row stretches cadence rather than dropping to
+                    // templates), so this branch only runs if a future
+                    // policy row sets generated=false on a live rung -
+                    // kept as that manual-override lane. The template
+                    // draw is fatigue-spaced per (template x speaker x
+                    // listener) - the authored law. The line-safety law
+                    // covers the floor too: the DB event text can carry
+                    // pipes/newlines past the write chain (model-authored
+                    // share_gossip rows) - fail silent, never voice them.
                     size_t const tpl = urand(0, uint32(pocketllm::MurmurFloorTemplateCount() - 1));
                     std::string const floorText = pocketllm::ClampMurmurBytes(
                         pocketllm::RenderFloorTemplate(tpl, speaker->GetName(),
@@ -996,6 +1397,13 @@ void PlayerbotLlmChatter::Tick()
     {
         for (Player* master : players)
         {
+            // plan v5 C1: the campfire saga outranks the idle bark - a
+            // seated master with a tier-3 storyteller gets the flagship
+            // performance instead (quota-capped, cloud tier only)
+            if (policy.composer || sPlayerbotAIConfig.llmSagaEnabled)
+                if (PlayerbotLlmChatter::TryBeginCampfireSaga(master))
+                    break;
+
             Group* group = master->GetGroup();
             if (!group || master->IsInCombat())
                 continue;
@@ -1009,6 +1417,63 @@ void PlayerbotLlmChatter::Tick()
             }
             if (bots.size() < 2)
                 continue;
+
+            // plan v5 C4: the rare authored drama set piece - two grouped
+            // bots trade one exchange the player merely witnesses. Kind
+            // follows the dyad ledger (a bonded pair reunions or collects
+            // debts; a sour pair argues); variant is dyad-stable. The
+            // opener claims the ambient slot like every authored beat
+            {
+                bool dramaDue = false;
+                if (sPlayerbotAIConfig.llmDramaEnabled)
+                {
+                    std::lock_guard<std::mutex> lock(s.mutex);
+                    if (now - s.lastDramaAt >= 2700 && urand(1, 3) == 1)
+                        dramaDue = true; // the window burns only on a confirmed claim
+                }
+                if (dramaDue)
+                {
+                    size_t const openerIdx = urand(0, uint32(bots.size() - 1));
+                    size_t replierIdx = (openerIdx + 1) % bots.size();
+                    Player* dramaA = bots[openerIdx];
+                    Player* dramaB = bots[replierIdx];
+                    int const affinity = PlayerbotLlmMemory::DyadAffinity(
+                        dramaA->GetGUIDLow(), dramaB->GetGUIDLow());
+                    uint64 const pairSeed = ((uint64)std::min(dramaA->GetGUIDLow(),
+                        dramaB->GetGUIDLow()) << 32) | std::max(dramaA->GetGUIDLow(),
+                        dramaB->GetGUIDLow());
+                    int const kind = affinity <= 0 ? 1 /* rivalry */
+                        : 2 * (int)((pairSeed / 6) % 2); /* reunion / debt */
+                    size_t const variant = (size_t)(pairSeed % 6);
+                    char const* const* exchange =
+                        pocketllm::DramaPairTable(kind, variant);
+                    char openerBuf[256], replyBuf[256];
+                    pocketllm::RenderLine(exchange[0], dramaB->GetName(), dramaA->GetName(),
+                        openerBuf, sizeof(openerBuf));
+                    pocketllm::RenderLine(exchange[1], dramaA->GetName(), dramaB->GetName(),
+                        replyBuf, sizeof(replyBuf));
+                    if (PlayerbotLlmMemory::TryClaimAmbientSlot(dramaA->GetGUIDLow(),
+                            900, PlayerbotLlmMemory::ARB_REACTION))
+                    {
+                        {
+                            std::lock_guard<std::mutex> lock(s.mutex);
+                            s.lastDramaAt = now; // claim confirmed: the window burns NOW
+                        }
+                        PlayerbotLlmMemory::EventReaction opener;
+                        opener.authored = true;
+                        opener.playerGuid = master->GetGUIDLow();
+                        opener.text = openerBuf;
+                        PlayerbotLlmMemory::EventReaction reply;
+                        reply.authored = true;
+                        reply.playerGuid = master->GetGUIDLow();
+                        reply.text = replyBuf;
+                        reply.notBefore = time(nullptr) + urand(4, 8);
+                        PlayerbotLlmMemory::QueueAuthoredReaction(dramaA, opener);
+                        PlayerbotLlmMemory::QueueAuthoredReaction(dramaB, reply);
+                        break; // the exchange IS this window's beat
+                    }
+                }
+            }
 
             time_t duelNote = 0;
             {
@@ -1071,6 +1536,18 @@ void PlayerbotLlmChatter::Tick()
                 }
                 job.eventRows.push_back(telling);
                 job.factKeys.push_back(topic.factKey);
+                // plan v5 C3: the roundtable row - the master's fresh
+                // party line joins the exchange so the group argues about
+                // what the PLAYER said (quota-capped inside the take)
+                std::string roundtableRow;
+                if (TakeRoundtableRow(master->GetGUIDLow(), master->GetName(),
+                        roundtableRow))
+                {
+                    job.eventRows.push_back(roundtableRow);
+                    job.factKeys.push_back("roundtable:" +
+                        std::to_string(master->GetGUIDLow()) + ":" +
+                        std::to_string(now));
+                }
                 DispatchComposerJob(job);
             }
             else if (policy.generated)
@@ -1146,8 +1623,9 @@ void PlayerbotLlmChatter::Tick()
                 }
                 else
                 {
-                    // EMERGENCY global: the authored floor headline, held
-                    // to the same line-safety law
+                    // authored floor headline. DORMANT under the collapsed
+                    // ladder (every live rung generates; see the murmur
+                    // floor branch) and held to the same line-safety law
                     size_t const headlineTpl = 2;
                     std::string const headline = pocketllm::ClampMurmurBytes(
                         pocketllm::RenderFloorTemplate(headlineTpl, speaker->GetName(),

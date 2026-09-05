@@ -189,54 +189,78 @@ inline std::string FactDirect(std::string const& factText)
 // tools/llm_lab/emit_prompt_constants.py from banklib.py
 // BEAT_CARGO_VARIANTS - the S11 rev-3b wording lock; the
 // banks train these exact frames, and the bridge selects
-// one flavor per bot, GUID-stably (flavor = botGuid % 3).
+// one flavor per bot, GUID-stably (flavor = botGuid % 6).
 // Do not hand-edit between the markers. ----
 static char const* const kDebtCargoFrames[] = {
     "{P} {F}. It is UNPAID. You are NOT square. Name it.",
     "{P} {F}. That debt stands - nothing square about it. Bring it up yourself this time.",
     "{P} {F}. Still unpaid, and you keep the count. Say it plainly when it fits.",
+    "{P} {F}. The ledger does not forget, and neither do you. Collect with a grin, not a snarl.",
+    "{P} {F}. Owed is owed. Remind them the way old friends do - sharp, fond, and impossible to dodge.",
+    "{P} {F}. Debts age like ale with you: stronger, louder, and harder to ignore. Say so.",
 };
 
 static char const* const kMemoryCargoFrames[] = {
     "You DO remember {P}. One true thing: {F}. Work it in - once, naturally.",
     "You DO remember {P}. Here is the thing you know: {F}. Let it slip in - once, as your own.",
     "You DO remember {P}. This much is true: {F}. Weave it in once, easy - never like reciting.",
+    "That thing about {P} - {F} - has been sitting with you. Spend it now, once, like it just surfaced.",
+    "You carry this about {P}: {F}. Drop it into the talk sideways, the way real remembering works.",
+    "Of all you know of {P}, this rises now: {F}. Voice it once, then let the moment pass.",
 };
 
 static char const* const kMemoryAskCargoFrames[] = {
     "You remember what {P} was after: {F}. Ask after it, like it matters - because it does.",
     "You remember what {P} was after: {F}. Ask - and sound like you cared enough to keep it.",
     "You remember what {P} was after: {F}. Ask after it warmly; you have been waiting to hear.",
+    "That goal of {P} - {F} - still hangs open. Pull the thread: how fares it?",
+    "{P} wanted this: {F}. You kept it in mind all this time. Ask, and mean it.",
+    "So - {P} and {F}. Time has passed; curiosity has not. Ask after it properly.",
 };
 
 static char const* const kGrudgeCargoFrames[] = {
     "You are still sore about this: {F}. Let it show at the edges only - never name the grudge outright.",
     "It still stings, this: {F}. Keep it under the words - never lay the grudge on the table.",
     "An old sore, not healed: {F}. Let it color the edges - the grudge itself stays unsaid.",
+    "That old business - {F} - still smarts when pressed. Let the chill show in what you do, not what you say.",
+    "{F}. You have not forgotten, and forgiveness is not on the menu tonight. Edge, not accusation.",
+    "The scar of it - {F} - itches in this company. Short answers, long memory.",
 };
 
 static char const* const kNewsCargoFrames[] = {
     "Something DID happen: {F}. That is your news, with {P}. Tell it.",
     "Something DID happen: {F}. That is your news, with {P}. Tell it plainly.",
     "Something DID happen: {F}. {P} has not heard this yet. Tell it.",
+    "News, and it is yours to carry: {F}. {P} gets it from you first - make it land.",
+    "You were there - or heard it from one who was: {F}. Tell {P} straight.",
+    "This just happened, and {P} should hear it from a friend: {F}. Tell it whole.",
 };
 
 static char const* const kGossipCargoFrames[] = {
     "Word is going round about {P}: '{G}'. Ask about it, lightly - one question, no more.",
     "There is talk about {P}: '{G}'. One light question - then let it drop.",
     "The town buzzes a little about {P}: '{G}'. Ask, gently - once only.",
+    "Something is being said about {P}: '{G}'. Poke at it once, softly - then leave it be.",
+    "You caught wind of this about {P}: '{G}'. One curious question, no more.",
+    "Rumor brushes {P}: '{G}'. Brush back - lightly, once, and watch the reaction.",
 };
 
 static char const* const kCeremonyUpFrames[] = {
     "You have quietly decided {P} is {T}. Show it your own way, briefly - and do not explain yourself.",
     "Something has settled in you: {P} is {T}. Let it show in what you do - brief, and unexplained.",
     "You know it now, quietly: {P} is {T}. Show it once, your own way - no speeches.",
+    "It has crept up on you: {P} is {T} to you now. A warmer word, unannounced.",
+    "No ceremony, no speech - but {P} is {T}, and it shows in how you stand nearer.",
+    "You catch yourself smiling when {P} arrives. That is new. That is {T}. Let it be seen, briefly.",
 };
 
 static char const* const kCeremonyDownFrames[] = {
     "Something in you has grown colder toward {P}. Do not announce it. Let it change what you do, not what you say.",
     "The warmth has thinned toward {P}. Say nothing of it. Let your actions carry the chill.",
     "You trust {P} less than you did. Keep that to yourself - it shows in deeds, never in words.",
+    "A small frost where {P} is concerned. No words about it - fewer favors, slower nods.",
+    "You hold {P} a little more at arm's length now. Polite. Distant. Final.",
+    "The easy warmth with {P} is gone. Courtesy remains; closeness does not.",
 };
 
 // the ceremony {T} phrases, indexed by tier 3/4/5
@@ -467,6 +491,159 @@ inline std::string NicknameAdoptionCargo(std::string const& playerName, uint32_t
         ". Use it in this reply - and when it suits you after.";
 }
 
+// ---- Phase-4 legends + rumor mill (pure, host-testable). Engine-first:
+// no new tables, no new segments — counters, anniversaries, tier beats,
+// and POI-biased rumor drift all ride existing fact/gossip rows +
+// the in-memory fatigue ledger (tellings/hops/heard, capped 5/3).
+//
+// Counters → escalating jokes: the Nth telling of the same factKey
+// escalates ("again", "still", "legend by now") and retires at the
+// 5-telling cap (FatigueAdmits). AnniversaryOf maps days-since-first
+// (derived from the fact row's created order — id distance is the
+// clock here, no schema change) to milestone buckets: 30/100/365.
+// TierBeat frames: the beat bank for the ceremony observations. The
+// JOURNAL faces are live (vouch at tier >= 3, bonded bickering at
+// tier 5, via TierBeatJournalLine); the second-person CARGO faces
+// (TierBeatCargo) are the prompt-side bank - debt-forgiven (kind 1)
+// now fires from the plan-v5 trade hook (EVENT_DEBT_SETTLED). Rumor drift
+// stays deterministic: DistortGossipHop per hop, cap 3, originator
+// verbatim.
+inline int AnniversaryBucket(int daysSinceFirst)
+{
+    if (daysSinceFirst >= 365) return 365;
+    if (daysSinceFirst >= 100) return 100;
+    if (daysSinceFirst >= 30) return 30;
+    return 0;
+}
+
+inline char const* AnniversaryLine(int bucket)
+{
+    switch (bucket)
+    {
+        case 365: return "A whole year of knowing each other. That is no small thing.";
+        case 100: return "A hundred days of crossings. The road keeps bringing you back.";
+        case 30: return "A month of knowing each other. Familiar boots by the fire now.";
+        default: return "";
+    }
+}
+
+inline char const* CounterEscalation(int telling)
+{
+    switch (telling)
+    {
+        case 1: return "Once more, then.";
+        case 2: return "Again - the telling grows.";
+        case 3: return "Still the talk. The legend thickens.";
+        case 4: return "Practically legend by now.";
+        default: return "";
+    }
+}
+
+inline std::string LegendCounterLine(std::string const& factDirect, int telling)
+{
+    char const* esc = CounterEscalation(telling);
+    if (!*esc) return factDirect;
+    return factDirect + " " + esc;
+}
+
+inline std::string TierBeatCargo(std::string const& playerName, int kind,
+    uint32_t botGuid)
+{
+    // kind: 0 = vouch (ally warmth), 1 = debt-forgiven, 2 = bonded bickering
+    static char const* const frames[3][3] = {
+        {
+            "You would vouch for {P} without thinking now. Say so, briefly, if it fits.",
+            "Something in you has decided: {P} is good folk. Let it show, once, plainly.",
+            "{P} has earned your word. Give it, short and warm.",
+        },
+        {
+            "The old debt with {P} is settled and square. The air is lighter for it - say so.",
+            "{P} paid what was owed, every copper. Name the squareness; grudges end here.",
+            "Square at last with {P}. The count closes. Say it with relief.",
+        },
+        {
+            "You and {P} bicker like old wolves now - sharp, fond, never mean. Snap a little, lovingly.",
+            "{P} gets the sharp edge of your tongue because they can take it. Show the fondness under it.",
+            "Bonded bickering with {P}: give as good as you get, and grin through it.",
+        },
+    };
+    if (kind < 0 || kind > 2) kind = 0;
+    return ReplaceAllCopy(frames[kind][botGuid % 3], "{P}", playerName);
+}
+
+// The journal-facing face of the same beats: the player reads the
+// journal, so the line observes the relationship instead of instructing
+// the bot. ASCII only - the whisper path bypasses the LLM output clamp,
+// and the 1.12 client renders anything wider as mojibake bytes.
+inline char const* TierBeatJournalLine(int kind)
+{
+    switch (kind)
+    {
+        case 2: return "Sharp, fond bickering - the kind only old friends can afford.";
+        case 1: return "The old debt is settled square; the air is lighter for it.";
+        default: return "Would vouch for you anywhere; that word was earned.";
+    }
+}
+
+// POI-biased rumor sampling: a gossip row naming a known place travels
+// farther (returns true) — the caller's pickers prefer such rows when
+// the listener is far from the origin. Place detection is substring
+// over the row text against the caller's POI title list (the lore
+// index owns the canonical titles; this stays a pure string test).
+inline bool RumorNamesPlace(std::string const& rowText,
+    char const* const* poiTitles, size_t poiCount)
+{
+    std::string lower = LowerCopy(rowText);
+    for (size_t i = 0; i < poiCount; ++i)
+    {
+        if (!poiTitles[i] || !*poiTitles[i]) continue;
+        std::string title = LowerCopy(poiTitles[i]);
+        if (!title.empty() && lower.find(title) != std::string::npos)
+            return true;
+    }
+    return false;
+}
+
+// ---- plan v5 W7b: the world-truth furniture helpers (pure). Homeland is
+// race-stable; the enemy-ground test is deliberately the OPPOSING FACTION'S
+// CAPITAL zones only (city names in zone text, lowercase substring) - a
+// broader faction table would need AreaTable flags the 1.12 tree does not
+// carry on the zone rows the way later clients do.
+inline char const* HomeZoneOfRace(uint32_t race)
+{
+    switch (race)
+    {
+        case 1: return "elwynn";
+        case 2: return "durotar";
+        case 3: return "dun morogh";
+        case 4: return "teldrassil";
+        case 5: return "tirisfal";
+        case 6: return "mulgore";
+        case 7: return "dun morogh";
+        case 8: return "durotar";
+        default: return "";
+    }
+}
+
+inline bool IsEnemyCapitalZone(std::string const& zoneLower, uint32_t race)
+{
+    // Horde races read Alliance capitals as enemy ground and vice versa
+    bool const horde = race == 2 || race == 5 || race == 6 || race == 8;
+    static char const* const allianceCapitals[] = {
+        "stormwind", "elwynn", "ironforge", "dun morogh", "darnassus", "teldrassil",
+    };
+    static char const* const hordeCapitals[] = {
+        "orgrimmar", "durotar", "undercity", "tirisfal", "thunder bluff", "mulgore",
+    };
+    char const* const* list = horde ? allianceCapitals : hordeCapitals;
+    size_t const count = horde ? sizeof(allianceCapitals) / sizeof(allianceCapitals[0])
+                               : sizeof(hordeCapitals) / sizeof(hordeCapitals[0]);
+    for (size_t i = 0; i < count; ++i)
+        if (zoneLower.find(list[i]) != std::string::npos)
+            return true;
+    return false;
+}
+
 // ---- authored surface shapes (zero generation cost).
 inline std::string AbsenceMagnitudeLine(std::string const& bucket)
 {
@@ -477,6 +654,42 @@ inline std::string AbsenceMagnitudeLine(std::string const& bucket)
     if (bucket == "many days")
         return "It has been days since you last passed this way.";
     return "";
+}
+
+// plan v5 W5: the bot-curiosity question bank - the third initiative
+// class. GUID-stable order per pairing, one ask per question per pairing,
+// 30-minute floor between asks; the player's next conversational reply is
+// minted as a fact deterministically (the 0.8B answer-capture law: a
+// vanished answer is a broken promise). Questions are personal, era-voiced
+// and answerable - never quiz questions with right answers.
+inline size_t CuriosityQuestionCount()
+{
+    return 16;
+}
+
+inline std::string CuriosityQuestionLine(size_t idx, std::string const& playerName)
+{
+    static char const* const questions[] = {
+        "Where does a road like yours begin, {P}? Mine began with a bad harvest.",
+        "What do you do when the rain traps you indoors for days, {P}?",
+        "Who taught you your trade, {P}? Mine charged me for the lessons. And the candles.",
+        "What is the farthest you have ever walked in one go, {P}?",
+        "Do you name your weapons, {P}? I knew a man whose sword was called Regret.",
+        "What is the best meal you have had on the road, {P}? I dream about a stew in Lakeshire.",
+        "Ever been properly lost, {P}? Not turned around. LOST.",
+        "What would you do with a hundred gold, {P}? Asking for a friend. The friend is me.",
+        "Where is home, when you finally stop walking, {P}?",
+        "What made you take up the sword instead of the plow, {P}?",
+        "Do you write letters, {P}? I carry three I will never send.",
+        "What scares you, {P}? Properly scares you. You can tell me - I scare easily.",
+        "First thing you would do in a city with no guards, {P}?",
+        "What is a rule you never break, {P}? I never light a fire in the rain. Keeps me humble.",
+        "Who misses you, {P}, while you are out here? Somebody should.",
+        "If the road ended tomorrow, {P}, what would you want said of you?",
+    };
+    if (idx >= sizeof(questions) / sizeof(questions[0]))
+        return "";
+    return ReplaceAllCopy(questions[idx], "{P}", playerName);
 }
 
 inline std::string DebtReminderLine(std::string const& playerName, std::string const& moneyPhrase)

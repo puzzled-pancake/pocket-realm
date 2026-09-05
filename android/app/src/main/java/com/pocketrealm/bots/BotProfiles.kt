@@ -46,6 +46,15 @@ data class BotProfile(
     val wanderWhenIdle: Boolean = true,
     val enableOffSpecStrategies: Boolean = true,
     val admission: BotAdmissionLimits,
+    /**
+     * Per-preset AI speech overrides. Deliberately NOT part of
+     * [playerbotConfig] or the identity digests: the values ride the
+     * appended LLM conf block (see ServerRuntimeFiles), the merge-order
+     * contract keeps the base conf free of LLM keys, and the frozen
+     * adv/legacy identities must not shift. Defaults everywhere = follow
+     * the model's tuned profiles.
+     */
+    val llmSpeech: BotLlmSpeech = BotLlmSpeech(),
 ) {
     init {
         require(id.matches(Regex("[a-z0-9][a-z0-9._-]{2,63}")))

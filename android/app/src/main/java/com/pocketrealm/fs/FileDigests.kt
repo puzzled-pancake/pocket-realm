@@ -23,10 +23,21 @@ object FileDigests {
                 digest.update(buffer, 0, read)
             }
         }
-        return digest.digest().joinToString("") { "%02x".format(it) }
+        return formatHex(digest.digest())
     }
 
     fun sha256(text: String): String =
-        MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8))
-            .joinToString("") { "%02x".format(it) }
+        formatHex(MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8)))
+
+    private val HEX = "0123456789abcdef".toCharArray()
+
+    private fun formatHex(bytes: ByteArray): String {
+        val out = CharArray(bytes.size * 2)
+        bytes.forEachIndexed { index, byte ->
+            val value = byte.toInt() and 0xff
+            out[index * 2] = HEX[value ushr 4]
+            out[index * 2 + 1] = HEX[value and 0x0f]
+        }
+        return String(out)
+    }
 }

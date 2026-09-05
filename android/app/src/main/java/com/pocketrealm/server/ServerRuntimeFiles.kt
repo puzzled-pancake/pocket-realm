@@ -4,11 +4,13 @@ import android.content.Context
 import android.system.Os
 import android.system.OsConstants
 import com.pocketrealm.BuildConfig
+import com.pocketrealm.bots.BotLlmSpeech
 import com.pocketrealm.bots.BotProfile
 import com.pocketrealm.database.DatabaseDurableState
 import com.pocketrealm.database.DatabaseSqliteControlPlane
 import com.pocketrealm.llm.LlmModelCoordinator
 import com.pocketrealm.llm.LlmModelRegistry
+import com.pocketrealm.llm.LlmPromptPack
 import com.pocketrealm.llm.LlmTierProfile
 import com.pocketrealm.llm.LlmSamplingProfile
 import com.pocketrealm.storage.Settings
@@ -111,7 +113,7 @@ internal class ServerRuntimeFiles(context: Context) {
         val endpoint = RealmEndpoint.parseStored(bindAddress)
         val botConfig = botProfile?.let {
             secureWrite(File(run, "aiplayerbot-${it.id}.conf"),
-                it.playerbotConfig() + (llmConfigOverrides() ?: ""))
+                it.playerbotConfig() + (llmConfigOverrides(it) ?: ""))
         } ?: secureWrite(File(run, "aiplayerbot-disabled.conf"), """
             AiPlayerbot.Enabled = 0
             AiPlayerbot.RandomBotAutologin = 0
@@ -172,9 +174,11 @@ internal class ServerRuntimeFiles(context: Context) {
      * Playerbot LLM overrides, resolved at world start (one blocking
      * settings read inside the transition gate; toggles therefore apply on
      * the next realm start). All decisions live in the pure
-     * [llmOverrides] companion function (see its contract there).
+     * [llmOverrides] companion function (see its contract there). The
+     * selected profile's per-preset speech overrides (Bots → AI tab) ride
+     * the same appended block; sentinels follow the model/global values.
      */
-    private fun llmConfigOverrides(): String? {
+    private fun llmConfigOverrides(profile: BotProfile): String? {
         val snapshot = Settings(appContext).blockingSnapshot()
         val selected = LlmModelRegistry.byId(snapshot.llmModelId)
         val model = LlmModelCoordinator.modelPathFor(appContext, snapshot.llmModelId)
@@ -186,16 +190,29 @@ internal class ServerRuntimeFiles(context: Context) {
             runCatching { stageLoreCards().absolutePath }.getOrNull()
         else
             null
-        // The power file is staged whenever the LLM subsystem can
-        // run, carrying the CURRENT ambience toggle in its enabled flag -
-        // the native scheduler re-reads it every tick, so the master
-        // switch works mid-session in both directions (the conf keys
-        // alone apply only at world start). A staging failure fails
+        // The power file is staged once at world start whenever the LLM
+        // subsystem can run, carrying the CURRENT ambience toggle in its
+        // enabled flag plus the low-battery courtesy dim - the native
+        // scheduler re-reads it every tick, but the toggle itself applies
+        // at realm start like every llm* setting. A staging failure fails
         // CLOSED: no power file path in the conf means chatter stays off
         // (the silence doctrine).
         val chatterPower = if (snapshot.llmEnabled)
             runCatching {
                 ChatterPowerMonitor.refreshOnce(appContext, enabled = snapshot.llmAmbience).absolutePath
+            }.getOrNull()
+        else
+            null
+        // The prompt pack stages the RESOLVED player pack (Phase 2: the
+        // edited JSON from Settings, fail-open to default on corrupt edits).
+        // The file carries the enabled flags + bodies the Advanced prompt
+        // manager edits. Staging failure fails OPEN to trained-default,
+        // never closed: the renderer treats a missing path as "pack off".
+        val promptPack = if (snapshot.llmEnabled)
+            runCatching {
+                stagePromptPack(
+                    LlmPromptPack.resolve(snapshot.llmPromptPackJson).serialize(),
+                ).absolutePath
             }.getOrNull()
         else
             null
@@ -223,7 +240,34 @@ internal class ServerRuntimeFiles(context: Context) {
             composerEndpoint = composerEndpoint,
             composerModel = LlmRuntimePolicy.normalizeExternalModel(snapshot.llmExternalModel),
             composerApiKey = LlmRuntimePolicy.normalizeExternalApiKey(snapshot.llmExternalApiKey),
+            maxNewTokensOverride = snapshot.llmMaxNewTokens,
+            generationTimeoutOverride = snapshot.llmGenerationTimeout,
+            speech = profile.llmSpeech,
+            promptPackFile = promptPack,
         )
+    }
+
+    /**
+     * Phase 1+2: stage the resolved prompt pack next to the conf atomically.
+     * Re-staged when the BYTES change (a same-length body edit or a pure
+     * reorder must not keep serving the previous pack). The payload is the
+     * RESOLVED player pack (custom edits or default), so one file serves
+     * both the default and the edited states.
+     */
+    private fun stagePromptPack(payloadText: String): File {
+        val target = File(run, PROMPT_PACK_FILE_NAME)
+        val payload = payloadText.toByteArray(Charsets.UTF_8)
+        if (target.isFile && target.readBytes().contentEquals(payload))
+            return target
+        val temp = File(run, ".$PROMPT_PACK_FILE_NAME.${android.os.Process.myPid()}.tmp")
+        java.io.FileOutputStream(temp).use { stream ->
+            stream.write(payload); stream.fd.sync()
+        }
+        if (!temp.renameTo(target)) {
+            temp.copyTo(target, overwrite = true)
+            temp.delete()
+        }
+        return target
     }
 
     /**
@@ -322,6 +366,9 @@ internal class ServerRuntimeFiles(context: Context) {
         /** S7/A11: the staged lore card index file (asset: lore/). */
         private const val LORE_CARDS_FILE_NAME = "lore_cards_v112.jsonl"
 
+        /** Phase 1: the staged default prompt-pack file (run dir). */
+        private const val PROMPT_PACK_FILE_NAME = "llm_prompt_pack.json"
+
         /**
          * The four-state playerbot LLM gate, pure in its inputs so the
          * verdicts are unit-testable. (0) External-endpoint mode (submenu on
@@ -358,6 +405,10 @@ internal class ServerRuntimeFiles(context: Context) {
             composerEndpoint: String? = null,
             composerModel: String? = null,
             composerApiKey: String? = null,
+            maxNewTokensOverride: Int = 0,
+            generationTimeoutOverride: Int = 0,
+            speech: BotLlmSpeech = BotLlmSpeech(),
+            promptPackFile: String? = null,
         ): String? {
             if (uiEnabled && externalMode) {
                 return LlmRuntimePolicy.confBlockExternal(
@@ -367,6 +418,10 @@ internal class ServerRuntimeFiles(context: Context) {
                     composerEndpoint = composerEndpoint,
                     composerModel = composerModel,
                     composerApiKey = composerApiKey,
+                    maxNewTokensOverride = maxNewTokensOverride,
+                    generationTimeoutOverride = generationTimeoutOverride,
+                    speech = speech,
+                    promptPackFile = promptPackFile,
                 )
             }
             if (uiEnabled && modelPresent) {
@@ -377,6 +432,10 @@ internal class ServerRuntimeFiles(context: Context) {
                     composerEndpoint = composerEndpoint,
                     composerModel = composerModel,
                     composerApiKey = composerApiKey,
+                    maxNewTokensOverride = maxNewTokensOverride,
+                    generationTimeoutOverride = generationTimeoutOverride,
+                    speech = speech,
+                    promptPackFile = promptPackFile,
                 )
             }
             if (!debugBuild || !modelPresent) return null

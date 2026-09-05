@@ -27,6 +27,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -356,9 +357,17 @@ struct PromptPlayer
 
 /** banklib.sysm_for_card twin: the trained SYSTEM message. `facts` are the
  * long-term DB facts (third-person); `absence` the rendered absence line;
- * tier 1-5. */
+ * tier 1-5. `seasoning` is the prompt-pack overlay: enabled seasoning
+ * blocks appended INSIDE the existing instruction span (after the
+ * ledger-avoid note), never a new top-level segment. Empty seasoning =
+ * trained default, byte-identical (the frozen-output test pins this).
+ * `moodLine` is the Phase-3 mood seasoning: one short third-person line
+ * naming the bot's current weather ("You feel ..."), empty = no mood.
+ * It rides the same instruction span, after the seasoning. */
 inline std::string SysmForCard(PromptPersona const& c, PromptPlayer const& p,
-    int tier, std::string const& absence, std::vector<std::string> const& facts)
+    int tier, std::string const& absence, std::vector<std::string> const& facts,
+    std::string const& seasoning = std::string(),
+    std::string const& moodLine = std::string())
 {
     std::string ident =
         "You are a roleplaying character in World of Warcraft: Classic. "
@@ -371,6 +380,10 @@ inline std::string SysmForCard(PromptPersona const& c, PromptPlayer const& p,
                  "party, fight beside them, and share their camp and loot.";
     ident += " Answer as a roleplaying character. Speak as your character speaks.";
     ident += std::string(" ") + training::LEDGER_AVOID_NOTE;
+    if (!seasoning.empty())
+        ident += " " + seasoning;
+    if (!moodLine.empty())
+        ident += " " + moodLine;
 
     std::string backstory = c.backstory.empty()
         ? DefaultBackstory(c.name, c.race, c.cls, c.role, c.zone, c.quirks, c.never)
@@ -482,6 +495,81 @@ struct HistoryTurn
         : assistant(isAssistant), content(text) {}
 };
 
+/**
+ * Phase-1 prompt-pack overlay (host-testable, C++11, no file IO here).
+ *
+ * The app stages the pack as JSON: {"version":1,"blocks":[
+ * {"id","title","body","enabled","tiers",...}, ...]}. The renderer joins
+ * the bodies of ENABLED seasoning blocks (ids not in the trained set
+ * below) in pack order, separated by single spaces, inside the existing
+ * instruction span of SysmForCard — never a new top-level segment.
+ * Empty/unparseable input = trained default (empty seasoning).
+ *
+ * Parsing uses the shipped PlayerbotLlmJson.h cursor (no new dep). Caps
+ * are safety bounds: 64 blocks, 2k chars per body — anything beyond is
+ * truncated, never a failure (a hostile pack must degrade to quiet
+ * seasoning, not break a reply).
+ *
+ * Phase-2 overload below adds per-preset block overrides (preset > global
+ * pack > trained default): `overrides` maps seasoning block id → 0/1,
+ * absent = follow the pack file's enabled flag. Unknown ids are ignored
+ * (same discipline as the Kotlin normalize).
+ */
+inline std::string SeasoningFromPackJson(std::string const& packJson,
+    std::map<std::string, int> const& overrides)
+{
+    static char const* const kTrainedIds[] = {
+        "identity", "tools-note", "bible", "no-narrate", "backstory",
+        "relationship", "absence", "facts", "memories-tail", "state",
+        "bridge-note",
+    };
+    if (packJson.empty())
+        return std::string();
+    detail::JsonValue root;
+    if (!detail::ParseJson(packJson, root) || root.type != detail::JSON_OBJECT)
+        return std::string();
+    detail::JsonValue const* blocks = root.Find("blocks");
+    if (!blocks || blocks->type != detail::JSON_ARRAY)
+        return std::string();
+    std::string out;
+    size_t seen = 0;
+    for (size_t i = 0; i < blocks->items.size() && seen < 64; ++i)
+    {
+        detail::JsonValue const& b = blocks->items[i];
+        if (b.type != detail::JSON_OBJECT)
+            continue;
+        ++seen;
+        detail::JsonValue const* id = b.Find("id");
+        detail::JsonValue const* body = b.Find("body");
+        detail::JsonValue const* enabled = b.Find("enabled");
+        if (!id || id->type != detail::JSON_STRING ||
+            !body || body->type != detail::JSON_STRING)
+            continue;
+        // Phase-2 precedence: an explicit per-preset override wins over
+        // the pack file's enabled flag; absent follows the file.
+        std::map<std::string, int>::const_iterator ov = overrides.find(id->str);
+        bool on;
+        if (ov != overrides.end())
+            on = (ov->second != 0);
+        else if (enabled && enabled->type == detail::JSON_BOOL)
+            on = enabled->boolean;
+        else
+            on = true;
+        if (!on)
+            continue;
+        bool trained = false;
+        for (size_t t = 0; t < sizeof(kTrainedIds) / sizeof(kTrainedIds[0]); ++t)
+            if (id->str == kTrainedIds[t]) { trained = true; break; }
+        if (trained || body->str.empty())
+            continue;
+        std::string chunk = body->str.substr(0, 2000);
+        if (!out.empty())
+            out += " ";
+        out += chunk;
+    }
+    return out;
+}
+
 /** Per-tier request knobs. providerSafe strips the
  * llama.cpp-only fields for external endpoints that may reject unknown
  * body keys; thinkingKwargs emits chat_template_kwargs enable_thinking
@@ -516,10 +604,20 @@ inline std::string JsonNumber(double value)
 
 /** The native chat-request body: one JSON builder, no conf-string
  * surgery. Message order: system, prior turns (oldest first), the current
- * user turn LAST. Field order mirrors the app template. */
+ * user turn LAST. Field order mirrors the app template.
+ *
+ * Thinking suppression (providerSafe path — the API tier): reasoning
+ * models leak chain-of-thought unless told not to. thinkingKwargs emits
+ * the llama.cpp chat_template_kwargs; reasoningEffortNone adds the
+ * OpenAI-style reasoning_effort:none (plus the Anthropic/llama-only
+ * thinking/cache_prompt fields on NON-providerSafe tiers - strict
+ * schema-validating endpoints 400 on unknown names, measured against
+ * Google's OpenAI-compat layer in plan v5). The response-side
+ * StripThinking in HygienePass stays as the backstop either way. */
 inline std::string BuildChatRequestBody(std::string const& model,
     std::string const& system, std::vector<HistoryTurn> const& history,
-    std::string const& user, RequestSampling const& s)
+    std::string const& user, RequestSampling const& s,
+    bool reasoningEffortNone = false)
 {
     std::string out = "{\"model\":\"";
     out += EscapeJsonString(model);
@@ -549,9 +647,27 @@ inline std::string BuildChatRequestBody(std::string const& model,
         if (s.presencePenalty > 0.0f)
             out += ",\"presence_penalty\":" + JsonNumber(s.presencePenalty);
     }
-    if (s.thinkingKwargs)
+    // chat_template_kwargs is a llama.cpp-only key - the same strict-
+    // endpoint 400 class as thinking/cache_prompt above
+    if (s.thinkingKwargs && !s.providerSafe)
         out += ",\"chat_template_kwargs\":{\"enable_thinking\":false}";
-    out += ",\"cache_prompt\":true,\"stream\":false}";
+    if (reasoningEffortNone)
+    {
+        out += ",\"reasoning_effort\":\"none\"";
+        // plan-v5 external-endpoint hardening (validated against Google's
+        // OpenAI-compat layer, 2026-09): "thinking"/"thinking_budget" and
+        // llama.cpp's "cache_prompt" are REJECTED with HTTP 400 by strict
+        // schema-validating endpoints - exactly the endpoints providerSafe
+        // exists for - so they never leave the device tiers. The
+        // response-side StripThinking in HygienePass remains the backstop
+        if (!s.providerSafe)
+            out += ",\"thinking\":{\"type\":\"disabled\"},"
+                   "\"thinking_budget\":0";
+    }
+    // cache_prompt is a llama.cpp-only KV-cache hint: local tiers only
+    if (!s.providerSafe)
+        out += ",\"cache_prompt\":true";
+    out += ",\"stream\":false}";
     return out;
 }
 

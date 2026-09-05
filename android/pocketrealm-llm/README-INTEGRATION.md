@@ -70,7 +70,7 @@ AiPlayerbot.LLMApiEndpoint = http://127.0.0.1:8080/v1/chat/completions
 AiPlayerbot.LLMApiJson = {"model":"local","messages":[{"role":"system","content":"<pre prompt> <context>"},{"role":"user","content":"<prompt> <post prompt>"}],"max_tokens":210,"temperature":1,"top_p":0.95,"top_k":64,"repeat_penalty":1,"cache_prompt":true,"stream":false}
 AiPlayerbot.LLMResponseStartPattern =
 AiPlayerbot.LLMResponseEndPattern =
-AiPlayerbot.LLMContextLength = 8192
+AiPlayerbot.LLMContextLength = 12288
 AiPlayerbot.LLMBanterEnabled = 1
 ```
 

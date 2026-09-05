@@ -15,6 +15,10 @@ truth):
   per-tier sampling and SS4.4 thinking-kwargs fields, strips
   llama.cpp-only fields in providerSafe mode, and stays compatible with
   the retry splice.
+* packoverlays: Phase-2/3 overlay invariants — default args render the
+  frozen default byte-exact, seasoning appends inside the instruction
+  span, mood rides after seasoning, and per-preset overrides beat the
+  staged pack file (corrupt packs stay quiet).
 """
 from __future__ import annotations
 
@@ -89,6 +93,14 @@ def test_request_body_invariants_leg(prompt_binary):
         capture_output=True, text=True, timeout=300)
     assert result.returncode == 0, result.stdout + result.stderr[:2000]
     assert "request-body invariants passed" in result.stdout
+
+
+def test_pack_overlay_invariants_leg(prompt_binary):
+    result = subprocess.run(
+        [str(prompt_binary), "packoverlays", str(VECTORS)],
+        capture_output=True, text=True, timeout=300)
+    assert result.returncode == 0, result.stdout + result.stderr[:2000]
+    assert "pack-overlay invariants passed" in result.stdout
 
 
 def test_training_text_constants_are_the_generated_block():

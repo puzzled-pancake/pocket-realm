@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <string>
 
 namespace pocketllm {
@@ -170,6 +171,18 @@ inline char const* TicPrefix(int t)
     return v[t];
 }
 
+// ------------------------------------------------------------ mood state ----
+// Phase-3 moods: the five existing mood pools plus smitten / grudge /
+// grief, as prompt seasoning (one line in the system prompt's instruction
+// span) with pool-weight shifts on the ambient draw. Moods are
+// GUID-stable per bot with slow rotation + event nudges; volatility
+// (the llmRpVolatility dial, 0-100, 50 = default) scales how fast the
+// weather changes. Pure and host-testable: the mood index derives from
+// (botGuid, tickBucket, nudgeCounter) with no game state.
+// (Placed after the pools enum: MoodPoolOf maps onto POOL_MOOD_*.)
+enum { MOOD_BORED = 0, MOOD_BLOODDRUNK, MOOD_HOMESICK, MOOD_COINHEAVY,
+       MOOD_NIGHTWEARY, MOOD_SMITTEN, MOOD_GRUDGE, MOOD_GRIEF, MOOD_COUNT };
+
 // ---------------------------------------------------------------- pools ----
 // {P} = player name, {B} = bot name; rendered by RenderLine at delivery.
 enum PoolId {
@@ -178,6 +191,13 @@ enum PoolId {
     POOL_SILENCE, POOL_DARE, POOL_BET_OPEN, POOL_BET_WIN, POOL_BET_LOSE,
     POOL_SUPERSTITION, POOL_NAMING, POOL_MOOD_BORED, POOL_MOOD_BLOODDRUNK,
     POOL_MOOD_HOMESICK, POOL_MOOD_COINHEAVY, POOL_MOOD_NIGHTWEARY,
+    // plan v5 H1/W1/W4/W8: the three aliased moods get their own pools (the
+    // prompt said smitten while the fallback line sounded homesick), plus
+    // the authored grudge act-refusal bank (W4) and the /notice nudge bank
+    // (W8) - all 12/8-deep like the rest
+    POOL_MOOD_SMITTEN, POOL_MOOD_GRUDGE, POOL_MOOD_GRIEF,
+    POOL_GRUDGE_REFUSE,
+    POOL_SCENE_NUDGE,
     POOL_WILDCARD, POOL_COUNT
 };
 
@@ -194,6 +214,12 @@ static char const* const kBusy[] = {
     "I heard you. I'm deciding what I think about it.",
     "Hold that thought. Better - hold THIS one. Mine's heavier.",
     "Give me a minute. Wisdom takes longer than anger.",
+    "Thinking. The gears turn slow but they grind fine.",
+    "A breath, {P}. Even the forge needs a moment to heat.",
+    "Patience. I'm chewing on it and it tastes complicated.",
+    "Almost got it. The thought's shy - cornered it twice already.",
+    "Hold on. Good answer's coming. Bad ones are faster, I know.",
+    "Thinking twice. It's a habit. Mostly it just takes twice as long.",
 };
 static char const* const kGreetStranger[] = {
     "You there. Traveling alone, or is the rest of your party hiding?",
@@ -384,6 +410,12 @@ static char const* const kMoodBored[] = {
     "Point at something, {P}. I'll go look at it. That's where I am right now.",
     "Bored enough to count my own scars again. The tally's unchanged. Disappointing.",
     "We could be doing anything. ANYTHING. This is what we chose.",
+    "I've started ranking the pebbles by personality. The flat one's winning. Barely.",
+    "Standing here is a skill now. I've mastered it. Ask for lessons later.",
+    "Yawned so wide I saw yesterday. Nothing much happened there either.",
+    "If boredom were coin I'd buy the tavern. Then sell it for something to do.",
+    "I've memorized your walk, {P}. Left foot doubts, right foot commits.",
+    "Somewhere there's a battle with my name on it. This field is not that somewhere.",
 };
 static char const* const kMoodBlooddrunk[] = {
     "HA! Again! Line them up!",
@@ -392,6 +424,12 @@ static char const* const kMoodBlooddrunk[] = {
     "More! The tank's not empty yet!",
     "That's the stuff! THAT'S THE STUFF!",
     "Careful, {P}, I'm magnificent right now and it wears off fast.",
+    "Still standing! Count the ones that aren't. I'll wait.",
+    "The fight's in my teeth now. Tastes like winning.",
+    "Who's next? The ground's already full, find a spot.",
+    "Adrenaline's a liar and I believe every word.",
+    "My axe is laughing, {P}. Hear it? No? Your loss.",
+    "Victory makes me generous. Ask for anything but my share.",
 };
 static char const* const kMoodHomesick[] = {
     "Nights like this I can almost smell home. Woodsmoke and burnt porridge. I'd give a toe for it. A little one.",
@@ -400,6 +438,12 @@ static char const* const kMoodHomesick[] = {
     "You ever leave a place so good you stopped trusting good places?",
     "I'm fine. It's just - the road's long in both directions tonight.",
     "I could go home whenever I like. That's the joke. I keep choosing not to.",
+    "Home's bread never tasted this good when I lived there. Distance seasons everything.",
+    "I hum the old songs now. Used to mock them. The road corrects opinions.",
+    "Somebody's sitting in my chair back home, {P}. I hope they appreciate the view.",
+    "Letters take months. By the time they answer I've become someone else.",
+    "The smell of rain here is wrong. Home rain smells of pine and iron.",
+    "One day I'll walk back up that lane. Until then, this fire's home enough.",
 };
 static char const* const kMoodCoinheavy[] = {
     "We're RICH, {P}. Rich for us. Which is poor for kings, but kings don't know what they're missing.",
@@ -408,6 +452,12 @@ static char const* const kMoodCoinheavy[] = {
     "Feel that weight in the purse? That's the sound of YES.",
     "Tonight we eat food with no bones in it. The good stuff.",
     "Don't tell me what things cost tonight. I don't want the truth. I want round numbers.",
+    "Jingle it once more, {P}. That's the sound of options.",
+    "I walk taller with a full purse. Physics. Don't question it.",
+    "Some day I'll be sensible with coin. Today is not that day.",
+    "The merchant's eyes went wide. Mine went wider. We understood each other.",
+    "Gold makes philosophers of us all. Silver makes comedians.",
+    "I'm lending you nothing. But I'll buy the round while I'm rich.",
 };
 static char const* const kMoodNightweary[] = {
     "The night's in my boots now. Every step's heavier.",
@@ -416,6 +466,135 @@ static char const* const kMoodNightweary[] = {
     "Talk quiet, {P}. Loud things wake the dark.",
     "One more hour. Then I walk into a ditch and sleep where I land.",
     "The fire's winning. Fires always win eventually. That's why I respect them.",
+    "My eyelids are conspiring. Traitors, both of them.",
+    "Dawn feels theoretical right now. I'll believe it when it arrives.",
+    "Even my shadow's dragging. Poor thing carries all of me.",
+    "Yawning at the moon. It yawns back. We understand each other.",
+    "Bed's a memory and the ground's a promise, {P}.",
+    "One eye open. That's the whole plan. It's worked so far.",
+};
+// plan v5 H1: dedicated pools for the three moods that previously aliased
+// homesick/blooddrunk/nightweary - the deterministic layer must agree with
+// the MoodSeasoningLine the prompt carries, not contradict it
+static char const* const kMoodSmitten[] = {
+    "If {P} asks for the last ration again I am giving it over. Nobody else. Don't ask why.",
+    "I keep noticing where {P} stands in a room. Not on purpose. It's just where my eyes go.",
+    "Somebody laughed at camp last night and the whole night got better. It was {P}. Obviously it was {P}.",
+    "I've started saving the good stories. The ones that land. Waste them on strangers? Not anymore.",
+    "Don't look at me like that. I sharpen blades near them because the light's better here. That's all.",
+    "When the road splits, I find I want our boots going the same way. Just noting it. As a fact.",
+    "Aye, I saved a seat. There's always a seat. It's a seat-shaped coincidence, {P}.",
+    "I'm not singing. There was humming. Humming is not singing, and you can't prove otherwise.",
+    "Funny thing - bad news lands softer when {P}'s nearby. Mathematics of the road, I expect.",
+    "If something happened to them I'd - well. Nothing's going to happen. I'll see to it personally.",
+    "I taught them the card game wrong on purpose. Two weeks of easy winnings. Worth every guilty copper.",
+    "The fire's warmer on their side. It's a known fact of fires. I've studied it. Extensively.",
+};
+static char const* const kMoodGrudge[] = {
+    "I'm not angry. I'm keeping a ledger. Angry burns off. Ledgers don't.",
+    "Fine morning. Would be finer if some people remembered what they owe. Not naming mornings. Or people.",
+    "Forgive and forget, my grandmother said. She also kept a club under the counter. Wisdom is a spectrum.",
+    "I counted to ten. Then I counted to the number of coppers I'm owed. Ran out of numbers.",
+    "There's a conversation waiting to happen. It can wait. I'm patient. I'm VERY patient.",
+    "Everyone's allowed one mistake. The second one's a choice. I keep track of choices, {P}.",
+    "The silence isn't nothing. The silence is me being polite at great personal expense.",
+    "I smile at them and everything. You'd almost think it was sincere. Almost. It's a whole craft.",
+    "Some debts are coin. Some are words said in the wrong tone at the wrong fire. Both get collected.",
+    "No, no, everything's fine. Fine like a pot with the lid on. Mind the lid.",
+    "I've decided to be the bigger person. The bigger person still remembers, mind. Just quieter about it.",
+    "You'll know when it's settled. There'll be a short speech. I've drafted it. There are revisions.",
+};
+static char const* const kMoodGrief[] = {
+    "Quieter roads this week. I keep leaving a space in the line where nobody walks anymore.",
+    "I poured the second cup out of habit this morning. Left it. The ground can have it.",
+    "Don't mind me. Some days the sky's just heavier than the armor.",
+    "I laughed at something yesterday and felt like a traitor. Grief keeps its own accounts.",
+    "They'd have laughed at me moping. That's the worst of it. That's exactly the worst of it.",
+    "I keep their whetstone. Someone has to keep the small things. Might as well be me.",
+    "The fire's too loud tonight. Or I'm too quiet. One of the two. Maybe both.",
+    "I'm all right. I'm just - walking a little slower so the road has time to make sense.",
+    "You want to know the trick of it? There isn't one. You just carry it and keep your hands busy.",
+    "First frost of the season. They'd have complained beautifully about it. I'm complaining for two now.",
+    "I said I'd tell the stories so they'd stay loud. Working on it. Some of them still catch in the throat.",
+    "Grief's just love with nowhere to go. Somebody told me that once. I understand it on Tuesdays.",
+};
+// plan v5 W4: the authored act-refusal bank - while an unresolved grudge
+// stands, follow/party_invite execute an authored refusal instead (the
+// tone ledger clears it; a paid debt settles it outright)
+static char const* const kGrudgeRefuse[] = {
+    "No. Not while that business between us stands unsettled, {P}. Make it right, then ask me again.",
+    "Ask me tomorrow. Or ask me after you've squared what you owe. One of those might work.",
+    "I don't march beside an unsettled ledger. Settle it, and my answer changes with the weather.",
+    "You know what you did. I know what you did. Ask again when the air's clear.",
+    "My feet don't move for folk who owe me an apology. Coins or words, {P} - either settles.",
+    "There it is. The ask. Bold, considering. Square things first, then we'll talk of roads.",
+    "No. And it isn't the ask - it's the asker. Not today. You know why.",
+    "When you're ready to make that right, I'm ready to walk with you. Not one step before.",
+    "I hold grudges the way dwarves hold ale - long, and with both hands. Settle up.",
+    "The answer's no until the debt is. Nothing personal. Well. A little personal.",
+    "Clear the air with me first, {P}. Then we'll see about following you anywhere.",
+    "No. Ask the others if you like - but between us two, the count isn't settled.",
+};
+// plan v5 W8: the /notice in-character nudge bank - one hint rides the
+// scene read, pointing the player at the moment (never at a mechanic)
+static char const* const kSceneNudge[] = {
+    "{B} keeps watching the road behind you. Maybe ask what they have seen.",
+    "{B} has gone quiet in that way that means thinking. It might be worth pulling on.",
+    "{B} keeps checking the sky. Old habit, or something eating at them?",
+    "You keep catching {B} looking at you like a sentence they have not started yet.",
+    "{B}'s hand has not left their weapon in a while. Could be nothing. Could be worth asking.",
+    "{B} muttered something about this place earlier and did not finish the thought.",
+    "{B} counted the party twice just now. Counting is a habit of the worried.",
+    "{B} smiled at nothing in particular. Those are usually the good stories.",
+};
+// plan v5 C4: the authored drama set pieces - one exchange (opener,
+// reply) per variant, three kinds: reunion (an old bond surfaces),
+// rivalry (a sharp working argument), debt-collection (an old favor
+// called in). Delivered as a staggered two-voice exchange on the party
+// channel; the player merely witnesses. {P} renders as the OTHER bot's
+// name (the caller passes the partner); the speakers tag themselves by
+// speaking - a name prefix would read as a script, not a quarrel.
+static char const* const kDramaReunion[][2] = {
+    {"You still carry that dented flask? After everything?",
+     "You noticed. After everything, you noticed a flask."},
+    {"Last time we stood in a place like this, you nearly got us killed.",
+     "Nearly! You remember the nearly. Never the part where I saved you."},
+    {"I thought you were dead at Sentinel Hill, you know.",
+     "I thought YOU were dead at Sentinel Hill. We are both terrible at it."},
+    {"The road got long. I looked for you at the crossings.",
+     "I was at the crossings. Wrong crossings. The road is a liar."},
+    {"You still owe me a story from that winter.",
+     "I owe you three. Come to the fire and I will pay in full."},
+    {"You old wreck. You are still alive.",
+     "Alive and listening. Say the rest of it. I am waiting."},
+};
+static char const* const kDramaRivalry[][2] = {
+    {"That was MY kill and you know it.",
+     "Your kill? Your intentions were nowhere near it."},
+    {"You take the left flank every time. Every single time.",
+     "Because you hog the middle like a troll hogs a bridge!"},
+    {"I counted. I have looted more than you this week.",
+     "You count. That is the whole problem with you."},
+    {"If you sing that verse again I am walking into the river.",
+     "Then I will sing it louder, and the fish will know your shame."},
+    {"Admit it - I found the trail first.",
+     "You found a trail. I found the trail. Sit down."},
+    {"One day I will beat you at cards and you will finally be humble.",
+     "The day you win at cards, check me for a fever first."},
+};
+static char const* const kDramaDebt[][2] = {
+    {"Three silver. From the ferry. You remember the ferry.",
+     "I remember the ferry, the rain, and your mysterious arithmetic."},
+    {"You still have my whetstone.",
+     "My whetstone? It sharpened my blade for two winters!"},
+    {"I pulled you out of that river. That has a price.",
+     "You pulled me? You dragged me by the collar like a wet cat!"},
+    {"The boots. We agreed on the boots.",
+     "We agreed nothing about the boots. Witnesses, anyone? No? Convenient."},
+    {"I covered your tab in Lakeshire. The whole tab.",
+     "And you have dined on the telling of it ever since. Paid in full."},
+    {"One day I will collect everything you owe me.",
+     "One day I will itemize everything you owe. Bring a wagon."},
 };
 static char const* const kWildcard[] = {
     "I've been thinking about time. Not the passing of it - the owing of it. I reckon I owe more than I've got.",
@@ -427,9 +606,30 @@ static char const* const kWildcard[] = {
     "Two lanterns in the valley. Two's fine. Two's nobody's business. THREE would be a problem.",
     "Forty-one. Forty-one WHAT, you ask? Nobody ever asks. That's the whole problem with counting.",
     "This place smells like the docks at home. I don't want to talk about why.",
-    "I've a feeling we're being spared for something worse. Grand, isn't it?",
+    "I've a feeling we're being spared for something worse. Grand, isn't it.",
+    "The crows follow us, {P}. Either we're interesting or we're dinner. Possibly both.",
+    "I collect small strange stones. This one's my favourite. Don't ask why. I don't know.",
+    "Somewhere a bard is singing about braver folk. Good. Let them.",
+    "My boots have opinions about this road. I share most of them.",
+    "If the wind had a face I'd punch it. It knows what it did.",
+    "Quiet now. The trees are listening and they gossip worse than townsfolk.",
 };
 } // namespace detail
+
+// plan v5 C4: the drama exchange accessor - kind 0 reunion, 1 rivalry,
+// 2 debt-collection; six variants each; the pair is (opener, reply) and
+// {P} renders as the OTHER bot's name
+inline char const* const* DramaPairTable(int kind, size_t variant)
+{
+    if (variant >= 6)
+        variant = 0;
+    switch (kind)
+    {
+        case 1: return detail::kDramaRivalry[variant];
+        case 2: return detail::kDramaDebt[variant];
+        default: return detail::kDramaReunion[variant];
+    }
+}
 
 inline char const* const* Pool(PoolId p, size_t& count)
 {
@@ -457,9 +657,68 @@ inline char const* const* Pool(PoolId p, size_t& count)
         case POOL_MOOD_HOMESICK: count = sizeof(kMoodHomesick)/sizeof(void*); return kMoodHomesick;
         case POOL_MOOD_COINHEAVY: count = sizeof(kMoodCoinheavy)/sizeof(void*); return kMoodCoinheavy;
         case POOL_MOOD_NIGHTWEARY: count = sizeof(kMoodNightweary)/sizeof(void*); return kMoodNightweary;
+        case POOL_MOOD_SMITTEN: count = sizeof(kMoodSmitten)/sizeof(void*); return kMoodSmitten;
+        case POOL_MOOD_GRUDGE: count = sizeof(kMoodGrudge)/sizeof(void*); return kMoodGrudge;
+        case POOL_MOOD_GRIEF: count = sizeof(kMoodGrief)/sizeof(void*); return kMoodGrief;
+        case POOL_GRUDGE_REFUSE: count = sizeof(kGrudgeRefuse)/sizeof(void*); return kGrudgeRefuse;
+        case POOL_SCENE_NUDGE: count = sizeof(kSceneNudge)/sizeof(void*); return kSceneNudge;
         case POOL_WILDCARD: count = sizeof(kWildcard)/sizeof(void*); return kWildcard;
         default: count = 0; return 0;
     }
+}
+
+// ------------------------------------------------------------ mood state ----
+// (the mood model is documented at the first mood-state block above the
+// pools; MoodPoolOf maps mood -> pool, including the plan-v5 dedicated
+// smitten/grudge/grief pools)
+inline int MoodIndexOf(uint32_t botGuid, uint32_t tickBucket, uint32_t nudges)
+{
+    // slow weather: the bucket advances ~hourly upstream, nudges come
+    // from grudge/smitten/grief events; both fold in GUID-stably
+    uint32_t h = botGuid * 0x9E3779B9u + tickBucket * 0x85EBCA6Bu + nudges * 0xC2B2AE35u;
+    h ^= h >> 13;
+    h *= 0x5BD1E995u;
+    h ^= h >> 15;
+    return h % MOOD_COUNT;
+}
+
+inline char const* MoodSeasoningLine(int mood)
+{
+    static char const* const v[MOOD_COUNT] = {
+        "Your weather right now: restless and bored. Small things itch; you would welcome any distraction.",
+        "Your weather right now: blood-drunk from the last fight. Loud, bright, a little larger than life.",
+        "Your weather right now: homesick. The far-away aches a little; familiar things land softer.",
+        "Your weather right now: coin-heavy and pleased. The purse is full and everything looks affordable.",
+        "Your weather right now: night-weary. Heavy boots, honest tongue; loud things grate.",
+        "Your weather right now: smitten. Someone here shines a little brighter than the rest, and it shows.",
+        "Your weather right now: nursing a grudge. An old sore colors the edges; the grudge itself stays unsaid.",
+        "Your weather right now: grieving. A recent loss sits close; you are quieter, and gentle things sting.",
+    };
+    return (mood >= 0 && mood < MOOD_COUNT) ? v[mood] : v[0];
+}
+
+inline PoolId MoodPoolOf(int mood)
+{
+    // plan v5 H1: smitten/grudge/grief carry their OWN pools - the alias
+    // table made the deterministic layer contradict its prompt seasoning
+    static PoolId const v[MOOD_COUNT] = {
+        POOL_MOOD_BORED, POOL_MOOD_BLOODDRUNK, POOL_MOOD_HOMESICK,
+        POOL_MOOD_COINHEAVY, POOL_MOOD_NIGHTWEARY,
+        POOL_MOOD_SMITTEN, POOL_MOOD_GRUDGE, POOL_MOOD_GRIEF,
+    };
+    return (mood >= 0 && mood < MOOD_COUNT) ? v[mood] : POOL_IDLE;
+}
+
+// Volatility scaling: dial 0-100 (50 = default). Returns the mood-slot
+// weight multiplier for the ambient pool table: 0 halves mood presence
+// (steady weather), 100 doubles it (changeable weather). Pure linear,
+// applied by the caller to the mood entries' draw odds.
+inline int MoodWeightPermille(int volatilityDial)
+{
+    // out-of-band dials (>100, the unset sentinel path) follow the
+    // default; negative folds to 50 the same way
+    if (volatilityDial < 0 || volatilityDial > 100) volatilityDial = 50;
+    return 500 + volatilityDial * 10; // 500..1500 permille around the 1000 default
 }
 
 // ------------------------------------------------------------- selection ----
@@ -571,6 +830,19 @@ inline BanterResult SelectLine(BanterState& s, char const* const* pool, size_t p
     r.line = pool[chosen];
     r.index = (uint16_t)chosen;
     return r;
+}
+
+// ----------------------------------------------------------- arbitration ----
+// plan v5 F7: pure budget primitive for the authored-line hourly ceiling.
+// The caller owns the timestamp deque (seconds) and the mutex; this only
+// prunes entries older than the window. Check-then-stamp stays with the
+// caller so one lock can cover the global + per-category pair atomically
+// (a stamp without a line, or a line without a stamp, is the bug this
+// split exists to avoid).
+inline void ArbiterPrune(std::deque<int64_t>& stamps, int64_t now, int64_t windowSec)
+{
+    while (!stamps.empty() && now - stamps.front() >= windowSec)
+        stamps.pop_front();
 }
 
 // ------------------------------------------------------------- rendering ----

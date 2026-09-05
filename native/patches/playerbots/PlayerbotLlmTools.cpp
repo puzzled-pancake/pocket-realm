@@ -2,6 +2,7 @@
 
 #include "PlayerbotLlmBridge.h"
 #include "PlayerbotLlmMemory.h"
+#include "PlayerbotLlmPersona.h"
 #include "PlayerbotLlmPrompt.h"
 #include "PlayerbotLlmToolsCore.h"
 #include "playerbot/playerbot.h"
@@ -396,6 +397,26 @@ void PlayerbotLlmTools::ExecutePending(Player* bot)
                 continue;
             if (LicensedField(licensedLine, "name") != player->GetName())
                 continue;
+            // plan v5 W4: a standing grudge refuses the group action -
+            // ALWAYS declined, voiced only when the volatility dial is
+            // above the steady rung (a kindness or a paid debt clears it
+            // through the tone ledger)
+            if (sPlayerbotAIConfig.llmGrudgeRefusalEnabled)
+            {
+                std::string const grudge = PlayerbotLlmMemory::GetUnresolvedGrudge(
+                    bot->GetGUIDLow(), player->GetGUIDLow());
+                if (!grudge.empty())
+                {
+                    if (sPlayerbotAIConfig.llmRpVolatility > 25)
+                    {
+                        std::string const refusal =
+                            PlayerbotLlmPersona::GrudgeRefusalLine(bot, player);
+                        if (!refusal.empty())
+                            bot->Say(refusal, LANG_UNIVERSAL);
+                    }
+                    continue;
+                }
+            }
             ai->ChangeStrategy("+follow", BotState::BOT_STATE_NON_COMBAT);
         }
         else if (call.name == "party_invite")
@@ -406,6 +427,23 @@ void PlayerbotLlmTools::ExecutePending(Player* bot)
                 continue;
             if (bot->GetGroup() && bot->GetGroup()->IsMember(player->GetObjectGuid()))
                 continue; // already grouped together
+            // plan v5 W4: same grudge refusal as follow (see above)
+            if (sPlayerbotAIConfig.llmGrudgeRefusalEnabled)
+            {
+                std::string const grudge = PlayerbotLlmMemory::GetUnresolvedGrudge(
+                    bot->GetGUIDLow(), player->GetGUIDLow());
+                if (!grudge.empty())
+                {
+                    if (sPlayerbotAIConfig.llmRpVolatility > 25)
+                    {
+                        std::string const refusal =
+                            PlayerbotLlmPersona::GrudgeRefusalLine(bot, player);
+                        if (!refusal.empty())
+                            bot->Say(refusal, LANG_UNIVERSAL);
+                    }
+                    continue;
+                }
+            }
             ai->DoSpecificAction("invite", Event("llm action", player->GetName()), true);
         }
         else if (call.name == "loot_roll")

@@ -500,6 +500,30 @@ static void BudgetLeg()
         CHECK_EQ((int)under.size(), 2, "224 tokens stays the short budget");
     }
     {
+        // the longForm dial must reach the BUDGET license with the same
+        // bar the cue gate used (a storytelling preset on a 210-token tier
+        // earns cue AND widened budget; a short-discipline preset earns
+        // neither even on a licensed tier). LINE and BYTE effects both
+        // pinned - a line-only pin once let a byte-side dial drop pass.
+        std::vector<std::string> story = {std::string(255, 'a'), std::string(255, 'b'),
+                                          std::string(255, 'c'), std::string(255, 'd')};
+        pocketllm::ApplyReplyBudget(story, 0, 210, true, 100);
+        CHECK_EQ((int)story.size(), 4, "dial 100 (bar 150) widens the budget on a 210-token tier");
+        CHECK_EQ((int)story[0].size(), 255, "dial 100 keeps the 255-byte cued line bound");
+        std::vector<std::string> terse = {std::string(200, 'a'), "x", "y", "z"};
+        pocketllm::ApplyReplyBudget(terse, 0, 210, true, 0);
+        CHECK_EQ((int)terse.size(), 2, "dial 0 (bar 300) keeps the short budget on a 210-token tier");
+        CHECK_EQ((int)terse[0].size(), 160, "dial 0 clamps the byte bound to 160");
+        std::vector<std::string> def = {std::string(200, 'a'), "x", "y", "z"};
+        pocketllm::ApplyReplyBudget(def, 0, 210, true);
+        CHECK_EQ((int)def.size(), 2, "default dial (bar 225) keeps the short budget on a 210-token tier");
+        CHECK_EQ((int)def[0].size(), 160, "default dial clamps the byte bound to 160");
+        std::vector<std::string> licensed = {std::string(255, 'a'), "x", "y", "z"};
+        pocketllm::ApplyReplyBudget(licensed, 0, 230, true, 0);
+        CHECK_EQ((int)licensed.size(), 2, "dial 0 (bar 300) clamps even a 230-token tier");
+        CHECK_EQ((int)licensed[0].size(), 160, "dial 0 clamps the 230-token tier to 160 bytes");
+    }
+    {
         // a multibyte run straddling the 80-byte cut must back off whole
         // characters, not split one (the splitter's own law)
         std::string euros;

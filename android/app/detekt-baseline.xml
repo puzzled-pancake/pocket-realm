@@ -35,7 +35,6 @@
     <ID>CyclomaticComplexMethod:BotProfiles.kt$BotProfile$fun playerbotConfig(): String</ID>
     <ID>CyclomaticComplexMethod:BotsScreen.kt$@Composable fun BotsScreen()</ID>
     <ID>CyclomaticComplexMethod:BotsScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun BasicsContent( target: EditorTarget?, working: BotCustomConfiguration, running: Boolean, savedPreset: BotPresetStore.SavedPreset?, applied: Boolean, onWorking: (BotCustomConfiguration) -&gt; Unit, )</ID>
-    <ID>CyclomaticComplexMethod:ChatterPowerMonitor.kt$ChatterPowerMonitor$fun computeRung( charging: Boolean, batteryPct: Int?, online: Boolean, thermalStatus: Int?, headroomForecast: Int?, ): Int</ID>
     <ID>CyclomaticComplexMethod:ClientDisplayHost.kt$ClientDisplayHost$private fun attemptClose()</ID>
     <ID>CyclomaticComplexMethod:ClientDisplayHost.kt$ClientDisplayHost$private fun autoLoginTarget(): Window?</ID>
     <ID>CyclomaticComplexMethod:ClientDisplayHost.kt$ClientInputBridge$fun dispatchKey(event: KeyEvent): Boolean</ID>
@@ -89,6 +88,7 @@
     <ID>CyclomaticComplexMethod:LegacyControllerBindingRepair.kt$LegacyControllerBindingRepair$private fun repairFile(file: File, previous: Map&lt;String, String?&gt;?): Boolean</ID>
     <ID>CyclomaticComplexMethod:LlmModelCoordinator.kt$LlmModelCoordinator$fun download( context: Context, descriptor: ModelDescriptor = primaryModel, onProgress: (Long) -&gt; Unit = {}, isCancelled: () -&gt; Boolean = { false }, ): File</ID>
     <ID>CyclomaticComplexMethod:LlmModelCoordinator.kt$LlmModelCoordinator$private fun streamToPartial( url: String, descriptor: ModelDescriptor, start: Long, etag: String?, partial: File, onProgress: (Long) -&gt; Unit, isCancelled: () -&gt; Boolean, ): StreamResult</ID>
+    <ID>CyclomaticComplexMethod:LlmRuntimePolicy.kt$LlmRuntimePolicy$private fun confLines( endpoint: String, model: String, apiKey: String, banterEnabled: Boolean, profile: LlmSamplingProfile, tier: LlmTierProfile, providerSafe: Boolean, loreFile: String? = null, chatterPowerFile: String? = null, composerEndpoint: String? = null, composerModel: String? = null, composerApiKey: String? = null, maxNewTokensOverride: Int = 0, generationTimeoutOverride: Int = 0, speech: BotLlmSpeech = BotLlmSpeech(), promptPackFile: String? = null, ): String</ID>
     <ID>CyclomaticComplexMethod:ManagedClientImporter.kt$ManagedClientImporter$suspend fun runArchive( archiveUri: Uri, expectedBytes: Long, afterStaging: () -&gt; Unit = {}, afterDetection: () -&gt; Unit = {}, afterVerified: (Int) -&gt; Unit = {}, beforePublish: () -&gt; Unit = {}, afterRenameBeforeActivate: () -&gt; Unit = {}, onDataStageTick: () -&gt; Unit = {}, onScratchEntry: (Int) -&gt; Unit = {}, ): ImportResult</ID>
     <ID>CyclomaticComplexMethod:ManagedClientStore.kt$ManagedClientStore$private fun loadUnlocked(clientId: String): ManagedClient</ID>
     <ID>CyclomaticComplexMethod:PackagingExperimentRunner.kt$PackagingExperimentRunner$suspend fun runPkg01(launcherRelName: String = "libpocket_pkg_launcher.so"): ExperimentResult</ID>
@@ -143,9 +143,15 @@
     <ID>FunctionNaming:BotsScreen.kt$@Composable fun BotsScreen()</ID>
     <ID>FunctionNaming:BotsScreen.kt$@Composable private fun AccountsSection( working: BotCustomConfiguration, onWorking: (BotCustomConfiguration) -&gt; Unit, )</ID>
     <ID>FunctionNaming:BotsScreen.kt$@Composable private fun AdaptationSection( working: BotCustomConfiguration, onWorking: (BotCustomConfiguration) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:BotsScreen.kt$@Composable private fun AdvancedDisclosure( title: String, support: String, tag: String, content: @Composable () -&gt; Unit, )</ID>
+    <ID>FunctionNaming:BotsScreen.kt$@Composable private fun AiMemoryControls( working: BotCustomConfiguration, onWorking: (BotCustomConfiguration) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:BotsScreen.kt$@Composable private fun AiPackDeltasControls( working: BotCustomConfiguration, onWorking: (BotCustomConfiguration) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:BotsScreen.kt$@Composable private fun AiSection( working: BotCustomConfiguration, onWorking: (BotCustomConfiguration) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:BotsScreen.kt$@Composable private fun BehaviourAdvancedSection( working: BotCustomConfiguration, onWorking: (BotCustomConfiguration) -&gt; Unit, )</ID>
     <ID>FunctionNaming:BotsScreen.kt$@Composable private fun EditorActionBar( target: EditorTarget?, dirty: Boolean, onApply: () -&gt; Unit, onSave: () -&gt; Unit, onReset: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:BotsScreen.kt$@Composable private fun EditorPane( target: EditorTarget?, working: BotCustomConfiguration, dirty: Boolean, section: EditorSection, onSection: (EditorSection) -&gt; Unit, running: Boolean, savedPreset: BotPresetStore.SavedPreset?, applied: Boolean, onApply: () -&gt; Unit, onSave: () -&gt; Unit, onReset: () -&gt; Unit, onWorking: (BotCustomConfiguration) -&gt; Unit, presetSelector: (@Composable () -&gt; Unit)? = null, modifier: Modifier = Modifier, )</ID>
     <ID>FunctionNaming:BotsScreen.kt$@Composable private fun LevelingSection( working: BotCustomConfiguration, onWorking: (BotCustomConfiguration) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:BotsScreen.kt$@Composable private fun PopulationAdvancedSection( working: BotCustomConfiguration, onWorking: (BotCustomConfiguration) -&gt; Unit, )</ID>
     <ID>FunctionNaming:BotsScreen.kt$@Composable private fun PopulationSection( working: BotCustomConfiguration, onWorking: (BotCustomConfiguration) -&gt; Unit, )</ID>
     <ID>FunctionNaming:BotsScreen.kt$@Composable private fun PresetChip( label: String, summary: String, selected: Boolean, tag: String, onClick: () -&gt; Unit, )</ID>
     <ID>FunctionNaming:BotsScreen.kt$@Composable private fun PresetList( presets: List&lt;BotPresetStore.SavedPreset&gt;, selectedSavedId: String?, selectedBuiltinId: String?, search: String, onSearch: (String) -&gt; Unit, onSelectBuiltIn: (com.pocketrealm.bots.BotProfile) -&gt; Unit, onSelectSaved: (BotPresetStore.SavedPreset) -&gt; Unit, onNew: () -&gt; Unit, onImport: () -&gt; Unit, onExport: (BotPresetStore.SavedPreset) -&gt; Unit, onToggleFavorite: (String, Boolean) -&gt; Unit, onDuplicate: (String) -&gt; Unit, onRename: (String) -&gt; Unit, onDelete: (String) -&gt; Unit, listModifier: Modifier = Modifier, )</ID>
@@ -159,6 +165,10 @@
     <ID>FunctionNaming:BotsScreen.kt$@Composable private fun Stepper( label: String, value: Int, range: IntRange, step: Int = 1, onChange: (Int) -&gt; Unit, )</ID>
     <ID>FunctionNaming:BotsScreen.kt$@Composable private fun SwitchRow(label: String, checked: Boolean, tag: String, onChange: (Boolean) -&gt; Unit)</ID>
     <ID>FunctionNaming:BotsScreen.kt$@Composable private fun TemperamentSection( working: BotCustomConfiguration, onWorking: (BotCustomConfiguration) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:BotsScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun AiBotToBotControls( working: BotCustomConfiguration, onWorking: (BotCustomConfiguration) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:BotsScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun AiReplyLengthControls( working: BotCustomConfiguration, onWorking: (BotCustomConfiguration) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:BotsScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun AiRpDialRow( label: String, value: Int, tag: String, onChange: (Int) -&gt; Unit, )</ID>
+    <ID>FunctionNaming:BotsScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun AiRpDialsControls( working: BotCustomConfiguration, onWorking: (BotCustomConfiguration) -&gt; Unit, )</ID>
     <ID>FunctionNaming:BotsScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun BasicsContent( target: EditorTarget?, working: BotCustomConfiguration, running: Boolean, savedPreset: BotPresetStore.SavedPreset?, applied: Boolean, onWorking: (BotCustomConfiguration) -&gt; Unit, )</ID>
     <ID>FunctionNaming:BotsScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun CustomPopulationEditor( working: BotCustomConfiguration, onWorking: (BotCustomConfiguration) -&gt; Unit, )</ID>
     <ID>FunctionNaming:BotsScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun NearbySection( working: BotCustomConfiguration, onWorking: (BotCustomConfiguration) -&gt; Unit, )</ID>
@@ -257,13 +267,14 @@
     <ID>LongMethod:AndroidRuntimeBackend.kt$AndroidRuntimeBackend$private suspend fun startClient(owner: ComponentOwner, spec: RuntimeLaunchSpec): ComponentObservation</ID>
     <ID>LongMethod:ArmClientRendererCatalog.kt$AndroidGladioCapabilityProbe$private fun probeEgl(declared: Int): GladioCapability</ID>
     <ID>LongMethod:BotAdmissionController.kt$BotAdmissionController$fun observe(sample: BotResourceSample): BotAdmissionState</ID>
+    <ID>LongMethod:BotPresetStore.kt$BotPresetStore.Companion$internal fun readConfiguration(json: JSONObject): BotCustomConfiguration</ID>
+    <ID>LongMethod:BotPresetStore.kt$BotPresetStore.Companion$internal fun writeConfiguration(configuration: BotCustomConfiguration): JSONObject</ID>
     <ID>LongMethod:BotProfiles.kt$BotProfile$fun playerbotConfig(): String</ID>
     <ID>LongMethod:BotProfiles.kt$BotProfiles$private fun advancedFromBase( prefix: String, target: Int, settings: BotAdvancedSettings, base: BotProfile, ): BotProfile</ID>
     <ID>LongMethod:BotsScreen.kt$@Composable fun BotsScreen()</ID>
     <ID>LongMethod:BotsScreen.kt$@Composable private fun PresetList( presets: List&lt;BotPresetStore.SavedPreset&gt;, selectedSavedId: String?, selectedBuiltinId: String?, search: String, onSearch: (String) -&gt; Unit, onSelectBuiltIn: (com.pocketrealm.bots.BotProfile) -&gt; Unit, onSelectSaved: (BotPresetStore.SavedPreset) -&gt; Unit, onNew: () -&gt; Unit, onImport: () -&gt; Unit, onExport: (BotPresetStore.SavedPreset) -&gt; Unit, onToggleFavorite: (String, Boolean) -&gt; Unit, onDuplicate: (String) -&gt; Unit, onRename: (String) -&gt; Unit, onDelete: (String) -&gt; Unit, listModifier: Modifier = Modifier, )</ID>
     <ID>LongMethod:BotsScreen.kt$@Composable private fun SavedPresetRow( preset: BotPresetStore.SavedPreset, selected: Boolean, onSelect: () -&gt; Unit, onToggleFavorite: (Boolean) -&gt; Unit, onRename: () -&gt; Unit, onDuplicate: () -&gt; Unit, onExport: () -&gt; Unit, onDelete: () -&gt; Unit, )</ID>
     <ID>LongMethod:BotsScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun BasicsContent( target: EditorTarget?, working: BotCustomConfiguration, running: Boolean, savedPreset: BotPresetStore.SavedPreset?, applied: Boolean, onWorking: (BotCustomConfiguration) -&gt; Unit, )</ID>
-    <ID>LongMethod:BotsScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable private fun NearbySection( working: BotCustomConfiguration, onWorking: (BotCustomConfiguration) -&gt; Unit, )</ID>
     <ID>LongMethod:CapabilityScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable fun CapabilityScreen(contentPadding: PaddingValues = PaddingValues())</ID>
     <ID>LongMethod:ClientActivity.kt$ClientActivity$@Suppress("DEPRECATION") // Bar colors remain required on the API 26-34 compatibility path. override fun onCreate(savedInstanceState: Bundle?)</ID>
     <ID>LongMethod:ClientRuntimeProviderTest.kt$ClientRuntimeProviderTest$@Test fun armRoutesRemainExactAndDxvkIsDefault()</ID>
@@ -315,6 +326,7 @@
     <ID>LongMethod:InputProfile.kt$InputProfile.Companion$fun fromJson(value: JSONObject): InputProfile</ID>
     <ID>LongMethod:IntegratedClientDisplay.kt$ClientDisplayService.&lt;no name provided&gt;$override fun prepare( runtimeRoot: String, instanceToken: String, autoLoginUsername: String, autoLoginPassword: String, autoLoginTimingJson: String, audioMode: String, clientId: String, renderer: String, vulkanDriverId: String, rendererPackageId: String, displayProfileId: String, frameCap: Int, autoLoginUiScale: Float, ): String</ID>
     <ID>LongMethod:LanScreen.kt$@Composable fun LanScreen()</ID>
+    <ID>LongMethod:LlmRuntimePolicy.kt$LlmRuntimePolicy$private fun confLines( endpoint: String, model: String, apiKey: String, banterEnabled: Boolean, profile: LlmSamplingProfile, tier: LlmTierProfile, providerSafe: Boolean, loreFile: String? = null, chatterPowerFile: String? = null, composerEndpoint: String? = null, composerModel: String? = null, composerApiKey: String? = null, maxNewTokensOverride: Int = 0, generationTimeoutOverride: Int = 0, speech: BotLlmSpeech = BotLlmSpeech(), promptPackFile: String? = null, ): String</ID>
     <ID>LongMethod:ManagedClientImporter.kt$ManagedClientImporter$suspend fun runArchive( archiveUri: Uri, expectedBytes: Long, afterStaging: () -&gt; Unit = {}, afterDetection: () -&gt; Unit = {}, afterVerified: (Int) -&gt; Unit = {}, beforePublish: () -&gt; Unit = {}, afterRenameBeforeActivate: () -&gt; Unit = {}, onDataStageTick: () -&gt; Unit = {}, onScratchEntry: (Int) -&gt; Unit = {}, ): ImportResult</ID>
     <ID>LongMethod:ManagedClientStore.kt$ManagedClientStore$private fun loadUnlocked(clientId: String): ManagedClient</ID>
     <ID>LongMethod:PackagingExperimentRunner.kt$PackagingExperimentRunner$suspend fun runPkg01(launcherRelName: String = "libpocket_pkg_launcher.so"): ExperimentResult</ID>
@@ -327,6 +339,7 @@
     <ID>LongMethod:Settings.kt$internal fun MutablePreferences.writeSnapshotWrites( next: Settings.Snapshot, display: ClientDisplaySelection, )</ID>
     <ID>LongMethod:SettingsScreen.kt$@Composable // onLlm joins the reviewed sibling navigation params; the list is one // longer than the default cap by design. @Suppress("LongParameterList") fun SettingsScreen( contentPadding: PaddingValues = PaddingValues(), onBots: (() -&gt; Unit)? = null, onClientSetup: (() -&gt; Unit)? = null, onCapability: (() -&gt; Unit)? = null, onDiagnostics: (() -&gt; Unit)? = null, onInGameSettings: (() -&gt; Unit)? = null, onLlm: (() -&gt; Unit)? = null, )</ID>
     <ID>LongMethod:SettingsScreen.kt$private suspend fun importUserVulkanDriverFromUri( context: android.content.Context, uri: Uri, ): UserVulkanDriverImport</ID>
+    <ID>LongMethod:SettingsUpdateWriteSetTest.kt$SettingsUpdateWriteSetTest$@Test fun llmSettingsRoundTripThroughTheWriteSetAndNormalize()</ID>
     <ID>LongMethod:TouchOverlay.kt$@Composable fun TouchOverlay(host: ClientDisplayHost, modifier: Modifier = Modifier)</ID>
     <ID>LongMethod:TouchOverlay.kt$@Composable private fun BoxScope.ConsoleTouchControls( host: ClientDisplayHost, profile: InputProfile, opacity: Float, moveMode: Boolean, containerSize: IntSize, )</ID>
     <ID>LongMethod:TouchOverlay.kt$@Composable private fun BoxScope.FullTouchControls( host: ClientDisplayHost, profile: InputProfile, opacity: Float, moveMode: Boolean, containerSize: IntSize, )</ID>
@@ -348,6 +361,7 @@
     <ID>LongParameterList:AddonsScreen.kt$( addon: CatalogAddon, installed: InstalledAddon?, updateAvailable: Boolean, busy: Boolean, onInstall: () -&gt; Unit, onRemove: () -&gt; Unit, )</ID>
     <ID>LongParameterList:AddonsScreen.kt$( operationLabel: String?, repositoryLabel: String?, progress: Float?, cancellable: Boolean, onCancel: () -&gt; Unit, notice: String?, errorTitle: String?, error: String?, )</ID>
     <ID>LongParameterList:AutoLoginPolicy.kt$AutoLoginCredentialProof$( expectedOwner: ComponentOwner, expectedAccountId: Long, expectedGmLevel: Int, responseOk: Boolean, passwordVerified: Boolean, accountExists: Boolean, accountId: Long, gmLevel: Int, ownerSessionId: String?, ownerInstanceToken: String?, )</ID>
+    <ID>LongParameterList:BotLlmSpeech.kt$BotLlmSpeech.Companion$( replyTokens: Int, botToBotChatChance: Int, factsCap: Int, memoriesTail: Int, packDeltas: Map&lt;String, Boolean&gt; = emptyMap(), initiative: Int = -1, volatility: Int = -1, reactivity: Int = -1, longForm: Int = -1, )</ID>
     <ID>LongParameterList:BotsScreen.kt$( label: String, value: Int, range: IntRange, step: Int, tag: String, onChange: (Int) -&gt; Unit, )</ID>
     <ID>LongParameterList:BotsScreen.kt$( preset: BotPresetStore.SavedPreset, selected: Boolean, onSelect: () -&gt; Unit, onToggleFavorite: (Boolean) -&gt; Unit, onRename: () -&gt; Unit, onDuplicate: () -&gt; Unit, onExport: () -&gt; Unit, onDelete: () -&gt; Unit, )</ID>
     <ID>LongParameterList:BotsScreen.kt$( presets: List&lt;BotPresetStore.SavedPreset&gt;, selectedSavedId: String?, selectedBuiltinId: String?, search: String, onSearch: (String) -&gt; Unit, onSelectBuiltIn: (com.pocketrealm.bots.BotProfile) -&gt; Unit, onSelectSaved: (BotPresetStore.SavedPreset) -&gt; Unit, onNew: () -&gt; Unit, onImport: () -&gt; Unit, onExport: (BotPresetStore.SavedPreset) -&gt; Unit, onToggleFavorite: (String, Boolean) -&gt; Unit, onDuplicate: (String) -&gt; Unit, onRename: (String) -&gt; Unit, onDelete: (String) -&gt; Unit, listModifier: Modifier = Modifier, )</ID>
@@ -393,14 +407,14 @@
     <ID>LongParameterList:LanScreen.kt$( lanAddress: String, onLanAddress: (String) -&gt; Unit, onJoinLan: () -&gt; Unit, lanError: String?, joined: Boolean, joinedAddress: String?, enabled: Boolean, clientUnavailableReason: String? = null, modifier: Modifier = Modifier, )</ID>
     <ID>LongParameterList:LanScreen.kt$( state: RealmState, settingsReady: Boolean, allowLanPlayers: Boolean, onAllowLanPlayers: (Boolean) -&gt; Unit, onStartHost: () -&gt; Unit, onSaveExit: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>LongParameterList:LlmModelCoordinator.kt$LlmModelCoordinator$( url: String, descriptor: ModelDescriptor, start: Long, etag: String?, partial: File, onProgress: (Long) -&gt; Unit, isCancelled: () -&gt; Boolean, )</ID>
-    <ID>LongParameterList:LlmRuntimePolicy.kt$LlmRuntimePolicy$( endpoint: String, model: String, apiKey: String, banterEnabled: Boolean, profile: LlmSamplingProfile, tier: LlmTierProfile, providerSafe: Boolean, loreFile: String? = null, chatterPowerFile: String? = null, composerEndpoint: String? = null, composerModel: String? = null, composerApiKey: String? = null, )</ID>
-    <ID>LongParameterList:LlmRuntimePolicy.kt$LlmRuntimePolicy$( endpoint: String?, model: String?, apiKey: String?, banterEnabled: Boolean = true, loreFile: String? = null, chatterPowerFile: String? = null, composerEndpoint: String? = null, composerModel: String? = null, composerApiKey: String? = null, )</ID>
-    <ID>LongParameterList:LlmRuntimePolicy.kt$LlmRuntimePolicy$( llmEnabled: Boolean, port: Int = DEFAULT_PORT, banterEnabled: Boolean = true, profile: LlmSamplingProfile = LlmModelRegistry.TUNED_E2B.profile, tier: LlmTierProfile = LlmModelRegistry.TUNED_E2B.tierProfile, loreFile: String? = null, chatterPowerFile: String? = null, composerEndpoint: String? = null, composerModel: String? = null, composerApiKey: String? = null, )</ID>
+    <ID>LongParameterList:LlmRuntimePolicy.kt$LlmRuntimePolicy$( endpoint: String, model: String, apiKey: String, banterEnabled: Boolean, profile: LlmSamplingProfile, tier: LlmTierProfile, providerSafe: Boolean, loreFile: String? = null, chatterPowerFile: String? = null, composerEndpoint: String? = null, composerModel: String? = null, composerApiKey: String? = null, maxNewTokensOverride: Int = 0, generationTimeoutOverride: Int = 0, speech: BotLlmSpeech = BotLlmSpeech(), promptPackFile: String? = null, )</ID>
+    <ID>LongParameterList:LlmRuntimePolicy.kt$LlmRuntimePolicy$( endpoint: String?, model: String?, apiKey: String?, banterEnabled: Boolean = true, loreFile: String? = null, chatterPowerFile: String? = null, composerEndpoint: String? = null, composerModel: String? = null, composerApiKey: String? = null, maxNewTokensOverride: Int = 0, generationTimeoutOverride: Int = 0, speech: BotLlmSpeech = BotLlmSpeech(), promptPackFile: String? = null, )</ID>
+    <ID>LongParameterList:LlmRuntimePolicy.kt$LlmRuntimePolicy$( llmEnabled: Boolean, port: Int = DEFAULT_PORT, banterEnabled: Boolean = true, profile: LlmSamplingProfile = LlmModelRegistry.TUNED_E2B.profile, tier: LlmTierProfile = LlmModelRegistry.TUNED_E2B.tierProfile, loreFile: String? = null, chatterPowerFile: String? = null, composerEndpoint: String? = null, composerModel: String? = null, composerApiKey: String? = null, maxNewTokensOverride: Int = 0, generationTimeoutOverride: Int = 0, speech: BotLlmSpeech = BotLlmSpeech(), promptPackFile: String? = null, )</ID>
     <ID>LongParameterList:ManagedClientImporter.kt$ManagedClientImporter$( archiveUri: Uri, expectedBytes: Long, afterStaging: () -&gt; Unit = {}, afterDetection: () -&gt; Unit = {}, afterVerified: (Int) -&gt; Unit = {}, beforePublish: () -&gt; Unit = {}, afterRenameBeforeActivate: () -&gt; Unit = {}, onDataStageTick: () -&gt; Unit = {}, onScratchEntry: (Int) -&gt; Unit = {}, )</ID>
     <ID>LongParameterList:ManagedClientImporter.kt$ManagedClientImporter$( private val context: Context, private val limits: ImportLimits = ImportLimits(), private val journal: ImportJournal = ImportJournal(context), private val storagePlanner: ImportStoragePlanner = ImportStoragePlanner(context), private val generations: ClientGenerationStore = ClientGenerationStore(context), private val prepareData: Boolean = true, private val dataStore: DataPreparationStore = DataPreparationStore(context, journal), )</ID>
     <ID>LongParameterList:RealmNative.kt$RealmNative.RealmConfig$( @JvmField var abiVersion: Int = ABI_VERSION, @JvmField var dataDir: String = "", @JvmField var dbDir: String = "", @JvmField var worldConf: String = "", @JvmField var realmdConf: String = "", @JvmField var playerbotConf: String? = null, @JvmField var worldThreads: Int = 1, )</ID>
     <ID>LongParameterList:ScratchArchiveExtractor.kt$ScratchArchiveExtractor$( stagedFile: File, format: ArchiveFormat, target: File, limits: ImportLimits, checkpoint: () -&gt; Unit = {}, onEntryExtracted: (filesDone: Int) -&gt; Unit = {}, )</ID>
-    <ID>LongParameterList:ServerRuntimeFiles.kt$ServerRuntimeFiles.Companion$( uiEnabled: Boolean, modelPresent: Boolean, modelAbsolutePath: String, debugBuild: Boolean, externalMode: Boolean = false, externalEndpoint: String? = null, externalModel: String? = null, externalApiKey: String? = null, banterEnabled: Boolean = true, profile: LlmSamplingProfile = LlmModelRegistry.TUNED_E2B.profile, tier: LlmTierProfile = LlmModelRegistry.TUNED_E2B.tierProfile, loreFile: String? = null, chatterPowerFile: String? = null, composerEndpoint: String? = null, composerModel: String? = null, composerApiKey: String? = null, )</ID>
+    <ID>LongParameterList:ServerRuntimeFiles.kt$ServerRuntimeFiles.Companion$( uiEnabled: Boolean, modelPresent: Boolean, modelAbsolutePath: String, debugBuild: Boolean, externalMode: Boolean = false, externalEndpoint: String? = null, externalModel: String? = null, externalApiKey: String? = null, banterEnabled: Boolean = true, profile: LlmSamplingProfile = LlmModelRegistry.TUNED_E2B.profile, tier: LlmTierProfile = LlmModelRegistry.TUNED_E2B.tierProfile, loreFile: String? = null, chatterPowerFile: String? = null, composerEndpoint: String? = null, composerModel: String? = null, composerApiKey: String? = null, maxNewTokensOverride: Int = 0, generationTimeoutOverride: Int = 0, speech: BotLlmSpeech = BotLlmSpeech(), promptPackFile: String? = null, )</ID>
     <ID>LongParameterList:SettingsRows.kt$( label: String, checked: Boolean, tag: String, support: String? = null, enabled: Boolean = true, onChange: (Boolean) -&gt; Unit, )</ID>
     <ID>LongParameterList:SettingsRows.kt$( label: String, selectedId: String?, choices: List&lt;Pair&lt;String, String&gt;&gt;, tag: String, support: String? = null, enabled: Boolean = true, onSelect: (String) -&gt; Unit, )</ID>
     <ID>LongParameterList:SettingsRows.kt$( label: String, value: Float?, valueText: String, range: ClosedFloatingPointRange&lt;Float&gt;, step: Float, tag: String, enabled: Boolean = true, onCommit: (Float) -&gt; Unit, )</ID>
@@ -642,12 +656,8 @@
     <ID>MagicNumber:BotsScreen.kt$80</ID>
     <ID>MagicNumber:BotsScreen.kt$8_192</ID>
     <ID>MagicNumber:CapabilityReport.kt$CapabilityReport.Companion$8</ID>
-    <ID>MagicNumber:ChatterPowerMonitor.kt$ChatterPowerMonitor$10</ID>
     <ID>MagicNumber:ChatterPowerMonitor.kt$ChatterPowerMonitor$100</ID>
-    <ID>MagicNumber:ChatterPowerMonitor.kt$ChatterPowerMonitor$1000</ID>
     <ID>MagicNumber:ChatterPowerMonitor.kt$ChatterPowerMonitor$1000L</ID>
-    <ID>MagicNumber:ChatterPowerMonitor.kt$ChatterPowerMonitor$20</ID>
-    <ID>MagicNumber:ChatterPowerMonitor.kt$ChatterPowerMonitor$40</ID>
     <ID>MagicNumber:ClientDisplayHost.kt$ClientDisplayHost$100_000_000L</ID>
     <ID>MagicNumber:ClientDisplayHost.kt$ClientDisplayHost$16</ID>
     <ID>MagicNumber:ClientDisplayHost.kt$ClientDisplayHost$1_000_000_000L</ID>
@@ -831,10 +841,10 @@
     <ID>MagicNumber:DatabaseUserStateBridge.kt$DatabaseUserStateBridge.ByteArrayBuilder$64</ID>
     <ID>MagicNumber:DatabaseUserStateBridge.kt$DatabaseUserStateBridge.Importer$16</ID>
     <ID>MagicNumber:DeviceProfile.kt$DeviceProfile$31</ID>
-    <ID>MagicNumber:DiagnosticsScreen.kt$1000</ID>
     <ID>MagicNumber:DiagnosticsScreen.kt$1024</ID>
     <ID>MagicNumber:DiagnosticsScreen.kt$12</ID>
     <ID>MagicNumber:DiagnosticsScreen.kt$120</ID>
+    <ID>MagicNumber:DiagnosticsScreen.kt$2_000</ID>
     <ID>MagicNumber:DiagnosticsScreen.kt$500</ID>
     <ID>MagicNumber:DurableFiles.kt$DurableFiles$1024</ID>
     <ID>MagicNumber:DurableFiles.kt$DurableFiles$64</ID>
@@ -842,6 +852,8 @@
     <ID>MagicNumber:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$16</ID>
     <ID>MagicNumber:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$3</ID>
     <ID>MagicNumber:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$512</ID>
+    <ID>MagicNumber:FileDigests.kt$FileDigests$0xff</ID>
+    <ID>MagicNumber:FileDigests.kt$FileDigests$4</ID>
     <ID>MagicNumber:HomeScreen.kt$1.18f</ID>
     <ID>MagicNumber:HomeScreen.kt$10</ID>
     <ID>MagicNumber:HomeScreen.kt$15</ID>
@@ -1060,8 +1072,6 @@
     <ID>MagicNumber:LegacyControllerBindingRepair.kt$LegacyControllerBindingRepair$8</ID>
     <ID>MagicNumber:LegacyControllerBindingRepair.kt$LegacyControllerBindingRepair$98</ID>
     <ID>MagicNumber:LegacyControllerBindingRepair.kt$LegacyControllerBindingRepair$99</ID>
-    <ID>MagicNumber:LlmModelCoordinator.kt$1024</ID>
-    <ID>MagicNumber:LlmModelCoordinator.kt$64</ID>
     <ID>MagicNumber:LlmModelCoordinator.kt$LlmModelCoordinator$15L</ID>
     <ID>MagicNumber:LlmModelCoordinator.kt$LlmModelCoordinator$206</ID>
     <ID>MagicNumber:LlmModelCoordinator.kt$LlmModelCoordinator$403</ID>
@@ -1075,7 +1085,10 @@
     <ID>MagicNumber:LlmModelDownloadService.kt$LlmModelDownloadService$8L</ID>
     <ID>MagicNumber:LlmRuntimePolicy.kt$LlmRuntimePolicy$128</ID>
     <ID>MagicNumber:LlmRuntimePolicy.kt$LlmRuntimePolicy$512</ID>
+    <ID>MagicNumber:LlmScreen.kt$120</ID>
     <ID>MagicNumber:LlmScreen.kt$1e9</ID>
+    <ID>MagicNumber:LlmScreen.kt$4</ID>
+    <ID>MagicNumber:LlmScreen.kt$8</ID>
     <ID>MagicNumber:ManagedClientImporter.kt$ManagedClientImporter$0x10b</ID>
     <ID>MagicNumber:ManagedClientImporter.kt$ManagedClientImporter$0x14c</ID>
     <ID>MagicNumber:ManagedClientImporter.kt$ManagedClientImporter$0x8001</ID>
@@ -1458,9 +1471,6 @@
     <ID>MaxLineLength:InputProfile.kt$InputProfileStore.Companion$"profile_v11"</ID>
     <ID>MaxLineLength:LanScreen.kt$"Connected players: no remote player tracking yet; this section appears when the realm reports sessions."</ID>
     <ID>MaxLineLength:LlmModelRegistryTest.kt$LlmModelRegistryTest$assertEquals("e531007218dfab990486a5de7676a6932d6ea8dea233d1f698d7c21cf8a16889", LlmModelRegistry.BASE_E2B.sha256)</ID>
-    <ID>MaxLineLength:LlmRuntimePolicy.kt$LlmRuntimePolicy$"\n AiPlayerbot.LLMChatterComposerModel = ${composerModel ?: DEFAULT_EXTERNAL_MODEL}"</ID>
-    <ID>MaxLineLength:LlmRuntimePolicy.kt$LlmRuntimePolicy$(if (!composerApiKey.isNullOrBlank()) "\n AiPlayerbot.LLMChatterComposerKey = $composerApiKey" else "")</ID>
-    <ID>MaxLineLength:LlmRuntimePolicy.kt$LlmRuntimePolicy$if (tier.botToBotChatChance &gt; 0) "\n AiPlayerbot.LLMBotToBotChatChance = ${tier.botToBotChatChance}" else ""</ID>
     <ID>MaxLineLength:ManagedClientImporter.kt$ManagedClientImporter$(detection.excluded.takeIf { it.isNotEmpty() }?.let { " · ${it.size} entries excluded" } ?: "")</ID>
     <ID>MaxLineLength:ManagedClientImporter.kt$ManagedClientImporter$(located.excluded.takeIf { it.isNotEmpty() }?.let { " · ${it.size} entries excluded" } ?: "")</ID>
     <ID>MaxLineLength:ManagedClientImporter.kt$ManagedClientImporter$PublishInputs(importId, scanResult, inventory, started)</ID>
@@ -1567,6 +1577,7 @@
     <ID>ReturnCount:BotPresetStore.kt$BotPresetStore$fun resolve(): BotProfile?</ID>
     <ID>ReturnCount:BotPresetStore.kt$BotPresetStore$private fun readPresets(source: File): List&lt;SavedPreset&gt;</ID>
     <ID>ReturnCount:BotSelection.kt$BotSelection$fun resolve( savedPresetId: String?, advancedEnabled: Boolean, advancedTarget: Int, advanced: BotAdvancedSettings, profileId: String, ): Selection</ID>
+    <ID>ReturnCount:ChatterPowerMonitor.kt$ChatterPowerMonitor$fun computeRung( charging: Boolean, batteryPct: Int?, @Suppress("UNUSED_PARAMETER") online: Boolean? = null, @Suppress("UNUSED_PARAMETER") thermalStatus: Int? = null, ): Int</ID>
     <ID>ReturnCount:ChatterPowerMonitor.kt$ChatterPowerMonitor$private fun readBatteryPercent(context: Context, sticky: Intent?): Int?</ID>
     <ID>ReturnCount:ClientDisplayHost.kt$ClientDisplayHost$fun awaitRendererReady(timeoutMs: Long): Boolean</ID>
     <ID>ReturnCount:ClientDisplayHost.kt$ClientDisplayHost$private fun autoLoginTarget(): Window?</ID>
@@ -1625,6 +1636,7 @@
     <ID>ReturnCount:InputContract.kt$InputContract$private fun pointerButtonLocked( src: Int, owner: ControlOwner, button: PointerButton, pressed: Boolean, ): Boolean</ID>
     <ID>ReturnCount:InputContract.kt$InputContract.Companion$private fun actionBinding(action: ControllerAction): GamepadBinding?</ID>
     <ID>ReturnCount:InputContract.kt$InputContract.Companion$private fun gamepadBinding( keyCode: Int, layout: GamepadLayout, profile: InputProfile, activeLayer: FaceLayer? = null, ): GamepadBinding?</ID>
+    <ID>ReturnCount:LlmModelCoordinator.kt$LlmModelCoordinator$fun modelIfVerified( context: Context, descriptor: ModelDescriptor = primaryModel, ): File?</ID>
     <ID>ReturnCount:LlmModelCoordinator.kt$LlmModelCoordinator$private fun streamToPartial( url: String, descriptor: ModelDescriptor, start: Long, etag: String?, partial: File, onProgress: (Long) -&gt; Unit, isCancelled: () -&gt; Boolean, ): StreamResult</ID>
     <ID>ReturnCount:LlmModelDownloadService.kt$LlmModelDownloadService$override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int</ID>
     <ID>ReturnCount:LlmRuntimePolicy.kt$LlmRuntimePolicy$fun normalizeExternalApiKey(key: String): String?</ID>
@@ -1637,7 +1649,7 @@
     <ID>ReturnCount:RealmService.kt$RealmService$private fun accepted(name: String, block: suspend () -&gt; RuntimeOperation): String</ID>
     <ID>ReturnCount:RealmService.kt$RealmService$private fun maintenance(name: String, block: suspend () -&gt; JSONObject): String</ID>
     <ID>ReturnCount:SavedVariablesCodec.kt$SavedVariablesCodec$fun assign(text: String, name: String, value: String?, numberForm: Boolean = false): String?</ID>
-    <ID>ReturnCount:ServerRuntimeFiles.kt$ServerRuntimeFiles.Companion$internal fun llmOverrides( uiEnabled: Boolean, modelPresent: Boolean, modelAbsolutePath: String, debugBuild: Boolean, externalMode: Boolean = false, externalEndpoint: String? = null, externalModel: String? = null, externalApiKey: String? = null, banterEnabled: Boolean = true, profile: LlmSamplingProfile = LlmModelRegistry.TUNED_E2B.profile, tier: LlmTierProfile = LlmModelRegistry.TUNED_E2B.tierProfile, loreFile: String? = null, chatterPowerFile: String? = null, composerEndpoint: String? = null, composerModel: String? = null, composerApiKey: String? = null, ): String?</ID>
+    <ID>ReturnCount:ServerRuntimeFiles.kt$ServerRuntimeFiles.Companion$internal fun llmOverrides( uiEnabled: Boolean, modelPresent: Boolean, modelAbsolutePath: String, debugBuild: Boolean, externalMode: Boolean = false, externalEndpoint: String? = null, externalModel: String? = null, externalApiKey: String? = null, banterEnabled: Boolean = true, profile: LlmSamplingProfile = LlmModelRegistry.TUNED_E2B.profile, tier: LlmTierProfile = LlmModelRegistry.TUNED_E2B.tierProfile, loreFile: String? = null, chatterPowerFile: String? = null, composerEndpoint: String? = null, composerModel: String? = null, composerApiKey: String? = null, maxNewTokensOverride: Int = 0, generationTimeoutOverride: Int = 0, speech: BotLlmSpeech = BotLlmSpeech(), promptPackFile: String? = null, ): String?</ID>
     <ID>ReturnCount:SettingsScreen.kt$suspend fun awaitBackupCompletion(): Boolean</ID>
     <ID>ReturnCount:SettingsScreen.kt$suspend fun exportRealmCharacters(target: Uri)</ID>
     <ID>ReturnCount:SettingsScreen.kt$suspend fun restoreRealmCharacters(source: Uri, info: RealmDataArchive.ArchiveInfo)</ID>

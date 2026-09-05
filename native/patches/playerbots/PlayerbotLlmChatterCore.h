@@ -41,18 +41,23 @@
 
 namespace pocketllm {
 
-// ---- the power ladder rungs. The app computes the rung from
-// PowerManager.getThermalHeadroom() + battery + charging + connectivity
-// and publishes it in the chatter power file; the native side re-reads
-// it at every scheduler tick. OFF is also what a missing/stale-disabled
-// power file means - fail toward silence.
+// ---- the power ladder rungs. The app stages the power file at world
+// start and re-stages it on battery events (enabled + rung, plus a
+// diagnostic stamp the scheduler ignores); the native side re-reads
+// it at every scheduler tick. OFF is also what a missing/disabled
+// power file means - fail toward silence. The ladder is collapsed by
+// design: the user asked for a loud world or they did not. CONSTRAINED is
+// the low-battery courtesy dim (stretched cadence, same layers); thermal
+// throttling is the OS's job underneath, not a second throttle here.
+// EMERGENCY/CRITICAL remain as enum values for wire compat but are never
+// produced by the app and map to the dim behavior below.
 enum ChatterRung
 {
     RUNG_OFF = 0,        // master toggle off (or power file says disabled)
-    RUNG_EMERGENCY = 1,  // generation stops; authored event floor only
-    RUNG_CRITICAL = 2,   // global-channel layer only, device single lines
-    RUNG_CONSTRAINED = 3, // on-device single-line batches, stretched cadence
-    RUNG_NORMAL = 4,     // cloud composer batches at display cadence
+    RUNG_EMERGENCY = 1,  // legacy: treated as the dim courtesy (see below)
+    RUNG_CRITICAL = 2,   // legacy: treated as the dim courtesy (see below)
+    RUNG_CONSTRAINED = 3, // low-battery courtesy dim: same layers, stretched cadence
+    RUNG_NORMAL = 4,     // chatter on, full cadence
 };
 
 enum ChatterLayer
@@ -78,12 +83,12 @@ struct ChatterPolicy
     uint32_t murmurDisplayMinSec;     // drained display cadence (staggered)
     uint32_t murmurDisplayMaxSec;
     uint32_t murmurQueueLowWater;     // refill decision fires below this
-    uint32_t partyIdleWindowSec;      // the ~10-15 min Dragon Age cadence
+    uint32_t partyIdleWindowSec;      // the Phase-5 6-min party cadence
     uint32_t partyIdleRollPct;        // probabilistic roll per window
     uint32_t globalMinSpacingSec;     // hard floor between global lines
     uint32_t globalWindowSec;         // roll window for the rare set piece
     uint32_t globalRollPct;
-    uint32_t floorMinSpacingSec;      // authored floor cadence (EMERGENCY)
+    uint32_t floorMinSpacingSec;      // authored floor cadence (dormant lane)
 };
 
 inline ChatterPolicy ChatterPolicyFor(ChatterRung rung, bool composerConfigured)
@@ -93,24 +98,30 @@ inline ChatterPolicy ChatterPolicyFor(ChatterRung rung, bool composerConfigured)
     {
         case RUNG_NORMAL:
             // composer batches: one request of 2-4 exchanges every 4-6 min,
-            // drained from the queue at the 30-60 s display cadence. With
+            // drained from the queue at the 20-40 s display cadence. With
             // no composer endpoint configured, NORMAL behaves as the
-            // device-batch path at the same display cadence.
+            // device-batch path at the same display cadence. Phase-5:
+            // murmur 30-60 → 20-40 s, party 12 min@50% → 6 min@50%,
+            // global 90 → 45 min — AFTER the corpus grew (voice rules
+            // first: persona cells 2→6+ lines, wildcard 10→16).
             p.generated = true; p.murmur = true; p.party = true; p.global = true;
             p.composer = composerConfigured;
             p.murmurBatchWindowSec = 270;
-            p.murmurDisplayMinSec = 30; p.murmurDisplayMaxSec = 60;
+            p.murmurDisplayMinSec = 20; p.murmurDisplayMaxSec = 40;
             p.murmurQueueLowWater = 2;
-            p.partyIdleWindowSec = 720; p.partyIdleRollPct = 50;
-            p.globalMinSpacingSec = 5400;
-            p.globalWindowSec = 7200; p.globalRollPct = 50;
+            p.partyIdleWindowSec = 360; p.partyIdleRollPct = 50;
+            p.globalMinSpacingSec = 2700;
+            p.globalWindowSec = 3600; p.globalRollPct = 50;
             p.floorMinSpacingSec = 0;
             return p;
         case RUNG_CONSTRAINED:
-            // on-device NPU batches: single lines only (the fine-tuned
-            // models are single-bot-trained), cadence stretched toward
-            // ~1 line/90 s (the measured battery-power budget shape),
-            // party idle rarer, global unchanged.
+        case RUNG_EMERGENCY:
+        case RUNG_CRITICAL:
+            // The low-battery courtesy dim: every layer stays on (the user
+            // asked for a loud world), single device lines, cadence
+            // stretched toward ~1 line/90 s. Legacy EMERGENCY/CRITICAL rung
+            // values map here: the app never emits them, but an old staged
+            // file must dim, never silence or stop generation outright.
             p.generated = true; p.murmur = true; p.party = true; p.global = true;
             p.composer = false;
             p.murmurBatchWindowSec = 540;
@@ -120,33 +131,6 @@ inline ChatterPolicy ChatterPolicyFor(ChatterRung rung, bool composerConfigured)
             p.globalMinSpacingSec = 7200;
             p.globalWindowSec = 10800; p.globalRollPct = 50;
             p.floorMinSpacingSec = 0;
-            return p;
-        case RUNG_CRITICAL:
-            // global-channel layer only, ~1 line/3 min ceiling, device.
-            p.generated = true; p.murmur = false; p.party = false; p.global = true;
-            p.composer = false;
-            p.murmurBatchWindowSec = 0;
-            p.murmurDisplayMinSec = 0; p.murmurDisplayMaxSec = 0;
-            p.murmurQueueLowWater = 0;
-            p.partyIdleWindowSec = 0; p.partyIdleRollPct = 0;
-            p.globalMinSpacingSec = 180;
-            p.globalWindowSec = 1800; p.globalRollPct = 30;
-            p.floorMinSpacingSec = 0;
-            return p;
-        case RUNG_EMERGENCY:
-            // generation stops; authored event-grounded floor only. The
-            // batch window still spaces the PICKS (a zero window would
-            // re-pick - and re-drift - every 10 s scheduler tick while
-            // the floor's own spacing defers delivery)
-            p.generated = false; p.murmur = true; p.party = false; p.global = true;
-            p.composer = false;
-            p.murmurBatchWindowSec = 120;
-            p.murmurDisplayMinSec = 120; p.murmurDisplayMaxSec = 180;
-            p.murmurQueueLowWater = 1;
-            p.partyIdleWindowSec = 0; p.partyIdleRollPct = 0;
-            p.globalMinSpacingSec = 7200;
-            p.globalWindowSec = 14400; p.globalRollPct = 50;
-            p.floorMinSpacingSec = 120;
             return p;
         case RUNG_OFF:
         default:
@@ -211,6 +195,12 @@ struct FactFatigue
 
 struct ChatterFatigue
 {
+    // Insert-only ledgers, accepted by design (the GUID-statics class):
+    // retired facts keep their tombstones so the retirement gate holds,
+    // and a loud 10-hour session accrues on the order of tens-to-hundreds
+    // of KB (perFact entries ~100-400 B, heard pairs ~40-60 B) - bounded
+    // by world fact production, process-lifetime, never unbounded per
+    // tick.
     std::map<std::string, FactFatigue> perFact;
     std::set<std::string> heard;                 // "<listener>|<factKey>"
     std::map<std::string, int64_t> lastTemplate; // "<tpl>|<spk>|<lst>"
@@ -326,7 +316,9 @@ inline bool IsMurmurRegister(std::string const& line)
     return words >= kMinMurmurWords && words <= kMaxMurmurWords;
 }
 
-// ---- the authored event-grounded floor (the emergency tier). Templates
+// ---- the authored event-grounded floor (dormant under the collapsed
+// ladder: every live rung generates, so the floor only runs if a future
+// policy row sets generated=false). Templates
 // carry the event as cargo - an authored line never fabricates ledger
 // state (the bot2bot law), so even the floor honors the silence
 // doctrine. {S} speaker, {L} listener, {E} event.
@@ -548,6 +540,54 @@ inline std::vector<ScriptLine> ParseComposerScript(std::string const& raw,
     return out;
 }
 
+// ---- FROZEN narrator wording for the plan-v5 session recap (C2). Like
+// the composer protocol above, this is a cloud-class surface: the prose
+// variant renders the digest lines as a "previously, in your realm"
+// block. Host tests pin the strings; they move only with a deliberate
+// wording change.
+inline std::string RecapSystemPrompt()
+{
+    return "You are the chronicler of a small fantasy realm. You get true "
+        + std::string("lines from the realm's memory ledger about one returning ") +
+        "adventurer. Write 'Previously, in your realm:' and then 3 to 5 short " +
+        "lines that retell those truths as a warm narrator - plain speech, no " +
+        "names of mechanics, no questions, no stage directions. Each line under " +
+        "twenty words. Use only the given truths; invent nothing.";
+}
+
+// Splits a narrator block into deliverable sys lines: newline-split, trim,
+// the chatter line-safety law (printable ASCII, no protocol/pipe bytes,
+// no emote leads) at the 200-byte sys-line budget, capped at 8 lines.
+inline std::vector<std::string> SplitNarratorBlock(std::string const& raw)
+{
+    std::vector<std::string> out;
+    size_t at = 0;
+    while (out.size() < 8 && at < raw.size())
+    {
+        size_t const eol = raw.find('\n', at);
+        std::string line = raw.substr(at,
+            eol == std::string::npos ? std::string::npos : eol - at);
+        at = eol == std::string::npos ? raw.size() : eol + 1;
+        size_t b = 0, e = line.size();
+        while (b < e && isspace(static_cast<unsigned char>(line[b]))) ++b;
+        while (e > b && isspace(static_cast<unsigned char>(line[e - 1]))) --e;
+        if (b >= e) continue;
+        line = line.substr(b, e - b);
+        if (line.size() < 4 || line.size() > 200) continue;
+        bool safe = line[0] != '*' && line[0] != '[' && line[0] != ' ' && line[0] != '|';
+        for (size_t k = 0; safe && k < line.size(); ++k)
+        {
+            unsigned char const c = static_cast<unsigned char>(line[k]);
+            if (c < 0x20 || c > 0x7E || line[k] == '<' || line[k] == '>' ||
+                line[k] == '{' || line[k] == '}' || line[k] == '|')
+                safe = false;
+        }
+        if (safe)
+            out.push_back(line);
+    }
+    return out;
+}
+
 // ---- the murmur clamp: a delivered murmur line is trimmed to the byte
 // budget on a UTF-8 boundary (the TruthCore TruncUtf8 twin, local so the
 // core stays standalone) with a trailing ellipsis so a cut reads cut.
@@ -583,6 +623,52 @@ inline bool ChatterLineSafe(std::string const& text)
         if (c == '<' || c == '>' || c == '{' || c == '}' || c == '|') return false;
     }
     return true;
+}
+
+// plan v5 F4b: the long-form lane's line-safety law - the same byte/lead/
+// protocol rules at the 200-byte staged-line budget (a saga line is a
+// deliberate performance, not a murmur; the murmur register does not
+// apply, the injection laws do)
+enum { kLongFormMaxBytes = 200 };
+
+inline bool ChatterLongLineSafe(std::string const& text)
+{
+    if (text.size() < 4 || text.size() > kLongFormMaxBytes) return false;
+    char const lead = text[0];
+    if (lead == '*' || lead == '[' || lead == ' ' || lead == '|') return false;
+    for (char c : text)
+    {
+        unsigned char const b = static_cast<unsigned char>(c);
+        if (b < 0x20 || b > 0x7E) return false;
+        if (c == '<' || c == '>' || c == '{' || c == '}' || c == '|') return false;
+    }
+    return true;
+}
+
+// ---- FROZEN saga wording (plan v5 C1). The campfire saga is the cloud
+// flagship: one call turns the pairing's real fact rows into a 300-600
+// token telling; the first safe line becomes the headline gossip row the
+// town retells for weeks. Host tests pin the string.
+inline std::string SagaSystemPrompt()
+{
+    return "You are a campfire storyteller in a fantasy world. You get true "
+        + std::string("memory lines about one adventurer and their companions. ") +
+        "Write the story the storyteller tells aloud at the fire about those real " +
+        "events: 5 to 10 short lines, each under two hundred bytes, plain speech, " +
+        "warm and a little larger than life but true to the given facts. No names " +
+        "of mechanics, no questions, no stage directions. Every line stands alone.";
+}
+
+inline std::string SagaUserPrompt(std::string const& storyteller,
+    std::string const& playerName, std::vector<std::string> const& factLines)
+{
+    std::string out = storyteller + " is telling " + playerName +
+        "'s own story back to them at the campfire.\n";
+    out += "True memory lines:\n";
+    for (std::string const& fact : factLines)
+        out += "- " + fact + "\n";
+    out += "Write the telling.";
+    return out;
 }
 
 // ---- the interruption rule: player chat owns the channel. The caller

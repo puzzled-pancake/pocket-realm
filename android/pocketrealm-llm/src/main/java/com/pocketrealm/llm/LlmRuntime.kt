@@ -33,13 +33,14 @@ data class LlmRuntimeConfig(
     val threads: Int = 3,
     val cpuMaskHex: Long = 0x38L,          // cores 3-5 (mids). 0 = no affinity.
     val nice: Int = 10,
-    // 8192: the measured worst-case trained request
-    // is ~2.2k tokens (largest session row + template + era-bias + a full
-    // asset lore card) and the P50/P51 banks grow the GENERATION side
-    // (max_tokens up to 300) plus headroom for future history growth. KV
-    // cache RAM at 8192 still needs checking on lower-RAM devices;
-    // --cache-type q8_0 is the fallback lever if pressure shows.
-    val contextSize: Int = 8192,
+    // Default server ctx: Phase 1 (plan v4) bumped E2B 8192 → 12288 —
+    // the measured worst-case trained request is ~2.2k tokens; the extra
+    // headroom carries prompt-pack seasoning + reply caps at 2 concurrent
+    // slots. runtimeConfig() always overwrites this with the SELECTED
+    // model's tier value, so this default only matters for direct Builder
+    // users. KV cache RAM at 12288 still needs checking on lower-RAM
+    // devices; --cache-type q8_0 is the fallback lever if pressure shows.
+    val contextSize: Int = 12288,
     val computeMode: ComputeMode = ComputeMode.AUTO,
     val npuLayers: Int = 99,               // -ngl for the HTP offload; 99 = all layers
     val useMtp: Boolean = false,           // requires an MTP-enabled GGUF; forced off in NPU mode
@@ -70,7 +71,7 @@ data class LlmRuntimeConfig(
         var threads = 3
         var cpuMaskHex = 0x38L
         var nice = 10
-        var contextSize = 8192
+        var contextSize = 12288
         var computeMode = ComputeMode.AUTO
         var npuLayers = 99
         var useMtp = false

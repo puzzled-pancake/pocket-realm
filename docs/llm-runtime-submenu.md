@@ -64,7 +64,7 @@ AiPlayerbot.LLMMaxSimultaniousGenerations = 2
 AiPlayerbot.LLMGovernorWindow = 60
 AiPlayerbot.LLMGovernorBotMax = 8
 AiPlayerbot.LLMGovernorGlobalMax = 8
-AiPlayerbot.LLMContextLength = 8192
+AiPlayerbot.LLMContextLength = 12288
 AiPlayerbot.LLMFactsCap = 12
 AiPlayerbot.LLMMemoriesTail = 6
 AiPlayerbot.LLMBotToBotChatChance = 10
@@ -85,13 +85,29 @@ chatter power file (it does whenever the LLM subsystem is enabled);
 enabled, the block also carries `AiPlayerbot.LLMChatterPowerFile =
 "<server run dir>/chatter-power.txt"` — the FILE's `enabled` flag is the
 master switch behind the **World chatter (beta)** toggle, re-read by the
-native scheduler every tick so the switch works mid-session in both
-directions, and it carries the app-refreshed power-ladder rung (a missing
-or stale file stops chatter or degrades it to the authored event floor —
-silence is the default). The `LLMChatterComposer*` rows ride the
+native scheduler every tick, and it carries the app-staged collapsed
+power rung (off / low-battery dim / normal), staged at world start and
+re-staged on battery events (a missing or disabled file stops chatter —
+silence is the default; writer and world share one process, so there is
+no staleness protocol). The toggle itself applies at the next realm
+start; battery dims land mid-session. The `LLMChatterComposer*` rows ride the
 External server fields when filled (the cloud script composer for party
 banter and murmur; without it the NORMAL rung runs device single-line
 batches).
+
+The Phase-1 `LLMPromptPackFile` row stages the default prompt pack
+(`<server run dir>/llm_prompt_pack.json` — the ordered blocks + enabled
+flags from `LlmPromptPack`). The native renderer joins the enabled
+seasoning bodies inside the existing instruction span; the default pack
+ships seasoning disabled, so output is byte-identical to the trained
+contract until the player enables seasoning in Advanced settings (Phase 2)
+or a bake-off winner lands. A missing/unreadable file fails open to the
+trained default — never silence. Token costs per variant live in
+`tools/llm_lab/prompt_pack_bakeoff.py` (model-free gates: shape,
+transport-ASCII, density ordering, id universe; heuristic + optional
+`/tokenize` counts. The model-backed RP-depth leg is `s8_beats_gates.py`
+RP_DEPTH: plain vs seasoned vs seasoned+mood arms; paste a winning
+variant into the seasoning arm to score it).
 
 The sampling fields come from the selected registry model's profile
 (`LlmModelRegistry`; the sample above is the TUNED_E2B default since the
@@ -292,18 +308,40 @@ reaps, stealing the exit status the attribution needs).
 - `android/app/src/main/java/com/pocketrealm/supervisor/AndroidRuntimeBackend.kt` —
   `ensureLlmRuntime(snapshot)` in the WORLD start path.
 - `android/app/src/main/java/com/pocketrealm/storage/Settings.kt` —
-  `llm*` keys (Snapshot + update() write-set + read normalization; default OFF).
-- `android/app/src/main/java/com/pocketrealm/ui/LlmScreen.kt` — the submenu.
+  `llm*` keys (Snapshot + update() write-set + read normalization; default OFF;
+  includes `llmAdvanced`, `llmMaxNewTokens`, `llmGenerationTimeout`).
+- `android/app/src/main/java/com/pocketrealm/ui/LlmScreen.kt` — the submenu
+  (simple tier + the "Advanced engine settings" disclosure).
+- `android/app/src/main/java/com/pocketrealm/server/ChatterPowerMonitor.kt` —
+  the app-side half of the chatter power state (low-battery courtesy dim +
+  world-start power-file staging; the toggle is the switch, thermal
+  throttling is the OS's job).
 
 ## Settings → runtime mapping
 
-| Setting | Goes to |
-|---|---|
-| Enable | conf emission + supervisor start/stop |
-| Compute mode | `LlmRuntimeConfig.computeMode` (service resolves Auto → NPU only when the probe is READY) |
-| Decode cores | `cpuMaskHex` (child affinity — the decode knob; NPU prefill ignores it) |
-| Decode threads | `-t` |
-| NPU offload layers | `-ngl` (99 = all; files > ~2.9 GB should use partial offload; the Hexagon VA window is ~4 GB per session) |
+The submenu has two tiers (2026-09-03): the **simple tier** is always
+visible — the Settings "AI bot LLM" card carries the master switch, and the
+submenu's Runtime (speech, source, banter, world chatter) and Model cards
+complete it. The **advanced tier** — Accelerator, Generation, Connection —
+sits behind the "Advanced engine settings" disclosure (`llmAdvanced`),
+mirroring the Auto-login advanced-timing idiom. Both tiers write the same
+Snapshot; the disclosure only changes what is shown.
+
+| Setting | Tier | Goes to |
+|---|---|---|
+| Enable | simple | conf emission + supervisor start/stop |
+| Source (embedded/external) | simple | conf block flavor + supervisor stop-branch |
+| Authored banter | simple | `LLMBanterEnabled` |
+| World chatter | simple | staged power file `enabled` flag |
+| Model picker | simple | staged-file gate + model path + sampling/tier profiles |
+| Compute mode | advanced | `LlmRuntimeConfig.computeMode` (service resolves Auto → NPU only when the probe is READY) |
+| Decode cores | advanced | `cpuMaskHex` (child affinity — the decode knob; NPU prefill ignores it) |
+| Decode threads | advanced | `-t` |
+| NPU offload layers | advanced | `-ngl` (99 = all; files > ~2.9 GB should use partial offload; the Hexagon VA window is ~4 GB per session) |
+| Reply length | advanced | `LLMMaxNewTokens` override (0 = the model's tuned profile; clamped 24-600; also replaces `max_tokens` in the legacy JSON template so both prompt-format paths agree) |
+| Generation timeout | advanced | `LLMGenerationTimeout` override (0 = tier default; clamped 15-240 s) |
+| Per-preset speech (Bots → AI tab) | Bots destination | `BotLlmSpeech` overrides riding the same appended block: reply length (`LLMMaxNewTokens`), bot-to-bot chance (`LLMBotToBotChatChance`; explicit Off suppresses the line like the native default 0), memory depth (`LLMFactsCap`/`LLMMemoriesTail`), per-block pack deltas (`AiPlayerbot.LLMPromptBlock.<id>` on/off for the 9 seasoning blocks; Default = follow the global pack), and the RP dials — `LLMRpInitiative` (how often the bot opens conversation; scales the 10-min floor 1200s→300s), `LLMRpVolatility` (mood-weather weight, 0.5x-1.5x), `LLMRpReactivity` (event-shortcut eagerness), `LLMRpLongForm` (long-form license; 0 raises the bar to 300 tokens, 100 lowers it to 150). Dials are 0-100 with 50 = the global default; Default (sentinel) suppresses the line. Precedence: preset > global advanced override > model/tier profile. Deliberately excluded from `playerbotConfig()` and the preset identity digests. |
+| External endpoint/model/key | advanced (+ always when external mode is on) | `confBlockExternal` fields |
 
 Toggles persist immediately but apply on the next realm start (the conf is
 generated at world start); "Start now" applies immediately.

@@ -65,10 +65,15 @@ fun DiagnosticsScreen(contentPadding: PaddingValues = PaddingValues()) {
     }
 
     var logLines by remember { mutableStateOf(AppLog.snapshot()) }
+    // 2 s cadence with an identity check: AppLog.snapshot() copies the ring,
+    // so only assign (and recompose) when new lines actually arrived.
     LaunchedEffect(Unit) {
         while (true) {
-            delay(1000)
-            logLines = AppLog.snapshot()
+            delay(2_000)
+            val fresh = AppLog.snapshot()
+            if (fresh.size != logLines.size || fresh.lastOrNull() != logLines.lastOrNull()) {
+                logLines = fresh
+            }
         }
     }
 
@@ -102,6 +107,14 @@ fun DiagnosticsScreen(contentPadding: PaddingValues = PaddingValues()) {
             sessionLine + crashFiles
         }.getOrDefault(emptyList())
     }
+
+    // Stable keys stop the whole list recomposing each poll; the tail
+    // slice is memoized so takeLast doesn't allocate per recomposition.
+    // The date formatter is hoisted: one instance, not one per row.
+    // Memoized outside the LazyColumn scope below: remember() is
+    // @Composable and cannot run inside the LazyListScope DSL.
+    val timeFormat = remember { SimpleDateFormat("HH:mm:ss.SSS", Locale.US) }
+    val tail = remember(logLines) { logLines.takeLast(120) }
 
     LazyColumn(
         modifier = Modifier
@@ -241,8 +254,8 @@ fun DiagnosticsScreen(contentPadding: PaddingValues = PaddingValues()) {
         item {
             Text("Recent log", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         }
-        items(logLines.takeLast(120)) { line ->
-            val ts = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date(line.ts))
+        items(tail, key = { it.ts to it.message }) { line ->
+            val ts = timeFormat.format(Date(line.ts))
             Text(
                 "$ts ${line.level.name.take(1)} ${line.kind}: ${line.message}",
                 style = MaterialTheme.typography.bodySmall,

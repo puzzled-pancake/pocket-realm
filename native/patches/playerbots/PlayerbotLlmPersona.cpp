@@ -1,6 +1,8 @@
 #include "PlayerbotLlmPersona.h"
 
 #include "Entities/Player.h"
+#include "Maps/Map.h"
+#include "Weather/Weather.h"
 #include "playerbot/PlayerbotLlmMemory.h"
 #include "playerbot/playerbot.h"
 #include "llm_banter_core.h"
@@ -164,8 +166,13 @@ std::string PlayerbotLlmPersona::FallbackLine(Player* bot, HardCategory category
     // Cells are 12 lines deep: repetition pressure at the old 2-line depth
     // was the single biggest realism complaint of the fallback layer.
     uint32 const botGuid = bot->GetGUIDLow();
+    // key layout: guid << 8 | whisper(1 bit, bit 4) | category(bits 2-3)
+    // | archetype(bits 0-1) - the whisper flag once shared bit 1 with the
+    // archetype field, collapsing 8 persona cells onto 4 keys (the ring
+    // of one cell blocked line indices in another's)
     uint64_t const stateKey = ((uint64_t)botGuid << 8)
-        | ((uint64_t)category << 2) | (whisper ? 2u : 0u) | (uint64_t)archetype;
+        | ((uint64_t)(whisper ? 1u : 0u) << 4)
+        | ((uint64_t)category << 2) | (uint64_t)archetype;
     StateRef stateRef = StateFor(stateKey, botGuid);
 
     // vouching and de-escalating are socially public acts: the public beats
@@ -515,6 +522,176 @@ std::string PlayerbotLlmPersona::KillBanterLine(Player* bot, Player* killer)
     return line;
 }
 
+// plan v5 W1: the event-reaction cells. 12 lines x 4 archetypes per kind,
+// the FallbackLine corpus law. Condolence speaks over the fallen player's
+// body (party channel); shaken speaks when a wiped party reforms. Both
+// address {P} - the fallen/returning player - and never name the mechanic.
+std::string PlayerbotLlmPersona::ReactionLine(Player* bot, ReactionKind kind, Player* forPlayer)
+{
+    if (!bot || !forPlayer)
+        return "";
+    static char const* const condolence[4][12] = {
+        // ARCHETYPE_GRUFF
+        {"No. No, no - get up, {P}. This isn't the plan. This was NEVER the plan.",
+         "Down. They're down. Guard the body - nothing feeds on them tonight.",
+         "Bah. BAH. You don't die on me, {P}. Not you. Not like this.",
+         "Hold the line. I'll hold THEM. Nobody touches {P} while I breathe.",
+         "Of all the - stay sharp, the lot of you. They're gone. GONE. Watch the dark.",
+         "{P}. Come on. One more breath. You've given harder than this.",
+         "I've carried worse home. Grab their pack. We're not leaving them here.",
+         "The road finally billed them. Not while I hold the ledger. Fight me for it.",
+         "Stand over them. STAND OVER THEM. This is what we are now - a wall.",
+         "I don't pray. Consider this noise I'm making a close cousin of it.",
+         "They went down swinging or they went down cheated. Either way - not alone. Not tonight.",
+         "You rest, {P}. We'll hold what's yours. Every copper. Every bone."},
+        // ARCHETYPE_SHY
+        {"Oh no. Oh no no no - {P}? Please. Please get up.",
+         "I - I don't know what to - somebody help them! Please!",
+         "No... not {P}. Not the one who was kind to me.",
+         "I can't - I'm sorry, I'm so sorry, I should have been faster -",
+         "Don't leave us. You're the brave one. You're supposed to be the brave one.",
+         "I'll stay with them. I'll stay right here. Nobody should wake up alone in the dark.",
+         "They always waited for me when I fell behind. Always. And now I -",
+         "Please. I'll be braver. I'll be better. Just come back.",
+         "I'm holding their hand. Is that - is that allowed? I'm holding it anyway.",
+         "The fire will go cold. Their fire always stayed warm. I don't know how to do that.",
+         "I said I'd catch them if they fell. I said it. I was right there -",
+         "Wh-when they wake at the graveyard, someone kind should be there. I'll go. I'll go."},
+        // ARCHETYPE_NOBLE
+        {"Fallen. Then we hold this ground, and their name leaves it unbroken.",
+         "They deserved a better field than this. Stand straight - we owe them that much ceremony.",
+         "Mark the place. {P} will not be a name we lose to the grass.",
+         "I have stood over kings at their ending. This one - this one I will remember longest.",
+         "Grief is a debt of honour. We pay it by finishing what they started.",
+         "Their light did not go out. It passed to us. Carry it. Carry it high.",
+         "No words are large enough. So: we fight on, and the words come later.",
+         "They held the line so we could hold it still. Let the holding be our hymn.",
+         "The Light keep them, whoever's keeping the rest of us. Amen, if amen it is.",
+         "They were the best of this company. Say it once, so the dark hears it said.",
+         "I will write this down properly, when there is time. They earned ink, not just tears.",
+         "Farewell for now, friend. The road resumes. It resumes poorer."},
+        // ARCHETYPE_ROGUEISH
+        {"Ah, hell. {P}. You absolute - you were supposed to dodge that one.",
+         "Everybody keep moving - no. Stop. Stop. They're down.",
+         "I've seen a hundred deaths. Never got used to the ones with names I like.",
+         "Not like this. Pickpockets die like this. Not - not people like them.",
+         "Somebody check them. Come on, somebody check them. Please somebody check them.",
+         "You still owe me a drink, {P}. That debt survives. I COLLECT debts.",
+         "Fine. Fine! We do this the loud way. For them.",
+         "The trick's to keep breathing, {P}. You taught me that one. Return the favor.",
+         "I know a priest two towns over who owes me. Everyone owes somebody. Hang on.",
+         "They went down? THEY went down? The day just turned crooked.",
+         "Quiet, all of you. Not out of respect - out of habit. Their habits. Damn it.",
+         "First rule of the trade: never fall for your own crew. Broke it. Would again."},
+    };
+    static char const* const shaken[4][12] = {
+        // ARCHETYPE_GRUFF
+        {"That was a beating, {P}. A proper one. Give me a minute before the jokes.",
+         "We died. All of us. I don't shake often - let me finish shaking.",
+         "Don't ask if I'm all right. Ask again when the ground stops being the sky.",
+         "Hah. Hah. We're alive. I'd celebrate but my arms disagree.",
+         "I lost count of how many times the dark swung at us. It won that round.",
+         "Next time we walk in there, we walk in smarter. Or not at all. Dealer's choice.",
+         "My weapon arm's still writing letters to my brain. Bad news, all of them.",
+         "I stood over your body, {P}. Told the dark to come collect. It tried.",
+         "One more like that and we retire. To a tavern. Far from caves.",
+         "We're square with death for a while. It hates being owed.",
+         "I've been thrown by bulls gentler than whatever THAT was.",
+         "Alive. Say it with me, {P}. It sticks better in company."},
+        // ARCHETYPE_SHY
+        {"I - I'm okay. We're okay. I'm going to believe that in a minute.",
+         "That was... that was a lot of dying, all at once. I didn't like it.",
+         "I held my eyes shut at the end. It didn't help. I still saw it.",
+         "Can we - not do that again? Please? I'm asking nicely.",
+         "My hands won't stop. Look at them. Silly hands. We're alive, hands. Stop it.",
+         "I looked for you in the dark, {P}. I'm glad the looking's over.",
+         "I said a prayer at the end. I don't remember the words. I think it helped.",
+         "Everything's very bright now. Is everything bright, or is it just me?",
+         "That's the worst I've ever - the WORST. And I've had some days.",
+         "I want to sit down. Just - just a small sit. A victorious sit.",
+         "We're all here? Count with me. You, me, the others. Everyone. Good. Good.",
+         "I never want to hear that silence again. The one right after."},
+        // ARCHETYPE_NOBLE
+        {"We were undone. It humbles - and it instructs. Both at once, if we let it.",
+         "That the company yet draws breath is fortune, not merit. Let us remember the difference.",
+         "I have known defeat before. Never one that took the whole table.",
+         "We owe those dead things a debt of better judgment. I intend to pay in full.",
+         "Fortune is a fickle liege. Today it knighted us with the flat of its blade.",
+         "Let this be written somewhere kinder than it felt: we fell, and then we rose.",
+         "There is no shame in the falling. There would be in forgetting what taught us.",
+         "I misjudged the field. The cost was shared; the fault was mine. I will carry that.",
+         "Even the great houses have cellars full of nights like this one. We keep ours lit.",
+         "Breathe, company. The breath after ruin is the sweetest one we get.",
+         "Next time, the plan leaves the room before the pride does.",
+         "We were broken as a unit and unbroken as a company. Note the difference. I have."},
+        // ARCHETYPE_ROGUEISH
+        {"Well. THAT escalated. Reminder noted: don't let it escalate.",
+         "I've escaped tighter spots. Rarely. Never one with that much screaming.",
+         "New rule: we knock BEFORE waking whatever that was. If knocking's an option.",
+         "I blacked out somewhere in the middle. Woke up dead. Ruined my whole afternoon.",
+         "My luck's got a hole in it. Fair warning: so has the plan.",
+         "Everyone dead, everyone back. Story's got a middle nobody will believe.",
+         "I had a knife in my hand and still died polite. There's a lesson. No idea what.",
+         "Let's never speak of the running-and-screaming part. It stays in the family.",
+         "That thing had FRIENDS. Everything terrible has friends. Note it down.",
+         "Next time I pick the tavern. My taverns have fewer ceilings full of teeth.",
+         "We survived. I mean it in the past tense only, {P}. Future tense pending.",
+         "If anyone asks - we won. Loudly. That's my account and I'm fluent in it."},
+    };
+
+    Archetype const archetype = ArchetypeFor(bot);
+    char const* const* cell =
+        (kind == REACTION_SHAKEN) ? shaken[archetype] : condolence[archetype];
+    // state key keeps the two cells' recency rings separate (bits 5/6;
+    // the FallbackLine cells own bits 0-4)
+    uint64_t const stateKey = ((uint64_t)bot->GetGUIDLow() << 8)
+        | ((uint64_t)1u << (kind == REACTION_SHAKEN ? 6 : 5));
+    StateRef stateRef = StateFor(stateKey, bot->GetGUIDLow());
+    pocketllm::BanterResult const r =
+        pocketllm::SelectLine(stateRef.state, cell, 12, nullptr, 0, 0, 0);
+    if (!r.line)
+        return "";
+    std::string line = Rendered(r.line, forPlayer, bot);
+    ApplyTic(stateRef.state, bot->GetGUIDLow(), line);
+    return line;
+}
+
+std::string PlayerbotLlmPersona::GrudgeRefusalLine(Player* bot, Player* player)
+{
+    if (!bot || !player)
+        return "";
+    uint64_t const stateKey =
+        ((uint64_t)bot->GetGUIDLow() << 24) | (uint64_t)(pocketllm::POOL_GRUDGE_REFUSE + 1);
+    StateRef stateRef = StateFor(stateKey, bot->GetGUIDLow());
+    size_t count = 0;
+    char const* const* lines = pocketllm::Pool(pocketllm::POOL_GRUDGE_REFUSE, count);
+    pocketllm::BanterResult const r =
+        pocketllm::SelectLine(stateRef.state, lines, count, nullptr, 0, 0, 0);
+    if (!r.line)
+        return "";
+    std::string line = Rendered(r.line, player, bot);
+    ApplyTic(stateRef.state, bot->GetGUIDLow(), line);
+    return line;
+}
+
+std::string PlayerbotLlmPersona::SceneNudgeLine(Player* bot, Player* player)
+{
+    if (!bot || !player)
+        return "";
+    uint64_t const stateKey =
+        ((uint64_t)bot->GetGUIDLow() << 24) | (uint64_t)(pocketllm::POOL_SCENE_NUDGE + 1);
+    StateRef stateRef = StateFor(stateKey, bot->GetGUIDLow());
+    size_t count = 0;
+    char const* const* lines = pocketllm::Pool(pocketllm::POOL_SCENE_NUDGE, count);
+    pocketllm::BanterResult const r =
+        pocketllm::SelectLine(stateRef.state, lines, count, nullptr, 0, 0, 0);
+    if (!r.line)
+        return "";
+    std::string line = Rendered(r.line, player, bot);
+    ApplyTic(stateRef.state, bot->GetGUIDLow(), line);
+    return line;
+}
+
 std::string PlayerbotLlmPersona::GreetingLine(Player* bot, Player* player)
 {
     if (!bot || !player)
@@ -564,13 +741,86 @@ bool PlayerbotLlmPersona::MaybeAmbientLine(Player* bot)
 
     // idle chatter is the everyday pool; the five moods split the rest; the
     // wildcard bank rides on every draw at its design 1% (SelectLine's own
-    // roll, on its own cooldown, ring-tracked so even chaos does not repeat)
-    static pocketllm::PoolId const kPools[] = {
+    // roll, on its own cooldown, ring-tracked so even chaos does not repeat).
+    // Phase-3: the CURRENT weather biases the draw (the bot's mood pool
+    // doubles its slots), and volatility scales all mood presence (steady
+    // 0 halves it, changeable 100 doubles it). Mood seasoning for the
+    // system prompt comes from MoodLineFor (memory layer) so authored
+    // ambience and generations agree on the weather.
+    static pocketllm::PoolId const kBasePools[] = {
         pocketllm::POOL_IDLE, pocketllm::POOL_IDLE,
         pocketllm::POOL_MOOD_BORED, pocketllm::POOL_MOOD_HOMESICK, pocketllm::POOL_MOOD_NIGHTWEARY,
         pocketllm::POOL_MOOD_COINHEAVY, pocketllm::POOL_MOOD_BLOODDRUNK,
     };
-    pocketllm::PoolId const pool = kPools[urand(0, uint32(sizeof(kPools) / sizeof(kPools[0])) - 1)];
+    pocketllm::PoolId const moodPool = pocketllm::MoodPoolOf(
+        PlayerbotLlmMemory::MoodNow(bot->GetGUIDLow()));
+    // plan v5 W7a (default ON): real weather and the hour bias the draw -
+    // rain doubles superstition/homesick, night doubles nightweary. Pure
+    // table reweighting of existing pools: zero prompt bytes, zero
+    // generations; the conf key (LLMWorldTruthAmbient=0) restores the
+    // unbiased table. The weather read happens only after the rare roll
+    // cleared, through the fail-on-miss FindWeather lookup (no
+    // create-on-miss side effect).
+    bool const weatherRain = [bot, ai]() -> bool
+    {
+        if (!sPlayerbotAIConfig.llmWorldTruthAmbient)
+            return false;
+        AreaTableEntry const* zone = ai->GetCurrentZone();
+        if (!zone)
+            return false;
+        Map* const map = bot->GetMap();
+        if (!map || !map->GetWeatherSystem())
+            return false;
+        Weather* const weather = map->GetWeatherSystem()->FindWeather(zone->ID);
+        if (!weather)
+            return false; // no weather object for this zone yet: no bias
+        WeatherType const type = weather->GetWeatherType();
+        return (type == WEATHER_TYPE_RAIN || type == WEATHER_TYPE_STORM) &&
+            weather->GetWeatherGrade() > 0.0f;
+    }();
+    bool const nightHour = []() -> bool
+    {
+        if (!sPlayerbotAIConfig.llmWorldTruthAmbient)
+            return false;
+        time_t nowT = time(nullptr);
+        struct tm const* lt = localtime(&nowT);
+        if (!lt)
+            return false;
+        return lt->tm_hour < 6 || lt->tm_hour >= 21;
+    }();
+    int const moodPermille = pocketllm::MoodWeightPermille(
+        (int)sPlayerbotAIConfig.llmRpVolatility);
+    // weighted table: idle 2 slots, the five base moods share a TOTAL
+    // slot count scaled by volatility (steady halves their presence,
+    // changeable adds half again), current-weather pool +1 slot (the
+    // bias, always on). Round-robin across the pools so scaling never
+    // deletes one mood entirely or stacks one alone; the table bounds
+    // the total (12 - 2 idle - 1 bias = 9 room, target peaks at 8).
+    size_t const kMoodPoolCount =
+        sizeof(kBasePools) / sizeof(kBasePools[0]) - 2;
+    int const moodTarget =
+        (int)((kMoodPoolCount * (size_t)moodPermille + 500) / 1000);
+    pocketllm::PoolId table[12];
+    size_t n = 0;
+    table[n++] = pocketllm::POOL_IDLE;
+    table[n++] = pocketllm::POOL_IDLE;
+    for (size_t s = 0; s < (size_t)moodTarget; ++s)
+        if (n < sizeof(table) / sizeof(table[0]) - 1)
+            table[n++] = kBasePools[2 + (s % kMoodPoolCount)];
+    // W7a: the weather/hour slots land before the mood-bias slot, bounded
+    // by the same 12-slot table (a rainy night biases, it never takes over)
+    if (weatherRain)
+    {
+        if (n < sizeof(table) / sizeof(table[0]) - 1)
+            table[n++] = pocketllm::POOL_SUPERSTITION;
+        if (n < sizeof(table) / sizeof(table[0]) - 1)
+            table[n++] = pocketllm::POOL_MOOD_HOMESICK;
+    }
+    if (nightHour && n < sizeof(table) / sizeof(table[0]) - 1)
+        table[n++] = pocketllm::POOL_MOOD_NIGHTWEARY;
+    if (n < sizeof(table) / sizeof(table[0]))
+        table[n++] = moodPool;
+    pocketllm::PoolId const pool = table[urand(0, uint32(n) - 1)];
     uint64_t const stateKey = ((uint64_t)bot->GetGUIDLow() << 24) | (uint64_t)(pool + 1);
     StateRef stateRef = StateFor(stateKey, bot->GetGUIDLow());
 

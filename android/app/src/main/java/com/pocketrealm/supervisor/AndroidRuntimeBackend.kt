@@ -275,6 +275,13 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
 
     override suspend fun stop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult =
         withContext(Dispatchers.IO) {
+            if (component == RuntimeComponent.WORLD) {
+                // The battery-event chatter refresher only outlives a world
+                // session by mistake; drop it with the world it serves.
+                runCatching {
+                    com.pocketrealm.server.ChatterPowerMonitor.stopPeriodic(appContext)
+                }
+            }
             val value = when (component) {
                 RuntimeComponent.DATABASE -> json(database.api().stopOwned(owner.instanceToken))
                 RuntimeComponent.REALM -> json(realm.api().stopOwned(owner.instanceToken))
@@ -286,6 +293,14 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
 
     override suspend fun forceStop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult =
         withContext(Dispatchers.IO) {
+            if (component == RuntimeComponent.WORLD) {
+                // Forced stop is still a world stop: drop the battery-event
+                // chatter refresher here too (stop() covers the graceful
+                // path; the supervisor's recovery lanes come straight here).
+                runCatching {
+                    com.pocketrealm.server.ChatterPowerMonitor.stopPeriodic(appContext)
+                }
+            }
             val result = when (component) {
                 RuntimeComponent.DATABASE -> killBinder { database.api().forceStopOwned(owner.instanceToken) }
                     .also { database.close() }
@@ -319,10 +334,10 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
      */
     private fun ensureLlmRuntime(snapshot: Settings.Snapshot, profileId: String) {
         // The chatter power refresher runs in BOTH modes (embedded
-        // and external) - it only writes when the ambience switch is on,
-        // and the native layer degrades to silence when the file goes
-        // stale, so a dead refresher is always fail-safe. Started here so
-        // every world start (re)arms it with the freshest epoch.
+        // and external) - the file is staged here at every world start
+        // and re-staged on battery events (low battery / plugged /
+        // unplugged); a dead refresh just leaves the last state standing,
+        // which is fail-safe under the collapsed off/dim/normal design.
         runCatching {
             com.pocketrealm.server.ChatterPowerMonitor.startPeriodic(appContext) {
                 runCatching {

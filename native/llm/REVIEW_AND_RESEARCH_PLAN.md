@@ -116,7 +116,7 @@ Core mechanics reviewers must understand:
   front-truncate the stable segments; since round 6 the segments are
   budgeted against the character window — oldest facts, then gossip,
   then rolling turns drop under pressure — and the llama lane defaults
-  the window to 8192). `PROMPT_FORMAT_VERSION = 3` wired into
+  the window to 12288 since the plan-v4 bump). `PROMPT_FORMAT_VERSION = 3` wired into
   slot invalidation.
 - Channel keys: `0x80000000 | ChatChannelSource` for shared channels vs
   player GUID lows for whispers; synthetic event prompts recorded under an

@@ -46,11 +46,14 @@ revert those.
 
 **The §5.1 scaffolding is landed and the wording lock is now
 MECHANICAL in both directions + STRUCTURAL in the bank pipeline.**
-Tier max_tokens raised (T1 230 / T2 210 / T3 210 / T4 300 unchanged)
+Tier max_tokens raised (T1 230 / T2 210 / T3 210; T4 later raised to 600 with the API-tier retune)
 with the arithmetic pinned in tests and docs. The beat-cargo builders
-speak persona-flavored VARIANT SETS (banklib BEAT_CARGO_VARIANTS, 3
-flavors × 8 kinds, flavor 0 = the S8 measured wording byte-preserved;
-selection `flavor = bot_guid % 3`, one flavor per bot for life;
+speak persona-flavored VARIANT SETS (banklib BEAT_CARGO_VARIANTS;
+rounds 0-4 shipped 3 flavors x 8 kinds — the plan-v4 variety pass grew
+them to SIX per kind, `flavor = bot_guid % 6`, see
+LLM-BANK-AUTHORING-HANDOFF-R5.md for the current law and the
+flavors-3-5 bank-coverage gap; flavor 0 = the S8 measured wording
+byte-preserved; one flavor per bot for life;
 static_asserts pin set uniformity). The ONE frozen long-form cue
 (LONGFORM_CUE → kLongFormCue) rides exactly three bridge rungs
 (storytelling ask / tier-5 bonded open-confidence / news deep-dive),
@@ -104,8 +107,9 @@ SESSION'S JOB is the retrain + gates: run **arm2′ (E2B)**,
 LR; masking ablation at the arm2′ first checkpoint), then **G0-G5** —
 G0 tools/format + example-bleed (harness conversion converged rounds
 4/4b/4c; re-derive the G1 .861 threshold on the first post-conversion
-baseline run), G2 hard-creative, G3 live RP 100-turn @8192, G4 device
-matrix (KV-RAM reading at 8192), G5 full battery incl. the held-out
+baseline run), G2 hard-creative, G3 live RP 100-turn (ctx 12288 since the plan-v4
+bump; the 8192 figure below predates it), G4 device
+matrix (KV-RAM reading at the CURRENT tier ctx 12288), G5 full battery incl. the held-out
 nonce hedge gate (P45 pool: 304 train / 76 held-out, held-out NEVER
 trained — verified), per-tool-family S1 rates, era 0/8, from-card
 lore, the rev-3 length histograms (cued/uncued), multi-turn eval at
@@ -156,15 +160,16 @@ the server auto-runs 4 sequences with a unified KV cache and the
 whisper lane needed no flag — the 30s quiet-window admission gate
 shipped instead. Reconcile the plan text at the next revision.
 
-**Power ladder + master toggle (Kotlin)**: ChatterPowerMonitor computes
-the rung (getThermalHeadroom + battery + charging + connectivity;
-the table pinned by ChatterPowerMonitorTest mirroring the native enum)
-and writes the power file every 60s (epoch-keyed refresher, armed at
-every world start, both modes). The conf arms the subsystem whenever
-the LLM runs; the FILE's enabled flag carries the live ambience
-switch — mid-session both directions. Missing/disabled/garbage = OFF +
-queue clear; stale (>10min, incl. zero/future stamps) = EMERGENCY +
-non-floor flush.
+**Power state (SUPERSEDED by the plan-v4 collapse — see
+LLM-INTEGRATION.md "POWER STATE" and the device checklist section E;
+this paragraph records the pre-collapse design)**: the ladder
+(thermal + battery + charging + connectivity, a 60s refresher, a
+staleness window with EMERGENCY + non-floor flush, and a mid-session
+ambience toggle) was replaced by: off / low-battery dim (<=15%
+off-charger) / normal, staged at world start and re-staged on battery
+events only, no staleness window (writer and world share one process),
+the ambience toggle applying at the next realm start. Missing/disabled
+file = OFF + queue clear, unchanged.
 
 **Instrument discipline (the round-3 lesson, binding)**:
 tmp/mutation_s10.py now asserts a GREEN BASELINE before mutating,
@@ -256,7 +261,7 @@ PB_SAY_{TIMEDIFF_HEAD,TIMEDIFF_TAIL,PACE_CALL} (NEW), PB_SAY_RECORDER
 keywords), PB_IFACE_{SOCKINCLUDE,CONNECT} (NEW), PB_LLM_TIMEOUT/
 CONFIG_HEADER/CONF (llmConnectTimeout), CORE_LOGIN_ONBOARDING (NEW,
 apply + restore); Kotlin: LlmRuntime.kt (chatTemplateFile +
-serialVersionUID; contextSize now 8192 per the S10 rev-3c fix),
+serialVersionUID; contextSize now 8192 per the S10 rev-3c fix (12288 since plan v4)),
 LlmRuntimeService (probe/restart/revert), LlmRuntimePolicy
 (stageChatTemplate), LlmModelRegistry (connectTimeoutSec), LlmScreen
 (picker), ServerRuntimeFiles (debug banter), FirstRunTutorial (step
@@ -353,7 +358,8 @@ and ledger items means the retrain.
   :app + :pocketrealm-llm test classes green). Measured: worst-case
   runtime request 2,047 tokens (largest session row, 8-pair shape) →
   ~2.8k with template + bias + full asset card + a 300-token reply —
-  ~3x headroom at 8192. G4 records KV-RAM at 8192 (q8_0 KV cache is the
+  ~3x headroom at 8192 (pre-bump arithmetic; 12288 since plan v4). G4
+records KV-RAM at the deployment ctx (q8_0 KV cache is the
   fallback lever); the in-process debug path's LLMCtxSize=4096 is
   deliberately UNCHANGED (its n_ctx = ctxSize × 4 slots). P47 condition
   added: card spans sample the shipped asset's real length spread
@@ -373,7 +379,9 @@ and ledger items means the retrain.
   (tools/llm_lab/s10_chatter_gates.py) and tighten the runtime murmur
   tolerance (today 5-24 words/120 B, deliberately pre-P52) toward the
   trained 8-20 register — the S10 device legs (battery %, whisper-ack
-  under murmur load, live power ladder, a real cloud-composer run)
+  under murmur load, the collapsed power-protocol leg (device
+  checklist section E; the ladder itself is gone), a real
+  cloud-composer run)
   ride the same checkpoint per S10-ledger (a); (3) the murmur composer
   script currently binds one factKey per batch (5-turn cap) — multi-
   fact scripts need the eventRows plumbing (S10-ledger (m)). The S9

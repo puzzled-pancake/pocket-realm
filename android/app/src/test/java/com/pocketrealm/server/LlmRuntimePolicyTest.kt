@@ -96,7 +96,7 @@ class LlmRuntimePolicyTest {
             "AiPlayerbot.LLMGovernorWindow = 60",
             "AiPlayerbot.LLMGovernorBotMax = 8",
             "AiPlayerbot.LLMGovernorGlobalMax = 8",
-            "AiPlayerbot.LLMContextLength = 8192",
+            "AiPlayerbot.LLMContextLength = 12288",
             "AiPlayerbot.LLMFactsCap = 12",
             "AiPlayerbot.LLMMemoriesTail = 6",
             "AiPlayerbot.LLMBotToBotChatChance = 10",
@@ -197,10 +197,17 @@ class LlmRuntimePolicyTest {
         assertTrue(config.bindLoopbackOnly)
         assertEquals("", config.apiKey)
         assertEquals(10, config.nice)
-        // rev-3 (2026-08-31): 8192 server ctx — the measured worst-case
-        // trained request is ~2.2k tokens; the rest is P50/P51 generation
-        // and future-history headroom (KV RAM re-checked on the device matrix).
-        assertEquals(8192, config.contextSize)
+        // rev-4 (Phase 1, plan v4): E2B tier 12288 — the measured worst-case
+        // trained request is ~2.2k tokens; the extra headroom carries the
+        // prompt-pack seasoning + reply caps with 2 concurrent slots.
+        // runtimeConfig follows the SELECTED tier (Qwen stays 6144); the
+        // default snapshot selects the E2B default model.
+        assertEquals(12288, config.contextSize)
+        val qwen = LlmRuntimePolicy.runtimeConfig(
+            Settings.Snapshot(llmModelId = LlmModelRegistry.TUNED_Q08.id),
+            "/data/models/qwen.gguf",
+        )
+        assertEquals(6144, qwen.contextSize)
         assertFalse(config.useMtp)
         assertEquals(3, config.mtpDraftMax)
         // --jinja applies the model's real chat template; --load-mode none is
@@ -282,6 +289,27 @@ class LlmRuntimePolicyTest {
             "http://127.0.0.1:9/v1/chat/completions", "m", "",
         )!!
         assertFalse(externalWithout.contains("LLMLoreFile"))
+    }
+
+    @Test
+    fun promptPackLineEmitsOnlyWhenStaged() {
+        // Phase 1: the staged pack path rides both conf blocks; absent keeps
+        // the native renderer on the trained default (byte-identical output).
+        val with = LlmRuntimePolicy.confBlock(
+            llmEnabled = true, promptPackFile = "/srv/run/llm_prompt_pack.json",
+        )!!
+        assertTrue(with.contains("AiPlayerbot.LLMPromptPackFile = \"/srv/run/llm_prompt_pack.json\"\n"))
+        val without = LlmRuntimePolicy.confBlock(llmEnabled = true)!!
+        assertFalse(without.contains("LLMPromptPackFile"))
+        val external = LlmRuntimePolicy.confBlockExternal(
+            "http://127.0.0.1:9/v1/chat/completions", "m", "",
+            promptPackFile = "/srv/run/llm_prompt_pack.json",
+        )!!
+        assertTrue(external.contains("AiPlayerbot.LLMPromptPackFile = \"/srv/run/llm_prompt_pack.json\"\n"))
+        val externalWithout = LlmRuntimePolicy.confBlockExternal(
+            "http://127.0.0.1:9/v1/chat/completions", "m", "",
+        )!!
+        assertFalse(externalWithout.contains("LLMPromptPackFile"))
     }
 
     @Test
@@ -397,10 +425,16 @@ class LlmRuntimePolicyTest {
         assertFalse(block.contains("repeat_penalty"))
         assertFalse(block.contains("presence_penalty"))
         assertFalse(block.contains("min_p"))
-        // dedicated T4 budget: not a recycled device profile
+        // dedicated T4 budget: not a recycled device profile (API-class
+        // models get room to use their context: 600-token replies, 128k
+        // ctx, deeper memory — no on-device KV constraint off-device)
         assertTrue(block.contains("\"temperature\":0.7,"))
         assertTrue(block.contains("\"top_p\":0.9,"))
-        assertTrue(block.contains("\"max_tokens\":300,"))
+        assertTrue(block.contains("\"max_tokens\":600,"))
+        assertTrue(block.contains("AiPlayerbot.LLMContextLength = 131072\n"))
+        assertTrue(block.contains("AiPlayerbot.LLMFactsCap = 48\n"))
+        assertTrue(block.contains("AiPlayerbot.LLMMemoriesTail = 16\n"))
+        assertTrue(block.contains("AiPlayerbot.LLMGenerationTimeout = 60\n"))
     }
 
     @Test

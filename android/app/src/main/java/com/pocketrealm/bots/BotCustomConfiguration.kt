@@ -64,6 +64,8 @@ data class BotCustomConfiguration(
         healthyRampMs = 5 * 60_000L,
         changeCooldownMs = 10_000L,
     ),
+    // AI speech (the Bots editor's AI tab); sentinels = follow the model
+    val llmSpeech: BotLlmSpeech = BotLlmSpeech(),
 ) {
     init {
         BotPopulationPolicy.validatePopulation(
@@ -140,6 +142,7 @@ data class BotCustomConfiguration(
             wanderWhenIdle = wanderWhenIdle,
             enableOffSpecStrategies = enableOffSpecStrategies,
             admission = admission,
+            llmSpeech = llmSpeech,
         ).also { require(basePresetId == null || basePresetId.matches(Regex("[a-z0-9][a-z0-9._-]{2,63}"))) }
 
     companion object {
@@ -182,6 +185,7 @@ data class BotCustomConfiguration(
             wanderWhenIdle = profile.wanderWhenIdle,
             enableOffSpecStrategies = profile.enableOffSpecStrategies,
             admission = profile.admission,
+            llmSpeech = profile.llmSpeech,
         )
 
         /** Start a new custom preset from a built-in base (duplicate-friendly). */

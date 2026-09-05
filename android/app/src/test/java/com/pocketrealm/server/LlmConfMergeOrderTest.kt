@@ -50,7 +50,7 @@ class LlmConfMergeOrderTest {
                 "http://127.0.0.1:8080/v1/chat/completions",
                 conf["aiplayerbot.llmapiendpoint"],
             )
-            assertEquals("8192", conf["aiplayerbot.llmcontextlength"])
+            assertEquals("12288", conf["aiplayerbot.llmcontextlength"])
             // The base contract survives the append everywhere else.
             assertEquals("1", conf["aiplayerbot.enabled"])
             assertEquals("0", conf["aiplayerbot.commandserverport"])
@@ -125,7 +125,7 @@ class LlmConfMergeOrderTest {
             assertEquals("", conf["aiplayerbot.llmresponsestartpattern"])
             assertEquals("", conf["aiplayerbot.llmresponseendpattern"])
             assertEquals("1", conf["aiplayerbot.llmbanterenabled"])
-            assertEquals("16384", conf["aiplayerbot.llmcontextlength"])
+            assertEquals("131072", conf["aiplayerbot.llmcontextlength"])
         }
     }
 

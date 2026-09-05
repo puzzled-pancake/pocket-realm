@@ -31,7 +31,7 @@ bot #12. The core replaces that with:
 - **Corpora** (all ASCII, <=200 chars, no protocol bytes): greetings by
   relationship tier (stranger/acquaintance/ally/trusted), kill confirms,
   rare-loot reactions, idle provocations, reply-to-silence, dares, bets
-  (open/win/lose), superstitions, beast-naming, six mood pools, and the
+  (open/win/lose), superstitions, beast-naming, five mood pools, and the
   wildcard bank.
 - **Marker neutering** (`NeuterMarkers`): the injection defense — player
   text echoed into prompts/history can carry forged `<<tool ...>>` calls;
@@ -70,16 +70,23 @@ categories in-game: keep passing `nowMs` from the caller for cooldowns;
 `0` disables them. Any deliberate change to pools or selection updates the
 golden pin in the same commit — the battery fails otherwise, by design.
 
-## Next steps (from the creative audit, in surprise-per-line order)
+## Next steps (status 2026-09-03: Phases 3-5 landed)
 
-1. Grow persona improv cells from 2 to 12+ lines/cell (the core already
-   selects; the pools are the limit) and route the busy-pool variants
-   through it.
-2. Moods: engine-side entry/exit rules feeding the mood pools + a
-   mood-segment in BuildPromptContext (last stable segment, one
-   PROMPT_FORMAT_VERSION bump).
-3. Counters + first-meeting/anniversary facts (running jokes that
-   escalate; the bot remembers YOUR falls at hour 800).
-4. Rumor mill with mutation (the crown jewel: retellings drift
-   deterministically; the player hears their own legend come back warped).
-5. Wildcard events roller (dares, campfire stories, bets on loot).
+1. ~~Grow persona improv cells from 2 to 12+ lines/cell~~ DONE (Phase-5):
+   mood pools 6→12 lines each, busy 6→12, wildcard 10→16. Persona hard
+   cells were already 12/cell; the ambient pools were the limit.
+2. ~~Moods: engine-side entry/exit rules + mood-segment~~ DONE (Phase-3):
+   GUID-stable weather (hourly bucket + event nudges) with 8 moods,
+   volatility-scaled ambient weights, one seasoning line in the system
+   prompt's instruction span (no new segment, no format bump).
+3. ~~Counters + first-meeting/anniversary facts~~ DONE (Phase-4):
+   counter escalation on the Nth telling (retire at 5), anniversaries
+   from oldest-fact created_at (30/100/365, journal-visible), tier beats
+   (vouch/bickering, journal-visible).
+4. ~~Rumor mill with mutation~~ DONE (Phase-4): deterministic
+   DistortGossipHop per hop (cap 3, originator verbatim) with POI-biased
+   sampling (place-named rows travel farther).
+5. Wildcard events roller (dares, campfire stories, bets on loot) —
+   pools exist (DARE/BET/SUPERSTITION/NAMING), still no game-side caller.
+6. Cadence AFTER corpus (Phase-5): murmur 20-40s, party 6min@50%,
+   global 45min — the silence doctrine holds (no fact row, no line).

@@ -85,7 +85,11 @@ def test_recall_beats_sit_between_sentiment_and_first_meeting():
 def test_event_notes_carry_their_kinds():
     text = BRIDGE_CPP.read_text(encoding="utf-8").replace('\\"', '"')
     inner = text.split("BuildNoteInner(Player* bot")[1].split("} // namespace")[0]
-    event_block = inner.split("if (state.eventTurn)")[1].split("// ---- S7 A10/A11 question path")[0]
+    # split markers must EXIST (a reworded marker fails open: the slice
+    # silently widens and the pins below lose their span)
+    assert "// ---- question path, computed BEFORE the ladder" in inner
+    event_block = inner.split("if (state.eventTurn)")[1] \
+        .split("// ---- question path, computed BEFORE the ladder")[0]
     assert '<<perform_emote emote="cheer">>' in event_block, \
         "a level-up reaction licenses the cheer emote (A17 event hook)"
     assert '<<adjust_sentiment direction="+1" reason="...">>' in event_block
@@ -100,6 +104,11 @@ def test_tier_ceremony_gating_and_secret_marker():
     inner = text.split("BuildNoteInner(Player* bot")[1].split("} // namespace")[0]
     # an ACT request outranks ceremony; the transition still advances
     assert "if (crossed && !actBeat)" in inner
+    # the crossing folds into the mood weather DIRECTIONALLY: up
+    # brightens (smitten), down quiets (grief) - a mutant that pins one
+    # arm inverts the weather for the other direction
+    assert ("NudgeMood(bot->GetGUIDLow(),\n"
+            "                crossed > 0 ? pocketllm::MOOD_SMITTEN : pocketllm::MOOD_GRIEF);") in inner
     # the ceremony fires on OBSERVED transitions (one turn after the
     # async crossing write lands - the pre-stomp read cadence)
     assert "ConsumeTierTransition(bot->GetGUIDLow()" in inner
@@ -181,9 +190,11 @@ def test_longform_cue_injection_is_tier_and_content_gated():
     assert inner.count("kLongFormCue") == 3, \
         f"three injection sites exactly (found {inner.count('kLongFormCue')})"
     # exact-call regex (a substring count would survive an argument-scaling
-    # mutant like (sPlayerbotAIConfig.llmMaxNewTokens * 2))
+    # mutant like (sPlayerbotAIConfig.llmMaxNewTokens * 2)); Phase-3 adds
+    # the longForm dial as the second argument at every site
     gates = re.findall(
-        r"LongFormLicensed\(sPlayerbotAIConfig\.llmMaxNewTokens\)", inner)
+        r"LongFormLicensed\(sPlayerbotAIConfig\.llmMaxNewTokens, sPlayerbotAIConfig\.llmRpLongForm\)",
+        inner)
     assert len(gates) == 3, \
         f"every cue site reads the tier's configured max new tokens verbatim " \
         f"(found {len(gates)} exact calls)"
@@ -297,14 +308,22 @@ def test_recall_surfaces_are_newest_window_and_code_matched():
 
 def test_duel_outcome_becomes_memory_and_legend():
     memory = MEMORY_CPP.read_text(encoding="utf-8").replace('\\"', '"')
+    assert "// ---- authored kill banter (rare by design)" in memory
     duel = memory.split("OnDuelComplete(Player* participant")[1] \
-        .split("// ---- M6 authored kill banter")[0]
+        .split("// ---- authored kill banter (rare by design)")[0]
     assert 'LogFact(bot->GetGUIDLow(), duelPlayer->GetGUIDLow(), fact.str(), "shared-event")' in duel, \
         "A13: the duel outcome is the news-recall beat's cargo"
     assert 'ShareGossip(bot->GetGUIDLow(), town.str(), "duel")' in duel, \
         "A19: a player-subject world_gossip row (the world knows what I did)"
     assert "reaction.eventKind = kind;" in duel
     assert "EVENT_DUEL_PLAYER_FLED" in duel and "EVENT_DUEL_BOT_FLED" in duel
+    # the wronging folds into the mood weather: a loss or a cheap
+    # player-flee nudges GRUDGE (a mutant that flips the mood argument
+    # inverts the weather - the exact contract under the nudge)
+    assert "NudgeMood(bot->GetGUIDLow(), pocketllm::MOOD_GRUDGE);" in duel, \
+        "duel loss / player-flee folds a grudge into the mood weather"
+    assert "MOOD_SMITTEN" not in duel, \
+        "no duel outcome brightens the weather"
 
 
 def test_trained_builder_gains_tier_note_and_say_cap():
@@ -316,8 +335,52 @@ def test_trained_builder_gains_tier_note_and_say_cap():
     assert "int const tier = preStompTier;" in trained, \
         "the sysm tier is the pre-stomp read (the S5 law)"
     assert "(playerOrChannel == (0x80000000u | static_cast<uint32>(ChatChannelSource::SRC_SAY)))" in trained
-    assert "? 5 : 8;" in trained, \
+    # A18: the ambient say cross-injection window caps at 5 lines
+    # on-device (16 on the 128k API tier), 8 conversational (32 on API)
+    assert "? (apiTier ? 16 : 5) : (apiTier ? 32 : 8);" in trained, \
         "A18: the ambient say cross-injection window caps at 5 lines"
+    # the load-bearing wiring: the shipped sysm actually receives the
+    # staged pack seasoning AND the mood weather line (deleting either
+    # argument would otherwise pass every pure-function test)
+    assert "LoadPackSeasoning(), MoodLineFor(botGuid));" in trained, \
+        "the trained builder passes the pack seasoning and mood line into SysmForCard"
+
+
+def test_history_storage_cap_clears_the_read_window():
+    """The rolling-history writer must clear the reader's largest window:
+    a deque capped at 20 silently starves the API tier's 32-turn read cap
+    (storage binds before the reader ever sees the tail)."""
+    memory = MEMORY_CPP.read_text(encoding="utf-8")
+    writer = memory.split("void AppendHistoryTurn(")[1] \
+        .split("// Prompt-framing control tokens")[0]
+    assert "ExternalApiTierActive() ? 32 : 20" in writer, \
+        "the write-side cap is tier-aware and >= the reader's 32-turn window"
+    assert "while (turns.size() > storeCap)" in writer, \
+        "the deque eviction keys on the tier-aware cap"
+
+
+def test_driver_reads_the_rp_conf_keys():
+    """The build driver's config overlays must parse every emitted RP key
+    with the app's spelling, the 50 default, and the 9-block delta id
+    set (a key emitted but never parsed is inert)."""
+    driver = (ROOT / "tools" / "build_o09_realm_runtime.py").read_text(encoding="utf-8")
+    assert 'GetStringDefault("AiPlayerbot.LLMPromptPackFile", "")' in driver, \
+        "the staged pack path key is parsed natively"
+    for key in ("LLMRpInitiative", "LLMRpVolatility", "LLMRpReactivity", "LLMRpLongForm"):
+        assert f'GetIntDefault("AiPlayerbot.{key}", 50)' in driver, \
+            f"{key} is parsed with the documented 50 default"
+    # the delta keys are composed from the frozen id list; pin the LIST
+    # (the whole 9-id universe in one array) plus the composition line
+    import re as _re
+    overlay = driver.split("static char const* const kBlocks[] = {")[1].split("};")[0]
+    ids = _re.findall(r'"([^"]+)"', overlay)
+    assert ids == [
+        "voice-lock", "rule-autonomy", "rule-anti-omniscient",
+        "rule-boldness", "rule-salience", "ban-list", "scene-close",
+        "initiative-opener", "mood-weather", "player-persona",
+    ], f"the native delta id list must equal the app universe (got {ids})"
+    assert 'std::string("AiPlayerbot.LLMPromptBlock.") + kBlocks[i]' in driver, \
+        "the per-preset delta keys compose from the id list"
 
 
 def test_discount_procedure_rides_tier_four_gives():
@@ -328,12 +391,91 @@ def test_discount_procedure_rides_tier_four_gives():
     assert "friend's price" in give.lower() or "A friend's price" in give
 
 
+def test_plan_v5_slice1_core_hooks_are_anchored():
+    """W1/F1: the player-death and trade-completion hooks must be anchored
+    in the driver (the submodules stay pristine; a hook that only exists in
+    the patches overlay can never fire)."""
+    driver = DRIVER.read_text(encoding="utf-8")
+    death = driver.split('CORE_UNIT_DEATH_ANDROID = """')[1].split('"""')[0]
+    assert "PlayerbotLlmMemory::OnPlayerDied(deadPlayer)" in death, \
+        "the SetDeathState anchor calls the death hook"
+    assert "s == JUST_DIED && GetTypeId() == TYPEID_PLAYER" in death, \
+        "the death hook fires on real player deaths only"
+    assert 'replace_anchor(cmangos / "src" / "game" / "Entities" / "Unit.cpp", CORE_UNIT_DEATH_UPSTREAM, CORE_UNIT_DEATH_ANDROID)' in driver, \
+        "the death anchor is registered in the apply list"
+    trade = driver.split('CORE_TRADE_ANDROID = """')[1].split('"""')[0]
+    assert "PlayerbotLlmMemory::OnTradeCompleted(_player, trader)" in trade, \
+        "the trade anchor calls the completion hook pre-moveItems"
+    assert 'replace_anchor(cmangos / "src" / "game" / "Trade" / "TradeHandler.cpp", CORE_TRADE_UPSTREAM, CORE_TRADE_ANDROID)' in driver, \
+        "the trade anchor is registered in the apply list"
+    assert 'restore_anchor(\n        NATIVE / "cmangos" / "src" / "game" / "Trade" / "TradeHandler.cpp",\n        CORE_TRADE_ANDROID,' in driver, \
+        "the trade anchor restores for --configure-only"
+
+
+def test_plan_v5_slice1_conf_keys():
+    driver = DRIVER.read_text(encoding="utf-8")
+    for key, default in (("LLMEventReactionsEnabled", 1),
+                         ("LLMGrudgeRefusalEnabled", 1),
+                         ("LLMAuthoredLinesPerHour", 8)):
+        assert f'GetIntDefault("AiPlayerbot.{key}", {default})' in driver, \
+            f"{key} is parsed with the documented default"
+    header = driver.split('PB_LLM_CONFIG_HEADER_ANDROID = """')[1].split('"""')[0]
+    assert "llmEventReactionsEnabled, llmGrudgeRefusalEnabled, llmAuthoredLinesPerHour;" in header, \
+        "the slice-1 fields are declared in the config header overlay"
+
+
+def test_plan_v5_w1_death_reaction_machinery():
+    memory = MEMORY_CPP.read_text(encoding="utf-8")
+    assert "void PlayerbotLlmMemory::OnPlayerDied(Player* victim)" in memory
+    # wipe classification reads the whole group's state
+    death = memory.split("OnPlayerDied(Player* victim)")[1].split("OnTradeCompleted")[0]
+    assert "member->IsInWorld() && member->IsAlive()" in death, \
+        "wipe classification: a lone survivor anywhere means no wipe"
+    assert "REACTION_CONDOLENCE" in death, "the authored condolence cell draw"
+    assert "PendingAftermath()" in death, "a wipe arms the pending shaken lines"
+    assert "ShareGossip(" in death, "a wipe mints a town gossip row"
+    # the pending aftermath is consumed by the initiative scan, once
+    tick = memory.split("TickInitiative(Player* bot)")[1].split("void PlayerbotLlmMemory::OnPlayerGroupKill")[0]
+    assert "REACTION_SHAKEN" in tick, "the shaken line voices when the party reforms"
+    # the first condolence is the guaranteed beat: it must NOT claim the
+    # ambient slot (exempt from every pacing budget)
+    assert "AuthoredLineAdmitsLocked(arbCategory, /*exempt=*/false, /*roomOnly=*/false)" in memory, \
+        "the ambient slot consults the F7 budget"
+
+
+def test_plan_v5_w4_grudge_refusal():
+    tools = TOOLS_CPP.read_text(encoding="utf-8")
+    region = tools.split('call.name == "follow"')[1].split('call.name == "loot_roll"')[0]
+    assert region.count("GetUnresolvedGrudge") >= 2, \
+        "both follow and party_invite check the standing grudge"
+    assert "GrudgeRefusalLine(bot, player)" in region, \
+        "the refusal is the authored one-liner"
+    assert "llmGrudgeRefusalEnabled" in region and "llmRpVolatility > 25" in region, \
+        "the refusal is key-gated and steady bots (dial <= 25) swallow it"
+
+
+def test_plan_v5_debt_settlement_fires_kind_one_beat():
+    bridge_h = (PATCHES / "PlayerbotLlmBridge.h").read_text(encoding="utf-8")
+    assert "EVENT_DEBT_SETTLED = 7" in bridge_h
+    bridge = BRIDGE_CPP.read_text(encoding="utf-8")
+    case = bridge.split("case PlayerbotLlmBridge::EVENT_DEBT_SETTLED:")[1].split("default:")[0]
+    assert "TierBeatCargo(player ? player->GetName() : \"\"," in case, \
+        "the settled-debt event turn licenses the kind-1 (debt-forgiven) cargo"
+    assert "1, bot ? bot->GetGUIDLow() : 0" in case, "kind 1 exactly"
+    memory = MEMORY_CPP.read_text(encoding="utf-8")
+    trade = memory.split("OnTradeCompleted(Player* accepter, Player* initiator)")[1]
+    assert "DELETE FROM `bot_player_facts`" in trade, \
+        "settlement RETIRES the debt row (the reminder engine reads by class)"
+    assert "paid the debt square" in trade, "the settlement mints its fact"
+    assert "EVENT_DEBT_SETTLED" in trade, "the reaction queues with the event kind"
+
+
 def test_initiative_and_crowd_anchors():
     memory = MEMORY_CPP.read_text(encoding="utf-8")
     initiative = memory.split("TickInitiative(Player* bot)")[1] \
         .split("void PlayerbotLlmMemory::OnPlayerGroupKill")[0]
-    assert "INITIATIVE_MIN_INTERVAL = 600" in memory, \
-        "the zero-spam gate: one bot-initiated line per bot per 10 min"
+    assert "InitiativeFloorSecs" in memory, \
+        "the zero-spam floor scales from the initiative dial (1200s..300s)"
     assert "AuthoredArrivalGreeting" in initiative
     assert "InitiatedFactIds()" in memory, \
         "new facts want out once (the freshness-weighted cadence)"
@@ -430,7 +572,12 @@ def test_secret_marker_is_category_constrained():
     'secret told:' prefix must not lock the Trusted unlock out - the
     probe is category-constrained to the ceremony's writer."""
     memory = MEMORY_CPP.read_text(encoding="utf-8")
-    probe = memory.split("HasFactPrefix(uint32 bot")[1].split("GetUnresolvedGrudge")[0]
+    # end marker must FOLLOW the start anchor and exist (a dead or
+    # misordered marker fails open: the slice widens and the pin loses
+    # its span)
+    assert "std::string PlayerbotLlmMemory::GossipAbout" in memory
+    probe = memory.split("HasFactPrefix(uint32 bot")[1] \
+        .split("std::string PlayerbotLlmMemory::GossipAbout")[0]
     assert "`category` = 'player-identity'" in probe
 
 
@@ -503,3 +650,238 @@ def test_say_stagger_applies_to_mentions_only():
     assert "isAiChat && isMentioned" in anchor, \
         "only mention answers stagger 2-5s"
     assert "llmSayStagger = int32(urand(2, 5));" in anchor
+
+
+def test_plan_v5_slice2_explore_hook_and_place_memory():
+    """W3: the explore-bit hook is anchored in the driver (the game's own
+    'first time here' verification), the elite branch precedes the quip
+    roll, and the anniversary mint rides the arrival path."""
+    driver = DRIVER.read_text(encoding="utf-8")
+    explore = driver.split('CORE_EXPLORE_ANDROID = """')[1].split('"""')[0]
+    assert "PlayerbotLlmMemory::OnPlayerExploredArea(this, p->zone ? p->zone : p->ID)" in explore, \
+        "the explore hook fires at the zone level"
+    assert 'replace_anchor(cmangos / "src" / "game" / "Entities" / "Player.cpp", CORE_EXPLORE_UPSTREAM, CORE_EXPLORE_ANDROID)' in driver, \
+        "the explore anchor is registered"
+    assert 'CORE_EXPLORE_ANDROID,\n        CORE_EXPLORE_UPSTREAM,' in driver, \
+        "the explore anchor restores for --configure-only"
+
+    memory = MEMORY_CPP.read_text(encoding="utf-8")
+    explore_fn = memory.split("OnPlayerExploredArea(Player* player, uint32 zoneOrAreaId)")[1].split("ConsumePendingAnswer")[0]
+    assert "HasSharedFactPrefix" in explore_fn, \
+        "first-visit facts are prefix-checked against the ledger (no duplicate firsts after restart)"
+    assert "for the first time" in explore_fn
+
+    kill = memory.split("OnPlayerGroupKill(Player* tapper, Unit* victim)")[1]
+    elite = kill.split("Phase-3 reactivity: the 1-in-24 kill roll")[0]
+    assert "CREATURE_ELITE_ELITE" in elite, "elite detection rides the creature rank"
+    assert elite.index("CREATURE_ELITE_ELITE") < kill.index("urand(1, killSides)"), \
+        "the elite mint happens BEFORE the quip roll (elites skip it)"
+    assert '"kill"' in elite, "an elite fell mints a player-subject town row"
+
+    tick = memory.split("TickInitiative(Player* bot)")[1]
+    assert "AnniversaryBucket(days)" in tick, "the anniversary mint rides the arrival path"
+    assert "have known " in tick
+
+
+def test_plan_v5_slice2_curiosity_and_weather():
+    """W5 + W7a: the question class is the third initiative class with the
+    deterministic answer capture at the bridge; the weather/hour bias is
+    default-ON with its conf kill-switch."""
+    memory = MEMORY_CPP.read_text(encoding="utf-8")
+    tick = memory.split("TickInitiative(Player* bot)")[1]
+    assert "CuriosityQuestionLine(questionIdx, player->GetName())" in tick, \
+        "the curiosity class asks from the bank"
+    assert "now - lastAsk->second < 1800" in tick, "the 30-minute question floor"
+    assert "GetTrainedTier(bot, player) < 2" in tick, "questions need tier >= 2"
+    bridge = BRIDGE_CPP.read_text(encoding="utf-8")
+    assert "ConsumePendingAnswer(bot->GetGUIDLow()," in bridge, \
+        "the bridge consumes the armed answer on conversational turns"
+    consume = memory.split("ConsumePendingAnswer(uint32 bot, uint32 player, std::string const& reply)")[1]
+    assert "asked, and the answer was:" in consume, "the captured answer mints as a fact"
+
+    persona = (PATCHES / "PlayerbotLlmPersona.cpp").read_text(encoding="utf-8")
+    ambient = persona.split("MaybeAmbientLine(Player* bot)")[1]
+    assert "WEATHER_TYPE_RAIN" in ambient and "WEATHER_TYPE_STORM" in ambient, \
+        "rain/storm biases the ambient draw (read via the W7a accessors)"
+    assert "GetWeatherGrade() > 0.0f" in ambient, "a zero-grade weather type is no weather"
+    assert "POOL_SUPERSTITION" in ambient and "POOL_MOOD_HOMESICK" in ambient
+    assert "lt->tm_hour < 6 || lt->tm_hour >= 21" in ambient, "night doubles nightweary"
+    assert "llmWorldTruthAmbient" in ambient, "the bias is key-gated"
+
+    driver = DRIVER.read_text(encoding="utf-8")
+    assert 'GetIntDefault("AiPlayerbot.LLMWorldTruthAmbient", 1)' in driver, \
+        "W7a default-ON with a documented kill-switch"
+
+
+def test_plan_v5_slice3_tier_dedup_quota_and_recap():
+    """F4a: ONE tier condition; C1.3: the quota ledger; C2: the recap is
+    digest-first with quota-capped fail-closed prose."""
+    memory = MEMORY_CPP.read_text(encoding="utf-8")
+    assert memory.count("llmApiProviderSafe &&") == 0, \
+        "the inline tier condition is deduplicated into the helper"
+    assert "bool PlayerbotLlmMemory::ExternalApiTierActive()" in memory
+    assert "PlayerbotLlmMemory::ExternalApiTierActive() ? 32 : 20" in memory, \
+        "the history writer gates on the helper"
+    assert "bool const apiTier = ExternalApiTierActive();" in memory, \
+        "the history reader gates on the helper"
+    assert "bool PlayerbotLlmMemory::CloudQuotaAdmits(char const* surface, uint32 perDay)" in memory
+
+    login = memory.split("OnPlayerLogin(Player* player)")[1].split("MaybeSessionStandingLine")[0]
+    assert "DeliverSessionRecap(player)" in login, \
+        "a paired player's first login of the process fires the recap"
+    recap = memory.split("DeliverSessionRecap(Player* player)")[1].split("MaybeSessionStandingLine")[0]
+    assert 'CloudQuotaAdmits("recap-prose"' in recap, "prose is quota-capped"
+    assert "RenderRecapDigest(player)" in recap, "digest-first"
+    assert "Previously, in your realm:" in recap, "the deterministic header line"
+    assert "ParseCompletionEnvelope" in recap and "SplitNarratorBlock" in recap, \
+        "prose parses and splits through the safety law"
+    digest = memory.split("RenderRecapDigest(Player* player)")[1].split("DeliverSessionRecap(Player* player)")[0]
+    assert "now - offlineFloor < 3600" in digest, "a quick relog is not a session return"
+    assert "lines.size() < 3" in digest, "silence below three rows (the doctrine)"
+
+    driver = DRIVER.read_text(encoding="utf-8")
+    for key, default in (("LLMRecapEnabled", 1), ("LLMRecapProse", 1),
+                         ("LLMRecapProsePerDay", 6)):
+        assert f'GetIntDefault("AiPlayerbot.{key}", {default})' in driver, \
+            f"{key} is parsed with the documented default"
+
+
+def test_plan_v5_slice4_notice_and_furniture():
+    """W8: the /notice keyword branch in the SayAction overlay renders the
+    scene read (player-initiated, zero generation). W7b: scene/homeland
+    furniture rides the bridge extra leg, default OFF, never [State]."""
+    driver = DRIVER.read_text(encoding="utf-8")
+    async_block = driver.split("PB_SAY_ASYNC_ANDROID = ")[1]
+    notice = async_block.split('lowerMsg == "notice"')[1].split("}")[0] if 'lowerMsg == "notice"' in async_block else ""
+    assert 'PlayerbotLlmMemory::SceneReadLines(bot, player)' in async_block, \
+        "the notice keyword renders the scene read"
+    assert async_block.index('lowerMsg == "notice"') > async_block.index('lowerMsg == "gossip"'), \
+        "notice joins the keyword dispatch after gossip (the F3-minimal table)"
+    for key, default in (("LLMSceneReadEnabled", 1), ("LLMWorldTruthFurniture", 0)):
+        assert f'GetIntDefault("AiPlayerbot.{key}", {default})' in driver, \
+            f"{key} parsed with the documented default"
+
+    memory = MEMORY_CPP.read_text(encoding="utf-8")
+    scene = memory.split("SceneReadLines(Player* bot, Player* player)")[1].split("// ---- the player surface")[0]
+    assert "You are in " in scene and "deep inside" in scene, "place truth"
+    assert "HasStealthAura()" in scene, "stealth truth"
+    assert "is badly hurt" in scene, "wounded members"
+    assert "GossipAbout(player->GetName())" in scene, "the live rumor"
+    assert "SceneNudgeLine" in scene, "the authored nudge"
+
+    bridge = BRIDGE_CPP.read_text(encoding="utf-8")
+    furn = bridge.split("plan v5 W7b: the scene/homeland furniture")[1].split("return note;")[0]
+    assert "HasStealthAura()" in furn, "stealth precedence"
+    assert "HomeZoneOfRace" in furn and "IsEnemyCapitalZone" in furn, "homeland helpers"
+    assert "llmWorldTruthFurniture" in furn, "key-gated (default OFF)"
+    assert "note.extra" in furn, "rides the extra leg"
+    # the furniture must never touch the trained [State] fill
+    assert "CompanionState" not in furn and "NpcSpotState" not in furn
+
+    recall = (PATCHES / "PlayerbotLlmRecallCore.h").read_text(encoding="utf-8")
+    assert 'HomeZoneOfRace(1)' in recall or "case 1: return \"elwynn\"" in recall
+
+
+def test_plan_v5_slice7_persona_block_and_keyword_lore():
+    """S.2: the persona card is a seasoning block (empty renders nothing -
+    no schema change needed for v1). H3: keyword lore injects once per
+    session per pairing, after the question path's first claim."""
+    pack = (ROOT / "android" / "app" / "src" / "main" / "java" /
+            "com" / "pocketrealm" / "llm" / "LlmPromptPack.kt").read_text(encoding="utf-8")
+    assert '"player-persona"' in pack, "the persona card is a pack block"
+    assert 'body = "",' in pack, "empty default body (renders nothing)"
+
+    bridge = BRIDGE_CPP.read_text(encoding="utf-8")
+    h3 = bridge.split("plan v5 H3: keyword-triggered lore")[1].split("conversational ACT beats")[0]
+    assert "BestCard(normalizedMsg)" in h3, "the card resolves by title"
+    assert "ClaimLoreCardOnce" in h3, "once per session per pairing"
+
+    driver = DRIVER.read_text(encoding="utf-8")
+    assert '"mood-weather", "player-persona",' in driver, \
+        "the native delta list carries the persona id"
+
+
+def test_plan_v5_wave1_fixes_and_pin_gaps():
+    """Wave-1 review fixes + the pin gaps the test audit found: the
+    condolence exemption (negative pin), the answer expiry, the saga
+    two-fact gate, the drama cooldown, the ARB cap mapping, the exact
+    kind-1 call, the exact roundtable staleness line, the dialect-aware
+    recap query, and the W4 always-decline hoist."""
+    memory = MEMORY_CPP.read_text(encoding="utf-8")
+    condolence = memory.split("REACTION_CONDOLENCE, victim)")[1].split("void PlayerbotLlmMemory::OnTradeCompleted")[0]
+    assert "TryClaimAmbientSlot" not in condolence and "AuthoredLineAdmits" not in condolence, \
+        "the guaranteed condolence beat stays outside every pacing budget"
+    assert "if (line.empty())\n        return; // the mint and the nudge wait" in condolence, \
+        "the mint and mood nudge wait for a confirmed voice"
+
+    consume = memory.split("ConsumePendingAnswer(uint32 bot, uint32 player, std::string const& reply)")[1].split("// ---- the player surface")[0]
+    assert "bool const expired = time(nullptr) > itr->second.second;" in consume, \
+        "a stale arm never mints"
+    assert "time(nullptr) + 600" in memory, "the arm carries its 10-minute expiry"
+
+    digest = memory.split("RenderRecapDigest(Player* player)")[1].split("DeliverSessionRecap(Player* player)")[0]
+    assert "strftime('%%s', `created_at`) > '%u'" in digest, \
+        "the ledger-grew query is dual-dialect (SQLite has no FROM_UNIXTIME)"
+    assert "offlineFloor" in digest, "the floor local no longer shadows std::floor"
+
+    zone = memory.split("std::string ZoneNameOf(Player* bot)")[1].split("struct HistoryLine")[0]
+    assert "GetAreaEntryByAreaID(bot->GetZoneId())" in zone, \
+        "ZoneNameOf resolves real players (the victim/tapper have no PlayerbotAI)"
+
+    chatter = (PATCHES / "PlayerbotLlmChatter.cpp").read_text(encoding="utf-8")
+    saga = chatter.split("bool PlayerbotLlmChatter::TryBeginCampfireSaga(Player* master)")[1]
+    assert "job.facts.size() < 2" in saga, "a saga needs at least two truths to weave"
+    drama = chatter.split("the rare authored drama set piece")[1].split("time_t duelNote = 0;")[0]
+    assert "now - s.lastDramaAt >= 2700" in drama, "the drama cooldown is pinned"
+    assert "s.lastDramaAt = now; // claim confirmed" in drama, \
+        "the drama window burns only on a confirmed claim"
+    assert "2 * (int)((pairSeed / 6) % 2)" in drama, \
+        "bonded pairs get reunion/debt (0/2); rivalry is for sour pairs"
+    assert "PeekNewestDyadEvent" in chatter.split("bool PickPartyTopic")[1].split("std::string const telling")[0], \
+        "dyad topics vet fatigue BEFORE claiming (no consumed-in-silence events)"
+
+    drain = chatter.split("for (PendingLine& entry : due)")[1].split("if (!deferred.empty())")[0]
+    assert "AuthoredBudgetHasRoom(arbCat)" in drain, "the drain peeks before delivering"
+    assert "else if (delivered && !entry.longForm)" in drain, \
+        "the F7 stamp lands only on a confirmed delivery"
+    refill = chatter.split("if (quiet && murmurQueued < policy.murmurQueueLowWater")[1].split("for (Player* player : players)")[0]
+    assert "AuthoredBudgetHasRoom(PlayerbotLlmMemory::ARB_AMBIENT)" in refill, \
+        "a spent ambient budget skips the murmur batch entirely"
+
+    caps = memory.split("uint32 const catCap = category == PlayerbotLlmMemory::ARB_AMBIENT")[1].split("int64_t const now")[0]
+    assert "std::min<uint32>(3, globalCap)" in caps, "ambient sub-cap 3/hr"
+    assert "std::min<uint32>(2, globalCap)" in caps, "reaction sub-cap 2/hr"
+
+    bridge = BRIDGE_CPP.read_text(encoding="utf-8")
+    debt = bridge.split("case PlayerbotLlmBridge::EVENT_DEBT_SETTLED:")[1].split("default:")[0]
+    assert "TierBeatCargo(player ? player->GetName() : \"\"," in debt, \
+        "the settled-debt event licenses the kind-1 cargo exactly"
+    assert "1, bot ? bot->GetGUIDLow() : 0" in debt, "kind 1 exactly"
+
+    tools = TOOLS_CPP.read_text(encoding="utf-8")
+    follow = tools.split('call.name == "follow"')[1].split('call.name == "loot_roll"')[0]
+    assert "if (sPlayerbotAIConfig.llmGrudgeRefusalEnabled)" in follow and \
+        follow.index("llmGrudgeRefusalEnabled") < follow.index("llmRpVolatility > 25"), \
+        "the grudge ALWAYS declines execution; volatility only gates the VOICE"
+
+    driver = DRIVER.read_text(encoding="utf-8")
+    async_block = driver.split("PB_SAY_ASYNC_ANDROID = ")[1]
+    notice = async_block.split('lowerMsg == "notice"')[1].split("}")[0]
+    assert "PlayerbotLlmMemory::SceneReadLines(bot, player)" in notice, \
+        "the scene read lives inside the notice branch"
+    assert "ConsumePendingAnswer(bot->GetGUIDLow()," in driver, \
+        "an armed ask consumes spoken answers on the say path"
+    # W5 fix (wave 3): the party-line consume sits OUTSIDE hardTriggerAllowed
+    # (hardTrigger == addressedToBot on SRC_PARTY, so an unaddressed-answer
+    # leg behind that gate is dead code)
+    party_block = driver.split("plan v5 C3: the roundtable row")[1].split(
+        "if (bot->GetPlayerbotAI()")[0]
+    assert "if (gateSpeaker && gateSpeaker->isRealPlayer() &&" in party_block, \
+        "the party block gates on speaker + channel"
+    assert "else\n            PlayerbotLlmMemory::ConsumePendingAnswer" in party_block, \
+        "the unaddressed leg consumes the armed ask"
+    for key, default in (("LLMDramaEnabled", 1), ("LLMCuriosityEnabled", 1)):
+        assert f'GetIntDefault("AiPlayerbot.{key}", {default})' in driver, \
+            f"{key} exists (plan 5.4 kill-switch)"
+    assert "FindWeather(uint32 zoneId) const" in driver, \
+        "the read-only weather lookup is anchored (no create-on-miss)"

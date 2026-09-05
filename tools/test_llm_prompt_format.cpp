@@ -275,7 +275,31 @@ static int RunBodyDump(char const* path)
         CHECK(ext.find("presence_penalty") == std::string::npos, "providerSafe strips presence_penalty");
         CHECK(ext.find("\"model\":\"gpt-test\"") != std::string::npos, "model lands");
         CHECK(ext.find("\"temperature\":0.7,") != std::string::npos, "temperature kept");
+        // reasoning-effort suppression is opt-in, off by default
+        CHECK(ext.find("reasoning_effort") == std::string::npos,
+              "no reasoning fields unless requested");
+        std::string extNoThink = BuildChatRequestBody("gpt-test", sysm, history, user, s, true);
+        CHECK(extNoThink.find("\"reasoning_effort\":\"none\"") != std::string::npos,
+              "reasoning_effort:none lands when requested");
+        // plan-v5 strict-endpoint hardening: the Anthropic/llama-only
+        // thinking fields and cache_prompt NEVER ride a providerSafe body
+        // (strict schema validators - Google's OpenAI-compat layer,
+        // measured - 400 on unknown names)
+        CHECK(extNoThink.find("\"thinking\"") == std::string::npos,
+              "anthropic thinking never rides a providerSafe body");
+        CHECK(extNoThink.find("\"thinking_budget\"") == std::string::npos,
+              "thinking budget never rides a providerSafe body");
+        CHECK(extNoThink.find("cache_prompt") == std::string::npos,
+              "cache_prompt never rides a providerSafe body");
+        // the LOCAL tiers keep the full suppression + KV-cache hint
         s.providerSafe = false;
+        std::string localNoThink = BuildChatRequestBody("local-test", sysm, history, user, s, true);
+        CHECK(localNoThink.find("\"thinking\":{\"type\":\"disabled\"}") != std::string::npos,
+              "anthropic thinking-disabled lands on local tiers");
+        CHECK(localNoThink.find("\"thinking_budget\":0") != std::string::npos,
+              "thinking budget zero lands on local tiers");
+        CHECK(localNoThink.find("\"cache_prompt\":true") != std::string::npos,
+              "the llama KV-cache hint stays on local tiers");
     }
 
     // S2's retry splice must find the last user message in the built body
@@ -303,14 +327,84 @@ static int RunBodyDump(char const* path)
     return g_failures ? 1 : 0;
 }
 
+static int RunPackOverlays(char const* path)
+{
+    // Phase-3 pack overlays: default args preserve the frozen default
+    // (byte-exact vs vectors), seasoning appends inside the span, mood
+    // rides after seasoning, and per-preset overrides beat the file.
+    std::vector<Row> rows;
+    if (!LoadRows(path, rows))
+    {
+        std::printf("cannot load vectors: %s\n", path);
+        return 1;
+    }
+    if (rows.empty())
+    {
+        std::printf("no rows\n");
+        return 1;
+    }
+    Row const& r = rows.front();
+    std::string base = SysmForCard(r.persona, r.player, r.tier, r.absence, r.facts);
+    CHECK(base == r.expectedSysm, "default args render the frozen default");
+    std::string seas = SysmForCard(r.persona, r.player, r.tier, r.absence, r.facts,
+        "Have a view.");
+    CHECK(seas.size() > base.size() &&
+        seas.find("Have a view.") != std::string::npos, "seasoning appends");
+    // POSITION, not just presence: the splice rides the identity span,
+    // so the seasoning must land BEFORE the no-narrate law and the facts
+    // segment (a renderer that appends after facts still passes a
+    // find()-only pin - the trained shape forbids that)
+    {
+        size_t const at = seas.find("Have a view.");
+        size_t const sent = seas.find("You speak WORDS only");
+        size_t const facts = seas.find("Facts you remember");
+        CHECK(at != std::string::npos && sent != std::string::npos &&
+            at < sent, "seasoning rides before the no-narrate law");
+        CHECK(at != std::string::npos && facts != std::string::npos &&
+            at < facts, "seasoning rides before the facts segment");
+    }
+    std::string mood = SysmForCard(r.persona, r.player, r.tier, r.absence, r.facts,
+        "Have a view.", "Your weather right now: restless.");
+    CHECK(mood.size() > seas.size() &&
+        mood.find("Your weather right now: restless.") != std::string::npos,
+        "mood rides after seasoning");
+    {
+        size_t const at = mood.find("Your weather right now: restless.");
+        size_t const seasAt = mood.find("Have a view.");
+        size_t const facts = mood.find("Facts you remember");
+        CHECK(at != std::string::npos && seasAt != std::string::npos &&
+            at > seasAt, "mood lands after the seasoning");
+        CHECK(at != std::string::npos && facts != std::string::npos &&
+            at < facts, "mood rides before the facts segment");
+    }
+    // per-preset override precedence through the pack parser
+    std::string json = "{\"version\":1,\"blocks\":["
+        "{\"id\":\"voice-lock\",\"title\":\"V\",\"body\":\"Stay in voice.\",\"enabled\":true,\"tiers\":[],\"help\":\"\"},"
+        "{\"id\":\"rule-boldness\",\"title\":\"B\",\"body\":\"Have a view.\",\"enabled\":false,\"tiers\":[],\"help\":\"\"}]}";
+    std::map<std::string, int> empty;
+    CHECK(SeasoningFromPackJson(json, empty) == "Stay in voice.",
+        "file-enabled block renders");
+    std::map<std::string, int> ov;
+    ov["voice-lock"] = 0;
+    ov["rule-boldness"] = 1;
+    CHECK(SeasoningFromPackJson(json, ov) == "Have a view.",
+        "preset overrides beat the file");
+    CHECK(SeasoningFromPackJson("{nope", ov).empty(), "corrupt pack is quiet");
+    if (!g_failures)
+        std::printf("pack-overlay invariants passed\n");
+    return g_failures ? 1 : 0;
+}
+
 int main(int argc, char** argv)
 {
     if (argc < 3)
     {
-        std::printf("usage: %s bytediff|bodydump <vectors.json>\n", argv[0]);
+        std::printf("usage: %s bytediff|bodydump|packoverlays <vectors.json>\n", argv[0]);
         return 2;
     }
     if (std::strcmp(argv[1], "bodydump") == 0)
         return RunBodyDump(argv[2]);
+    if (std::strcmp(argv[1], "packoverlays") == 0)
+        return RunPackOverlays(argv[2]);
     return RunByteDiff(argv[2]);
 }

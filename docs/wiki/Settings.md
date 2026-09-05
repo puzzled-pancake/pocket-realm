@@ -61,26 +61,29 @@ Population presets control how many computer-controlled residents can enter the 
 
 The app starts with a smaller group and moves towards the selected target in stages. This avoids making the handheld process every resident at once.
 
-Advanced bot tuning can change the population target, nearby density and radius, login and maintenance batches, background update timing, nearby movement cadence, activity behaviour, and automatic load reduction. Safety floors and load shedding stay active.
+The editor's tabs are Basics, Population, Behaviour, and AI. Deeper tuning (startup pacing, teleport limits, the account pool, adaptive load-shedding floors, login lifecycle, rerandomize cadence) sits behind each tab's **Advanced tuning** switch — every knob stays reachable, none is removed. The **AI** tab holds per-preset speech overrides for the bot LLM: whether bots may start conversations, reply length, bot-to-bot chat frequency, memory depth, per-block prompt-pack deltas (on/off for each seasoning rule; Default follows the global pack in Settings → AI bot LLM → Advanced), and the RP dials — Initiative, Volatility, Reactivity, and Long-form — each 0-100 with Default following the global 50. Values left at their defaults follow the selected model's tuned profile; the engine, model, and global switches live in Settings → AI bot LLM. Safety floors and load shedding stay active.
 
 ## AI bot LLM
 
-The **AI bot LLM** card configures the optional speech engine for computer-controlled residents. It is off by default; with it off, bots keep their regular scripted behaviour. The card links to a dedicated **AI bot LLM** destination on the navigation menu, which holds the Runtime, Accelerator, Model, and Connection cards described below.
+The **AI bot LLM** card configures the optional speech engine for computer-controlled residents. It is off by default; with it off, bots keep their regular scripted behaviour. The card carries the master switch ("Let bots talk with an AI") and links to a dedicated **AI bot LLM** destination on the navigation menu.
+
+The destination is split into two tiers. The **simple tier** — speech switch, source, authored banter, world chatter, and the model picker — is always visible and is all most players need. Everything else (accelerator details, generation limits, connection fields) sits behind an **Advanced engine settings** switch at the bottom; the defaults behind it are measured for the device class and only change when touched.
 
 When enabled, bots speak through a language model. The **Source** choice picks where that model lives:
 
 - **On-device** — an embedded language model runs in its own isolated process on the handset. The screen offers:
-    - **Compute mode** — Auto uses the device neural processor (Hexagon NPU) when it is detected and healthy, and falls back to the CPU otherwise. CPU only and NPU are also available as explicit choices.
-    - **Decode cores and threads** — which processor cores carry the bot speech while the game is running. The listed profiles are measured presets; mids are the everyday choice, the low-draw and min-power options trade speed for battery.
-    - **NPU offload layers** — how much of the model the neural processor holds. Larger models need partial offload; the offload choices note the 2.9 GB ceiling, and the Model card shows the staged file's size.
-    - **Model staging** — the screen shows whether the model file is present and can download it (resumable) when it is not. The **Bot brain model** picker offers a small 0.8B model to try first, an untuned 2B fallback, and a tuned 2B model as the default full experience.
+    - **Model staging** (simple tier) — the screen shows whether the model file is present and can download it (resumable) when it is not. The **Bot brain model** picker offers a small 0.8B model to try first, an untuned 2B fallback, and a tuned 2B model as the default full experience.
+    - **Compute mode** (advanced) — Auto uses the device neural processor (Hexagon NPU) when it is detected and healthy, and falls back to the CPU otherwise. CPU only and NPU are also available as explicit choices.
+    - **Decode cores and threads** (advanced) — which processor cores carry the bot speech while the game is running. The listed profiles are measured presets; mids are the everyday choice, the low-draw and min-power options trade speed for battery.
+    - **NPU offload layers** (advanced) — how much of the model the neural processor holds. Larger models need partial offload; the offload choices note the 2.9 GB ceiling, and the Model card shows the staged file's size.
+    - **Reply length and generation timeout** (advanced) — caps for each bot reply and how long to wait for it. The defaults follow the selected model's tuned profile.
 - **External server** — the realm talks to any OpenAI-compatible chat endpoint instead of running a model on the device. Enter the endpoint URL (a bare origin gets the standard `/v1/chat/completions` path appended), the model name, and optionally an API key (sent as a Bearer header and kept on this device). This works with hosted APIs, a home server running llama.cpp or LM Studio, or ollama. Nothing is downloaded and the on-device runtime stays off; an unusable endpoint means no speech conf is written at all.
 
 With on-device mode, the runtime starts automatically just before the realm starts, so its memory is reserved before the game claims its own. If the neural processor fails to load the model twice in a row, the runtime keeps working on the CPU and the screen explains how to reset the block.
 
 **Authored banter** is on by default and costs nothing: bots occasionally contribute free flavor lines — a rare quip after the party defeats a monster, a greeting that warms with the relationship when a friend says hi after a long absence, an idle remark on long trips — minutes apart, never in combat, and never more than one every quarter hour per bot. Turn it off to keep bots strictly reply-only.
 
-**World chatter (beta)** is off by default and lets bots talk among themselves: party companions banter while you quest, townsfolk murmur nearby, and rare news reaches General chat. Every line is grounded in something that really happened, stories retire after being told a few times, and on-device lines pause when battery or thermals run low. The switch takes effect within about a minute, in both directions.
+**World chatter (beta)** is off by default and lets bots talk among themselves: party companions banter while you quest, townsfolk murmur nearby, and rare news reaches General chat. Every line is grounded in something that really happened, stories retire after being told a few times, and the cadence slows as a courtesy when the battery is nearly empty (15% or below, off the charger). Charging lifts the slowdown. The switch applies at the next realm start.
 
 Most players can leave this feature off. On-device mode costs storage, memory, and battery while it runs; external mode needs a reachable endpoint whenever the realm is up.
 

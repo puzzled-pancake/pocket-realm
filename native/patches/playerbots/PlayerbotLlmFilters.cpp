@@ -248,7 +248,10 @@ std::string ResolveEraBiasJson()
 std::string PlayerbotLlmFilters::HygienePass(std::string const& cleaned, uint32 botGuid)
 {
     (void)botGuid;
-    std::string out = pocketllm::StripMarkdown(cleaned);
+    // Thinking traces die FIRST: a leaked <think> block can carry
+    // markers/markdown that must die with it, not survive the later legs
+    std::string out = pocketllm::StripThinking(cleaned);
+    out = pocketllm::StripMarkdown(out);
     out = pocketllm::ClampAscii(out);
 
     // The invention post-filter leg: reply sentences that introduce an unknown

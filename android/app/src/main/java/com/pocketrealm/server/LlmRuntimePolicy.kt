@@ -1,6 +1,7 @@
 package com.pocketrealm.server
 
 import android.content.Context
+import com.pocketrealm.bots.BotLlmSpeech
 import com.pocketrealm.llm.ComputeMode
 import com.pocketrealm.llm.LlmModelRegistry
 import com.pocketrealm.llm.LlmSamplingProfile
@@ -57,6 +58,25 @@ internal object LlmRuntimePolicy {
     /** -ngl: 99 = all layers (0.8B/2B-class files); >4 GB files need partial offload. */
     const val MIN_OFFLOAD_LAYERS = 1
     const val MAX_OFFLOAD_LAYERS = 128
+
+    /**
+     * Advanced-tier generation overrides. 0 means "follow the model's
+     * sampling profile / tier profile"; anything above 0 is clamped into the
+     * supported band. Reply length bounds every bot generation
+     * (AiPlayerbot.LLMMaxNewTokens, also interpolated into the legacy
+     * LLMApiJson body); the timeout bounds the queue-inclusive generation
+     * wait (AiPlayerbot.LLMGenerationTimeout).
+     */
+    const val MIN_MAX_NEW_TOKENS = 24
+    const val MAX_MAX_NEW_TOKENS = 600
+    const val MIN_GENERATION_TIMEOUT_SEC = 15
+    const val MAX_GENERATION_TIMEOUT_SEC = 240
+
+    fun normalizeMaxNewTokensOverride(tokens: Int): Int =
+        if (tokens <= 0) 0 else tokens.coerceIn(MIN_MAX_NEW_TOKENS, MAX_MAX_NEW_TOKENS)
+
+    fun normalizeGenerationTimeoutOverride(seconds: Int): Int =
+        if (seconds <= 0) 0 else seconds.coerceIn(MIN_GENERATION_TIMEOUT_SEC, MAX_GENERATION_TIMEOUT_SEC)
 
     /** Path appended to a bare external origin (no path component). */
     const val EXTERNAL_CHAT_COMPLETIONS_PATH = "/v1/chat/completions"
@@ -158,6 +178,10 @@ internal object LlmRuntimePolicy {
         composerEndpoint: String? = null,
         composerModel: String? = null,
         composerApiKey: String? = null,
+        maxNewTokensOverride: Int = 0,
+        generationTimeoutOverride: Int = 0,
+        speech: BotLlmSpeech = BotLlmSpeech(),
+        promptPackFile: String? = null,
     ): String? {
         if (!llmEnabled) return null
         require(port in MIN_PORT..MAX_PORT) { "llm port out of range: $port" }
@@ -174,6 +198,10 @@ internal object LlmRuntimePolicy {
             composerEndpoint = composerEndpoint,
             composerModel = composerModel,
             composerApiKey = composerApiKey,
+            maxNewTokensOverride = maxNewTokensOverride,
+            generationTimeoutOverride = generationTimeoutOverride,
+            speech = speech,
+            promptPackFile = promptPackFile,
         )
     }
 
@@ -198,6 +226,10 @@ internal object LlmRuntimePolicy {
         composerEndpoint: String? = null,
         composerModel: String? = null,
         composerApiKey: String? = null,
+        maxNewTokensOverride: Int = 0,
+        generationTimeoutOverride: Int = 0,
+        speech: BotLlmSpeech = BotLlmSpeech(),
+        promptPackFile: String? = null,
     ): String? {
         if (endpoint == null || model == null || apiKey == null) return null
         return confLines(
@@ -213,28 +245,71 @@ internal object LlmRuntimePolicy {
             composerEndpoint = composerEndpoint,
             composerModel = composerModel,
             composerApiKey = composerApiKey,
+            maxNewTokensOverride = maxNewTokensOverride,
+            generationTimeoutOverride = generationTimeoutOverride,
+            speech = speech,
+            promptPackFile = promptPackFile,
         )
     }
 
-    /** Off-device endpoints get their own budget, not a device profile. */
+    /**
+     * Off-device endpoints get their own budget, not a device profile.
+     * API-class models (1M-ctx generation) get room to actually use it:
+     * 600-token replies for long-form tellings, deeper memory, longer
+     * history. On-device tiers stay small (KV RAM is the binding
+     * constraint there); off-device there is no KV constraint.
+     */
     val EXTERNAL_PROFILE = LlmSamplingProfile(
         temperature = 0.7, topP = 0.9, topK = 20,
-        repeatPenalty = 1.0, maxTokens = 300,
+        repeatPenalty = 1.0, maxTokens = 600,
     )
 
-    /** External-endpoint runtime knobs (16/bot, 48 global; 30s gen + 10s connect; ctx 16384). */
+    /** External-endpoint runtime knobs (16/bot, 48 global; 60s generation; ctx 128k). */
     val EXTERNAL_TIER = LlmTierProfile(
-        contextLength = 16384, generationTimeoutSec = 30,
+        contextLength = 131072, generationTimeoutSec = 60,
         maxSimultaneousGenerations = 4,
         governorBotMax = 16, governorGlobalMax = 48,
-        factsCap = 24, memoriesTail = 8,
+        factsCap = 48, memoriesTail = 16,
         botToBotChatChance = 10,
     )
+
+    /**
+     * The advanced-tier overrides folded onto the measured profiles: 0 keeps
+     * the model's sampling/tier value, anything above 0 is clamped into the
+     * supported band. Returns the effective sampling profile (reply length
+     * replaced) paired with the effective generation timeout.
+     */
+    private fun effectiveGeneration(
+        profile: LlmSamplingProfile,
+        tier: LlmTierProfile,
+        maxNewTokensOverride: Int,
+        generationTimeoutOverride: Int,
+    ): Pair<LlmSamplingProfile, Int> {
+        val effectiveProfile =
+            if (maxNewTokensOverride > 0) {
+                profile.copy(maxTokens = normalizeMaxNewTokensOverride(maxNewTokensOverride))
+            } else {
+                profile
+            }
+        val timeout =
+            if (generationTimeoutOverride > 0) {
+                normalizeGenerationTimeoutOverride(generationTimeoutOverride)
+            } else {
+                tier.generationTimeoutSec
+            }
+        return effectiveProfile to timeout
+    }
 
     /**
      * The shared block body: identical envelope for both sources, so the
      * merge-order contract (append wins over the base conf, patterns
      * trim-proof, `stream:false` tail) holds for embedded and external alike.
+     *
+     * [promptPackFile] stages the Phase-1 prompt pack (ordered blocks +
+     * enabled flags) for the native renderer. Empty pack = trained default
+     * output, byte-identical (the frozen-output test pins this); the native
+     * side appends only the enabled seasoning blocks inside the existing
+     * instruction span, never a new top-level segment.
      */
     private fun confLines(
         endpoint: String,
@@ -249,7 +324,29 @@ internal object LlmRuntimePolicy {
         composerEndpoint: String? = null,
         composerModel: String? = null,
         composerApiKey: String? = null,
+        maxNewTokensOverride: Int = 0,
+        generationTimeoutOverride: Int = 0,
+        speech: BotLlmSpeech = BotLlmSpeech(),
+        promptPackFile: String? = null,
     ): String {
+        // Advanced-tier overrides folded onto the measured profiles (0 keeps
+        // the model/tier value); one effective profile feeds both the conf
+        // keys and the legacy JSON template, so the two prompt-format paths
+        // can never disagree. The per-preset speech override (Bots → AI)
+        // outranks the global advanced-tier override, which outranks the
+        // model's tuned profile.
+        val replyTokensOverride =
+            if (speech.replyTokens > 0) speech.replyTokens else maxNewTokensOverride
+        val (effectiveProfile, generationTimeout) = effectiveGeneration(
+            profile, tier, replyTokensOverride, generationTimeoutOverride,
+        )
+        // -1 = follow the model tier; an explicit preset 0 (off) equals the
+        // native default, so only a positive value emits the line
+        val botToBotChance =
+            if (speech.botToBotChatChance >= 0) speech.botToBotChatChance
+            else tier.botToBotChatChance
+        val factsCap = if (speech.factsCap > 0) speech.factsCap else tier.factsCap
+        val memoriesTail = if (speech.memoriesTail > 0) speech.memoriesTail else tier.memoriesTail
         val keyLine =
             if (apiKey.isEmpty()) ""
             else "\n            AiPlayerbot.LLMApiKey = $apiKey"
@@ -265,53 +362,91 @@ internal object LlmRuntimePolicy {
         val providerSafeLine =
             if (providerSafe) "\n            AiPlayerbot.LLMProviderSafe = 1" else ""
         val botToBotLine =
-            if (tier.botToBotChatChance > 0) "\n            AiPlayerbot.LLMBotToBotChatChance = ${tier.botToBotChatChance}" else ""
+            if (botToBotChance > 0) "\n            AiPlayerbot.LLMBotToBotChatChance = $botToBotChance" else ""
         // The staged lore card index: question turns get [RESULT]
         // cards and move_to resolves POI places; blank/absent keeps the
         // native loop off
         val loreLine =
             if (!loreFile.isNullOrBlank()) "\n            AiPlayerbot.LLMLoreFile = \"$loreFile\"" else ""
-        // World-chatter layer. The conf enables the SUBSYSTEM
-        // and names the power file whenever the app staged one (LLM on);
-        // the FILE's enabled flag is the master switch - it is re-read by
-        // the native scheduler every tick, so the ambience toggle works
-        // mid-session in BOTH directions (conf keys alone apply only at
-        // world start). A staged file reading enabled=0 is silence.
         val chatterLine =
-            if (!chatterPowerFile.isNullOrBlank()) {
-                "\n            AiPlayerbot.LLMChatterEnabled = 1" +
-                    "\n            AiPlayerbot.LLMChatterPowerFile = \"$chatterPowerFile\"" +
-                    (if (!composerEndpoint.isNullOrBlank()) {
-                        "\n            AiPlayerbot.LLMChatterComposerUrl = $composerEndpoint" +
-                            "\n            AiPlayerbot.LLMChatterComposerModel = ${composerModel ?: DEFAULT_EXTERNAL_MODEL}" +
-                            (if (!composerApiKey.isNullOrBlank()) "\n            AiPlayerbot.LLMChatterComposerKey = $composerApiKey" else "")
-                    } else "")
-            } else "\n            AiPlayerbot.LLMChatterEnabled = 0"
+            chatterLines(chatterPowerFile, composerEndpoint, composerModel, composerApiKey)
+        // The staged prompt pack: path only, the native renderer parses it.
+        // Blank/absent keeps the trained default (byte-identical output).
+        // Per-preset pack deltas (Bots → AI) ride as explicit block
+        // switches after the file line — same last-wins parse, so preset >
+        // global pack > trained default. RP dials ride as native weights
+        // (Phase 3 consumes them; this version persists + emits them).
+        val promptPackLine =
+            if (!promptPackFile.isNullOrBlank()) {
+                "\n            AiPlayerbot.LLMPromptPackFile = \"$promptPackFile\""
+            } else ""
+        val packDeltaLines = speech.packDeltas.toSortedMap().entries.joinToString("") { (id, on) ->
+            "\n            AiPlayerbot.LLMPromptBlock.$id = ${if (on) 1 else 0}"
+        }
+        val rpDialLines = buildString {
+            if (speech.initiative >= 0) append("\n            AiPlayerbot.LLMRpInitiative = ${speech.initiative}")
+            if (speech.volatility >= 0) append("\n            AiPlayerbot.LLMRpVolatility = ${speech.volatility}")
+            if (speech.reactivity >= 0) append("\n            AiPlayerbot.LLMRpReactivity = ${speech.reactivity}")
+            if (speech.longForm >= 0) append("\n            AiPlayerbot.LLMRpLongForm = ${speech.longForm}")
+        }
         return """
             AiPlayerbot.LLMEnabled = 2
             AiPlayerbot.LLMBackend = 0
             AiPlayerbot.LLMApiEndpoint = $endpoint$keyLine
-            AiPlayerbot.LLMApiJson = ${apiJsonTemplate(model, profile, providerSafe)}
+            AiPlayerbot.LLMApiJson = ${apiJsonTemplate(model, effectiveProfile, providerSafe)}
             AiPlayerbot.LLMResponseStartPattern =
             AiPlayerbot.LLMResponseEndPattern =
             AiPlayerbot.LLMPromptFormat = 1
             AiPlayerbot.LLMApiModel = $model
-            AiPlayerbot.LLMTemp = ${jsonNumber(profile.temperature)}
-            AiPlayerbot.LLMTopP = ${jsonNumber(profile.topP)}
-            AiPlayerbot.LLMTopK = ${profile.topK}
-            AiPlayerbot.LLMRepeatPenalty = ${jsonNumber(profile.repeatPenalty)}$minPLine$presenceLine
-            AiPlayerbot.LLMMaxNewTokens = ${profile.maxTokens}
-            AiPlayerbot.LLMGenerationTimeout = ${tier.generationTimeoutSec}
+            AiPlayerbot.LLMTemp = ${jsonNumber(effectiveProfile.temperature)}
+            AiPlayerbot.LLMTopP = ${jsonNumber(effectiveProfile.topP)}
+            AiPlayerbot.LLMTopK = ${effectiveProfile.topK}
+            AiPlayerbot.LLMRepeatPenalty = ${jsonNumber(effectiveProfile.repeatPenalty)}$minPLine$presenceLine
+            AiPlayerbot.LLMMaxNewTokens = ${effectiveProfile.maxTokens}
+            AiPlayerbot.LLMGenerationTimeout = $generationTimeout
             AiPlayerbot.LLMConnectTimeout = ${tier.connectTimeoutSec}
             AiPlayerbot.LLMMaxSimultaniousGenerations = ${tier.maxSimultaneousGenerations}
             AiPlayerbot.LLMGovernorWindow = ${tier.governorWindowSec}
             AiPlayerbot.LLMGovernorBotMax = ${tier.governorBotMax}
             AiPlayerbot.LLMGovernorGlobalMax = ${tier.governorGlobalMax}
             AiPlayerbot.LLMContextLength = ${tier.contextLength}
-            AiPlayerbot.LLMFactsCap = ${tier.factsCap}
-            AiPlayerbot.LLMMemoriesTail = ${tier.memoriesTail}$botToBotLine$thinkingLine$providerSafeLine
-            AiPlayerbot.LLMBanterEnabled = ${if (banterEnabled) 1 else 0}$loreLine$chatterLine
+            AiPlayerbot.LLMFactsCap = $factsCap
+            AiPlayerbot.LLMMemoriesTail = $memoriesTail$botToBotLine$thinkingLine$providerSafeLine
+            AiPlayerbot.LLMBanterEnabled = ${if (banterEnabled) 1 else 0}$loreLine$chatterLine$promptPackLine$packDeltaLines$rpDialLines
         """.trimIndent() + "\n"
+    }
+
+    /**
+     * The world-chatter conf lines. The conf enables the SUBSYSTEM and
+     * names the power file whenever the app staged one (LLM on); the
+     * FILE's enabled flag is the master switch - the native scheduler
+     * re-reads it every tick, and the app re-stages it at world start and
+     * on battery events, so the ambience toggle applies at the next
+     * realm start (the LLM screen says so) while battery dims land
+     * mid-session. A staged file reading enabled=0 is silence; no staged
+     * file leaves the subsystem off.
+     */
+    private fun chatterLines(
+        chatterPowerFile: String?,
+        composerEndpoint: String?,
+        composerModel: String?,
+        composerApiKey: String?,
+    ): String {
+        if (chatterPowerFile.isNullOrBlank()) {
+            return "\n            AiPlayerbot.LLMChatterEnabled = 0"
+        }
+        val composerLines =
+            if (composerEndpoint.isNullOrBlank()) ""
+            else {
+                "\n            AiPlayerbot.LLMChatterComposerUrl = $composerEndpoint" +
+                    "\n            AiPlayerbot.LLMChatterComposerModel = ${composerModel ?: DEFAULT_EXTERNAL_MODEL}" +
+                    (if (!composerApiKey.isNullOrBlank()) {
+                        "\n            AiPlayerbot.LLMChatterComposerKey = $composerApiKey"
+                    } else "")
+            }
+        return "\n            AiPlayerbot.LLMChatterEnabled = 1" +
+            "\n            AiPlayerbot.LLMChatterPowerFile = \"$chatterPowerFile\"" +
+            composerLines
     }
 
     /**
@@ -354,8 +489,9 @@ internal object LlmRuntimePolicy {
      * The :llm runtime config derived from the LLM submenu snapshot. Both
      * consumers — the supervisor's pre-world-start launch and the submenu's
      * Start-now button — go through this single mapping so their configs can
-     * never drift. The mapped fields are exactly the five the submenu owns;
-     * every other knob keeps its measured default. --jinja applies the
+     * never drift. Phase 1 (plan v4): the server context follows the
+     * SELECTED model's tier profile (E2B 12288, Qwen 6144) — the runtime
+     * and the conf's LLMContextLength can never disagree. --jinja applies the
      * model's real chat template, and --load-mode none is the measured
      * coexistence profile (no second mmap copy of the weights).
      * [chatTemplateFile] is the staged non-thinking override: when the
@@ -373,6 +509,7 @@ internal object LlmRuntimePolicy {
             cpuMaskHex = snapshot.llmCoresMask
             computeMode = snapshot.llmComputeMode
             npuLayers = snapshot.llmOffloadLayers
+            contextSize = LlmModelRegistry.byId(snapshot.llmModelId).tierProfile.contextLength
             extraArgs = listOf("--jinja", "--load-mode", "none")
             this.chatTemplateFile = chatTemplateFile
         }.build()

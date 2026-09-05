@@ -153,10 +153,11 @@ def test_scheduler_discipline():
     assert "s.queue.clear();  // the master toggle kill: drop pending lines too" in source
     # the rung bounds guard the file's rung value (a garbage rung = OFF)
     assert "if (!enabled || rung < pocketllm::RUNG_EMERGENCY || rung > pocketllm::RUNG_NORMAL)" in source
-    # a stale power file (or one stamped from the future) degrades to the
-    # authored floor
-    assert "bool const stale = at <= 0 || at > now + kPowerFreshSec ||" in source
-    assert "        s.rung = pocketllm::RUNG_EMERGENCY;" in source
+    # no staleness protocol: writer and world share one process, so the
+    # file is the authority for the whole session (a long session must not
+    # dim itself; the heartbeat gate was the collapsed design's leftover)
+    assert "kPowerFreshSec" not in source
+    assert "s.rung = (pocketllm::ChatterRung)rung;" in source
     # device batches pay the governor and yield the interactive lane
     assert "PlayerbotLLMInterface::InteractiveGenerationInFlight()" in source
     assert "PlayerbotLLMInterface::GovernorAdmit(job.speakerGuid)" in source
@@ -179,11 +180,13 @@ def test_scheduler_discipline():
     # the register gate at enqueue (a speech must never queue)
     assert "if (!RegisterAdmits(line))\n        return;" in source
     # delivery-time ledger: the ring + fatigue RE-VETS guard the entry,
-    # then the records + credence marks land
+    # then the records + credence marks land. F4b: the fatigue vet is
+    # long-form-aware - staged saga blocks skip the per-line check (their
+    # daily quota is the cap)
     assert "if (!pocketllm::RingAdmits(s.ring, entry.text))\n        return true;" in source
-    assert "if (!pocketllm::FatigueAdmits(s.fatigue, entry.factKey))\n        return true;" in source
+    assert "if (!entry.longForm && !pocketllm::FatigueAdmits(s.fatigue, entry.factKey))\n        return true;" in source
     assert "pocketllm::RingRemember(s.ring, entry.text);" in source
-    assert "pocketllm::FatigueRecordTelling(s.fatigue, entry.factKey);" in source
+    assert "if (!entry.longForm)\n        pocketllm::FatigueRecordTelling(s.fatigue, entry.factKey);" in source
     assert "pocketllm::MarkHeard(s.fatigue, other->GetGUIDLow(), entry.factKey);" in source
     assert "PlayerbotLlmFilters::RememberReply(entry.speakerGuid, entry.text);" in source
     # the interruption deferral requeues instead of dropping
@@ -196,7 +199,7 @@ def test_scheduler_discipline():
     assert "BatchInFlight().store(true);" in source
     assert source.count("BatchInFlight().load()") >= 2
     assert "std::thread(RunDeviceBatch, job).detach();" in source
-    assert source.count("catch (...)") == 4  # 2 spawns + 2 worker bodies
+    assert source.count("catch (...)") == 6  # 3 spawns + 3 worker bodies (device, composer, saga)
     # the drain cap (a deep queue never machine-guns the channel) and the
     # head-of-line scan (a deferred murmur head cannot block a due global)
     assert "for (auto itr = s.queue.begin(); itr != s.queue.end() && taken < 2;)" in source
@@ -231,9 +234,6 @@ def test_scheduler_discipline():
     # can carry pipes/newlines past the write chain)
     assert "if (pocketllm::ChatterLineSafe(floorText))" in source
     assert "if (!pocketllm::ChatterLineSafe(headline))" in source
-    # a stale power file flushes already-generated queue entries
-    # ("generation stops; authored texture floor only")
-    assert "if (!itr->floor)\n                itr = s.queue.erase(itr);" in source
 
 
 def test_pure_core_doctrine_pins():
@@ -267,8 +267,10 @@ def test_kotlin_emission_surface():
     for line in ("RUNG_OFF = 0", "RUNG_EMERGENCY = 1", "RUNG_CRITICAL = 2",
                  "RUNG_CONSTRAINED = 3", "RUNG_NORMAL = 4"):
         assert line in monitor
-    # the platform thermal gate is used
-    assert "getThermalHeadroom" in monitor
+    # collapsed design: thermal is the OS's job, not a chatter input;
+    # the only automatic quieting is the low-battery courtesy dim
+    assert "LOW_BATTERY_PCT = 15" in monitor
+    assert "thermalStatus" in monitor  # signature compat only, ignored
 
 
 def test_p52_wording_lock_module_is_fresh():
@@ -289,3 +291,114 @@ def test_p52_wording_lock_module_is_fresh():
     r = subprocess.run([sys.executable, str(extractor), "--check"],
                        capture_output=True, text=True)
     assert r.returncode == 0, f"wording-lock drift:\n{r.stdout}\n{r.stderr}"
+
+
+def test_plan_v5_f7_arbiter_gates_the_delivery_drain():
+    """F7: the authored-line hourly budget must bound the SUM of lanes -
+    the drain loop consults the arbiter OUTSIDE the chatter lock (the
+    reverse lock order already exists at OnDuelComplete: memory hooks
+    call into chatter). A missing check means the murmur lane can flood
+    past the engagement ceiling; a check INSIDE the lock is an ABBA
+    deadlock."""
+    src = (ROOT / "native" / "patches" / "playerbots" / "PlayerbotLlmChatter.cpp").read_text(encoding="utf-8")
+    drain = src.split("for (PendingLine& entry : due)")[1].split("if (!deferred.empty())")[0]
+    assert "PlayerbotLlmMemory::AuthoredBudgetHasRoom(arbCat)" in drain, \
+        "the drain consults the F7 budget before delivering (peek, no stamp)"
+    assert "ARB_AMBIENT" in drain and "ARB_SCENE" in drain, \
+        "murmur shares the ambient cap; party/global count toward the global ceiling"
+    # the peek must precede the lock_guard inside the loop body
+    assert drain.index("AuthoredBudgetHasRoom") < drain.index("std::lock_guard"), \
+        "the arbiter check runs OUTSIDE the chatter lock (ABBA guard)"
+    assert "else if (delivered && !entry.longForm)" in drain, \
+        "the stamp lands only on a confirmed delivery"
+    # TryClaimAmbientSlot consults the same budget (the W1-W8 features)
+    memory = (ROOT / "native" / "patches" / "playerbots" / "PlayerbotLlmMemory.cpp").read_text(encoding="utf-8")
+    assert "AuthoredLineAdmitsLocked(arbCategory, /*exempt=*/false, /*roomOnly=*/false)" in memory, \
+        "the ambient slot claim is F7-gated without burning the interval"
+
+
+def test_plan_v5_slice5_longform_lane_and_saga():
+    """F4b: staged long-form blocks carry their own line law and are
+    charged ONCE; C1: the saga is posture-gated, quota-capped, cloud-only,
+    and its headline feeds the rumor mill."""
+    core = (ROOT / "native" / "patches" / "playerbots" / "PlayerbotLlmChatterCore.h").read_text(encoding="utf-8")
+    assert "kLongFormMaxBytes = 200" in core
+    assert "inline bool ChatterLongLineSafe" in core
+    assert "SagaSystemPrompt" in core and "SagaUserPrompt" in core
+
+    src = (ROOT / "native" / "patches" / "playerbots" / "PlayerbotLlmChatter.cpp").read_text(encoding="utf-8")
+    lane = src.split("void EnqueueLongFormLines(")[1].split("struct SagaJob")[0]
+    assert "ChatterLongLineSafe(raw)" in lane, "each staged line passes the 200-byte law"
+    assert "AuthoredLineAdmits(PlayerbotLlmMemory::ARB_SCENE" in lane and lane.index("AuthoredLineAdmits") < lane.rindex("std::lock_guard"), \
+        "F7 is charged ONCE, OUTSIDE the chatter lock, AFTER the prechecks (ABBA guard)"
+    assert "entry.longForm = true" in lane, "every block line is flagged"
+
+    drain = src.split("for (PendingLine& entry : due)")[1].split("if (!deferred.empty())")[0]
+    assert "!entry.longForm &&" in drain, "block lines deliver arbiter-exempt"
+    deliver = src.split("bool DeliverLine(PendingLine& entry, time_t now, bool& delivered)")[1].split("std::vector<Player*> MurmurCandidatesNear")[0]
+    assert "!entry.longForm && !pocketllm::FatigueAdmits" in deliver, "per-line fatigue vet skipped for blocks"
+    assert "if (!entry.longForm)\n        pocketllm::FatigueRecordTelling" in deliver, \
+        "one performance never charges N tellings"
+
+    saga = src.split("bool PlayerbotLlmChatter::TryBeginCampfireSaga(Player* master)")[1]
+    assert "UNIT_STAND_STATE_SIT" in saga, "the campfire posture gate"
+    assert "GetTrainedTier(bot, master) < 3" in saga, "the storyteller needs tier >= 3"
+    assert 'CloudQuotaAdmits("saga"' in saga, "roster-level daily quota"
+    assert "ExternalApiTierActive()" in saga, "cloud tier only"
+    worker = src.split("void RunSagaBatchInner(SagaJob const& job)")[1].split("void RunSagaBatch(SagaJob job)")[0]
+    assert '"saga"' in worker and "ShareGossip" in worker, "the headline feeds the rumor mill"
+    assert "EnqueueLongFormLines" in worker, "delivery rides the staged lane"
+
+    driver = DRIVER.read_text(encoding="utf-8")
+    for key, default in (("LLMSagaEnabled", 1), ("LLMSagaPerDay", 3)):
+        assert f'GetIntDefault("AiPlayerbot.{key}", {default})' in driver
+    async_block = driver.split("PB_SAY_ASYNC_ANDROID = ")[1]
+    assert 'PlayerbotLlmMemory::StoryLines(bot, player)' in async_block, \
+        "the story codex keyword renders"
+
+
+def test_plan_v5_slice6_dyads_drama_roundtable_dossier():
+    """F2/W6: dyad events become party topics; C4: the drama set piece is
+    authored, affinity-shaped, F7-claimed; C3: the master's party line is
+    the roundtable row; C5: the dossier rides the recap path."""
+    memory = (ROOT / "native" / "patches" / "playerbots" / "PlayerbotLlmMemory.cpp").read_text(encoding="utf-8")
+    assert "void PlayerbotLlmMemory::NoteDyadEvent(" in memory
+    assert "bool PlayerbotLlmMemory::ClaimNewestDyadEvent(" in memory
+    elite = memory.split("OnPlayerGroupKill(Player* tapper, Unit* victim)")[1].split("Phase-3 reactivity")[0]
+    assert "NoteDyadEvent(" in elite, "an elite co-kill mints dyad affinity"
+    wipe = memory.split("OnPlayerDied(Player* victim)")[1].split("OnTradeCompleted")[0]
+    assert "NoteDyadEvent(" in wipe, "a shared wipe mints dyad affinity"
+    assert "MintWeeklyDossier(player)" in memory.split("OnPlayerLogin(Player* player)")[1].split("MaybeSessionStandingLine")[0]
+    dossier = memory.split("MintWeeklyDossier(Player* player)")[1].split("// ---- the player surface")[0]
+    assert "7 * 86400" in dossier, "weekly gate"
+    assert '"dossier"' in dossier and "mintDeterministic" in dossier, \
+        "deterministic row + cloud upgrade with fallback"
+
+    src = (ROOT / "native" / "patches" / "playerbots" / "PlayerbotLlmChatter.cpp").read_text(encoding="utf-8")
+    topics = src.split("bool PickPartyTopic(Player* master")[1].split("std::string const telling")[0]
+    assert "ClaimNewestDyadEvent" in topics, "dyad events outrank generic gossip"
+    assert "felled " not in topics and "were wiped" not in topics, \
+        "the topic renders the event text, not a hard-coded shape"
+
+    drama = src.split("the rare authored drama set piece")[1].split("time_t duelNote = 0;")[0]
+    assert "DramaPairTable" in drama, "the exchange draws from the authored tables"
+    assert "DyadAffinity" in drama, "the kind follows the ledger"
+    assert "TryClaimAmbientSlot" in drama, "the opener claims the ambient slot"
+    assert "QueueAuthoredReaction" in drama, "delivery rides the authored reaction path"
+
+    roundtable = src.split("bool TakeRoundtableRow")[1].split("void PlayerbotLlmChatter::Tick")[0]
+    assert "120" in roundtable, "a stale line never becomes the row"
+    assert 'CloudQuotaAdmits("roundtable"' in roundtable, "quota-capped"
+    assert "TakeRoundtableRow(master->GetGUIDLow()" in src, "the composer job consumes it"
+
+    driver = DRIVER.read_text(encoding="utf-8")
+    for key, default in (("LLMRoundtablePerDay", 30), ("LLMDossierEnabled", 1),
+                         ("LLMDossierPerDay", 1)):
+        assert f'GetIntDefault("AiPlayerbot.{key}", {default})' in driver
+    assert "PlayerbotLlmChatter::NotePartyLine(gateSpeaker->GetGUIDLow(), msg)" in driver, \
+        "the driver stamps the master's party lines"
+
+    banter = (ROOT / "native" / "patches" / "playerbots" / "llm_banter_core.h").read_text(encoding="utf-8")
+    assert "DramaPairTable" in banter
+    for kind in ("kDramaReunion", "kDramaRivalry", "kDramaDebt"):
+        assert kind in banter

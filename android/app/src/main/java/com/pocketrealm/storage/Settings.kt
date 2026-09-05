@@ -421,9 +421,10 @@ class Settings(private val context: Context) {
          * World chatter: the LLM-voiced ambient layers — party
          * banter, proximity murmur, rare general-chat set pieces — every
          * line event-gated (silence is the default; no fact-bank row, no
-         * line). The power ladder (thermal headroom + battery + charging +
-         * connectivity) is re-published to the native layer every minute by
-         * [com.pocketrealm.server.ChatterPowerMonitor] while the realm runs.
+         * line). The collapsed power state (off / low-battery dim / normal)
+         * is staged to the native layer at world start by
+         * [com.pocketrealm.server.ChatterPowerMonitor] and re-staged on
+         * battery events while the realm runs.
          * Default OFF: ambient generation costs battery, and the user opts
          * in. The external endpoint fields double as the cloud-composer
          * configuration when set (the composer is a cloud-class job).
@@ -436,6 +437,38 @@ class Settings(private val context: Context) {
          * read time; applies on the next realm start like every llm* toggle.
          */
         val llmModelId: String = LlmModelRegistry.DEFAULT_MODEL_ID,
+        /**
+         * Verbose-tier disclosure for the LLM submenu (the AI-settings
+         * "advanced" gate, like [autoLoginAdvanced]). Off, the submenu shows
+         * the simple tier only (speech switch, source, banter, world chatter,
+         * model); on, it also shows the accelerator, generation, and
+         * connection cards. Purely a UI gate — no knob changes value until
+         * the user touches it.
+         */
+        val llmAdvanced: Boolean = false,
+        /**
+         * Advanced-tier reply-length override in tokens, or 0 = follow the
+         * selected model's sampling profile
+         * (emitted as AiPlayerbot.LLMMaxNewTokens). Clamped through
+         * [LlmRuntimePolicy.normalizeMaxNewTokensOverride] at read and write.
+         */
+        val llmMaxNewTokens: Int = 0,
+        /**
+         * Advanced-tier generation-timeout override in seconds, or 0 = follow
+         * the model's tier profile (emitted as
+         * AiPlayerbot.LLMGenerationTimeout). Clamped through
+         * [LlmRuntimePolicy.normalizeGenerationTimeoutOverride].
+         */
+        val llmGenerationTimeout: Int = 0,
+        /**
+         * Player-edited prompt pack JSON (Phase 2 Advanced prompt manager):
+         * empty = the trained default pack. Persisted verbatim (never
+         * trimmed — a trim would fight the editor mid-typing); resolved via
+         * [com.pocketrealm.llm.LlmPromptPack.resolve] at read/stage time,
+         * so a corrupt edit fails open to the default, never to silence.
+         * Applies on the next realm start like every llm* setting.
+         */
+        val llmPromptPackJson: String = "",
     ) {
         /** Persisted selection; [ArmClientRendererCatalog.AUTO_ID] is allowed. */
         fun selectedArmRendererId(): String = armRendererId
@@ -488,6 +521,10 @@ class Settings(private val context: Context) {
         store.edit { prefs ->
             val current = prefs.toSnapshot()
             val next = transform(current)
+            // No-op writes (every keystroke that normalizes back to the
+            // current snapshot) skip the display resolve and the full
+            // write-set: they hold the DataStore mutex for nothing.
+            if (next == current) return@edit
             val requestedDisplay = next.displaySelection()
             val display = ClientDisplayCapabilities.requireSelection(
                 context,
@@ -762,6 +799,10 @@ class Settings(private val context: Context) {
         llmBanter = llm.banter,
         llmAmbience = llm.ambience,
         llmModelId = llm.modelId,
+        llmAdvanced = llm.advanced,
+        llmMaxNewTokens = llm.maxNewTokens,
+        llmGenerationTimeout = llm.generationTimeout,
+        llmPromptPackJson = llm.promptPackJson,
         )
     }
 
@@ -852,6 +893,10 @@ private object Keys {
     val LLM_BANTER = intPreferencesKey("llm_banter")
     val LLM_AMBIENCE = intPreferencesKey("llm_ambience")
     val LLM_MODEL_ID = stringPreferencesKey("llm_model_id")
+    val LLM_ADVANCED = intPreferencesKey("llm_advanced")
+    val LLM_MAX_NEW_TOKENS = intPreferencesKey("llm_max_new_tokens")
+    val LLM_GENERATION_TIMEOUT = intPreferencesKey("llm_generation_timeout")
+    val LLM_PROMPT_PACK = stringPreferencesKey("llm_prompt_pack")
 }
 
 /**
@@ -872,29 +917,44 @@ internal data class LlmSnapshotFields(
     val banter: Boolean,
     val ambience: Boolean,
     val modelId: String,
+    val advanced: Boolean,
+    val maxNewTokens: Int,
+    val generationTimeout: Int,
+    val promptPackJson: String,
 )
 
-internal fun Preferences.readLlmSnapshotFields(): LlmSnapshotFields = LlmSnapshotFields(
-    enabled = (this[Keys.LLM_ENABLED] ?: 0) == 1,
-    computeMode = runCatching { ComputeMode.valueOf(this[Keys.LLM_COMPUTE_MODE] ?: "") }
-        .getOrDefault(LlmRuntimePolicy.DEFAULT_COMPUTE_MODE),
-    coresMask = LlmRuntimePolicy.normalizeCoresMask(
-        this[Keys.LLM_CORES_MASK] ?: LlmRuntimePolicy.DEFAULT_CORES_MASK,
-    ),
-    threads = LlmRuntimePolicy.normalizeThreads(
-        this[Keys.LLM_THREADS] ?: LlmRuntimePolicy.DEFAULT_THREADS,
-    ),
-    offloadLayers = LlmRuntimePolicy.normalizeOffloadLayers(
-        this[Keys.LLM_OFFLOAD_LAYERS] ?: LlmRuntimePolicy.DEFAULT_OFFLOAD_LAYERS,
-    ),
-    externalMode = (this[Keys.LLM_EXTERNAL_MODE] ?: 0) == 1,
-    externalUrl = this[Keys.LLM_EXTERNAL_URL] ?: "",
-    externalApiKey = this[Keys.LLM_EXTERNAL_API_KEY] ?: "",
-    externalModel = this[Keys.LLM_EXTERNAL_MODEL] ?: "",
-    banter = (this[Keys.LLM_BANTER] ?: 1) == 1,
-    ambience = (this[Keys.LLM_AMBIENCE] ?: 0) == 1,
-    modelId = this[Keys.LLM_MODEL_ID] ?: LlmModelRegistry.DEFAULT_MODEL_ID,
-)
+internal fun Preferences.readLlmSnapshotFields(): LlmSnapshotFields {
+    // `null == 1` is false, so a missing key reads as off without an elvis.
+    return LlmSnapshotFields(
+        enabled = this[Keys.LLM_ENABLED] == 1,
+        computeMode = runCatching { ComputeMode.valueOf(this[Keys.LLM_COMPUTE_MODE] ?: "") }
+            .getOrDefault(LlmRuntimePolicy.DEFAULT_COMPUTE_MODE),
+        coresMask = LlmRuntimePolicy.normalizeCoresMask(
+            this[Keys.LLM_CORES_MASK] ?: LlmRuntimePolicy.DEFAULT_CORES_MASK,
+        ),
+        threads = LlmRuntimePolicy.normalizeThreads(
+            this[Keys.LLM_THREADS] ?: LlmRuntimePolicy.DEFAULT_THREADS,
+        ),
+        offloadLayers = LlmRuntimePolicy.normalizeOffloadLayers(
+            this[Keys.LLM_OFFLOAD_LAYERS] ?: LlmRuntimePolicy.DEFAULT_OFFLOAD_LAYERS,
+        ),
+        externalMode = this[Keys.LLM_EXTERNAL_MODE] == 1,
+        externalUrl = this[Keys.LLM_EXTERNAL_URL] ?: "",
+        externalApiKey = this[Keys.LLM_EXTERNAL_API_KEY] ?: "",
+        externalModel = this[Keys.LLM_EXTERNAL_MODEL] ?: "",
+        banter = (this[Keys.LLM_BANTER] ?: 1) == 1,
+        ambience = this[Keys.LLM_AMBIENCE] == 1,
+        modelId = this[Keys.LLM_MODEL_ID] ?: LlmModelRegistry.DEFAULT_MODEL_ID,
+        advanced = this[Keys.LLM_ADVANCED] == 1,
+        maxNewTokens = LlmRuntimePolicy.normalizeMaxNewTokensOverride(
+            this[Keys.LLM_MAX_NEW_TOKENS] ?: 0,
+        ),
+        generationTimeout = LlmRuntimePolicy.normalizeGenerationTimeoutOverride(
+            this[Keys.LLM_GENERATION_TIMEOUT] ?: 0,
+        ),
+        promptPackJson = this[Keys.LLM_PROMPT_PACK] ?: "",
+    )
+}
 
 /**
  * The complete `Settings.update()` write-set, extracted so the round trip is
@@ -1009,4 +1069,12 @@ internal fun MutablePreferences.writeSnapshotWrites(
     this[Keys.LLM_BANTER] = if (next.llmBanter) 1 else 0
     this[Keys.LLM_AMBIENCE] = if (next.llmAmbience) 1 else 0
     this[Keys.LLM_MODEL_ID] = next.llmModelId
+    this[Keys.LLM_ADVANCED] = if (next.llmAdvanced) 1 else 0
+    this[Keys.LLM_MAX_NEW_TOKENS] =
+        LlmRuntimePolicy.normalizeMaxNewTokensOverride(next.llmMaxNewTokens)
+    this[Keys.LLM_GENERATION_TIMEOUT] =
+        LlmRuntimePolicy.normalizeGenerationTimeoutOverride(next.llmGenerationTimeout)
+    // verbatim prompt-pack JSON (never trimmed — same mid-typing rule as the
+    // external URL fields); resolved via LlmPromptPack.resolve at read time
+    this[Keys.LLM_PROMPT_PACK] = next.llmPromptPackJson
 }

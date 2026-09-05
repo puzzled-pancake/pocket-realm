@@ -160,6 +160,7 @@ internal fun ChoiceRow(
                 choices.forEach { (id, text) ->
                     DropdownMenuItem(
                         text = { Text(text) },
+                        modifier = Modifier.testTag("$tag-option-$id"),
                         onClick = {
                             expanded = false
                             onSelect(id)

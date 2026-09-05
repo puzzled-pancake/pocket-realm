@@ -75,6 +75,7 @@ import com.pocketrealm.bots.BotBehaviorPreset
 import com.pocketrealm.bots.BotAdvancedSettings
 import com.pocketrealm.bots.BotCustomConfiguration
 import com.pocketrealm.bots.BotCustomPresets
+import com.pocketrealm.bots.BotLlmSpeech
 import com.pocketrealm.bots.BotPresetStore
 import com.pocketrealm.bots.BotPlaystylePreset
 import com.pocketrealm.bots.BotPopulationPolicy
@@ -96,12 +97,17 @@ private sealed interface EditorTarget {
     data object NewDraft : EditorTarget
 }
 
-/** Editor section tabs; the tab replaces the old single Advanced disclosure. */
+/**
+ * Editor section tabs; the tab replaces the old single Advanced disclosure.
+ * The former System tab folded into per-tab "Advanced tuning" disclosures
+ * (accounts + adaptation live behind Population's), which made room for
+ * the AI tab (per-preset speech overrides for the playerbot LLM).
+ */
 private enum class EditorSection(val label: String) {
     BASICS("Basics"),
     POPULATION("Population"),
     BEHAVIOUR("Behaviour"),
-    SYSTEM("System"),
+    AI("AI"),
 }
 
 private val EditorSectionSaver = Saver<EditorSection, String>(
@@ -638,6 +644,13 @@ private fun PresetList(
     onDelete: (String) -> Unit,
     listModifier: Modifier = Modifier,
 ) {
+    // Memoized outside the LazyColumn scope: remember() is @Composable and
+    // cannot run inside the LazyListScope DSL below.
+    val visible = remember(presets, search) {
+        presets
+            .filter { search.isBlank() || it.name.contains(search, ignoreCase = true) }
+            .sortedWith(compareByDescending<BotPresetStore.SavedPreset> { it.favorite }.thenBy { it.name.lowercase() })
+    }
     LazyColumn(listModifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         item {
             Text("Recommended", style = MaterialTheme.typography.labelSmall)
@@ -652,21 +665,21 @@ private fun PresetList(
         item {
             Text("Built-in", style = MaterialTheme.typography.labelSmall)
         }
-        items(BotProfiles.experiencePresets.filter { it != BotProfiles.ALIVE_REALM_320 }) { preset ->
+        items(BotProfiles.experiencePresets.filter { it != BotProfiles.ALIVE_REALM_320 }, key = { it.id }) { preset ->
             PresetChip(
                 label = preset.displayName,
                 summary = preset.summary,
                 selected = selectedBuiltinId == preset.id,
-                tag = "preset-builtin-${preset.selectedTarget}",
+                tag = "preset-builtin-${preset.id}",
                 onClick = { onSelectBuiltIn(preset) },
             )
         }
-        items(BotProfiles.legacySelectablePresets) { preset ->
+        items(BotProfiles.legacySelectablePresets, key = { it.id }) { preset ->
             PresetChip(
                 label = preset.displayName,
                 summary = "Retained legacy profile; custom presets can exceed 700.",
                 selected = selectedBuiltinId == preset.id,
-                tag = "preset-builtin-${preset.selectedTarget}",
+                tag = "preset-builtin-${preset.id}",
                 onClick = { onSelectBuiltIn(preset) },
             )
         }
@@ -686,9 +699,6 @@ private fun PresetList(
                 }
             }
         }
-        val visible = presets
-            .filter { search.isBlank() || it.name.contains(search, ignoreCase = true) }
-            .sortedWith(compareByDescending<BotPresetStore.SavedPreset> { it.favorite }.thenBy { it.name.lowercase() })
         items(visible, key = { it.id }) { preset ->
             SavedPresetRow(
                 preset = preset,
@@ -753,7 +763,7 @@ private fun SavedPresetRow(
         } else {
             MaterialTheme.colorScheme.surface
         },
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp).testTag("preset-saved"),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp).testTag("preset-saved-${preset.id}"),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp),
@@ -761,7 +771,7 @@ private fun SavedPresetRow(
         ) {
             IconButton(
                 onClick = { onToggleFavorite(!preset.favorite) },
-                modifier = Modifier.testTag("preset-favorite"),
+                modifier = Modifier.testTag("preset-favorite-${preset.id}"),
             ) {
                 Icon(
                     if (preset.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
@@ -790,7 +800,7 @@ private fun SavedPresetRow(
                 )
             }
             Box {
-                IconButton(onClick = { menuOpen = true }, modifier = Modifier.testTag("preset-menu")) {
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.testTag("preset-menu-${preset.id}")) {
                     Icon(Icons.Filled.MoreVert, contentDescription = "Preset actions")
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -961,6 +971,14 @@ private fun SectionContent(
                 PopulationSection(working, onWorking)
                 HorizontalDivider()
                 NearbySection(working, onWorking)
+                AdvancedDisclosure(
+                    title = "Advanced tuning",
+                    support = "Startup pacing, teleport limits, the account pool and the " +
+                        "adaptive load-shedding floors. The defaults suit every normal realm.",
+                    tag = "bots-population-advanced",
+                ) {
+                    PopulationAdvancedSection(working, onWorking)
+                }
             }
             EditorSection.BEHAVIOUR -> {
                 SchedulingSection(working, onWorking)
@@ -968,11 +986,16 @@ private fun SectionContent(
                 TemperamentSection(working, onWorking)
                 HorizontalDivider()
                 LevelingSection(working, onWorking)
+                AdvancedDisclosure(
+                    title = "Advanced tuning",
+                    support = "Login lifecycle and the rerandomize cadence for background bots.",
+                    tag = "bots-behaviour-advanced",
+                ) {
+                    BehaviourAdvancedSection(working, onWorking)
+                }
             }
-            EditorSection.SYSTEM -> {
-                AccountsSection(working, onWorking)
-                HorizontalDivider()
-                AdaptationSection(working, onWorking)
+            EditorSection.AI -> {
+                AiSection(working, onWorking)
             }
         }
     }
@@ -1181,8 +1204,9 @@ private fun BasicsContent(
     }
 
     Text(
-        "Every advanced tunable lives in the Population, Behaviour, and System " +
-            "tabs; switching tabs never changes values.",
+        "Every advanced tunable lives in the Population and Behaviour tabs behind " +
+            "their Advanced tuning switches, and per-preset AI speech lives in the AI " +
+            "tab; switching tabs never changes values.",
         style = MaterialTheme.typography.bodySmall,
     )
 }
@@ -1210,6 +1234,16 @@ private fun PopulationSection(
         Stepper("Initial bots", working.initialTarget, working.minimumOnline..working.selectedTarget) { value ->
             onWorking(working.copy(initialTarget = value))
         }
+    }
+}
+
+/** The Population tab's Advanced disclosure: pacing, teleport limits, accounts, adaptation. */
+@Composable
+private fun PopulationAdvancedSection(
+    working: BotCustomConfiguration,
+    onWorking: (BotCustomConfiguration) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Stepper("Startup increase step", working.startupIncreaseStep, 1..working.selectedTarget) { value ->
             onWorking(working.copy(startupIncreaseStep = value))
         }
@@ -1230,6 +1264,25 @@ private fun PopulationSection(
                 ),
             )
         }
+        Stepper("Teleport min (min)", working.teleportMinIntervalSeconds / 60, 1..2_880, step = 30) { value ->
+            val min = value * 60
+            onWorking(
+                working.copy(
+                    teleportMinIntervalSeconds = min,
+                    teleportMaxIntervalSeconds = maxOf(min, working.teleportMaxIntervalSeconds),
+                ),
+            )
+        }
+        Stepper("Teleport max (min)", working.teleportMaxIntervalSeconds / 60, 1..2_880, step = 30) { value ->
+            onWorking(
+                working.copy(
+                    teleportMaxIntervalSeconds = maxOf(value * 60, working.teleportMinIntervalSeconds),
+                ),
+            )
+        }
+        AccountsSection(working, onWorking)
+        HorizontalDivider()
+        AdaptationSection(working, onWorking)
     }
 }
 
@@ -1285,22 +1338,10 @@ private fun NearbySection(
                 )
             }
         }
-        Stepper("Teleport min (min)", working.teleportMinIntervalSeconds / 60, 1..2_880, step = 30) { value ->
-            val min = value * 60
-            onWorking(
-                working.copy(
-                    teleportMinIntervalSeconds = min,
-                    teleportMaxIntervalSeconds = maxOf(min, working.teleportMaxIntervalSeconds),
-                ),
-            )
-        }
-        Stepper("Teleport max (min)", working.teleportMaxIntervalSeconds / 60, 1..2_880, step = 30) { value ->
-            onWorking(
-                working.copy(
-                    teleportMaxIntervalSeconds = maxOf(value * 60, working.teleportMinIntervalSeconds),
-                ),
-            )
-        }
+        Text(
+            "Fine-grained min/max cadence limits live behind this tab's Advanced tuning switch.",
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 
@@ -1363,20 +1404,50 @@ private fun TemperamentSection(
         SwitchRow("Use off-spec strategies", working.enableOffSpecStrategies, "bots-offspec") { value ->
             onWorking(working.copy(enableOffSpecStrategies = value))
         }
-        SwitchRow("Chat without a player master", working.allowBotChat, "bots-chat") { value ->
-            onWorking(working.copy(allowBotChat = value))
-        }
         SwitchRow("Bots may invite the player", working.allowPlayerInvites, "bots-invites") { value ->
             onWorking(working.copy(allowPlayerInvites = value))
         }
         SwitchRow("Limit background combat work", working.limitCombatActivity, "bots-limit-combat") { value ->
             onWorking(working.copy(limitCombatActivity = value))
         }
+        Text(
+            "Whether bots may start conversations on their own is on the AI tab; " +
+                "login lifecycle is behind this tab's Advanced tuning switch.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+/** The Behaviour tab's Advanced disclosure: login lifecycle + rerandomize cadence. */
+@Composable
+private fun BehaviourAdvancedSection(
+    working: BotCustomConfiguration,
+    onWorking: (BotCustomConfiguration) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        SectionHeader("LOGIN LIFECYCLE")
         SwitchRow("Bots log in at realm start", working.loginAtStartup, "bots-login-startup") { value ->
             onWorking(working.copy(loginAtStartup = value))
         }
         SwitchRow("Bot joins with its player", working.loginWithPlayer, "bots-login-with-player") { value ->
             onWorking(working.copy(loginWithPlayer = value))
+        }
+        SectionHeader("RERANDOMIZE CADENCE")
+        Stepper("Rerandomize min (h)", working.randomizeMinIntervalSeconds / 3600, 1..336) { value ->
+            val min = value * 3600
+            onWorking(
+                working.copy(
+                    randomizeMinIntervalSeconds = min,
+                    randomizeMaxIntervalSeconds = maxOf(min, working.randomizeMaxIntervalSeconds),
+                ),
+            )
+        }
+        Stepper("Rerandomize max (h)", working.randomizeMaxIntervalSeconds / 3600, 1..336) { value ->
+            onWorking(
+                working.copy(
+                    randomizeMaxIntervalSeconds = maxOf(value * 3600, working.randomizeMinIntervalSeconds),
+                ),
+            )
         }
     }
 }
@@ -1402,22 +1473,299 @@ private fun LevelingSection(
         Stepper("Max-level bot chance (%)", (working.randomBotMaxLevelChance * 100).roundToInt(), 0..100, step = 5) { value ->
             onWorking(working.copy(randomBotMaxLevelChance = value / 100f))
         }
-        Stepper("Rerandomize min (h)", working.randomizeMinIntervalSeconds / 3600, 1..336) { value ->
-            val min = value * 3600
+    }
+}
+
+/** AI-tab reply-length chip values; 0 = the model's tuned default. */
+@Suppress("MagicNumber")
+private val AI_REPLY_TOKEN_CHOICES = listOf(0, 48, 96, 150, 200, 300)
+
+/** AI-tab bot-to-bot chip values paired with labels; -1 = model default. */
+@Suppress("MagicNumber")
+private val AI_BOT_TO_BOT_CHOICES = listOf(
+    -1 to "Model default",
+    0 to "Off",
+    5 to "Low",
+    10 to "Medium",
+    20 to "Chatty",
+)
+
+@Composable
+private fun AiSection(
+    working: BotCustomConfiguration,
+    onWorking: (BotCustomConfiguration) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        SectionHeader("AI SPEECH - THIS PRESET")
+        Text(
+            "Per-preset overrides for the playerbot LLM. The engine, the model and " +
+                "the global switches live in Settings → AI bot LLM; every value here " +
+                "follows that model's tuned profile until you change it, and is " +
+                "written into this preset's bot conf at the next realm start.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        SwitchRow("Bots speak on their own", working.allowBotChat, "bots-chat") { value ->
+            onWorking(working.copy(allowBotChat = value))
+        }
+        Text(
+            "Lets bots start conversations without a player addressing them " +
+                "(requires the AI bot LLM feature to be enabled).",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        AiReplyLengthControls(working, onWorking)
+        AiBotToBotControls(working, onWorking)
+        AiMemoryControls(working, onWorking)
+        AiPackDeltasControls(working, onWorking)
+        AiRpDialsControls(working, onWorking)
+    }
+}
+
+/** AI-tab RP dial chip values; -1 = follow the global default (50). */
+@Suppress("MagicNumber")
+private val AI_RP_DIAL_CHOICES = listOf(-1, 0, 25, 50, 75, 100)
+
+private fun aiRpDialLabel(value: Int): String =
+    if (value < 0) "Default" else "$value"
+
+@Composable
+private fun AiPackDeltasControls(
+    working: BotCustomConfiguration,
+    onWorking: (BotCustomConfiguration) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        SectionHeader("ROLEPLAY SEASONING — THIS PRESET")
+        Text(
+            "Per-block overrides for the prompt pack. On follows the block, " +
+                "Off silences it for this preset, Default follows the global " +
+                "pack from Settings → AI bot LLM. Applies at the next realm start.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        BotLlmSpeech.PACK_DELTA_IDS.sorted().forEach { id ->
+            val state = working.llmSpeech.packDeltas[id]
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    id,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                FilterChip(
+                    selected = state == true,
+                    onClick = {
+                        val next = working.llmSpeech.packDeltas.toMutableMap()
+                        next[id] = true
+                        onWorking(working.copy(llmSpeech = working.llmSpeech.copy(packDeltas = next)))
+                    },
+                    label = { Text("On") },
+                    modifier = Modifier.testTag("bots-rp-pack-$id-on"),
+                )
+                FilterChip(
+                    selected = state == false,
+                    onClick = {
+                        val next = working.llmSpeech.packDeltas.toMutableMap()
+                        next[id] = false
+                        onWorking(working.copy(llmSpeech = working.llmSpeech.copy(packDeltas = next)))
+                    },
+                    label = { Text("Off") },
+                    modifier = Modifier.testTag("bots-rp-pack-$id-off"),
+                )
+                FilterChip(
+                    selected = state == null,
+                    onClick = {
+                        val next = working.llmSpeech.packDeltas.toMutableMap()
+                        next.remove(id)
+                        onWorking(working.copy(llmSpeech = working.llmSpeech.copy(packDeltas = next)))
+                    },
+                    label = { Text("Default") },
+                    modifier = Modifier.testTag("bots-rp-pack-$id-default"),
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AiRpDialsControls(
+    working: BotCustomConfiguration,
+    onWorking: (BotCustomConfiguration) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        SectionHeader("ROLEPLAY DIALS — THIS PRESET")
+        Text(
+            "How this preset's bots carry themselves. Default (50) follows " +
+                "the global behavior; 0 mutes the trait, 100 maximizes it. " +
+                "Dials render as native seasoning weights in Phase 3 — this " +
+                "version persists them and carries them into the conf.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        AiRpDialRow("Initiative — opens conversation", working.llmSpeech.initiative, "bots-rp-initiative") { value ->
+            onWorking(working.copy(llmSpeech = working.llmSpeech.copy(initiative = value)))
+        }
+        AiRpDialRow("Volatility — mood shifts", working.llmSpeech.volatility, "bots-rp-volatility") { value ->
+            onWorking(working.copy(llmSpeech = working.llmSpeech.copy(volatility = value)))
+        }
+        AiRpDialRow("Reactivity — event eagerness", working.llmSpeech.reactivity, "bots-rp-reactivity") { value ->
+            onWorking(working.copy(llmSpeech = working.llmSpeech.copy(reactivity = value)))
+        }
+        AiRpDialRow("Long-form — taste for long tellings", working.llmSpeech.longForm, "bots-rp-longform") { value ->
+            onWorking(working.copy(llmSpeech = working.llmSpeech.copy(longForm = value)))
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AiRpDialRow(
+    label: String,
+    value: Int,
+    tag: String,
+    onChange: (Int) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("$label — current: ${aiRpDialLabel(value)}", style = MaterialTheme.typography.bodyMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            AI_RP_DIAL_CHOICES.forEach { choice ->
+                FilterChip(
+                    selected = value == choice,
+                    onClick = { onChange(BotLlmSpeech.normalizeDial(choice)) },
+                    label = { Text(aiRpDialLabel(choice)) },
+                    modifier = Modifier.testTag("$tag-$choice"),
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AiReplyLengthControls(
+    working: BotCustomConfiguration,
+    onWorking: (BotCustomConfiguration) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        SectionHeader("REPLY LENGTH")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            AI_REPLY_TOKEN_CHOICES.forEach { tokens ->
+                FilterChip(
+                    selected = working.llmSpeech.replyTokens == tokens,
+                    onClick = {
+                        onWorking(
+                            working.copy(
+                                llmSpeech = working.llmSpeech.copy(
+                                    replyTokens = if (tokens == 0) 0
+                                    else tokens.coerceIn(
+                                        BotLlmSpeech.MIN_REPLY_TOKENS,
+                                        BotLlmSpeech.MAX_REPLY_TOKENS,
+                                    ),
+                                ),
+                            ),
+                        )
+                    },
+                    label = { Text(if (tokens == 0) "Model default" else "$tokens") },
+                    modifier = Modifier.testTag("bots-llm-reply-$tokens"),
+                )
+            }
+        }
+        Text(
+            "Caps every reply in tokens. Shorter keeps chat snappy; longer suits " +
+                "storytelling. The model default is tuned per model.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AiBotToBotControls(
+    working: BotCustomConfiguration,
+    onWorking: (BotCustomConfiguration) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        SectionHeader("BOT-TO-BOT CHAT")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            AI_BOT_TO_BOT_CHOICES.forEach { (chance, label) ->
+                FilterChip(
+                    selected = working.llmSpeech.botToBotChatChance == chance,
+                    onClick = {
+                        onWorking(
+                            working.copy(llmSpeech = working.llmSpeech.copy(botToBotChatChance = chance)),
+                        )
+                    },
+                    label = { Text(label) },
+                    modifier = Modifier.testTag("bots-llm-b2b-$chance"),
+                )
+            }
+        }
+        Text(
+            "How often nearby bots strike up conversations with each other when you " +
+                "walk up. Medium is the tuned default for the full models.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+@Composable
+private fun AiMemoryControls(
+    working: BotCustomConfiguration,
+    onWorking: (BotCustomConfiguration) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        SectionHeader("MEMORY")
+        Stepper(
+            "Memory facts cap",
+            working.llmSpeech.factsCap,
+            0..BotLlmSpeech.MAX_FACTS_CAP,
+            step = 2,
+        ) { value ->
+            // Below-floor positives route by direction (see
+            // BotLlmSpeech.routeStepper): up from 0 snaps to the floor,
+            // down into the gap lands on 0 - both buttons stay live.
             onWorking(
                 working.copy(
-                    randomizeMinIntervalSeconds = min,
-                    randomizeMaxIntervalSeconds = maxOf(min, working.randomizeMaxIntervalSeconds),
+                    llmSpeech = BotLlmSpeech.normalize(
+                        replyTokens = working.llmSpeech.replyTokens,
+                        botToBotChatChance = working.llmSpeech.botToBotChatChance,
+                        factsCap = BotLlmSpeech.routeStepper(
+                            value, working.llmSpeech.factsCap, BotLlmSpeech.MIN_FACTS_CAP,
+                        ),
+                        memoriesTail = working.llmSpeech.memoriesTail,
+                        packDeltas = working.llmSpeech.packDeltas,
+                        initiative = working.llmSpeech.initiative,
+                        volatility = working.llmSpeech.volatility,
+                        reactivity = working.llmSpeech.reactivity,
+                        longForm = working.llmSpeech.longForm,
+                    ),
                 ),
             )
         }
-        Stepper("Rerandomize max (h)", working.randomizeMaxIntervalSeconds / 3600, 1..336) { value ->
+        Stepper(
+            "Memories carried into prompts",
+            working.llmSpeech.memoriesTail,
+            0..BotLlmSpeech.MAX_MEMORIES_TAIL,
+        ) { value ->
             onWorking(
                 working.copy(
-                    randomizeMaxIntervalSeconds = maxOf(value * 3600, working.randomizeMinIntervalSeconds),
+                    llmSpeech = BotLlmSpeech.normalize(
+                        replyTokens = working.llmSpeech.replyTokens,
+                        botToBotChatChance = working.llmSpeech.botToBotChatChance,
+                        factsCap = working.llmSpeech.factsCap,
+                        memoriesTail = BotLlmSpeech.routeStepper(
+                            value, working.llmSpeech.memoriesTail, BotLlmSpeech.MIN_MEMORIES_TAIL,
+                        ),
+                        packDeltas = working.llmSpeech.packDeltas,
+                        initiative = working.llmSpeech.initiative,
+                        volatility = working.llmSpeech.volatility,
+                        reactivity = working.llmSpeech.reactivity,
+                        longForm = working.llmSpeech.longForm,
+                    ),
                 ),
             )
         }
+        Text(
+            "0 follows the model's tuned depth. More facts and memories make bots " +
+                "remember further back at the cost of prompt space.",
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 
@@ -1615,6 +1963,37 @@ private fun BotCustomConfiguration.matchesBehaviorPreset(preset: BotBehaviorPres
 @Composable
 private fun SectionHeader(text: String) {
     Text(text, style = MaterialTheme.typography.labelSmall)
+}
+
+/**
+ * The per-tab verbose-tier disclosure (the Auto-login "Advanced timing"
+ * idiom): a divider, a whole-row toggle, a support line, then the content
+ * only while expanded. Hiding never changes a value.
+ */
+@Composable
+private fun AdvancedDisclosure(
+    title: String,
+    support: String,
+    tag: String,
+    content: @Composable () -> Unit,
+) {
+    // Keyed on the caller-supplied tag: Population and Behaviour tabs reuse
+    // the same composition slot via SectionContent's when(), so an unkeyed
+    // rememberSaveable would leak one tab's expanded state into the other.
+    var expanded by rememberSaveable(tag) { mutableStateOf(false) }
+    HorizontalDivider()
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp)
+            .toggleable(value = expanded, onValueChange = { expanded = it }, role = Role.Switch),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+        Switch(checked = expanded, onCheckedChange = null, modifier = Modifier.testTag(tag))
+    }
+    Text(support, style = MaterialTheme.typography.bodySmall)
+    if (expanded) {
+        content()
+    }
 }
 
 @Composable

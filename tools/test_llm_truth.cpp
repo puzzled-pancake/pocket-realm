@@ -394,6 +394,36 @@ static void TestFilters()
     std::string r3 = "Torbinia is a lovely name for a boat.";
     CHECK(InventionClaimSpans(r3, FakeKnown, nullptr).empty()); // no claim cue
 
+    // thinking-trace stripper: no chain-of-thought may ever reach chat
+    CHECK(StripThinking("<think>I should be careful</think>Aye, lad.") == "Aye, lad.");
+    CHECK(StripThinking("Aye, lad. <thinking>hmm, what next</thinking> More words.") ==
+          "Aye, lad.  More words.");
+    CHECK(StripThinking("<THINK>planning</THINK>Spoken.") == "Spoken.");
+    CHECK(StripThinking("Thinking Process:\nAye, lad.") == "Aye, lad.");
+    CHECK(StripThinking("Thought: let me see\nAye, lad.") == "Aye, lad.");
+    CHECK(StripThinking("<think>all thinking, no speech") == "");
+    CHECK(StripThinking("Aye, lad. <think>cut off") == "Aye, lad. ");
+    CHECK(StripThinking("Aye, plain words.") == "Aye, plain words.");
+    CHECK(StripThinking("<think>a</think><think>b</think>Spoken.") == "Spoken.");
+    CHECK(StripThinking("Spoken. <reasoning>why</reasoning> More.") ==
+          "Spoken.  More.");
+    // stray closer (endpoint consumed the opener, leaked the closer):
+    // the tag dies, the spoken words stay
+    CHECK(StripThinking("Two silver, settled then.</think>Two silver.") ==
+          "Two silver, settled then.Two silver.");
+    // same-name nesting collapses innermost-first; no tag voices
+    CHECK(StripThinking("<think>a<think>b</think>c</think>Spoken.") == "Spoken.");
+    // mismatched pair: the outer shell takes the stray inner tag with it
+    CHECK(StripThinking("<think>a</reasoning>b</think>Spoken.") == "Spoken.");
+    // nine sibling pairs still clear (pass cap is 16)
+    std::string many;
+    for (int i = 0; i < 9; ++i)
+        many += "<think>x</think>";
+    many += "Spoken.";
+    CHECK(StripThinking(many) == "Spoken.");
+    // nine pairs then a truncated opener after real text: head survives
+    CHECK(StripThinking(many + " Words.<think>cut") == "Spoken. Words.");
+
     // canned deflection rotation
     CHECK(CannedDeflection(0) != CannedDeflection(1));
     CHECK(CannedDeflection(7) == CannedDeflection(3)); // 4-line rotation

@@ -1,4 +1,4 @@
-# LLM INTEGRATION — Master Plan (rev 3, 2026-08-31)
+# LLM INTEGRATION — Master Plan (rev 3, 2026-08-31; amended 2026-09-02..03 by plan v4: prompt packs, RP dials, 12288 ctx bump, 6-flavor cargo, collapsed power state, API-tier retune)
 
 **Rev 3 (2026-08-31):** §5 expanded with the long-form + conversation-depth
 generation plan (banks P50/P51, §5.1 API-drafter protocol, length-conditional
@@ -165,15 +165,15 @@ runtime derive everything from the tier + model descriptor.
 | runtime profile (game-open) | NPU-hybrid q4_0, 1×mid voice (2.99 GB anon; load-gate: refuse below peak+0.7 GB ⇒ E2B needs ≥3.7 GB MemAvailable — violation is reboot-class) — **provisional until hybrid coexistence trial passes; else CPU-mmap kai 1.41 GB reclaimable** | hybrid 1×A510 or CPU no-repack | CPU kai no-repack | n/a |
 | runtime profile (game-closed) | CPU repack + `--load-mode none`, full mids | same | same | n/a |
 | sampling | t0.7 / p0.8 / k20 / rep1.0 / presence1.0 (+min_p 0.05 allowed) | t0.5 / p0.8 / k20 / rep1.0 | t1.0 / p0.95 / k64 / rep1.0 (maker) | per-provider ≈ t0.7 / p0.9; rep1.0 |
-| max_tokens (whisper / ambient) | 230 / 60 (S11 §5.1 raise: 230 clears the P50 long bank — 150 words ≈ 225 tokens; tool-bearing cue rows cap at 130 words bank-side) | 210 / 60 (clears the 110-word corpus worst case; the 0.8B tier does NOT license the 150-word shapes — the bridge gates the cue on max tokens ≥ 225) | 210 / 60 (same corpus-clearing rationale as T2; not long-licensed) | 300 / 120 |
-| LLMContextLength (chars) | 8192 | 6144 | 8192 | 16384 |
-| server ctx `-c` / KV | 8192, KV f16 (KV quant is a phantom lever on E2B: 34 MiB @8k, weights ≈98% of footprint; hybrid runs f16 KV regardless) | 6144 | 8192 | n/a |
-| generation timeout (queue-inclusive) | 60 s | 45 s | 60 s | 30 s gen + 10 s connect |
+| max_tokens (whisper / ambient) | 230 / 60 (S11 §5.1 raise: 230 clears the P50 long bank — 150 words ≈ 225 tokens; tool-bearing cue rows cap at 130 words bank-side) | 210 / 60 (clears the 110-word corpus worst case; the 0.8B tier does NOT license the 150-word shapes — the bridge gates the cue on max tokens ≥ 225) | 210 / 60 (same corpus-clearing rationale as T2; not long-licensed) | 600 (the API tier's headroom; history depth keys on providerSafe && ctx ≥ 65536) |
+| LLMContextLength (chars) | 12288 | 6144 | 12288 | 131072 |
+| server ctx `-c` / KV | 12288, KV f16 (KV quant is a phantom lever on E2B: weights ≈98% of footprint; hybrid runs f16 KV regardless; Phase 1 plan-v4 bump from 8192 — headroom for prompt-pack seasoning + reply caps at 2 concurrent slots) | 6144 | 12288 | n/a |
+| generation timeout (queue-inclusive) | 60 s | 45 s | 60 s | 60 s |
 | `LLMMaxSimultaniousGenerations` | **2** (was 100 — see §2.2 lanes) | 2 | 2 | 4 |
 | duty governor (post-A0 hoist) | recomputed from capacity: NPU-E2B ≈ 10-12/60 s global; CPU-E2B ≈ 8 | ≈ 20/60 s | ≈ 8 | 16/bot, 48 global |
 | ambient/banter rate | subcritical: (listeners−1)×chance<1; party chance ≤0.20 | ≤0.12 | ≤0.20 | ≤0.30 |
 | tool licensing | full protocol incl. ACT tools | ACT subset (emote/log_fact/sentiment; no duel/move) | full | full protocol, **scanner-only licensing** (ban-grammar impossible on external endpoints) |
-| memory depth | facts cap 12, [Memories] tail 6 | facts cap 8, tail 4 | facts cap 12, tail 6 | facts cap 24, tail 8, rolling summary on |
+| memory depth | facts cap 12, [Memories] tail 6 | facts cap 8, tail 4 | facts cap 12, tail 6 | facts cap 48, tail 16 (the 128k-ctx API tier; 32-turn rolling history vs 8 on-device) |
 | bot2bot chat | enabled (trained) | disabled | disabled | enabled, chain-depth ≤2 |
 | hard trigger gate | whisper or name-mention (all tiers — fixes G-6) | same | same | same |
 | lore answering | retrieval loop only (never from weights) | same | same | retrieval loop preferred; direct answers only if the T4 validation battery (M4) passes |
@@ -365,7 +365,7 @@ changes as `replace_anchor` text patches, and copies whole files from
 ### A6 — Context/token defaults
 - `llmMaxNewTokens` 120 → 200 (tier table). (The duplicate
   `llmContextLength` re-read is already fixed in-tree — single read,
-  default 8192; do not hunt it.) Note `LLMMaxNewTokens` is consumed only
+  default 12288 since the plan-v4 bump; do not hunt it.) Note `LLMMaxNewTokens` is consumed only
   by the in-process backend — on the HTTP path max_tokens rides the
   `LLMApiJson` template (see §4.3).
 - `LLMGenerationTimeout` 600 s → per-tier (§2.2); it is queue-inclusive
@@ -691,17 +691,19 @@ bot_player_facts, verified events). No event → no line. Novelty for
 unconstrained LLM iteration provably converges to phrasing attractors
 (small models worst), and idle-timer chatter with thin context is the
 shipped-game repetition meme (Oblivion guards, Skyrim radiant). Authored
-pools demote to the lowest-specificity emergency floor.
+pools demote to the lowest-specificity authored row (the floor lanes
+sit dormant under the collapsed ladder - every live rung generates).
 
 Layers (all three, owner-directed):
 - **Party banter** — companion bots banter while the player quests.
-  Dragon Age cadence: probabilistic roll after a ~10-15 min timer,
-  combat hard-blocks, interrupted by any player interaction or
-  higher-priority event; event barks (zone entry, kills, loot, level-up,
-  a duel nearby) fire immediately and outrank the idle tier 5-10x.
+  Phase-5 cadence: probabilistic roll every 6 min at 50% (down from the
+  ~10-15 min Dragon Age timer), a combat hard-block, interrupted by any
+  player interaction or higher-priority event; event barks (zone entry,
+  kills, loot, level-up, a duel nearby) fire immediately and outrank the
+  idle tier 5-10x.
 - **Proximity murmur** — bots near the player exchange event-grounded
-  lines at the 30-60s display cadence, drained from a pre-generated
-  QUEUE (never just-in-time generation).
+  lines at the 20-40s display cadence (Phase-5, after the corpus grew),
+  drained from a pre-generated QUEUE (never just-in-time generation).
 - **Global channel** — rare set-piece exchanges in general chat (gossip
   headlines, player-legend lines); the world-ring rules bind hardest
   here because the audience is the whole server.
@@ -727,27 +729,32 @@ collapse), credence-gated retransmission. A WORLD-LEVEL Jaccard ring
 cross-bot echo is unchecked by the per-bot A12 rings. Voice:
 multidimensional persona cards (job + mood + current gripe —
 anti-flanderization), min_p 0.05-0.1 with T ~1.0-1.2 for ambience, and
-the SelectLine authored floor.
+SelectLine rotation (the authored floor lanes sit dormant under the
+collapsed ladder).
 
-POWER LADDER (measured 2026-08-31: naive just-in-time on-device murmur
-= 146 mJ/token ≈ 10-22% battery/session; batched on-device ≈ 1-1.5%;
-cloud ≈ $0.6-1.0/month at 60-120 lines/hour, ~80 tokens/line, 4h/day —
-and API-class models measure ~2x the semantic diversity of 0.8-2B models,
-which for ambience IS the product):
-1. NORMAL (online AND (charging OR battery >40%) AND thermal < MODERATE):
-   cloud composer batches — one request of 4-6 exchanges every 4-6 min,
-   drained from the queue at display cadence.
-2. CONSTRAINED (offline OR battery 20-40% OR thermal ≥ MODERATE):
-   on-device NPU batches (single lines), cadence stretched ~1 line/90s.
-3. CRITICAL (battery <20% OR thermal SEVERE): on-device, 1 line/3 min,
-   global-channel layer only.
-4. EMERGENCY (battery <10% AND offline AND thermal SEVERE): generation
-   stops; authored texture floor only — SelectLine pools, the demoted
-   tier.
-Gate EVERY batch on PowerManager.getThermalHeadroom() (the die already
-runs the game server + client; unmanaged sustained inference collapses
-~70% in 30 minutes) and never spawn a second model runtime — the device
-path shares the resident llama-server. **MASTER TOGGLE:** one ambience
+Phase-4 legends (engine-first, no new tables): counters escalate the Nth
+telling ("again", "still", "legend by now") and retire at the 5-telling
+cap; anniversaries derive from the oldest fact row's created_at (30/100/
+365-day buckets, journal-visible); tier beats ride the ceremony (vouch at
+ally, bonded bickering at tier 5, journal-visible); rumor drift stays
+deterministic (one DistortGossipHop per hop, cap 3, originator verbatim)
+with POI-biased sampling (place-named rows travel farther, so the player
+hears their own legend warped across distance).
+
+POWER STATE (collapsed 2026-09-03: the five-rung ladder is gone — the user
+asked for a loud world or they did not, and no sensor second-guesses that.
+Thermal throttling is the OS's job underneath. Measured 2026-08-31 costs
+stand: naive just-in-time on-device murmur = 146 mJ/token ≈ 10-22%
+battery/session; batched on-device ≈ 1-1.5%; cloud ≈ $0.6-1.0/month at
+60-120 lines/hour):
+1. NORMAL (ambience on): cloud composer batches — one request of
+   4-6 exchanges every 4-6 min, drained from the queue at display cadence.
+2. DIM (ambience on AND battery ≤15% off the charger): every layer stays
+   on, device single lines, cadence stretched ~1 line/90s. Charging rescues
+   the dim; an unreadable battery read never dims.
+Never spawn a second model runtime — the device path shares the
+resident llama-server (the dim threshold lives app-side in
+ChatterPowerMonitor.computeRung, pinned by ChatterPowerMonitorTest). **MASTER TOGGLE:** one ambience
 switch kills all three layers (owner-directed battery surface).
 
 ACCEPTANCE (S10 gates): event-gated firing measured (the idle tier may
@@ -816,7 +823,8 @@ hedge shape is the ENEMY: P21 lore rows teach "Don't know the name, but
   baselines; the G0 GATE itself has not run — no banks,
   no checkpoints yet, and pre-conversion harness numbers (incl. the G1 .861
   threshold below) are superseded and must be re-derived post-conversion),
-  G1 final.py ≥ .861, G2 hard-creative ≥ 66, G3 live RP 100-turn @8192,
+  G1 final.py ≥ .861, G2 hard-creative ≥ 66, G3 live RP 100-turn
+(ctx 12288 since the plan-v4 Phase-1 bump),
   G4 device matrix, and **G5 = this repo's `tools/llm_lab` battery, as a
   real gate**: n=3 majority with fixed seeds, ≥4 personas spanning tiers
   1/3/5, deterministic scorers only, held-out nonce names for the hedge
@@ -947,7 +955,8 @@ of 8192 — ~3x headroom, so P50/P51 growth is generation-side only.
 Deliberately NOT changed: the in-process debug path's LLMCtxSize=4096
 (its n_ctx = ctxSize × 4 slots — KV RAM multiplies per slot; debug-only;
 revisit only with the device matrix in hand). G4 adds the KV-RAM reading
-at 8192; `--cache-type k/v q8_0` is the fallback lever if pressure shows.
+at the deployment ctx (12288 since the plan-v4 bump);
+`--cache-type k/v q8_0` is the fallback lever if pressure shows.
 
 ---
 

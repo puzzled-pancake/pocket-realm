@@ -1003,9 +1003,22 @@ fun SettingsScreen(
         }
 
         SettingCard("AI bot LLM") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = snap.llmEnabled,
+                    onCheckedChange = { enabled ->
+                        scope.launch { settings.update { it.copy(llmEnabled = enabled) } }
+                    },
+                    modifier = Modifier.testTag("llm-simple-enabled"),
+                )
+                Text("  Let bots talk with an AI",
+                    style = MaterialTheme.typography.bodyMedium)
+            }
             Text(
-                "Embedded LLM runtime for playerbot speech: Hexagon NPU hybrid or CPU " +
-                    "decode-core selection. Off by default.",
+                "Playerbots speak through the on-device language model (or your own " +
+                    "OpenAI-compatible server; configured in the LLM submenu). Off keeps " +
+                    "bots silent. Replies land at the next realm start; authored banter " +
+                    "and ambient chatter have their own switches in the submenu.",
                 style = MaterialTheme.typography.bodySmall,
             )
             onLlm?.let { action ->

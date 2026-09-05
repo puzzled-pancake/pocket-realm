@@ -63,11 +63,12 @@ def test_reply_class_budgets_thread_through_both_callers():
     body = android_anchor("PB_SAY_GEN_DEF_ANDROID")
     assert "uint32 replyClass, bool longFormCued)" in body
     recorder = android_anchor("PB_SAY_RECORDER_ANDROID")
-    assert "pocketllm::ApplyReplyBudget(lines, replyClass, sPlayerbotAIConfig.llmMaxNewTokens, longFormCued);" \
+    assert "pocketllm::ApplyReplyBudget(lines, replyClass, sPlayerbotAIConfig.llmMaxNewTokens, longFormCued, sPlayerbotAIConfig.llmRpLongForm);" \
         in recorder, \
         "the voice budget applies before the history recorder, scaled by the " \
-        "tier's max new tokens AND the turn's own cue state (S11: the " \
-        "widening is earned per turn, never tier-wide)"
+        "tier's max new tokens, the turn's own cue state, AND the preset's " \
+        "longForm dial (S11: the widening is earned per turn, never " \
+        "tier-wide, and the budget license must match the cue's license)"
     # pin the ORDER, not just presence - history and the player
     # must see the same words
     assert recorder.index("ApplyReplyBudget(lines, replyClass") < \

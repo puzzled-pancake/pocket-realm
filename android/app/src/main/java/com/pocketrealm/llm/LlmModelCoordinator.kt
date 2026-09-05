@@ -1,6 +1,7 @@
 package com.pocketrealm.llm
 
 import android.content.Context
+import com.pocketrealm.fs.FileDigests
 import com.pocketrealm.log.AppLog
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -8,7 +9,6 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
-import java.security.MessageDigest
 
 /**
  * On-device LLM model (GGUF) delivery for the in-process playerbot llama
@@ -88,6 +88,9 @@ object LlmModelCoordinator {
     ): File? {
         val target = modelPath(context, descriptor)
         if (!target.isFile || descriptor.sha256.length != 64) return null
+        // A size mismatch is the common stale-partial case: skip the
+        // multi-GB hash and fall through to re-download.
+        if (descriptor.size > 0 && target.length() != descriptor.size) return null
         return if (sha256File(target).equals(descriptor.sha256, ignoreCase = true)) target else null
     }
 
@@ -259,15 +262,4 @@ object LlmModelCoordinator {
 private fun hostOf(url: String): String =
     url.toHttpUrlOrNull()?.host ?: error("invalid URL: $url")
 
-private fun sha256File(file: File): String {
-    val digest = MessageDigest.getInstance("SHA-256")
-    file.inputStream().use { input ->
-        val buffer = ByteArray(64 * 1024)
-        while (true) {
-            val read = input.read(buffer)
-            if (read < 0) break
-            digest.update(buffer, 0, read)
-        }
-    }
-    return digest.digest().joinToString("") { "%02x".format(it) }
-}
+private fun sha256File(file: File): String = FileDigests.sha256(file)

@@ -873,6 +873,38 @@ PB_LLM_CONFIG_HEADER_ANDROID = """    ParsedUrl llmEndPointUrl;
     std::string llmChatterPowerFile;
     std::string llmChatterComposerUrl, llmChatterComposerModel, llmChatterComposerKey;
     ParsedUrl llmChatterComposerUrlParsed;
+    // Phase 1 prompt pack: staged JSON of ordered blocks (empty = trained
+    // default, byte-identical). The renderer appends only enabled seasoning
+    // blocks inside the existing instruction span - never a new top-level
+    // segment, so trained weights see familiar shape.
+    std::string llmPromptPackFile;
+    // Phase 2 per-preset RP layer: explicit block switches (preset >
+    // global pack > trained default) + RP dial weights (Phase 3 consumes
+    // them; parsed + stored here so the conf never fails on unknown keys).
+    std::map<std::string, int> llmPromptBlockOverride;
+    uint32 llmRpInitiative, llmRpVolatility, llmRpReactivity, llmRpLongForm;
+    // plan v5 W1/W4/F7: event reactions + the grudge act-refusal toggles,
+    // and the global authored-line hourly ceiling (0 = authored ambient
+    // off entirely; the guaranteed first beats stay exempt). W7a: the
+    // weather/hour ambient-bias toggle (default ON; 0 restores the
+    // unbiased table - pure sampling weights, no prompt bytes either way)
+    uint32 llmEventReactionsEnabled, llmGrudgeRefusalEnabled, llmAuthoredLinesPerHour;
+    uint32 llmWorldTruthAmbient;
+    // plan v5 C2: the session recap (deterministic digest always; the
+    // prose variant is one quota-capped cloud call per world start)
+    uint32 llmRecapEnabled, llmRecapProse, llmRecapProsePerDay;
+    // plan v5 W8/W7b: the /notice scene read (default ON - it is a
+    // player-initiated zero-cost read) and the scene/homeland prompt
+    // furniture (default OFF pending the bake-off; rides the bridge
+    // extra leg, never the trained [State] fill)
+    uint32 llmSceneReadEnabled, llmWorldTruthFurniture;
+    // plan v5 C1: the campfire saga (cloud tier only, quota-capped per
+    // roster per day; the first safe line becomes a town gossip row);
+    // C3 roundtable rows + C5 weekly dossier share the quota meter
+    uint32 llmSagaEnabled, llmSagaPerDay;
+    uint32 llmRoundtablePerDay, llmDossierEnabled, llmDossierPerDay;
+    // C4 drama set-piece switch + the W5 curiosity switch (plan 5.4 keys)
+    uint32 llmDramaEnabled, llmCuriosityEnabled;
 """
 PB_LLM_CONFIG_CPP_UPSTREAM = """    //LLM START
     llmEnabled = config.GetIntDefault("AiPlayerbot.LLMEnabled", 1);
@@ -932,17 +964,19 @@ PB_LLM_CONFIG_CPP_ANDROID = """    //LLM START
     // but the real llama constraint is per-slot TOKENS (LLMCtxSize, ~3.5
     // chars each). The legacy 4096-char default would routinely squeeze the
     // rolling history to a fraction of its 3000-char cap while the slot sits
-    // mostly empty; 8192 keeps the worst-case composition under the window
-    // with full richness. The upstream tree re-reads the key later with the
+    // mostly empty; 12288 keeps the worst-case composition under the window
+    // with full richness (Phase 1 plan-v4 bump from 8192: prompt-pack
+    // seasoning headroom). The upstream tree re-reads the key later with the
     // 4096 default (which would overwrite this); PB_LLM_CTX_REREAD removes
     // that legacy re-read so this is the single authoritative read.
-    llmContextLength = config.GetIntDefault("AiPlayerbot.LLMContextLength", 8192);
+    llmContextLength = config.GetIntDefault("AiPlayerbot.LLMContextLength", 12288);
     // The world-chatter layer. Enabled defaults 0 - the
     // silence doctrine; the app emits 1 whenever it stages the power
     // file, and the FILE's enabled flag is the master switch (re-read
-    // every scheduler tick, so the ambience toggle works mid-session in
-    // both directions; missing/stale = chatter stops or degrades to the
-    // authored floor - see PlayerbotLlmChatter.cpp). The composer
+    // every scheduler tick; the app stages it at world start and on
+    // battery events, so the ambience toggle applies at the next realm
+    // start while battery dims land mid-session; missing/disabled =
+    // chatter stops - see PlayerbotLlmChatter.cpp). The composer
     // endpoint is a CLOUD-class script generator; empty = the NORMAL
     // rung degrades to device single-line batches. parseUrl throws on
     // non-URL text, so the (default-empty) composer URL is parsed under
@@ -965,17 +999,72 @@ PB_LLM_CONFIG_CPP_ANDROID = """    //LLM START
         }
     llmChatterComposerModel = config.GetStringDefault("AiPlayerbot.LLMChatterComposerModel", "local");
     llmChatterComposerKey = config.GetStringDefault("AiPlayerbot.LLMChatterComposerKey", "");
+    // Phase 1 prompt pack path (empty = trained default; fails open - the
+    // renderer treats a missing/unreadable file as "pack off").
+    llmPromptPackFile = config.GetStringDefault("AiPlayerbot.LLMPromptPackFile", "");
+    // Phase 2 per-preset RP layer (sentinel 50 = follow the global pack;
+    // block keys default absent = follow the file). GetIntDefault keeps
+    // hand-edited confs fail-open; unknown block ids are stored verbatim
+    // and ignored by the renderer (same discipline as the pack parser).
+    llmRpInitiative = (uint32)config.GetIntDefault("AiPlayerbot.LLMRpInitiative", 50);
+    llmRpVolatility = (uint32)config.GetIntDefault("AiPlayerbot.LLMRpVolatility", 50);
+    llmRpReactivity = (uint32)config.GetIntDefault("AiPlayerbot.LLMRpReactivity", 50);
+    llmRpLongForm = (uint32)config.GetIntDefault("AiPlayerbot.LLMRpLongForm", 50);
+    // plan v5 W1/W4/F7: event reactions (death condolence/wipe aftermath/
+    // debt settlement) and the grudge act-refusal both default ON (they
+    // are zero-generation authored beats); the authored-line hourly
+    // ceiling defaults to the engagement-reviewed 8 (0 disables authored
+    // ambient entirely - exempt beats like the first post-wipe line
+    // still land)
+    llmEventReactionsEnabled = (uint32)config.GetIntDefault("AiPlayerbot.LLMEventReactionsEnabled", 1);
+    llmGrudgeRefusalEnabled = (uint32)config.GetIntDefault("AiPlayerbot.LLMGrudgeRefusalEnabled", 1);
+    llmAuthoredLinesPerHour = (uint32)config.GetIntDefault("AiPlayerbot.LLMAuthoredLinesPerHour", 8);
+    // W7a default-ON per the engagement review: weather/hour bias the
+    // ambient table's sampling weights only
+    llmWorldTruthAmbient = (uint32)config.GetIntDefault("AiPlayerbot.LLMWorldTruthAmbient", 1);
+    // C2 recap: digest default ON (zero calls); prose replaces it on the
+    // external tier, quota-capped per day
+    llmRecapEnabled = (uint32)config.GetIntDefault("AiPlayerbot.LLMRecapEnabled", 1);
+    llmRecapProse = (uint32)config.GetIntDefault("AiPlayerbot.LLMRecapProse", 1);
+    llmRecapProsePerDay = (uint32)config.GetIntDefault("AiPlayerbot.LLMRecapProsePerDay", 6);
+    // W8/W7b: scene read default ON (player-initiated, zero cost);
+    // scene furniture default OFF until the bake-off promotes it
+    llmSceneReadEnabled = (uint32)config.GetIntDefault("AiPlayerbot.LLMSceneReadEnabled", 1);
+    llmWorldTruthFurniture = (uint32)config.GetIntDefault("AiPlayerbot.LLMWorldTruthFurniture", 0);
+    // C1 saga: enabled by default but fires only on the external tier
+    llmSagaEnabled = (uint32)config.GetIntDefault("AiPlayerbot.LLMSagaEnabled", 1);
+    llmSagaPerDay = (uint32)config.GetIntDefault("AiPlayerbot.LLMSagaPerDay", 3);
+    // C3/C5: the roundtable row quota + the weekly dossier toggles
+    llmRoundtablePerDay = (uint32)config.GetIntDefault("AiPlayerbot.LLMRoundtablePerDay", 30);
+    llmDossierEnabled = (uint32)config.GetIntDefault("AiPlayerbot.LLMDossierEnabled", 1);
+    llmDossierPerDay = (uint32)config.GetIntDefault("AiPlayerbot.LLMDossierPerDay", 1);
+    llmDramaEnabled = (uint32)config.GetIntDefault("AiPlayerbot.LLMDramaEnabled", 1);
+    llmCuriosityEnabled = (uint32)config.GetIntDefault("AiPlayerbot.LLMCuriosityEnabled", 1);
+    {
+        static char const* const kBlocks[] = {
+            "voice-lock", "rule-autonomy", "rule-anti-omniscient",
+            "rule-boldness", "rule-salience", "ban-list", "scene-close",
+            "initiative-opener", "mood-weather", "player-persona",
+        };
+        for (size_t i = 0; i < sizeof(kBlocks) / sizeof(kBlocks[0]); ++i)
+        {
+            std::string key = std::string("AiPlayerbot.LLMPromptBlock.") + kBlocks[i];
+            int v = config.GetIntDefault(key.c_str(), -1);
+            if (v == 0 || v == 1)
+                llmPromptBlockOverride[kBlocks[i]] = v;
+        }
+    }
 """
 # The pristine tree reads AiPlayerbot.LLMContextLength a second time ~10 lines
 # after the block above, with the legacy 4096 default — last assignment wins,
-# so without this overlay the 8192 default above would be silently overwritten
+# so without this overlay the 12288 default above would be silently overwritten
 # on every driver rebuild.
 PB_LLM_CTX_REREAD_UPSTREAM = """    llmApiJson = config.GetStringDefault("AiPlayerbot.LLMApiJson", "{ \\"max_length\\": 100, \\"prompt\\": \\"[<pre prompt>]<context> <prompt> <post prompt>\\"}");
     llmContextLength = config.GetIntDefault("AiPlayerbot.LLMContextLength", 4096);
 """
 PB_LLM_CTX_REREAD_ANDROID = """    llmApiJson = config.GetStringDefault("AiPlayerbot.LLMApiJson", "{ \\"max_length\\": 100, \\"prompt\\": \\"[<pre prompt>]<context> <prompt> <post prompt>\\"}");
     // (the earlier LLMContextLength read above already applied the key with
-    // the intended 8192 default; this legacy re-read used to overwrite it)
+    // the intended 12288 default; this legacy re-read used to overwrite it)
 """
 PB_LLM_IFACE_HEADER_UPSTREAM = """#include <atomic>
 #include <string>
@@ -1461,7 +1550,15 @@ PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBacken
     if (!hardTriggerAllowed && chatChannelSource == ChatChannelSource::SRC_SAY &&
         gateSpeaker && gateSpeaker->isRealPlayer() &&
         sPlayerbotAIConfig.llmEnabled > 0)
+    {
         PlayerbotLlmMemory::QueueCrowdEmote(bot, gateSpeaker);
+        // plan v5 W5: an ARMED curiosity ask consumes the player's spoken
+        // answer here - a say that names no bot never reaches a
+        // generation turn, and a vanished answer is a broken promise
+        // (no-op when this bot holds no arm for the speaker)
+        PlayerbotLlmMemory::ConsumePendingAnswer(bot->GetGUIDLow(),
+            gateSpeaker->GetGUIDLow(), msg);
+    }
 
     // Interruption rule: player chat owns the channel - stamp
     // every real-player conversational trigger so ambient murmur/party
@@ -1469,6 +1566,24 @@ PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBacken
     // piece is exempt - general chat is not the player's channel).
     if (hardTriggerAllowed && gateSpeaker && gateSpeaker->isRealPlayer())
         PlayerbotLlmChatter::NotePlayerInteraction(gateSpeaker->GetGUIDLow());
+
+    // plan v5 C3: the roundtable row - a real master's PARTY line is
+    // remembered so the next party-lane composer exchange can argue
+    // about what the PLAYER just said (quota-capped at consumption).
+    // W5: an UNADDRESSED party line (no bot named - never a hard trigger)
+    // consumes an armed curiosity ask here; players answer on the channel
+    // the group talks on. The block sits OUTSIDE hardTriggerAllowed on
+    // purpose: hardTrigger == addressedToBot on SRC_PARTY, so the
+    // unaddressed leg is unreachable behind that gate
+    if (gateSpeaker && gateSpeaker->isRealPlayer() &&
+        chatChannelSource == ChatChannelSource::SRC_PARTY)
+    {
+        if (addressedToBot)
+            PlayerbotLlmChatter::NotePartyLine(gateSpeaker->GetGUIDLow(), msg);
+        else
+            PlayerbotLlmMemory::ConsumePendingAnswer(bot->GetGUIDLow(),
+                gateSpeaker->GetGUIDLow(), msg);
+    }
 
     if (bot->GetPlayerbotAI() && sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed && (bot->GetPlayerbotAI()->HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3) && chatChannelSource != ChatChannelSource::SRC_UNDEFINED && sPlayerbotAIConfig.llmBlockedReplyChannels.find(chatChannelSource) == sPlayerbotAIConfig.llmBlockedReplyChannels.end()
         )
@@ -1517,7 +1632,10 @@ PB_SAY_RECORDER_ANDROID = """    std::vector<std::string> lines = PlayerbotLLMIn
     // stamp-checked at the call site) on a long-form-licensed tier may run
     // to the splitter's own 3-4 line budget; a plain turn keeps the short
     // budget on every tier (the widening is earned per turn, never tier-wide).
-    pocketllm::ApplyReplyBudget(lines, replyClass, sPlayerbotAIConfig.llmMaxNewTokens, longFormCued);
+    // The preset's longForm dial rides the SAME license the cue gate used,
+    // so a storytelling preset (dial 100, bar 150) is not handed the
+    // "tell it whole" cue only to be clamped back to the short budget.
+    pocketllm::ApplyReplyBudget(lines, replyClass, sPlayerbotAIConfig.llmMaxNewTokens, longFormCued, sPlayerbotAIConfig.llmRpLongForm);
 
     // the bot's own reply joins the shared rolling history so the next prompt
     // is never a one-sided transcript (mutex-guarded; async thread safe).
@@ -2225,6 +2343,42 @@ PB_SAY_CONTEXT_ANDROID = """        std::string llmContext = AI_VALUE(std::strin
                     // say so in voice (an empty authored surface is not a
                     // silent dead end)
                 }
+                // plan v5 W8: "/notice" - the player's own half of the
+                // immersion. The same live-scene truth the bots see,
+                // rendered second-person plus one authored nudge. Whisper
+                // class, zero generation, no relationship points (the
+                // keyword-read law above)
+                else if (lowerMsg == "notice")
+                {
+                    std::vector<std::string> const sceneLines =
+                        PlayerbotLlmMemory::SceneReadLines(bot, player);
+                    if (!sceneLines.empty())
+                    {
+                        WorldPacket sceneTemplate = GetPacketTemplate(CMSG_MESSAGECHAT, CHAT_MSG_WHISPER, bot, player);
+                        futurePackets futScene = std::async(std::launch::async,
+                            ChatReplyAction::LinesToPackets, sceneLines,
+                            sceneTemplate, false, 4, WorldPacket(), 0);
+                        ai->SendDelayedPacket(bot->GetSession(), std::move(futScene));
+                        return;
+                    }
+                }
+                // plan v5 S.3: "story" - the codex read. The delivered
+                // saga is the notification; this whisper is the
+                // destination (re-readable, zero generation)
+                else if (lowerMsg == "story")
+                {
+                    std::vector<std::string> const storyLines =
+                        PlayerbotLlmMemory::StoryLines(bot, player);
+                    if (!storyLines.empty())
+                    {
+                        WorldPacket storyTemplate = GetPacketTemplate(CMSG_MESSAGECHAT, CHAT_MSG_WHISPER, bot, player);
+                        futurePackets futStory = std::async(std::launch::async,
+                            ChatReplyAction::LinesToPackets, storyLines,
+                            storyTemplate, false, 4, WorldPacket(), 0);
+                        ai->SendDelayedPacket(bot->GetSession(), std::move(futStory));
+                        return;
+                    }
+                }
             }
 
             // M5 persona fallback: known-hard improv categories get an
@@ -2514,7 +2668,8 @@ PB_LLM_CONF_UPSTREAM = """# Time in seconds the server will wait for the generat
 # AiPlayerbot.LLMGenerationTimeout = 600
 """
 PB_LLM_CONF_ANDROID = """# Time in seconds the server will wait for the generation to finish. This includes waiting in queue.
-# A6: 60 is the T1/T3 tier default (the app emits the selected tier's value: T2 45, T4 30).
+# A6: 60 is the T1/T3 tier default (the app emits the selected tier's
+# value: T2 45, T4 60 since the plan-v4 API-tier retune).
 # AiPlayerbot.LLMGenerationTimeout = 60
 # S9/T4: bounded TCP connect for the endpoint (seconds). A dead external
 # endpoint fails inside this budget instead of hanging for the OS default;
@@ -2573,7 +2728,8 @@ PB_LLM_CONF_ANDROID = """# Time in seconds the server will wait for the generati
 # AiPlayerbot.LLMTopP = 0.95
 # AiPlayerbot.LLMRepeatPenalty = 1.1
 # New tokens per reply (A6 hand-configured fallback 200; the app emits
-# the tier's value: 230 T1, 210 T2/T3, 300 T4 - the S11 raise). At >= 225
+# the tier's value: 230 T1, 210 T2/T3, 600 T4 - the plan-v4 API-tier
+# headroom). At >= 225
 # the long-form cue arms (the P50 bank's licensed tellings); a hand
 # config that raises this while leaving a hand-written LLMApiJson at a
 # lower max_tokens would arm the cue and truncate the telling - keep the
@@ -2591,6 +2747,38 @@ PB_LLM_CONF_ANDROID = """# Time in seconds the server will wait for the generati
 # Authored banter layer (rare kill quips, tier greetings, idle/mood lines) -
 # costs nothing, no model calls. 0 = bots only ever speak in reply.
 # AiPlayerbot.LLMBanterEnabled = 1
+# Phase-1/2 prompt pack + RP dials (the app stages these when configured):
+# LLMPromptPackFile points at the staged pack JSON; LLMPromptBlock.<id>
+# forces one of the 10 seasoning blocks on/off (0/1, per-preset deltas);
+# the LLMRp* dials are 0-100 with 50 = default (Initiative scales the
+# 10-min opener floor 1200s..300s, Volatility the mood-weather weight,
+# Reactivity event-shortcut eagerness, LongForm the long-telling
+# license bar 300/225/150 tokens).
+# AiPlayerbot.LLMPromptPackFile =
+# AiPlayerbot.LLMRpInitiative = 50
+# AiPlayerbot.LLMRpVolatility = 50
+# AiPlayerbot.LLMRpReactivity = 50
+# AiPlayerbot.LLMRpLongForm = 50
+# Plan-v5 authored engagement layer: event reactions (death condolence,
+# wipe aftermath + the town row, debt settlement) and the grudge
+# act-refusal are zero-generation authored beats; the authored-line
+# hourly ceiling bounds their SUM with the murmur lane (murmur shares
+# the ambient 3/hr sub-cap, features get 2/hr, party/global set pieces
+# count toward the global ceiling only). 0 on the ceiling disables
+# authored ambient entirely - the guaranteed first beats (the condolence
+# over a body, the first shaken line after a wipe) stay exempt.
+# AiPlayerbot.LLMEventReactionsEnabled = 1
+# AiPlayerbot.LLMGrudgeRefusalEnabled = 1
+# AiPlayerbot.LLMAuthoredLinesPerHour = 8
+# The rest of the plan-v5 engagement layer (all default-on, fail-open):
+# LLMWorldTruthAmbient=1 (weather/hour ambient bias), LLMWorldTruthFurniture=0
+# (scene/homeland bridge furniture, OFF pending the bake-off),
+# LLMSceneReadEnabled=1 (/notice), LLMCuriosityEnabled=1 (bot questions),
+# LLMDramaEnabled=1 (authored two-bot set pieces),
+# LLMRecapEnabled=1/LLMRecapProse=1/LLMRecapProsePerDay=6 (session recap),
+# LLMSagaEnabled=1/LLMSagaPerDay=3 (campfire saga, cloud tier),
+# LLMRoundtablePerDay=30 (party-line composer rows),
+# LLMDossierEnabled=1/LLMDossierPerDay=1 (weekly dossier).
 # S8: the authored INITIATIVE layer rides the same switch - greet-first on
 # a remembered player's return, debt reminders, tier-gated ask-afters, the
 # rare bot2bot exchange when a player walks up, and the crowd tier's
@@ -2756,6 +2944,101 @@ CORE_UNIT_KILL_ANDROID = """    // Reward player, his pets, and group/raid membe
     if (tapper)
         PlayerbotLlmMemory::OnPlayerGroupKill(tapper, victim);
 #endif
+"""
+# --- plan v5 W1: the player-death hook ----------------------------------
+# SetDeathState's JUST_DIED tail fires exactly once per death, whatever
+# killed the player (combat, falls, scripts) - the one funnel for "the
+# player's own death", which no bot acknowledged until now. The anchor is
+# the function's closing assignment (unique in Unit.cpp).
+CORE_UNIT_DEATH_UPSTREAM = """    m_deathState = s;
+}
+"""
+CORE_UNIT_DEATH_ANDROID = """#ifdef ENABLE_PLAYERBOTS
+    // plan v5 W1: wipe classification + authored condolence live inside
+    // (world thread - SetDeathState runs on the damage/death paths only;
+    // login loads use the DEAD state, never JUST_DIED)
+    if (s == JUST_DIED && GetTypeId() == TYPEID_PLAYER)
+    {
+        Player* const deadPlayer = (Player*)this;
+        if (deadPlayer->isRealPlayer() && deadPlayer->GetSession())
+            PlayerbotLlmMemory::OnPlayerDied(deadPlayer);
+    }
+#endif
+    m_deathState = s;
+}
+"""
+# --- plan v5 F1: the player<->bot trade completion hook -----------------
+# Pre-moveItems so both TradeData still carry the offered money/items
+# (the handler moves and deletes them synchronously right after). The
+# memory layer decides which side is the bot and what the trade meant.
+CORE_TRADE_INCLUDE_UPSTREAM = """#include "Entities/Player.h"
+#include "Entities/Item.h"
+"""
+CORE_TRADE_INCLUDE_ANDROID = """#include "Entities/Player.h"
+#include "Entities/Item.h"
+#ifdef ENABLE_PLAYERBOTS
+#include "playerbot/PlayerbotLlmMemory.h"
+#endif
+"""
+CORE_TRADE_UPSTREAM = """        // execute trade: 1. remove
+"""
+CORE_TRADE_ANDROID = """#ifdef ENABLE_PLAYERBOTS
+        // plan v5 F1: the ONE player-bot trade completion hook - debt
+        // settlement, errand completion and the kindness tone row all
+        // hang off it (world thread, pre-moveItems)
+        PlayerbotLlmMemory::OnTradeCompleted(_player, trader);
+#endif
+        // execute trade: 1. remove
+"""
+# --- plan v5 W3: the first-visit fact hook --------------------------------
+# The explore-bit setter is the game's OWN verification of "first time
+# here" - the anchor sits inside the newly-discovered branch, right before
+# the area id is read for exploration XP. The zone-level id is preferred
+# (sub-zone granularity would mint a fact per street corner).
+CORE_EXPLORE_UPSTREAM = """            uint32 area = p->ID;
+"""
+CORE_EXPLORE_ANDROID = """#ifdef ENABLE_PLAYERBOTS
+            // plan v5 W3: first-visit facts - grouped/known bots mint
+            // "traveled with you to <zone> for the first time" (world
+            // thread; prefix-checked against the ledger, so a restart
+            // never mints a duplicate first time)
+            PlayerbotLlmMemory::OnPlayerExploredArea(this, p->zone ? p->zone : p->ID);
+#endif
+            uint32 area = p->ID;
+"""
+# the FindWeather DEFINITION lands after the WeatherSystem map member
+# (inline in the header keeps the driver out of Weather.cpp)
+CORE_WEATHERSYS_UPSTREAM = """        Weather* FindOrCreateWeather(uint32 zoneId);
+        void UpdateWeathers(uint32 diff);
+"""
+CORE_WEATHERSYS_ANDROID = """        Weather* FindOrCreateWeather(uint32 zoneId);
+        void UpdateWeathers(uint32 diff);
+
+        // plan v5 F5: fail-on-miss zone lookup (read-only bias reads)
+        Weather* FindWeather(uint32 zoneId) const
+        {
+            WeatherMap::const_iterator itr = m_weathers.find(zoneId);
+            return itr != m_weathers.end() ? itr->second : nullptr;
+        }
+"""
+# --- plan v5 W7a: read-only weather access --------------------------------
+# Weather's state getter is private and WeatherSystem has no lookup that
+# fails instead of creating; the ambient layer only needs the raw
+# type/grade. Two inline accessors in the public section - the smallest
+# surface that keeps the bias read-only.
+CORE_WEATHER_UPSTREAM = """        Weather(uint32 zone, WeatherZoneChances const* weatherChances);
+        ~Weather() {};
+"""
+CORE_WEATHER_ANDROID = """        Weather(uint32 zone, WeatherZoneChances const* weatherChances);
+        ~Weather() {};
+
+        // plan v5 W7a: read-only access for the ambient layer's
+        // weather bias (no state computation duplicated outside)
+        WeatherType GetWeatherType() const { return m_type; }
+        float GetWeatherGrade() const { return m_grade; }
+        // plan v5 F5: a FAIL-ON-MISS zone lookup - the ambient readers
+        // must never create weather objects as a side effect
+        Weather* FindWeather(uint32 zoneId) const;
 """
 # --- neuter tool markers in the player's raw words ----------------------
 # The <initial message> placeholder is the only path where player text enters
@@ -3554,6 +3837,15 @@ def prepare_cmangos_source() -> None:
     # Core hook: authored kill banter
     replace_anchor(cmangos / "src" / "game" / "Entities" / "Unit.cpp", CORE_UNIT_INCLUDE_UPSTREAM, CORE_UNIT_INCLUDE_ANDROID)
     replace_anchor(cmangos / "src" / "game" / "Entities" / "Unit.cpp", CORE_UNIT_KILL_UPSTREAM, CORE_UNIT_KILL_ANDROID)
+    # plan v5 W1/F1: player-death condolence + trade completion hooks
+    replace_anchor(cmangos / "src" / "game" / "Entities" / "Unit.cpp", CORE_UNIT_DEATH_UPSTREAM, CORE_UNIT_DEATH_ANDROID)
+    replace_anchor(cmangos / "src" / "game" / "Trade" / "TradeHandler.cpp", CORE_TRADE_INCLUDE_UPSTREAM, CORE_TRADE_INCLUDE_ANDROID)
+    replace_anchor(cmangos / "src" / "game" / "Trade" / "TradeHandler.cpp", CORE_TRADE_UPSTREAM, CORE_TRADE_ANDROID)
+    # plan v5 W3: first-visit facts at the explore-bit setter
+    replace_anchor(cmangos / "src" / "game" / "Entities" / "Player.cpp", CORE_EXPLORE_UPSTREAM, CORE_EXPLORE_ANDROID)
+    # plan v5 W7a: read-only weather accessors
+    replace_anchor(cmangos / "src" / "game" / "Weather" / "Weather.h", CORE_WEATHER_UPSTREAM, CORE_WEATHER_ANDROID)
+    replace_anchor(cmangos / "src" / "game" / "Weather" / "Weather.h", CORE_WEATHERSYS_UPSTREAM, CORE_WEATHERSYS_ANDROID)
     # Injection hygiene + external-endpoint hardening
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_NEUTER_UPSTREAM, PB_SAY_NEUTER_ANDROID)
     replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_LLM_IFACE_HTTP_UPSTREAM, PB_LLM_IFACE_HTTP_ANDROID)
@@ -3665,6 +3957,36 @@ def restore_cmangos_source() -> None:
         NATIVE / "cmangos" / "src" / "game" / "Entities" / "Unit.cpp",
         CORE_UNIT_KILL_ANDROID,
         CORE_UNIT_KILL_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "Entities" / "Unit.cpp",
+        CORE_UNIT_DEATH_ANDROID,
+        CORE_UNIT_DEATH_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "Trade" / "TradeHandler.cpp",
+        CORE_TRADE_INCLUDE_ANDROID,
+        CORE_TRADE_INCLUDE_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "Trade" / "TradeHandler.cpp",
+        CORE_TRADE_ANDROID,
+        CORE_TRADE_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "Entities" / "Player.cpp",
+        CORE_EXPLORE_ANDROID,
+        CORE_EXPLORE_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "Weather" / "Weather.h",
+        CORE_WEATHER_ANDROID,
+        CORE_WEATHER_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "Weather" / "Weather.h",
+        CORE_WEATHERSYS_ANDROID,
+        CORE_WEATHERSYS_UPSTREAM,
     )
     restore_anchor(
         NATIVE / "cmangos" / "src" / "game" / "Entities" / "Unit.cpp",

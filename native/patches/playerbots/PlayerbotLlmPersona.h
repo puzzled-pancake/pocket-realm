@@ -59,6 +59,26 @@ public:
     // and tic-seasoned. Empty only if the pool draw failed (never expected).
     static std::string KillBanterLine(Player* bot, Player* killer);
 
+    // plan v5 W1: authored event-reaction cells (12 lines x 4 archetypes,
+    // the FallbackLine corpus law), rendered {P} and tic-seasoned.
+    // REACTION_CONDOLENCE voices a bot standing over the fallen player;
+    // REACTION_SHAKEN voices a revived bot meeting the player again after
+    // a full wipe. Empty only on a draw failure.
+    enum ReactionKind
+    {
+        REACTION_CONDOLENCE,
+        REACTION_SHAKEN,
+    };
+    static std::string ReactionLine(Player* bot, ReactionKind kind, Player* forPlayer);
+
+    // plan v5 W4: the authored grudge act-refusal (POOL_GRUDGE_REFUSE
+    // recency-ring draw), rendered {P} and tic-seasoned
+    static std::string GrudgeRefusalLine(Player* bot, Player* player);
+
+    // plan v5 W8: one authored in-character nudge for the /notice scene
+    // read (POOL_SCENE_NUDGE recency-ring draw), rendered {P}/{B}
+    static std::string SceneNudgeLine(Player* bot, Player* player);
+
     // authored relationship-tier greeting for a returning player; the
     // relationship state decides the warmth, the corpus phrases it
     static std::string GreetingLine(Player* bot, Player* player);

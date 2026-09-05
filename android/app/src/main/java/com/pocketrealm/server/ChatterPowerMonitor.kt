@@ -5,34 +5,32 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.os.BatteryManager
-import android.os.Build
-import android.os.PowerManager
 import java.io.File
-import java.util.concurrent.atomic.AtomicLong
 
 /**
- * World chatter: the app-side half of the power ladder.
+ * World chatter: the app-side half of the power state.
  *
  * The native scheduler (PlayerbotLlmChatter) runs inside the world
- * process and cannot read PowerManager; this monitor computes the ladder
- * rung from the device state and publishes it to the chatter power file
- * (flat `enabled` / `rung` / `at` lines, read by the native layer every
- * scheduler tick). [refreshOnce] runs at every world start; a single
- * epoch-keyed worker thread refreshes every [PERIOD_MS] while the realm
- * runs — if the app process dies, the native layer sees the file go
- * stale and degrades to the authored floor, never to unbounded
- * generation. The master ambience toggle is re-read on every refresh, so
- * flipping the switch takes effect mid-session (the conf key alone would
- * only apply at world start).
+ * process; this monitor stages the power file (flat `enabled` / `dim` /
+ * `rung` / `at` lines — the native layer reads `enabled` and `rung`, the
+ * rest are diagnostics — re-read by the native layer every scheduler
+ * tick).
+ * [refreshOnce] runs at every world start. The master ambience toggle is
+ * the switch — the user asked for a loud world or they did not, and no
+ * sensor second-guesses that. The only automatic quieting is a low-battery
+ * courtesy dim (a dying phone still playing gets a slower cadence, not
+ * silence). Thermal throttling is the OS's job: Android already slows the
+ * CPU when hot, which naturally paces generation without a second,
+ * coarser throttle in our code.
  *
- * Rung mapping (EMERGENCY is the worst):
- *  - EMERGENCY battery <10% AND offline AND thermal SEVERE (generation
- *    stops; the native authored event floor only)
- *  - CRITICAL  battery <20% OR thermal SEVERE (global-channel layer only)
- *  - CONSTRAINED offline OR battery <=40% OR thermal >= MODERATE or the
- *    [PowerManager.getThermalHeadroom] forecast already spent
- *  - NORMAL    online AND (charging OR battery >40%) AND thermal below
- *    MODERATE
+ * States (DIM is a courtesy, not a ladder):
+ *  - OFF     ambience toggle off (no file content matters; native stays silent)
+ *  - DIM     ambience on AND battery <= 15% off the charger
+ *  - NORMAL  ambience on, everything else
+ *
+ * Charging rescues the dim state and an unreadable battery read never dims
+ * on its own. Connectivity and thermals are not inputs: an offline or hot
+ * phone with chatter on gets chatter, paced by the OS underneath.
  */
 internal object ChatterPowerMonitor {
 
@@ -43,47 +41,36 @@ internal object ChatterPowerMonitor {
     const val RUNG_CONSTRAINED = 3
     const val RUNG_NORMAL = 4
 
-    private const val PERIOD_MS = 60_000L
-    private const val FILE_NAME = "chatter-power.txt"
+    /**
+     * Battery dim threshold (percent). Only bites off the charger and well
+     * down the gauge: the dim exists to stretch a dying phone, not to
+     * ration a half-charged one.
+     */
+    internal const val LOW_BATTERY_PCT = 15
 
-    private val epoch = AtomicLong(0)
+    private const val FILE_NAME = "chatter-power.txt"
 
     /** The power-file location (same run dir as the generated conf). */
     fun powerFile(context: Context): File =
         File(File(File(context.applicationContext.noBackupFilesDir, "server"), "run"), FILE_NAME)
 
     /**
-     * Pure rung computation (unit-tested): every input is optional because
-     * every read can fail on some device — a null battery or missing
-     * thermal API degrades conservatively only where a rung condition
-     * names it (an unknown battery never blocks NORMAL on its own, but an
-     * unknown network state is treated as offline — silence-safe).
+     * Pure state computation (unit-tested): dim only when the ambience
+     * switch is on, the phone is off the charger, and the battery reads at
+     * or below the threshold. A null (unreadable) battery never dims.
      */
     fun computeRung(
         charging: Boolean,
         batteryPct: Int?,
-        online: Boolean,
-        thermalStatus: Int?,
-        headroomForecast: Int?,
+        @Suppress("UNUSED_PARAMETER") online: Boolean? = null,
+        @Suppress("UNUSED_PARAMETER") thermalStatus: Int? = null,
     ): Int {
-        val severe = thermalStatus != null && thermalStatus >= PowerManager.THERMAL_STATUS_SEVERE
-        val moderate = thermalStatus != null && thermalStatus >= PowerManager.THERMAL_STATUS_MODERATE
-        val forecastSpent = headroomForecast != null && headroomForecast <= 0
-        val lowBattery = batteryPct != null && batteryPct < 20
-        val nearEmpty = batteryPct != null && batteryPct < 10
-        val midBattery = batteryPct != null && batteryPct <= 40
-        return when {
-            nearEmpty && !online && severe -> RUNG_EMERGENCY
-            lowBattery || severe -> RUNG_CRITICAL
-            !online || midBattery || moderate || forecastSpent -> RUNG_CONSTRAINED
-            // NORMAL requires the full condition: online, power headroom
-            // (charging or >40%), thermals below MODERATE
-            online && (charging || (batteryPct == null || batteryPct > 40)) -> RUNG_NORMAL
-            else -> RUNG_CONSTRAINED
-        }
+        if (charging) return RUNG_NORMAL
+        if (batteryPct == null) return RUNG_NORMAL
+        return if (batteryPct <= LOW_BATTERY_PCT) RUNG_CONSTRAINED else RUNG_NORMAL
     }
 
-    /** Reads the live device state; null where the API is missing. */
+    /** Reads the live device state; null battery where the API is missing. */
     fun currentRung(context: Context): Int {
         val appContext = context.applicationContext
         val batterySticky = appContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
@@ -91,40 +78,36 @@ internal object ChatterPowerMonitor {
         val charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
             status == BatteryManager.BATTERY_STATUS_FULL
         val batteryPct = readBatteryPercent(appContext, batterySticky)
-        val online = isOnline(appContext)
-        val power = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        val thermalStatus: Int? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            runCatching { power?.currentThermalStatus }.getOrNull()
-        } else {
-            null
-        }
-        val headroom: Int? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Thermal-headroom gate: the forecast says the thermal budget
-            // is already spent even before the status flag trips
-            runCatching { power?.getThermalHeadroom(0)?.toInt() }.getOrNull()
-        } else {
-            null
-        }
-        return computeRung(charging, batteryPct, online, thermalStatus, headroom)
+        return computeRung(charging, batteryPct)
     }
 
     /**
-     * One synchronous refresh of the power file; the world-start path and
-     * the periodic worker both land here. `enabled` is the ambience
-     * toggle re-read live, so the master switch kills the layer
-     * mid-session (the generated conf key alone would only apply at
-     * world start).
+     * One synchronous staging of the power file at world start. `enabled`
+     * is the ambience toggle; the dim flag is the low-battery courtesy.
+     * The `at` line is a diagnostic stamp (write time); the native side
+     * reads only `enabled` and `rung` — writer and world live and die in
+     * the same process, so there is no staleness protocol to keep.
      */
     fun refreshOnce(context: Context, enabled: Boolean): File {
         val target = powerFile(context)
         val rung = if (enabled) currentRung(context) else RUNG_OFF
+        val dimmed = enabled && rung == RUNG_CONSTRAINED
         target.parentFile?.mkdirs()
-        val temp = File(target.parentFile, ".$FILE_NAME.${android.os.Process.myPid()}.tmp")
-        temp.writeText(
-            "enabled=${if (enabled && rung != RUNG_OFF) 1 else 0}\n" +
+        val content =
+            "enabled=${if (enabled) 1 else 0}\n" +
+                "dim=${if (dimmed) 1 else 0}\n" +
                 "rung=$rung\n" +
-                "at=${System.currentTimeMillis() / 1000L}\n",
+                "at=${System.currentTimeMillis() / 1000L}\n"
+        // The native scheduler re-reads this file every tick: skip the
+        // write when enabled+dim are unchanged so a battery broadcast that
+        // changes nothing doesn't bump mtime and wake the reader for nothing.
+        val current = runCatching { target.readText() }.getOrNull()
+        if (current != null && samePowerState(current, content)) return target
+        val temp = File(
+            target.parentFile,
+            ".$FILE_NAME.${android.os.Process.myPid()}.${System.nanoTime()}.tmp",
         )
+        temp.writeText(content)
         if (!temp.renameTo(target)) {
             temp.copyTo(target, overwrite = true)
             temp.delete()
@@ -132,40 +115,58 @@ internal object ChatterPowerMonitor {
         return target
     }
 
-    /**
-     * Starts (or replaces) the single periodic refresher. Safe to call at
-     * every world start; the previous worker exits on its next tick when
-     * its epoch is superseded. INTENT: the refresher lives for the APP
-     * PROCESS lifetime (not the realm's) - the world is a child of this
-     * process, so a dead app kills the world and the staleness rule is
-     * moot; an alive app keeps the file fresh even between realms, which
-     * is harmless (the conf gates the native side). One wake per minute
-     * against a battery-budgeted feature.
-     */
-    fun startPeriodic(context: Context, enabledProvider: () -> Boolean) {
-        val myEpoch = epoch.incrementAndGet()
-        val appContext = context.applicationContext
-        Thread({
-            while (epoch.get() == myEpoch) {
-                runCatching { refreshOnce(appContext, enabledProvider()) }
-                // the sleep sits inside its own catch: an interrupt must
-                // never escape the bare thread lambda (that kills the
-                // process on Android's default handler)
-                try {
-                    repeat((PERIOD_MS / 1000L).toInt()) {
-                        if (epoch.get() != myEpoch) return@Thread
-                        Thread.sleep(1000)
-                    }
-                } catch (_: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    return@Thread
-                }
-            }
-        }, "chatter-power").start()
+    private fun samePowerState(current: String, next: String): Boolean {
+        fun field(text: String, key: String): String? =
+            text.lineSequence()
+                .map { it.trim() }
+                .firstOrNull { it.startsWith("$key=") }
+        return field(current, "enabled") == field(next, "enabled") &&
+            field(current, "dim") == field(next, "dim")
     }
 
-    fun stopPeriodic() {
-        epoch.incrementAndGet()
+    /**
+     * The battery-event refresh: no per-minute writer (that thread was the
+     * collapsed design's first deletion). The file is staged at world start
+     * by [refreshOnce] (via ServerRuntimeFiles) and re-staged only when the
+     * battery picture can actually change — low battery, plugged in, or
+     * unplugged. Each event recomputes the full state, so the refresh is
+     * idempotent. The refresh hops to a background thread: the enabled
+     * provider does a blocking DataStore read, and broadcasts arrive on the
+     * main thread. Registered on the application context; [stopPeriodic]
+     * unregisters at world stop (graceful and forced).
+     */
+    @Volatile private var powerReceiver: android.content.BroadcastReceiver? = null
+    @Volatile private var receiverContext: Context? = null
+
+    fun startPeriodic(context: Context, enabledProvider: () -> Boolean) {
+        val appContext = context.applicationContext
+        stopPeriodic(appContext)
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(receiverContext: Context, intent: Intent) {
+                Thread {
+                    runCatching { refreshOnce(appContext, enabledProvider()) }
+                }.apply { name = "chatter-power-refresh"; isDaemon = true }.start()
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_BATTERY_LOW)
+            addAction(Intent.ACTION_POWER_CONNECTED)
+            addAction(Intent.ACTION_POWER_DISCONNECTED)
+        }
+        runCatching { appContext.registerReceiver(receiver, filter) }
+            .onSuccess {
+                powerReceiver = receiver
+                receiverContext = appContext
+            }
+        runCatching { refreshOnce(appContext, enabledProvider()) }
+    }
+
+    fun stopPeriodic(context: Context? = null) {
+        val receiver = powerReceiver ?: return
+        val appContext = context?.applicationContext ?: receiverContext
+        if (appContext != null) runCatching { appContext.unregisterReceiver(receiver) }
+        powerReceiver = null
+        receiverContext = null
     }
 
     private fun readBatteryPercent(context: Context, sticky: Intent?): Int? {
@@ -176,11 +177,5 @@ internal object ChatterPowerMonitor {
         val level = sticky?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
         val scale = sticky?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
         return if (level >= 0 && scale > 0) level * 100 / scale else null
-    }
-
-    private fun isOnline(context: Context): Boolean {
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-            ?: return false
-        return runCatching { cm.activeNetwork != null }.getOrDefault(false)
     }
 }

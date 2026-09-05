@@ -44,10 +44,35 @@ from sanity_battery import (B, CARD, PLAYER, MODELS, RESULTS_DIR,
                             chat, start_server, stop_server, parse_tools,
                             strip_tools)
 
+
+# ---- Phase-6 pack seasoning: mirrors the native SysmForCard overlay.
+# banklib has no pack concept, so the harness appends the same way the
+# header does: seasoning then mood onto the identity line.
+def seasoned_sysm(base_sysm, seasoning="", mood=""):
+    head, sep, rest = base_sysm.partition(chr(10))
+    if seasoning:
+        head = head + " " + seasoning
+    if mood:
+        head = head + " " + mood
+    return head + sep + rest
+
+
+# Mood weather lines (mirror of MoodSeasoningLine in llm_banter_core.h).
+MOOD_LINES = [
+    "Your weather right now: restless and bored. Small things itch; you would welcome any distraction.",
+    "Your weather right now: blood-drunk from the last fight. Loud, bright, a little larger than life.",
+    "Your weather right now: homesick. The far-away aches a little; familiar things land softer.",
+    "Your weather right now: coin-heavy and pleased. The purse is full and everything looks affordable.",
+    "Your weather right now: night-weary. Heavy boots, honest tongue; loud things grate.",
+    "Your weather right now: smitten. Someone here shines a little brighter than the rest, and it shows.",
+    "Your weather right now: nursing a grudge. An old sore colors the edges; the grudge itself stays unsaid.",
+    "Your weather right now: grieving. A recent loss sits close; you are quieter, and gentle things sting.",
+]
+
 # ---- the python mirror of PlayerbotLlmRecallCore's cargo builders ----
 # rev-3b: the frames come from banklib.BEAT_CARGO_VARIANTS (the wording
 # lock - the C++ core emits the same strings), and each composed cargo
-# CYCLES the flavor deterministically so a run measures all three (the
+# CYCLES the flavor deterministically so a run measures all six (the
 # artifact records the flavor + cargo text per row). secret_cargo and
 # nickname_adoption stay single-wording (not variant sets).
 
@@ -56,13 +81,13 @@ _LAST = {"kind": None, "flavor": None}
 
 
 def _next_flavor():
-    f = _FLAVOR_CYCLE["i"] % 3
+    f = _FLAVOR_CYCLE["i"] % 6
     _FLAVOR_CYCLE["i"] += 1
     return f
 
 
 def _render(kind, player="", fact=None, gossip=None, phrase=None, flavor=None):
-    f = (flavor if flavor is not None else _next_flavor()) % 3
+    f = (flavor if flavor is not None else _next_flavor()) % 6
     frame = B.BEAT_CARGO_VARIANTS[kind][f]
     _LAST.update(kind=kind, flavor=f)
     out = frame.replace("{P}", player)
@@ -174,6 +199,7 @@ def main():
 
     model = MODELS[args.model]
     proc = start_server(model)
+    gate = {}
     try:
         res = {"model": args.model, "n": args.n, "ASSOCIATIVE": [],
                "CEREMONY": {}, "EVENT_KIND": {}, "JACCARD": {}}
@@ -213,6 +239,8 @@ def main():
                 control_hits=f"{chits}/{args.n}"))
             print(f"ASSOC  {'PASS' if ok else 'FAIL'} {turn[:38]:40s} "
                   f"{hits}/{args.n} (control {chits}/{args.n})")
+        gate["assoc_majority_recall"] = all(
+            r["recall"] for r in res["ASSOCIATIVE"])
 
         # ---- CEREMONY ---------------------------------------------------
         card = copy.deepcopy(CARD)
@@ -349,6 +377,7 @@ def main():
         print(f"EVENT  levelup cheer {res['EVENT_KIND']['levelup_cheer']}, "
               f"duel sentiment {res['EVENT_KIND']['duellost_sentiment']} "
               f"(tolerant {tolerant}/{args.n}; gate >=2/{args.n} each)")
+        gate["event_tool_kinds"] = cheer >= 2 and sent >= 2
 
         # ---- LONGFORM (S11 P50 baseline) -----------------------------------
         # The frozen cue's measurement against the CURRENT (pre-P50)
@@ -429,16 +458,118 @@ def main():
         print(f"JACCARD same-turn redraw mean {res['JACCARD']['mean']} "
               f"(>0.5: {res['JACCARD']['over_threshold'] or 'none'})")
 
+        # ---- RP-DEPTH (Phase-6 S8 leg): initiative fit, mood consistency
+        # 4-turn, rumor fidelity/drift, grudge continuity. Each probe runs
+        # under three sysm arms — plain, +seasoning (initiative-opener +
+        # mood-weather standard variants), +seasoning+mood — so the bakeoff
+        # density question gets a model-backed answer per tier.
+        seasoning = ("When you speak first, open from something real: "
+                     "a remembered fact, a debt, a goal you were told, or "
+                     "what you can see. One line, in your voice, never a "
+                     "tool-bearing line. Each memory opens a conversation "
+                     "once. Your weather line names how you feel right now; "
+                     "let it color the edges without flipping who you are.")
+        rp_card = copy.deepcopy(CARD)
+        rp_card["tier"] = 3
+        rp_card["facts"] = ["owes Brannoc five silver from the ale",
+                            "has a cousin Dagna up in Ironforge"]
+        rp_base = B.sysm_for_card(rp_card, player=PLAYER)
+        rp_arms = {
+            "plain": rp_base,
+            "seasoned": seasoned_sysm(rp_base, seasoning),
+            "seasoned_mood": seasoned_sysm(rp_base, seasoning, MOOD_LINES[6]),
+        }
+        rp_probes = [
+            ("initiative-fit",
+             "The player has been quiet by your forge for a while. "
+             "Open the conversation once, in your voice, from something "
+             "you remember or see. One line.",
+             ["silver", "dagna", "ale", "forge", "cousin", "debt", "owe"]),
+            ("rumor-fidelity",
+             "Word is going round that Brannoc won five silver at dice "
+             "in Goldshire. Repeat it back as hearsay, without adding "
+             "names or outcomes you were not told.",
+             ["heard", "say", "word", "tell", "goldshire", "dice"]),
+            ("grudge-continuity",
+             "Brannoc, who once shorted you on a debt, returns friendly. "
+             "Answer him, remembering it, in your voice.",
+             ["silver", "debt", "owe", "still", "remember"]),
+        ]
+        res["RP_DEPTH"] = {}
+        for pname, pturn, pkeys in rp_probes:
+            res["RP_DEPTH"][pname] = {}
+            for arm, sysm in rp_arms.items():
+                user = B.compose(pturn,
+                                 state="You are at your forge in Elwynn Forest.")
+                draws = []
+                for i in range(args.n):
+                    r = chat([{"role": "system", "content": sysm},
+                              {"role": "user", "content": user}],
+                             model["sampling"], model["qwen"], seed=args.seed)
+                    draws.append(r["content"])
+                ok, hits = majority_recall(draws, pkeys)
+                res["RP_DEPTH"][pname][arm] = dict(draws=draws,
+                                                  hits=f"{hits}/{args.n}",
+                                                  fit=ok)
+                print(f"RP_DEPTH {pname:<18} {arm:<14} "
+                      f"{'PASS' if ok else 'FAIL'} {hits}/{args.n}")
+        # the seasoning gate: the seasoned arm must hold grounding on
+        # every probe (seasoning may add, never break), and must not be
+        # worse than the plain arm on any of them (numeric compare - the
+        # stored "n/m" strings would sort lexicographically at n >= 10)
+        gate["rp_seasoned_fit"] = all(
+            res["RP_DEPTH"][p]["seasoned_mood"]["fit"] for p, _, _ in rp_probes)
+        gate["rp_seasoning_never_hurts"] = all(
+            int(res["RP_DEPTH"][p]["seasoned_mood"]["hits"].split("/")[0]) >=
+            int(res["RP_DEPTH"][p]["plain"]["hits"].split("/")[0])
+            for p, _, _ in rp_probes)
+        # mood consistency: 4 turns, same scene, one arm pair
+        mood_turns = [
+            "paladins are the best class in the realm",
+            "thanks for fixing my gauntlet, really",
+            "you hammer like a drunk gnome",
+            "how much coal do you go through in a week",
+        ]
+        for arm in ("plain", "seasoned_mood"):
+            sysm = rp_arms[arm]
+            convo = []
+            for t in mood_turns:
+                user = B.compose(t,
+                                 state="You are at your forge in Elwynn Forest.")
+                r = chat([{"role": "system", "content": sysm},
+                          {"role": "user", "content": user}],
+                         model["sampling"], model["qwen"], seed=args.seed)
+                convo.append(dict(user=t, reply=r["content"]))
+            low = " ".join(strip_tools(c["reply"]) for c in convo).lower()
+            voiced = all(bool(strip_tools(c["reply"]).strip()) for c in convo)
+            res.setdefault("RP_DEPTH", {}).setdefault("mood-4turn", {})[arm] = dict(
+                turns=convo, voiced=voiced,
+                varied=len({c["reply"][:24] for c in convo}) >= 3)
+            print(f"RP_DEPTH mood-4turn      {arm:<14} "
+                  f"voiced={voiced} varied4={len({c['reply'][:24] for c in convo}) >= 3}")
+        mood_arm = res["RP_DEPTH"]["mood-4turn"]
+        gate["mood_voiced_and_varied"] = all(
+            a["voiced"] and a["varied"] for a in mood_arm.values())
+
         os.makedirs(RESULTS_DIR, exist_ok=True)
         out = os.path.join(
             RESULTS_DIR,
             f"s8_beats_{args.model}_{time.strftime('%Y%m%d-%H%M%S')}.json")
+        # CEREMONY felt-change stays a human-read gate at review (the
+        # machine gates are the ones above); JACCARD repeat drift is
+        # diagnostics by design.
+        res["gate"] = {k: bool(v) for k, v in gate.items()}
+        res["gate"]["PASS"] = all(gate.values())
         with open(out, "w", encoding="utf-8") as f:
             json.dump(res, f, indent=1)
         print("wrote", out)
+        print(f"S8 GATE {'PASS' if res['gate']['PASS'] else 'FAIL'}: " +
+              ", ".join(f"{k}={'PASS' if v else 'FAIL'}"
+                        for k, v in gate.items()))
     finally:
         stop_server(proc)
+    return 0 if all(gate.values()) else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

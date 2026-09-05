@@ -181,7 +181,11 @@ def test_duel_precommit_guard_precedes_cast():
 
 def test_move_to_resolves_poi_from_the_licensed_line():
     text = TOOLS_CPP.read_text(encoding="utf-8")
-    branch = text.split('call.name == "move_to"')[1].split("else if")[0]
+    # move_to is the TERMINAL dispatch branch (the executor is the
+    # file's last function): no `else if` follows it, so the slice is
+    # the branch body plus closing braces by construction. If code is
+    # ever appended after the executor, bound this slice properly.
+    branch = text.split('call.name == "move_to"')[1]
     # the place executes from the LICENSED line and is
     # re-resolved against the lore POI index at execution time - an
     # unresolvable place stays a refusal, never a blind path

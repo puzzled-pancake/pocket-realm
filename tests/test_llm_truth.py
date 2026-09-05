@@ -101,7 +101,7 @@ def test_guard_merges_not_defers_in_the_bridge():
 
 def test_guard_skips_event_turns_and_uses_frozen_wording():
     text = BRIDGE_CPP.read_text(encoding="utf-8")
-    inner = text.split("PlayerbotLlmBridge::Note BuildNoteInner(Player* bot")[1][:4000]
+    inner = text.split("PlayerbotLlmBridge::Note BuildNoteInner(Player* bot")[1][:6000]
     assert "if (state.eventTurn)" in inner
     # the event block returns before the question path is reached
     assert inner.index("if (state.eventTurn)") < inner.index("IsQuestionShape")

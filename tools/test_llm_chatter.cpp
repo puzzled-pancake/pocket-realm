@@ -28,38 +28,32 @@ void TestPolicyTable()
     ChatterPolicy off = ChatterPolicyFor(RUNG_OFF, true);
     CHECK(!off.generated && !off.murmur && !off.party && !off.global && !off.composer);
 
-    // EMERGENCY: generation stops; floor only (murmur/global delivery
-    // shapes remain for the authored event-grounded floor)
-    ChatterPolicy em = ChatterPolicyFor(RUNG_EMERGENCY, true);
-    CHECK(!em.generated && em.murmur && em.global && !em.party && !em.composer);
-    CHECK(em.floorMinSpacingSec >= 120);
-    CHECK(em.murmurDisplayMinSec >= 120);  // stretched display cadence
-    // the batch window spaces the EMERGENCY PICKS too: a zero window
-    // would re-pick (and re-drift the legend) every scheduler tick while
-    // the floor's own spacing defers delivery
-    CHECK(em.murmurBatchWindowSec >= 120);
-
-    // CRITICAL: global-channel layer only, ~1 line/3 min ceiling
-    ChatterPolicy cr = ChatterPolicyFor(RUNG_CRITICAL, true);
-    CHECK(cr.generated && cr.global && !cr.murmur && !cr.party && !cr.composer);
-    CHECK(cr.globalMinSpacingSec == 180);
-
-    // CONSTRAINED: device batches, stretched cadence (>= 90s display),
-    // no composer, rarer party idle. The batch window (540s) is the
-    // device-RATE bound - pinned absolutely (the battery's
-    // battery-arithmetic leg rests on it)
+    // Legacy rungs map to the dim courtesy: the app never emits them, but
+    // an old staged file must dim, never silence or stop generation.
+    // DIM (CONSTRAINED row): every layer on, device single lines,
+    // stretched cadence (>= 90s display), no composer, rarer party idle.
+    // The batch window (540s) is the device-RATE bound - pinned absolutely.
     ChatterPolicy co = ChatterPolicyFor(RUNG_CONSTRAINED, true);
     CHECK(co.generated && co.murmur && co.party && co.global && !co.composer);
     CHECK(co.murmurDisplayMinSec >= 90);
     CHECK(co.murmurBatchWindowSec == 540);
     CHECK(co.partyIdleRollPct < 50);
+    ChatterPolicy em = ChatterPolicyFor(RUNG_EMERGENCY, true);
+    CHECK(em.generated && em.murmur && em.party && em.global && !em.composer);
+    CHECK(em.murmurBatchWindowSec == co.murmurBatchWindowSec);
+    ChatterPolicy cr = ChatterPolicyFor(RUNG_CRITICAL, true);
+    CHECK(cr.generated && cr.murmur && cr.party && cr.global && !cr.composer);
+    CHECK(cr.murmurBatchWindowSec == co.murmurBatchWindowSec);
 
-    // NORMAL: composer batches only when configured; 30-60s display
+    // NORMAL: composer batches only when configured; 20-40s display
+    // (Phase-5, after the corpus grew: murmur 30-60 → 20-40, party
+    // 12min@50% → 6min@50%, global 90 → 45min)
     ChatterPolicy n1 = ChatterPolicyFor(RUNG_NORMAL, true);
     CHECK(n1.generated && n1.composer);
-    CHECK(n1.murmurDisplayMinSec == 30 && n1.murmurDisplayMaxSec == 60);
+    CHECK(n1.murmurDisplayMinSec == 20 && n1.murmurDisplayMaxSec == 40);
     CHECK(n1.murmurBatchWindowSec >= 240 && n1.murmurBatchWindowSec <= 360);
-    CHECK(n1.partyIdleWindowSec >= 600 && n1.partyIdleWindowSec <= 900);
+    CHECK(n1.partyIdleWindowSec >= 300 && n1.partyIdleWindowSec <= 450);
+    CHECK(n1.globalMinSpacingSec >= 2400 && n1.globalMinSpacingSec <= 3000);
     // no composer configured: NORMAL degrades to device batches (composer
     // flag off, everything else identical)
     ChatterPolicy n0 = ChatterPolicyFor(RUNG_NORMAL, false);
@@ -172,6 +166,31 @@ void TestFatigueAndLegend()
     CHECK(TemplateSpacingAdmits(f, 0, 1, 2, 1000 + 120, 120));
     CHECK(TemplateSpacingAdmits(f, 1, 1, 2, 1000, 120));  // other template
     CHECK(TemplateSpacingAdmits(f, 0, 3, 2, 1000, 120));  // other speaker
+
+    // Phase-4 legends: counter escalation grows then retires at the cap
+    CHECK(std::string(CounterEscalation(0)).empty());
+    CHECK(std::string(CounterEscalation(1))[0] != 0);
+    CHECK(std::string(CounterEscalation(4)).find("legend") != std::string::npos);
+    CHECK(LegendCounterLine(row, 0) == row);
+    CHECK(LegendCounterLine(row, 2).find(row) == 0);
+    // anniversaries: 30/100/365 buckets, below-30 silent
+    CHECK(AnniversaryBucket(29) == 0);
+    CHECK(AnniversaryBucket(30) == 30);
+    CHECK(AnniversaryBucket(200) == 100);
+    CHECK(AnniversaryBucket(500) == 365);
+    CHECK(std::string(AnniversaryLine(0)).empty());
+    CHECK(std::string(AnniversaryLine(365)).find("year") != std::string::npos);
+    // tier beats: three kinds, player-named, marker-free
+    for (int k = 0; k < 3; ++k)
+    {
+        std::string beat = TierBeatCargo("Brannoc", k, 7u);
+        CHECK(beat.find("Brannoc") != std::string::npos);
+        CHECK(beat.find("<<") == std::string::npos);
+    }
+    // POI-biased rumor sampling: place-named rows travel farther
+    static char const* const pois[] = { "Goldshire", "Deadmines" };
+    CHECK(RumorNamesPlace("Brannoc won at Goldshire.", pois, 2));
+    CHECK(!RumorNamesPlace("Brannoc won a duel.", pois, 2));
 }
 
 void TestRegisterAndFloor()
@@ -465,7 +484,7 @@ void TestSoak()
 {
     // SILENCE DEFAULT: an empty event bank means zero lines at EVERY
     // rung, over the full 6 hours, with generation available
-    for (int r = RUNG_EMERGENCY; r <= RUNG_NORMAL; ++r)
+    for (int r = RUNG_OFF; r <= RUNG_NORMAL; ++r)
     {
         SoakResult quiet = RunSoak((ChatterRung)r, true, 0, 7, false);
         CHECK(quiet.murmur == 0 && quiet.globalLines == 0 && quiet.floor == 0 &&
@@ -493,18 +512,15 @@ void TestSoak()
     CHECK(interrupted.murmur == 0);
     CHECK(interrupted.floor == 0);
 
-    // EMERGENCY: no generation, floor only, wide spacing
-    SoakResult emergency = RunSoak(RUNG_EMERGENCY, true, 21, 7, false);
-    CHECK(emergency.murmur == 0);
-    CHECK(emergency.floor > 0);
-    // cadence ceiling: floor lines at most one per floorMinSpacingSec
-    CHECK(emergency.floor <= (size_t)(6 * 3600 / 120));
-
-    // CRITICAL: global only
-    SoakResult critical = RunSoak(RUNG_CRITICAL, true, 21, 7, false);
-    CHECK(critical.murmur == 0 && critical.floor == 0);
-    CHECK(critical.globalLines > 0);
-    CHECK(critical.globalLines <= (size_t)(6 * 3600 / 180));  // 1/3min max
+    // DIM (legacy EMERGENCY/CRITICAL rows included): generation stays on,
+    // every layer delivers at the stretched cadence — a low battery slows
+    // the world, never silences it.
+    SoakResult dimmed = RunSoak(RUNG_CONSTRAINED, true, 21, 7, false);
+    CHECK(dimmed.murmur > 0);
+    SoakResult legacyEmergency = RunSoak(RUNG_EMERGENCY, true, 21, 7, false);
+    CHECK(legacyEmergency.murmur == dimmed.murmur);
+    SoakResult legacyCritical = RunSoak(RUNG_CRITICAL, true, 21, 7, false);
+    CHECK(legacyCritical.murmur == dimmed.murmur);
 
     // determinism: same seed, same event stream, same deliveries
     SoakResult again = RunSoak(RUNG_NORMAL, true, 21, 7, false);
@@ -533,6 +549,87 @@ void TestGovernorMath()
     CHECK(composerLinesPerMinute < 24.0);    // global budget (native default)
 }
 
+// plan v5 C2: the narrator block splitter for the session recap prose -
+// the chatter line-safety law at the 200-byte sys-line budget, capped at 8
+static void TestNarratorSplit()
+{
+    using namespace pocketllm;
+    std::string const forged = "<<forged>> line that must die";
+    std::string const piped = "|cFFFF pipe line that must die";
+    std::string raw =
+        "Previously, in your realm:\n"
+        "The ledger grew: Brannoc paid a debt.\n"
+        "  Word traveled: 'the horn of Ash rang in Goldshire'.  \n"
+        "\n";
+    raw += forged + "\n" + piped + "\n";
+    raw += "With Kor: a month of knowing each other.\n";
+    std::vector<std::string> block = SplitNarratorBlock(raw);
+    CHECK(block.size() == 4);
+    CHECK(block[0] == "Previously, in your realm:");
+    CHECK(block[2] == "Word traveled: 'the horn of Ash rang in Goldshire'.");
+    CHECK(block[3] == "With Kor: a month of knowing each other.");
+    CHECK(SplitNarratorBlock("").empty());
+    // cap: a 20-line wall yields at most 8
+    std::string wall;
+    for (int i = 0; i < 20; ++i)
+        wall += "Line number " + std::to_string(i) + " of the wall.\n";
+    CHECK(SplitNarratorBlock(wall).size() == 8);
+    // over-long and tiny lines drop
+    std::string longLine(240, 'x');
+    CHECK(SplitNarratorBlock(longLine).empty());
+    CHECK(SplitNarratorBlock("ab\n").empty());
+    // the frozen recap wording is present and ASCII
+    std::string const sysm = RecapSystemPrompt();
+    CHECK(sysm.find("Previously, in your realm:") != std::string::npos);
+    bool ascii = true;
+    for (char c : sysm)
+        if (static_cast<unsigned char>(c) < 0x20 || static_cast<unsigned char>(c) > 0x7E)
+            ascii = false;
+    CHECK(ascii);
+}
+
+// plan v5 F4b: the 200-byte long-form line law - the murmur law's rules
+// at the staged-line budget (boundary, protocol bytes, leads)
+static void TestLongFormLineLaw()
+{
+    using namespace pocketllm;
+    std::string const ok(200, 'x');
+    CHECK(ChatterLongLineSafe(ok));
+    std::string const over(201, 'x');
+    CHECK(!ChatterLongLineSafe(over));
+    CHECK(!ChatterLongLineSafe("ab"));
+    CHECK(!ChatterLongLineSafe("|cFFFF colored"));
+    CHECK(!ChatterLongLineSafe("{P} braces die"));
+    CHECK(!ChatterLongLineSafe("<<log>> markers die"));
+    CHECK(!ChatterLongLineSafe("[emote lead"));
+    CHECK(ChatterLongLineSafe("A plain saga line, warm and true."));
+}
+
+// plan v5 C4: the drama exchange tables - both lines render, are ASCII,
+// carry no markers, and the three kinds are distinct banks
+static void TestDramaTables()
+{
+    using namespace pocketllm;
+    for (int kind = 0; kind < 3; ++kind)
+    {
+        for (size_t v = 0; v < 6; ++v)
+        {
+            char const* const* ex = DramaPairTable(kind, v);
+            CHECK(ex[0] && std::strlen(ex[0]) > 8);
+            CHECK(ex[1] && std::strlen(ex[1]) > 8);
+            for (int i = 0; i < 2; ++i)
+            {
+                CHECK(std::strchr(ex[i], '<') == nullptr);
+                CHECK(std::strchr(ex[i], '>') == nullptr);
+                CHECK(std::strchr(ex[i], '|') == nullptr);
+            }
+        }
+        CHECK(DramaPairTable(kind, 0) != DramaPairTable((kind + 1) % 3, 0));
+    }
+    // the out-of-range variant clamps, never walks off the table
+    CHECK(DramaPairTable(0, 99) == DramaPairTable(0, 0));
+}
+
 } // namespace
 
 int main()
@@ -546,6 +643,9 @@ int main()
     TestInterruption();
     TestSoak();
     TestGovernorMath();
+    TestNarratorSplit();
+    TestLongFormLineLaw();
+    TestDramaTables();
     std::printf("chatter core battery: %d checks OK\n", gChecks);
     return 0;
 }

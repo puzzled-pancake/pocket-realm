@@ -84,6 +84,17 @@ public:
     // wall-clock-aware greeting bucket: "short"/"medium"/"long" absence
     static std::string GetAbsenceBucket(Player* bot, Player* player);
 
+    // ---- Phase-3 mood weather (world thread, in-memory): the bot's
+    // current mood index (0-7, see MOOD_* in llm_banter_core.h), a nudge
+    // counter for grudge/smitten/grief events, and the seasoning line
+    // for the system prompt. MoodNow derives from (botGuid, hourly
+    // bucket, nudges) — GUID-stable, no DB. NudgeMood records an event
+    // nudge (grudge/smitten/grief direction); MoodLineFor renders the
+    // seasoning line, empty when mood seasoning is off.
+    static int MoodNow(uint32 botGuid);
+    static void NudgeMood(uint32 botGuid, int mood);
+    static std::string MoodLineFor(uint32 botGuid);
+
     // ---- the pre-stomp pairing read (absence, now also
     // carrying the tier the ceremony observes). ONE query for
     // last_interaction_at + tier + points, taken before the
@@ -144,10 +155,122 @@ public:
     // quest turn-in reuses the existing "rpg start/end quest" trigger values;
     // level-up and rare-loot are these two new interception points
 
+    // plan v5 W1/F1: the player's own death (Unit::SetDeathState JUST_DIED,
+    // world thread). Wipe classification + reactors live inside: grouped
+    // bots (or, for the partyless player, KNOWN bots within say range) get
+    // an authored condolence over the body (the one guaranteed beat outside
+    // every pacing budget), a grief mood nudge and a mint-once fact; a full
+    // wipe instead mints a town gossip row and arms a shaken one-liner per
+    // bot that TickInitiative voices when the party reforms (dead bots
+    // cannot speak)
+    static void OnPlayerDied(Player* victim);
+
+    // plan v5 F1: the ONE player<->bot trade completion hook
+    // (HandleAcceptTradeOpcode, pre-moveItems so both TradeData still
+    // carry the offers). A real->bot trade is a bounded kindness (+1 with
+    // its tone row, which also resolves a standing grudge); money to the
+    // bot retires the newest unresolved debt row, mints the settlement
+    // fact and queues the EVENT_DEBT_SETTLED reaction that finally fires
+    // the shipped-but-unwired TierBeat kind-1 beat
+    static void OnTradeCompleted(Player* accepter, Player* initiator);
+
+    // plan v5 W3: first-visit facts. The core's explore-bit setter (the
+    // game's own verification of "first time here") calls this with the
+    // ZONE-level area id; grouped and known-nearby bots each mint their own
+    // "traveled with {player} to {zone} for the first time" memory,
+    // prefix-checked against the DB so restarts never mint a duplicate
+    // first time
+    static void OnPlayerExploredArea(Player* player, uint32 zoneOrAreaId);
+
+    // plan v5 W5: the bot-curiosity answer capture. TickInitiative arms a
+    // pending answer when it asks; the bridge consumes it on the player's
+    // next conversational turn, minting the fact deterministically (the
+    // 0.8B law - the model's licensed log_fact may or may not fire, the
+    // answer must persist either way). Returns true when a fact minted
+    static bool ConsumePendingAnswer(uint32 bot, uint32 player, std::string const& reply);
+
+    // plan v5 F4a: the ONE external-API-tier test (was duplicated inline
+    // at the history writer and reader - every cloud surface must gate on
+    // this identical condition)
+    static bool ExternalApiTierActive();
+
+    // plan v5 C1.3: the cloud quota meter - one per-day counter per
+    // surface, in-process day bucket. Returns false when the surface's
+    // daily cap is spent (and counts the admission when it returns true)
+    static bool CloudQuotaAdmits(char const* surface, uint32 perDay);
+
+    // plan v5 W8: the /notice scene read - the player's own half of the
+    // immersion. Renders the live scene (place, stealth/combat, wounded
+    // party members, hour/weather, the current rumor) as second-person
+    // lines plus one authored in-character nudge. Zero generations
+    static std::vector<std::string> SceneReadLines(Player* bot, Player* player);
+
+    // plan v5 S.3: the "story" codex read - the saga rows the town holds
+    // about the player (re-readable; the delivered saga is the
+    // notification, this is the destination). Zero generations
+    static std::vector<std::string> StoryLines(Player* bot, Player* player);
+
+    // plan v5 C2: the session recap. The deterministic digest renders
+    // what actually accumulated while the player was away (new ledger
+    // rows since their last active moment, town talk naming them, tenure
+    // milestones); empty when fewer than three lines warrant it (the
+    // silence doctrine - a recap below three rows is noise)
+    static std::vector<std::string> RenderRecapDigest(Player* player);
+
+    // the recap delivery: deterministic digest lines always; the cloud
+    // prose variant replaces them when the external tier + toggle +
+    // daily quota admit (one capped call, fail-closed to silence)
+    static void DeliverSessionRecap(Player* player);
+
+    // plan v5 C5: the weekly dossier - one row about the player the
+    // whole town holds (world_gossip category 'dossier'; rides every
+    // bot's prompt through the gossip slice). Deterministic locally
+    // (the newest remembered truth); cloud wording on the external tier,
+    // once per 7 days, fail-closed
+    static void MintWeeklyDossier(Player* player);
+
+    // plan v5 F2: the bot<->bot dyad ledger (in-process - the accepted
+    // statics class, process-lifetime like moods and chatter fatigue; a
+    // DB table would buy cross-restart persistence the engagement value
+    // does not need). Affinity -3..+5 from shared party history; the
+    // newest dyad event feeds the party topic (W6) and biases the drama
+    // beat kind (C4)
+    static void NoteDyadEvent(uint32 botA, uint32 botB, int points,
+        std::string const& eventText);
+    static int DyadAffinity(uint32 botA, uint32 botB);
+    // the newest unvoiced dyad event, claimed once (true when claimed)
+    static bool ClaimNewestDyadEvent(uint32 botA, uint32 botB, std::string& eventOut);
+    // non-consuming peek at the newest unvoiced dyad event (the caller
+    // vets fatigue BEFORE claiming - a claimed-but-vetoed event is lost)
+    static bool PeekNewestDyadEvent(uint32 botA, uint32 botB, std::string& eventOut);
+
+    // plan v5 F7: the authored-line hourly ceiling. One global deque plus
+    // one deque per category; exempt beats (the first post-death/wipe
+    // line) neither check nor consume. 0 on the conf key disables authored
+    // ambient entirely (exempt beats still land)
+    // non-consuming budget check (the dispatch gates use it so a spent
+    // ceiling skips the work entirely; the stamp still lands only via
+    // AuthoredLineAdmits on a confirmed delivery)
+    static bool AuthoredBudgetHasRoom(uint32 category);
+
+    enum ArbCategory
+    {
+        ARB_AMBIENT = 0,   // idle/mood/crowd ambience + murmur (cap 3/hr)
+        ARB_REACTION,      // kill quips, initiative asks, aftermath (cap 2/hr)
+        ARB_SCENE,         // party banter + global set pieces (global budget
+                           // only - the lanes' own cadences govern them)
+        ARB_COUNT
+    };
+    static bool AuthoredLineAdmits(uint32 category, bool exempt);
+
     // claims the bot's shared ambient-chatter slot (kill quips + idle/mood
     // lines draw from the same budget so total bot-initiated speech stays
-    // rare): true once per minIntervalSeconds per bot
-    static bool TryClaimAmbientSlot(uint32 botGuid, uint32 minIntervalSeconds);
+    // rare): true once per minIntervalSeconds per bot AND while the F7
+    // authored-line hourly budget (global + category) still admits - a
+    // budget rejection does NOT burn the per-bot interval (the kill-banter
+    // law: a dropped line must not open the window in silence)
+    static bool TryClaimAmbientSlot(uint32 botGuid, uint32 minIntervalSeconds,
+        uint32 arbCategory = ARB_AMBIENT);
 
     // ---- initiative scheduler (world thread, UpdateAI-cadence):
     // the authored speak-first layer - arrival greet-first packets for
@@ -206,6 +329,11 @@ public:
     // first-contact welcome)
     static bool PlayerHasAnyPairing(uint32 playerGuid);
 
+    // Phase-4: pairing tenure in days, from the OLDEST fact row's
+    // created_at (both SQL dialects read unix seconds). Returns -1 when
+    // the pairing has no facts yet (caller renders nothing).
+    static int PairingAgeDays(uint32 bot, uint32 player);
+
     // The player's FIRST-EVER bot contact gets the scripted welcome
     // (authored, and hinting that bots remember - which is true: the
     // pairing's first-meeting fact forms right here through the same
@@ -252,6 +380,11 @@ public:
     // drained by PlayerbotAI::UpdateAI on the world thread; a reaction
     // whose notBefore is still ahead is re-queued (front) and skipped
     static bool DrainEventReaction(uint32 botGuid, EventReaction& reaction);
+
+    // plan v5 C4: queue one authored reaction under the cap (the shared
+    // two-slot discipline; the drama set piece and every future authored
+    // beat queue through here)
+    static void QueueAuthoredReaction(Player* bot, EventReaction& reaction);
 
     // 30s pre-warm cadence per bot (mutex-guarded; map threads call this)
     static bool PrewarmDue(uint32 botGuid);

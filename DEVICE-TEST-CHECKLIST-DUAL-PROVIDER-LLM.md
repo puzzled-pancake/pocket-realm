@@ -111,8 +111,21 @@ Build the two artifacts first (on the build host, not the device):
       released); child pinned to cores 3-5 at nice 10.
 - [ ] Template override: a thinking model triggers exactly one
       `--chat-template` restart; unhealthy override child reverts.
-- [ ] Chatter power-file staleness (future `at=` stamp / clock jump)
-      degrades to the EMERGENCY floor-only rung, never a chatter storm.
+- [ ] Chatter power protocol: the file is staged at world start and
+      re-staged on battery events (low/plug/unplug); there is NO staleness
+      window (writer and world share one process) - a >10-min session at
+      full battery must stay at NORMAL cadence, and a low-battery event
+      mid-session must dim to the CONSTRAINED row within a tick.
+- [ ] Prompt pack: default pack renders trained-default (seasoning off);
+      enabling seasoning + mood blocks changes voice measurably; per-preset
+      RP overrides (pack deltas + dials) thread into the conf; corrupt pack
+      JSON fails open to default, never to silence.
+- [ ] RP dials: initiative 0 doubles the quiet floor vs 100; reactivity 0
+      halves kill-cheer extras; volatility visibly steadies mood weather;
+      long-form 100 licenses tellings at 150 tokens, 0 holds the 300 bar.
+- [ ] Legends: a duel outcome retells with counter escalation then retires
+      at 5; anniversaries surface in the journal at 30/100/365 days;
+      place-named gossip sorts ahead of placeless gossip in chatter picks.
 
 ## F. User Vulkan driver registry (regression from 0.101/0.102 lanes)
 
@@ -172,6 +185,10 @@ Build the two artifacts first (on the build host, not the device):
 - [ ] 60-minute play session with LLM chatter enabled: thermal state,
       battery drain vs LLM-disabled session (`tools/battery_sampler.py`
       / `battery_window_report.py` on the pulled logs).
+- [ ] Phase-6 battery runs archived: S8 RP-DEPTH (initiative/rumor/grudge
+      fit per arm per tier) + S9 tavern coherence (4-bot shingle/anchor
+      gates) on E2B now; Qwen-0.8B fallback leg (terse-only seasoning)
+      recorded; token-cost column per model per phase in the run notes.
 - [ ] 8-hour idle-with-realm soak: no wake-lock leak, no unbounded log
       growth, clean-stop honored after process death.
 

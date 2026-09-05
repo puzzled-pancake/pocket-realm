@@ -92,7 +92,11 @@ object LlmModelRegistry {
             repeatPenalty = 1.0, presencePenalty = 1.0, maxTokens = 230,
         ),
         tierProfile = LlmTierProfile(
-            contextLength = 8192, generationTimeoutSec = 60,
+            // Phase 1 (plan v4): 8192 → 12288 on the E2B tiers. The measured
+            // worst-case trained request is ~2.2k tokens; the extra headroom
+            // carries the prompt-pack seasoning blocks + reply caps with
+            // 2 concurrent slots. Qwen-0.8B stays 6144 (small-model tier).
+            contextLength = 12288, generationTimeoutSec = 60,
             maxSimultaneousGenerations = 2,
             // CPU-safe capacity (NPU-E2B ≈10-12, CPU-E2B ≈8): the
             // shipped steady-state may be CPU until the hybrid coexistence
@@ -149,7 +153,11 @@ object LlmModelRegistry {
             repeatPenalty = 1.0, maxTokens = 210,
         ),
         tierProfile = LlmTierProfile(
-            contextLength = 8192, generationTimeoutSec = 60,
+            // Phase 1 (plan v4): 8192 → 12288 on the E2B tiers. The measured
+            // worst-case trained request is ~2.2k tokens; the extra headroom
+            // carries the prompt-pack seasoning blocks + reply caps with
+            // 2 concurrent slots. Qwen-0.8B stays 6144 (small-model tier).
+            contextLength = 12288, generationTimeoutSec = 60,
             maxSimultaneousGenerations = 2,
             governorBotMax = 8, governorGlobalMax = 8,
             factsCap = 12, memoriesTail = 6,

@@ -2,10 +2,12 @@
 
 #include "PlayerbotLlmBridge.h"
 #include "PlayerbotLlmChatter.h"
+#include "PlayerbotLlmChatterCore.h"
 #include "PlayerbotLlmPersona.h"
 #include "PlayerbotLlmPrompt.h"
 #include "PlayerbotLlmRecallCore.h"
 #include "PlayerbotLlmTools.h"
+#include "PlayerbotLLMInterface.h"
 #include "llm_banter_core.h"
 #include "playerbot/playerbot.h"
 #include "playerbot/PlayerbotAIConfig.h"
@@ -18,6 +20,8 @@
 #include "Grids/GridNotifiers.h"
 #include "Grids/GridNotifiersImpl.h"
 #include "Groups/Group.h"
+#include "Maps/Map.h"
+#include "Weather/Weather.h"
 
 #include <algorithm>
 #include <atomic>
@@ -29,6 +33,7 @@
 #include <mutex>
 #include <set>
 #include <sstream>
+#include <thread>
 
 namespace {
 
@@ -68,6 +73,60 @@ std::string TruncUtf8(std::string const& text, size_t maxBytes)
         s.pop_back(); // drop a lead byte whose sequence was cut
     return s;
 }
+// Phase-1 prompt pack: read the staged pack file ONCE per process (the
+// path is fixed at world start; the file is staged at realm start) and
+// cache the rendered seasoning overlay. Empty/missing/unreadable =
+// trained default (empty seasoning, byte-identical). Reloads are NOT
+// supported mid-process — the pack applies at the next realm start like
+// every llm* setting. Mutex-guarded check-then-resolve like the sibling
+// one-shot loaders (EraBiasJson / LoadedLore): map threads hit this
+// concurrently on the first generation, and the flag must only flip
+// AFTER the cache is populated (an early flip would pin an empty
+// seasoning for the process lifetime).
+std::string LoadPackSeasoning()
+{
+    static std::mutex mutex;
+    static bool loaded = false;
+    static std::string cached;
+    std::lock_guard<std::mutex> lock(mutex);
+    if (loaded)
+        return cached;
+    std::string seasoning;
+    std::string const& path = sPlayerbotAIConfig.llmPromptPackFile;
+    if (!path.empty() && path.size() <= 512)
+    {
+        std::ifstream in(path.c_str());
+        if (in.is_open())
+        {
+            std::string json;
+            json.reserve(4096);
+            char buf[1024];
+            while (in.good() && json.size() < 65536)
+            {
+                in.read(buf, sizeof(buf));
+                json.append(buf, static_cast<size_t>(in.gcount()));
+            }
+            seasoning = pocketllm::SeasoningFromPackJson(
+                json, sPlayerbotAIConfig.llmPromptBlockOverride);
+            // plan v5 5.1: the hard seasoning budget - whole trailing
+            // lines drop past ~1200 bytes (the 300-token cap at ~4
+            // chars/token). The pack editor's soft meter warns; this is
+            // the enforced ceiling that keeps every local generation's
+            // prefill bounded
+            if (seasoning.size() > 1200)
+            {
+                size_t cut = seasoning.rfind('\n', 1200);
+                seasoning = cut == std::string::npos
+                    ? TruncUtf8(seasoning, 1200)
+                    : seasoning.substr(0, cut);
+            }
+        }
+    }
+    cached = seasoning;
+    loaded = true;
+    return cached;
+}
+
 
 // The LLM tables ship as utf8 (= utf8mb3 on MariaDB): astral-plane
 // characters (4-byte UTF-8 sequences, e.g. emoji) are valid UTF-8 but
@@ -180,6 +239,12 @@ std::string ZoneNameOf(Player* bot)
     if (bot->GetPlayerbotAI())
         if (AreaTableEntry const* zone = bot->GetPlayerbotAI()->GetCurrentZone())
             return bot->GetPlayerbotAI()->GetLocalizedAreaName(zone);
+    // real players carry no PlayerbotAI: resolve their own zone through the
+    // area table in the session's locale (plan v5 W1/W3 pass real players
+    // here - the victim, the tapper)
+    if (AreaTableEntry const* zone = GetAreaEntryByAreaID(bot->GetZoneId()))
+        if (bot->GetSession())
+            return zone->area_name[bot->GetSession()->GetSessionDbcLocale()];
     return "the wilds";
 }
 
@@ -221,12 +286,15 @@ void AppendHistoryTurn(uint32 bot, uint32 playerOrChannel,
     RollingHistory& history = History();
     std::lock_guard<std::mutex> lock(history.mutex);
     std::deque<HistoryLine>& turns = history.turns[HistoryKey(bot, playerOrChannel)];
-    // bounded per turn as well: 20 unbounded lines could crowd out the
+    // bounded per turn as well: unbounded lines could crowd out the
     // stable segments in the prompt budget below
     turns.push_back(HistoryLine(speaker, TruncUtf8(line, 240)));
     // tail-capped: only the oldest rolling turns ever drop, never the stable
-    // prompt segments (which never live here)
-    while (turns.size() > 20)
+    // prompt segments (which never live here). The storage cap must clear
+    // the reader's largest window (BuildTrainedChatRequest): 32 on the
+    // external API tier, 20 keeps the device-era footprint otherwise.
+    size_t const storeCap = PlayerbotLlmMemory::ExternalApiTierActive() ? 32 : 20;
+    while (turns.size() > storeCap)
         turns.pop_front();
 }
 
@@ -300,7 +368,123 @@ std::atomic<uint64_t>& ConversationCounter()
     return instance;
 }
 
+// Phase-3 mood weather: per-bot nudge counters (bounded by bot
+// population, the accepted statics class). The hourly bucket comes
+// from time()/3600 so weather drifts slowly; event nudges fold in
+// immediately - grudge (a wronging: negative bounded sentiment, a duel
+// loss or a player's cheap flee), smitten (a tier-up ceremony), grief
+// (a tier-loss crossing, from the bridge).
+std::map<uint32, uint32>& MoodNudges()
+{
+    static std::map<uint32, uint32> instance;
+    return instance;
+}
+
+// plan v5 F6 (generic mint-once marker): per-pairing last-mint stamps so
+// "watched X fall in Duskwood" or "traveled with X to Westfall for the
+// first time" mints at most once per window (deaths and zone crossings
+// are frequent; the LEDGER must not drown in them)
+std::map<uint64, time_t>& MintOnceAt()
+{
+    static std::map<uint64, time_t> instance;
+    return instance;
+}
+
+// plan v5 W1: the pending post-wipe shaken line - bot -> (player, expiry).
+// Armed at the wipe (when every bot is dead and cannot speak), consumed by
+// TickInitiative when the bot is alive and the player is back in range
+std::map<uint32, std::pair<uint32, time_t>>& PendingAftermath()
+{
+    static std::map<uint32, std::pair<uint32, time_t>> instance;
+    return instance;
+}
+
+// plan v5 W5: the curiosity state - per-pair asked-question bitmask (the
+// question bank is 16 wide; the mask is GUID-stable-ordered, one ask per
+// question per pairing per process), the 30-minute ask floor, and the
+// armed pending answer (player -> (bot, expiry); consumed by the bridge
+// on the player's next conversational turn)
+std::map<uint64, uint32>& CuriosityAskedMask()
+{
+    static std::map<uint64, uint32> instance;
+    return instance;
+}
+
+std::map<uint64, time_t>& CuriosityLastAsk()
+{
+    static std::map<uint64, time_t> instance;
+    return instance;
+}
+
+std::map<uint64, std::pair<uint32, time_t>>& PendingAnswer()
+{
+    static std::map<uint64, std::pair<uint32, time_t>> instance;
+    return instance;
+}
+
+// plan v5 F2: the dyad ledger - ordered pair key -> (affinity, newest
+// event, voiced flag). Process-lifetime by design
+struct DyadEntry
+{
+    int points = 0;
+    std::string newestEvent;
+    bool voiced = false;
+};
+std::map<uint64, DyadEntry>& Dyads()
+{
+    static std::map<uint64, DyadEntry> instance;
+    return instance;
+}
+
+// plan v5 F7: the authored-line hourly ledger - one global deque plus one
+// per category, caller-guarded by StateMutex (check-then-stamp for the
+// global+category pair happens under the one lock so a stamp can never
+// land without its line)
+struct AuthoredArbiter
+{
+    std::deque<int64_t> global;
+    std::deque<int64_t> cat[3];
+};
+AuthoredArbiter& Arbiter()
+{
+    static AuthoredArbiter instance;
+    return instance;
+}
+
 } // namespace
+
+// Class-member definitions must sit OUTSIDE the anonymous namespace
+// above (defining PlayerbotLlmMemory:: members inside an unnamed
+// namespace is ill-formed and breaks the world build; the host
+// batteries never compile this TU, so only a real compiler sees it).
+int PlayerbotLlmMemory::MoodNow(uint32 botGuid)
+{
+    uint32 bucket = (uint32)(time(nullptr) / 3600);
+    uint32 nudges = 0;
+    {
+        std::lock_guard<std::mutex> lock(StateMutex());
+        std::map<uint32, uint32>::const_iterator it = MoodNudges().find(botGuid);
+        if (it != MoodNudges().end())
+            nudges = it->second;
+    }
+    return pocketllm::MoodIndexOf(botGuid, bucket, nudges);
+}
+
+void PlayerbotLlmMemory::NudgeMood(uint32 botGuid, int mood)
+{
+    if (mood != pocketllm::MOOD_GRUDGE && mood != pocketllm::MOOD_SMITTEN &&
+        mood != pocketllm::MOOD_GRIEF)
+        return;
+    std::lock_guard<std::mutex> lock(StateMutex());
+    // fold the nudge into the counter so the weather shifts; the bucket
+    // rotation keeps it from sticking forever
+    MoodNudges()[botGuid] += (uint32)(mood + 1);
+}
+
+std::string PlayerbotLlmMemory::MoodLineFor(uint32 botGuid)
+{
+    return pocketllm::MoodSeasoningLine(MoodNow(botGuid));
+}
 
 std::string PlayerbotLlmMemory::ScrubControlTokens(std::string const& text)
 {
@@ -634,11 +818,13 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
     }
 
     // ---- history: role-separated, the just-recorded current turn excluded
-    // (it IS this request's user message); last 8 turns - except the
-    // ambient SAY channel, which caps at the last 5 lines (the
-    // cross-injection window: a town scene, not a transcript). The
-    // per-key rotation counter (state flavors) advances once per REQUEST
-    // so it alternates regardless of window saturation or turn parity.
+    // (it IS this request's user message). Depth scales with the tier's
+    // context: on-device tiers keep the trained 8-turn window (5 on the
+    // ambient SAY channel — the cross-injection window: a town scene, not
+    // a transcript); the external API tier (128k ctx) carries 32 turns
+    // (16 on SAY) so 1M-ctx models hold the whole scene. The per-key
+    // rotation counter (state flavors) advances once per REQUEST so it
+    // alternates regardless of window saturation or turn parity.
     std::vector<pocketllm::HistoryTurn> history;
     uint32 stateRotation = 0;
     {
@@ -656,9 +842,10 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
             if (n && (turns[n - 1].speaker == player->GetName() ||
                       turns[n - 1].speaker == "(event)"))
                 --n;
+            bool const apiTier = ExternalApiTierActive();
             size_t const cap =
                 (playerOrChannel == (0x80000000u | static_cast<uint32>(ChatChannelSource::SRC_SAY)))
-                    ? 5 : 8;
+                    ? (apiTier ? 16 : 5) : (apiTier ? 32 : 8);
             size_t const first = n > cap ? n - cap : 0;
             for (size_t i = first; i < n; ++i)
                 history.push_back(pocketllm::HistoryTurn(
@@ -702,8 +889,11 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
     // never to a racing read.
     std::string const absenceBucket = preStompAbsence.empty()
         ? std::string("a first meeting") : preStompAbsence;
+    // Phase-3: the bot's current weather rides the system prompt alongside
+    // the pack seasoning (same instruction span, never a new segment).
     std::string const sysm = pocketllm::SysmForCard(persona, promptPlayer, tier,
-        AbsenceLineFor(player->GetName(), absenceBucket), facts);
+        AbsenceLineFor(player->GetName(), absenceBucket), facts,
+        LoadPackSeasoning(), MoodLineFor(botGuid));
 
     // The bridge owns the turn. Event reactions render through the
     // trained [EVENT] head + speak-first directive (no player words this
@@ -800,8 +990,11 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
         }
     }
 
+    // providerSafe (the external API tier) also suppresses reasoning
+    // models' chain-of-thought at the source; the response-side
+    // StripThinking in HygienePass stays as the backstop
     return pocketllm::BuildChatRequestBody(sPlayerbotAIConfig.llmApiModel, sysm,
-        history, user, sampling);
+        history, user, sampling, sampling.providerSafe);
 }
 
 std::string PlayerbotLlmMemory::GetRelationshipTier(Player* bot, Player* player)
@@ -886,6 +1079,10 @@ void PlayerbotLlmMemory::AddBoundedSentimentInput(uint32 bot, uint32 player, int
         if (Player* target = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, player)))
         {
             AddRelationshipPoints(botPlayer, target, clampedDelta);
+            // a wronging folds into the mood weather immediately (the
+            // hourly bucket alone drifts too slowly for a fresh grudge)
+            if (clampedDelta < 0)
+                NudgeMood(bot, pocketllm::MOOD_GRUDGE);
             if (!reason.empty())
             {
                 // The tone prefix carries the bridge-decided SIGN
@@ -1141,6 +1338,29 @@ std::vector<std::string> PlayerbotLlmMemory::GetJournalLines(Player* bot, Player
         + TierProse(pocketllm::TierStorageName(GetTrainedTier(bot, player))) + ".");
     for (std::string const& line : GetJournal(bot, player))
         lines.push_back(line);
+    // Phase-4: anniversaries + tier beats are journal-visible. The
+    // anniversary derives from the OLDEST fact id distance (each pairing's
+    // first fact is its first meeting — "met <name> for the first time");
+    // without rows there is no tenure to celebrate. Tier beats ride the
+    // current tier: ally+ earns the vouch line, tier 5 the bickering line.
+    if (bot && player)
+    {
+        int const days = PairingAgeDays(bot->GetGUIDLow(), player->GetGUIDLow());
+        char const* ann = pocketllm::AnniversaryLine(
+            pocketllm::AnniversaryBucket(days));
+        if (ann && *ann)
+            lines.push_back(std::string("Milestone: ") + ann);
+        int const tier = GetTrainedTier(bot, player);
+        // journal prose, not cargo: the player reads these lines, so the
+        // beat observes the relationship third-person (the second-person
+        // frames are bot instructions and stay in the prompt path only)
+        if (tier >= 5)
+            lines.push_back(std::string("Bond: ") +
+                pocketllm::TierBeatJournalLine(2));
+        else if (tier >= 3)
+            lines.push_back(std::string("Bond: ") +
+                pocketllm::TierBeatJournalLine(0));
+    }
     return lines;
 }
 
@@ -1269,6 +1489,10 @@ void PlayerbotLlmMemory::OnPlayerLevelUp(Player* player, uint32 newLevel)
 {
     if (!player || !sPlayerbotAIConfig.llmEnabled)
         return;
+    // Phase-3 reactivity: dial 0 skips every other level-up note (quiet
+    // bots celebrate less), 100 always notes. Default 50 = base behavior.
+    if (sPlayerbotAIConfig.llmRpReactivity <= 25 && (newLevel & 1))
+        return;
 
     std::ostringstream out;
     // the event reaction's nature rides the drain's isEventTurn flag +
@@ -1376,6 +1600,14 @@ void PlayerbotLlmMemory::OnDuelComplete(Player* participant, Player* opponent,
     // the verified-event window opens for the dueled bot: a later news
     // beat may voice it as gossip
     NoteVerifiedEvent(bot->GetGUIDLow(), 0);
+    // a loss or a cheap player-flee sours the weather (the grudge mood
+    // shows at the edges of the next replies; the bucket rotation keeps
+    // it from sticking). The flee class ALSO licenses a -1 sentiment
+    // tool whose execution nudges grudge again - accepted: the counter
+    // is a hash input, not a gauge, and both folds are real signals.
+    if (kind == PlayerbotLlmBridge::EVENT_DUEL_LOST ||
+        kind == PlayerbotLlmBridge::EVENT_DUEL_PLAYER_FLED)
+        NudgeMood(bot->GetGUIDLow(), pocketllm::MOOD_GRUDGE);
 
     // The outcome becomes MEMORY - the bot's own fact (the
     // news-recall beat's cargo) and a player-subject world_gossip row
@@ -1399,6 +1631,372 @@ void PlayerbotLlmMemory::OnDuelComplete(Player* participant, Player* opponent,
     }
 }
 
+namespace {
+
+// pairing existence for the partyless death fan-out: a random town bot
+// mourning a passing stranger is noise, a KNOWN bot is a moment (one
+// query per candidate, bounded to four candidates)
+bool HasPairingRow(uint32 bot, uint32 player)
+{
+    auto result = CharacterDatabase.PQuery(
+        "SELECT 1 FROM `bot_player_relationship` WHERE `bot` = '%u' AND `player` = '%u' LIMIT 1",
+        bot, player);
+    return bool(result);
+}
+
+// plan v5 W3: DB-side once-only check for authored fact shapes - the
+// in-process mint-once map dies with the process, but "for the first
+// time" must never mint twice, so the prefix is checked against the
+// ledger itself (shared-event only: the player-identity category is
+// reserved for the tier-4 secret)
+bool HasSharedFactPrefix(uint32 bot, uint32 player, std::string const& prefix)
+{
+    auto result = CharacterDatabase.PQuery(
+        "SELECT 1 FROM `bot_player_facts` WHERE `bot` = '%u' AND `player` = '%u' "
+        "AND `category` = 'shared-event' AND `fact_text` LIKE '%s%%' LIMIT 1",
+        bot, player, EscapeSql(prefix).c_str());
+    return bool(result);
+}
+
+// plan v5 F6: the generic mint-once marker - LogFact at most once per
+// (bot, player, key, window). Returns true when the fact minted
+bool MintOnceFact(uint32 bot, uint32 player, uint64 key, time_t windowSec,
+    std::string const& text, std::string const& category)
+{
+    time_t const now = time(nullptr);
+    {
+        std::lock_guard<std::mutex> lock(StateMutex());
+        auto itr = MintOnceAt().find(key);
+        if (itr != MintOnceAt().end() && now - itr->second < windowSec)
+            return false;
+        MintOnceAt()[key] = now;
+    }
+    PlayerbotLlmMemory::LogFact(bot, player, text, category);
+    return true;
+}
+
+// the F7 budget math under a HELD StateMutex (the public wrappers and
+// TryClaimAmbientSlot already own the lock - a recursive acquisition
+// would deadlock). roomOnly peeks; otherwise the check-then-stamp pair
+// lands atomically (a stamp can never land without its line)
+bool AuthoredLineAdmitsLocked(uint32 category, bool exempt, bool roomOnly)
+{
+    if (category >= PlayerbotLlmMemory::ARB_COUNT)
+        category = PlayerbotLlmMemory::ARB_AMBIENT;
+    uint32 const globalCap = sPlayerbotAIConfig.llmAuthoredLinesPerHour;
+    if (!globalCap)
+        return exempt;
+    uint32 const catCap = category == PlayerbotLlmMemory::ARB_AMBIENT
+        ? std::min<uint32>(3, globalCap)
+        : (category == PlayerbotLlmMemory::ARB_SCENE
+            ? globalCap
+            : std::min<uint32>(2, globalCap));
+    int64_t const now = (int64_t)time(nullptr);
+    AuthoredArbiter& arb = Arbiter();
+    pocketllm::ArbiterPrune(arb.global, now, 3600);
+    pocketllm::ArbiterPrune(arb.cat[category], now, 3600);
+    if (exempt)
+        return true;
+    if (arb.global.size() >= globalCap || arb.cat[category].size() >= catCap)
+        return false;
+    if (roomOnly)
+        return true;
+    arb.global.push_back(now);
+    arb.cat[category].push_back(now);
+    return true;
+}
+
+} // namespace
+
+bool PlayerbotLlmMemory::AuthoredLineAdmits(uint32 category, bool exempt)
+{
+    std::lock_guard<std::mutex> lock(StateMutex());
+    return AuthoredLineAdmitsLocked(category, exempt, /*roomOnly=*/false);
+}
+
+bool PlayerbotLlmMemory::AuthoredBudgetHasRoom(uint32 category)
+{
+    std::lock_guard<std::mutex> lock(StateMutex());
+    return AuthoredLineAdmitsLocked(category, /*exempt=*/false, /*roomOnly=*/true);
+}
+
+void PlayerbotLlmMemory::OnPlayerDied(Player* victim)
+{
+    if (!victim || !sPlayerbotAIConfig.llmEnabled || !sPlayerbotAIConfig.llmBanterEnabled ||
+        !sPlayerbotAIConfig.llmEventReactionsEnabled)
+        return;
+    if (victim->GetPlayerbotAI() || !victim->GetSession() || !victim->isRealPlayer())
+        return;
+
+    // wipe classification: every other group member who is in the world is
+    // down too (a lone survivor anywhere means the death is not a wipe)
+    bool wipe = false;
+    Group* group = victim->GetGroup();
+    if (group)
+    {
+        wipe = true;
+        for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
+        {
+            Player* member = itr->getSource();
+            if (member && member != victim && member->IsInWorld() && member->IsAlive())
+            {
+                wipe = false;
+                break;
+            }
+        }
+    }
+
+    std::string const zone = ZoneNameOf(victim);
+
+    // reactors: grouped bots for the party player; for the partyless
+    // player, KNOWN bots within say range (bounded fan-out of four)
+    std::vector<Player*> condolence;   // alive bots that can speak now
+    std::vector<Player*> aftermath;    // grouped bots (any state) for wipe arming
+    if (group)
+    {
+        for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
+        {
+            Player* member = itr->getSource();
+            if (!member || member == victim || !member->GetPlayerbotAI())
+                continue;
+            aftermath.push_back(member);
+            if (member->IsAlive() && member->IsInWorld())
+                condolence.push_back(member);
+        }
+    }
+    else
+    {
+        for (auto& entry : sRandomPlayerbotMgr.GetPlayers())
+        {
+            Player* other = entry.second;
+            if (!other || !other->GetPlayerbotAI() || !other->IsInWorld() || !other->IsAlive())
+                continue;
+            if (other->GetMapId() != victim->GetMapId())
+                continue;
+            if (sServerFacade.GetDistance2d(other, victim) > 30.0f)
+                continue;
+            if (!HasPairingRow(other->GetGUIDLow(), victim->GetGUIDLow()))
+                continue;
+            condolence.push_back(other);
+            if (condolence.size() >= 4)
+                break;
+        }
+    }
+
+    if (wipe)
+    {
+        // the world retells a wipe; the bots' own words wait for their
+        // revival (PendingAftermath -> TickInitiative)
+        time_t const now = time(nullptr);
+        for (Player* bot : aftermath)
+        {
+            uint32 const botGuid = bot->GetGUIDLow();
+            uint64 const key = ((uint64)botGuid << 40) ^ ((uint64)victim->GetGUIDLow() << 20) ^ 0x77697065ull;
+            MintOnceFact(botGuid, victim->GetGUIDLow(), key, 6 * 3600,
+                "the whole party fell in " + zone, "shared-event");
+            NudgeMood(botGuid, pocketllm::MOOD_GRIEF);
+            std::lock_guard<std::mutex> lock(StateMutex());
+            PendingAftermath()[botGuid] = std::make_pair(victim->GetGUIDLow(), now + 3600);
+        }
+        // plan v5 F2: shared suffering bonds - every wiped pair gains
+        // affinity and carries the event as a later party topic
+        for (size_t i = 0; i < aftermath.size(); ++i)
+            for (size_t j = i + 1; j < aftermath.size(); ++j)
+                NoteDyadEvent(aftermath[i]->GetGUIDLow(), aftermath[j]->GetGUIDLow(), 1,
+                    "were wiped together in " + zone);
+        if (!aftermath.empty())
+            ShareGossip(aftermath[0]->GetGUIDLow(),
+                std::string(victim->GetName()) + "'s party was wiped out in " + zone, "wipe");
+        return;
+    }
+
+    if (condolence.empty())
+        return;
+
+    // the guaranteed beat: ONE speaker over the body, outside every pacing
+    // budget (deaths are rare, and rare must land)
+    Player* speaker = condolence[urand(0, uint32(condolence.size() - 1))];
+    uint32 const speakerGuid = speaker->GetGUIDLow();
+    std::string const line = PlayerbotLlmPersona::ReactionLine(
+        speaker, PlayerbotLlmPersona::REACTION_CONDOLENCE, victim);
+    if (line.empty())
+        return; // the mint and the nudge wait for a confirmed voice
+    NudgeMood(speakerGuid, pocketllm::MOOD_GRIEF);
+    uint64 const key = ((uint64)speakerGuid << 40) ^ ((uint64)victim->GetGUIDLow() << 20) ^ 0x6465617468ull;
+    MintOnceFact(speakerGuid, victim->GetGUIDLow(), key, 6 * 3600,
+        std::string("stood over ") + victim->GetName() + "'s body in " + zone,
+        "shared-event");
+    EventReaction reaction;
+    reaction.authored = true;
+    reaction.playerGuid = victim->GetGUIDLow();
+    reaction.text = line;
+    reaction.msgtype = CHAT_MSG_PARTY;
+    reaction.notBefore = time(nullptr) + urand(2, 5);
+    QueueAuthoredReaction(speaker, reaction);
+}
+
+void PlayerbotLlmMemory::OnTradeCompleted(Player* accepter, Player* initiator)
+{
+    if (!accepter || !initiator || !sPlayerbotAIConfig.llmEnabled)
+        return;
+    // bot<->bot trades involve no real player; two real players involve
+    // no bot (the RpgSubActions give_item flow lands here too - a bot
+    // giving TO the player must not count as the player's kindness)
+    Player* const bot = accepter->GetPlayerbotAI() ? accepter
+        : (initiator->GetPlayerbotAI() ? initiator : nullptr);
+    if (!bot)
+        return;
+    Player* const real = bot == accepter ? initiator : accepter;
+    if (!real->isRealPlayer() || !real->GetSession())
+        return;
+    TradeData* const realTrade = real->GetTradeData();
+    if (!realTrade)
+        return;
+
+    uint32 const money = realTrade->GetMoney();
+    bool gaveItem = false;
+    for (int slot = 0; slot < TRADE_SLOT_TRADED_COUNT; ++slot)
+        if (realTrade->GetItem((TradeSlots)slot))
+        {
+            gaveItem = true;
+            break;
+        }
+    if (!money && !gaveItem)
+        return;
+
+    // a real->bot trade is a bounded kindness: the +1 tone row also
+    // resolves any standing grudge (the newest opinion row turns
+    // positive) - the W4 refusal lifts with it
+    AddBoundedSentimentInput(bot->GetGUIDLow(), real->GetGUIDLow(), 1,
+        std::string("traded fairly with ") + bot->GetName());
+
+    // debt settlement: money TO the bot retires the newest unresolved
+    // debt row (the reminder engine reads by class, so the row must go,
+    // not just age) and fires the kind-1 beat
+    if (!money || !sPlayerbotAIConfig.llmEventReactionsEnabled)
+        return;
+    auto result = CharacterDatabase.PQuery(
+        "SELECT `id`, `fact_text`, `category` FROM `bot_player_facts` WHERE `bot` = '%u' AND `player` = '%u' "
+        "ORDER BY `id` DESC LIMIT 6",
+        bot->GetGUIDLow(), real->GetGUIDLow());
+    if (!result)
+        return;
+    uint32 debtRowId = 0;
+    do
+    {
+        Field* fields = result->Fetch();
+        std::string const text = fields[1].GetString();
+        if (text.rfind("(tone", 0) == 0)
+            continue;
+        if (pocketllm::FactClassOf(text, fields[2].GetString()) == pocketllm::FACT_DEBT)
+        {
+            debtRowId = fields[0].GetUInt32();
+            break;
+        }
+    } while (result->NextRow());
+    if (!debtRowId)
+        return;
+
+    CharacterDatabase.PExecute(
+        "DELETE FROM `bot_player_facts` WHERE `id` = '%u'", debtRowId);
+    LogFact(bot->GetGUIDLow(), real->GetGUIDLow(),
+        std::string(real->GetName()) + " paid the debt square", "shared-event");
+
+    EventReaction reaction;
+    reaction.playerGuid = real->GetGUIDLow();
+    reaction.text = std::string(real->GetName()) + " paid what was owed, every copper.";
+    reaction.eventKind = PlayerbotLlmBridge::EVENT_DEBT_SETTLED;
+    QueueAuthoredReaction(bot, reaction);
+}
+
+void PlayerbotLlmMemory::OnPlayerExploredArea(Player* player, uint32 zoneOrAreaId)
+{
+    if (!player || !sPlayerbotAIConfig.llmEnabled || !sPlayerbotAIConfig.llmBanterEnabled ||
+        !sPlayerbotAIConfig.llmEventReactionsEnabled)
+        return;
+    if (player->GetPlayerbotAI() || !player->GetSession() || !player->isRealPlayer())
+        return;
+    AreaTableEntry const* entry = GetAreaEntryByAreaID(zoneOrAreaId);
+    if (!entry)
+        return;
+
+    // reactors: grouped bots, plus KNOWN nearby bots for the partyless
+    // player (bounded fan-out; a stranger bot has no memory to anchor)
+    std::vector<Player*> bots;
+    if (Group* group = player->GetGroup())
+    {
+        for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
+        {
+            Player* member = itr->getSource();
+            if (member && member != player && member->GetPlayerbotAI())
+                bots.push_back(member);
+        }
+    }
+    else
+    {
+        for (auto& nearEntry : sRandomPlayerbotMgr.GetPlayers())
+        {
+            Player* other = nearEntry.second;
+            if (!other || !other->GetPlayerbotAI() || !other->IsInWorld())
+                continue;
+            if (other->GetMapId() != player->GetMapId())
+                continue;
+            if (sServerFacade.GetDistance2d(other, player) > 30.0f)
+                continue;
+            if (!HasPairingRow(other->GetGUIDLow(), player->GetGUIDLow()))
+                continue;
+            bots.push_back(other);
+            if (bots.size() >= 4)
+                break;
+        }
+    }
+
+    for (Player* bot : bots)
+    {
+        // the zone name renders in the bot's locale idiom where the AI
+        // provides one; the entry name is the fallback
+        std::string zoneName;
+        if (bot->GetPlayerbotAI())
+            zoneName = bot->GetPlayerbotAI()->GetLocalizedAreaName(entry);
+        if (zoneName.empty())
+            zoneName = "new country";
+        std::string const prefix =
+            std::string("traveled with ") + player->GetName() + " to " + zoneName;
+        if (HasSharedFactPrefix(bot->GetGUIDLow(), player->GetGUIDLow(), prefix))
+            continue;
+        LogFact(bot->GetGUIDLow(), player->GetGUIDLow(),
+            prefix + " for the first time", "shared-event");
+    }
+}
+
+bool PlayerbotLlmMemory::ConsumePendingAnswer(uint32 bot, uint32 player, std::string const& reply)
+{
+    if (!sPlayerbotAIConfig.llmEnabled || !sPlayerbotAIConfig.llmEventReactionsEnabled)
+        return false;
+    uint64 const key = (static_cast<uint64>(bot) << 32) | player;
+    {
+        std::lock_guard<std::mutex> lock(StateMutex());
+        auto itr = PendingAnswer().find(key);
+        if (itr == PendingAnswer().end())
+            return false;
+        bool const expired = time(nullptr) > itr->second.second;
+        PendingAnswer().erase(itr);
+        if (expired || reply.empty())
+            return false;
+    }
+    // the answer becomes permanent recall cargo, deterministically - the
+    // 0.8B fallback's licensed log_fact fires unreliably, and a vanished
+    // answer to an asked question is a broken promise. Same hygiene chain
+    // as every fact write. The name-free POV keeps the fact stable across
+    // the pairing's history
+    LogFact(bot, player,
+        std::string("asked, and the answer was: ") + TruncUtf8(
+            pocketllm::NeuterMarkersCopy(ScrubControlTokens(
+                StripAstral(reply)).c_str()), 160),
+        "shared-event");
+    return true;
+}
+
 // ---- authored kill banter (rare by design) ------------------------------
 // The cadence contract: most kills pass in silence. Even when the dice hit,
 // one bot speaks at most, its TOTAL bot-initiated chatter (kill quips + idle
@@ -1418,13 +2016,18 @@ time_t& LastKillBanter()
 
 } // namespace
 
-bool PlayerbotLlmMemory::TryClaimAmbientSlot(uint32 botGuid, uint32 minIntervalSeconds)
+bool PlayerbotLlmMemory::TryClaimAmbientSlot(uint32 botGuid, uint32 minIntervalSeconds,
+    uint32 arbCategory)
 {
     static std::map<uint32, time_t> spokenAt;
     std::lock_guard<std::mutex> lock(StateMutex());
     time_t const now = time(nullptr);
     auto itr = spokenAt.find(botGuid);
     if (itr != spokenAt.end() && now - itr->second < time_t(minIntervalSeconds))
+        return false;
+    // F7: the hourly authored-line budget. A rejection must NOT burn the
+    // per-bot interval (the kill-banter law: silence never opens windows)
+    if (!AuthoredLineAdmitsLocked(arbCategory, /*exempt=*/false, /*roomOnly=*/false))
         return false;
     spokenAt[botGuid] = now;
     return true;
@@ -1435,12 +2038,23 @@ namespace {
 
 // per-bot cadence: initiative classes scan at most this often
 uint32 const INITIATIVE_SCAN_SECS = 20;
-// the zero-spam gate: one bot-initiated line per bot per 10 min
-uint32 const INITIATIVE_MIN_INTERVAL = 600;
 // a player counts as RETURNING after this long out of the bot's range
 time_t const INITIATIVE_RETURN_GAP = 900;
 // the crowd tier: staggered emote delay bounds (seconds)
 uint32 const CROWD_DELAY_MIN = 2, CROWD_DELAY_MAX = 5;
+
+// Phase-3 RP dial scaling (llmRp* conf values, 0-100, 50 = default).
+// Initiative dial scales the 10-minute zero-spam floor: 0 doubles the
+// quiet (1200 s), 100 halves it (300 s). Reactivity scales event-shortcut
+// eagerness inline at the call sites (level-up parity at <= 25, kill-roll
+// sides x2/x/2, the bridge's exuberant > 25). Pure functions of the dial
+// so the host tests can pin the curves.
+inline uint32 InitiativeFloorSecs(uint32 dial)
+{
+    if (dial > 100) dial = 50;
+    // 1200 at 0 .. 600 at 50 .. 300 at 100 (linear halves)
+    return dial <= 50 ? 1200 - dial * 12 : 900 - dial * 6;
+}
 
 std::map<uint32, time_t>& InitiativeScanAt()
 {
@@ -1520,7 +2134,7 @@ bool PlayerbotLlmMemory::QueueCrowdEmote(Player* bot, Player* speaker)
         if (LastCrowdEmoteAt() && time(nullptr) - LastCrowdEmoteAt() < 12)
             return false; // 1-2 emotes per event window, world-wide
     }
-    if (!TryClaimAmbientSlot(bot->GetGUIDLow(), INITIATIVE_MIN_INTERVAL))
+    if (!TryClaimAmbientSlot(bot->GetGUIDLow(), InitiativeFloorSecs(sPlayerbotAIConfig.llmRpInitiative)))
         return false;
     // stamp only on a confirmed emote (a rejected claim
     // must not burn the world window in silence - the kill-banter law)
@@ -1567,6 +2181,52 @@ void PlayerbotLlmMemory::TickInitiative(Player* bot)
         InitiativeScanAt()[bot->GetGUIDLow()] = now;
     }
 
+    // W1 wipe aftermath: a revived bot greets the returning player shaken.
+    // The pending line survives until its expiry (the player may still be
+    // running back as a ghost) and is consumed only when spoken; it is the
+    // guaranteed first beat after a wipe, so it rides OUTSIDE the pacing
+    // budgets (deaths are rare, and rare must land)
+    {
+        Player* aftermathPlayer = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(StateMutex());
+            auto pend = PendingAftermath().find(bot->GetGUIDLow());
+            if (pend != PendingAftermath().end())
+            {
+                if (time(nullptr) > pend->second.second)
+                {
+                    PendingAftermath().erase(pend);
+                }
+                else
+                {
+                    Player* candidate = sObjectAccessor.FindPlayer(
+                        ObjectGuid(HIGHGUID_PLAYER, pend->second.first));
+                    if (candidate && candidate->isRealPlayer() &&
+                        candidate->GetMapId() == bot->GetMapId() &&
+                        sServerFacade.GetDistance2d(candidate, bot) <= 30.0f)
+                        aftermathPlayer = candidate;
+                }
+            }
+        }
+        if (aftermathPlayer && bot->IsAlive() && !bot->IsInCombat())
+        {
+            std::string const line = PlayerbotLlmPersona::ReactionLine(
+                bot, PlayerbotLlmPersona::REACTION_SHAKEN, aftermathPlayer);
+            if (!line.empty())
+            {
+                {
+                    std::lock_guard<std::mutex> lock(StateMutex());
+                    PendingAftermath().erase(bot->GetGUIDLow());
+                }
+                bot->Say(line, LANG_UNIVERSAL);
+                AppendTurn(bot->GetGUIDLow(),
+                    0x80000000u | static_cast<uint32>(ChatChannelSource::SRC_SAY), true,
+                    bot->GetName(), line);
+                return; // one voice per scan
+            }
+        }
+    }
+
     // the seen-set: real players within say range (the module's own
     // proximity idiom - sRandomPlayerbotMgr tracks the real players)
     std::vector<Player*> nearby;
@@ -1609,10 +2269,30 @@ void PlayerbotLlmMemory::TickInitiative(Player* bot)
         std::string const absence = GetAbsenceBucket(bot, player);
         if (absence == "a first meeting")
             continue; // never met: no greeting memory to draw on
+        // plan v5 W3: the pairing-tenure milestone mints as a living fact
+        // ("have known you a full month") the first time each bucket is
+        // crossed - the journal already renders the anniversary; this way
+        // the greeting/ask-after surfaces can voice it too
+        if (sPlayerbotAIConfig.llmEventReactionsEnabled)
+        {
+            int const days = PairingAgeDays(bot->GetGUIDLow(), player->GetGUIDLow());
+            int const bucket = pocketllm::AnniversaryBucket(days);
+            if (bucket)
+            {
+                std::string const tenureWord = bucket >= 365 ? "a whole year"
+                    : (bucket >= 100 ? "a hundred days" : "a full month");
+                std::string const prefix =
+                    std::string("have known ") + player->GetName();
+                if (!HasSharedFactPrefix(bot->GetGUIDLow(), player->GetGUIDLow(),
+                        prefix + " for"))
+                    LogFact(bot->GetGUIDLow(), player->GetGUIDLow(),
+                        prefix + " for " + tenureWord, "shared-event");
+            }
+        }
         std::string const line = AuthoredArrivalGreeting(bot, player, absence);
         if (line.empty())
             continue;
-        if (!TryClaimAmbientSlot(bot->GetGUIDLow(), INITIATIVE_MIN_INTERVAL))
+        if (!TryClaimAmbientSlot(bot->GetGUIDLow(), InitiativeFloorSecs(sPlayerbotAIConfig.llmRpInitiative)))
             return; // the zero-spam cap outranks every class
         bot->Say(line, LANG_UNIVERSAL);
         AppendTurn(bot->GetGUIDLow(),
@@ -1721,7 +2401,7 @@ void PlayerbotLlmMemory::TickInitiative(Player* bot)
             if (InitiatedFactIds()[key].count(usedFactId))
                 continue; // this fact already had its one initiation
         }
-        if (!TryClaimAmbientSlot(bot->GetGUIDLow(), INITIATIVE_MIN_INTERVAL))
+        if (!TryClaimAmbientSlot(bot->GetGUIDLow(), InitiativeFloorSecs(sPlayerbotAIConfig.llmRpInitiative)))
             return; // the zero-spam cap outranks every class
         {
             std::lock_guard<std::mutex> lock(StateMutex());
@@ -1733,6 +2413,60 @@ void PlayerbotLlmMemory::TickInitiative(Player* bot)
             bot->GetName(), line);
         return; // one initiative per scan at most
     }
+
+    // plan v5 W5: the bot-curiosity class - a GUID-stable-ordered question
+    // from the 16-wide bank, tier >= 2, one ask per question per pairing,
+    // a 30-minute floor per pairing, and the ambient slot's zero-spam cap.
+    // The ask arms the pending answer; the player's next conversational
+    // reply mints the fact deterministically (ConsumePendingAnswer at the
+    // bridge - the 0.8B answer-capture law)
+    if (sPlayerbotAIConfig.llmEventReactionsEnabled &&
+        sPlayerbotAIConfig.llmCuriosityEnabled)
+    {
+        for (Player* player : nearby)
+        {
+            if (GetTrainedTier(bot, player) < 2)
+                continue;
+            uint64 const key = InitiativeKey(bot->GetGUIDLow(), player->GetGUIDLow());
+            std::string question;
+            size_t questionIdx = pocketllm::CuriosityQuestionCount();
+            {
+                std::lock_guard<std::mutex> lock(StateMutex());
+                time_t const now = time(nullptr);
+                auto lastAsk = CuriosityLastAsk().find(key);
+                if (lastAsk != CuriosityLastAsk().end() &&
+                    now - lastAsk->second < 1800)
+                    continue; // the 30-minute question floor
+                uint32& mask = CuriosityAskedMask()[key];
+                for (size_t q = 0; q < pocketllm::CuriosityQuestionCount(); ++q)
+                {
+                    if (mask & (1u << (q % 32)))
+                        continue;
+                    questionIdx = q;
+                    break;
+                }
+                if (questionIdx >= pocketllm::CuriosityQuestionCount())
+                    continue; // the whole bank is asked out (per process)
+                question = pocketllm::CuriosityQuestionLine(questionIdx, player->GetName());
+            }
+            if (question.empty())
+                continue;
+            if (!TryClaimAmbientSlot(bot->GetGUIDLow(), InitiativeFloorSecs(sPlayerbotAIConfig.llmRpInitiative)))
+                return; // the zero-spam cap outranks every class
+            {
+                std::lock_guard<std::mutex> lock(StateMutex());
+                CuriosityAskedMask()[key] |= (1u << (questionIdx % 32));
+                CuriosityLastAsk()[key] = time(nullptr);
+                PendingAnswer()[key] = std::make_pair(
+                    bot->GetGUIDLow(), time(nullptr) + 600);
+            }
+            bot->Say(question, LANG_UNIVERSAL);
+            AppendTurn(bot->GetGUIDLow(),
+                0x80000000u | static_cast<uint32>(ChatChannelSource::SRC_SAY), true,
+                bot->GetName(), question);
+            return; // one initiative per scan at most
+        }
+    }
 }
 
 void PlayerbotLlmMemory::OnPlayerGroupKill(Player* tapper, Unit* victim)
@@ -1743,7 +2477,64 @@ void PlayerbotLlmMemory::OnPlayerGroupKill(Player* tapper, Unit* victim)
     if (!tapper->isRealPlayer() || victim->GetTypeId() == TYPEID_PLAYER)
         return;
 
-    if (urand(1, KILL_BANTER_ROLL_N) != 1)
+    // plan v5 W3: an ELITE kill is a moment the game itself verifies - it
+    // skips the quip roll entirely and mints memory instead: every grouped
+    // bot records watching the player fell the elite (prefix-checked, so
+    // farming the same elite mints once per pairing), and one town row
+    // feeds the rumor mill with the player as legend material
+    if (sPlayerbotAIConfig.llmEventReactionsEnabled &&
+        victim->GetTypeId() == TYPEID_UNIT)
+    {
+        CreatureInfo const* const ci =
+            ObjectMgr::GetCreatureTemplate(victim->GetEntry());
+        if (ci && ci->Rank >= CREATURE_ELITE_ELITE)
+        {
+            Group* eliteGroup = tapper->GetGroup();
+            std::string const victimName = victim->GetName();
+            std::string const zone = ZoneNameOf(tapper);
+            bool townRowMinted = false;
+            if (eliteGroup)
+            {
+                std::vector<Player*> groupedBots;
+                for (GroupReference* itr = eliteGroup->GetFirstMember(); itr; itr = itr->next())
+                {
+                    Player* member = itr->getSource();
+                    if (!member || !member->GetPlayerbotAI() || member == tapper)
+                        continue;
+                    groupedBots.push_back(member);
+                    std::string const prefix = std::string("watched ") +
+                        tapper->GetName() + " fell " + victimName;
+                    if (!HasSharedFactPrefix(member->GetGUIDLow(), tapper->GetGUIDLow(), prefix))
+                        LogFact(member->GetGUIDLow(), tapper->GetGUIDLow(),
+                            prefix + " in " + zone, "shared-event");
+                    if (!townRowMinted)
+                    {
+                        ShareGossip(member->GetGUIDLow(),
+                            std::string(tapper->GetName()) + " felled " + victimName +
+                            " in " + zone, "kill");
+                        townRowMinted = true;
+                    }
+                }
+                // plan v5 F2: every pair of bots that shared the elite
+                // kill earns dyad affinity and a witnessed event the
+                // party topic (W6) can voice later
+                for (size_t i = 0; i < groupedBots.size(); ++i)
+                    for (size_t j = i + 1; j < groupedBots.size(); ++j)
+                        NoteDyadEvent(groupedBots[i]->GetGUIDLow(),
+                            groupedBots[j]->GetGUIDLow(), 1,
+                            std::string("felled ") + victimName + " together in " + zone);
+            }
+        }
+    }
+
+    // Phase-3 reactivity: the 1-in-24 kill roll halves at dial 0
+    // (1-in-48) and doubles at dial 100 (1-in-12). Default 50 = base.
+    uint32 killSides = KILL_BANTER_ROLL_N;
+    if (sPlayerbotAIConfig.llmRpReactivity <= 25)
+        killSides *= 2;
+    else if (sPlayerbotAIConfig.llmRpReactivity >= 75)
+        killSides /= 2;
+    if (urand(1, killSides) != 1)
         return;
 
     Group* group = tapper->GetGroup();
@@ -1767,9 +2558,10 @@ void PlayerbotLlmMemory::OnPlayerGroupKill(Player* tapper, Unit* victim)
             return;
     }
 
-    // one bot speaks; its shared ambient slot bounds total chatter
+    // one bot speaks; its shared ambient slot bounds total chatter (the
+    // reaction category shares the 2/hr cap with the initiative asks)
     Player* chosen = bots[urand(0, uint32(bots.size() - 1))];
-    if (!TryClaimAmbientSlot(chosen->GetGUIDLow(), AMBIENT_MIN_INTERVAL))
+    if (!TryClaimAmbientSlot(chosen->GetGUIDLow(), AMBIENT_MIN_INTERVAL, ARB_REACTION))
         return;
 
     std::string const line = PlayerbotLlmPersona::KillBanterLine(chosen, tapper);
@@ -1817,6 +2609,16 @@ bool PlayerbotLlmMemory::DrainEventReaction(uint32 botGuid, EventReaction& react
     return true;
 }
 
+void PlayerbotLlmMemory::QueueAuthoredReaction(Player* bot, EventReaction& reaction)
+{
+    if (!bot)
+        return;
+    std::lock_guard<std::mutex> lock(StateMutex());
+    EventReactions()[bot->GetGUIDLow()].push_back(reaction);
+    while (EventReactions()[bot->GetGUIDLow()].size() > 2)
+        EventReactions()[bot->GetGUIDLow()].pop_front();
+}
+
 bool PlayerbotLlmMemory::PrewarmDue(uint32 botGuid)
 {
     static std::map<uint32, time_t> prewarmAt;
@@ -1829,8 +2631,418 @@ bool PlayerbotLlmMemory::PrewarmDue(uint32 botGuid)
     return true;
 }
 
+// plan v5 C1.3: the cloud quota ledger - surface -> (day, count). The
+// day bucket is UTC-days so a long session rolls at a stable boundary
+namespace {
+std::map<std::string, std::pair<int64_t, uint32>>& CloudQuotaUsed()
+{
+    static std::map<std::string, std::pair<int64_t, uint32>> instance;
+    return instance;
+}
 
-// ---- the player surface (pacing, first contact, progression)
+// plan v5 C5: the dossier's 7-day gate, per player (a per-day quota
+// cannot express weekly; a process-local stamp is honest about what a
+// restart resets)
+std::map<uint32, time_t>& LastDossierAt()
+{
+    static std::map<uint32, time_t> instance;
+    return instance;
+}
+} // namespace
+
+bool PlayerbotLlmMemory::ExternalApiTierActive()
+{
+    return sPlayerbotAIConfig.llmApiProviderSafe != 0 &&
+        sPlayerbotAIConfig.llmContextLength >= 65536;
+}
+
+// ---- plan v5 F2: the dyad ledger ------------------------------------------
+
+namespace {
+uint64 DyadKey(uint32 a, uint32 b)
+{
+    return a < b ? ((uint64)a << 32) | b : ((uint64)b << 32) | a;
+}
+} // namespace
+
+void PlayerbotLlmMemory::NoteDyadEvent(uint32 botA, uint32 botB, int points,
+    std::string const& eventText)
+{
+    if (botA == botB)
+        return;
+    std::lock_guard<std::mutex> lock(StateMutex());
+    DyadEntry& entry = Dyads()[DyadKey(botA, botB)];
+    entry.points += points;
+    if (entry.points > 5)
+        entry.points = 5;
+    if (entry.points < -3)
+        entry.points = -3;
+    if (!eventText.empty())
+    {
+        entry.newestEvent = eventText;
+        entry.voiced = false;
+    }
+}
+
+int PlayerbotLlmMemory::DyadAffinity(uint32 botA, uint32 botB)
+{
+    std::lock_guard<std::mutex> lock(StateMutex());
+    auto itr = Dyads().find(DyadKey(botA, botB));
+    return itr == Dyads().end() ? 0 : itr->second.points;
+}
+
+bool PlayerbotLlmMemory::ClaimNewestDyadEvent(uint32 botA, uint32 botB, std::string& eventOut)
+{
+    if (botA == botB)
+        return false;
+    std::lock_guard<std::mutex> lock(StateMutex());
+    auto itr = Dyads().find(DyadKey(botA, botB));
+    if (itr == Dyads().end() || itr->second.voiced || itr->second.newestEvent.empty())
+        return false;
+    eventOut = itr->second.newestEvent;
+    itr->second.voiced = true;
+    return true;
+}
+
+bool PlayerbotLlmMemory::PeekNewestDyadEvent(uint32 botA, uint32 botB, std::string& eventOut)
+{
+    if (botA == botB)
+        return false;
+    std::lock_guard<std::mutex> lock(StateMutex());
+    auto itr = Dyads().find(DyadKey(botA, botB));
+    if (itr == Dyads().end() || itr->second.voiced || itr->second.newestEvent.empty())
+        return false;
+    eventOut = itr->second.newestEvent;
+    return true;
+}
+
+bool PlayerbotLlmMemory::CloudQuotaAdmits(char const* surface, uint32 perDay)
+{
+    if (!surface)
+        return false;
+    int64_t const day = (int64_t)(time(nullptr) / 86400);
+    std::lock_guard<std::mutex> lock(StateMutex());
+    std::pair<int64_t, uint32>& used = CloudQuotaUsed()[surface];
+    if (used.first != day)
+        used = std::make_pair(day, 0u);
+    if (used.second >= perDay)
+        return false;
+    ++used.second;
+    return true;
+}
+
+std::vector<std::string> PlayerbotLlmMemory::RenderRecapDigest(Player* player)
+{
+    std::vector<std::string> lines;
+    if (!player || !player->GetSession())
+        return lines;
+
+    // the offline floor: the player's last active moment across all their
+    // pairings (read at login, before any interaction stamps it)
+    time_t offlineFloor = 0;
+    {
+        auto result = CharacterDatabase.PQuery(
+#ifdef DO_SQLITE
+            "SELECT strftime('%%s', MAX(`last_interaction_at`)) FROM `bot_player_relationship` WHERE `player` = '%u'",
+#else
+            "SELECT UNIX_TIMESTAMP(MAX(`last_interaction_at`)) FROM `bot_player_relationship` WHERE `player` = '%u'",
+#endif
+            player->GetGUIDLow());
+        if (result && !result->Fetch()[0].IsNULL())
+            offlineFloor = static_cast<time_t>(result->Fetch()[0].GetUInt64());
+    }
+    time_t const now = time(nullptr);
+    if (offlineFloor <= 0 || now - offlineFloor < 3600)
+        return lines; // a quick relog is not a session return
+
+    // ledger rows minted while the player was away (rare by nature: bots
+    // mint on shared moments - these are the arrivals and retells that
+    // named them)
+    {
+        auto result = CharacterDatabase.PQuery(
+#ifdef DO_SQLITE
+            "SELECT `fact_text` FROM `bot_player_facts` WHERE `player` = '%u' "
+            "AND strftime('%%s', `created_at`) > '%u' ORDER BY `id` DESC LIMIT 3",
+#else
+            "SELECT `fact_text` FROM `bot_player_facts` WHERE `player` = '%u' "
+            "AND `created_at` > FROM_UNIXTIME('%u') ORDER BY `id` DESC LIMIT 3",
+#endif
+            player->GetGUIDLow(), (uint32)offlineFloor);
+        if (result)
+        {
+            do
+            {
+                std::string text = result->Fetch()[0].GetString();
+                size_t const toneEnd = text.find(") ");
+                if (text.rfind("(tone", 0) == 0 && toneEnd != std::string::npos)
+                    text = text.substr(toneEnd + 2);
+                if (!text.empty())
+                    lines.push_back("The ledger grew: " + text + ".");
+            } while (result->NextRow());
+        }
+    }
+
+    // the legend traveled: town talk naming the player
+    std::string const town = GossipAbout(player->GetName());
+    if (!town.empty())
+        lines.push_back("Word traveled while you were away: '" + town + "'.");
+
+    // tenure milestones crossed (the top pairings only)
+    {
+        auto result = CharacterDatabase.PQuery(
+            "SELECT `bot` FROM `bot_player_relationship` WHERE `player` = '%u' "
+            "ORDER BY `points` DESC LIMIT 3",
+            player->GetGUIDLow());
+        if (result)
+        {
+            do
+            {
+                uint32 const bot = result->Fetch()[0].GetUInt32();
+                int const days = PairingAgeDays(bot, player->GetGUIDLow());
+                char const* const ann = pocketllm::AnniversaryLine(
+                    pocketllm::AnniversaryBucket(days));
+                if (ann && *ann)
+                {
+                    if (Player* botPlayer = sObjectAccessor.FindPlayer(
+                            ObjectGuid(HIGHGUID_PLAYER, bot)))
+                        lines.push_back(std::string("With ") +
+                            botPlayer->GetName() + ": " + ann);
+                }
+            } while (result->NextRow());
+        }
+    }
+
+    // the silence doctrine: a recap below three rows is noise
+    if (lines.size() < 3)
+        lines.clear();
+    return lines;
+}
+
+std::vector<std::string> PlayerbotLlmMemory::SceneReadLines(Player* bot, Player* player)
+{
+    std::vector<std::string> lines;
+    if (!bot || !player || !player->GetSession() || !player->isRealPlayer())
+        return lines;
+    if (!sPlayerbotAIConfig.llmEnabled || !sPlayerbotAIConfig.llmSceneReadEnabled)
+        return lines;
+
+    std::string const zone = ZoneNameOf(player);
+    bool const deep = player->GetMap() && player->GetMap()->IsDungeon();
+    lines.push_back(std::string(deep ? "You are deep inside " : "You are in ") + zone + ".");
+
+    if (player->IsInCombat())
+        lines.push_back("You are in a fight right now.");
+    else if (player->HasStealthAura())
+        lines.push_back("You are moving unseen - your own footsteps sound loud to you.");
+
+    // wounded party members (the two worst; a raid roster would be noise)
+    if (Group* group = player->GetGroup())
+    {
+        std::multimap<uint32, std::string> wounded;
+        for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
+        {
+            Player* member = itr->getSource();
+            if (!member || member == player)
+                continue;
+            uint32 const hp = member->GetHealthPercent();
+            if (hp > 0 && hp < 30)
+                wounded.insert(std::make_pair(hp, member->GetName()));
+        }
+        size_t named = 0;
+        for (auto const& wound : wounded)
+        {
+            if (named >= 2)
+                break;
+            lines.push_back(wound.second + " is badly hurt.");
+            ++named;
+        }
+    }
+
+    // hour and weather, read through the same accessors the W7a bias uses.
+    // The player has no PlayerbotAI, so the zone id comes from the bot's
+    // own AI (the bot is at the player's side by construction of the
+    // whisper exchange)
+    time_t nowT = time(nullptr);
+    if (struct tm const* lt = localtime(&nowT))
+        if (lt->tm_hour < 6 || lt->tm_hour >= 21)
+            lines.push_back("Night lies on the land.");
+    if (sPlayerbotAIConfig.llmWorldTruthAmbient && player->GetMap() &&
+        player->GetMap()->GetWeatherSystem() &&
+        bot->GetPlayerbotAI() && bot->GetPlayerbotAI()->GetCurrentZone())
+    {
+        if (Weather* weather = player->GetMap()->GetWeatherSystem()->FindWeather(
+                bot->GetPlayerbotAI()->GetCurrentZone()->ID))
+        {
+            WeatherType const type = weather->GetWeatherType();
+            if (weather->GetWeatherGrade() > 0.0f)
+            {
+                if (type == WEATHER_TYPE_RAIN)
+                    lines.push_back("Rain falls here.");
+                else if (type == WEATHER_TYPE_STORM)
+                    lines.push_back("A storm is breaking over this place.");
+                else if (type == WEATHER_TYPE_SNOW)
+                    lines.push_back("Snow is falling.");
+            }
+        }
+    }
+
+    // the current live rumor naming the player (their traveling legend)
+    std::string const town = GossipAbout(player->GetName());
+    if (!town.empty())
+        lines.push_back("Word on the street: '" + town + "'.");
+
+    // one authored in-character nudge (the persona ring/tic laws hold)
+    std::string const nudge = PlayerbotLlmPersona::SceneNudgeLine(bot, player);
+    if (!nudge.empty())
+        lines.push_back(nudge);
+    return lines;
+}
+
+std::vector<std::string> PlayerbotLlmMemory::StoryLines(Player* bot, Player* player)
+{
+    std::vector<std::string> lines;
+    if (!bot || !player || !player->isRealPlayer())
+        return lines;
+    // the saga rows: what the town holds about the player (the codex's
+    // living archive - newest first, bounded)
+    auto result = WorldDatabase.PQuery(
+        "SELECT `text` FROM `world_gossip` WHERE (`expires_at` IS NULL OR `expires_at` > CURRENT_TIMESTAMP) "
+        "AND `category` = 'saga' ORDER BY `id` DESC LIMIT 3");
+    if (result)
+    {
+        do
+        {
+            std::string const row = result->Fetch()[0].GetString();
+            if (pocketllm::ContainsWordExact(row, player->GetName()))
+                lines.push_back("The fire remembers: " + row);
+        } while (result->NextRow());
+    }
+    // the pairing's own milestone closes the page
+    if (GetTrainedTier(bot, player) >= 3)
+    {
+        int const tier = GetTrainedTier(bot, player);
+        lines.push_back(std::string("Bond: ") +
+            pocketllm::TierBeatJournalLine(tier >= 5 ? 2 : 0));
+    }
+    return lines;
+}
+
+void PlayerbotLlmMemory::MintWeeklyDossier(Player* player)
+{
+    if (!player || !player->GetSession() || !player->isRealPlayer())
+        return;
+    if (!sPlayerbotAIConfig.llmEnabled || !sPlayerbotAIConfig.llmDossierEnabled)
+        return;
+    time_t const now = time(nullptr);
+    {
+        std::lock_guard<std::mutex> lock(StateMutex());
+        auto itr = LastDossierAt().find(player->GetGUIDLow());
+        if (itr != LastDossierAt().end() && now - itr->second < 7 * 86400)
+            return;
+    }
+
+    // the deterministic half always mints: the newest remembered truth
+    // about the player becomes the town's one-line word on them (the
+    // gossip slice carries it into every bot's prompt)
+    uint32 dossierBot = 0;
+    std::string topFact;
+    {
+        auto result = CharacterDatabase.PQuery(
+            "SELECT `bot`, `fact_text` FROM `bot_player_facts` WHERE `player` = '%u' "
+            "AND `category` = 'shared-event' ORDER BY `id` DESC LIMIT 1",
+            player->GetGUIDLow());
+        if (result)
+        {
+            dossierBot = result->Fetch()[0].GetUInt32();
+            std::string text = result->Fetch()[1].GetString();
+            size_t const toneEnd = text.find(") ");
+            if (text.rfind("(tone", 0) == 0 && toneEnd != std::string::npos)
+                text = text.substr(toneEnd + 2);
+            topFact = text;
+        }
+    }
+    if (!dossierBot || topFact.empty())
+        return; // a fact-less week stays silent, the gate unstamped
+    {
+        std::lock_guard<std::mutex> lock(StateMutex());
+        LastDossierAt()[player->GetGUIDLow()] = now;
+    }
+
+    // the deterministic row: "the word on X" from the newest remembered
+    // truth (this is the LOCAL half and the cloud fallback in one). The
+    // lambda is copied into a detached thread - value captures ONLY
+    std::string const dossierName = player->GetName();
+    auto mintDeterministic = [dossierBot, dossierName, topFact]()
+    {
+        ShareGossip(dossierBot,
+            "The word on " + dossierName + ": " + topFact, "dossier");
+    };
+
+    // the cloud half upgrades the wording once per week on the external
+    // tier (one capped call; ANY failure falls back to the deterministic
+    // row - fail-closed on wording, never on the row itself)
+    if (!ExternalApiTierActive() ||
+        PairingAgeDays(dossierBot, player->GetGUIDLow()) < 7 || // nothing cloud fires uninvited at a first login
+        !CloudQuotaAdmits("dossier", sPlayerbotAIConfig.llmDossierPerDay))
+    {
+        mintDeterministic();
+        return;
+    }
+    try
+    {
+    std::thread([mintDeterministic, fact = topFact, dossierBot, playerName = std::string(player->GetName())]() mutable
+    {
+        if (!ExternalApiTierActive())
+        {
+            mintDeterministic();
+            return; // tier flipped while the login walked: the row stands
+        }
+        try
+        {
+            std::string const user = "One true thing is known about the adventurer " +
+                playerName + ": " + fact +
+                "\nWrite the single line the whole town says about them - under "
+                "twenty words, plain speech, warm and a little nosy.";
+            pocketllm::RequestSampling s;
+            s.temperature = 1.0f;
+            s.topP = 0.95f;
+            s.maxTokens = 60;
+            s.minP = 0.05f;
+            s.providerSafe = true;
+            std::string const body = pocketllm::BuildChatRequestBody(
+                sPlayerbotAIConfig.llmApiModel,
+                "You write one line of small-town talk about an adventurer in a "
+                "fantasy world, based only on the given truth. No mechanics, no "
+                "questions.",
+                std::vector<pocketllm::HistoryTurn>(), user, s, true);
+            std::string const http = PlayerbotLLMInterface::PostChatHttp(
+                body, sPlayerbotAIConfig.llmGenerationTimeout, nullptr, nullptr);
+            pocketllm::CompletionEnvelope envelope =
+                pocketllm::ParseCompletionEnvelope(http);
+            if (envelope.parsed && pocketllm::ContentUsable(envelope))
+            {
+                std::vector<std::string> const lines =
+                    pocketllm::SplitNarratorBlock(envelope.content);
+                if (lines.size() == 1)
+                {
+                    ShareGossip(dossierBot,
+                        "The word on " + playerName + ": " + lines[0], "dossier");
+                    return;
+                }
+            }
+            mintDeterministic();
+        }
+        catch (...)
+        {
+            mintDeterministic();
+        }
+    }).detach();
+    }
+    catch (...)
+    {
+        mintDeterministic(); // spawn failed: the row still mints
+    }
+}
 
 bool PlayerbotLlmMemory::PlayerHasAnyPairing(uint32 playerGuid)
 {
@@ -1840,6 +3052,30 @@ bool PlayerbotLlmMemory::PlayerHasAnyPairing(uint32 playerGuid)
         "SELECT 1 FROM `bot_player_relationship` WHERE `player` = '%u' LIMIT 1",
         playerGuid);
     return bool(result);
+}
+
+int PlayerbotLlmMemory::PairingAgeDays(uint32 bot, uint32 player)
+{
+    // tenure from the OLDEST fact row's created_at (both dialects read
+    // unix seconds; the column defaults to CURRENT_TIMESTAMP on insert).
+    // No facts yet = no tenure (-1, caller renders nothing).
+    auto result = CharacterDatabase.PQuery(
+#ifdef DO_SQLITE
+        "SELECT strftime('%%s', MIN(`created_at`)) FROM `bot_player_facts` WHERE `bot` = '%u' AND `player` = '%u'",
+#else
+        "SELECT UNIX_TIMESTAMP(MIN(`created_at`)) FROM `bot_player_facts` WHERE `bot` = '%u' AND `player` = '%u'",
+#endif
+        bot, player);
+    if (!result)
+        return -1;
+    Field* fields = result->Fetch();
+    if (fields[0].IsNULL())
+        return -1;
+    time_t first = static_cast<time_t>(fields[0].GetUInt64());
+    if (first <= 0)
+        return -1;
+    time_t const days = (time(nullptr) - first) / 86400;
+    return days < 0 ? -1 : (int)days;
 }
 
 void PlayerbotLlmMemory::AcknowledgeWhisper(Player* bot, Player* player)
@@ -1894,9 +3130,111 @@ void PlayerbotLlmMemory::OnPlayerLogin(Player* player)
     // has never contacted a bot (pure DB read; the first pairing silences
     // it forever). ASCII hyphen: the sys-line channel predates the clamp.
     if (PlayerHasAnyPairing(player->GetGUIDLow()))
+    {
+        // plan v5 C2: the returning player with pairings gets the session
+        // recap instead - "the realm remembers between sessions" (digest
+        // first, cloud prose when the tier + quota admit; both silence
+        // below three rows by the doctrine)
+        DeliverSessionRecap(player);
+        // plan v5 C5: the weekly dossier mints alongside the recap (the
+        // login is the natural weekly moment; both halves fail closed)
+        MintWeeklyDossier(player);
         return;
+    }
     ChatHandler(player->GetSession()).SendSysMessage(
         "The people of this realm will talk back - walk up and greet them by name.");
+}
+
+// plan v5 C2: the session recap delivery. The deterministic digest always
+// renders (zero calls, works offline); the prose variant replaces it when
+// the external tier is active, the prose toggle is on and the daily quota
+// admits - one capped call, fail-closed to silence on any failure
+void PlayerbotLlmMemory::DeliverSessionRecap(Player* player)
+{
+    if (!sPlayerbotAIConfig.llmEventReactionsEnabled || !sPlayerbotAIConfig.llmRecapEnabled)
+        return;
+    std::vector<std::string> const lines = RenderRecapDigest(player);
+    if (lines.empty())
+        return;
+
+    bool const prose = ExternalApiTierActive() && sPlayerbotAIConfig.llmRecapProse &&
+        CloudQuotaAdmits("recap-prose", sPlayerbotAIConfig.llmRecapProsePerDay);
+    if (!prose)
+    {
+        ChatHandler(player->GetSession()).SendSysMessage("Previously, in your realm:");
+        for (std::string const& line : lines)
+            ChatHandler(player->GetSession()).SendSysMessage(line.c_str());
+        return;
+    }
+
+    // the prose call: copied values only (no Player* crosses threads and
+    // no chat packet is sent from a worker - the lines marshal through
+    // the chatter queue and deliver on the world thread). ANY failure -
+    // tier flip, dead endpoint, unusable or short output - falls back to
+    // the deterministic digest lines (a dead endpoint must never cost the
+    // player the digest too)
+    uint32 const playerGuid = player->GetGUIDLow();
+    std::vector<std::string> const digest = lines;
+    auto deliverDigest = [playerGuid, digest]()
+    {
+        std::vector<std::string> out;
+        out.push_back("Previously, in your realm:");
+        for (std::string const& line : digest)
+            out.push_back(line);
+        PlayerbotLlmChatter::DeliverSysLines(playerGuid, out);
+    };
+    try
+    {
+        std::thread([playerGuid, digest, deliverDigest]()
+        {
+            if (!ExternalApiTierActive())
+            {
+                deliverDigest(); // the digest is free and deterministic
+                return;
+            }
+            try
+            {
+                std::string user = "True things from the ledger:\n";
+                for (std::string const& line : digest)
+                    user += "- " + line + "\n";
+                user += "Write the recap.";
+                pocketllm::RequestSampling s;
+                s.temperature = 0.9f;
+                s.topP = 0.95f;
+                s.maxTokens = 220;
+                s.minP = 0.05f;
+                s.providerSafe = true;
+                std::string const body = pocketllm::BuildChatRequestBody(
+                    sPlayerbotAIConfig.llmApiModel, pocketllm::RecapSystemPrompt(),
+                    std::vector<pocketllm::HistoryTurn>(), user, s, true);
+                std::string const http = PlayerbotLLMInterface::PostChatHttp(
+                    body, sPlayerbotAIConfig.llmGenerationTimeout, nullptr, nullptr);
+                pocketllm::CompletionEnvelope envelope =
+                    pocketllm::ParseCompletionEnvelope(http);
+                if (!envelope.parsed || !pocketllm::ContentUsable(envelope))
+                {
+                    deliverDigest(); // dead endpoint: the digest stands
+                    return;
+                }
+                std::vector<std::string> const block =
+                    pocketllm::SplitNarratorBlock(envelope.content);
+                if (block.size() < 2)
+                {
+                    deliverDigest();
+                    return;
+                }
+                PlayerbotLlmChatter::DeliverSysLines(playerGuid, block);
+            }
+            catch (...)
+            {
+                deliverDigest();
+            }
+        }).detach();
+    }
+    catch (...)
+    {
+        deliverDigest(); // thread spawn failed: deliver synchronously
+    }
 }
 
 void PlayerbotLlmMemory::MaybeSessionStandingLine(Player* bot, Player* player,

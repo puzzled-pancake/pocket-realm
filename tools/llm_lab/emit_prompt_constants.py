@@ -86,7 +86,7 @@ def emit_recall() -> str:
     """The beat-cargo variant frames (the wording lock) as C++ array
     constants for PlayerbotLlmRecallCore.h. The frames are authored in
     banklib.BEAT_CARGO_VARIANTS and byte-mirrored here; the bridge selects
-    one per bot GUID-stably (flavor = botGuid % 3)."""
+    one per bot GUID-stably (flavor = botGuid % 6)."""
     laws = B.check_beat_frames()
     assert not laws, f"banklib beat frames violate the law block: {laws}"
     parts = []
@@ -94,7 +94,7 @@ def emit_recall() -> str:
     parts.append("// tools/llm_lab/emit_prompt_constants.py from banklib.py")
     parts.append("// BEAT_CARGO_VARIANTS - the S11 rev-3b wording lock; the")
     parts.append("// banks train these exact frames, and the bridge selects")
-    parts.append("// one flavor per bot, GUID-stably (flavor = botGuid % 3).")
+    parts.append("// one flavor per bot, GUID-stably (flavor = botGuid % 6).")
     parts.append("// Do not hand-edit between the markers. ----")
     for arr, kind in FRAME_ARRAYS:
         parts.append(f"static char const* const {arr}[] = {{")

@@ -45,6 +45,30 @@ BASE = f"http://127.0.0.1:{PORT}"
 RESULTS_DIR = r"C:\llm-lab\results"
 
 MODELS = {
+    "ling-tiny-q8": {
+        "path": "C:/llm-lab/models/Ling-3.0-tiny-Q8_0.gguf",
+        "sampling": dict(temperature=0.7, top_p=0.8, top_k=20,
+                         repeat_penalty=1.0),
+        "qwen": False,
+    },
+    "ling-tiny-q4": {
+        "path": "C:/llm-lab/models/Ling-3.0-tiny-Q4_0.gguf",
+        "sampling": dict(temperature=0.7, top_p=0.8, top_k=20,
+                         repeat_penalty=1.0),
+        "qwen": False,
+    },
+    "qw35-2b-s11r5": {
+        "path": "G:/NPU LLM/models/qwen35-2B-S11R5-q4_0.gguf",
+        "sampling": dict(temperature=0.5, top_p=0.8, top_k=20,
+                         repeat_penalty=1.0),
+        "qwen": True,
+    },
+    "e2b-s11r5": {
+        "path": r"G:\NPU LLM\models\gemma4-E2B-S11R5-q4_0.gguf",
+        "sampling": dict(temperature=0.7, top_p=0.8, top_k=20,
+                         repeat_penalty=1.0, presence_penalty=1.0),
+        "qwen": False,
+    },
     "e2b-tuned": {
         "path": r"G:\NPU LLM\models\gemma4-E2B-TUNED-q4_0.gguf",
         "sampling": dict(temperature=0.7, top_p=0.8, top_k=20,

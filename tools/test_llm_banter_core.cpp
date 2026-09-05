@@ -168,6 +168,64 @@ static int RunInvariants()
         std::printf("golden_fnv1a64=%016llx\n", (unsigned long long)h);
     }
 
+    // ---- Phase-3 mood weather: stability, bounds, determinism
+    {
+        for (uint32_t g = 0; g < 64; ++g)
+        {
+            int m1 = MoodIndexOf(g, 100, 0);
+            int m2 = MoodIndexOf(g, 100, 0);
+            CHECK(m1 == m2 && m1 >= 0 && m1 < MOOD_COUNT, "mood deterministic in range");
+            int m3 = MoodIndexOf(g, 101, 0);
+            (void)m3; // weather MAY drift across buckets, never out of range
+            CHECK(m3 >= 0 && m3 < MOOD_COUNT, "mood bucket in range");
+            char const* line = MoodSeasoningLine(m1);
+            CHECK(line && std::strlen(line) > 20, "mood seasoning text present");
+            CHECK(std::strchr(line, '<') == 0 && std::strchr(line, '>') == 0,
+                "mood line carries no markers");
+            PoolId mp = MoodPoolOf(m1);
+            size_t mc = 0; char const* const* ml = Pool(mp, mc);
+            CHECK(ml && mc >= (size_t)kMinPoolLines, "mood pool meets the min-lines law");
+        }
+        // plan v5 H1: the three event moods carry their OWN pools - the
+        // alias table made the deterministic layer contradict its prompt
+        // seasoning (prompt said smitten, the fallback line sounded
+        // homesick)
+        CHECK(MoodPoolOf(MOOD_SMITTEN) == POOL_MOOD_SMITTEN, "smitten maps to its own pool");
+        CHECK(MoodPoolOf(MOOD_GRUDGE) == POOL_MOOD_GRUDGE, "grudge maps to its own pool");
+        CHECK(MoodPoolOf(MOOD_GRIEF) == POOL_MOOD_GRIEF, "grief maps to its own pool");
+        {
+            PoolId const dedicated[3] = {
+                POOL_MOOD_SMITTEN, POOL_MOOD_GRUDGE, POOL_MOOD_GRIEF,
+            };
+            for (PoolId p : dedicated)
+            {
+                size_t n = 0; char const* const* pool = Pool(p, n);
+                CHECK(pool && n >= (size_t)kMinPoolLines,
+                    "dedicated mood pool meets the min-lines law");
+            }
+        }
+        CHECK(MoodWeightPermille(50) == 1000, "default volatility is unity");
+        CHECK(MoodWeightPermille(0) == 500, "steady halves mood presence");
+        CHECK(MoodWeightPermille(100) == 1500, "changeable doubles mood presence");
+        CHECK(MoodWeightPermille(-5) == 1000, "negative dial follows default");
+        CHECK(MoodWeightPermille(999) == 1000, "wild dial follows default");
+    }
+
+    // plan v5 F7: ArbiterPrune drops exactly the expired stamps and keeps
+    // the fresh ones (the check-then-stamp pair stays with the caller)
+    {
+        std::deque<int64_t> stamps;
+        stamps.push_back(100); stamps.push_back(3600); stamps.push_back(3700);
+        ArbiterPrune(stamps, 3700, 3600);
+        CHECK(stamps.size() == 2, "prune drops only fully-expired stamps");
+        CHECK(stamps.front() == 3600, "boundary stamp (exactly window old) survives");
+        ArbiterPrune(stamps, 3700, 3600);
+        CHECK(stamps.size() == 2, "prune is idempotent");
+        std::deque<int64_t> empty;
+        ArbiterPrune(empty, 100, 3600);
+        CHECK(empty.empty(), "prune handles the empty deque");
+    }
+
     if (g_failures) { std::printf("%d invariant failure(s)\n", g_failures); return 1; }
     std::printf("banter invariants passed\n");
     return 0;
