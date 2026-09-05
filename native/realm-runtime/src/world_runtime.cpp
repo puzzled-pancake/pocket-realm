@@ -5,9 +5,14 @@
 #include "Config/Config.h"
 #include "Accounts/AccountMgr.h"
 #include "Database/DatabaseEnv.h"
+#include "Entities/Player.h"
 #include "Globals/ObjectAccessor.h"
+#include "Globals/SharedDefines.h"
 #include "Log/Log.h"
 #include "Master.h"
+#include "Server/Opcodes.h"
+#include "Server/WorldPacket.h"
+#include "Server/WorldSession.h"
 #include "World/World.h"
 #ifdef ENABLE_PLAYERBOTS
 #include "playerbot/PlayerbotAIConfig.h"
@@ -71,6 +76,7 @@ public:
         m_bot_accounts.store(0, std::memory_order_release);
         m_effective_bot_target.store(0, std::memory_order_release);
         m_bot_target_fence.reset();
+        reset_chat_injection();
         for (auto& value : m_low_cpu_telemetry)
             value.store(0, std::memory_order_release);
         m_last_low_cpu_sampled_at = 0;
@@ -353,6 +359,264 @@ public:
         return json.str();
     }
 
+    // ---- H2 relay-min: the per-change smoke rail's three fixed-purpose
+    // ops. All three answer in JSON (the character_persistence pattern):
+    // no SQL and no raw chat text crosses Binder - each op is a fixed verb
+    // with native-side validation and escaping. world_chat additionally
+    // marshals to the world thread: the session chat handlers (and every
+    // playerbot hook inside them) run there, so the packet is drained from
+    // record_tick like the bot-target fence, never touched from the
+    // binder thread.
+
+    std::string world_chat(const std::string& character_name, const std::string& channel,
+        const std::string& target_name, const std::string& text, uint64_t timeout_ms)
+    {
+        if (m_state.state() != POCKET_SERVER_READY)
+            return "{\"ok\":false,\"reason\":\"world-not-ready\"}";
+        const auto ascii_letters = [](const std::string& value) {
+            return !value.empty() && std::all_of(value.begin(), value.end(),
+                [](unsigned char c) { return c < 0x80 && std::isalpha(c); });
+        };
+        const auto valid_name = [&](const std::string& value) {
+            return value.size() >= 2 && value.size() <= 12 && ascii_letters(value);
+        };
+        // the wire limit CheckChatMessage enforces on real clients (over
+        // 255 kicks the sender); printable ASCII only - no controls, no
+        // multibyte, exactly what the relay could type on a client
+        const auto valid_text = [](const std::string& value) {
+            return !value.empty() && value.size() <= 255 &&
+                std::all_of(value.begin(), value.end(),
+                    [](unsigned char c) { return c >= 0x20 && c < 0x7f; });
+        };
+        uint32_t type = 0;
+        if (channel == "say") type = CHAT_MSG_SAY;
+        else if (channel == "party") type = CHAT_MSG_PARTY;
+        else if (channel == "yell") type = CHAT_MSG_YELL;
+        else if (channel == "whisper") type = CHAT_MSG_WHISPER;
+        else return "{\"ok\":false,\"reason\":\"unknown-channel\"}";
+        if (!valid_name(character_name))
+            return "{\"ok\":false,\"reason\":\"invalid-character-name\"}";
+        // target is the receiving bot name, whisper only
+        if (type == CHAT_MSG_WHISPER ? !valid_name(target_name) : !target_name.empty())
+            return "{\"ok\":false,\"reason\":\"invalid-target\"}";
+        // a leading '.' would be eaten by ChatHandler::ParseCommands as a
+        // GM command instead of reaching the chat path
+        if (!valid_text(text) || text[0] == '.')
+            return "{\"ok\":false,\"reason\":\"invalid-text\"}";
+        {
+            std::lock_guard<std::mutex> guard(m_chat_slot.mutex);
+            if (m_chat_slot.pending) return "{\"ok\":false,\"reason\":\"busy\"}";
+            m_chat_slot.pending = true;
+            m_chat_slot.done = false;
+            m_chat_slot.ok = false;
+            m_chat_slot.reason.clear();
+            m_chat_slot.request.type = type;
+            m_chat_slot.request.sender = character_name;
+            m_chat_slot.request.target = target_name;
+            m_chat_slot.request.text = text;
+            m_chat_slot.changed.notify_all();
+        }
+        // the drain runs on the next unpaused world tick; companion mode's
+        // reduced duty cycle still ticks, so a paused world only delays the
+        // injection until its 1 Hz update
+        std::unique_lock<std::mutex> guard(m_chat_slot.mutex);
+        const bool finished = m_chat_slot.changed.wait_for(
+            guard, std::chrono::milliseconds(timeout_ms),
+            [&] { return m_chat_slot.done; });
+        const bool ok = finished && m_chat_slot.ok;
+        const std::string reason = ok ? std::string() :
+            (finished ? m_chat_slot.reason : std::string("world-tick-timeout"));
+        // single-use slot: harvest the verdict, then clear for the next op
+        // (a timeout does NOT cancel an in-flight drain - the packet may
+        // still land; only the caller's view expired)
+        m_chat_slot.pending = false;
+        m_chat_slot.done = false;
+        m_chat_slot.request = ChatInjectionRequest();
+        std::ostringstream json;
+        json << "{\"ok\":" << (ok ? "true" : "false")
+             << ",\"injected\":" << (ok ? "true" : "false")
+             << ",\"channel\":\"" << json_escape(channel) << "\""
+             << ",\"char\":\"" << json_escape(character_name) << "\"";
+        if (type == CHAT_MSG_WHISPER)
+            json << ",\"target\":\"" << json_escape(target_name) << "\"";
+        json << ",\"textBytes\":" << text.size();
+        if (!ok) json << ",\"reason\":\"" << json_escape(reason) << "\"";
+        json << "}";
+        return json.str();
+    }
+
+    std::string reset_state(const std::string& player_name)
+    {
+        if (m_state.state() != POCKET_SERVER_READY)
+            return "{\"ok\":false,\"reason\":\"world-not-ready\"}";
+        // Test isolation: clears the LLM assertion state - the two memory
+        // tables whose contents the rp-harness assertions read. Deleting
+        // while bots are online is acceptable for tests: facts re-mint on
+        // the next conversation (GetOrCreateBackstory/LogFact are
+        // mint-on-demand) and relationships regrow from zero. The
+        // process-local rolling history and chatter pools are NOT cleared
+        // - they die with the world process, which a full reset restarts.
+        uint32_t player_guid = 0;
+        if (!player_name.empty())
+        {
+            if (player_name.size() < 2 || player_name.size() > 12 ||
+                !std::all_of(player_name.begin(), player_name.end(),
+                    [](unsigned char c) { return c < 0x80 && std::isalpha(c); }))
+                return "{\"ok\":false,\"reason\":\"invalid-player-name\"}";
+            std::string escaped = player_name;
+            CharacterDatabase.escape_string(escaped);
+            if (auto result = CharacterDatabase.PQuery(
+                    "SELECT guid FROM characters WHERE name='%s' AND deleteDate IS NULL LIMIT 1",
+                    escaped.c_str()))
+                player_guid = result->Fetch()[0].GetUInt32();
+            if (!player_guid) return "{\"ok\":false,\"reason\":\"player-missing\"}";
+        }
+        // PExecute reports no affected rows, so the counts are pre-delete
+        // snapshots taken under the same call - exact for an idle test
+        // world, close enough otherwise
+        const auto count_rows = [&](const char* table) {
+            if (player_guid)
+            {
+                if (auto result = CharacterDatabase.PQuery(
+                        "SELECT COUNT(*) FROM %s WHERE player='%u'", table, player_guid))
+                    return result->Fetch()[0].GetUInt32();
+            }
+            else if (auto result = CharacterDatabase.PQuery(
+                     "SELECT COUNT(*) FROM %s", table))
+                return result->Fetch()[0].GetUInt32();
+            return uint32_t(0);
+        };
+        const uint32_t facts = count_rows("bot_player_facts");
+        const uint32_t relationships = count_rows("bot_player_relationship");
+        if (player_guid)
+        {
+            CharacterDatabase.PExecute(
+                "DELETE FROM bot_player_facts WHERE player='%u'", player_guid);
+            CharacterDatabase.PExecute(
+                "DELETE FROM bot_player_relationship WHERE player='%u'", player_guid);
+        }
+        else
+        {
+            CharacterDatabase.PExecute("DELETE FROM bot_player_facts");
+            CharacterDatabase.PExecute("DELETE FROM bot_player_relationship");
+        }
+        std::ostringstream json;
+        json << "{\"ok\":true,\"scope\":\"" << (player_guid ? "player" : "all") << "\"";
+        if (player_guid)
+            json << ",\"player\":\"" << json_escape(player_name) << "\""
+                 << ",\"playerGuid\":" << player_guid;
+        json << ",\"factsCleared\":" << facts
+             << ",\"relationshipsCleared\":" << relationships << "}";
+        return json.str();
+    }
+
+    std::string llm_memory_state(const std::string& player_name)
+    {
+        if (m_state.state() != POCKET_SERVER_READY && m_state.state() != POCKET_SERVER_SAVING)
+            return "{\"ok\":false,\"reason\":\"world-not-ready\"}";
+        if (player_name.empty())
+        {
+            // world summary - the smoke rail's bot picker. Names sorted so
+            // suite selection is deterministic; the players-map read is the
+            // same lock-guarded pattern as online_players().
+            std::vector<std::string> bots;
+            {
+                HashMapHolder<Player>::ReadGuard guard(HashMapHolder<Player>::GetLock());
+                for (auto& entry : sObjectAccessor.GetPlayers())
+                    if (Player* player = entry.second)
+                        if (player->GetPlayerbotAI())
+                            bots.push_back(player->GetName());
+            }
+            std::sort(bots.begin(), bots.end());
+            uint32_t total_facts = 0;
+            uint32_t total_relationships = 0;
+            if (auto result = CharacterDatabase.PQuery("SELECT COUNT(*) FROM bot_player_facts"))
+                total_facts = result->Fetch()[0].GetUInt32();
+            if (auto result = CharacterDatabase.PQuery("SELECT COUNT(*) FROM bot_player_relationship"))
+                total_relationships = result->Fetch()[0].GetUInt32();
+            std::ostringstream json;
+            json << "{\"ok\":true,\"scope\":\"world\",\"botsOnline\":" << bots.size()
+                 << ",\"onlineBots\":[";
+            for (size_t i = 0; i < bots.size(); ++i)
+            {
+                if (i) json << ',';
+                json << "\"" << json_escape(bots[i]) << "\"";
+            }
+            json << "],\"totalFacts\":" << total_facts
+                 << ",\"totalRelationships\":" << total_relationships << "}";
+            return json.str();
+        }
+        if (player_name.size() < 2 || player_name.size() > 12 ||
+            !std::all_of(player_name.begin(), player_name.end(),
+                [](unsigned char c) { return c < 0x80 && std::isalpha(c); }))
+            return "{\"ok\":false,\"reason\":\"invalid-player-name\"}";
+        std::string escaped = player_name;
+        CharacterDatabase.escape_string(escaped);
+        uint32_t player_guid = 0;
+        if (auto result = CharacterDatabase.PQuery(
+                "SELECT guid FROM characters WHERE name='%s' AND deleteDate IS NULL LIMIT 1",
+                escaped.c_str()))
+            player_guid = result->Fetch()[0].GetUInt32();
+        if (!player_guid) return "{\"ok\":false,\"reason\":\"player-missing\"}";
+
+        // per-bot relationship rows (the tier/points the tier_up
+        // assertion observes), bot names joined in for normalized matching
+        std::ostringstream relationships;
+        uint32_t relationship_count = 0;
+        if (auto result = CharacterDatabase.PQuery(
+                "SELECT r.bot, c.name, r.tier, r.points FROM bot_player_relationship r "
+                "LEFT JOIN characters c ON c.guid = r.bot WHERE r.player = '%u' ORDER BY r.bot",
+                player_guid))
+        {
+            do
+            {
+                Field* row = result->Fetch();
+                if (relationship_count) relationships << ',';
+                relationships << "{\"bot\":\"" << json_escape(row[1].GetCppString()) << "\""
+                              << ",\"botGuid\":" << row[0].GetUInt32()
+                              << ",\"tier\":\"" << json_escape(row[2].GetCppString()) << "\""
+                              << ",\"points\":" << row[3].GetInt32() << '}';
+                ++relationship_count;
+            } while (result->NextRow());
+        }
+
+        // per-(bot, prefix) fact counts: the prefix bucket is the first 16
+        // bytes of fact_text (SUBSTR is engine-common; the lane is sqlite),
+        // category kept so opinion/preference rows stay distinguishable
+        std::ostringstream facts;
+        uint32_t fact_count = 0;
+        if (auto result = CharacterDatabase.PQuery(
+                "SELECT f.bot, c.name, SUBSTR(f.fact_text, 1, 16), f.category, COUNT(*) "
+                "FROM bot_player_facts f LEFT JOIN characters c ON c.guid = f.bot "
+                "WHERE f.player = '%u' "
+                "GROUP BY f.bot, SUBSTR(f.fact_text, 1, 16), f.category "
+                "ORDER BY f.bot, f.category",
+                player_guid))
+        {
+            do
+            {
+                Field* row = result->Fetch();
+                if (fact_count) facts << ',';
+                facts << "{\"bot\":\"" << json_escape(row[1].GetCppString()) << "\""
+                      << ",\"botGuid\":" << row[0].GetUInt32()
+                      << ",\"prefix\":\"" << json_escape(row[2].GetCppString()) << "\""
+                      << ",\"category\":\"" << json_escape(row[3].GetCppString()) << "\""
+                      << ",\"count\":" << row[4].GetUInt32() << '}';
+                ++fact_count;
+            } while (result->NextRow());
+        }
+
+        std::ostringstream json;
+        json << "{\"ok\":true,\"scope\":\"player\""
+             << ",\"player\":\"" << json_escape(player_name) << "\""
+             << ",\"playerGuid\":" << player_guid
+             << ",\"relationships\":[" << relationships.str() << "]"
+             << ",\"relationshipCount\":" << relationship_count
+             << ",\"facts\":[" << facts.str() << "]"
+             << ",\"factCount\":" << fact_count << "}";
+        return json.str();
+    }
+
     std::string realm_info()
     {
         if (m_state.state() != POCKET_SERVER_READY && m_state.state() != POCKET_SERVER_SAVING)
@@ -449,6 +713,9 @@ public:
 
     void record_tick(uint32_t duration)
     {
+        // the world-chat injection drains here (world thread) before any
+        // tick accounting - see drain_chat_injection for the path
+        drain_chat_injection();
         m_ticks.fetch_add(1, std::memory_order_relaxed);
         m_last_tick.store(duration, std::memory_order_release);
         uint32_t previous = m_max_tick.load(std::memory_order_relaxed);
@@ -684,9 +951,97 @@ private:
         return result->success ? POCKET_SERVER_OK : POCKET_SERVER_ACCOUNT_REJECTED;
     }
 
+    // ---- H2 relay-min: chat injection plumbing ----
+    // The binder thread queues a synthetic chat line; the world thread
+    // drains it on the next tick (session chat handlers and the playerbot
+    // hooks inside them run there - the same marshaling law as the bot
+    // target fence). One pending slot: the relay is serial by design.
+
+    struct ChatInjectionRequest
+    {
+        uint32_t type{0};
+        std::string sender;
+        std::string target;
+        std::string text;
+    };
+
+    struct ChatInjectionSlot
+    {
+        std::mutex mutex;
+        std::condition_variable changed;
+        bool pending{false};
+        bool done{false};
+        bool ok{false};
+        std::string reason;
+        ChatInjectionRequest request;
+    };
+
+    void drain_chat_injection()
+    {
+        ChatInjectionRequest request;
+        {
+            std::lock_guard<std::mutex> guard(m_chat_slot.mutex);
+            if (!m_chat_slot.pending) return;
+            request = m_chat_slot.request;
+        }
+        // Injection path (the one design decision this op owns): build a
+        // synthetic CMSG_MESSAGECHAT packet in the exact wire layout a
+        // client sends - uint32 type, uint32 lang, then the per-type
+        // payload (whisper: to-name then text; say/party/yell: text) - and
+        // hand it to WorldSession::HandleMessagechatOpcode, the same
+        // function the opcode table dispatches for real client packets.
+        // Every downstream gate therefore runs identically for an injected
+        // line and a client line: CheckChatMessage, the CanSpeak flood
+        // control, ChatHandler::ParseCommands, RandomPlayerbotMgr's
+        // radius/team filters on say/yell, the per-bot
+        // PlayerbotAI::HandleCommand hook on whisper, and inside it the
+        // LLM say/party/whisper trigger gates under test. LANG_UNIVERSAL
+        // reads as every faction so the receiving bots understand the line
+        // regardless of team. A session-grafted synthetic login was
+        // rejected: without a socket the session reads as a bot
+        // (GetRemoteAddress() == "disconnected/bot"), so isRealPlayer()
+        // stays false and the LLM conversational gates would never fire.
+        Player* sender = sObjectAccessor.FindPlayerByName(request.sender.c_str());
+        WorldSession* session = sender ? sender->GetSession() : nullptr;
+        if (!session)
+            return finish_chat_injection(false, "sender-not-online");
+        WorldPacket packet(CMSG_MESSAGECHAT,
+            16 + request.target.size() + request.text.size());
+        packet << uint32(request.type);
+        packet << uint32(LANG_UNIVERSAL);
+        if (request.type == CHAT_MSG_WHISPER)
+            packet << request.target;
+        packet << request.text;
+        session->HandleMessagechatOpcode(packet);
+        finish_chat_injection(true, "");
+    }
+
+    void finish_chat_injection(bool ok, const std::string& reason)
+    {
+        std::lock_guard<std::mutex> guard(m_chat_slot.mutex);
+        m_chat_slot.ok = ok;
+        m_chat_slot.reason = reason;
+        m_chat_slot.done = true;
+        m_chat_slot.changed.notify_all();
+    }
+
+    void reset_chat_injection()
+    {
+        // lifecycle reset: wake any waiter with a verdict, never leave a
+        // stale request queued for the next world run
+        std::lock_guard<std::mutex> guard(m_chat_slot.mutex);
+        m_chat_slot.pending = false;
+        m_chat_slot.done = true;
+        m_chat_slot.ok = false;
+        m_chat_slot.reason = "world-lifecycle-reset";
+        m_chat_slot.request = ChatInjectionRequest();
+        m_chat_slot.changed.notify_all();
+    }
+
     void cleanup()
     {
         m_bot_target_fence.reset();
+        reset_chat_injection();
         if (m_started)
         {
             World::StopNow(SHUTDOWN_EXIT_CODE);
@@ -730,6 +1085,9 @@ private:
     std::atomic<int> m_bot_max{0};
     std::atomic<int> m_effective_bot_target{0};
     pocket_server::BotTargetFence m_bot_target_fence;
+    // H2 relay-min: the pending world-chat injection (world-thread drain;
+    // see ChatInjectionSlot above)
+    ChatInjectionSlot m_chat_slot;
     std::array<std::atomic<uint32_t>, 12> m_low_cpu_telemetry{};
     uint32_t m_last_low_cpu_sampled_at{0};
     std::array<uint32_t, 2048> m_tick_window{};
@@ -846,6 +1204,26 @@ Java_com_pocketrealm_server_WorldNative_characterPersistenceNative(
     return to_jstring(env, g_runtime.character_persistence(
         from_jstring(env, username), from_jstring(env, character_name)));
 }
+
+// ---- H2 relay-min smoke-rail ops ----
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_pocketrealm_server_WorldNative_worldChatNative(
+    JNIEnv* env, jclass, jstring character_name, jstring channel, jstring target,
+    jstring text, jlong timeout_ms)
+{
+    return to_jstring(env, g_runtime.world_chat(from_jstring(env, character_name),
+        from_jstring(env, channel), from_jstring(env, target), from_jstring(env, text),
+        static_cast<uint64_t>(std::max<jlong>(0, timeout_ms))));
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_pocketrealm_server_WorldNative_resetStateNative(JNIEnv* env, jclass, jstring player)
+{ return to_jstring(env, g_runtime.reset_state(from_jstring(env, player))); }
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_pocketrealm_server_WorldNative_llmMemoryStateNative(JNIEnv* env, jclass, jstring player)
+{ return to_jstring(env, g_runtime.llm_memory_state(from_jstring(env, player))); }
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_pocketrealm_server_WorldNative_realmInfoNative(JNIEnv* env, jclass)

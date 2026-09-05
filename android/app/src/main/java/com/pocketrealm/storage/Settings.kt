@@ -383,6 +383,16 @@ class Settings(private val context: Context) {
         val gameSettingsDirectEditRevisions: Map<String, Long> = emptyMap(),
         val audioMode: AudioMode = AudioMode.ON,
         val nearbyInteractTriggerGuardMs: Int = NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
+        /**
+         * B2: verbose world-server logging (mangosd LogFileLevel = 3) staged
+         * into world.conf. Default OFF keeps the world log at errors-only
+         * (level 1, matching realmd): the vendored level 3 flooded world.log
+         * with movement and battleground churn (79.7 MB over a 30-minute
+         * soak) that has never diagnosed a field issue. Applies on the next
+         * realm start, like every world.conf knob - the conf is written at
+         * world start.
+         */
+        val worldDebugLogs: Boolean = false,
         /** Missing legacy values migrate to LOCAL; LAN hosting remains opt-in. */
         val runtimeMode: RuntimeMode = RuntimeMode.LOCAL,
         val allowLanPlayers: Boolean = false,
@@ -784,6 +794,7 @@ class Settings(private val context: Context) {
             this[Keys.NEARBY_INTERACT_TRIGGER_GUARD_MS]
                 ?: NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
         ),
+        worldDebugLogs = (this[Keys.WORLD_DEBUG_LOGS] ?: 0) == 1,
         runtimeMode = runCatching { RuntimeMode.valueOf(this[Keys.RUNTIME_MODE] ?: "") }
             .getOrDefault(RuntimeMode.LOCAL),
         allowLanPlayers = (this[Keys.ALLOW_LAN_PLAYERS] ?: 0) == 1,
@@ -879,6 +890,7 @@ private object Keys {
     val AUDIO_MODE = stringPreferencesKey("audio_mode")
     val NEARBY_INTERACT_TRIGGER_GUARD_MS =
         intPreferencesKey("nearby_interact_trigger_guard_ms")
+    val WORLD_DEBUG_LOGS = intPreferencesKey("world_debug_logs")
     val RUNTIME_MODE = stringPreferencesKey("runtime_mode")
     val ALLOW_LAN_PLAYERS = intPreferencesKey("allow_lan_players")
     val LLM_ENABLED = intPreferencesKey("llm_enabled")
@@ -1051,6 +1063,7 @@ internal fun MutablePreferences.writeSnapshotWrites(
     this[Keys.AUDIO_MODE] = next.audioMode.name
     this[Keys.NEARBY_INTERACT_TRIGGER_GUARD_MS] =
         NearbyInteractPolicy.normalizeTriggerGuardMs(next.nearbyInteractTriggerGuardMs)
+    this[Keys.WORLD_DEBUG_LOGS] = if (next.worldDebugLogs) 1 else 0
     this[Keys.RUNTIME_MODE] = next.runtimeMode.name
     this[Keys.ALLOW_LAN_PLAYERS] = if (next.allowLanPlayers) 1 else 0
     this[Keys.LLM_ENABLED] = if (next.llmEnabled) 1 else 0

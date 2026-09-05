@@ -214,6 +214,50 @@ class ServerRuntimeFilesLlmGateTest {
         )!!
         assertTrue(external.contains("AiPlayerbot.LLMBanterEnabled = 1"))
     }
+
+    @Test
+    fun defaultPromptsFileReachesEveryEmittedBlockLane() {
+        // B8: the staged EMPTY default-prompts file must ride every lane the
+        // gate can emit - the native loader opens it on the HTTP and
+        // in-process paths alike, so a lane without the line regresses to
+        // the "not found or unreadable" startup line. Null (staging failed
+        // or the LLM is off) omits the line everywhere.
+        val http = ServerRuntimeFiles.llmOverrides(
+            uiEnabled = true,
+            modelPresent = true,
+            modelAbsolutePath = "/data/models/qwen.gguf",
+            debugBuild = false,
+            defaultPromptsFile = "/srv/run/llm_character_card",
+        )!!
+        assertTrue(http.contains("AiPlayerbot.LLMDefaultPromptsFile = \"/srv/run/llm_character_card\"\n"))
+        val external = ServerRuntimeFiles.llmOverrides(
+            uiEnabled = true,
+            modelPresent = false,
+            modelAbsolutePath = "",
+            debugBuild = false,
+            externalMode = true,
+            externalEndpoint = "https://api.openai.com/v1/chat/completions",
+            externalModel = "gpt-4o-mini",
+            externalApiKey = "sk-test",
+            defaultPromptsFile = "/srv/run/llm_character_card",
+        )!!
+        assertTrue(external.contains("AiPlayerbot.LLMDefaultPromptsFile = \"/srv/run/llm_character_card\"\n"))
+        val debug = ServerRuntimeFiles.llmOverrides(
+            uiEnabled = false,
+            modelPresent = true,
+            modelAbsolutePath = "/data/models/qwen.gguf",
+            debugBuild = true,
+            defaultPromptsFile = "/srv/run/llm_character_card",
+        )!!
+        assertTrue(debug.contains("AiPlayerbot.LLMDefaultPromptsFile = \"/srv/run/llm_character_card\"\n"))
+        val without = ServerRuntimeFiles.llmOverrides(
+            uiEnabled = true,
+            modelPresent = true,
+            modelAbsolutePath = "/data/models/qwen.gguf",
+            debugBuild = false,
+        )!!
+        assertFalse(without.contains("LLMDefaultPromptsFile"))
+    }
     @Test
     fun selectedModelsSamplingProfileReachesTheEmbeddedConfBlock() {
         // llmOverrides must forward the SELECTED model's profile to

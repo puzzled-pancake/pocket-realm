@@ -163,6 +163,23 @@ class WorldRuntimeService : Service() {
             JSONObject(WorldNative.characterPersistenceNative(username, characterName))
                 .put("schema", 1).put("ok", true).put("component", "world")
         }
+        // H2 relay-min smoke rail: the native side owns validation and
+        // answers with its own ok verdict (character names/channel/text are
+        // op-specific shapes, not the account/character contract tokens).
+        override fun worldChat(characterName: String, channel: String, target: String, text: String) =
+            guarded { transitionGate.run {
+                JSONObject(WorldNative.worldChatNative(
+                    characterName, channel, target, text, ServerRuntimeContract.CONTROL_TIMEOUT_MS))
+                    .put("schema", 1).put("component", "world")
+            } }
+        override fun resetState(player: String) = guarded { transitionGate.run {
+            JSONObject(WorldNative.resetStateNative(player))
+                .put("schema", 1).put("component", "world")
+        } }
+        override fun llmMemoryState(player: String) = guarded { transitionGate.run {
+            JSONObject(WorldNative.llmMemoryStateNative(player))
+                .put("schema", 1).put("component", "world")
+        } }
         override fun realmStatus() = guarded {
             JSONObject(WorldNative.realmInfoNative())
                 .put("schema", 1).put("ok", true).put("component", "world")

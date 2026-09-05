@@ -313,6 +313,30 @@ class LlmRuntimePolicyTest {
     }
 
     @Test
+    fun defaultPromptsLineEmitsOnlyWhenStaged() {
+        // B8: the staged EMPTY default-prompts file rides both conf blocks
+        // BY ABSOLUTE PATH - the native loader resolves the bare relative
+        // default (llm_character_card) against CWD, never the run dir, so a
+        // relative value here would regress to the "not found or unreadable"
+        // startup line. Absent keeps the native default's fail-open behavior.
+        val with = LlmRuntimePolicy.confBlock(
+            llmEnabled = true, defaultPromptsFile = "/srv/run/llm_character_card",
+        )!!
+        assertTrue(with.contains("AiPlayerbot.LLMDefaultPromptsFile = \"/srv/run/llm_character_card\"\n"))
+        val without = LlmRuntimePolicy.confBlock(llmEnabled = true)!!
+        assertFalse(without.contains("LLMDefaultPromptsFile"))
+        val external = LlmRuntimePolicy.confBlockExternal(
+            "http://127.0.0.1:9/v1/chat/completions", "m", "",
+            defaultPromptsFile = "/srv/run/llm_character_card",
+        )!!
+        assertTrue(external.contains("AiPlayerbot.LLMDefaultPromptsFile = \"/srv/run/llm_character_card\"\n"))
+        val externalWithout = LlmRuntimePolicy.confBlockExternal(
+            "http://127.0.0.1:9/v1/chat/completions", "m", "",
+        )!!
+        assertFalse(externalWithout.contains("LLMDefaultPromptsFile"))
+    }
+
+    @Test
     fun chatterLinesEmitWheneverThePowerFileIsStagedAndGateOnItsFlag() {
         // the conf enables the SUBSYSTEM whenever the app staged
         // the power file (LLM on) - the FILE's enabled flag is the master

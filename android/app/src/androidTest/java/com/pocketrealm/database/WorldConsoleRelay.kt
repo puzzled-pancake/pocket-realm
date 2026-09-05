@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit
  * The host side is tools/world_console.py (adb root + push/pull of the
  * two files; run-as cannot cross the API-35 FUSE boundary).
  *
- * Ops (arg1/arg2 payload):
+ * Ops (arg1/arg2 payload; world-chat also reads arg3/arg4):
  *   db-status | db-health | db-stop
  *   realm-start | realm-status | realm-stop
  *   world-start | world-start-bot <profileId> | world-status |
@@ -36,6 +36,13 @@ import java.util.concurrent.TimeUnit
  *   world-gm <user> <level> | world-account-status <user> |
  *   world-persistence <user> <char> | world-pause <0|1> |
  *   world-kill | world-stop
+ *   world-chat <char> <channel> [target] <text>   (H2 relay-min: channel
+ *       is say|party|whisper|yell; target = receiving bot name, whisper
+ *       only; text rides arg4 - see tools/rp_harness)
+ *   reset-state [player]     (H2 relay-min: clears bot_player_facts +
+ *       bot_player_relationship for one player or all)
+ *   llm-memory-state <player> (H2 relay-min: per-bot relationship rows +
+ *       per-(bot,prefix) fact counts; empty player = world summary)
  *   stack-up-bot <profileId>   (db init+migrations+start → realm → world)
  *   quit
  */
@@ -93,6 +100,8 @@ class WorldConsoleRelay {
     private fun execute(op: String, command: JSONObject): JSONObject {
         val arg1 = command.optString("arg1")
         val arg2 = command.optString("arg2")
+        val arg3 = command.optString("arg3")
+        val arg4 = command.optString("arg4")
         return when (op) {
             "db-status" -> passthrough(op) { db().status() }
             "db-health" -> passthrough(op) { db().queryHealth() }
@@ -111,6 +120,16 @@ class WorldConsoleRelay {
             "world-gm" -> passthrough(op) { worldApi().setAccountGmLevel(arg1, arg2.toIntOrNull() ?: 0) }
             "world-account-status" -> passthrough(op) { worldApi().accountStatus(arg1) }
             "world-persistence" -> passthrough(op) { worldApi().characterPersistence(arg1, arg2) }
+            // H2 relay-min: arg1 = sending char name, arg2 = channel
+            // (say|party|whisper|yell), arg3 = receiving bot name (whisper
+            // only), arg4 = the chat text
+            "world-chat" -> passthrough(op) {
+                worldApi().worldChat(arg1, arg2, arg3, arg4) }
+            // H2 relay-min: arg1 = player name ("" = every player)
+            "reset-state" -> passthrough(op) { worldApi().resetState(arg1) }
+            // H2 relay-min: arg1 = player name ("" = world summary with
+            // online bot names)
+            "llm-memory-state" -> passthrough(op) { worldApi().llmMemoryState(arg1) }
             "world-pause" -> passthrough(op) { worldApi().setWorldPaused(arg1.toIntOrNull() ?: 0) }
             "world-kill" -> {
                 val killed = runCatching { worldApi().killForTest() }

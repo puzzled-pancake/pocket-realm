@@ -111,9 +111,14 @@ internal class ServerRuntimeFiles(context: Context) {
         nearbyInteractTriggerGuardMs: Int,
     ): File {
         val endpoint = RealmEndpoint.parseStored(bindAddress)
+        // B2: one blocking settings read at world start feeds both the world
+        // log level and (through llmConfigOverrides) the appended playerbot
+        // LLM block - every world.conf toggle therefore applies on the next
+        // realm start, never mid-session.
+        val snapshot = Settings(appContext).blockingSnapshot()
         val botConfig = botProfile?.let {
             secureWrite(File(run, "aiplayerbot-${it.id}.conf"),
-                it.playerbotConfig() + (llmConfigOverrides(it) ?: ""))
+                it.playerbotConfig() + (llmConfigOverrides(it, snapshot) ?: ""))
         } ?: secureWrite(File(run, "aiplayerbot-disabled.conf"), """
             AiPlayerbot.Enabled = 0
             AiPlayerbot.RandomBotAutologin = 0
@@ -142,7 +147,7 @@ internal class ServerRuntimeFiles(context: Context) {
             mmap.enabled = ${if (normalPlay) 1 else 0}
             LogLevel = 1
             LogFile = "${logs.resolve("world.log").absolutePath}"
-            LogFileLevel = 3
+            LogFileLevel = ${worldLogFileLevel(snapshot.worldDebugLogs)}
             DBErrorLogFile = "${logs.resolve("database-errors.log").absolutePath}"
             PlayerLimit = 10
             # The production realm is app-private and loopback-only. Wine's
@@ -171,15 +176,15 @@ internal class ServerRuntimeFiles(context: Context) {
     }
 
     /**
-     * Playerbot LLM overrides, resolved at world start (one blocking
-     * settings read inside the transition gate; toggles therefore apply on
-     * the next realm start). All decisions live in the pure
-     * [llmOverrides] companion function (see its contract there). The
-     * selected profile's per-preset speech overrides (Bots → AI tab) ride
-     * the same appended block; sentinels follow the model/global values.
+     * Playerbot LLM overrides, resolved at world start from the settings
+     * snapshot read by [worldConfig] (one blocking read inside the
+     * transition gate; toggles therefore apply on the next realm start).
+     * All decisions live in the pure [llmOverrides] companion function (see
+     * its contract there). The selected profile's per-preset speech
+     * overrides (Bots → AI tab) ride the same appended block; sentinels
+     * follow the model/global values.
      */
-    private fun llmConfigOverrides(profile: BotProfile): String? {
-        val snapshot = Settings(appContext).blockingSnapshot()
+    private fun llmConfigOverrides(profile: BotProfile, snapshot: Settings.Snapshot): String? {
         val selected = LlmModelRegistry.byId(snapshot.llmModelId)
         val model = LlmModelCoordinator.modelPathFor(appContext, snapshot.llmModelId)
         // Stage the lore card index only when an LLM block can be
@@ -188,6 +193,21 @@ internal class ServerRuntimeFiles(context: Context) {
         // the user never enabled
         val lore = if (snapshot.llmEnabled || (BuildConfig.DEBUG && model.isFile))
             runCatching { stageLoreCards().absolutePath }.getOrNull()
+        else
+            null
+        // B8: stage the EMPTY default-prompts file under the same gate (the
+        // debug lane carries the line too, so the gate matches the lore
+        // index, not the pack). The native default for
+        // AiPlayerbot.LLMDefaultPromptsFile is the bare relative name
+        // llm_character_card, resolved by the loader against CWD - never
+        // the run dir - so a missing file fails open with a "not found or
+        // unreadable" startup line. An EMPTY file loads zero prompts
+        // cleanly: identical fail-open behavior minus the error line and
+        // with zero DB writes. A staging failure also fails open (null
+        // simply omits the conf line); a staging problem must never fail
+        // a world start for a feature the user never configured.
+        val defaultPrompts = if (snapshot.llmEnabled || (BuildConfig.DEBUG && model.isFile))
+            runCatching { stageDefaultPromptsFile().absolutePath }.getOrNull()
         else
             null
         // The power file is staged once at world start whenever the LLM
@@ -244,6 +264,7 @@ internal class ServerRuntimeFiles(context: Context) {
             generationTimeoutOverride = snapshot.llmGenerationTimeout,
             speech = profile.llmSpeech,
             promptPackFile = promptPack,
+            defaultPromptsFile = defaultPrompts,
         )
     }
 
@@ -289,6 +310,29 @@ internal class ServerRuntimeFiles(context: Context) {
         appContext.assets.open(assetPath).use { input ->
             FileOutputStream(temp).use { output -> input.copyTo(output) }
         }
+        if (!temp.renameTo(target)) {
+            temp.copyTo(target, overwrite = true)
+            temp.delete()
+        }
+        return target
+    }
+
+    /**
+     * B8: stage an EMPTY default-prompts file next to the conf atomically
+     * (pid-temp + rename, the class's write discipline). An empty file is
+     * the deliberate payload: the native loader loads zero prompts from it
+     * cleanly - identical to the missing-file fail-open of the bare
+     * relative default, minus the "not found or unreadable" startup line,
+     * and with none of the per-line ERROR spam and junk DB writes a JSON
+     * payload would produce. Already-staged empty copies are kept as-is;
+     * only a missing or non-empty file is (re)staged.
+     */
+    private fun stageDefaultPromptsFile(): File {
+        val target = File(run, DEFAULT_PROMPTS_FILE_NAME)
+        if (target.isFile && target.length() == 0L)
+            return target
+        val temp = File(run, ".$DEFAULT_PROMPTS_FILE_NAME.${android.os.Process.myPid()}.tmp")
+        FileOutputStream(temp).use { stream -> stream.fd.sync() }
         if (!temp.renameTo(target)) {
             temp.copyTo(target, overwrite = true)
             temp.delete()
@@ -369,6 +413,27 @@ internal class ServerRuntimeFiles(context: Context) {
         /** Phase 1: the staged default prompt-pack file (run dir). */
         private const val PROMPT_PACK_FILE_NAME = "llm_prompt_pack.json"
 
+        /** B8: the staged EMPTY default-prompts file (run dir; native default name). */
+        private const val DEFAULT_PROMPTS_FILE_NAME = "llm_character_card"
+
+        /** B2: errors-only world log level, matching realmd's LogFileLevel = 1. */
+        internal const val DEFAULT_WORLD_LOG_FILE_LEVEL = 1
+
+        /** B2: the verbose world log level staged by the World debug logs toggle. */
+        internal const val DEBUG_WORLD_LOG_FILE_LEVEL = 3
+
+        /**
+         * B2: the world.conf LogFileLevel staged at world start. The default
+         * drops the vendored level 3 to errors-only: level 3 floods world.log
+         * (79.7 MB over a 30-minute soak) with movement and battleground
+         * churn that has never diagnosed a field issue, while level 1 still
+         * records errors and matches realmd. Level 2 was rejected - it keeps
+         * the movement churn. The advanced "World debug logs" toggle opts
+         * back into verbose, effective on the next realm start.
+         */
+        internal fun worldLogFileLevel(worldDebugLogs: Boolean): Int =
+            if (worldDebugLogs) DEBUG_WORLD_LOG_FILE_LEVEL else DEFAULT_WORLD_LOG_FILE_LEVEL
+
         /**
          * The four-state playerbot LLM gate, pure in its inputs so the
          * verdicts are unit-testable. (0) External-endpoint mode (submenu on
@@ -409,6 +474,7 @@ internal class ServerRuntimeFiles(context: Context) {
             generationTimeoutOverride: Int = 0,
             speech: BotLlmSpeech = BotLlmSpeech(),
             promptPackFile: String? = null,
+            defaultPromptsFile: String? = null,
         ): String? {
             if (uiEnabled && externalMode) {
                 return LlmRuntimePolicy.confBlockExternal(
@@ -422,6 +488,7 @@ internal class ServerRuntimeFiles(context: Context) {
                     generationTimeoutOverride = generationTimeoutOverride,
                     speech = speech,
                     promptPackFile = promptPackFile,
+                    defaultPromptsFile = defaultPromptsFile,
                 )
             }
             if (uiEnabled && modelPresent) {
@@ -436,6 +503,7 @@ internal class ServerRuntimeFiles(context: Context) {
                     generationTimeoutOverride = generationTimeoutOverride,
                     speech = speech,
                     promptPackFile = promptPackFile,
+                    defaultPromptsFile = defaultPromptsFile,
                 )
             }
             if (!debugBuild || !modelPresent) return null
@@ -444,6 +512,11 @@ internal class ServerRuntimeFiles(context: Context) {
             // the HTTP and in-process paths)
             val debugLore = if (!loreFile.isNullOrBlank())
                 "\n            AiPlayerbot.LLMLoreFile = \"$loreFile\"" else ""
+            // B8: the empty default-prompts file rides the debug block for
+            // the same reason - the native loader opens it on every LLM
+            // path, not only the HTTP ones
+            val debugDefaultPrompts = if (!defaultPromptsFile.isNullOrBlank())
+                "\n            AiPlayerbot.LLMDefaultPromptsFile = \"$defaultPromptsFile\"" else ""
             // The banter toggle must gate the in-process debug
             // path too - the native default (1) otherwise runs the authored
             // initiative layer regardless of the toggle
@@ -456,7 +529,7 @@ internal class ServerRuntimeFiles(context: Context) {
                 AiPlayerbot.LLMThreads = 3
                 AiPlayerbot.LLMCpuFirstCore = 3
                 AiPlayerbot.LLMCtxSize = 4096
-                AiPlayerbot.LLMSlots = 4$debugBanter$debugLore
+                AiPlayerbot.LLMSlots = 4$debugBanter$debugLore$debugDefaultPrompts
             """.trimIndent() + "\n"
         }
     }

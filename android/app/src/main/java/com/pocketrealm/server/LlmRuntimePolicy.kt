@@ -182,6 +182,7 @@ internal object LlmRuntimePolicy {
         generationTimeoutOverride: Int = 0,
         speech: BotLlmSpeech = BotLlmSpeech(),
         promptPackFile: String? = null,
+        defaultPromptsFile: String? = null,
     ): String? {
         if (!llmEnabled) return null
         require(port in MIN_PORT..MAX_PORT) { "llm port out of range: $port" }
@@ -202,6 +203,7 @@ internal object LlmRuntimePolicy {
             generationTimeoutOverride = generationTimeoutOverride,
             speech = speech,
             promptPackFile = promptPackFile,
+            defaultPromptsFile = defaultPromptsFile,
         )
     }
 
@@ -230,6 +232,7 @@ internal object LlmRuntimePolicy {
         generationTimeoutOverride: Int = 0,
         speech: BotLlmSpeech = BotLlmSpeech(),
         promptPackFile: String? = null,
+        defaultPromptsFile: String? = null,
     ): String? {
         if (endpoint == null || model == null || apiKey == null) return null
         return confLines(
@@ -249,6 +252,7 @@ internal object LlmRuntimePolicy {
             generationTimeoutOverride = generationTimeoutOverride,
             speech = speech,
             promptPackFile = promptPackFile,
+            defaultPromptsFile = defaultPromptsFile,
         )
     }
 
@@ -310,6 +314,12 @@ internal object LlmRuntimePolicy {
      * output, byte-identical (the frozen-output test pins this); the native
      * side appends only the enabled seasoning blocks inside the existing
      * instruction span, never a new top-level segment.
+     *
+     * [defaultPromptsFile] names the staged EMPTY default-prompts file by
+     * absolute path. The native default is the bare relative name
+     * `llm_character_card`, which the loader resolves against CWD (never
+     * the run dir) and reports as "not found or unreadable" - the absolute
+     * empty file keeps today's fail-open prompts minus that startup line.
      */
     private fun confLines(
         endpoint: String,
@@ -328,6 +338,7 @@ internal object LlmRuntimePolicy {
         generationTimeoutOverride: Int = 0,
         speech: BotLlmSpeech = BotLlmSpeech(),
         promptPackFile: String? = null,
+        defaultPromptsFile: String? = null,
     ): String {
         // Advanced-tier overrides folded onto the measured profiles (0 keeps
         // the model/tier value); one effective profile feeds both the conf
@@ -380,6 +391,14 @@ internal object LlmRuntimePolicy {
             if (!promptPackFile.isNullOrBlank()) {
                 "\n            AiPlayerbot.LLMPromptPackFile = \"$promptPackFile\""
             } else ""
+        // B8: the staged EMPTY default-prompts file, by absolute path (the
+        // native loader resolves the bare relative default against CWD,
+        // never the run dir). Blank/absent keeps the native default's
+        // fail-open behavior.
+        val defaultPromptsLine =
+            if (!defaultPromptsFile.isNullOrBlank()) {
+                "\n            AiPlayerbot.LLMDefaultPromptsFile = \"$defaultPromptsFile\""
+            } else ""
         val packDeltaLines = speech.packDeltas.toSortedMap().entries.joinToString("") { (id, on) ->
             "\n            AiPlayerbot.LLMPromptBlock.$id = ${if (on) 1 else 0}"
         }
@@ -412,7 +431,7 @@ internal object LlmRuntimePolicy {
             AiPlayerbot.LLMContextLength = ${tier.contextLength}
             AiPlayerbot.LLMFactsCap = $factsCap
             AiPlayerbot.LLMMemoriesTail = $memoriesTail$botToBotLine$thinkingLine$providerSafeLine
-            AiPlayerbot.LLMBanterEnabled = ${if (banterEnabled) 1 else 0}$loreLine$chatterLine$promptPackLine$packDeltaLines$rpDialLines
+            AiPlayerbot.LLMBanterEnabled = ${if (banterEnabled) 1 else 0}$loreLine$chatterLine$promptPackLine$defaultPromptsLine$packDeltaLines$rpDialLines
         """.trimIndent() + "\n"
     }
 

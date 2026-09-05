@@ -1048,6 +1048,24 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall)
         }
 
+        SettingCard("World debug logs") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(
+                    checked = snap.worldDebugLogs,
+                    onCheckedChange = { enabled ->
+                        scope.launch { settings.update { it.copy(worldDebugLogs = enabled) } }
+                    },
+                    modifier = Modifier.testTag("world-debug-logs"),
+                )
+                Text("  Verbose world-server log", style = MaterialTheme.typography.bodyMedium)
+            }
+            Text(
+                "Raises the world log level to verbose when the realm next starts and can " +
+                    "grow world.log very large. Keep it off unless investigating a problem.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
         SettingCard("Nearby use / open") {
             Text(
                 "L1 chooses the nearest eligible corpse, chest, or ordinary usable loot object and opens it as one realm action. " +

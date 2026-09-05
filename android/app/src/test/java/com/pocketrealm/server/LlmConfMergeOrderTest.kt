@@ -129,6 +129,25 @@ class LlmConfMergeOrderTest {
         }
     }
 
+    @Test
+    fun defaultPromptsFileRidesTheAppendedBlockAsAnAbsolutePath() {
+        // B8: the line must ride the APPEND, never playerbotConfig() - the
+        // base profiles are contractually free of LLM keys other than
+        // llmenabled (baseProfilesCarryNoOtherLlmKeysThatCouldGoStale...)
+        // - and the value must survive the parser's quote trimming as an
+        // absolute path: the native loader resolves a bare relative name
+        // against CWD, never the run dir, which is exactly the defect the
+        // staged empty file exists to silence.
+        launchableProfiles.forEach { profile ->
+            val conf = parseConf(
+                profile.playerbotConfig() + LlmRuntimePolicy.confBlock(
+                    llmEnabled = true, defaultPromptsFile = "/srv/run/llm_character_card",
+                )!!,
+            )
+            assertEquals("/srv/run/llm_character_card", conf["aiplayerbot.llmdefaultpromptsfile"])
+        }
+    }
+
     private fun String.takeAfterModelSlot(): String =
         substringAfter("\"model\":\"").substringBefore("\"")
 }

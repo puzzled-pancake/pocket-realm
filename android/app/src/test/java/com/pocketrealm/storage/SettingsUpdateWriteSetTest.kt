@@ -152,6 +152,20 @@ class SettingsUpdateWriteSetTest {
     }
 
     @Test
+    fun worldDebugLogsEncodesUnderTheReviewedZeroOneToggleNames() {
+        // B2: verbose world logging is an advanced opt-in; default OFF keeps
+        // the world.conf LogFileLevel at errors-only (1). The conf is
+        // written at world start, so the toggle applies on the next realm
+        // start by construction - nothing else may key off this field.
+        val off = mutablePreferencesOf()
+        off.writeSnapshotWrites(Settings.Snapshot(), display)
+        assertEquals(0, off[intPreferencesKey("world_debug_logs")])
+        val on = mutablePreferencesOf()
+        on.writeSnapshotWrites(Settings.Snapshot(worldDebugLogs = true), display)
+        assertEquals(1, on[intPreferencesKey("world_debug_logs")])
+    }
+
+    @Test
     fun corruptPackJsonFailsOpenToDefaultAtResolveTime() {
         // the write-set never validates pack JSON (mid-typing rule); the
         // reader resolves: corrupt/empty input restores the default pack
@@ -270,6 +284,7 @@ class SettingsUpdateWriteSetTest {
                 "client_tweaks", "client_tweaks_schema",
                 "game_settings_queue", "game_settings_queue_schema",
                 "audio_mode", "nearby_interact_trigger_guard_ms",
+                "world_debug_logs",
                 "runtime_mode", "allow_lan_players",
                 "llm_enabled", "llm_compute_mode", "llm_cores_mask",
                 "llm_threads", "llm_offload_layers",
