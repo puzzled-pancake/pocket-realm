@@ -205,7 +205,10 @@ def test_reqid_signature_threading(driver):
     assert "uint64_t reqId = 0);" in driver.PB_LLM_IFACE_HEADER_ANDROID  # Generate
     assert "uint64_t reqId = 0);" in driver.PB_LLM_IFACE_PRIVATE_ANDROID  # GenerateHttp
     assert ", uint64_t reqId)" in driver.PB_LLM_IFACE_CPP_ANDROID  # both definitions
-    assert ", uint64_t reqId = 0);" in driver.PB_SAY_GEN_DECL_ANDROID
+    # A4 widened the declaration's tail (reqId is no longer the LAST
+    # defaulted parameter - the FallbackPlan rides after it); the pin
+    # follows the threading, not the parameter-list ending
+    assert ", uint64_t reqId = 0" in driver.PB_SAY_GEN_DECL_ANDROID
 
 
 def test_a8_helpers_are_header_only_and_host_compilable():

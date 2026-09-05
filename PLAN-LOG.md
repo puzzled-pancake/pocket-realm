@@ -1000,3 +1000,77 @@ Ordered roughly by plan dependency; each item cites the plan section:
   `off-peak-ticket-expired` AFTER completing all their work (their trees
   verified green) — an infra error in the final report does not mean the
   work is missing; verify the tree before redoing anything.
+
+## Batch A (continuation run): A4 + A2 + A6 (Phases 3c/4 completion)
+
+**Outcome: complete, green, committed.** The remaining dialogue-mechanics
+queue from the handoff, one commit.
+
+- **A4 (interceptor demotion + failure fallback)**: `FallbackPlan`
+  (ids-only: kind/channel/category/absence/mapId) in PlayerbotLlmGates.h;
+  `GenerateResponsePackets` gained the DEFAULTED trailing plan so the
+  RPG/debug dispatch sites stay silent. Worker leg (PB_SAY_RECORDER):
+  busy never falls back (`FailureWantsFallback` pure fold, host-pinned);
+  cap/timeout/http/error/empty draws at failure time
+  (`DrawFailureFallback` — pointers re-resolve by guid, the
+  AddBoundedSentimentInput precedent), delivers via the world-thread
+  EventReaction drain (`QueueConversationalFallback`; the drain gained a
+  CHAT_MSG_WHISPER arm so a private fallback never lands on /say),
+  records the bot turn, and the single-delivery closure awards +1 by
+  guid exactly once across busy/generated/fallback (silent failure
+  awards nothing). World-thread: greet + persona interceptors demote on
+  `CloudLaneOpen()` ONLY (device keeps the preemptive bodies verbatim —
+  byte-identity pinned); the cloud persona leg Classifies WITHOUT
+  drawing (a pre-draw advances shared recency rings); welcome stays
+  authored both lanes; the cloud turn's +1 moved from the synchronous
+  pre-award into the closure; every cloud conversational turn activates
+  the plan (plain turns keep FBK_NONE — no authored line exists for an
+  arbitrary turn, failure stays silent there by design, logged).
+- **A2 (fast-lane)**: `IN_DIALOGUE` enum value before NO_PATH
+  (PB_AI_DIALOGUE_ENUM), early return in GetPriorityType AFTER the
+  real-player/master checks and BEFORE the bg/zone ladder
+  (PB_AI_PRIORITY_DIALOGUE), {0,0} bracket entry
+  (PB_AI_BRACKET_DIALOGUE), `ForceActivityRecheck()` inline
+  (PB_AI_DIALOGUE_RECHECK) stamping the 5 s AllowActivity cache hot at
+  arming. Occupancy: guid→expiry per map under StateMutex, TTL 300 s
+  (steady-clock ms), re-arm extends, no decrement path; admission via
+  the pure EvictDialogueVictim (interlocutor soft-caps at 16/map).
+  Arming at the ChatReplyDo dispatch site only: `!llmEventTurn &&
+  llmSpeakerGuid` (event + bot2bot never arm); `LLMDialogueFastLane`
+  gates inside ArmDialogue; the A4 fallback delivery leg re-arms (the
+  relocated site the plan's pin follows). The Map.cpp:843 hook stays
+  dropped as planned.
+- **A6 (street reactions)**: crowd branch runs
+  `QueueStreetReaction` FIRST (emote only on rejection —
+  reject:world-window/zone-window/bot-slot/pct-roll/quota in the pinned
+  order; quota-first admission EXEMPT from the authored arbiter; street
+  stamps the shared crowd window). Worker (`RunStreetReaction`,
+  detached-thread + ids-only StreetJob): compose-site scrub chain
+  (NeuterMarkersCopy + ScrubControlTokens), street body via
+  BuildChatRequestBody + NEW StreetSystemMessage/StreetNote in
+  ChatterCore (frozen murmur wording untouched; RaceWord/ClassWord
+  hoisted to the pure core, Chatter.cpp forwards), FirstStreetLine
+  vets the output (LineIsValid + marker-free), E0's kStreetShort as the
+  failure fallback (Persona::StreetShortLine — guid-stable speaker
+  cell, E0 state-key layout), delivery as an authored SAY EventReaction
+  with a 2-5 s steady-derived stagger (no urand off-thread), never the
+  chatter queue, never an A2 arm.
+- **Pins**: gates battery +FailureWantsFallback/FallbackPlan defaults;
+  NEW tests/test_llm_a4_fallback.py (19 — incl. the A4/A5 exclusivity
+  source scan, the no-off-thread-deref scan, the RPG-site silence, the
+  whisper drain arm), tests/test_llm_a2_fastlane.py (10),
+  tests/test_llm_a6_street.py (19). Two legitimately-changed signature
+  pins updated equal-or-stronger (test_g3_tls_a8_observability reqId
+  threading, test_llm_player_surface reply-class threading — both now
+  assert the threading, tolerating the widened tail).
+- Lockfiles regenerated (--write-lockfiles); test_db_async_null_guard
+  green; check_repo/check_sources OK; gradle :app:testDebugUnitTest +
+  :app:detekt green (android side untouched this batch); device
+  silence-doctrine string pin green.
+- **Interpretation logged for review**: A6's generated-vs-authored
+  reading — the ladder admits a street GENERATION (StreetSystemMessage/
+  StreetNote via BuildChatRequestBody, per the plan's "Bodies:" clause),
+  with E0's 48 street lines as the failure fallback (E0's title:
+  "street short-reaction FALLBACKS"); delivery of EITHER outcome rides
+  the authored SAY EventReaction ("Delivery via an authored SAY
+  EventReaction" — the vehicle, not the text source).

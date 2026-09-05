@@ -44,37 +44,18 @@ namespace {
 // its anonymous namespace; the murmur system message needs only the
 // approximate descriptor, and duplicating the full table here would be
 // a drift surface - the chatter sysm is NOT the trained contract)
+// A6: the tables moved to the pure core (pocketllm::RaceWord/ClassWord
+// in PlayerbotLlmChatterCore.h) so the street lane shares the exact
+// wording; these locals forward so every existing call site is
+// unchanged.
 std::string RaceWord(uint32 race)
 {
-    switch (race)
-    {
-        case 1: return "human";
-        case 2: return "orc";
-        case 3: return "dwarf";
-        case 4: return "night elf";
-        case 5: return "undead";
-        case 6: return "tauren";
-        case 7: return "gnome";
-        case 8: return "troll";
-        default: return "wanderer";
-    }
+    return pocketllm::RaceWord(race);
 }
 
 std::string ClassWord(uint32 cls)
 {
-    switch (cls)
-    {
-        case 1: return "warrior";
-        case 2: return "paladin";
-        case 3: return "hunter";
-        case 4: return "rogue";
-        case 5: return "priest";
-        case 7: return "shaman";
-        case 8: return "mage";
-        case 9: return "warlock";
-        case 11: return "druid";
-        default: return "laborer";
-    }
+    return pocketllm::ClassWord(cls);
 }
 
 std::string ZoneWord(Player* bot)

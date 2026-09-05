@@ -1543,6 +1543,7 @@ PB_SAY_HEADER_ANDROID = """#pragma once
 #include "playerbot/strategy/Action.h"
 #include "QuestAction.h"
 #include "playerbot/PlayerbotLlamaRuntime.h"
+#include "playerbot/PlayerbotLlmGates.h"
 """
 PB_SAY_GEN_DECL_UPSTREAM = """        static delayedPackets GenerateResponsePackets(const std::string json
             , const WorldPacket chatTemplate, const WorldPacket emoteTemplate, const WorldPacket systemTemplate, const std::string startPattern, const std::string endPattern, const std::string deletePattern, const std::string splitPattern, bool debug = false);
@@ -1551,7 +1552,8 @@ PB_SAY_GEN_DECL_ANDROID = """        static delayedPackets GenerateResponsePacke
             , uint32 botGuid, uint32 speakerGuid, PlayerbotLlamaRuntime::LlmCallSource source, uint64_t licenseStamp
             , uint32 playerOrChannel, std::string botName
             , const WorldPacket chatTemplate, const WorldPacket emoteTemplate, const WorldPacket systemTemplate, const std::string startPattern, const std::string endPattern, const std::string deletePattern, const std::string splitPattern, bool debug = false
-            , uint32 replyClass = 0, bool longFormCued = false, uint64_t reqId = 0);
+            , uint32 replyClass = 0, bool longFormCued = false, uint64_t reqId = 0
+            , PlayerbotLlmGates::FallbackPlan const& fallback = PlayerbotLlmGates::FallbackPlan());
 """
 PB_SAY_GEN_DEF_UPSTREAM = """delayedPackets ChatReplyAction::GenerateResponsePackets(const std::string json
     , const WorldPacket chatTemplate, const WorldPacket emoteTemplate, const WorldPacket systemTemplate, const std::string startPattern, const std::string endPattern, const std::string deletePattern, const std::string splitPattern, bool debug)
@@ -1569,7 +1571,8 @@ PB_SAY_GEN_DEF_ANDROID = """delayedPackets ChatReplyAction::GenerateResponsePack
     , uint32 botGuid, uint32 speakerGuid, PlayerbotLlamaRuntime::LlmCallSource source, uint64_t licenseStamp
     , uint32 playerOrChannel, std::string botName
     , const WorldPacket chatTemplate, const WorldPacket emoteTemplate, const WorldPacket systemTemplate, const std::string startPattern, const std::string endPattern, const std::string deletePattern, const std::string splitPattern, bool debug
-    , uint32 replyClass, bool longFormCued, uint64_t reqId)
+    , uint32 replyClass, bool longFormCued, uint64_t reqId
+    , PlayerbotLlmGates::FallbackPlan const& fallback)
 {
     std::vector<std::string> debugLines;
 
@@ -1640,11 +1643,19 @@ PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBacken
     // staggered text emote (never a generation: the authored layer was
     // measured better on calm beats and costs nothing). The world thread
     // runs here; the emote queues with its own 2-5s pacing.
+    // A6: on the cloud lane the street admission ladder runs FIRST
+    // (world/zone window -> per-bot slot -> pct roll -> daily quota ->
+    // dispatch); ANY rejection falls to the crowd emote exactly as
+    // before, and a dispatched street say DROPS the emote for this
+    // event (not defers it). Off the cloud lane QueueStreetReaction
+    // no-ops before touching any state - the device lane is
+    // byte-identical.
     if (!hardTriggerAllowed && chatChannelSource == ChatChannelSource::SRC_SAY &&
         gateSpeaker && gateSpeaker->isRealPlayer() &&
         sPlayerbotAIConfig.llmEnabled > 0)
     {
-        PlayerbotLlmMemory::QueueCrowdEmote(bot, gateSpeaker);
+        if (!PlayerbotLlmMemory::QueueStreetReaction(bot, gateSpeaker, msg))
+            PlayerbotLlmMemory::QueueCrowdEmote(bot, gateSpeaker);
         // plan v5 W5: an ARMED curiosity ask consumes the player's spoken
         // answer here - a say that names no bot never reaches a
         // generation turn, and a vanished answer is a broken promise
@@ -1773,6 +1784,38 @@ PB_SAY_RECORDER_ANDROID = """    std::vector<std::string> lines = PlayerbotLLMIn
     // "tell it whole" cue only to be clamped back to the short budget.
     pocketllm::ApplyReplyBudget(lines, replyClass, sPlayerbotAIConfig.llmMaxNewTokens, longFormCued, sPlayerbotAIConfig.llmRpLongForm);
 
+    // A4 (cloud lane, conversational turns only): the authored
+    // failure-fallback - the dead-endpoint law. Busy keeps the persona
+    // placeholder (duty-cycle denial is pacing, not a dead endpoint);
+    // every other hard failure (cap, timeout, http_%d, error) and
+    // post-parse emptiness draws the plan's authored line AT DELIVERY
+    // TIME (pre-drawing would advance shared recency rings and mint
+    // belief facts for lines never delivered). The closure owns
+    // {deliver, bot-line record, guid award} exactly once per turn
+    // outcome: delivery queues on the world-thread EventReaction drain
+    // (guid identity - no Player*/Session* crosses the async wait), so
+    // the line is pulled OUT of the packets pipeline (single delivery -
+    // the packets path then returns nothing). The autonomous RPG source
+    // carries no plan and stays silent, exactly as before; an inactive
+    // plan is exactly the device lane (byte-identical silence).
+    bool fallbackDelivered = false;
+    if (PlayerbotLlmGates::FailureWantsFallback(busyReply, lines.empty()) &&
+        fallback.active &&
+        source == PlayerbotLlamaRuntime::LLM_SRC_CHAT_REPLY)
+    {
+        std::string const fallbackLine =
+            PlayerbotLlmMemory::DrawFailureFallback(fallback, botGuid, speakerGuid);
+        if (!fallbackLine.empty())
+        {
+            PlayerbotLlmMemory::AppendTurn(botGuid, playerOrChannel,
+                (playerOrChannel & 0x80000000u) != 0, botName, fallbackLine);
+            PlayerbotLlmMemory::QueueConversationalFallback(botGuid, speakerGuid,
+                fallback.channel, fallbackLine, fallback.mapId);
+            lines.clear();
+            fallbackDelivered = true;
+        }
+    }
+
     // the bot's own reply joins the shared rolling history so the next prompt
     // is never a one-sided transcript (mutex-guarded; async thread safe).
     // Only genuine generations are recorded - never the busy placeholder
@@ -1797,6 +1840,18 @@ PB_SAY_RECORDER_ANDROID = """    std::vector<std::string> lines = PlayerbotLLMIn
             PlayerbotLlmMemory::NoteConversation();
         }
     }
+
+    // A4: the single-delivery closure's guid award - exactly once per
+    // turn outcome. A busy placeholder, a genuine generation and a
+    // fallback line all delivered something and all award the turn;
+    // a silent failure (nothing drawn, nobody left to speak to)
+    // delivers nothing and awards nothing. Cloud conversational turns
+    // only: the device lane's +1 stays at the synchronous pre-dispatch
+    // site (byte-identical device behavior).
+    if (fallback.active && speakerGuid &&
+        source == PlayerbotLlamaRuntime::LLM_SRC_CHAT_REPLY &&
+        (busyReply || fallbackDelivered || !lines.empty()))
+        PlayerbotLlmMemory::AddRelationshipPointsByGuid(botGuid, speakerGuid, 1);
 
     // E4 diagnostics: the counter's only in-tree read (the app-side
     // transport is the declared Workstream-A dependency; the debug path
@@ -1977,7 +2032,20 @@ PB_SAY_ASYNC_ANDROID = """                uint32 llmHistoryKey = (chatChannelSou
                 sLog.outBasic("BotLLM: dispatch bot=%u src=%d lane=%s req=%llu",
                     bot->GetGUIDLow(), (int)PlayerbotLlamaRuntime::LLM_SRC_CHAT_REPLY,
                     useLlamaBackend ? "device" : "cloud", (unsigned long long)llmReqId);
-                futurePackets futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, bot->GetGUIDLow(), llmSpeakerGuid, PlayerbotLlamaRuntime::LLM_SRC_CHAT_REPLY, llmLicenseStamp, llmHistoryKey, bot->GetName(), chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug, 0u, PlayerbotLlmBridge::NoteLongFormCued(bot->GetGUIDLow(), llmLicenseStamp), llmReqId);
+                // A2: arm the fast-lane window on real-player turns only
+                // (event turns and bot2bot turns never arm - llmEventTurn
+                // and llmSpeakerGuid are the gates; listener bots never
+                // reach ChatReplyDo). The key gates arming inside
+                // ArmDialogue; the cache stamp makes the uptake immediate
+                // instead of lagging the 5 s AllowActivity window.
+                llmFallback.mapId = bot->GetMap() ? bot->GetMap()->GetId() : 0;
+                if (!llmEventTurn && llmSpeakerGuid && llmFallback.mapId)
+                {
+                    PlayerbotLlmMemory::ArmDialogue(bot->GetGUIDLow(),
+                        llmFallback.mapId, /*interlocutor=*/true);
+                    ai->ForceActivityRecheck();
+                }
+                futurePackets futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, bot->GetGUIDLow(), llmSpeakerGuid, PlayerbotLlamaRuntime::LLM_SRC_CHAT_REPLY, llmLicenseStamp, llmHistoryKey, bot->GetName(), chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug, 0u, PlayerbotLlmBridge::NoteLongFormCued(bot->GetGUIDLow(), llmLicenseStamp), llmReqId, llmFallback);
 """
 # A1b containment: RequestNewLines on the cloud lane is generation-
 # quota'd (llmRpgChatPerDay, counting GENERATIONS - one trigger is 5-11
@@ -2438,6 +2506,13 @@ PB_SAY_CONTEXT_ANDROID = """        std::string llmContext = AI_VALUE(std::strin
         // note or a note-less autonomous generation could otherwise be
         // adopted). Zero seals the turn: nothing queues.
         uint64_t llmLicenseStamp = 0;
+        // A4: the interceptor-demotion plan. Cloud conversational turns
+        // activate it (the closure owns deliver/record/award on the
+        // worker); the device lane leaves it inactive, so every
+        // interceptor stays preemptive and every award stays synchronous
+        // - byte-identical device behavior.
+        PlayerbotLlmGates::FallbackPlan llmFallback;
+        bool const llmCloudTurn = CloudLaneOpen();
 
         if (player && player->isRealPlayer())
         {
@@ -2483,6 +2558,20 @@ PB_SAY_CONTEXT_ANDROID = """        std::string llmContext = AI_VALUE(std::strin
             {
                 if (llmAbsencePre == "most of a day" || llmAbsencePre == "many days")
                 {
+                    // A4: on the cloud lane the arrival greeting DEMOTES
+                    // to the generation's failure-fallback - the model
+                    // writes the arrival beat (tier/absence/town-talk all
+                    // ride its context), and the authored greeting
+                    // answers only a dead endpoint. The device lane keeps
+                    // the preemptive authored greeting byte-identically.
+                    if (llmCloudTurn)
+                    {
+                        llmFallback.active = true;
+                        llmFallback.kind = PlayerbotLlmGates::FBK_GREET;
+                        llmFallback.absence = llmAbsencePre;
+                    }
+                    else
+                    {
                     std::string const greetLine =
                         PlayerbotLlmMemory::AuthoredArrivalGreeting(bot, player, llmAbsencePre);
                     if (!greetLine.empty())
@@ -2494,6 +2583,7 @@ PB_SAY_CONTEXT_ANDROID = """        std::string llmContext = AI_VALUE(std::strin
                             false, bot->GetName(), greetLine);
                         PlayerbotLlmMemory::AddRelationshipPoints(bot, player, 1);
                         return;
+                    }
                     }
                 }
             }
@@ -2622,10 +2712,31 @@ PB_SAY_CONTEXT_ANDROID = """        std::string llmContext = AI_VALUE(std::strin
             // routes here - the first-meeting log_fact beat must fire, so
             // the pairing's opening moment becomes memory.
             std::string personaLine;
+            // A4: on the cloud lane the hard-category persona beat
+            // DEMOTES to the generation's failure-fallback. Classify
+            // ONLY - never TryFallback, which draws (advancing the
+            // shared recency ring for a line that may never deliver;
+            // the plan redraws at failure time). The device lane keeps
+            // the preemptive draw byte-identically.
+            PlayerbotLlmPersona::HardCategory const llmPersonaCategory =
+                llmCloudTurn ? PlayerbotLlmPersona::Classify(msg)
+                             : PlayerbotLlmPersona::CATEGORY_NONE;
             if (llmAbsencePre != "a first meeting" &&
-                PlayerbotLlmPersona::TryFallback(bot, msg,
-                    chatChannelSource == ChatChannelSource::SRC_WHISPER, personaLine))
+                (llmCloudTurn
+                    ? llmPersonaCategory != PlayerbotLlmPersona::CATEGORY_NONE
+                    : PlayerbotLlmPersona::TryFallback(bot, msg,
+                          chatChannelSource == ChatChannelSource::SRC_WHISPER, personaLine)))
             {
+                if (llmCloudTurn)
+                {
+                    llmFallback.active = true;
+                    llmFallback.kind = PlayerbotLlmGates::FBK_PERSONA;
+                    llmFallback.personaCategory = (uint32)llmPersonaCategory;
+                    llmFallback.whisper =
+                        chatChannelSource == ChatChannelSource::SRC_WHISPER;
+                }
+                else
+                {
                 uint32 llmPersonaKey = chatChannelSource == ChatChannelSource::SRC_WHISPER
                     ? player->GetGUIDLow()
                     : (0x80000000u | static_cast<uint32>(chatChannelSource));
@@ -2643,6 +2754,24 @@ PB_SAY_CONTEXT_ANDROID = """        std::string llmContext = AI_VALUE(std::strin
                     chatChannelSource != ChatChannelSource::SRC_WHISPER, bot->GetName(), personaLine);
                 PlayerbotLlmMemory::AddRelationshipPoints(bot, player, 1);
                 return;
+                }
+            }
+
+            // A4: every cloud conversational turn activates the closure -
+            // the +1 award moves off the synchronous pre-dispatch site
+            // into the worker's exactly-once fold. Turns whose
+            // interceptor demoted carry its kind; plain turns keep
+            // FBK_NONE (a hard failure there stays silent: no authored
+            // line exists for an arbitrary turn - the closure award
+            // still applies).
+            if (llmCloudTurn)
+            {
+                llmFallback.active = true;
+                llmFallback.channel =
+                    chatChannelSource == ChatChannelSource::SRC_WHISPER ? uint32(CHAT_MSG_WHISPER)
+                    : chatChannelSource == ChatChannelSource::SRC_SAY ? uint32(CHAT_MSG_SAY)
+                    : chatChannelSource == ChatChannelSource::SRC_RAID ? uint32(CHAT_MSG_RAID)
+                    : uint32(CHAT_MSG_PARTY);
             }
 
             // M2: the byte-stable ordered segment builder replaces the ad-hoc
@@ -2680,7 +2809,12 @@ PB_SAY_CONTEXT_ANDROID = """        std::string llmContext = AI_VALUE(std::strin
                 chatChannelSource != ChatChannelSource::SRC_WHISPER,
                 eventTurn ? "(event)" : player->GetName(), turnText);
             llmContext = PlayerbotLlmMemory::BuildPromptContext(bot, player, (int)chatChannelSource, chanName);
-            PlayerbotLlmMemory::AddRelationshipPoints(bot, player, 1);
+            // A4: the cloud turn's +1 moved into the worker's
+            // single-delivery closure (exactly once per delivered
+            // outcome); the device lane keeps the synchronous pre-award
+            // byte-identically
+            if (!llmCloudTurn)
+                PlayerbotLlmMemory::AddRelationshipPoints(bot, player, 1);
         }
 
         if (player)
@@ -2755,6 +2889,71 @@ PB_AI_QUEUE_DECL_UPSTREAM = """    void QueueChatResponse(uint32 msgType, Object
 """
 PB_AI_QUEUE_DECL_ANDROID = """    void QueueChatResponse(uint32 msgType, ObjectGuid guid1, ObjectGuid guid2, std::string message, std::string chanName, std::string name, bool noDelay = false, int32 delaySecs = -1);
 """
+# A2 (rp-depth v2.3): the fast-lane dialogue activity class. IN_DIALOGUE
+# sits BEFORE NO_PATH/IN_*_MAP so a cross-map whisper or an inactive zone
+# never throttles the interlocutor; the bracket entry makes the class
+# always-active ({0,0}); ForceActivityRecheck lets the arming site stamp
+# the 5 s AllowActivity cache hot so fast-lane uptake is immediate.
+PB_AI_DIALOGUE_ENUM_UPSTREAM = """    PLAYER_FRIEND,
+    PLAYER_GUILD,
+    NO_PATH,
+"""
+PB_AI_DIALOGUE_ENUM_ANDROID = """    PLAYER_FRIEND,
+    PLAYER_GUILD,
+    IN_DIALOGUE,
+    NO_PATH,
+"""
+PB_AI_DIALOGUE_RECHECK_UPSTREAM = """    bool AllowActivity(ActivityType activityType = ALL_ACTIVITY, bool checkNow = false);
+"""
+PB_AI_DIALOGUE_RECHECK_ANDROID = """    bool AllowActivity(ActivityType activityType = ALL_ACTIVITY, bool checkNow = false);
+    // A2: drop the 5 s AllowActivity cache so the next check re-derives
+    // the priority (called by the fast-lane arming site - uptake must
+    // not lag the cache window)
+    void ForceActivityRecheck()
+    {
+        for (uint8 i = 0; i < MAX_ACTIVITY_TYPE; ++i)
+            allowActiveCheckTimer[i] = 0;
+    }
+"""
+# A2: the priority early-return - placed after the real-player/master
+# checks (HAS_REAL_PLAYER_MASTER/IS_REAL_PLAYER/IN_GROUP_WITH_REAL_PLAYER
+# all still classify first) and BEFORE the bg/test/instance/zone ladder,
+# so a dialogue window outranks NO_PATH/IN_INACTIVE_MAP/IN_ACTIVE_MAP.
+PB_AI_PRIORITY_DIALOGUE_UPSTREAM = """            if (!member->GetPlayerbotAI() || (member->GetPlayerbotAI() && member->GetPlayerbotAI()->HasRealPlayerMaster()))
+                return ActivePiorityType::IN_GROUP_WITH_REAL_PLAYER;
+        }
+    }
+
+    if (bot->IsBeingTeleported()) //We might end up in a bg so stay active.
+"""
+PB_AI_PRIORITY_DIALOGUE_ANDROID = """            if (!member->GetPlayerbotAI() || (member->GetPlayerbotAI() && member->GetPlayerbotAI()->HasRealPlayerMaster()))
+                return ActivePiorityType::IN_GROUP_WITH_REAL_PLAYER;
+        }
+    }
+
+    // A2 fast-lane: a bot inside an armed dialogue window is always
+    // active for its duration (300 s, re-armed on every real-player
+    // turn) - the conversation's cadence must not ride the activity
+    // lottery. Before NO_PATH/IN_*_MAP by construction (cross-map
+    // whispers, inactive zones).
+    if (PlayerbotLlmMemory::DialogueActive(bot->GetGUIDLow()))
+        return ActivePiorityType::IN_DIALOGUE;
+
+    if (bot->IsBeingTeleported()) //We might end up in a bg so stay active.
+"""
+# A2: the bracket entry - IN_DIALOGUE joins the always-active {0,0}
+# group alongside the real-player/master classes.
+PB_AI_BRACKET_DIALOGUE_UPSTREAM = """    case ActivePiorityType::VISIBLE_FOR_PLAYER:
+    case ActivePiorityType::IN_BATTLEGROUND:
+    case ActivePiorityType::IS_RUNNING_TEST:
+        return { 0,0 };
+"""
+PB_AI_BRACKET_DIALOGUE_ANDROID = """    case ActivePiorityType::VISIBLE_FOR_PLAYER:
+    case ActivePiorityType::IN_BATTLEGROUND:
+    case ActivePiorityType::IS_RUNNING_TEST:
+    case ActivePiorityType::IN_DIALOGUE:
+        return { 0,0 };
+"""
 PB_AI_QUEUE_DEF_UPSTREAM = """void PlayerbotAI::QueueChatResponse(uint32 msgType, ObjectGuid guid1, ObjectGuid guid2, std::string message, std::string chanName, std::string name, bool noDelay)
 {
     std::scoped_lock lock(chatRepliesMutex);
@@ -2827,7 +3026,16 @@ PB_UPDATEAI_ANDROID = """void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal
                     // S8: a SAY-tagged authored reaction (the bot2bot reply,
                     // which answers on the channel the bystander heard the
                     // opener on) speaks on /say even when grouped.
-                    if (reaction.msgtype == CHAT_MSG_SAY)
+                    // A4: a WHISPER-tagged authored reaction (the
+                    // conversational failure-fallback) whispers - a private
+                    // answer must never land on /say.
+                    if (reaction.msgtype == CHAT_MSG_WHISPER)
+                    {
+                        Player* whisperTarget = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, reaction.playerGuid));
+                        if (whisperTarget)
+                            bot->Whisper(reaction.text, LANG_UNIVERSAL, whisperTarget->GetObjectGuid());
+                    }
+                    else if (reaction.msgtype == CHAT_MSG_SAY)
                         bot->Say(reaction.text, LANG_UNIVERSAL);
                     else if (bot->GetGroup())
                         bot->GetPlayerbotAI()->SayToParty(reaction.text);
@@ -4200,6 +4408,12 @@ def prepare_cmangos_source() -> None:
     replace_anchor(bot_root / "PlayerbotAI.h", PB_AI_QUEUE_DECL_UPSTREAM, PB_AI_QUEUE_DECL_ANDROID)
     replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_QUEUE_DEF_UPSTREAM, PB_AI_QUEUE_DEF_ANDROID)
     replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_QUEUE_CALL_UPSTREAM, PB_AI_QUEUE_CALL_ANDROID)
+    # A2 fast-lane (rp-depth v2.3): enum + recheck helper in the header,
+    # the priority early-return + bracket entry in the class
+    replace_anchor(bot_root / "PlayerbotAI.h", PB_AI_DIALOGUE_ENUM_UPSTREAM, PB_AI_DIALOGUE_ENUM_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAI.h", PB_AI_DIALOGUE_RECHECK_UPSTREAM, PB_AI_DIALOGUE_RECHECK_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_PRIORITY_DIALOGUE_UPSTREAM, PB_AI_PRIORITY_DIALOGUE_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_BRACKET_DIALOGUE_UPSTREAM, PB_AI_BRACKET_DIALOGUE_ANDROID)
     replace_anchor(bot_root / "aiplayerbot.conf.dist.in", PB_LLM_CONF_UPSTREAM, PB_LLM_CONF_ANDROID)
     # Writer migration: the manual NPC-chat debug store moves from the
     # cross-bot global key to a per-(bot,target) key so no old-format writer

@@ -699,6 +699,29 @@ std::string PlayerbotLlmPersona::SecurityRefusalLine(Player* bot)
     return line;
 }
 
+// plan RP A6: the street short-reaction fallback. Guid-keyed (no Player*
+// exists on the detached street worker); the speaker cell is guid-stable
+// so a bot keeps one street voice across lines. Empty when banter is off
+// or the draw fails - silence then, the pre-A6 behavior.
+std::string PlayerbotLlmPersona::StreetShortLine(uint32 botGuid)
+{
+    if (!sPlayerbotAIConfig.llmBanterEnabled)
+        return "";
+    uint64_t const stateKey =
+        ((uint64_t)botGuid << 24) | (uint64_t)(pocketllm::POOL_STREET_SHORT + 1);
+    StateRef stateRef = StateFor(stateKey, botGuid);
+    size_t count = 0;
+    char const* const* lines =
+        pocketllm::StreetShortCell((size_t)(botGuid % 4), count);
+    pocketllm::BanterResult const r =
+        pocketllm::SelectLine(stateRef.state, lines, count, nullptr, 0, 0, 0);
+    if (!r.line)
+        return "";
+    std::string line(r.line);
+    ApplyTic(stateRef.state, botGuid, line);
+    return line;
+}
+
 std::string PlayerbotLlmPersona::SceneNudgeLine(Player* bot, Player* player)
 {
     if (!bot || !player)

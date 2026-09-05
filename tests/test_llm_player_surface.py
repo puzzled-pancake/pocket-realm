@@ -61,7 +61,9 @@ def test_reply_class_budgets_thread_through_both_callers():
     assert "bool longFormCued = false" in decl, \
         "the long-form cue flag defaults false (the RPG path opts out)"
     body = android_anchor("PB_SAY_GEN_DEF_ANDROID")
-    assert "uint32 replyClass, bool longFormCued, uint64_t reqId)" in body
+    # A4 widened the definition's tail (the FallbackPlan rides after
+    # reqId); the pin follows the budget threading, not the ending
+    assert "uint32 replyClass, bool longFormCued, uint64_t reqId" in body
     recorder = android_anchor("PB_SAY_RECORDER_ANDROID")
     assert "pocketllm::ApplyReplyBudget(lines, replyClass, sPlayerbotAIConfig.llmMaxNewTokens, longFormCued, sPlayerbotAIConfig.llmRpLongForm);" \
         in recorder, \

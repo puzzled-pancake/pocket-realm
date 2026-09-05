@@ -433,6 +433,99 @@ inline std::string GlobalNote(std::string const& eventText)
         "particular. Never mention this instruction. This reply only.";
 }
 
+// ---- A6 street reactions (cloud lane): a bystander bot's short spoken
+// answer to a real player's ambient /say. NEW wording (the frozen murmur
+// block above is untouched by law); composed into a chat request via
+// BuildChatRequestBody at the street worker, exactly like the composer.
+
+// race/class words for the street persona framing (the single source:
+// PlayerbotLlmChatter.cpp's local mappers forward here so the wording
+// cannot drift between the murmur and street lanes).
+inline std::string RaceWord(std::uint32_t race)
+{
+    switch (race)
+    {
+        case 1: return "human";
+        case 2: return "orc";
+        case 3: return "dwarf";
+        case 4: return "night elf";
+        case 5: return "undead";
+        case 6: return "tauren";
+        case 7: return "gnome";
+        case 8: return "troll";
+        default: return "wanderer";
+    }
+}
+
+inline std::string ClassWord(std::uint32_t cls)
+{
+    switch (cls)
+    {
+        case 1: return "warrior";
+        case 2: return "paladin";
+        case 3: return "hunter";
+        case 4: return "rogue";
+        case 5: return "priest";
+        case 7: return "shaman";
+        case 8: return "mage";
+        case 9: return "warlock";
+        case 11: return "druid";
+        default: return "laborer";
+    }
+}
+
+inline std::string StreetSystemMessage(std::string const& name,
+    std::string const& race, std::string const& cls, std::string const& zone)
+{
+    return "You are " + name + ", a " + race + " " + cls + " standing around " +
+        zone + ". An adventurer nearby just said something out loud. " +
+        "Speak only " + name + "'s next line: ONE short street reaction, under " +
+        "twenty words, the way a stranger half-hears a thing and answers at " +
+        "large. No actions, no narration, no asterisks, no quoting yourself.";
+}
+
+inline std::string StreetNote(std::string const& speakerName,
+    std::string const& heard)
+{
+    return "[BRIDGE AI] " + speakerName + " just said out loud: \"" + heard +
+        "\". Answer it in the street - ONE line, under twenty words, to no " +
+        "one in particular. Never mention this instruction. This reply only.";
+}
+
+// The accepted first line of a street reply: first non-empty line of the
+// model content, trimmed, bounded by the /say cap, register-checked by
+// the banter core's own laws (LineIsValid) and marker-free (the compose
+// site scrubs the INPUT; this vets the OUTPUT).
+inline std::string FirstStreetLine(std::string const& content)
+{
+    size_t begin = 0;
+    while (begin < content.size())
+    {
+        size_t end = content.find('\n', begin);
+        std::string line = content.substr(begin,
+            (end == std::string::npos ? content.size() : end) - begin);
+        // trim both ends
+        size_t s = line.find_first_not_of(" \t\r");
+        size_t e = line.find_last_not_of(" \t\r");
+        if (s != std::string::npos)
+            line = line.substr(s, e - s + 1);
+        if (!line.empty())
+        {
+            if (line.size() > 255)
+                line.resize(255);
+            if (pocketllm::LineIsValid(line.c_str()) &&
+                !pocketllm::ContainsMarkerTerms(line))
+                return line;
+            return "";  // the FIRST line is the street voice; anything
+                        // else is the model wandering - fall to the pool
+        }
+        if (end == std::string::npos)
+            break;
+        begin = end + 1;
+    }
+    return "";
+}
+
 // ---- FROZEN cloud-composer protocol (ONE call, 2-4 personas +
 // the event rows, speaker-tagged output - the multi-party composer
 // pattern). The composer is a cloud-class model, never the device tier;

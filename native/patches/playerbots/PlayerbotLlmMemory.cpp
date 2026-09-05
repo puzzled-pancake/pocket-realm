@@ -2181,6 +2181,273 @@ bool PlayerbotLlmMemory::QueueCrowdEmote(Player* bot, Player* speaker)
     return true;
 }
 
+namespace
+{
+// A2: mapId -> {botGuid -> expiresAtMs} (steady-clock ms). TTL 300 s;
+// a live dialogue RE-ARMS (its expiry extends), so a logout mid-dialogue
+// leaks at most one ghost entry for <= the TTL - there is deliberately
+// no decrement path.
+std::map<uint32, std::map<uint32, uint64_t>>& DialogueOccupancy()
+{
+    static std::map<uint32, std::map<uint32, uint64_t>> occupancy;
+    return occupancy;
+}
+
+uint64_t SteadyNowMs()
+{
+    return (uint64_t)std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+// A6: the street windows - per-AreaId zone window (beside the crowd
+// emote's world-wide window; zone granularity matches the crowd branch)
+// and the per-bot street slot. Quota-first admission: the street lane is
+// EXEMPT from the authored arbiter - its caps are this interval + the
+// daily street quota, so the authored ambient category caps cannot
+// starve the street allowance.
+std::map<uint32, time_t>& LastStreetSayAt()
+{
+    static std::map<uint32, time_t> instance;
+    return instance;
+}
+
+std::map<uint32, time_t>& StreetSlotAt()
+{
+    static std::map<uint32, time_t> instance;
+    return instance;
+}
+
+uint32 const STREET_ZONE_WINDOW_SEC = 12;  // the crowd event window
+uint32 const STREET_BOT_INTERVAL_SEC = 90; // one street say per bot per window
+
+// the detached street worker's immutable job: strings and guids only -
+// no Player*/Session* crosses the thread boundary
+struct StreetJob
+{
+    uint32 botGuid;
+    uint32 speakerGuid;
+    std::string botName;
+    std::string race;
+    std::string cls;
+    std::string zone;
+    std::string speakerName;
+    std::string heard;
+    StreetJob() : botGuid(0), speakerGuid(0) {}
+};
+
+void RunStreetReaction(StreetJob job)
+{
+    // the generation leg: the heard text through the compose-site scrub
+    // chain (player words die here - the street body carries none), the
+    // street request via BuildChatRequestBody, then E0's kStreetShort
+    // pool as the failure fallback (a dead endpoint still answers the
+    // crowd). Delivery rides the authored SAY EventReaction
+    // (world-thread drain, 2-5 s stagger) - never the chatter queue,
+    // and never an A2 arm.
+    std::string const heard = pocketllm::NeuterMarkersCopy(
+        PlayerbotLlmMemory::ScrubControlTokens(job.heard).c_str());
+    std::string line;
+    if (!heard.empty())
+    {
+        std::string const body = pocketllm::BuildChatRequestBody(
+            sPlayerbotAIConfig.llmChatterComposerModel,
+            pocketllm::StreetSystemMessage(job.botName, job.race, job.cls, job.zone),
+            std::vector<pocketllm::HistoryTurn>(),
+            pocketllm::StreetNote(job.speakerName, heard),
+            [&]
+            {
+                pocketllm::RequestSampling s;
+                s.temperature = 0.9f;
+                s.topP = 0.95f;
+                s.maxTokens = 80;
+                s.providerSafe = true;  // cloud endpoints reject unknown keys
+                return s;
+            }(),
+            true);
+        std::string const http = PlayerbotLLMInterface::PostChatHttp(
+            body, sPlayerbotAIConfig.llmGenerationTimeout, nullptr, nullptr);
+        pocketllm::CompletionEnvelope envelope =
+            pocketllm::ParseCompletionEnvelope(http);
+        if (envelope.parsed && pocketllm::ContentUsable(envelope))
+            line = pocketllm::FirstStreetLine(envelope.content);
+    }
+    if (line.empty())
+        line = PlayerbotLlmPersona::StreetShortLine(job.botGuid);
+    if (line.empty())
+        return; // even the pool draw failed: silence (SelectLine {0} safety)
+
+    PlayerbotLlmMemory::EventReaction reaction;
+    reaction.authored = true;
+    reaction.msgtype = CHAT_MSG_SAY;
+    reaction.text = line;
+    reaction.playerGuid = job.speakerGuid;
+    // steady-derived stagger (2-5 s): urand is world-thread only
+    reaction.notBefore = time(nullptr) + CROWD_DELAY_MIN +
+        (SteadyNowMs() % (CROWD_DELAY_MAX - CROWD_DELAY_MIN + 1));
+    std::lock_guard<std::mutex> lock(StateMutex());
+    std::deque<PlayerbotLlmMemory::EventReaction>& queue =
+        EventReactions()[job.botGuid];
+    queue.push_back(reaction);
+    while (queue.size() > 2)
+        queue.pop_front();
+}
+} // namespace
+
+void PlayerbotLlmMemory::ArmDialogue(uint32 botGuid, uint32 mapId, bool interlocutor)
+{
+    // the fast-lane key gates the ARMING site itself (0 = the window
+    // never opens; DialogueActive then reads nothing but expired dust)
+    if (!sPlayerbotAIConfig.llmDialogueFastLane)
+        return;
+    uint64_t const nowMs = SteadyNowMs();
+    std::vector<PlayerbotLlmGates::DialogueOccupant> occupants;
+    {
+        std::lock_guard<std::mutex> lock(StateMutex());
+        auto itr = DialogueOccupancy().find(mapId);
+        if (itr != DialogueOccupancy().end())
+            for (auto& kv : itr->second)
+                occupants.push_back({kv.first, kv.second});
+    }
+    // the pure helper owns prune + admission semantics (host-pinned):
+    // the interlocutor always admits; anyone else needs occupancy < 16
+    if (!PlayerbotLlmGates::EvictDialogueVictim(occupants, nowMs, botGuid, 16, botGuid))
+        return;
+    std::lock_guard<std::mutex> lock(StateMutex());
+    DialogueOccupancy()[mapId][botGuid] = nowMs + 300ull * 1000ull;
+}
+
+bool PlayerbotLlmMemory::DialogueActive(uint32 botGuid)
+{
+    uint64_t const nowMs = SteadyNowMs();
+    std::lock_guard<std::mutex> lock(StateMutex());
+    for (auto const& mapKv : DialogueOccupancy())
+    {
+        auto itr = mapKv.second.find(botGuid);
+        if (itr != mapKv.second.end() && itr->second > nowMs)
+            return true;
+    }
+    return false;
+}
+
+std::string PlayerbotLlmMemory::DrawFailureFallback(
+    PlayerbotLlmGates::FallbackPlan const& plan, uint32 botGuid, uint32 playerGuid)
+{
+    if (!plan.active)
+        return "";
+    // pointers re-resolve at draw time (the AddBoundedSentimentInput
+    // precedent) - no Player* crossed the async wait, and a vanished
+    // bot or player means nobody is left to speak to: silence is correct
+    Player* bot = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, botGuid));
+    if (!bot)
+        return "";
+    if (plan.kind == PlayerbotLlmGates::FBK_GREET)
+    {
+        Player* player = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, playerGuid));
+        if (!player)
+            return "";
+        return AuthoredArrivalGreeting(bot, player, plan.absence);
+    }
+    if (plan.kind == PlayerbotLlmGates::FBK_PERSONA)
+        return PlayerbotLlmPersona::FallbackLine(bot,
+            (PlayerbotLlmPersona::HardCategory)plan.personaCategory, plan.whisper);
+    return "";
+}
+
+void PlayerbotLlmMemory::QueueConversationalFallback(uint32 botGuid,
+    uint32 playerGuid, uint32 msgtype, std::string const& text, uint32 mapId)
+{
+    if (text.empty())
+        return;
+    // the fallback delivery: the authored EventReaction queue (world-
+    // thread drain - the async region never touches a Session*) and the
+    // RELOCATED cloud-fallback delivery site the A2 arming pin follows
+    // (the conversation window extends despite the failed turn)
+    if (mapId)
+        ArmDialogue(botGuid, mapId, true);
+    EventReaction reaction;
+    reaction.authored = true;
+    reaction.msgtype = msgtype;
+    reaction.text = text;
+    reaction.playerGuid = playerGuid;
+    std::lock_guard<std::mutex> lock(StateMutex());
+    std::deque<EventReaction>& queue = EventReactions()[botGuid];
+    queue.push_back(reaction);
+    while (queue.size() > 2)
+        queue.pop_front();
+}
+
+void PlayerbotLlmMemory::AddRelationshipPointsByGuid(uint32 botGuid,
+    uint32 playerGuid, int32 points)
+{
+    if (!playerGuid || !points)
+        return;
+    if (Player* bot = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, botGuid)))
+        if (Player* player = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, playerGuid)))
+            AddRelationshipPoints(bot, player, points);
+}
+
+bool PlayerbotLlmMemory::QueueStreetReaction(Player* bot, Player* speaker,
+    std::string const& heard)
+{
+    // cloud lane only (the conjunction, never the bare key); every
+    // other lane no-ops here and the caller falls to the crowd emote,
+    // byte-identical to the pre-A6 crowd branch
+    if (!CloudLaneOpen() || !sPlayerbotAIConfig.llmBanterEnabled)
+        return false;
+    if (!bot || !speaker || heard.empty())
+        return false;
+    if (!bot->IsInWorld() || !bot->IsAlive() || bot->IsInCombat())
+        return false;
+    if (!bot->GetMap())
+        return false;
+    // the ladder, in the pinned order: world/zone window claim ->
+    // per-bot slot -> pct roll -> daily quota -> dispatch. Any rejection
+    // falls to the emote; quota exhaustion is emote-only, symmetric
+    // with pct = 0.
+    time_t const now = time(nullptr);
+    uint32 const areaId = bot->GetAreaId();
+    {
+        std::lock_guard<std::mutex> lock(StateMutex());
+        if (LastCrowdEmoteAt() && now - LastCrowdEmoteAt() < 12)
+            return false;                       // reject:world-window
+        time_t& lastInArea = LastStreetSayAt()[areaId];
+        if (lastInArea && now - lastInArea < STREET_ZONE_WINDOW_SEC)
+            return false;                       // reject:zone-window
+        time_t& lastForBot = StreetSlotAt()[bot->GetGUIDLow()];
+        if (lastForBot && now - lastForBot < STREET_BOT_INTERVAL_SEC)
+            return false;                       // reject:bot-slot
+    }
+    if (!sPlayerbotAIConfig.llmCloudStreetSayPct ||
+        urand(0, 99) >= sPlayerbotAIConfig.llmCloudStreetSayPct)
+        return false;                           // reject:pct-roll
+    if (!CloudQuotaAdmits("street", sPlayerbotAIConfig.llmStreetSayPerDay))
+        return false;                           // reject:quota
+    {
+        // stamps land only on a confirmed dispatch (a rejected claim
+        // must not burn the windows in silence - the kill-banter law);
+        // the street say IS this window's crowd reaction, so the shared
+        // world window stamps too
+        std::lock_guard<std::mutex> lock(StateMutex());
+        LastCrowdEmoteAt() = now;
+        LastStreetSayAt()[areaId] = now;
+        StreetSlotAt()[bot->GetGUIDLow()] = now;
+    }
+
+    StreetJob job;
+    job.botGuid = bot->GetGUIDLow();
+    job.speakerGuid = speaker->GetGUIDLow();
+    job.botName = bot->GetName();
+    job.race = pocketllm::RaceWord(bot->getRace());
+    job.cls = pocketllm::ClassWord(bot->getClass());
+    job.zone = ZoneNameOf(bot);
+    job.speakerName = speaker->GetName();
+    job.heard = heard;
+    // the emote is dropped (not deferred) for this event: the caller
+    // only queues the emote when this returns false
+    std::thread(RunStreetReaction, job).detach();
+    return true;
+}
+
 void PlayerbotLlmMemory::TickInitiative(Player* bot)
 {
     if (!bot || !bot->IsInWorld() || !sPlayerbotAIConfig.llmEnabled ||

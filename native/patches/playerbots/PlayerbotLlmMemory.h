@@ -242,6 +242,53 @@ public:
     // under StateMutex).
     static bool PartyFloodAdmits(uint32 speakerGuid);
 
+    // ---- A2: the conversation fast-lane window. Arming is world-thread
+    // at the ChatReplyDo dispatch site (and the A4 fallback delivery
+    // leg); occupancy is guid-keyed per map under StateMutex with a TTL
+    // (logout mid-dialogue leaks at most one ghost for <= the TTL - no
+    // decrement path exists). The interlocutor admits unconditionally
+    // (soft cap); non-interlocutor admits require map occupancy < 16
+    // after pruning (PlayerbotLlmGates::EvictDialogueVictim). The
+    // LLMDialogueFastLane key gates the ARMING sites; DialogueActive is
+    // the priority query (cheap: guarded map scan behind the 5 s
+    // AllowActivity cache).
+    static void ArmDialogue(uint32 botGuid, uint32 mapId, bool interlocutor);
+    static bool DialogueActive(uint32 botGuid);
+
+    // ---- A4: the authored failure-fallback (cloud lane, conversational
+    // turns only). DrawFailureFallback resolves the plan's ids into a
+    // line at FAILURE time on the worker thread (pointers re-resolve by
+    // guid - the AddBoundedSentimentInput precedent; a vanished bot or
+    // player means nobody is left to speak to: silence). Delivery queues
+    // on the world-thread EventReaction drain - the async region never
+    // touches a Session*, and the guid award rides the same closure so
+    // {deliver, bot-line record, award} lands exactly once per turn
+    // outcome. AddRelationshipPointsByGuid re-resolves both sides the
+    // same way.
+    static std::string DrawFailureFallback(
+        PlayerbotLlmGates::FallbackPlan const& plan,
+        uint32 botGuid, uint32 playerGuid);
+    static void QueueConversationalFallback(uint32 botGuid, uint32 playerGuid,
+        uint32 msgtype, std::string const& text, uint32 mapId);
+    static void AddRelationshipPointsByGuid(uint32 botGuid, uint32 playerGuid,
+        int32 points);
+
+    // ---- A6: the street admission ladder (cloud lane). The crowd
+    // branch's entry: world/zone window claim -> per-bot slot ->
+    // LLMCloudStreetSayPct roll -> CloudQuotaAdmits("street") ->
+    // dispatch, IN THAT ORDER (the pin asserts it); any rejection
+    // returns false so the caller falls back to the crowd emote, and a
+    // dispatched street say drops the emote for that event (not
+    // defers). Quota-first admission: the street lane is EXEMPT from the
+    // authored arbiter (its cap is the daily quota + the per-bot
+    // interval). The generation runs on a detached worker (the composer
+    // precedent); the delivered line - generated, or E0's kStreetShort
+    // pool as the failure fallback - rides an authored SAY
+    // EventReaction (2-5 s stagger), never the chatter queue, and never
+    // arms A2.
+    static bool QueueStreetReaction(Player* bot, Player* speaker,
+        std::string const& heard);
+
     // plan v5 W8: the /notice scene read - the player's own half of the
     // immersion. Renders the live scene (place, stealth/combat, wounded
     // party members, hour/weather, the current rumor) as second-person

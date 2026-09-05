@@ -190,6 +190,33 @@ static void street_ladder_order()
     CHECK(StreetAdmissionOrder(true, true, false, true) == "reject:pct-roll");
 }
 
+static void failure_fallback_fold()
+{
+    // A4: busy keeps the placeholder (duty-cycle denial is pacing, not a
+    // dead endpoint) - it never wants the fallback; every other hard
+    // failure and post-parse emptiness does
+    CHECK(!FailureWantsFallback(true, true));
+    CHECK(!FailureWantsFallback(true, false));
+    CHECK(FailureWantsFallback(false, true));
+    CHECK(!FailureWantsFallback(false, false));
+
+    // the plan's default is INACTIVE (the autonomous RPG dispatch site
+    // keeps compiling with the defaulted trailing parameter and stays
+    // silent; an inactive plan is exactly the device lane)
+    PlayerbotLlmGates::FallbackPlan plan;
+    CHECK(!plan.active);
+    CHECK(plan.kind == PlayerbotLlmGates::FBK_NONE);
+    CHECK(plan.channel == 0);
+    CHECK(plan.personaCategory == 0);
+    CHECK(!plan.whisper);
+    CHECK(plan.absence.empty());
+    CHECK(plan.mapId == 0);
+    plan.active = true;
+    plan.kind = PlayerbotLlmGates::FBK_GREET;
+    plan.absence = "most of a day";
+    CHECK(plan.active && plan.kind == PlayerbotLlmGates::FBK_GREET);
+}
+
 int main()
 {
     cloud_lane_open_matrix();
@@ -200,6 +227,7 @@ int main()
     responder_selection();
     dialogue_eviction();
     street_ladder_order();
+    failure_fallback_fold();
     if (failures == 0)
         std::printf("llm gates battery: OK\n");
     else

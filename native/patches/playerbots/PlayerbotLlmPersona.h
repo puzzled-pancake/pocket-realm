@@ -83,6 +83,14 @@ public:
     // site - no caller yet.
     static std::string SecurityRefusalLine(Player* bot);
 
+    // plan RP A6: the street short-reaction fallback (guid-keyed, no
+    // Player* - the detached street worker calls it after a failed or
+    // unusable street generation). Draws the guid-stable speaker cell
+    // of POOL_STREET_SHORT through the recency ring so a bot keeps one
+    // street voice across lines. Empty when banter is off or the draw
+    // fails (then silence - the pre-A6 behavior).
+    static std::string StreetShortLine(uint32 botGuid);
+
     // plan v5 W8: one authored in-character nudge for the /notice scene
     // read (POOL_SCENE_NUDGE recency-ring draw), rendered {P}/{B}
     static std::string SceneNudgeLine(Player* bot, Player* player);

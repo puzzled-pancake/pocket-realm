@@ -248,6 +248,49 @@ namespace PlayerbotLlmGates
         if (!quotaAdmits)        return "reject:quota";
         return "dispatch";
     }
+
+    // A4's failure decision as a pure fold: busy keeps the persona
+    // placeholder (both lanes, unchanged - duty-cycle denial is pacing,
+    // not a dead endpoint); every OTHER hard failure (cap, timeout,
+    // http_%d, error) and post-parse emptiness wants the authored
+    // fallback instead of silence. The autonomous RPG source folds this
+    // away by carrying no plan (it stays silent, as today).
+    inline bool FailureWantsFallback(bool busy, bool linesEmpty)
+    {
+        return !busy && linesEmpty;
+    }
+
+    // A4's interceptor-demotion plan. World-thread sites fill it with
+    // IDS ONLY (kind, channel, category, flags) - never pre-drawn text:
+    // pre-drawing would advance shared recency rings and mint belief
+    // facts for lines that may never deliver. The async worker draws
+    // the actual line at FAILURE time (the BusyReply precedent).
+    // Default-constructed = inactive: the autonomous RPG dispatch site
+    // keeps compiling with the defaulted trailing parameter and stays
+    // silent, and an inactive plan on the conversational path is
+    // exactly the device lane (byte-identical silence on failure).
+    enum FallbackKind
+    {
+        FBK_NONE = 0,   // no interceptor demoted (plain cloud turn)
+        FBK_GREET = 1,  // the arrival-greeting interceptor demoted
+        FBK_PERSONA = 2 // the hard-category persona interceptor demoted
+    };
+
+    struct FallbackPlan
+    {
+        bool active;            // a cloud-lane conversational turn (the
+                                // closure owns deliver/record/award)
+        std::uint32_t kind;     // FallbackKind
+        std::uint32_t channel;  // ChatMsg type the reply lands on
+        std::uint32_t personaCategory; // PlayerbotLlmPersona::HardCategory
+        bool whisper;           // the persona draw's channel flag
+        std::string absence;    // the greet leg's absence bucket (one of
+                                // the fixed literals - an id, not text)
+        std::uint32_t mapId;    // A2 re-arm map at the fallback delivery
+        FallbackPlan()
+            : active(false), kind(FBK_NONE), channel(0),
+              personaCategory(0), whisper(false), mapId(0) {}
+    };
 }
 
 #endif
