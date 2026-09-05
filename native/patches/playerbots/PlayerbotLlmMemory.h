@@ -1,11 +1,13 @@
 #ifndef _PlayerbotLlmMemory_h
 #define _PlayerbotLlmMemory_h
 
+#include "PlayerbotLlmGates.h"
 #include <cstdint>
 #include <string>
 #include <vector>
 
 #include "playerbot/PlayerbotAI.h"
+#include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/PlayerbotLlmRecallCore.h"
 
 class Player;
@@ -199,6 +201,12 @@ public:
     // daily cap is spent (and counts the admission when it returns true)
     static bool CloudQuotaAdmits(char const* surface, uint32 perDay);
 
+    // A7 tier I: the interactive budget - per real player per hour,
+    // exempt from the ambient arbiter (the addressed interlocutor is
+    // always admitted; the budget bounds the sustained rate). Device
+    // lane: unbounded here (the governor is the only limiter).
+    static bool InteractiveBudgetAdmits(uint32 playerGuid);
+
     // plan v5 W8: the /notice scene read - the player's own half of the
     // immersion. Renders the live scene (place, stealth/combat, wounded
     // party members, hour/weather, the current rumor) as second-person
@@ -389,5 +397,16 @@ public:
     // 30s pre-warm cadence per bot (mutex-guarded; map threads call this)
     static bool PrewarmDue(uint32 botGuid);
 };
+
+// 0.13 conjunction law: every cloud-lane widening consumes THIS - never
+// the bare LLMCloudChatter key. The tier half is conf-static per process
+// (providerSafe + ctx >= 65536), so a device-lane emission can never
+// widen even with the key on; the pure three-value form lives in
+// PlayerbotLlmGates.h for the host harness.
+inline bool CloudLaneOpen()
+{
+    return sPlayerbotAIConfig.llmCloudChatter != 0 &&
+        PlayerbotLlmMemory::ExternalApiTierActive();
+}
 
 #endif

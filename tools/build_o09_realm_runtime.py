@@ -35,7 +35,7 @@ LOCKFILE = ROOT / "schemas" / "realm-runtime-lockfile.json"
 CONNECTOR_URL = "https://github.com/MariaDB/mariadb-connector-c.git"
 CONNECTOR_COMMIT = "de6305915f86bb33c83b1fe782a2b8a76920aec1"
 CMANGOS_COMMIT = "082afd606f8e37ea939df6fdfcd4af81f8085e6e"
-PLAYERBOTS_COMMIT = "89a5b3722a7dc33804996fffb91fcbd12f5a5001"
+PLAYERBOTS_COMMIT = "0c9d44a1952cf2541adc75df550c33972643346a"
 MAX_PAGE = 0x4000
 BACKEND = "mysql"
 
@@ -313,6 +313,7 @@ PLAYERBOTS_OVERLAYS = [
             "playerbot/PlayerbotLlmChatter.h",
             "playerbot/PlayerbotLlmChatterCore.h",
             "playerbot/PlayerbotLlmChatter.cpp",
+            "playerbot/PlayerbotLlmGates.h",
             "playerbot/strategy/actions/SayAction.h",
             "playerbot/strategy/actions/SayAction.cpp",
             "playerbot/strategy/actions/RpgSubActions.cpp",
@@ -912,6 +913,19 @@ PB_LLM_CONFIG_HEADER_ANDROID = """    ParsedUrl llmEndPointUrl;
     // handshake on Android - no /etc/ssl/certs exists for native code)
     uint32 llmTlsVerify;
     std::string llmTlsCaFile;
+    // WS-A cloud lane (plan v2.3 A0.a/A1/A7): the master cloud-chatter
+    // toggle consumed as the conjunction CloudLaneOpen() =
+    // llmCloudChatter && ExternalApiTierActive() (never the bare key -
+    // a device-lane leak of the widenings is a hard stop), the party
+    // unaddressed-reply arm (default 0 until the T3 party step is
+    // green), the street reaction share + the three per-UTC-day
+    // process-local generation quotas, the two-tier budgets (ambient
+    // realm-global per-hour + interactive per-player per-hour), and the
+    // A2 dialogue fast-lane arming switch
+    uint32 llmCloudChatter, llmPartyReplyEnabled;
+    uint32 llmCloudStreetSayPct, llmStreetSayPerDay, llmRpgChatPerDay, llmBotToBotPerDay;
+    uint32 llmCloudLineBudgetPerHour, llmCloudInteractivePerPlayerHour;
+    uint32 llmDialogueFastLane;
 """
 PB_LLM_CONFIG_CPP_UPSTREAM = """    //LLM START
     llmEnabled = config.GetIntDefault("AiPlayerbot.LLMEnabled", 1);
@@ -1054,6 +1068,19 @@ PB_LLM_CONFIG_CPP_ANDROID = """    //LLM START
     // empty value falls back to the system hashed-dir store.
     llmTlsVerify = (uint32)config.GetIntDefault("AiPlayerbot.LLMTLSVerify", 1);
     llmTlsCaFile = config.GetStringDefault("AiPlayerbot.LLMTLSCaFile", "");
+    // A0.a: the WS-A cloud-lane keys. Defaults are the plan's 0.a rows;
+    // 0 disables the behavior named by the row (the repo's opt-out
+    // convention). Quotas are per-UTC-day, realm-global, process-local
+    // (they reset on realm restart - documented in the toggle copy).
+    llmCloudChatter = (uint32)config.GetIntDefault("AiPlayerbot.LLMCloudChatter", 1);
+    llmPartyReplyEnabled = (uint32)config.GetIntDefault("AiPlayerbot.LLMPartyReplyEnabled", 0);
+    llmCloudStreetSayPct = (uint32)config.GetIntDefault("AiPlayerbot.LLMCloudStreetSayPct", 25);
+    llmStreetSayPerDay = (uint32)config.GetIntDefault("AiPlayerbot.LLMStreetSayPerDay", 200);
+    llmRpgChatPerDay = (uint32)config.GetIntDefault("AiPlayerbot.LLMRpgChatPerDay", 300);
+    llmBotToBotPerDay = (uint32)config.GetIntDefault("AiPlayerbot.LLMBotToBotPerDay", 300);
+    llmCloudLineBudgetPerHour = (uint32)config.GetIntDefault("AiPlayerbot.LLMCloudLineBudgetPerHour", 90);
+    llmCloudInteractivePerPlayerHour = (uint32)config.GetIntDefault("AiPlayerbot.LLMCloudInteractivePerPlayerHour", 240);
+    llmDialogueFastLane = (uint32)config.GetIntDefault("AiPlayerbot.LLMDialogueFastLane", 1);
     {
         static char const* const kBlocks[] = {
             "voice-lock", "rule-autonomy", "rule-anti-omniscient",
@@ -1595,10 +1622,17 @@ PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBacken
     // resolved here (not inside the gated block) so the say trigger can
     // require a real player without touching the later `player` declaration
     Player* gateSpeaker = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, guid1));
-    bool hardTriggerAllowed =
-        chatChannelSource == ChatChannelSource::SRC_WHISPER ||
-        ((chatChannelSource == ChatChannelSource::SRC_PARTY || chatChannelSource == ChatChannelSource::SRC_RAID) && addressedToBot) ||
-        (chatChannelSource == ChatChannelSource::SRC_SAY && addressedToBot && gateSpeaker && gateSpeaker->isRealPlayer());
+    // A1/A3: the hard trigger is the pure gate helper (mirror-enum values
+    // bridged by the static_asserts above). The widened arms: a REAL
+    // player's addressed party/raid line (bot-authored holes stay shut)
+    // and - cloud lane only, behind the default-0 party reply arm - one
+    // unaddressed party line. The bot-authored addressed hole (a bot
+    // naming a bot) is closed: hardTriggerAllowed requires a real player
+    // on every party/raid/say leg.
+    bool hardTriggerAllowed = PlayerbotLlmGates::HardTriggerAllowed(
+        static_cast<uint32>(chatChannelSource), addressedToBot,
+        gateSpeaker && gateSpeaker->isRealPlayer(), CloudLaneOpen(),
+        sPlayerbotAIConfig.llmPartyReplyEnabled != 0);
 
     // S8/A18 crowd arbiter: a real player's ambient /say that names no
     // bot is a NON-trigger for generations, but the street may still
@@ -1644,7 +1678,10 @@ PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBacken
                 gateSpeaker->GetGUIDLow(), msg);
     }
 
-    if (bot->GetPlayerbotAI() && sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed && (bot->GetPlayerbotAI()->HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3) && chatChannelSource != ChatChannelSource::SRC_UNDEFINED && sPlayerbotAIConfig.llmBlockedReplyChannels.find(chatChannelSource) == sPlayerbotAIConfig.llmBlockedReplyChannels.end()
+    // A1: the cloud lane widens the strategy gate (CloudLaneOpen() is the
+    // key AND tier conjunction - llmEnabled == 2 + strategy stays today's
+    // external behavior byte-for-byte; == 3 stays the hand-conf lane)
+    if (bot->GetPlayerbotAI() && sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed && (bot->GetPlayerbotAI()->HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3 || CloudLaneOpen()) && chatChannelSource != ChatChannelSource::SRC_UNDEFINED && sPlayerbotAIConfig.llmBlockedReplyChannels.find(chatChannelSource) == sPlayerbotAIConfig.llmBlockedReplyChannels.end()
         )
 """
 PB_SAY_PROMPT_UPSTREAM = """                for (auto& prompt : jsonFill)
@@ -1901,6 +1938,38 @@ PB_SAY_ASYNC_ANDROID = """                uint32 llmHistoryKey = (chatChannelSou
                     bot->GetGUIDLow(), (int)PlayerbotLlamaRuntime::LLM_SRC_CHAT_REPLY,
                     useLlamaBackend ? "device" : "cloud", (unsigned long long)llmReqId);
                 futurePackets futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, bot->GetGUIDLow(), llmSpeakerGuid, PlayerbotLlamaRuntime::LLM_SRC_CHAT_REPLY, llmLicenseStamp, llmHistoryKey, bot->GetName(), chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug, 0u, PlayerbotLlmBridge::NoteLongFormCued(bot->GetGUIDLow(), llmLicenseStamp), llmReqId);
+"""
+# A1b containment: RequestNewLines on the cloud lane is generation-
+# quota'd (llmRpgChatPerDay, counting GENERATIONS - one trigger is 5-11
+# turns) with a silent stop + one Basic line per UTC day on exhaustion.
+PB_RPG_QUOTA_UPSTREAM = """bool RpgAIChatAction::RequestNewLines()
+{
+    if (packets.size())
+        return false;
+"""
+PB_RPG_QUOTA_ANDROID = """bool RpgAIChatAction::RequestNewLines()
+{
+    // A1b: the RPG lane is open on BOTH lanes today; on the cloud lane
+    // it stays open but generation-quota'd (conversations vs lines differ
+    // 10x - the quota counts triggers). Silent stop on exhaustion; one
+    // Basic line per UTC day records that the lane went quiet.
+    if (CloudLaneOpen())
+    {
+        static int64_t lastQuotaNoteDay = 0;
+        if (!PlayerbotLlmMemory::CloudQuotaAdmits("rpgchat", sPlayerbotAIConfig.llmRpgChatPerDay))
+        {
+            int64_t const day = (int64_t)(time(nullptr) / 86400);
+            if (lastQuotaNoteDay != day)
+            {
+                lastQuotaNoteDay = day;
+                sLog.outBasic("BotLLM: rpgchat daily quota exhausted (%u generations)", sPlayerbotAIConfig.llmRpgChatPerDay);
+            }
+            return false;
+        }
+    }
+
+    if (packets.size())
+        return false;
 """
 PB_RPG_ASYNC_UPSTREAM = """    futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug);
 """
@@ -2279,6 +2348,18 @@ PB_SAY_INCLUDE_UPSTREAM = """#include "playerbot/PlayerbotTextMgr.h"
 PB_SAY_INCLUDE_ANDROID = """#include "playerbot/PlayerbotTextMgr.h"
 #include "playerbot/PlayerbotLlmFilters.h"
 #include "playerbot/PlayerbotLlmMemory.h"
+#include "playerbot/PlayerbotLlmGates.h"
+// bridge: the pure gates take mirror values so the header stays
+// host-compilable; an upstream ChatChannelSource renumber must fail the
+// BUILD here, never misclassify a channel at runtime
+static_assert((int)PlayerbotLlmGates::GATE_SRC_WHISPER == (int)SRC_WHISPER, "GateSrc bridge drifted");
+static_assert((int)PlayerbotLlmGates::GATE_SRC_PARTY == (int)SRC_PARTY, "GateSrc bridge drifted");
+static_assert((int)PlayerbotLlmGates::GATE_SRC_RAID == (int)SRC_RAID, "GateSrc bridge drifted");
+static_assert((int)PlayerbotLlmGates::GATE_SRC_SAY == (int)SRC_SAY, "GateSrc bridge drifted");
+static_assert((int)PlayerbotLlmGates::GATE_SRC_YELL == (int)SRC_YELL, "GateSrc bridge drifted");
+static_assert((int)PlayerbotLlmGates::GATE_SRC_TRADE == (int)SRC_TRADE, "GateSrc bridge drifted");
+static_assert((int)PlayerbotLlmGates::GATE_SRC_GENERAL == (int)SRC_GENERAL, "GateSrc bridge drifted");
+static_assert((int)PlayerbotLlmGates::GATE_SRC_UNDEFINED == (int)SRC_UNDEFINED, "GateSrc bridge drifted")
 #include "playerbot/PlayerbotLlmPersona.h"
 #include "playerbot/PlayerbotLlmTools.h"
 #include "playerbot/PlayerbotLlmToolsCore.h"
@@ -2920,6 +3001,24 @@ PB_LLM_CONF_ANDROID = """# Time in seconds the server will wait for the generati
 # The CA bundle the app stages next to the conf (absolute path; empty =
 # system store fallback).
 # AiPlayerbot.LLMTLSCaFile =
+# WS-A cloud conversation lane. LLMCloudChatter masters every cloud
+# widening as CloudLaneOpen() = LLMCloudChatter && external tier active;
+# the device lane never sees the widenings regardless of this key.
+# LLMCloudStreetSayPct: % of admitted crowd reactions that may speak
+# (rest emote only). The *PerDay quotas count GENERATIONS per UTC day,
+# realm-global, process-local (reset on realm restart). The two budgets:
+# ambient lines per hour (realm-global) and interactive replies per
+# player per hour. LLMDialogueFastLane arms the in-dialogue activity
+# fast-lane (A2). 0 disables the named behavior.
+# AiPlayerbot.LLMCloudChatter = 1
+# AiPlayerbot.LLMPartyReplyEnabled = 0
+# AiPlayerbot.LLMCloudStreetSayPct = 25
+# AiPlayerbot.LLMStreetSayPerDay = 200
+# AiPlayerbot.LLMRpgChatPerDay = 300
+# AiPlayerbot.LLMBotToBotPerDay = 300
+# AiPlayerbot.LLMCloudLineBudgetPerHour = 90
+# AiPlayerbot.LLMCloudInteractivePerPlayerHour = 240
+# AiPlayerbot.LLMDialogueFastLane = 1
 """
 # G3 part 1: the SSL_CTX setup. Upstream only disabled SSLv2/v3; the
 # cloud lane gets a TLS 1.2 floor, real peer verification (a staged CA
@@ -4012,6 +4111,7 @@ def prepare_cmangos_source() -> None:
     (bot_root / "PlayerbotLlmChatter.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmChatter.h").read_bytes())
     (bot_root / "PlayerbotLlmChatterCore.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmChatterCore.h").read_bytes())
     (bot_root / "PlayerbotLlmChatter.cpp").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmChatter.cpp").read_bytes())
+    (bot_root / "PlayerbotLlmGates.h").write_bytes((NATIVE / "patches" / "playerbots" / "PlayerbotLlmGates.h").read_bytes())
     replace_anchor(bot_root / "PlayerbotAIConfig.h", PB_LLM_CONFIG_HEADER_UPSTREAM, PB_LLM_CONFIG_HEADER_ANDROID)
     replace_anchor(bot_root / "PlayerbotAIConfig.cpp", PB_LLM_CONFIG_CPP_UPSTREAM, PB_LLM_CONFIG_CPP_ANDROID)
     replace_anchor(bot_root / "PlayerbotAIConfig.cpp", PB_LLM_CTX_REREAD_UPSTREAM, PB_LLM_CTX_REREAD_ANDROID)
@@ -4027,6 +4127,7 @@ def prepare_cmangos_source() -> None:
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_ASYNC_UPSTREAM, PB_SAY_ASYNC_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "RpgSubActions.cpp", PB_RPG_ASYNC_UPSTREAM, PB_RPG_ASYNC_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "RpgSubActions.cpp", PB_RPG_INCLUDE_UPSTREAM, PB_RPG_INCLUDE_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "RpgSubActions.cpp", PB_RPG_QUOTA_UPSTREAM, PB_RPG_QUOTA_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "RpgSubActions.cpp", PB_RPG_PROMPT_UPSTREAM, PB_RPG_PROMPT_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_RAID_CASE_UPSTREAM, PB_SAY_RAID_CASE_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "DebugAction.cpp", PB_DEBUG_GEN_UPSTREAM, PB_DEBUG_GEN_ANDROID)

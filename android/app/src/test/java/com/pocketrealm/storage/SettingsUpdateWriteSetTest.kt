@@ -96,6 +96,7 @@ class SettingsUpdateWriteSetTest {
         assertEquals("  https://api.openai.com  ", prefs[stringPreferencesKey("llm_external_url")])
         assertEquals(" sk-test ", prefs[stringPreferencesKey("llm_external_api_key")])
         assertEquals(" gpt-4o-mini ", prefs[stringPreferencesKey("llm_external_model")])
+        assertEquals(0, prefs[intPreferencesKey("llm_cloud_chatter")])
         assertEquals(0, prefs[intPreferencesKey("llm_banter")])
         assertEquals(1, prefs[intPreferencesKey("llm_ambience")])
         assertEquals(
@@ -289,7 +290,7 @@ class SettingsUpdateWriteSetTest {
                 "llm_enabled", "llm_compute_mode", "llm_cores_mask",
                 "llm_threads", "llm_offload_layers",
                 "llm_external_mode", "llm_external_url", "llm_external_api_key",
-                "llm_external_model", "llm_banter", "llm_ambience", "llm_model_id",
+                "llm_external_model", "llm_cloud_chatter", "llm_banter", "llm_ambience", "llm_model_id",
                 "llm_advanced", "llm_max_new_tokens", "llm_generation_timeout",
                 "llm_prompt_pack",
             ),

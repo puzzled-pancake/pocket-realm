@@ -1683,14 +1683,30 @@ bool AuthoredLineAdmitsLocked(uint32 category, bool exempt, bool roomOnly)
 {
     if (category >= PlayerbotLlmMemory::ARB_COUNT)
         category = PlayerbotLlmMemory::ARB_AMBIENT;
-    uint32 const globalCap = sPlayerbotAIConfig.llmAuthoredLinesPerHour;
+    // A7.2 two-tier budgets: the lane is evaluated INSIDE the locked
+    // helper (conf-static; no lane argument threads through the call
+    // sites). Device branch: exactly today's caps of the authored
+    // ceiling (8/hr). Cloud branch: the ambient cloud budget with
+    // PROPORTIONAL category caps - without them the street quota is
+    // unreachable (min(3,30) = 3/hr = 72/day < the 200/day street
+    // allowance).
+    bool const cloudTier = PlayerbotLlmMemory::ExternalApiTierActive();
+    uint32 const globalCap = cloudTier
+        ? sPlayerbotAIConfig.llmCloudLineBudgetPerHour
+        : sPlayerbotAIConfig.llmAuthoredLinesPerHour;
     if (!globalCap)
         return exempt;
-    uint32 const catCap = category == PlayerbotLlmMemory::ARB_AMBIENT
-        ? std::min<uint32>(3, globalCap)
-        : (category == PlayerbotLlmMemory::ARB_SCENE
-            ? globalCap
-            : std::min<uint32>(2, globalCap));
+    uint32 const catCap = cloudTier
+        ? (category == PlayerbotLlmMemory::ARB_AMBIENT
+            ? std::max<uint32>(1, globalCap / 4)
+            : (category == PlayerbotLlmMemory::ARB_SCENE
+                ? globalCap
+                : std::max<uint32>(1, globalCap / 8)))
+        : (category == PlayerbotLlmMemory::ARB_AMBIENT
+            ? std::min<uint32>(3, globalCap)
+            : (category == PlayerbotLlmMemory::ARB_SCENE
+                ? globalCap
+                : std::min<uint32>(2, globalCap)));
     int64_t const now = (int64_t)time(nullptr);
     AuthoredArbiter& arb = Arbiter();
     pocketllm::ArbiterPrune(arb.global, now, 3600);
@@ -2640,6 +2656,14 @@ std::map<std::string, std::pair<int64_t, uint32>>& CloudQuotaUsed()
     return instance;
 }
 
+// A7.1: the interactive tier's keyed map (player guid -> hour,used),
+// the CloudQuotaUsed pattern
+static std::map<uint32, std::pair<int64_t, uint32>>& InteractiveBudgetUsed()
+{
+    static std::map<uint32, std::pair<int64_t, uint32>> instance;
+    return instance;
+}
+
 // plan v5 C5: the dossier's 7-day gate, per player (a per-day quota
 // cannot express weekly; a process-local stamp is honest about what a
 // restart resets)
@@ -2713,6 +2737,32 @@ bool PlayerbotLlmMemory::PeekNewestDyadEvent(uint32 botA, uint32 botB, std::stri
     if (itr == Dyads().end() || itr->second.voiced || itr->second.newestEvent.empty())
         return false;
     eventOut = itr->second.newestEvent;
+    return true;
+}
+
+// A7.1 tier I - interactive: whisper, addressed say, the one party
+// responder and A2 continuations are EXEMPT from the ambient arbiter and
+// ride their own per-player hourly budget instead (the SentimentRate
+// keyed-map pattern; the addressed interlocutor is always admitted - the
+// budget bounds the sustained rate, not the first reply). Keyed by real
+// player guid; 0 disables interactive cloud replies (device behavior).
+bool PlayerbotLlmMemory::InteractiveBudgetAdmits(uint32 playerGuid)
+{
+    if (!playerGuid)
+        return false;
+    uint32 const cap = sPlayerbotAIConfig.llmCloudInteractivePerPlayerHour;
+    if (!ExternalApiTierActive())
+        return true;  // device lane: the governor is the only limiter
+    if (!cap)
+        return false;
+    int64_t const hour = (int64_t)(time(nullptr) / 3600);
+    std::lock_guard<std::mutex> lock(StateMutex());
+    std::pair<int64_t, uint32>& used = InteractiveBudgetUsed()[playerGuid];
+    if (used.first != hour)
+        used = std::make_pair(hour, 0u);
+    if (used.second >= cap)
+        return false;
+    ++used.second;
     return true;
 }
 

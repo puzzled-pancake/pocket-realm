@@ -1,5 +1,6 @@
 package com.pocketrealm.server
 
+import com.pocketrealm.bots.BotLlmSpeech
 import com.pocketrealm.llm.ComputeMode
 import com.pocketrealm.llm.LlmModelRegistry
 import com.pocketrealm.llm.LlmSamplingProfile
@@ -350,6 +351,68 @@ class LlmRuntimePolicyTest {
             tlsCaFile = "/srv/run/cacert.pem",
         )!!
         assertTrue(external.contains("AiPlayerbot.LLMTLSCaFile = \"/srv/run/cacert.pem\"\n"))
+    }
+
+    @Test
+    fun cloudLaneEmitsTheToggleAndItsEconomicsOnlyWhenOn() {
+        // A0.a/A7: the Cloud conversation toggle rides the external block.
+        // OFF (the shipped default - the upgrade cohort): the explicit 0
+        // line and NOTHING else, so every native default governs and the
+        // widening stays conjunction-keyed OFF. ON: the toggle plus the
+        // lane's economics, so a staged conf is self-describing.
+        val off = LlmRuntimePolicy.confBlockExternal(
+            "https://api.example.com/v1/chat/completions", "m", "k",
+        )!!
+        assertTrue(off.contains("AiPlayerbot.LLMCloudChatter = 0"))
+        assertFalse(off.contains("LLMCloudStreetSayPct"))
+        assertFalse(off.contains("LLMCloudLineBudgetPerHour"))
+        val on = LlmRuntimePolicy.confBlockExternal(
+            "https://api.example.com/v1/chat/completions", "m", "k",
+            cloudLane = CloudLaneConf(cloudChatter = true),
+        )!!
+        assertTrue(on.contains("AiPlayerbot.LLMCloudChatter = 1"))
+        assertTrue(on.contains("AiPlayerbot.LLMCloudStreetSayPct = 25"))
+        assertTrue(on.contains("AiPlayerbot.LLMStreetSayPerDay = 200"))
+        assertTrue(on.contains("AiPlayerbot.LLMRpgChatPerDay = 300"))
+        assertTrue(on.contains("AiPlayerbot.LLMBotToBotPerDay = 300"))
+        assertTrue(on.contains("AiPlayerbot.LLMCloudLineBudgetPerHour = 90"))
+        assertTrue(on.contains("AiPlayerbot.LLMCloudInteractivePerPlayerHour = 240"))
+        assertTrue(on.contains("AiPlayerbot.LLMDialogueFastLane = 1"))
+    }
+
+    @Test
+    fun cloudLaneRaisesBotToBotChanceOnlyWhenToggledOn() {
+        // A7.3: 25 on the cloud lane, the tier default otherwise; an
+        // explicit preset override wins over both
+        val on = LlmRuntimePolicy.confBlockExternal(
+            "https://api.example.com/v1/chat/completions", "m", "k",
+            cloudLane = CloudLaneConf(cloudChatter = true),
+        )!!
+        assertTrue(on.contains("AiPlayerbot.LLMBotToBotChatChance = 25"))
+        val off = LlmRuntimePolicy.confBlockExternal(
+            "https://api.example.com/v1/chat/completions", "m", "k",
+        )!!
+        assertFalse(off.contains("AiPlayerbot.LLMBotToBotChatChance = 25"))
+        val override = LlmRuntimePolicy.confBlockExternal(
+            "https://api.example.com/v1/chat/completions", "m", "k",
+            speech = BotLlmSpeech(botToBotChatChance = 7),
+            cloudLane = CloudLaneConf(cloudChatter = true),
+        )!!
+        assertTrue(override.contains("AiPlayerbot.LLMBotToBotChatChance = 7"))
+    }
+
+    @Test
+    fun deviceLaneNeverCarriesCloudKeys() {
+        // 0.13's mirror case: the device-lane block (confBlock) never
+        // emits any cloud key - LLMCloudChatter included - so key-on +
+        // tier-off is byte-identical to today's device behavior
+        val block = LlmRuntimePolicy.confBlock(llmEnabled = true)!!
+        for (key in listOf("LLMCloudChatter", "LLMCloudStreetSayPct",
+                           "LLMCloudLineBudgetPerHour", "LLMStreetSayPerDay",
+                           "LLMRpgChatPerDay", "LLMBotToBotPerDay",
+                           "LLMCloudInteractivePerPlayerHour", "LLMDialogueFastLane")) {
+            assertFalse(key, block.contains(key))
+        }
     }
 
     @Test

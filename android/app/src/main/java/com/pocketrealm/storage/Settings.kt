@@ -421,6 +421,15 @@ class Settings(private val context: Context) {
         val llmExternalApiKey: String = "",
         val llmExternalModel: String = "",
         /**
+         * WS-A Cloud conversation toggle (AiPlayerbot.LLMCloudChatter):
+         * masters every cloud-lane widening natively as the conjunction
+         * key AND external tier — the device lane never widens. Ships
+         * OFF (the upgrade cohort keeps today's external behavior);
+         * turning it on is a spend decision (see the LLM screen
+         * disclosure) and applies on the next realm start.
+         */
+        val llmCloudChatter: Boolean = false,
+        /**
          * Authored banter layer (rare kill quips, tier greetings, idle/mood
          * lines). Free — no model call behind any of it — and heavily
          * rate-limited in the native layer; default ON because it only ever
@@ -807,6 +816,7 @@ class Settings(private val context: Context) {
         llmExternalUrl = llm.externalUrl,
         llmExternalApiKey = llm.externalApiKey,
         llmExternalModel = llm.externalModel,
+        llmCloudChatter = llm.cloudChatter,
         llmBanter = llm.banter,
         llmAmbience = llm.ambience,
         llmModelId = llm.modelId,
@@ -902,6 +912,7 @@ private object Keys {
     val LLM_EXTERNAL_URL = stringPreferencesKey("llm_external_url")
     val LLM_EXTERNAL_API_KEY = stringPreferencesKey("llm_external_api_key")
     val LLM_EXTERNAL_MODEL = stringPreferencesKey("llm_external_model")
+    internal val LLM_CLOUD_CHATTER = intPreferencesKey("llm_cloud_chatter")
     val LLM_BANTER = intPreferencesKey("llm_banter")
     val LLM_AMBIENCE = intPreferencesKey("llm_ambience")
     val LLM_MODEL_ID = stringPreferencesKey("llm_model_id")
@@ -926,6 +937,7 @@ internal data class LlmSnapshotFields(
     val externalUrl: String,
     val externalApiKey: String,
     val externalModel: String,
+    val cloudChatter: Boolean = false,
     val banter: Boolean,
     val ambience: Boolean,
     val modelId: String,
@@ -954,6 +966,7 @@ internal fun Preferences.readLlmSnapshotFields(): LlmSnapshotFields {
         externalUrl = this[Keys.LLM_EXTERNAL_URL] ?: "",
         externalApiKey = this[Keys.LLM_EXTERNAL_API_KEY] ?: "",
         externalModel = this[Keys.LLM_EXTERNAL_MODEL] ?: "",
+        cloudChatter = (this[Keys.LLM_CLOUD_CHATTER] ?: 0) == 1,
         banter = (this[Keys.LLM_BANTER] ?: 1) == 1,
         ambience = this[Keys.LLM_AMBIENCE] == 1,
         modelId = this[Keys.LLM_MODEL_ID] ?: LlmModelRegistry.DEFAULT_MODEL_ID,
@@ -1079,6 +1092,7 @@ internal fun MutablePreferences.writeSnapshotWrites(
     this[Keys.LLM_EXTERNAL_URL] = next.llmExternalUrl
     this[Keys.LLM_EXTERNAL_API_KEY] = next.llmExternalApiKey
     this[Keys.LLM_EXTERNAL_MODEL] = next.llmExternalModel
+    this[Keys.LLM_CLOUD_CHATTER] = if (next.llmCloudChatter) 1 else 0
     this[Keys.LLM_BANTER] = if (next.llmBanter) 1 else 0
     this[Keys.LLM_AMBIENCE] = if (next.llmAmbience) 1 else 0
     this[Keys.LLM_MODEL_ID] = next.llmModelId

@@ -276,6 +276,7 @@ internal class ServerRuntimeFiles(context: Context) {
             promptPackFile = promptPack,
             defaultPromptsFile = defaultPrompts,
             tlsCaFile = tlsCa,
+            cloudLane = CloudLaneConf(cloudChatter = snapshot.llmExternalMode && snapshot.llmCloudChatter),
         )
     }
 
@@ -513,6 +514,7 @@ internal class ServerRuntimeFiles(context: Context) {
             promptPackFile: String? = null,
             defaultPromptsFile: String? = null,
             tlsCaFile: String? = null,
+            cloudLane: CloudLaneConf = CloudLaneConf(),
         ): String? {
             if (uiEnabled && externalMode) {
                 return LlmRuntimePolicy.confBlockExternal(
@@ -528,6 +530,7 @@ internal class ServerRuntimeFiles(context: Context) {
                     promptPackFile = promptPackFile,
                     defaultPromptsFile = defaultPromptsFile,
                     tlsCaFile = tlsCaFile,
+                    cloudLane = cloudLane,
                 )
             }
             if (uiEnabled && modelPresent) {

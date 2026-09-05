@@ -42,6 +42,10 @@ internal object LlmRuntimePolicy {
     /** llama-server inside pocketrealm binds loopback on this fixed port. */
     const val DEFAULT_PORT = 8080
 
+    /** A7.3: bot-to-bot chance on the cloud lane (player-visible life
+     * outweighs background chat the other way). */
+    const val CLOUD_LANE_BOT_TO_BOT_CHANCE = 25
+
     const val MIN_PORT = 1024
     const val MAX_PORT = 65535
 
@@ -248,6 +252,7 @@ internal object LlmRuntimePolicy {
         promptPackFile: String? = null,
         defaultPromptsFile: String? = null,
         tlsCaFile: String? = null,
+        cloudLane: CloudLaneConf = CloudLaneConf(),
     ): String? {
         if (endpoint == null || model == null || apiKey == null) return null
         return confLines(
@@ -269,6 +274,7 @@ internal object LlmRuntimePolicy {
             promptPackFile = promptPackFile,
             defaultPromptsFile = defaultPromptsFile,
             tlsCaFile = tlsCaFile,
+            cloudLane = cloudLane,
         )
     }
 
@@ -356,6 +362,7 @@ internal object LlmRuntimePolicy {
         promptPackFile: String? = null,
         defaultPromptsFile: String? = null,
         tlsCaFile: String? = null,
+        cloudLane: CloudLaneConf = CloudLaneConf(),
     ): String {
         // Advanced-tier overrides folded onto the measured profiles (0 keeps
         // the model/tier value); one effective profile feeds both the conf
@@ -370,8 +377,13 @@ internal object LlmRuntimePolicy {
         )
         // -1 = follow the model tier; an explicit preset 0 (off) equals the
         // native default, so only a positive value emits the line
+        // A7.3: bot-to-bot chat outweighs player-visible life at the old
+        // 500; the cloud lane emits 25 when the Cloud conversation toggle
+        // is on (more life), the device/default lanes keep the tier's
+        // value - an explicit preset override always wins.
         val botToBotChance =
             if (speech.botToBotChatChance >= 0) speech.botToBotChatChance
+            else if (cloudLane.cloudChatter) CLOUD_LANE_BOT_TO_BOT_CHANCE
             else tier.botToBotChatChance
         val factsCap = if (speech.factsCap > 0) speech.factsCap else tier.factsCap
         val memoriesTail = if (speech.memoriesTail > 0) speech.memoriesTail else tier.memoriesTail
@@ -456,7 +468,7 @@ internal object LlmRuntimePolicy {
             AiPlayerbot.LLMContextLength = ${tier.contextLength}
             AiPlayerbot.LLMFactsCap = $factsCap
             AiPlayerbot.LLMMemoriesTail = $memoriesTail$botToBotLine$thinkingLine$providerSafeLine
-            AiPlayerbot.LLMBanterEnabled = ${if (banterEnabled) 1 else 0}$loreLine$chatterLine$promptPackLine$defaultPromptsLine$tlsCaLine$packDeltaLines$rpDialLines
+            AiPlayerbot.LLMBanterEnabled = ${if (banterEnabled) 1 else 0}$loreLine$chatterLine$promptPackLine$defaultPromptsLine$tlsCaLine${if (providerSafe) cloudLane.confLines() else ""}$packDeltaLines$rpDialLines
         """.trimIndent() + "\n"
     }
 
