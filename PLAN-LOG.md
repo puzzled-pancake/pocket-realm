@@ -845,3 +845,158 @@ Full JVM suite 946/946 green; smoke_archive_import.py green; the real-payload
 spike (header parse incl. the new completeness checks) passed and was deleted
 before commit per the repo rule. Device-only paths (RarArchiveSource reorder,
 scratch-death resume, O12 additions) await the qualification runbook session.
+
+# PLAN-LOG — rp-depth-fix-plan v2.3 autonomous run
+
+Plan: `docs/plans/rp-depth-fix-plan-v2.3.md`. Branch `main` (direct), run
+started 2026-09-05, Windows/Git Bash, no device access. This entry is the
+HANDOFF STATE for the next offline agent — read it top to bottom, then the
+"Remaining work" list is your queue.
+
+## Environment facts (verified this run)
+
+- Host suite: `python -m pytest tests/ -q` → **464 passed, 2 skipped, 8
+  failed**. The 8 failures are PRE-EXISTING on clean HEAD 84c0c7b
+  (verified in a pristine worktree): 2×
+  `test_gladio_client_unpack_transport.py`, 4×
+  `test_vortek_lifecycle_hardening.py`, 2× `test_vortek_winlator_baseline.py`.
+  Never "fix" them in this lane; never let a new failure hide among them.
+- Gradle: `cd android && ./gradlew :app:testDebugUnitTest :app:detekt
+  -PpocketAbi=x86_64 -PpocketLane=full` → green at every commit.
+- Native edit lanes (§0.b of the plan — still exactly right): overlays =
+  edit `native/patches/playerbots/<file>` ONLY; anchor-managed = extend the
+  `*_UPSTREAM`/`*_ANDROID` payload pairs in `tools/build_o09_realm_runtime.py`
+  (anchor text must byte-match the PRISTINE submodule file — beware lines
+  with trailing spaces; two anchors needed byte-exact literals); submodule
+  files = edit `native/playerbots/...`, **commit inside the submodule**
+  (`git -C native/playerbots commit`), then bump `PLAYERBOTS_COMMIT` in the
+  driver AND `schemas/sources.json`, then regen lockfiles.
+- Lockfile regen: `python tools/build_o09_realm_runtime.py --write-lockfiles`
+  (built this run; refreshes source-side pins in all 4 lane lockfiles + the
+  sqlite identity asset, keeps artifact pins = last full build). Run it
+  after ANY overlay edit or submodule bump, and after `sources.json`.
+- Detekt: new LongParameterList/LongMethod/CyclomaticComplexMethod findings
+  from signature drift are resolved via `./gradlew :app:detektBaseline`
+  (never hand-edit the baseline XML; note it in the commit).
+- Submodule pointer is now **6c681ef8** (3 Pocket-Realm commits on top of
+  upstream 3b77c5f4: A9 text-mgr demote, A1/A1b cloud gating, E3 refusals).
+
+## Commits this run (chronological, all on main)
+
+1. Baseline: the in-flight LLM lane + the plan docs committed as-is.
+2. **Phase 0 rails (B2, B8, H2 relay-min)**: world LogFileLevel 3→1 +
+   `world_debug_logs` advanced toggle; 0-byte `llm_character_card` staging +
+   `AiPlayerbot.LLMDefaultPromptsFile` absolute-path emission (appended LLM
+   block — the merge-order contract forbids base-conf LLM keys; documented
+   deviation); `tools/rp_harness/` (protocol/session/assertions/smoke/
+   run_suite with A8 invariants) + three WorldConsoleRelay ops
+   (`world-chat` via synthetic CMSG_MESSAGECHAT through the real
+   HandleMessagechatOpcode, `reset-state`, `llm-memory-state`) with AIDL/
+   WorldNative/world_runtime.cpp wiring.
+3. **Phase 0 native (G3, A8, 0.c riders, A9, T0.3)**: TLS1.2 floor +
+   SSL_VERIFY_PEER + staged Mozilla CA bundle (`assets/llm/cacert.pem`,
+   MPL-2-0 noticed) + SSL_set1_host, all behind `LLMTLSVerify` (default 1);
+   `LLMTLSCaFile` app emission; Authorization redaction in debugLines; the
+   `.bot` isMod force removed (mod powers need a real SEC_MODERATOR
+   session); endpoint parse catch widened to std::exception (port
+   out_of_range used to abort world boot) + app-side port bound 1..65535;
+   concurrency `>=` off-by-one + cap class; A8 reqId through all three
+   dispatch sites → Generate → GenerateHttp with begin/end lines and
+   classes (busy|cap|timeout|http_%d|error|empty|ok, durMs from
+   steady_clock; device lane classifies symmetrically); A9 in the
+   submodule; `--write-lockfiles` mode; `tests/test_g3_tls_a8_observability.py`
+   (15 pins).
+4. **E0 pools**: `kStreetShort[4][12]` + `kSecurityRefuse[4][12]` in
+   llm_banter_core.h (off the seeded path — FNV golden unchanged;
+   guid<<24 state lane) + `SecurityRefusalLine` export;
+   `tests/test_llm_banter_pools_e0.py` (13 pins).
+5. **Phases 1+2 (A0.a keys, Gates overlay, A1/A1b, A7)**: nine cloud keys
+   native (members/reads/conf.dist) + `CloudLaneConf` app emission group
+   (external block ONLY — the device block carries zero cloud keys,
+   pinned); **PlayerbotLlmGates.h = the 22nd overlay** (pure predicates;
+   SayAction bridges the mirror enum with 8 static_asserts; live
+   `CloudLaneOpen()` beside `ExternalApiTierActive()` in
+   PlayerbotLlmMemory.h); A1 in the submodule (AiFactory grant + SayAction
+   gates); A1b `PB_RPG_QUOTA` anchor + RPG chance cap 10 cloud-side; A7
+   lane-evaluated proportional caps inside the locked arbiter +
+   `InteractiveBudgetAdmits` (per-player hourly tier I) + conditional
+   bot2bot 25-on-cloud emission; the Cloud conversation toggle ships OFF
+   (`llm_cloud_chatter` setting + snapshot/write-set); gates battery
+   (`tools/test_llm_gates.cpp` + `tests/test_llm_gates.py`).
+6. **Phases 3-5 batch**: A3 party responder (TryClaimPartyResponder +
+   CollectPartyCandidates → pure SelectResponder, claim at the TOP of the
+   party block, addressed bypass, NotePartyLine on the unaddressed leg,
+   PartyFloodAdmits 2s coalescing); A5 murmur-floor failure latch
+   (composer-worker-only writes, hard/timeout classes only, 10-min expiry,
+   spacing doubling cap 8x, CloudLaneOpen()-gated post-failure leg,
+   manual-override branch byte-identical); E3 wiring in the submodule;
+   C2/C8 migration `sql/migrations/ai_playerbot_llm_memory_v2.sql` (the
+   0413 tail; seed DDL untouched; NO backfill; downgrade law documented;
+   manifest/baseline/provenance/transcripts regenerated; table_info parity
+   test); B7 (experience-preset floor 1792→2048, scoped pin); F2 account
+   form + F3 copy + the Cloud toggle UI with the 0.c.4 spend disclosure.
+   Pins: `tests/test_llm_party_claim.py`, `test_llm_security_refusal.py`,
+   `test_llm_chatter_floor.py`, sqlite pins updated, UI copy pins.
+
+## What is NOT done (the next agent's queue)
+
+Ordered roughly by plan dependency; each item cites the plan section:
+
+1. **A4** (§2 A4) — authored interceptors demote to cloud failure
+   fallbacks. The plumbing/flip split was never started. NOTE: A5's floor
+   latch landed; A4's "mutually exclusive per failure" pin (A4/A5 handoff)
+   is still owed and should land with A4.
+2. **A2** (§2 A2) — dialogue fast-lane (IN_DIALOGUE enum + priority
+   bracket + zone-cap state in PlayerbotLlmMemory using the shipped
+   `EvictDialogueVictim`). `LLMDialogueFastLane` key already exists +
+   emitted.
+3. **A6** (§2 A6) — street reactions. E0's `kStreetShort` pool +
+   `StreetAdmissionOrder` (pure, shipped + host-tested) are waiting to be
+   wired; the A7 proportional caps + `LLMStreetSayPerDay` quota are in.
+4. **C1/C3/C4/C5/C6/C7** (§4) — C2/C8 migration columns exist but the
+   writers/readers are not all wired: C1 render-time rewording, C3
+   town-talk templates, C4 party digests, C5 tier-ceremony persistence
+   (last_voiced_tier is a column with no writer), C6 relationship
+   economics + the CORE_REWARDQUEST anchor pair, C7 greet guard
+   (last_greeted_at/last_greet_line columns unwritten; boot-nonce half
+   untouched — needs the FNV golden re-pin in the SAME commit).
+5. **B3/B4/B6** (§3) — PassiveDelay per profile (field + emission; T2
+   byte-identity pins), B4 bench twins + the no-shedding T4 pin,
+   B6 mallopt purge (world_runnable.cpp hook).
+6. **B5/F1** (§3/§7) — FGS promotion machinery (F1 self-heal first, then
+   B5; the plan's dumpsys pre-step is device-gated).
+7. **D1/D2/D4, D3** (§5) — spawn-stack fix, teleport interval widen +
+   crash-class validation fix, village ring; D3 = chatter-lane staging on
+   experience presets + the `RandomBotSayWithoutMaster` negative pin.
+8. **G1/G2** (§8) — realmd keep-alive timer + liveness count +
+   `RealmdTimerMs` key; the AuthSocket/AsyncSocket hygiene batch.
+9. **E1/E2** (§6) — pool targets + texts.sql register audit (lane-4;
+   sqlite seed pins will trip — the plan names the re-pins).
+10. **§0.c.4/§14** — sanitized transcript under `docs/evidence/` with the
+    symptom→line→anchor index (the source transcript is at
+    `tmp/rp_session_transcript_2026-09-05.log`, gitignored).
+11. **T3/T4/T5** — device/emulator terminal gates (no device in this
+    environment): write the runbook entries into the device checklist doc
+    if you also lack a device; otherwise execute.
+12. **THE ROUND-ROBIN REVIEW** — new §15 in the plan (added this run);
+    see below. It runs AFTER the remaining work items land.
+
+## Gotchas learned this run (do not rediscover)
+
+- Driver anchor payloads: when patching the driver via python heredocs,
+  a backslash-n inside triple-quoted python strings can become a literal
+  newline — edit with byte-exact anchors or the Edit tool, then re-import
+  the driver and run the pin tests to catch corruption immediately.
+- Two pristine upstream spans contain trailing-space lines
+  (TLSHOST/REQECHO) — those anchors are byte-exact literals by design.
+- The sqlite lane's APK identity asset must stay byte-identical to its
+  lockfile; `--write-lockfiles` now syncs it (Gradle asserts equality).
+- `./gradlew :app:detektBaseline` then `:app:detekt` must run as separate
+  invocations (the config cache complains when the baseline file changes
+  under a combined invocation).
+- Background subagents are unavailable in some session modes ("Idle-time
+  tasks do not support background agents") — dispatch agents in one
+  foreground message (they run concurrently). Two agents once died with
+  `off-peak-ticket-expired` AFTER completing all their work (their trees
+  verified green) — an infra error in the final report does not mean the
+  work is missing; verify the tree before redoing anything.

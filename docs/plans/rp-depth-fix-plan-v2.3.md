@@ -483,3 +483,66 @@ Batch rules: one file version per overlay per phase (A2-zone-cap + A7-lane-arg b
 - Commit a sanitized `rp_session_transcript_2026-09-05.log` under `docs/evidence/` with a symptom→line→code-anchor index (the motivating evidence is currently gitignored and unverifiable from a clean checkout).
 - Commit the T5 before/after scorecard artifacts under `docs/evidence/` with versioned filenames.
 - This document's amendment history: R1 (27), R2 (13), R3 (100-reviewer panel: ~200 findings, 8 invalidations — dead-gate, C2 seed-edit, B6 API facts, D3 no-op, A2 Map.cpp hook, G1 premise + fd folklore, T5 judge set, F4/F5 duplication). Two v2.2 ⟦R2⟧ markers were themselves false (B6's "corrected" API facts; the undeclared ⟦R3⟧ header) — this revision declares all three rounds and carries finding IDs in the commit message, not the body.
+
+---
+
+## 15. Round-robin review gate (⟦R4⟧ added mid-run — the terminal review protocol)
+
+The merge gate's final pass is a **round-robin review with 8 independent
+reviewer agents**, run after all implementation phases land and before any
+release-claiming commit. The protocol, exactly:
+
+1. **Panel composition (8 scopes, fixed).** Each reviewer agent owns ONE
+   scope and reviews the full diff of this plan's run (baseline commit to
+   HEAD) against the plan sections named, plus a general bug hunt in its
+   scope:
+   - R1 Native cloud lane: §2 A1/A3/A5/A7 + PlayerbotLlmGates.h +
+     SayAction/AiFactory/RpgTriggers anchors (conjunction law, device-lane
+     byte-identity, quota math, threading).
+   - R2 Native transport + security: §0.c riders, G3 TLS/redaction/port,
+     A8 observability (reqId pairing, no content leakage, class truth),
+     A9, and the driver anchor payloads' byte-exactness against pristine.
+   - R3 Authored corpus + persona: E0 pools (register/word laws, state-key
+     lanes, seeded-path isolation), E3 wiring (kill-switch, dedupe key,
+     archetype mapping), A5's floor wording invariants.
+   - R4 Schema + memory persistence: C2/C8 migration (append-only law,
+     no-backfill, parity, downgrade law, ledger pins), C-workstream
+     columns' writers, the sqlite seed re-pin family.
+   - R5 App conf/emission surface: CloudLaneConf grouping, the appended-
+     block-only law, device-block cloud-key absence, settings write-set,
+     detekt baseline legitimacy (no hand-edits), B2/B8 emission pins.
+   - R6 App UX/supervisor: F2/F3 copy truthfulness (every string code-
+     supported), the Cloud toggle disclosure (§0.c.4), B7, B5/F1 seams,
+     Settings/UI pins.
+   - R7 Harness + tests: tools/rp_harness correctness (relay ops, A8
+     post-pass), the full T1/T2 pin matrix vs the plan's §10 lists — find
+     pins that are missing, tautological, or weakened relative to v2.2.
+   - R8 Whole-plan conformance: standing constraints §0 (all 13 + §0.a/§0.b/
+     §0.c/§0.d), phase ordering (§11), no time estimates, no bot-count
+     reductions, emitter law (§0.3/§0.4), and the honesty of the PLAN-LOG
+     claims against the actual tree (spot-verify 5 random claims).
+2. **A round PASSES only if ALL 8 reviewers return zero findings of
+   BLOCKER or MAJOR severity.** MINOR/nit findings are recorded in the
+   review log but do not fail the round.
+3. **If ANY reviewer fails the round** — reports a BLOCKER/MAJOR, OR a
+   reviewer errors out (infra failure, timeout, non-verdict) — **the fixes
+   (or the re-run) are applied and the ENTIRE 8-reviewer round runs again
+   from scratch.** No partial credit, no carrying a passing reviewer's
+   verdict across rounds: every reviewer re-reviews the full current tree,
+   because a fix for one finding can invalidate another scope's pass
+   (shared files: the driver, PlayerbotLlmMemory, Settings/LlmRuntimePolicy).
+   Loop until one full round passes with 8/8 clean verdicts.
+4. **Every reviewer must verify, not vibe.** Each BLOCKER/MAJOR finding
+   cites file:line evidence reproduced by reading the tree (or a failing
+   command it actually ran). A reviewer that cannot run a command it needs
+   (no device, no compiler) says so and marks the item UNVERIFIED rather
+   than guessing; an UNVERIFIED potential-BLOCKER still fails the round
+   and escalates to a scope that can verify it.
+5. **Review log.** Each round appends to `docs/evidence/review-rounds.md`:
+   round number, per-reviewer verdict (PASS / findings list with
+   severities+evidence / ERROR), the fixes applied between rounds, and
+   the diffstat re-reviewed. The gate is closed when the log ends with a
+   round recording 8/8 PASS. Cap escalation honesty: if a round surfaces
+   no NEW findings twice in a row after fixes, but a stale finding cannot
+   be resolved without device access, record it as a device-gated residue
+   in the checklist — do not loop forever on an unverifiable.
