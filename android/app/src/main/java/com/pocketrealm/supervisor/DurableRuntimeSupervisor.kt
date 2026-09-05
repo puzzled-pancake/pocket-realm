@@ -1,6 +1,7 @@
 package com.pocketrealm.supervisor
 
 import com.pocketrealm.bots.BotProfiles
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,6 +18,13 @@ class DurableRuntimeSupervisor(
     private val timeouts: RuntimeTimeouts = RuntimeTimeouts(),
 ) : AutoCloseable {
     private val operationLock = Mutex()
+    private val orphanHeal = OrphanSelfHealPolicy(tokens)
+    /** Consecutive ownerless-orphan sightings per component (monitor lane, plan F1). */
+    private val orphanGraceTicks = mutableMapOf<RuntimeComponent, Int>()
+    // Foreground-promotion driver state (plan B5); guarded by operationLock.
+    private var foregroundPromoted = false
+    private var foregroundEmptySamples = 0
+    private var foregroundSessionId: String? = null
     private val _state = MutableStateFlow(journal.read() ?: RuntimeSnapshot())
     val state: StateFlow<RuntimeSnapshot> = _state.asStateFlow()
 
@@ -217,6 +225,107 @@ class DurableRuntimeSupervisor(
     }
 
     /**
+     * One health-monitor tick of the orphan self-heal lane (plan F1) for one
+     * component the monitor observed as ownerless-but-running. Consecutive
+     * sightings accumulate grace ticks (the component's own owner-loss
+     * teardown may be mid-save); after the bounded grace the orphan is
+     * adopted and force-stopped under the ADOPTED owner, then the stack is
+     * drained. DATABASE orphans never adopt or kill - they route to the
+     * existing recovery lane, which owns engine-ordered shutdown. Returns
+     * null while the outcome is still pending (healthy, grace running, or
+     * component transiently unobservable).
+     */
+    suspend fun selfHealOrphan(component: RuntimeComponent): RuntimeOperation? = operationLock.withLock {
+        val current = _state.value
+        if (current.clean || current.sessionId == null) {
+            orphanGraceTicks.clear()
+            return@withLock null
+        }
+        val observed = runCatching { backend.observe(component) }.getOrNull() ?: return@withLock null
+        if (!OrphanSelfHealPolicy.isHealableOrphan(observed.state, observed.owner)) {
+            orphanGraceTicks.remove(component)
+            return@withLock null
+        }
+        val graceTicksSeen = (orphanGraceTicks[component] ?: 0) + 1
+        orphanGraceTicks[component] = graceTicksSeen
+        if (OrphanSelfHealPolicy.shouldReobserve(graceTicksSeen)) return@withLock null
+        orphanGraceTicks.remove(component)
+        if (component == RuntimeComponent.DATABASE) {
+            // Never kill :database directly - killing it without
+            // engine.close() orphans mariadbd. Route to the existing
+            // recovery lane instead.
+            val recovered = recoverLocked()
+            return@withLock operation(
+                recovered,
+                if (recovered) "database orphan routed to recovery"
+                else _state.value.lastError ?: "database orphan recovery failed",
+            )
+        }
+        val healed = adoptAndForceStopOrphan(component, checkNotNull(current.sessionId))
+        if (!healed.ok) {
+            fail(RuntimePhase.ERROR, healed.detail)
+            return@withLock operation(false, _state.value.lastError ?: "orphan heal failed")
+        }
+        updateComponent(component, ComponentLifecycle.STOPPED, detail = "orphan self-healed under adopted owner")
+        stopLocked(StopMode.FORCED, RuntimePhase.ERROR, "orphan self-healed: $component")
+    }
+
+    /**
+     * One health-monitor tick of the foreground-promotion policy (plan B5):
+     * :world and :database are promoted to specialUse FGS the moment a real
+     * player is present (immediate edge) and demoted only after three
+     * consecutive playerless samples (asymmetric hysteresis).
+     */
+    suspend fun reconcileForegroundPromotion() = operationLock.withLock {
+        val snapshot = _state.value
+        if (snapshot.sessionId != foregroundSessionId) {
+            foregroundSessionId = snapshot.sessionId
+            foregroundPromoted = false
+            foregroundEmptySamples = 0
+        }
+        // Never bind :world just to sample presence: a stopped world is
+        // definitively playerless; an unobservable live world is empty too
+        // (the safe direction for teardown).
+        val sample = if (snapshot.components.getValue(RuntimeComponent.WORLD).state != ComponentLifecycle.STOPPED) {
+            runCatching { backend.observeWorldPresence() }.getOrDefault(WorldPresenceSample.EMPTY)
+        } else WorldPresenceSample.EMPTY
+        if (ForegroundPromotionPolicy.shouldPromote(
+                sample.state, sample.realPlayers, sample.playerbotsEnabled,
+                sample.onlinePlayers, foregroundPromoted,
+            )
+        ) {
+            foregroundPromoted = true
+            foregroundEmptySamples = 0
+            runCatching { backend.promoteToForeground(RuntimeComponent.WORLD) }
+            runCatching { backend.promoteToForeground(RuntimeComponent.DATABASE) }
+        } else if (ForegroundPromotionPolicy.playersPresent(
+                sample.realPlayers, sample.playerbotsEnabled, sample.onlinePlayers,
+            )
+        ) {
+            foregroundEmptySamples = 0
+        } else {
+            foregroundEmptySamples++
+            if (ForegroundPromotionPolicy.shouldDemote(
+                    sample.state, sample.realPlayers, sample.playerbotsEnabled,
+                    sample.onlinePlayers, foregroundEmptySamples, foregroundPromoted,
+                )
+            ) {
+                demoteForegroundStack()
+            }
+        }
+    }
+
+    /** Drops any supervisor-driven FGS promotion of :world/:database (plan B5). */
+    private suspend fun demoteForegroundStack() {
+        foregroundEmptySamples = 0
+        if (!foregroundPromoted) return
+        foregroundPromoted = false
+        listOf(RuntimeComponent.WORLD, RuntimeComponent.DATABASE).forEach { component ->
+            runCatching { backend.demoteToForeground(component) }
+        }
+    }
+
+    /**
      * Converts an exception which escaped a service operation into a durable,
      * visible terminal state. A failure before any generation was accepted is
      * safe to retry without recovery. Once a generation may own work, the
@@ -368,11 +477,26 @@ class DurableRuntimeSupervisor(
             val token = recorded.instanceToken ?: continue
             val session = prior.sessionId ?: continue
             val owner = ComponentOwner(session, token)
-            val observation = runCatching { backend.observe(component) }.getOrElse {
+            var observation = runCatching { backend.observe(component) }.getOrElse {
                 fail(RuntimePhase.ERROR, "recovery observe $component failed: ${it.message}")
                 return false
             }
             if (observation.state == ComponentLifecycle.STOPPED) continue
+            // Null-owner orphan (plan F1): binder death cleared the claim and
+            // the component-side owner-loss teardown may still be mid-flight.
+            // resolveRecoveryOrphan applies the bounded grace and the
+            // adopt-then-forceStop heal; a non-null owner falls through to
+            // the exact-owner/mismatch checks.
+            if (OrphanSelfHealPolicy.isHealableOrphan(observation.state, observation.owner)) {
+                when (val outcome = resolveRecoveryOrphan(component, session, observation)) {
+                    is OrphanResolution.Recheck -> observation = outcome.observation
+                    OrphanResolution.Handled -> continue
+                    is OrphanResolution.Failed -> {
+                        fail(RuntimePhase.ERROR, outcome.detail)
+                        return false
+                    }
+                }
+            }
             if (observation.owner != owner) {
                 fail(RuntimePhase.ERROR, "UNVERIFIED_ORPHAN: $component ownership did not match")
                 return false
@@ -385,15 +509,8 @@ class DurableRuntimeSupervisor(
                 return false
             }
         }
-        if (prior.runtimeMode != RuntimeMode.LAN_JOIN) {
-            val database = runCatching {
-                withTimeout(timeouts.recoveryMs) { backend.recoverDatabase() }
-            }.getOrElse { RuntimeActionResult(false, it.message ?: it.javaClass.simpleName) }
-            if (!database.ok) {
-                fail(RuntimePhase.ERROR, "database recovery failed: ${database.detail}")
-                return false
-            }
-        }
+        if (!recoverDatabaseAfterComponents(prior)) return false
+        demoteForegroundStack()
         publish(RuntimeSnapshot(
             phase = RuntimePhase.STOPPED,
             clean = true,
@@ -402,6 +519,77 @@ class DurableRuntimeSupervisor(
             updatedAtElapsedMs = clock.elapsedMs(),
         ))
         return true
+    }
+
+    private suspend fun recoverDatabaseAfterComponents(prior: RuntimeSnapshot): Boolean {
+        if (prior.runtimeMode == RuntimeMode.LAN_JOIN) return true
+        val database = runCatching {
+            withTimeout(timeouts.recoveryMs) { backend.recoverDatabase() }
+        }.getOrElse { RuntimeActionResult(false, it.message ?: it.javaClass.simpleName) }
+        if (!database.ok) fail(RuntimePhase.ERROR, "database recovery failed: ${database.detail}")
+        return database.ok
+    }
+
+    private sealed interface OrphanResolution {
+        /** The claim reappeared; recovery re-checks the exact-owner/mismatch branches. */
+        data class Recheck(val observation: ComponentObservation) : OrphanResolution
+        /** Fully handled (stopped, routed, or healed); recovery continues past the component. */
+        data object Handled : OrphanResolution
+        data class Failed(val detail: String) : OrphanResolution
+    }
+
+    /**
+     * Recovery-lane orphan resolution (plan F1): bounded re-observe grace
+     * first (the component-side owner-loss teardown may be mid-save), then
+     * adopt-then-forceStop under the adopted owner. DATABASE never adopts or
+     * kills - the existing database recovery lane owns it (killing
+     * :database without engine.close() orphans mariadbd).
+     */
+    private suspend fun resolveRecoveryOrphan(
+        component: RuntimeComponent,
+        session: String,
+        initial: ComponentObservation,
+    ): OrphanResolution {
+        var observation = initial
+        var graceTicksSeen = 1
+        while (OrphanSelfHealPolicy.shouldReobserve(graceTicksSeen)) {
+            delay(ORPHAN_REOBSERVE_INTERVAL_MS)
+            observation = runCatching { backend.observe(component) }.getOrElse {
+                return OrphanResolution.Failed("recovery re-observe $component failed: ${it.message}")
+            }
+            if (observation.state == ComponentLifecycle.STOPPED ||
+                !OrphanSelfHealPolicy.isHealableOrphan(observation.state, observation.owner)
+            ) break
+            graceTicksSeen++
+        }
+        return when {
+            observation.state == ComponentLifecycle.STOPPED -> OrphanResolution.Handled
+            observation.owner != null -> OrphanResolution.Recheck(observation)
+            component == RuntimeComponent.DATABASE -> OrphanResolution.Handled
+            else -> {
+                val healed = adoptAndForceStopOrphan(component, session)
+                if (healed.ok) OrphanResolution.Handled else OrphanResolution.Failed(healed.detail)
+            }
+        }
+    }
+
+    /** Claims an ownerless running component, then force-stops it under the adopted owner. */
+    private suspend fun adoptAndForceStopOrphan(
+        component: RuntimeComponent,
+        session: String,
+    ): RuntimeActionResult {
+        val adopted = orphanHeal.adoptOwner(session)
+        val claim = runCatching { backend.adopt(component, adopted) }
+            .getOrElse { RuntimeActionResult(false, "${it.javaClass.simpleName}: ${it.message}") }
+        return if (!claim.ok) {
+            RuntimeActionResult(false, "orphan adoption failed for $component: ${claim.detail}")
+        } else {
+            val killed = runCatching {
+                withTimeout(timeouts.stop(component)) { backend.forceStop(component, adopted) }
+            }.getOrElse { RuntimeActionResult(false, it.message ?: it.javaClass.simpleName) }
+            if (killed.ok) RuntimeActionResult(true, "orphan $component self-healed under adopted owner")
+            else RuntimeActionResult(false, "orphan $component heal stop failed: ${killed.detail}")
+        }
     }
 
     private suspend fun stopStartedAfterFailure(failed: RuntimeComponent) {
@@ -471,6 +659,7 @@ class DurableRuntimeSupervisor(
             publish(_state.value.copy(lastDurableAction = "${component.name.lowercase()}-stopped"))
         }
         val finalClean = durable && preserveError == null
+        demoteForegroundStack()
         publish(_state.value.copy(
             phase = finalPhase,
             clean = finalClean,
@@ -592,6 +781,9 @@ class DurableRuntimeSupervisor(
     }
 
     companion object {
+        // Re-observe cadence inside the recovery-lane orphan grace (plan F1);
+        // mirrors the 1s health-monitor tick.
+        private const val ORPHAN_REOBSERVE_INTERVAL_MS = 1_000L
         private val STARTABLE = setOf(RuntimePhase.STOPPED, RuntimePhase.ERROR, RuntimePhase.UNCONFIGURED)
         private val INACTIVE_TERMINAL_PHASES = setOf(
             RuntimePhase.STOPPED,

@@ -45,6 +45,15 @@ data class BotProfile(
     val groupNearby: Boolean = true,
     val wanderWhenIdle: Boolean = true,
     val enableOffSpecStrategies: Boolean = true,
+    /**
+     * B3 (plan v2.3): passive-wake delay in ms, emitted as
+     * AiPlayerbot.PassiveDelay. DEFAULT 10_000 keeps every legacy
+     * preset's conf emission (and thus the adv/usr5 identity-digest
+     * inputs) byte-identical; experience presets override to 3_000 so a
+     * greeted bot answers inside the T3 <= 5 s bound. The native
+     * fallback default stays 4_000 (documented, unchanged).
+     */
+    val passiveDelayMs: Int = 10_000,
     val admission: BotAdmissionLimits,
     /**
      * Per-preset AI speech overrides. Deliberately NOT part of
@@ -80,6 +89,7 @@ data class BotProfile(
         require(nearPlayerTeleportMaxAmount in 0..100)
         require(nearPlayerTeleportRadius in 0..1_000)
         require((nearPlayerTeleportMaxAmount == 0) == (nearPlayerTeleportRadius == 0))
+        require(passiveDelayMs in 1_000..60_000)
         require(teleportMinIntervalSeconds in 60..172_800)
         require(teleportMaxIntervalSeconds in teleportMinIntervalSeconds..172_800)
         require(syncLevelMaxAbove in 0..10 && syncLevelNoPlayer in 1..60)
@@ -126,7 +136,7 @@ data class BotProfile(
         AiPlayerbot.EnableMinimalMove = 1
         AiPlayerbot.IterationsPerTick = $iterationsPerTick
         AiPlayerbot.ReactDelay = 100
-        AiPlayerbot.PassiveDelay = 10000
+        AiPlayerbot.PassiveDelay = $passiveDelayMs
         AiPlayerbot.RpgDelay = 10000
         AiPlayerbot.EnableRandomTeleports = ${if (nearPlayerTeleportMaxAmount > 0) 1 else 0}
         AiPlayerbot.RandomBotTeleportNearPlayer = ${if (nearPlayerTeleportMaxAmount > 0) 1 else 0}
@@ -179,6 +189,12 @@ data class BotProfile(
  * processes and crash journal resolve exactly the same configuration without
  * accepting raw configuration text.
  */
+/** D2 (plan v2.3): the widened teleport-interval law - 5-minute
+ * granularity from a 10-minute floor (the experience presets' 600 s
+ * minimum must parse). */
+private const val TELEPORT_MIN_BOUND_MINUTES = 10
+private const val TELEPORT_MINUTE_GRANULARITY = 5
+
 data class BotAdvancedSettings(
     val nearbyBotLimit: Int = 12,
     val nearbyRadius: Int = 250,
@@ -205,8 +221,15 @@ data class BotAdvancedSettings(
         require(loginBatchSize in 1..10)
         require(maintenanceBatchSize in 1..32)
         require(updateIntervalMs in 1_000..5_000 && updateIntervalMs % 250 == 0)
-        require(teleportMinMinutes in 30..2_880 && teleportMinMinutes % 30 == 0)
-        require(teleportMaxMinutes in teleportMinMinutes..2_880 && teleportMaxMinutes % 30 == 0)
+        // D2 (plan v2.3): 5-minute granularity - the experience presets'
+        // 600 s minimum (10 min) must parse; the old 30/% 30 law threw
+        // at settings load for it (fromProfile runs outside
+        // runCatching). adv4 persisted identities encode >= 30-min
+        // values which remain valid under the widened rule.
+        require(teleportMinMinutes in TELEPORT_MIN_BOUND_MINUTES..2_880 &&
+            teleportMinMinutes % TELEPORT_MINUTE_GRANULARITY == 0)
+        require(teleportMaxMinutes in teleportMinMinutes..2_880 &&
+            teleportMaxMinutes % TELEPORT_MINUTE_GRANULARITY == 0)
         require(iterationsPerTick in 1..20)
         require(admissionWorldP99Ms in 100..300 && admissionWorldP99Ms % 25 == 0)
         require(activeBotPercent in 1..20)
@@ -749,7 +772,7 @@ object BotProfiles {
         forceActiveWhenNearPlayer = true,
         nearPlayerTeleportMaxAmount = 8,
         nearPlayerTeleportRadius = 200,
-        teleportMinIntervalSeconds = 3_600,
+        teleportMinIntervalSeconds = 600,
         teleportMaxIntervalSeconds = 14_400,
         limitCombatActivity = true,
         activeBotPercent = 3,
@@ -761,7 +784,52 @@ object BotProfiles {
         enableOffSpecStrategies = false,
         admission = BotAdmissionLimits(250, 768, 2_048, 3 * 60_000L, 10, 10,
             5 * 60_000L, 10_000L),
-    )
+        passiveDelayMs = 3_000,)
+
+    /**
+     * B4 (plan v2.3) benchmark twin: the proposed LOW_POWER_80 retune
+     * (1250 ms / 16 iter / 8% active). NOT user-selectable and NOT the
+     * default - the values commit only with the T4 soak artifact
+     * attached (measured-first law); this twin is the lane the benchmark
+     * runs against today's v1 tuple.
+     */
+    val BENCH_LOW_POWER_80_V2 = BotProfile(
+        id = "bench-low-power-b80-v2",
+        displayName = "Bench · Low Power 80 v2",
+        summary = "Benchmark twin for the proposed Low Power retune; not launchable.",
+        userSelectable = false,
+        selectedTarget = 80,
+        minimumOnline = 40,
+        maximumOnline = 80,
+        initialTarget = 40,
+        startupIncreaseStep = 20,
+        startupRampIntervalMs = 45_000,
+        activationBatchSize = 4,
+        maximumAltBots = 2,
+        generationBatchSize = 5,
+        generationYieldMs = 500,
+        accountPrefix = "PRLP80",
+        accountCount = 11,
+        loginBatchSize = 2,
+        maintenanceBatchSize = 8,
+        randomBotUpdateIntervalMs = 1_250,
+        iterationsPerTick = 16,
+        forceActiveWhenNearPlayer = true,
+        nearPlayerTeleportMaxAmount = 8,
+        nearPlayerTeleportRadius = 200,
+        teleportMinIntervalSeconds = 3_600,
+        teleportMaxIntervalSeconds = 14_400,
+        limitCombatActivity = true,
+        activeBotPercent = 8,
+        autoDoQuests = false,
+        allowBotChat = false,
+        allowPlayerInvites = false,
+        groupNearby = false,
+        wanderWhenIdle = true,
+        enableOffSpecStrategies = false,
+        admission = BotAdmissionLimits(250, 768, 2_048, 3 * 60_000L, 10, 10,
+            5 * 60_000L, 10_000L),
+        passiveDelayMs = 3_000,)
 
     /** Smarter/faster bots over population. Very high foreground priority. */
     val LIVELY_160 = BotProfile(
@@ -799,7 +867,7 @@ object BotProfiles {
         enableOffSpecStrategies = true,
         admission = BotAdmissionLimits(250, 1_024, 2_048, 3 * 60_000L, 20, 20,
             5 * 60_000L, 10_000L),
-    )
+        passiveDelayMs = 3_000,)
 
     /** Responsive, populated realm. Strong quest/group behaviour. */
     val BUSY_WORLD_240 = BotProfile(
@@ -837,7 +905,7 @@ object BotProfiles {
         enableOffSpecStrategies = true,
         admission = BotAdmissionLimits(250, 1_536, 2_048, 4 * 60_000L, 25, 25,
             5 * 60_000L, 10_000L),
-    )
+        passiveDelayMs = 3_000,)
 
     /**
      * Recommended default. A populated Vanilla realm where bots around humans
@@ -868,7 +936,7 @@ object BotProfiles {
         forceActiveWhenNearPlayer = true,
         nearPlayerTeleportMaxAmount = 16,
         nearPlayerTeleportRadius = 250,
-        teleportMinIntervalSeconds = 3_600,
+        teleportMinIntervalSeconds = 600,
         teleportMaxIntervalSeconds = 14_400,
         syncLevelWithPlayers = false,
         limitCombatActivity = true,
@@ -881,7 +949,53 @@ object BotProfiles {
         enableOffSpecStrategies = true,
         admission = BotAdmissionLimits(250, 2_048, 2_048, 4 * 60_000L, 25, 25,
             5 * 60_000L, 10_000L),
-    )
+        passiveDelayMs = 3_000,)
+
+    /**
+     * B4 (plan v2.3) benchmark twin: the proposed ALIVE_REALM_320 retune
+     * (1500 ms / 18 iter / 15% active). NOT user-selectable and NOT the
+     * default - the values commit only with the T4 soak artifact
+     * attached (measured-first law); this twin is the lane the benchmark
+     * runs against today's v1 tuple.
+     */
+    val BENCH_ALIVE_320_V2 = BotProfile(
+        id = "bench-alive-realm-b320-v2",
+        displayName = "Bench · Alive Realm 320 v2",
+        summary = "Benchmark twin for the proposed Alive Realm retune; not launchable.",
+        userSelectable = false,
+        selectedTarget = 320,
+        minimumOnline = 50,
+        maximumOnline = 320,
+        initialTarget = 50,
+        startupIncreaseStep = 50,
+        startupRampIntervalMs = 30_000,
+        activationBatchSize = 8,
+        maximumAltBots = 2,
+        generationBatchSize = 10,
+        generationYieldMs = 125,
+        accountPrefix = "PRAR320",
+        accountCount = 44,
+        loginBatchSize = 3,
+        maintenanceBatchSize = 16,
+        randomBotUpdateIntervalMs = 1_500,
+        iterationsPerTick = 18,
+        forceActiveWhenNearPlayer = true,
+        nearPlayerTeleportMaxAmount = 16,
+        nearPlayerTeleportRadius = 250,
+        teleportMinIntervalSeconds = 3_600,
+        teleportMaxIntervalSeconds = 14_400,
+        syncLevelWithPlayers = false,
+        limitCombatActivity = true,
+        activeBotPercent = 15,
+        autoDoQuests = true,
+        allowBotChat = false,
+        allowPlayerInvites = false,
+        groupNearby = true,
+        wanderWhenIdle = true,
+        enableOffSpecStrategies = true,
+        admission = BotAdmissionLimits(250, 2_048, 2_048, 4 * 60_000L, 25, 25,
+            5 * 60_000L, 10_000L),
+        passiveDelayMs = 3_000,)
 
     /**
      * Larger persistent population; nearby fast, remote background.
@@ -914,7 +1028,7 @@ object BotProfiles {
         forceActiveWhenNearPlayer = true,
         nearPlayerTeleportMaxAmount = 12,
         nearPlayerTeleportRadius = 250,
-        teleportMinIntervalSeconds = 3_600,
+        teleportMinIntervalSeconds = 600,
         teleportMaxIntervalSeconds = 14_400,
         syncLevelWithPlayers = true,
         randomBotMaxLevelChance = 0.25f,
@@ -928,7 +1042,7 @@ object BotProfiles {
         enableOffSpecStrategies = true,
         admission = BotAdmissionLimits(250, 2_048, 2_048, 4 * 60_000L, 25, 25,
             5 * 60_000L, 10_000L),
-    )
+        passiveDelayMs = 3_000,)
 
     /** High population; foreground fast, background reduced. */
     val FULL_REALM_500 = BotProfile(
@@ -954,7 +1068,7 @@ object BotProfiles {
         forceActiveWhenNearPlayer = true,
         nearPlayerTeleportMaxAmount = 12,
         nearPlayerTeleportRadius = 250,
-        teleportMinIntervalSeconds = 3_600,
+        teleportMinIntervalSeconds = 600,
         teleportMaxIntervalSeconds = 10_800,
         syncLevelWithPlayers = true,
         randomBotMaxLevelChance = 0.30f,
@@ -968,7 +1082,7 @@ object BotProfiles {
         enableOffSpecStrategies = false,
         admission = BotAdmissionLimits(250, 2_048, 2_048, 5 * 60_000L, 50, 25,
             5 * 60_000L, 10_000L),
-    )
+        passiveDelayMs = 3_000,)
 
     /**
      * Largest curated built-in. Population/locality focused: humans and their
@@ -998,7 +1112,7 @@ object BotProfiles {
         forceActiveWhenNearPlayer = true,
         nearPlayerTeleportMaxAmount = 10,
         nearPlayerTeleportRadius = 250,
-        teleportMinIntervalSeconds = 3_600,
+        teleportMinIntervalSeconds = 600,
         teleportMaxIntervalSeconds = 14_400,
         syncLevelWithPlayers = true,
         randomBotMaxLevelChance = 0.30f,
@@ -1012,7 +1126,7 @@ object BotProfiles {
         enableOffSpecStrategies = false,
         admission = BotAdmissionLimits(250, 2_048, 2_048, 5 * 60_000L, 50, 25,
             5 * 60_000L, 10_000L),
-    )
+        passiveDelayMs = 3_000,)
 
     /** Headless benchmark twins of the measured mobile tiers. Identical
      * to their sources except AiPlayerbot.RandomBotLoginWithPlayer = 0:
@@ -1235,6 +1349,9 @@ object BotProfiles {
         BENCH_AUTOLOGIN_50, BENCH_AUTOLOGIN_100, BENCH_AUTOLOGIN_160,
         BENCH_ACTIVE_600,
         BENCH_FORCED_1000,
+        // B4 twins: resolvable for the T4 benchmark lanes, never in the
+        // experience ladder or any legacy catalog
+        BENCH_LOW_POWER_80_V2, BENCH_ALIVE_320_V2,
     )
         .associateBy(BotProfile::id)
 

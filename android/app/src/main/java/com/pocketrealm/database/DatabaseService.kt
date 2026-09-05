@@ -1,10 +1,14 @@
 package com.pocketrealm.database
 
+import android.app.Notification
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import android.os.Process
+import androidx.core.app.NotificationCompat
+import com.pocketrealm.R
 import com.pocketrealm.log.AppLog
+import com.pocketrealm.service.RealmService
 import com.pocketrealm.supervisor.ComponentOwnership
 import org.json.JSONObject
 import com.pocketrealm.BuildConfig
@@ -13,6 +17,8 @@ import com.pocketrealm.BuildConfig
 class DatabaseService : Service() {
     private lateinit var engine: DatabaseEngine
     private lateinit var ownership: ComponentOwnership
+    private val foregroundLock = Any()
+    private var foregroundActive = false
 
     override fun onCreate() {
         super.onCreate()
@@ -21,12 +27,55 @@ class DatabaseService : Service() {
         ownership = ComponentOwnership("database") {
             Thread({
                 AppLog.w(TAG, "supervisor owner lease died; stopping database dirty")
+                demoteForeground()
                 runCatching { engine.close() }
                 stopSelf()
             }, "database-owner-loss").start()
         }
         AppLog.i(TAG, "DatabaseService created pid=${Process.myPid()}")
     }
+
+    /**
+     * B5: the supervisor promotes :database to a specialUse FGS while a real
+     * player is present and demotes it when the realm is playerless. This
+     * service has no transition gate; the demote side also runs at engine
+     * stop and owner loss so the promotion never outlives the engine.
+     */
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_PROMOTE_FOREGROUND -> {
+                RealmService.ensureChannel(this)
+                startForeground(DATABASE_NOTIF_ID, buildForegroundNotification())
+                synchronized(foregroundLock) { foregroundActive = true }
+            }
+            ACTION_DEMOTE_FOREGROUND -> demoteForeground()
+        }
+        return START_NOT_STICKY
+    }
+
+    private fun demoteForeground() {
+        val wasActive = synchronized(foregroundLock) {
+            val active = foregroundActive
+            foregroundActive = false
+            active
+        }
+        if (wasActive) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            // Drop the started half too: this service is otherwise bound-only,
+            // and a lingering started state would keep it at service priority
+            // after the demotion. Any binding keeps the process alive.
+            stopSelf()
+        }
+    }
+
+    private fun buildForegroundNotification(): Notification =
+        NotificationCompat.Builder(this, RealmService.CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("Pocket Realm database")
+            .setContentText("Database engine active while a player is in the realm")
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .build()
 
     private val binder = object : IDatabaseControl.Stub() {
         override fun claim(sessionId: String, instanceToken: String, ownerLease: IBinder): String =
@@ -51,7 +100,10 @@ class DatabaseService : Service() {
         override fun stop(): String = guarded { engine.stop() }
         override fun stopOwned(instanceToken: String): String = guarded {
             ownership.requireOwner(instanceToken)
-            engine.stop().also { ownership.clear(instanceToken) }
+            engine.stop().also {
+                ownership.clear(instanceToken)
+                if (it.optBoolean("ok")) demoteForeground()
+            }
         }
         override fun forceStopOwned(instanceToken: String): String = guarded {
             ownership.requireOwner(instanceToken)
@@ -97,5 +149,9 @@ class DatabaseService : Service() {
 
     companion object {
         private const val TAG = "DatabaseService"
+        /** B5: supervisor-driven specialUse FGS promotion intents. */
+        const val ACTION_PROMOTE_FOREGROUND = "com.pocketrealm.action.DATABASE_FOREGROUND_PROMOTE"
+        const val ACTION_DEMOTE_FOREGROUND = "com.pocketrealm.action.DATABASE_FOREGROUND_DEMOTE"
+        const val DATABASE_NOTIF_ID = 4
     }
 }

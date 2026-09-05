@@ -1,10 +1,13 @@
 package com.pocketrealm.server
 
+import android.app.Notification
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import android.os.Process
 import android.os.SystemClock
+import androidx.core.app.NotificationCompat
+import com.pocketrealm.R
 import com.pocketrealm.bots.BotAdmissionController
 import com.pocketrealm.bots.BotAdmissionState
 import com.pocketrealm.bots.BotProfile
@@ -13,6 +16,7 @@ import com.pocketrealm.bots.BotResourceSample
 import com.pocketrealm.bots.BotResourceSampler
 import com.pocketrealm.bots.BotRuntimeMetrics
 import com.pocketrealm.log.AppLog
+import com.pocketrealm.service.RealmService
 import com.pocketrealm.supervisor.ComponentOwnership
 import com.pocketrealm.supervisor.RealmEndpoint
 import org.json.JSONObject
@@ -35,6 +39,9 @@ class WorldRuntimeService : Service() {
     /** Desired native target awaiting acknowledgement; retained across a timeout. */
     @Volatile private var pendingAdmissionTarget: Int? = null
     @Volatile private var activeBindAddress = RealmEndpoint.LOOPBACK_ADDRESS
+    // B5 supervisor-driven FGS promotion state; guarded by transitionGate.
+    @Volatile private var foregroundActive = false
+    @Volatile private var stopAccepted = false
     private var normalDataLease: PreparedDataStore.GenerationLease? = null
     override fun onCreate() {
         super.onCreate()
@@ -45,6 +52,7 @@ class WorldRuntimeService : Service() {
         ownership = ComponentOwnership("world") {
             Thread({
                 transitionGate.run {
+                    acceptStopLocked()
                     stopAdmissionMonitor()
                     files.writeLifecycle("world", false, "owner-lost")
                     runCatching { WorldNative.stopNative(5_000) }
@@ -54,6 +62,62 @@ class WorldRuntimeService : Service() {
             }, "world-owner-loss").start()
         }
     }
+
+    /**
+     * B5: the supervisor promotes :world to a specialUse FGS while a real
+     * player is present and demotes it when the realm is playerless. Every
+     * verb (including these intents) is serialized by the
+     * [AdmissionTransitionGate]; the promote-then-demote fence makes an
+     * in-flight promote intent unable to outlive an already accepted stop.
+     */
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_PROMOTE_FOREGROUND -> transitionGate.run { promoteForegroundLocked() }
+            ACTION_DEMOTE_FOREGROUND -> transitionGate.run { demoteForegroundLocked() }
+        }
+        return START_NOT_STICKY
+    }
+
+    private fun promoteForegroundLocked() {
+        RealmService.ensureChannel(this)
+        // Always satisfy the startForegroundService contract first, even
+        // when the promotion is about to be undone: skipping startForeground
+        // crashes the freshly created service
+        // (ForegroundServiceDidNotStartInTimeException).
+        startForeground(WORLD_NOTIF_ID, buildForegroundNotification())
+        if (stopAccepted) {
+            demoteForegroundLocked()
+            stopSelf()
+        } else {
+            foregroundActive = true
+        }
+    }
+
+    private fun demoteForegroundLocked() {
+        if (foregroundActive) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            foregroundActive = false
+            // Drop the started half too: this service is otherwise bound-only,
+            // and a lingering started state would keep it at service priority
+            // after the demotion. Any binding keeps the process alive.
+            stopSelf()
+        }
+    }
+
+    /** In-gate stop fence: an accepted stop wins over any in-flight promote. */
+    private fun acceptStopLocked() {
+        stopAccepted = true
+        demoteForegroundLocked()
+    }
+
+    private fun buildForegroundNotification(): Notification =
+        NotificationCompat.Builder(this, RealmService.CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("Pocket Realm world")
+            .setContentText("World server active while a player is in the realm")
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .build()
 
     private val binder = object : IWorldControl.Stub() {
         override fun claim(sessionId: String, instanceToken: String, ownerLease: IBinder) =
@@ -71,6 +135,7 @@ class WorldRuntimeService : Service() {
         )
         override fun startAt(bindAddress: String, nearbyInteractTriggerGuardMs: Int) =
             guarded { transitionGate.run {
+            stopAccepted = false
             val endpoint = RealmEndpoint.parseStored(bindAddress)
             check(stopAdmissionMonitor()) { "previous bot admission monitor did not stop" }
             files.prepareWorldLogsForStart(currentNativeState())
@@ -87,6 +152,7 @@ class WorldRuntimeService : Service() {
         )
         override fun startNormalAt(bindAddress: String, nearbyInteractTriggerGuardMs: Int) =
             guarded { transitionGate.run {
+            stopAccepted = false
             val endpoint = RealmEndpoint.parseStored(bindAddress)
             check(stopAdmissionMonitor()) { "previous bot admission monitor did not stop" }
             files.prepareWorldLogsForStart(currentNativeState())
@@ -108,6 +174,7 @@ class WorldRuntimeService : Service() {
             bindAddress: String,
             nearbyInteractTriggerGuardMs: Int,
         ) = guarded { transitionGate.run {
+            stopAccepted = false
             val endpoint = RealmEndpoint.parseStored(bindAddress)
             check(stopAdmissionMonitor()) { "previous bot admission monitor did not stop" }
             files.prepareWorldLogsForStart(currentNativeState())
@@ -210,6 +277,7 @@ class WorldRuntimeService : Service() {
                 if (enabled != 0) "companion-enter" else "companion-exit", rc)
         } }
         override fun stop() = guarded { transitionGate.run {
+            acceptStopLocked()
             stopAdmissionMonitor()
             val rc = WorldNative.stopNative(ServerRuntimeContract.CONTROL_TIMEOUT_MS)
             files.writeLifecycle("world", rc == 0, "stop", ServerRuntimeContract.errorName(rc.toLong()))
@@ -222,6 +290,7 @@ class WorldRuntimeService : Service() {
         } }
         override fun stopOwned(instanceToken: String) = guarded { transitionGate.run {
             ownership.requireOwner(instanceToken)
+            acceptStopLocked()
             stopAdmissionMonitor()
             val rc = WorldNative.stopNative(ServerRuntimeContract.CONTROL_TIMEOUT_MS)
             files.writeLifecycle("world", rc == 0, "stop", ServerRuntimeContract.errorName(rc.toLong()))
@@ -236,6 +305,7 @@ class WorldRuntimeService : Service() {
         override fun forceStopOwned(instanceToken: String): String {
             return transitionGate.run {
                 ownership.requireOwner(instanceToken)
+                acceptStopLocked()
                 stopAdmissionMonitor()
                 files.writeLifecycle("world", false, "forced-stop")
                 Process.killProcess(Process.myPid())
@@ -245,6 +315,7 @@ class WorldRuntimeService : Service() {
         override fun killForTest(): String {
             check(BuildConfig.DEBUG) { "test process kill is debug-only" }
             return transitionGate.run {
+                acceptStopLocked()
                 stopAdmissionMonitor()
                 files.writeLifecycle("world", false, "kill-for-test")
                 Process.killProcess(Process.myPid())
@@ -607,5 +678,9 @@ class WorldRuntimeService : Service() {
         private const val ADMISSION_JOIN_TIMEOUT_MS = 6_000L
         private const val BOT_STATUS_SIZE = 19
         private const val PERFORMANCE_STATUS_SIZE = 10
+        /** B5: supervisor-driven specialUse FGS promotion intents. */
+        const val ACTION_PROMOTE_FOREGROUND = "com.pocketrealm.action.WORLD_FOREGROUND_PROMOTE"
+        const val ACTION_DEMOTE_FOREGROUND = "com.pocketrealm.action.WORLD_FOREGROUND_DEMOTE"
+        const val WORLD_NOTIF_ID = 3
     }
 }

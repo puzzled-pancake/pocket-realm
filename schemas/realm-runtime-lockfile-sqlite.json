@@ -5,7 +5,7 @@
   "elf_max_page_size": "0x4000",
   "playerbots": true,
   "auction_house_bot": false,
-  "cmangos_commit": "082afd606f8e37ea939df6fdfcd4af81f8085e6e",
+  "cmangos_commit": "ce83805d48f9c98b2af617096be5347acb8a1f17",
   "playerbots_commit": "6c681ef8dd63cb96f111dc9239d569d6663347e5",
   "database_backend": "sqlite",
   "cmangos_source_overlays": [

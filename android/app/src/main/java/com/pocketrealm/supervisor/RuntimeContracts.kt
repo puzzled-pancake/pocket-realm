@@ -22,6 +22,21 @@ interface RuntimeBackend : AutoCloseable {
     ): RuntimeActionResult
     suspend fun stop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult
     suspend fun forceStop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult
+
+    /**
+     * Claims an ownerless RUNNING component for [owner] (plan F1). Legal on
+     * the service side exactly when the current owner is null - the same
+     * ComponentOwnership.claim path a start uses; a component with any
+     * non-null owner must refuse.
+     */
+    suspend fun adopt(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult
+
+    /** One world presence sample feeding the foreground-promotion policy (plan B5). */
+    suspend fun observeWorldPresence(): WorldPresenceSample
+
+    /** Supervisor-owned FGS promotion verbs for :world and :database (plan B5). */
+    suspend fun promoteToForeground(component: RuntimeComponent): RuntimeActionResult
+    suspend fun demoteToForeground(component: RuntimeComponent): RuntimeActionResult
     suspend fun saveWorld(owner: ComponentOwner): RuntimeActionResult
     suspend fun setCompanionMode(owner: ComponentOwner, enabled: Boolean): RuntimeActionResult
     suspend fun provisionAccount(

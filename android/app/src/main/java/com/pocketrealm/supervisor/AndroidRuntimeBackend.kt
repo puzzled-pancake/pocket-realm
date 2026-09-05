@@ -78,6 +78,13 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         IClientDisplayControl.Stub.asInterface(it)
     }
 
+    private fun handleOf(component: RuntimeComponent): ServiceHandle<*> = when (component) {
+        RuntimeComponent.DATABASE -> database
+        RuntimeComponent.REALM -> realm
+        RuntimeComponent.WORLD -> world
+        RuntimeComponent.CLIENT -> client
+    }
+
     private fun userVulkanRegistry(): UserVulkanDriverRegistry =
         UserVulkanDriverRegistry(
             UserVulkanDriverRegistry.registryRoot(appContext.filesDir),
@@ -314,6 +321,90 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
             // that is still finishing the old supervisor's unbind/onDestroy.
             delay(500)
             result
+        }
+
+    override suspend fun adopt(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult =
+        withContext(Dispatchers.IO) {
+            // Adoption must be refused unless the component is a running
+            // orphan right now: the service-side claim below is the same
+            // ComponentOwnership.claim path a start uses, which accepts a
+            // fresh owner exactly when the current owner is null (a claim
+            // held by any other runtime session is rejected by the service).
+            val observed = runCatching { observe(component) }.getOrElse {
+                return@withContext RuntimeActionResult(
+                    false,
+                    "adoption observe $component failed: ${it.message ?: it.javaClass.simpleName}",
+                )
+            }
+            if (!OrphanSelfHealPolicy.isHealableOrphan(observed.state, observed.owner)) {
+                return@withContext RuntimeActionResult(
+                    false,
+                    "adoption refused: $component is not an ownerless running orphan",
+                )
+            }
+            runCatching {
+                when (component) {
+                    RuntimeComponent.DATABASE ->
+                        json(database.api().claim(owner.sessionId, owner.instanceToken, ownerLease))
+                    RuntimeComponent.REALM ->
+                        json(realm.api().claim(owner.sessionId, owner.instanceToken, ownerLease))
+                    RuntimeComponent.WORLD ->
+                        json(world.api().claim(owner.sessionId, owner.instanceToken, ownerLease))
+                    RuntimeComponent.CLIENT ->
+                        json(client.api().claim(owner.sessionId, owner.instanceToken, ownerLease))
+                }
+            }.fold(
+                onSuccess = { RuntimeActionResult(true, "orphan $component adopted by ${owner.sessionId}") },
+                onFailure = {
+                    RuntimeActionResult(false, "${it.javaClass.simpleName}: ${it.message}")
+                },
+            )
+        }
+
+    override suspend fun observeWorldPresence(): WorldPresenceSample = withContext(Dispatchers.IO) {
+        val status = json(world.api().status())
+        WorldPresenceSample(
+            state = observation(RuntimeComponent.WORLD, status, "READY").state,
+            realPlayers = status.optInt("realPlayers").coerceAtLeast(0),
+            playerbotsEnabled = status.optBoolean("playerbotsEnabled"),
+            onlinePlayers = status.optInt("onlinePlayers").coerceAtLeast(0),
+        )
+    }
+
+    override suspend fun promoteToForeground(component: RuntimeComponent): RuntimeActionResult =
+        withContext(Dispatchers.IO) {
+            val action = when (component) {
+                RuntimeComponent.WORLD -> WorldRuntimeService.ACTION_PROMOTE_FOREGROUND
+                RuntimeComponent.DATABASE -> DatabaseService.ACTION_PROMOTE_FOREGROUND
+                else -> return@withContext RuntimeActionResult(
+                    false,
+                    "$component has no supervisor-owned foreground promotion",
+                )
+            }
+            // Bind first: a promote must never resurrect a dead component
+            // process just to park it at foreground priority.
+            runCatching { handleOf(component).api() }.getOrElse {
+                return@withContext RuntimeActionResult(
+                    false,
+                    "$component unavailable for promotion: ${it.message ?: it.javaClass.simpleName}",
+                )
+            }
+            handleOf(component).promoteForeground(action)
+            RuntimeActionResult(true, "$component promoted to foreground")
+        }
+
+    override suspend fun demoteToForeground(component: RuntimeComponent): RuntimeActionResult =
+        withContext(Dispatchers.IO) {
+            val action = when (component) {
+                RuntimeComponent.WORLD -> WorldRuntimeService.ACTION_DEMOTE_FOREGROUND
+                RuntimeComponent.DATABASE -> DatabaseService.ACTION_DEMOTE_FOREGROUND
+                else -> return@withContext RuntimeActionResult(
+                    false,
+                    "$component has no supervisor-owned foreground promotion",
+                )
+            }
+            handleOf(component).demoteForeground(action)
+            RuntimeActionResult(true, "$component demoted from foreground")
         }
 
     override suspend fun saveWorld(owner: ComponentOwner): RuntimeActionResult = withContext(Dispatchers.IO) {
@@ -1149,6 +1240,7 @@ private class ServiceHandle<T>(
 ) : AutoCloseable {
     private val lock = Mutex()
     @Volatile private var remote: T? = null
+    @Volatile private var runtimeForegroundStarted = false
     private var connection: ServiceConnection? = null
     private var pending: CompletableDeferred<T>? = null
 
@@ -1204,6 +1296,30 @@ private class ServiceHandle<T>(
         runCatching { context.stopService(Intent(context, serviceType)) }
     }
 
+    /**
+     * B5: supervisor-owned runtime promotion for :world/:database. Unlike
+     * the bind-time client promotion, these components are promoted and
+     * demoted at runtime by the supervisor's presence policy. Legal because
+     * the supervisor process is itself a foreground service.
+     */
+    fun promoteForeground(action: String) {
+        runCatching {
+            context.startForegroundService(Intent(context, serviceType).setAction(action))
+        }
+        runtimeForegroundStarted = true
+    }
+
+    /**
+     * B5: demotes a runtime-promoted service. Only a connected service can
+     * be foreground — a demote must never resurrect a freshly dead component
+     * process just to deliver a no-op.
+     */
+    fun demoteForeground(action: String) {
+        runtimeForegroundStarted = false
+        if (remote == null) return
+        runCatching { context.startService(Intent(context, serviceType).setAction(action)) }
+    }
+
     private fun disconnected(candidate: ServiceConnection) {
         remote = null
         if (connection === candidate) {
@@ -1218,6 +1334,12 @@ private class ServiceHandle<T>(
         connection = null
         remote = null
         requestForegroundStop()
+        // A runtime promotion outlived its supervisor binding by mistake:
+        // drop the started half so a still-bound :world/:database cannot
+        // stay at foreground priority after the supervisor is done with it.
+        if (runtimeForegroundStarted) {
+            runCatching { context.stopService(Intent(context, serviceType)) }
+        }
         pending?.cancel()
         pending = null
     }

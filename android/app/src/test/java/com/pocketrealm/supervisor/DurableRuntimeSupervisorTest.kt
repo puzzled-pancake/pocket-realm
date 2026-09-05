@@ -4,6 +4,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -344,6 +345,298 @@ class DurableRuntimeSupervisorTest {
         assertTrue(backend.actions.contains("stop:DATABASE"))
     }
 
+    @Test fun nullOwnerOrphanHealsAfterBoundedGraceViaMonitorLane() = runTest {
+        val owner = ComponentOwner(SESSION, "aa".repeat(32))
+        val initial = RuntimeSnapshot(
+            sessionId = SESSION,
+            phase = RuntimePhase.RUNNING,
+            requestedProfile = "mobile-low-v1",
+            clean = false,
+            components = RuntimeSnapshot.stoppedComponents() +
+                (RuntimeComponent.WORLD to ComponentSnapshot(
+                    ComponentLifecycle.READY, owner.instanceToken, 1, "world")),
+        )
+        val backend = FakeBackend().apply {
+            observations[RuntimeComponent.WORLD] = ComponentObservation(
+                RuntimeComponent.WORLD, ComponentLifecycle.READY, true, null, 999,
+                "binder death cleared the claim")
+        }
+        val runtime = runtime(backend, MemoryJournal(initial))
+
+        // Grace window: the component-side teardown may be mid-flight.
+        assertNull(runtime.selfHealOrphan(RuntimeComponent.WORLD))
+        assertNull(runtime.selfHealOrphan(RuntimeComponent.WORLD))
+        assertTrue(backend.actions.isEmpty())
+
+        val healed = runtime.selfHealOrphan(RuntimeComponent.WORLD)
+
+        assertNotNull(healed)
+        assertEquals(RuntimePhase.ERROR, healed!!.snapshot.phase)
+        assertTrue(backend.actions.indexOf("adopt:WORLD") < backend.actions.indexOf("force:WORLD"))
+        // forceStop ran under the ADOPTED owner, never the stale journal token.
+        assertEquals(
+            backend.adoptOwners[RuntimeComponent.WORLD],
+            backend.forceOwners.single { it.first == RuntimeComponent.WORLD }.second,
+        )
+        assertNotEquals(owner.instanceToken, backend.adoptOwners[RuntimeComponent.WORLD]!!.instanceToken)
+        assertTrue(healed.snapshot.components.getValue(RuntimeComponent.WORLD).state == ComponentLifecycle.STOPPED)
+    }
+
+    @Test fun orphanGraceResetsWhenTheComponentRecoversMidWindow() = runTest {
+        val owner = ComponentOwner(SESSION, "aa".repeat(32))
+        val initial = RuntimeSnapshot(
+            sessionId = SESSION,
+            phase = RuntimePhase.RUNNING,
+            clean = false,
+            components = RuntimeSnapshot.stoppedComponents() +
+                (RuntimeComponent.WORLD to ComponentSnapshot(
+                    ComponentLifecycle.READY, owner.instanceToken, 1, "world")),
+        )
+        val backend = FakeBackend()
+        val runtime = runtime(backend, MemoryJournal(initial))
+
+        fun observeOrphan(ownerOrNull: ComponentOwner?) {
+            backend.observations[RuntimeComponent.WORLD] = ComponentObservation(
+                RuntimeComponent.WORLD, ComponentLifecycle.READY, true, ownerOrNull, 999, "probe")
+        }
+
+        observeOrphan(null)
+        assertNull(runtime.selfHealOrphan(RuntimeComponent.WORLD))
+        // The claim reappears (teardown finished or never started): grace resets.
+        observeOrphan(owner)
+        assertNull(runtime.selfHealOrphan(RuntimeComponent.WORLD))
+        assertTrue(backend.actions.isEmpty())
+
+        // A fresh orphan streak needs its full grace again.
+        observeOrphan(null)
+        assertNull(runtime.selfHealOrphan(RuntimeComponent.WORLD))
+        assertNull(runtime.selfHealOrphan(RuntimeComponent.WORLD))
+        assertTrue(backend.actions.isEmpty())
+        assertNotNull(runtime.selfHealOrphan(RuntimeComponent.WORLD))
+        assertTrue(backend.actions.contains("adopt:WORLD"))
+    }
+
+    @Test fun monitorLaneDatabaseOrphanRoutesToRecoveryNeverAdoptsOrKills() = runTest {
+        val owner = ComponentOwner(SESSION, "aa".repeat(32))
+        val initial = RuntimeSnapshot(
+            sessionId = SESSION,
+            phase = RuntimePhase.RUNNING,
+            clean = false,
+            components = RuntimeSnapshot.stoppedComponents() +
+                (RuntimeComponent.DATABASE to ComponentSnapshot(
+                    ComponentLifecycle.READY, owner.instanceToken, 1, "database")),
+        )
+        val backend = FakeBackend().apply {
+            observations[RuntimeComponent.DATABASE] = ComponentObservation(
+                RuntimeComponent.DATABASE, ComponentLifecycle.READY, true, null, 999, "ownerless")
+        }
+        val runtime = runtime(backend, MemoryJournal(initial))
+
+        assertNull(runtime.selfHealOrphan(RuntimeComponent.DATABASE))
+        assertNull(runtime.selfHealOrphan(RuntimeComponent.DATABASE))
+
+        val routed = runtime.selfHealOrphan(RuntimeComponent.DATABASE)
+
+        assertNotNull(routed)
+        assertTrue(routed!!.ok)
+        assertTrue(routed.snapshot.clean)
+        assertEquals(RuntimePhase.STOPPED, routed.snapshot.phase)
+        assertTrue(backend.actions.contains("recover:DATABASE"))
+        assertFalse(backend.actions.contains("adopt:DATABASE"))
+        assertFalse(backend.actions.any { it.startsWith("force:") })
+    }
+
+    @Test fun recoveryHealsOwnerlessWorldOrphanAfterGraceAndCompletes() = runTest {
+        val owner = ComponentOwner(SESSION, "aa".repeat(32))
+        val initial = RuntimeSnapshot(
+            sessionId = SESSION,
+            phase = RuntimePhase.RUNNING,
+            requestedProfile = "mobile-low-v1",
+            clean = false,
+            components = RuntimeSnapshot.stoppedComponents() +
+                (RuntimeComponent.WORLD to ComponentSnapshot(
+                    ComponentLifecycle.READY, owner.instanceToken, 1, "world")),
+        )
+        val backend = FakeBackend().apply {
+            observations[RuntimeComponent.WORLD] = ComponentObservation(
+                RuntimeComponent.WORLD, ComponentLifecycle.READY, true, null, 999, "ownerless")
+        }
+        val runtime = runtime(backend, MemoryJournal(initial))
+
+        val recovered = runtime.recover()
+
+        assertTrue(recovered.ok)
+        assertTrue(recovered.snapshot.clean)
+        assertEquals(RuntimePhase.STOPPED, recovered.snapshot.phase)
+        assertTrue(backend.actions.indexOf("adopt:WORLD") < backend.actions.indexOf("force:WORLD"))
+        assertTrue(backend.actions.contains("recover:DATABASE"))
+    }
+
+    @Test fun recoveryRoutesOwnerlessDatabaseToExistingRecoveryLaneWithoutKilling() = runTest {
+        val owner = ComponentOwner(SESSION, "aa".repeat(32))
+        val initial = RuntimeSnapshot(
+            sessionId = SESSION,
+            phase = RuntimePhase.RUNNING,
+            clean = false,
+            components = RuntimeSnapshot.stoppedComponents() +
+                (RuntimeComponent.DATABASE to ComponentSnapshot(
+                    ComponentLifecycle.READY, owner.instanceToken, 1, "database")),
+        )
+        val backend = FakeBackend().apply {
+            observations[RuntimeComponent.DATABASE] = ComponentObservation(
+                RuntimeComponent.DATABASE, ComponentLifecycle.READY, true, null, 999, "ownerless")
+        }
+        val runtime = runtime(backend, MemoryJournal(initial))
+
+        val recovered = runtime.recover()
+
+        assertTrue(recovered.ok)
+        assertTrue(recovered.snapshot.clean)
+        assertEquals(listOf("recover:DATABASE"), backend.actions)
+    }
+
+    @Test fun orphanThatResolvesToForeignOwnerDuringGraceStillRefuses() = runTest {
+        val owner = ComponentOwner(SESSION, "aa".repeat(32))
+        val foreign = ComponentOwner(SESSION, "bb".repeat(32))
+        val initial = RuntimeSnapshot(
+            sessionId = SESSION,
+            phase = RuntimePhase.RUNNING,
+            clean = false,
+            components = RuntimeSnapshot.stoppedComponents() +
+                (RuntimeComponent.WORLD to ComponentSnapshot(
+                    ComponentLifecycle.READY, owner.instanceToken, 1, "world")),
+        )
+        val backend = FakeBackend().apply {
+            scriptedObservations[RuntimeComponent.WORLD] = ArrayDeque(listOf(
+                ComponentObservation(
+                    RuntimeComponent.WORLD, ComponentLifecycle.READY, true, null, 999, "ownerless"),
+                ComponentObservation(
+                    RuntimeComponent.WORLD, ComponentLifecycle.READY, true, foreign, 999, "foreign owner"),
+            ))
+        }
+        val runtime = runtime(backend, MemoryJournal(initial))
+
+        val recovered = runtime.recover()
+
+        assertFalse(recovered.ok)
+        assertEquals(RuntimePhase.ERROR, recovered.snapshot.phase)
+        assertTrue(recovered.snapshot.lastError!!.contains("UNVERIFIED_ORPHAN"))
+        assertTrue(backend.actions.none { it.startsWith("adopt:") || it.startsWith("force:") })
+    }
+
+    @Test fun foregroundPromotesWorldAndDatabaseImmediatelyOnRealPlayerPresence() = runTest {
+        val backend = FakeBackend()
+        val runtime = runtime(backend)
+        assertTrue(runtime.start("mobile-low-v1", includeClient = false).ok)
+        backend.actions.clear()
+        backend.worldPresence = WorldPresenceSample(
+            ComponentLifecycle.READY, realPlayers = 1, playerbotsEnabled = true, onlinePlayers = 41)
+
+        runtime.reconcileForegroundPromotion()
+
+        assertEquals(listOf("promote:WORLD", "promote:DATABASE"), backend.actions)
+        // Already promoted: the immediate edge never re-fires.
+        runtime.reconcileForegroundPromotion()
+        assertEquals(listOf("promote:WORLD", "promote:DATABASE"), backend.actions)
+    }
+
+    @Test fun botOnlyPresenceNeverPromotes() = runTest {
+        val backend = FakeBackend()
+        val runtime = runtime(backend)
+        assertTrue(runtime.start("mobile-low-v1", includeClient = false).ok)
+        backend.actions.clear()
+        // Naive reading: onlinePlayers counts bots; with bots enabled it
+        // must never fire promotion.
+        backend.worldPresence = WorldPresenceSample(
+            ComponentLifecycle.READY, realPlayers = 0, playerbotsEnabled = true, onlinePlayers = 50)
+
+        repeat(5) { runtime.reconcileForegroundPromotion() }
+
+        assertTrue(backend.actions.isEmpty())
+    }
+
+    @Test fun botlessRealmPromotesOnAnyOnlineSession() = runTest {
+        val backend = FakeBackend()
+        val runtime = runtime(backend)
+        assertTrue(runtime.start("mobile-low-v1", includeClient = false).ok)
+        backend.actions.clear()
+        // Naive reading in the other direction: realPlayers alone would
+        // never fire on a botless realm while a player is connecting.
+        backend.worldPresence = WorldPresenceSample(
+            ComponentLifecycle.READY, realPlayers = 0, playerbotsEnabled = false, onlinePlayers = 1)
+
+        runtime.reconcileForegroundPromotion()
+
+        assertEquals(listOf("promote:WORLD", "promote:DATABASE"), backend.actions)
+    }
+
+    @Test fun foregroundDemotesOnlyAfterThreeConsecutiveEmptySamples() = runTest {
+        val backend = FakeBackend()
+        val runtime = runtime(backend)
+        assertTrue(runtime.start("mobile-low-v1", includeClient = false).ok)
+        backend.worldPresence = WorldPresenceSample(
+            ComponentLifecycle.READY, realPlayers = 2, playerbotsEnabled = true, onlinePlayers = 42)
+        runtime.reconcileForegroundPromotion()
+        backend.actions.clear()
+        // Every player logged out; the bots stay online.
+        backend.worldPresence = WorldPresenceSample(
+            ComponentLifecycle.READY, realPlayers = 0, playerbotsEnabled = true, onlinePlayers = 40)
+
+        runtime.reconcileForegroundPromotion()
+        runtime.reconcileForegroundPromotion()
+        assertTrue(backend.actions.none { it.startsWith("demote:") })
+
+        runtime.reconcileForegroundPromotion()
+
+        assertEquals(listOf("demote:WORLD", "demote:DATABASE"), backend.actions)
+        // Stays demoted: no repeated demotion intents.
+        runtime.reconcileForegroundPromotion()
+        assertEquals(listOf("demote:WORLD", "demote:DATABASE"), backend.actions)
+    }
+
+    @Test fun emptySampleStreakResetsWhenAPlayerReturns() = runTest {
+        val backend = FakeBackend()
+        val runtime = runtime(backend)
+        assertTrue(runtime.start("mobile-low-v1", includeClient = false).ok)
+        val players = WorldPresenceSample(
+            ComponentLifecycle.READY, realPlayers = 1, playerbotsEnabled = true, onlinePlayers = 40)
+        val playerless = WorldPresenceSample(
+            ComponentLifecycle.READY, realPlayers = 0, playerbotsEnabled = true, onlinePlayers = 40)
+        backend.worldPresence = players
+        runtime.reconcileForegroundPromotion()
+        backend.actions.clear()
+
+        backend.worldPresence = playerless
+        runtime.reconcileForegroundPromotion()
+        runtime.reconcileForegroundPromotion()
+        backend.worldPresence = players
+        runtime.reconcileForegroundPromotion()
+        backend.worldPresence = playerless
+        runtime.reconcileForegroundPromotion()
+        runtime.reconcileForegroundPromotion()
+        assertTrue(backend.actions.none { it.startsWith("demote:") })
+    }
+
+    @Test fun saveExitDemotesPromotedForegroundAfterComponentStops() = runTest {
+        val backend = FakeBackend()
+        val runtime = runtime(backend)
+        assertTrue(runtime.start("mobile-low-v1", includeClient = false).ok)
+        backend.worldPresence = WorldPresenceSample(
+            ComponentLifecycle.READY, realPlayers = 1, playerbotsEnabled = true, onlinePlayers = 40)
+        runtime.reconcileForegroundPromotion()
+        backend.actions.clear()
+
+        val stopped = runtime.stop(StopMode.GRACEFUL)
+
+        assertTrue(stopped.ok)
+        assertTrue(backend.actions.contains("demote:WORLD"))
+        assertTrue(backend.actions.contains("demote:DATABASE"))
+        // Demotion trails the component stops so it can never resurrect a
+        // freshly stopped service (the save&exit race).
+        assertTrue(backend.actions.indexOf("demote:WORLD") > backend.actions.indexOf("stop:WORLD"))
+        assertTrue(backend.actions.indexOf("demote:DATABASE") > backend.actions.indexOf("stop:DATABASE"))
+    }
+
     private fun runtime(
         backend: FakeBackend,
         journal: MemoryJournal = MemoryJournal(),
@@ -379,6 +672,10 @@ class DurableRuntimeSupervisorTest {
         val observations = RuntimeComponent.entries.associateWith {
             ComponentObservation(it, ComponentLifecycle.STOPPED, false)
         }.toMutableMap()
+        /** Observations returned once each before falling back to [observations]. */
+        val scriptedObservations = mutableMapOf<RuntimeComponent, ArrayDeque<ComponentObservation>>()
+        val adoptOwners = mutableMapOf<RuntimeComponent, ComponentOwner>()
+        val forceOwners = mutableListOf<Pair<RuntimeComponent, ComponentOwner>>()
         val failedStarts = mutableSetOf<RuntimeComponent>()
         val failedStops = mutableSetOf<RuntimeComponent>()
         val failedForces = mutableSetOf<RuntimeComponent>()
@@ -386,6 +683,7 @@ class DurableRuntimeSupervisorTest {
         var projectionFails = false
         var preflightAllowed = true
         var preflightDetail = "preflight"
+        var worldPresence = WorldPresenceSample.EMPTY
 
         override suspend fun preflight(spec: RuntimeLaunchSpec): RuntimeActionResult {
             actions += "preflight:${spec.mode}"
@@ -395,7 +693,15 @@ class DurableRuntimeSupervisorTest {
             )
         }
 
-        override suspend fun observe(component: RuntimeComponent) = observations.getValue(component)
+        override suspend fun observe(component: RuntimeComponent): ComponentObservation {
+            scriptedObservations[component]?.let { script ->
+                val value = script.removeFirst()
+                observations[component] = value
+                if (script.isEmpty()) scriptedObservations.remove(component)
+                return value
+            }
+            return observations.getValue(component)
+        }
 
         override suspend fun start(
             component: RuntimeComponent,
@@ -431,9 +737,35 @@ class DurableRuntimeSupervisorTest {
 
         override suspend fun forceStop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult {
             actions += "force:$component"
+            forceOwners += component to owner
             if (component in failedForces) return RuntimeActionResult(false, "injected drain failure")
             observations[component] = ComponentObservation(component, ComponentLifecycle.STOPPED, false)
             return RuntimeActionResult(true, "forced")
+        }
+
+        override suspend fun adopt(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult {
+            val current = observations.getValue(component)
+            return if (OrphanSelfHealPolicy.isHealableOrphan(current.state, current.owner)) {
+                actions += "adopt:$component"
+                adoptOwners[component] = owner
+                observations[component] = current.copy(owner = owner)
+                RuntimeActionResult(true, "adopted")
+            } else {
+                actions += "adopt-rejected:$component"
+                RuntimeActionResult(false, "component is not an ownerless running orphan")
+            }
+        }
+
+        override suspend fun observeWorldPresence(): WorldPresenceSample = worldPresence
+
+        override suspend fun promoteToForeground(component: RuntimeComponent): RuntimeActionResult {
+            actions += "promote:$component"
+            return RuntimeActionResult(true, "promoted")
+        }
+
+        override suspend fun demoteToForeground(component: RuntimeComponent): RuntimeActionResult {
+            actions += "demote:$component"
+            return RuntimeActionResult(true, "demoted")
         }
 
         override suspend fun saveWorld(owner: ComponentOwner): RuntimeActionResult {

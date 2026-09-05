@@ -126,6 +126,9 @@ class RuntimeSupervisorClient(context: Context) {
             val phase = RuntimePhase.valueOf(value.getString("phase"))
             val generationActive = value.optBoolean("supervisorGenerationActive")
             val lastError = value.optString("lastError").trim().takeIf { it.isNotEmpty() }
+                // Plan F1: raw details (UNVERIFIED_ORPHAN, timeout classes)
+                // go to logs; the UI sees human copy.
+                ?.let(RuntimeFailureCopy::humanize)
             return when (phase) {
                 RuntimePhase.STOPPED, RuntimePhase.UNCONFIGURED -> {
                     if (value.optBoolean("clean") && lastError == null) RealmState.Idle

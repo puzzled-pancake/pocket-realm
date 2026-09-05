@@ -3,6 +3,7 @@ package com.pocketrealm.supervisor
 import com.pocketrealm.realm.RealmState
 import com.pocketrealm.realm.ClientLaunchState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -136,6 +137,33 @@ class RuntimeSupervisorClientTest {
         assertEquals(
             "The previous recovery was interrupted. Tap Start to recover safely.",
             (decoded as RealmState.Failed).message,
+        )
+    }
+
+    @Test fun rawOrphanAndTimeoutDetailsAreHumanizedAtTheDecodeBoundary() {
+        val orphan = RuntimeSupervisorClient.decodeRealmState(encoded(RuntimeSnapshot(
+            phase = RuntimePhase.ERROR,
+            clean = false,
+            lastError = "UNVERIFIED_ORPHAN: WORLD ownership did not match",
+        )))
+
+        assertTrue(orphan is RealmState.Failed)
+        assertEquals(
+            RuntimeFailureCopy.humanize("UNVERIFIED_ORPHAN: WORLD ownership did not match"),
+            (orphan as RealmState.Failed).message,
+        )
+        assertFalse(orphan.message.contains("UNVERIFIED_ORPHAN"))
+
+        val timedOut = RuntimeSupervisorClient.decodeRealmState(encoded(RuntimeSnapshot(
+            phase = RuntimePhase.ERROR,
+            clean = false,
+            lastError = "WORLD: TimeoutCancellationException: Timed out waiting for 120000 ms",
+        )))
+
+        assertTrue(timedOut is RealmState.Failed)
+        assertEquals(
+            RuntimeFailureCopy.humanize("WORLD: TimeoutCancellationException: Timed out waiting for 120000 ms"),
+            (timedOut as RealmState.Failed).message,
         )
     }
 

@@ -26,6 +26,7 @@ import com.pocketrealm.supervisor.RuntimeOperation
 import com.pocketrealm.supervisor.RuntimeLaunchSpec
 import com.pocketrealm.supervisor.RuntimeMode
 import com.pocketrealm.supervisor.LanInterfacePolicy
+import com.pocketrealm.supervisor.OrphanSelfHealPolicy
 import com.pocketrealm.supervisor.RuntimePhase
 import com.pocketrealm.supervisor.RuntimeSnapshot
 import com.pocketrealm.supervisor.RuntimeSnapshotJson
@@ -498,14 +499,30 @@ class RealmService : Service() {
                         val expected = snapshot.components.getValue(component)
                         if (expected.state != ComponentLifecycle.READY) continue
                         val observed = runCatching { backend.observe(component) }.getOrNull()
-                        if (observed == null || !observed.ready ||
-                            observed.owner?.instanceToken != expected.instanceToken) {
+                        // Ownerless-but-running is the healable orphan (plan
+                        // F1): binder death cleared the claim and the
+                        // component-side teardown may still be mid-flight.
+                        // The heal lane counts grace ticks, then adopts and
+                        // force-stops under the adopted owner; a DATABASE
+                        // orphan routes to the existing recovery lane.
+                        if (observed != null &&
+                            OrphanSelfHealPolicy.isHealableOrphan(observed.state, observed.owner)
+                        ) {
+                            val healed = supervisor.selfHealOrphan(component)
+                            if (healed != null) return@runReserved healed
+                        } else if (observed == null || !observed.ready ||
+                            observed.owner?.instanceToken != expected.instanceToken
+                        ) {
                             return@runReserved supervisor.componentFailed(
                                 component,
                                 "health/ownership probe failed",
                             )
                         }
                     }
+                    // B5: drive :world/:database foreground promotion from
+                    // the pure presence policy (promote immediate, demote
+                    // after three empty samples).
+                    supervisor.reconcileForegroundPromotion()
                     null
                 } catch (error: Throwable) {
                     if (error is CancellationException) throw error

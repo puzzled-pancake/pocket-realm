@@ -131,11 +131,19 @@
 
         <!-- MariaDB owns its datadir in a dedicated fault domain. The
              same-APK Binder API exposes lifecycle/test verbs only; callers
-             cannot submit SQL, paths, commands, environment, or credentials. -->
+             cannot submit SQL, paths, commands, environment, or credentials.
+             specialUse FGS while a player is in the realm (plan B5): the
+             supervisor promotes/demotes at runtime so a playerless realm
+             sits at bound-service priority. -->
         <service
             android:name=".database.DatabaseService"
             android:process=":database"
-            android:exported="false" />
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Hosts the local database engine (MariaDB) serving the offline game realm; killing it mid-session loses unsaved game state while a player is in the world." />
+        </service>
 
         <!-- CMaNGOS components are library-backed but retain executable-
              equivalent failure boundaries. The fixed AIDL APIs accept no
@@ -144,10 +152,18 @@
             android:name=".server.RealmRuntimeService"
             android:process=":realm"
             android:exported="false" />
+        <!-- specialUse FGS while a player is in the realm (plan B5): the
+             supervisor promotes/demotes at runtime so a playerless world
+             sits at bound-service priority. -->
         <service
             android:name=".server.WorldRuntimeService"
             android:process=":world"
-            android:exported="false" />
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Hosts the local world server process (offline PvE) that must keep running while a player is in the world; killing it terminates the play session." />
+        </service>
         <!-- F6: shares the downloaded update APK with the system
              installer when a session-based install is not usable. -->
         <provider

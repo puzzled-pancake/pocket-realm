@@ -156,6 +156,22 @@ private:
                 return fail(POCKET_SERVER_PORT_IN_USE,
                             std::string("realmd listener failed: ") + error.code().message());
             }
+            // G1 keep-alive (rp-depth-fix v2.3 §8): kill-switch
+            // AiPlayerbot.RealmdTimerMs, default 250 ms, 0 = timer off (the
+            // documented workaround; removal condition in §0.a). The key is
+            // read through this file's existing sConfig path; the app's
+            // staged realmd.conf (ServerRuntimeFiles.realmdConfig) carries
+            // no AiPlayerbot.* keys today, so the effective value is the
+            // default until one is staged there - no new conf plumbing.
+            const int32 timer_ms = sConfig.GetIntDefault("AiPlayerbot.RealmdTimerMs", 250);
+            if (timer_ms > 0)
+            {
+                // stop() destroys the timer under m_lifecycle; the
+                // assignment must hold the same mutex.
+                std::lock_guard<std::mutex> io_guard(m_lifecycle);
+                m_keepalive_timer = std::make_unique<boost::asio::steady_timer>(*m_io);
+                arm_keepalive(std::chrono::milliseconds(timer_ms));
+            }
             const uint32 threads = std::max(1, sConfig.GetIntDefault("ListenerThreads", 1));
             for (uint32 i = 0; i < threads; ++i)
                 m_threads.emplace_back([this] {
@@ -170,6 +186,16 @@ private:
                 });
             LoginDatabase.AllowAsyncTransactions();
             m_state.transition(POCKET_SERVER_READY);
+            // G1 liveness: the keep-alive handler is the io-thread dispatch
+            // evidence. An UNCHANGED count while !m_stop for a sustained
+            // window (>= 3 consecutive timer intervals) means the reactor
+            // missed its wakeup - a dead-but-READY listener - so fail()
+            // converts the silent mode into a visible FAILED. With the timer
+            // off (RealmdTimerMs = 0) there is no dispatch evidence and the
+            // check is skipped (documented workaround mode).
+            const uint32 heartbeat_ms = 100;
+            uint64_t last_liveness = m_io_liveness.load(std::memory_order_acquire);
+            uint32 stalled_heartbeats = 0;
             // Also exit on FAILED: io-thread exceptions
             // fail the state; the loop must not outlive it or stop()'s join
             // can never complete.
@@ -178,7 +204,30 @@ private:
             {
                 m_heartbeat_count.fetch_add(1, std::memory_order_relaxed);
                 m_state.beat();
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                if (timer_ms > 0)
+                {
+                    const uint64_t liveness = m_io_liveness.load(std::memory_order_acquire);
+                    if (liveness == last_liveness)
+                    {
+                        ++stalled_heartbeats;
+                        if (stalled_heartbeats * heartbeat_ms >=
+                            static_cast<uint32>(timer_ms) * 3)
+                        {
+                            // Same exit shape as an io-thread exception:
+                            // fail(), leave the loop, cleanup() joins the
+                            // io threads instead of stranding them.
+                            fail(POCKET_SERVER_INTERNAL,
+                                 "realmd io reactor stalled: keep-alive dispatch count frozen");
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        last_liveness = liveness;
+                        stalled_heartbeats = 0;
+                    }
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(heartbeat_ms));
             }
             cleanup();
             m_state.transition(POCKET_SERVER_STOPPED);
@@ -195,6 +244,25 @@ private:
         }
     }
 
+    // G1 keep-alive pump: one outstanding steady_timer wait at a time,
+    // re-armed from its own completion handler. The re-arm is
+    // UNCONDITIONAL while the runtime is running - any error code
+    // (including the operation_aborted of a spurious cancel) still
+    // re-arms, so only m_stop or io_context destruction ends the chain.
+    // Each handler dispatch bumps m_io_liveness; the run() heartbeat
+    // reads that count and fails on a sustained freeze.
+    void arm_keepalive(std::chrono::milliseconds interval)
+    {
+        m_keepalive_timer->expires_after(interval);
+        m_keepalive_timer->async_wait(
+            [this, interval](const boost::system::error_code&)
+            {
+                m_io_liveness.fetch_add(1, std::memory_order_release);
+                if (!m_stop.load(std::memory_order_acquire))
+                    arm_keepalive(interval);
+            });
+    }
+
     void cleanup()
     {
         {
@@ -204,6 +272,9 @@ private:
         for (auto& thread : m_threads) if (thread.joinable()) thread.join();
         m_threads.clear();
         std::lock_guard<std::mutex> io_guard(m_lifecycle);
+        // The keep-alive timer is destroyed with the listener: only after
+        // the io threads joined, so no handler can be re-arming it.
+        m_keepalive_timer.reset();
         m_listener.reset();
         m_io.reset();
         LoginDatabase.StopServerEmbedded();
@@ -217,9 +288,13 @@ private:
     pocket_server::StateRecord m_state;
     std::atomic<bool> m_stop{false};
     std::atomic<uint64_t> m_heartbeat_count{0};
+    // G1: io-thread liveness evidence - bumped by every keep-alive
+    // handler dispatch on the io_context.
+    std::atomic<uint64_t> m_io_liveness{0};
     std::mutex m_lifecycle;
     std::thread m_worker;
     std::unique_ptr<boost::asio::io_context> m_io;
+    std::unique_ptr<boost::asio::steady_timer> m_keepalive_timer;
     std::unique_ptr<MaNGOS::AsyncListener<AuthSocket>> m_listener;
     std::vector<std::thread> m_threads;
 };

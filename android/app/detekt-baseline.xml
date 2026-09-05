@@ -252,6 +252,7 @@
     <ID>LargeClass:ClientDisplayHost.kt$ClientDisplayHost : AutoCloseable</ID>
     <ID>LargeClass:ClientRuntimeService.kt$ClientRuntimeService : Service</ID>
     <ID>LargeClass:DatabaseEngine.kt$DatabaseEngine</ID>
+    <ID>LargeClass:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor : AutoCloseable</ID>
     <ID>LargeClass:InputContract.kt$InputContract</ID>
     <ID>LargeClass:InputContractTest.kt$InputContractTest</ID>
     <ID>LargeClass:WineRuntimeStore.kt$WineRuntimeStore</ID>
@@ -388,6 +389,8 @@
     <ID>LongParameterList:DatabaseUserStateBridge.kt$DatabaseUserStateBridge$( database: String, table: String, columns: List&lt;Pair&lt;String, String&gt;&gt;, outFile: String, primaryKey: List&lt;String&gt; = emptyList(), offset: Int = 0, limit: Int = 500, )</ID>
     <ID>LongParameterList:DeviceProfile.kt$DeviceProfile$(model: String, socHint: String, abi: String, api: Int, cores: Int, ramBytes: Long)</ID>
     <ID>LongParameterList:ExperimentResult.kt$ExperimentResult.Companion$(exp: String, runId: String, code: String, detail: List&lt;String&gt;, evidence: Map&lt;String, String&gt;, ms: Long)</ID>
+    <ID>LongParameterList:ForegroundPromotionPolicy.kt$ForegroundPromotionPolicy$( stateCode: ComponentLifecycle, realPlayers: Int, playerbotsEnabled: Boolean, onlinePlayers: Int, consecutiveEmptySamples: Int, currentlyPromoted: Boolean, )</ID>
+    <ID>LongParameterList:ForegroundPromotionPolicyTest.kt$ForegroundPromotionPolicyTest$( state: ComponentLifecycle = ComponentLifecycle.READY, realPlayers: Int = 0, playerbotsEnabled: Boolean = true, onlinePlayers: Int = 0, consecutiveEmptySamples: Int = 0, currentlyPromoted: Boolean = true, )</ID>
     <ID>LongParameterList:HomeScreen.kt$( profile: BotProfile, settings: Settings.Snapshot, storedAccount: String?, onOpenBots: () -&gt; Unit, onOpenSettings: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>LongParameterList:HomeScreen.kt$( state: RealmState, botProfile: BotProfile, botPresetName: String?, onStartRealm: () -&gt; Unit, onStartAll: () -&gt; Unit, onSaveExit: () -&gt; Unit, onEnterGame: (() -&gt; Unit)?, onRetryGame: () -&gt; Unit, clientRetryPending: Boolean, canLaunchGame: Boolean, settingsReady: Boolean, allowLanPlayers: Boolean, clientUnavailableReason: String?, landscape: Boolean, modifier: Modifier = Modifier, )</ID>
     <ID>LongParameterList:HomeScreen.kt$( username: String, onUsername: (String) -&gt; Unit, password: String, onPassword: (String) -&gt; Unit, enabled: Boolean, modifier: Modifier, )</ID>
