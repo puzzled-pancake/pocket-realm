@@ -891,3 +891,29 @@ def test_plan_v5_wave1_fixes_and_pin_gaps():
             f"{key} exists (plan 5.4 kill-switch)"
     assert "FindWeather(uint32 zoneId) const" in driver, \
         "the read-only weather lookup is anchored (no create-on-miss)"
+
+
+def test_plan_v23_c_workstream_conf_keys():
+    """C4/C6/C7/C8 (plan v2.3): every new key is parsed with its 0.a
+    default AND declared in the config header overlay; the conf.dist
+    block carries the operator documentation for each."""
+    driver = DRIVER.read_text(encoding="utf-8")
+    for key, default in (("LLMTurnAwardDailyCap", 20),
+                         ("LLMTurnAwardWeighting", 1),
+                         ("LLMDeedPointsFirstVisit", 5),
+                         ("LLMDeedPointsTrade", 3),
+                         ("LLMDeedPointsSharedKill", 2),
+                         ("LLMDeedPointsQuest", 4),
+                         ("LLMPartyDigestPerDay", 6),
+                         ("LLMGreetMemory", 1),
+                         ("LLMHistoryPersist", 1)):
+        assert f'GetIntDefault("AiPlayerbot.{key}", {default})' in driver, \
+            f"{key} is parsed with the documented default"
+    header = driver.split('PB_LLM_CONFIG_HEADER_ANDROID = """')[1].split('"""')[0]
+    assert "llmTurnAwardDailyCap, llmTurnAwardWeighting;" in header
+    assert "llmDeedPointsFirstVisit, llmDeedPointsTrade, llmDeedPointsSharedKill, llmDeedPointsQuest;" in header
+    assert "llmPartyDigestPerDay, llmGreetMemory, llmHistoryPersist;" in header
+    confdist = driver.split('PB_LLM_CONF_ANDROID = """')[1].split('"""')[0]
+    for key in ("LLMTurnAwardDailyCap", "LLMDeedPointsQuest",
+                "LLMPartyDigestPerDay", "LLMGreetMemory", "LLMHistoryPersist"):
+        assert f"AiPlayerbot.{key}" in confdist, f"{key} documented in conf.dist"

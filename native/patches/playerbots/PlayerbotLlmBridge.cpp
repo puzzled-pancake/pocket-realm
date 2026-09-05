@@ -171,6 +171,15 @@ std::map<uint64_t, int>& LastVoicedTier()
     static std::map<uint64_t, int> instance;
     return instance;
 }
+// C5: the per-player ceremony-rider coalescer - a simultaneous
+// multi-bot crossing yields <= 1 PROSE rider per player per hour (the
+// sys line and the mood nudge stay per-crossing: they are the cheap,
+// non-generative halves)
+std::map<uint32_t, time_t>& CeremonyRiderAt()
+{
+    static std::map<uint32_t, time_t> instance;
+    return instance;
+}
 // the last greeting-gap beat per pairing: the weave fires once per
 // absence gap (never twice inside one sitting).
 std::map<uint64_t, time_t>& GreetedGapAt()
@@ -189,30 +198,67 @@ uint64_t PairKey(uint32 botGuid, uint32 playerGuid)
 // updates the map, so a RESTARTED process re-seeds without a ceremony;
 // Peek observes WITHOUT consuming (ACT turns defer the crossing to the
 // next conversational turn instead of eating it).
+// C5: the re-seed is now PARTIALLY persisted - a pairing unseen this
+// process seeds from the 0413 last_voiced_tier column, honored only
+// while tier_since is fresh (<= 48 h; PersistedLastVoicedTier's gate),
+// so a restart within a sitting can still voice the crossing it missed
+// while stale state never fires a ceremony. Consume writes the crossing
+// back.
 int PeekTierTransition(uint32 botGuid, uint32 playerGuid, int tier)
 {
     if (!playerGuid)
         return 0;
-    std::lock_guard<std::mutex> lock(g_beatMutex);
-    uint64_t const key = PairKey(botGuid, playerGuid);
-    auto itr = LastVoicedTier().find(key);
-    return itr == LastVoicedTier().end() ? 0 : tier - itr->second;
+    {
+        std::lock_guard<std::mutex> lock(g_beatMutex);
+        uint64_t const key = PairKey(botGuid, playerGuid);
+        if (LastVoicedTier().find(key) != LastVoicedTier().end())
+        {
+            return tier - LastVoicedTier()[key];
+        }
+    }
+    int persisted = -1;
+    if (PlayerbotLlmMemory::PersistedLastVoicedTier(botGuid, playerGuid, persisted))
+    {
+        std::lock_guard<std::mutex> lock(g_beatMutex);
+        LastVoicedTier()[PairKey(botGuid, playerGuid)] = persisted;
+        return tier - persisted;
+    }
+    return 0;
 }
 
 int ConsumeTierTransition(uint32 botGuid, uint32 playerGuid, int tier)
 {
     if (!playerGuid)
         return 0;
-    std::lock_guard<std::mutex> lock(g_beatMutex);
-    uint64_t const key = PairKey(botGuid, playerGuid);
-    auto itr = LastVoicedTier().find(key);
-    if (itr == LastVoicedTier().end())
     {
-        LastVoicedTier()[key] = tier;
-        return 0;
+        std::lock_guard<std::mutex> lock(g_beatMutex);
+        uint64_t const key = PairKey(botGuid, playerGuid);
+        auto itr = LastVoicedTier().find(key);
+        if (itr != LastVoicedTier().end())
+        {
+            int const was = itr->second;
+            itr->second = tier;
+            // C5: the crossing persists (fire-and-forget write; the
+            // ceremony survives a restart-inside-a-sitting window)
+            PlayerbotLlmMemory::NoteTierVoiced(botGuid, playerGuid, tier);
+            return tier - was;
+        }
     }
-    int const was = itr->second;
-    itr->second = tier;
+    // C5: a pairing unseen this process seeds from the persisted
+    // last_voiced_tier column (the <= 48 h freshness gate lives inside
+    // PersistedLastVoicedTier; the sync DB read runs OUTSIDE the beat
+    // mutex). A fresh persisted value voices the crossing the restart
+    // missed; a stale or absent one seeds silently, exactly the old
+    // first-contact behavior.
+    int was = tier;
+    int persisted = -1;
+    if (PlayerbotLlmMemory::PersistedLastVoicedTier(botGuid, playerGuid, persisted))
+        was = persisted;
+    {
+        std::lock_guard<std::mutex> lock(g_beatMutex);
+        LastVoicedTier()[PairKey(botGuid, playerGuid)] = tier;
+    }
+    PlayerbotLlmMemory::NoteTierVoiced(botGuid, playerGuid, tier);
     return tier - was;
 }
 
@@ -837,11 +883,33 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
             : ConsumeTierTransition(bot->GetGUIDLow(), player->GetGUIDLow(), state.tier);
         if (crossed && !actBeat)
         {
+            // C5: the prose rider is PER-PLAYER COALESCED (<= 1 per
+            // player per hour - a five-bot simultaneous crossing is one
+            // ceremony, not five). The mood nudge, the sys line and the
+            // persisted crossing below stay per-crossing.
+            bool riderAdmits = false;
+            {
+                std::lock_guard<std::mutex> lock(g_beatMutex);
+                time_t const nowT = time(nullptr);
+                auto ritr = CeremonyRiderAt().find(player->GetGUIDLow());
+                if (ritr == CeremonyRiderAt().end() || nowT - ritr->second >= 3600)
+                {
+                    CeremonyRiderAt()[player->GetGUIDLow()] = nowT;
+                    riderAdmits = true;
+                }
+            }
             // the crossing folds into the mood weather: a Bonded
             // ceremony brightens it, a tier loss quiets it (the bucket
             // rotation keeps either from sticking forever)
             PlayerbotLlmMemory::NudgeMood(bot->GetGUIDLow(),
                 crossed > 0 ? pocketllm::MOOD_SMITTEN : pocketllm::MOOD_GRIEF);
+            if (!riderAdmits)
+            {
+                // the crossing still counts - it is consumed and
+                // persisted; only the generative rider waits
+            }
+            else
+            {
             std::string cargo = crossed > 0
                 ? pocketllm::CeremonyUpCargo(player->GetName(), state.tier, bot->GetGUIDLow())
                 : pocketllm::CeremonyDownCargo(player->GetName(), bot->GetGUIDLow());
@@ -863,6 +931,7 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
                     player->GetName(), bot->GetGUIDLow());
             note.extra = note.extra.empty() ? cargo : note.extra + "\n" + cargo;
             note.mandatesContent = true;
+            }
 
             // visible progression: the cheap system-colored line rides
             // the same OBSERVED crossing (pure DB-derived, zero generation) -
@@ -871,6 +940,7 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
             // BuildNote runs
             // synchronously inside ChatReplyDo. Sent BEFORE the generation is
             // voiced, never after - it frames the bot's next words.
+            // PER-CROSSING by law (C5: only the prose rider coalesces).
             if (player->GetSession())
                 ChatHandler(player->GetSession()).SendSysMessage(
                     pocketllm::TierShiftSysLine(bot->GetName(), crossed > 0).c_str());

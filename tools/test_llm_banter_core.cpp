@@ -35,6 +35,27 @@ static uint64_t Fnv1a64(void const* data, size_t n, uint64_t h = 146959810393466
     return h;
 }
 
+// C7: the draw-stream fingerprint under a given boot nonce (the golden
+// leg's shape, factored so the nonce matrix can compare streams).
+static uint64_t streamHash(uint32_t nonce)
+{
+    SetBanterBootNonce(nonce);
+    uint64_t h = 1469598103934665603ull;
+    for (int stream = 0; stream < 4; ++stream)
+    {
+        BanterState s;
+        InitBanterState(s, 1234u + stream * 17u, 77u + stream);
+        size_t n = 0; char const* const* pool = Pool(POOL_KILL, n);
+        for (int i = 0; i < 500; ++i)
+        {
+            BanterResult r = SelectLine(s, pool, n, 0, 0, 0, 0);
+            h = Fnv1a64(r.line, std::strlen(r.line), h);
+        }
+    }
+    SetBanterBootNonce(0);
+    return h;
+}
+
 // ------------------------------------------------------------ invariants ----
 static int RunInvariants()
 {
@@ -166,6 +187,68 @@ static int RunInvariants()
         // Printed for the pytest golden check; any deliberate change to the
         // selection algorithm or pools updates the pin in the same commit.
         std::printf("golden_fnv1a64=%016llx\n", (unsigned long long)h);
+    }
+
+    // C7 (plan v2.3): the boot nonce. The ZERO nonce is the host's
+    // deterministic baseline - the golden above must be unchanged with it
+    // (the world never sets 0 unless the LLMGreetMemory kill-switch is
+    // on, and then verbatim replay is the PROMISE). A nonzero nonce must
+    // produce a DIFFERENT stream for the same (bot, audience) pair, and
+    // two DIFFERENT nonces must differ from each other - the cross-
+    // restart verbatim-replay fix (R6) is only real if every boot draws
+    // a fresh sequence. Restores the zero nonce afterwards so later legs
+    // keep the deterministic baseline.
+    {
+        CHECK(BanterBootNonce() == 0, "host starts at the zero nonce");
+
+        uint64_t streamHash(uint32_t nonce);
+        uint64_t const base = streamHash(0);
+        uint64_t const n1 = streamHash(0xD1CEB00Cu);
+        uint64_t const n2 = streamHash(0x5EEDC0DEu);
+        CHECK(n1 != base, "a boot nonce changes the draw sequence");
+        CHECK(n1 != n2, "two boots never replay the same sequence");
+        // reset-and-repeat is itself deterministic (same nonce => same
+        // sequence - the world's restart drills stay reproducible)
+        CHECK(streamHash(0xD1CEB00Cu) == n1, "same nonce reproduces");
+
+        SetBanterBootNonce(0);
+        CHECK(BanterBootNonce() == 0, "nonce restore");
+    }
+
+    // C1 (plan v2.3): render-time first-meeting rewording.
+    {
+        CHECK(IsFirstMeetingRow("met Varleigh for the first time"),
+            "first-meeting shape detected");
+        CHECK(!IsFirstMeetingRow("met Varleigh once on the road"),
+            "rewored rows are not re-detected");
+        CHECK(!IsFirstMeetingRow("wants a wolf pelt"),
+            "unrelated rows pass through");
+        CHECK(!IsFirstMeetingRow(""), "empty is not a first meeting");
+        std::string const reworded =
+            RewordFirstMeetingRow("met Varleigh for the first time", 0);
+        CHECK(reworded == "met Varleigh once on the road back",
+            "seed 0 tail");
+        CHECK(RewordFirstMeetingRow("met Varleigh for the first time", 1)
+            == "met Varleigh before the seasons turned", "seed 1 tail");
+        CHECK(RewordFirstMeetingRow("met Varleigh for the first time", 2)
+            == "met Varleigh some quiet while ago", "seed 2 tail");
+        CHECK(RewordFirstMeetingRow("met Varleigh for the first time", 3)
+            == reworded, "rotation wraps");
+        // prefix stability + the 8-word law
+        CHECK(reworded.rfind("met ", 0) == 0, "prefix stable");
+        for (uint32_t seed = 0; seed < 3; ++seed)
+        {
+            std::string const out =
+                RewordFirstMeetingRow("met Varleigh for the first time", seed);
+            size_t words = 1;
+            for (char c : out)
+                if (c == ' ')
+                    ++words;
+            CHECK(words <= 8, "replacement is a <= 8 word clause");
+        }
+        // pass-through for non-shapes
+        CHECK(RewordFirstMeetingRow("knows the old songs", 0)
+            == "knows the old songs", "pass-through");
     }
 
     // ---- Phase-3 mood weather: stability, bounds, determinism

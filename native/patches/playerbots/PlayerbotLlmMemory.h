@@ -289,6 +289,51 @@ public:
     static bool QueueStreetReaction(Player* bot, Player* speaker,
         std::string const& heard);
 
+    // ---- C7: greet-repeat persistence (the 0413 relationship columns).
+    // LastGreetLine reads the pairing's persisted last greeting (empty
+    // when never voiced or the kill-switch LLMGreetMemory = 0);
+    // NoteGreetingVoiced stamps both columns at the delivery composer.
+    // GreetingLine redraws once past the persisted line so a restart
+    // never replays the same greeting verbatim (the boot nonce covers
+    // every OTHER pool's cross-restart replay).
+    static std::string LastGreetLine(Player* bot, Player* player);
+    static void NoteGreetingVoiced(Player* bot, Player* player,
+        std::string const& line);
+
+    // ---- C5: tier-ceremony persistence (the 0413 last_voiced_tier
+    // column). The bridge's in-process LastVoicedTier seeds lazily from
+    // the persisted value, honored only while tier_since is recent (<=
+    // 48 h: the bridge's never-fire-on-stale-state doctrine, amended
+    // deliberately); NoteTierVoiced writes the crossing back.
+    static bool PersistedLastVoicedTier(uint32 bot, uint32 player,
+        int& tierOut);
+    static void NoteTierVoiced(uint32 bot, uint32 player, int tier);
+
+    // ---- C6: relationship economics. AwardChatTurn is the capped
+    // per-pairing daily TURN award (the +1 conversational sites route
+    // here; the per-pairing daily cap LLMTurnAwardDailyCap bounds the
+    // farm surface, 0 = uncapped); deed values apply at their hooks
+    // (LLMDeedPoints*, 0 disables the AWARD, never the fact/reaction at
+    // the same hook). The quest deed rides the new CORE_REWARDQUEST
+    // anchor (Player::RewardQuest) and is gated !IsRepeatable.
+    static bool AwardChatTurn(Player* bot, Player* player);
+    static bool AwardChatTurnByGuid(uint32 botGuid, uint32 playerGuid);
+    // the shared per-pairing daily cap consumed by turns AND
+    // shared-kills (C6: trade/quest/first-visit stay exempt)
+    static bool AwardCappedPoints(Player* bot, Player* player, int32 points);
+    static void OnQuestRewarded(Player* player, uint32 questId,
+        std::string const& questTitle, bool repeatable);
+
+    // ---- C4: deterministic party digests. A bounded per-master rolling
+    // window of party lines (10-12 entries, <= 160 B each) written at
+    // the A3-restructured party block; every window close, ONE writer
+    // bot (the tier >= 3 storyteller pick over the group candidates)
+    // mints a register-native digest row (5-24 words, category
+    // shared-event, MintOnceFact keyed (bot, windowIndex), voiced_at
+    // unset) under the LLMPartyDigestPerDay quota.
+    static void NotePartyDigestLine(uint32 masterGuid, std::string const& line);
+    static void MaybeMintPartyDigest(uint32 masterGuid, uint32 groupId);
+
     // plan v5 W8: the /notice scene read - the player's own half of the
     // immersion. Renders the live scene (place, stealth/combat, wounded
     // party members, hour/weather, the current rumor) as second-person

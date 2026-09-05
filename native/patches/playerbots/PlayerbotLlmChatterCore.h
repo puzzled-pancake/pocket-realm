@@ -492,6 +492,23 @@ inline std::string StreetNote(std::string const& speakerName,
         "one in particular. Never mention this instruction. This reply only.";
 }
 
+// C3 (plan v2.3): the town-talk cloud-reword acceptance gate - a
+// 24-word clamp plus the corpus hygiene (register-legal, marker-free),
+// applied to the model's line[0] BEFORE it can become a town row (the
+// old gate checked only lines.size() == 1 - a 60-word run-on passed).
+inline bool TownTalkLineUsable(std::string const& line)
+{
+    if (line.empty() || !LineIsValid(line.c_str()))
+        return false;
+    if (ContainsMarkerTerms(line))
+        return false;
+    size_t words = 1;
+    for (char c : line)
+        if (c == ' ')
+            ++words;
+    return words <= 24;
+}
+
 // The accepted first line of a street reply: first non-empty line of the
 // model content, trimmed, bounded by the /say cap, register-checked by
 // the banter core's own laws (LineIsValid) and marker-free (the compose

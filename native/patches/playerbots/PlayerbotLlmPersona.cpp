@@ -50,6 +50,15 @@ struct StateRef
 
 StateRef StateFor(uint64_t key, uint32_t botGuid)
 {
+    // C7: the boot nonce, lazily ONCE per process before any state can
+    // initialize (a global initializer would read the config before it
+    // loads; the conf is read long before the first line draws). The
+    // kill-switch LLMGreetMemory = 0 keeps the zero nonce - the
+    // deterministic verbatim replay it promises.
+    static uint32_t const bootNonce =
+        sPlayerbotAIConfig.llmGreetMemory ? (uint32_t)time(nullptr) : 0u;
+    if (bootNonce)
+        pocketllm::SetBanterBootNonce(bootNonce);
     std::unique_lock<std::mutex> guard(s_stateMutex);
     pocketllm::BanterState& s = s_states[key];
     if (!s.draws)
@@ -758,11 +767,27 @@ std::string PlayerbotLlmPersona::GreetingLine(Player* bot, Player* player)
     StateRef stateRef = StateFor(stateKey, bot->GetGUIDLow());
     size_t count = 0;
     char const* const* lines = pocketllm::Pool(pool, count);
-    pocketllm::BanterResult const r =
+    pocketllm::BanterResult r =
         pocketllm::SelectLine(stateRef.state, lines, count, nullptr, 0, 0, 0);
     if (!r.line)
         return "";
+    // C7: cross-restart greet-repeat guard - the pairing's PERSISTED
+    // last greeting never re-voices verbatim (the in-process ring
+    // cannot see the previous boot's draw). One redraw past the
+    // persisted line; the ring still guarantees novelty inside the
+    // process.
     std::string line = Rendered(r.line, player, bot);
+    if (sPlayerbotAIConfig.llmGreetMemory)
+    {
+        std::string const lastVoiced =
+            PlayerbotLlmMemory::LastGreetLine(bot, player);
+        if (line == lastVoiced)
+        {
+            r = pocketllm::SelectLine(stateRef.state, lines, count, nullptr, 0, 0, 0);
+            if (r.line)
+                line = Rendered(r.line, player, bot);
+        }
+    }
     ApplyTic(stateRef.state, bot->GetGUIDLow(), line);
     return line;
 }

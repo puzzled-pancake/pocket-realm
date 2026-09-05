@@ -27,6 +27,7 @@
 #include <cstring>
 #include <deque>
 #include <string>
+#include <atomic>
 
 namespace pocketllm {
 
@@ -891,14 +892,99 @@ struct BanterState
     uint32_t draws;
 };
 
+// C7 (plan v2.3): the boot nonce - ONE store per process (the world's
+// StateFor chokepoint sets it from wall time before the first draw;
+// the host harness never sets it, so the golden fingerprint stays the
+// deterministic baseline). A nonzero nonce mixes into every
+// InitBanterState seed so two boots never replay the identical draw
+// sequence per (bot, pool) - R6's greet verbatim replay across
+// restarts. LLMGreetMemory = 0 leaves the zero nonce: the
+// kill-switch's verbatim-replay promise.
+namespace detail
+{
+inline std::atomic<uint32_t>& BootNonceSlot()
+{
+    static std::atomic<uint32_t> nonce(0);
+    return nonce;
+}
+}
+inline uint32_t BanterBootNonce()
+{
+    return detail::BootNonceSlot().load(std::memory_order_relaxed);
+}
+inline void SetBanterBootNonce(uint32_t v)
+{
+    detail::BootNonceSlot().store(v, std::memory_order_relaxed);
+}
+
 inline void InitBanterState(BanterState& s, uint32_t botGuid, uint32_t audienceKey)
 {
-    s.rng = botGuid * 0x9E3779B9u ^ audienceKey * 0x85EBCA6Bu ^ 0xA5A5A5A5u;
+    // C7: the boot-nonce term (zero on the host - the golden baseline;
+    // a fresh nonzero nonce per world process breaks the cross-restart
+    // verbatim replay)
+    s.rng = botGuid * 0x9E3779B9u ^ audienceKey * 0x85EBCA6Bu
+        ^ BanterBootNonce() * 0xC2B2AE35u ^ 0xA5A5A5A5u;
     if (!s.rng) s.rng = 0x1234567u;
     s.ringLen = s.ringPos = 0;
     s.cooldownUntilMs = s.lastWildcardMs = 0;
     s.draws = 0;
     SplitMix32(s.rng); SplitMix32(s.rng);
+}
+
+// C1 (plan v2.3): render-time first-meeting rewording. A pairing past
+// its first meeting must not read "met <name> for the first time"
+// forever (R5's stale-first-meeting prose). This rewrites
+// first-meeting-shaped rows at RENDER time - no schema write,
+// idempotent, reversible, reaches model-authored rows too, and keeps
+// created_at (tenure) intact. Replacements are corpus-shaped
+// (verb-initial past-tense clauses <= 8 words) and PREFIX-STABLE (the
+// "met " prefix the met-dedupe and tenure anchors read); the seed
+// rotates three phrasings so restart drills never read verbatim.
+inline bool IsFirstMeetingRow(std::string const& fact)
+{
+    return fact.size() > 24 &&
+        fact.rfind("met ", 0) == 0 &&
+        fact.find(" for the first time") != std::string::npos;
+}
+
+inline std::string RewordFirstMeetingRow(std::string const& fact, uint32_t seed)
+{
+    if (!IsFirstMeetingRow(fact))
+        return fact;
+    size_t const tail = fact.find(" for the first time");
+    std::string const who = fact.substr(4, tail - 4);
+    static char const* const kTails[3] = {
+        " once on the road back",      // 7 words with a one-word name
+        " before the seasons turned",  // 6
+        " some quiet while ago",       // 6
+    };
+    return "met " + who + kTails[seed % 3];
+}
+
+// C3 (plan v2.3): the town-talk clause shaper. The dossier row is minted
+// DE-FRAMED (a bare clause - the greeting rider and the murmur {E}
+// templates own the single frame; the old "The word on X: <fact>" row
+// double-framed at both consumers). The per-category template supplies
+// the grammatical SUBJECT (the player's name) so noun-phrase facts read
+// whole in any frame, and the name keeps GossipAbout's word-boundary
+// match working. Categories are the LogFact whitelist set; anything
+// else folds to the shared-event shape.
+inline std::string TownTalkClause(std::string const& category,
+    std::string const& playerName, std::string const& fact)
+{
+    // tone prefixes never reach a town row (the caller strips), but the
+    // shaper is total: strip defensively rather than trust every caller
+    std::string text = fact;
+    size_t const toneEnd = text.find(") ");
+    if (text.rfind("(tone", 0) == 0 && toneEnd != std::string::npos)
+        text = text.substr(toneEnd + 2);
+    if (text.empty() || playerName.empty())
+        return text;
+    if (category == "preference" || category == "opinion")
+        return playerName + " " + text;   // "Varleigh prefers a quiet road"
+    if (category == "player-identity")
+        return playerName + " " + text;   // "Varleigh knows the old road songs"
+    return text;                           // shared-event: verb-initial already
 }
 
 inline bool RingHas(BanterState const& s, uint16_t idx)

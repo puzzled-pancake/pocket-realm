@@ -926,6 +926,13 @@ PB_LLM_CONFIG_HEADER_ANDROID = """    ParsedUrl llmEndPointUrl;
     uint32 llmCloudStreetSayPct, llmStreetSayPerDay, llmRpgChatPerDay, llmBotToBotPerDay;
     uint32 llmCloudLineBudgetPerHour, llmCloudInteractivePerPlayerHour;
     uint32 llmDialogueFastLane;
+    // WS-C memory/economics (plan v2.3 C4/C6/C7/C8) - lane-blind engine
+    // knobs with safe defaults: the per-pairing daily turn-award cap +
+    // the deed-weighting flag, the four deed values, the party-digest
+    // quota, the greet-memory marker and the history-persistence switch
+    uint32 llmTurnAwardDailyCap, llmTurnAwardWeighting;
+    uint32 llmDeedPointsFirstVisit, llmDeedPointsTrade, llmDeedPointsSharedKill, llmDeedPointsQuest;
+    uint32 llmPartyDigestPerDay, llmGreetMemory, llmHistoryPersist;
 """
 PB_LLM_CONFIG_CPP_UPSTREAM = """    //LLM START
     llmEnabled = config.GetIntDefault("AiPlayerbot.LLMEnabled", 1);
@@ -1081,6 +1088,18 @@ PB_LLM_CONFIG_CPP_ANDROID = """    //LLM START
     llmCloudLineBudgetPerHour = (uint32)config.GetIntDefault("AiPlayerbot.LLMCloudLineBudgetPerHour", 90);
     llmCloudInteractivePerPlayerHour = (uint32)config.GetIntDefault("AiPlayerbot.LLMCloudInteractivePerPlayerHour", 240);
     llmDialogueFastLane = (uint32)config.GetIntDefault("AiPlayerbot.LLMDialogueFastLane", 1);
+    // WS-C keys (C4/C6/C7/C8): 0 disables the row's behavior (the
+    // opt-out convention). The deed keys disable only the AWARD - the
+    // facts/reactions at the same hooks continue (pinned).
+    llmTurnAwardDailyCap = (uint32)config.GetIntDefault("AiPlayerbot.LLMTurnAwardDailyCap", 20);
+    llmTurnAwardWeighting = (uint32)config.GetIntDefault("AiPlayerbot.LLMTurnAwardWeighting", 1);
+    llmDeedPointsFirstVisit = (uint32)config.GetIntDefault("AiPlayerbot.LLMDeedPointsFirstVisit", 5);
+    llmDeedPointsTrade = (uint32)config.GetIntDefault("AiPlayerbot.LLMDeedPointsTrade", 3);
+    llmDeedPointsSharedKill = (uint32)config.GetIntDefault("AiPlayerbot.LLMDeedPointsSharedKill", 2);
+    llmDeedPointsQuest = (uint32)config.GetIntDefault("AiPlayerbot.LLMDeedPointsQuest", 4);
+    llmPartyDigestPerDay = (uint32)config.GetIntDefault("AiPlayerbot.LLMPartyDigestPerDay", 6);
+    llmGreetMemory = (uint32)config.GetIntDefault("AiPlayerbot.LLMGreetMemory", 1);
+    llmHistoryPersist = (uint32)config.GetIntDefault("AiPlayerbot.LLMHistoryPersist", 1);
     {
         static char const* const kBlocks[] = {
             "voice-lock", "rule-autonomy", "rule-anti-omniscient",
@@ -1692,6 +1711,14 @@ PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBacken
     if (gateSpeaker && gateSpeaker->isRealPlayer() &&
         chatChannelSource == ChatChannelSource::SRC_PARTY)
     {
+        // C4: every real-master party line joins the digest window
+        // (bounded, per-master; the partyLineAt roundtable row is
+        // untouched); a full window mints ONE deterministic digest row
+        // by the storyteller pick under the LLMPartyDigestPerDay quota
+        PlayerbotLlmMemory::NotePartyDigestLine(gateSpeaker->GetGUIDLow(), msg);
+        if (Group* digestGroup = bot->GetGroup())
+            PlayerbotLlmMemory::MaybeMintPartyDigest(gateSpeaker->GetGUIDLow(),
+                digestGroup->GetId());
         if (addressedToBot)
             PlayerbotLlmChatter::NotePartyLine(gateSpeaker->GetGUIDLow(), msg);
         else
@@ -1851,7 +1878,7 @@ PB_SAY_RECORDER_ANDROID = """    std::vector<std::string> lines = PlayerbotLLMIn
     if (fallback.active && speakerGuid &&
         source == PlayerbotLlamaRuntime::LLM_SRC_CHAT_REPLY &&
         (busyReply || fallbackDelivered || !lines.empty()))
-        PlayerbotLlmMemory::AddRelationshipPointsByGuid(botGuid, speakerGuid, 1);
+        PlayerbotLlmMemory::AwardChatTurnByGuid(botGuid, speakerGuid);
 
     // E4 diagnostics: the counter's only in-tree read (the app-side
     // transport is the declared Workstream-A dependency; the debug path
@@ -2812,9 +2839,11 @@ PB_SAY_CONTEXT_ANDROID = """        std::string llmContext = AI_VALUE(std::strin
             // A4: the cloud turn's +1 moved into the worker's
             // single-delivery closure (exactly once per delivered
             // outcome); the device lane keeps the synchronous pre-award
-            // byte-identically
+            // byte-identically. C6: both lanes' turn award routes
+            // through the per-pairing daily cap (a scripted whisper
+            // farm tops out at LLMTurnAwardDailyCap; 0 = uncapped).
             if (!llmCloudTurn)
-                PlayerbotLlmMemory::AddRelationshipPoints(bot, player, 1);
+                PlayerbotLlmMemory::AwardChatTurn(bot, player);
         }
 
         if (player)
@@ -3267,6 +3296,25 @@ PB_LLM_CONF_ANDROID = """# Time in seconds the server will wait for the generati
 # AiPlayerbot.LLMCloudLineBudgetPerHour = 90
 # AiPlayerbot.LLMCloudInteractivePerPlayerHour = 240
 # AiPlayerbot.LLMDialogueFastLane = 1
+# WS-C memory & relationship economics. LLMTurnAwardDailyCap bounds the
+# conversational +1 awards per PAIRING per UTC day (turns and
+# shared-kills consume it; trade/quest/first-visit are exempt - already
+# scarce; 0 = uncapped). LLMTurnAwardWeighting = 1 uses the deed values
+# below, 0 flattens every award to +1. The LLMDeedPoints* keys disable
+# only the AWARD when 0 - the facts/reactions at the same hooks
+# continue. LLMPartyDigestPerDay bounds the deterministic party-digest
+# rows per UTC day. LLMGreetMemory = 0 restores the deterministic
+# verbatim greeting replay across restarts. LLMHistoryPersist = 0 keeps
+# conversation history process-local (restarts lose the tail).
+# AiPlayerbot.LLMTurnAwardDailyCap = 20
+# AiPlayerbot.LLMTurnAwardWeighting = 1
+# AiPlayerbot.LLMDeedPointsFirstVisit = 5
+# AiPlayerbot.LLMDeedPointsTrade = 3
+# AiPlayerbot.LLMDeedPointsSharedKill = 2
+# AiPlayerbot.LLMDeedPointsQuest = 4
+# AiPlayerbot.LLMPartyDigestPerDay = 6
+# AiPlayerbot.LLMGreetMemory = 1
+# AiPlayerbot.LLMHistoryPersist = 1
 """
 # G3 part 1: the SSL_CTX setup. Upstream only disabled SSLv2/v3; the
 # cloud lane gets a TLS 1.2 floor, real peer verification (a staged CA
@@ -3587,6 +3635,23 @@ CORE_EXPLORE_ANDROID = """#ifdef ENABLE_PLAYERBOTS
             PlayerbotLlmMemory::OnPlayerExploredArea(this, p->zone ? p->zone : p->ID);
 #endif
             uint32 area = p->ID;
+"""
+
+# plan v2.3 C6: the quest deed hook - the unique RewardQuest insertion
+# point (RemoveTimedQuest(quest_id) at the top of the reward path; the
+# second RemoveTimedQuest at :12754 is the abandon path, NOT a reward).
+# Anti-farm: OnQuestRewarded gates !IsRepeatable internally, so a
+# turn-in loop awards nothing past the first completion.
+CORE_REWARDQUEST_UPSTREAM = """    RemoveTimedQuest(quest_id);
+"""
+CORE_REWARDQUEST_ANDROID = """#ifdef ENABLE_PLAYERBOTS
+    // plan v2.3 C6: grouped bots award the quest deed + mint the
+    // shared errand fact (world thread; repeatable quests award and
+    // mint NOTHING - the farm surface is the turn-in loop)
+    PlayerbotLlmMemory::OnQuestRewarded(this, quest_id, pQuest->GetTitle(),
+        pQuest->IsRepeatable());
+#endif
+    RemoveTimedQuest(quest_id);
 """
 # the FindWeather DEFINITION lands after the WeatherSystem map member
 # (inline in the header keeps the driver out of Weather.cpp)
@@ -4443,6 +4508,7 @@ def prepare_cmangos_source() -> None:
     replace_anchor(cmangos / "src" / "game" / "Trade" / "TradeHandler.cpp", CORE_TRADE_UPSTREAM, CORE_TRADE_ANDROID)
     # plan v5 W3: first-visit facts at the explore-bit setter
     replace_anchor(cmangos / "src" / "game" / "Entities" / "Player.cpp", CORE_EXPLORE_UPSTREAM, CORE_EXPLORE_ANDROID)
+    replace_anchor(cmangos / "src" / "game" / "Entities" / "Player.cpp", CORE_REWARDQUEST_UPSTREAM, CORE_REWARDQUEST_ANDROID)
     # plan v5 W7a: read-only weather accessors
     replace_anchor(cmangos / "src" / "game" / "Weather" / "Weather.h", CORE_WEATHER_UPSTREAM, CORE_WEATHER_ANDROID)
     replace_anchor(cmangos / "src" / "game" / "Weather" / "Weather.h", CORE_WEATHERSYS_UPSTREAM, CORE_WEATHERSYS_ANDROID)
@@ -4577,6 +4643,11 @@ def restore_cmangos_source() -> None:
         NATIVE / "cmangos" / "src" / "game" / "Entities" / "Player.cpp",
         CORE_EXPLORE_ANDROID,
         CORE_EXPLORE_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "Entities" / "Player.cpp",
+        CORE_REWARDQUEST_ANDROID,
+        CORE_REWARDQUEST_UPSTREAM,
     )
     restore_anchor(
         NATIVE / "cmangos" / "src" / "game" / "Weather" / "Weather.h",

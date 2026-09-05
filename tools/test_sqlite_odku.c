@@ -24,12 +24,16 @@
 #include <string.h>
 
 static char const* ODKU_FOLDED =
-    "INSERT INTO `bot_player_relationship` (`bot`, `player`, `tier`, `points`, `last_interaction_at`) "
-    "VALUES ('%u', '%u', 'stranger', %d, NULL) "
+    "INSERT INTO `bot_player_relationship` (`bot`, `player`, `tier`, `points`, `last_interaction_at`, `tier_since`) "
+    "VALUES ('%u', '%u', 'stranger', %d, NULL, CURRENT_TIMESTAMP) "
     "ON CONFLICT(`bot`, `player`) DO UPDATE SET `points` = `points` + excluded.`points`, "
     "`tier` = CASE WHEN `points` + excluded.`points` >= 60 THEN 'trusted' "
     "WHEN `points` + excluded.`points` >= 30 THEN 'ally' "
     "WHEN `points` + excluded.`points` >= 10 THEN 'acquaintance' ELSE 'stranger' END, "
+    "`tier_since` = CASE WHEN `tier` <> (CASE WHEN `points` + excluded.`points` >= 60 THEN 'trusted' "
+    "WHEN `points` + excluded.`points` >= 30 THEN 'ally' "
+    "WHEN `points` + excluded.`points` >= 10 THEN 'acquaintance' ELSE 'stranger' END) "
+    "THEN CURRENT_TIMESTAMP ELSE `tier_since` END, "
     "`last_interaction_at` = CURRENT_TIMESTAMP";
 
 /* The mechanical rewrite (thresholds read the PRE-update points) - kept
@@ -110,7 +114,7 @@ int main(int argc, char** argv)
 
     CHECK(exec(db, "CREATE TABLE `bot_player_relationship` ("
               "`bot` INT NOT NULL, `player` INT NOT NULL, `tier` TEXT, `points` INT, "
-              "`last_interaction_at` DATETIME, PRIMARY KEY (`bot`, `player`));") == SQLITE_OK,
+              "`last_interaction_at` DATETIME, `tier_since` DATETIME, PRIMARY KEY (`bot`, `player`));") == SQLITE_OK,
           "relationship table");
 
     int pts;
@@ -151,6 +155,40 @@ int main(int argc, char** argv)
     scenario(db, ODKU_UNFOLDED, 110, 59, 1, &pts, tier, sizeof tier);
     CHECK(pts == 60 && strcmp(tier, "ally") == 0,
           "unfolded control lags: 59+1 -> points 60 but tier ally (WRONG by contract)");
+
+    /* C5 (plan v2.3): tier_since stamps ONLY on a crossing. SQLite's
+     * DO UPDATE reads PRE-update columns, so the CASE compares the
+     * post-increment tier expression against the row's OLD tier; a
+     * same-tier award must leave tier_since byte-identical while a
+     * crossing must advance it. */
+    {
+        /* seed a row with a KNOWN old tier_since, award without a
+         * crossing, verify unchanged; then cross and verify advanced */
+        CHECK(exec(db, "INSERT INTO `bot_player_relationship` (`bot`, `player`, `tier`, `points`, `tier_since`) "
+                  "VALUES (120, 1, 'acquaintance', 12, 1000);") == SQLITE_OK, "tier_since seed");
+        apply_points(db, ODKU_FOLDED, 120, 1, 1);
+        {
+            sqlite3_stmt* stmt = NULL;
+            CHECK(sqlite3_prepare_v2(db, "SELECT `tier_since` FROM `bot_player_relationship` WHERE `bot` = 120;", -1,
+                                     &stmt, NULL) == SQLITE_OK, "tier_since prepare");
+            CHECK(sqlite3_step(stmt) == SQLITE_ROW, "tier_since step");
+            CHECK(sqlite3_column_int64(stmt, 0) == 1000, "no crossing: tier_since unchanged (1000)");
+            sqlite3_finalize(stmt);
+        }
+        apply_points(db, ODKU_FOLDED, 120, 1, 18);  /* 13 + 18 = 31 -> ally */
+        {
+            sqlite3_stmt* stmt = NULL;
+            CHECK(sqlite3_prepare_v2(db, "SELECT `tier`, `tier_since` FROM `bot_player_relationship` WHERE `bot` = 120;", -1,
+                                     &stmt, NULL) == SQLITE_OK, "tier_since crossing prepare");
+            CHECK(sqlite3_step(stmt) == SQLITE_ROW, "tier_since crossing step");
+            CHECK(strcmp((char const*)sqlite3_column_text(stmt, 0), "ally") == 0, "crossing tier ally");
+            /* CURRENT_TIMESTAMP is a TEXT datetime: the crossing proves
+             * itself by REPLACING the seeded sentinel (1000) */
+            CHECK(strcmp((char const*)sqlite3_column_text(stmt, 1), "1000") != 0,
+                  "crossing advanced tier_since past the sentinel");
+            sqlite3_finalize(stmt);
+        }
+    }
 
     /* The epoch read path (the strftime('%s') runtime literal). */
     {

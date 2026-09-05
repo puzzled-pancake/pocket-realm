@@ -91,10 +91,14 @@ class TestWorkerFailureLeg:
 
     def test_closure_award_exactly_once(self):
         rec = android_anchor("PB_SAY_RECORDER_ANDROID")
-        m = re.search(r"if \(fallback\.active && speakerGuid &&.*?\)\s*\n\s*PlayerbotLlmMemory::AddRelationshipPointsByGuid\(botGuid, speakerGuid, 1\);", rec, re.S)
+        # C6: the closure award routes through the capped turn award
+        # (the per-pairing daily cap bounds the farm surface; the
+        # exactly-once-per-outcome fold itself is unchanged)
+        m = re.search(r"if \(fallback\.active && speakerGuid &&.*?\)\s*\n\s*PlayerbotLlmMemory::AwardChatTurnByGuid\(botGuid, speakerGuid\);", rec, re.S)
         assert m, "the closure award fold is missing"
         # exactly one award site in the worker
-        assert rec.count("AddRelationshipPointsByGuid") == 1
+        assert rec.count("AwardChatTurnByGuid") == 1
+        assert "AddRelationshipPointsByGuid(botGuid, speakerGuid" not in rec
 
     def test_busy_never_falls_back(self):
         # the busy placeholder substitutes BEFORE the fold; busyReply is
@@ -135,8 +139,10 @@ class TestInterceptorDemotion:
 
     def test_pre_award_moves_into_the_closure_cloud_side(self):
         ctx = android_anchor("PB_SAY_CONTEXT_ANDROID")
+        # C6: the device pre-award routes through the capped turn award
+        # (LLMTurnAwardDailyCap bounds it; 0 = uncapped legacy behavior)
         assert re.search(
-            r"if \(!llmCloudTurn\)\s*\n\s*PlayerbotLlmMemory::AddRelationshipPoints\(bot, player, 1\);", ctx)
+            r"if \(!llmCloudTurn\)\s*\n\s*PlayerbotLlmMemory::AwardChatTurn\(bot, player\);", ctx)
         # every cloud conversational turn activates the closure (FBK_NONE
         # plain turns included: the award closure applies without a
         # fallback line)

@@ -1074,3 +1074,77 @@ queue from the handoff, one commit.
   "street short-reaction FALLBACKS"); delivery of EITHER outcome rides
   the authored SAY EventReaction ("Delivery via an authored SAY
   EventReaction" — the vehicle, not the text source).
+
+## Batch B (continuation run): WS-C wiring C1/C3/C4/C5/C6/C7/C8
+
+**Outcome: complete, green, committed.** One commit; the 0413 columns
+all have writers/readers now.
+
+- **Keys**: nine new lane-blind engine keys (LLMTurnAwardDailyCap 20,
+  LLMTurnAwardWeighting 1, LLMDeedPointsFirstVisit/Trade/SharedKill/
+  Quest 5/3/2/4, LLMPartyDigestPerDay 6, LLMGreetMemory 1,
+  LLMHistoryPersist 1) — native members + GetIntDefault + conf.dist
+  operator docs. NO app emission (documented interpretation: §0.12's
+  conf-internal rationale; emitting them would perturb device-lane
+  emissions the byte-identity pins guard — logged for R5/R8).
+- **C8**: bot_player_history INSERT + trim inside the AppendTurn choke
+  point (fire-and-forget, per-key monotone seq, lazy hydration of the
+  persisted 32-row tail on first touch per pairing, LLMHistoryPersist
+  gates; SQLite dialect for the ts literal with %%s PExecute escaping).
+- **C7**: the boot nonce — injectable (BanterBootNonce/SetNonce in the
+  banter core, ONE atomic slot), mixed as `nonce * 0xC2B2AE35u` into
+  InitBanterState's seed; the world sets it lazily-once at Persona's
+  StateFor chokepoint from wall time; LLMGreetMemory=0 keeps the zero
+  nonce (the kill-switch's verbatim-replay promise). FNV golden: the
+  host baseline runs at nonce 0 so the committed pin is UNCHANGED —
+  equal-or-stronger via the new nonce matrix in the invariants leg
+  (nonzero nonce changes the stream; two nonces differ; same nonce
+  reproduces; zero-restore). GreetingLine redraws once past the
+  persisted last_greet_line (0413 column); NoteGreetingVoiced stamps
+  last_greeted_at + last_greet_line inside AuthoredArrivalGreeting (all
+  delivery sites land there).
+- **C1**: RewordFirstMeetingRow (pure, prefix-stable "met " + 3-line
+  rotation, ≤8 words, host-pinned) at BOTH render surfaces — the trained
+  facts segment (preStompTier-gated ≥ 2) and the journal
+  (GetTrainedTier ≥ 2). No schema write; created_at/tenure intact.
+- **C3**: MintWeeklyDossier — pick query widens to the 4-category
+  whitelist + excludes "party talk:%" digest rows; the row mints
+  DE-FRAMED via TownTalkClause (per-category subject templates; the
+  name keeps GossipAbout's word-boundary match alive); the cloud reword
+  drops the 7-day PairingAgeDays gate (weekly stamp still bounds
+  cadence) and gains TownTalkLineUsable (≤24 words, LineIsValid,
+  marker-free, in ChatterCore where ContainsMarkerTerms is visible) +
+  the must-name-the-player gate.
+- **C5**: tier_since written in BOTH ODKU dialects BEFORE the tier
+  assignment (crossing-only stamp; the sqlite ODKU fixture gained
+  same-tier-unchanged + crossing-advances assertions + the parity
+  fragment); the bridge seeds LastVoicedTier lazily from the persisted
+  column with the 48 h tier_since freshness gate (stale ⇒ silent seed,
+  the old behavior) and writes crossings back (NoteTierVoiced); the
+  prose rider is per-player coalesced ≤1/h (CeremonyRiderAt) while the
+  sys line + mood nudge stay per-crossing. Join-deed decision: a bare
+  join awards NOTHING (recorded default; the first group TURN awards
+  through the turn cap).
+- **C6**: AwardCappedPoints (per-pairing UTC-day cap, SentimentRate
+  keyed-map pattern) consumed by turns (both lanes' +1 sites route
+  through AwardChatTurn/AwardChatTurnByGuid) AND shared-kills; trade/
+  quest/first-visit exempt. Deed values at their hooks (weighting flag
+  =1 uses deed values, 0 flattens to +1; 0 on a deed key disables the
+  AWARD only — the fact at the hook continues, pinned). Quest deed =
+  NEW CORE_REWARDQUEST anchor pair at Player::RewardQuest
+  (RemoveTimedQuest(quest_id), unique; registered + restored),
+  !IsRepeatable-gated. Trade keeps the 60 s bounded-sentiment gate; the
+  deed delta sits outside the ±2 clamp.
+- **C4**: NotePartyDigestLine at the A3 party block (bounded 12×160 B
+  per-master window; partyLineAt untouched); MaybeMintPartyDigest on
+  window close — tier ≥ 3 storyteller pick via SelectResponder over
+  CollectPartyCandidates, register-native "party talk: ..." digest
+  (5-24 words, 3-template rotation), MintOnceFact keyed (writer,
+  windowIndex), CloudQuotaAdmits("party-digest") quota, voiced_at
+  unset.
+- **Pins**: NEW tests/test_llm_c_workstream.py (26); banter harness
+  nonce matrix + C1 reword matrix; sqlite ODKU fixture + parity
+  extended (tier_since); recall key pins extended (9 keys + conf.dist);
+  2 A4 award pins updated to the C6 capped routing (equal-or-stronger).
+  Suite: 8 failed (pre-existing), 540 passed. Lockfiles regenerated;
+  check_repo/check_sources OK; gradle green.

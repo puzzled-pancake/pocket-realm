@@ -267,6 +267,11 @@ struct RollingHistory
     // rotation (advances once per BuildTrainedChatRequest, so it
     // alternates even when the history window saturates)
     std::map<uint64, uint32> stateRotation;
+    // C8: the persistence lane - hydrated keys (the lazy DB load into
+    // the deque happened this process) and the per-key monotone seq the
+    // bot_player_history PK needs. Both guarded by `mutex`.
+    std::set<uint64> hydrated;
+    std::map<uint64, uint32> lastSeq;
 };
 
 RollingHistory& History()
@@ -280,15 +285,81 @@ uint64 HistoryKey(uint32 bot, uint32 playerOrChannel)
     return (static_cast<uint64>(bot) << 32) | playerOrChannel;
 }
 
+// C8: lazily load a pairing's persisted tail into the deque (once per
+// key per process). Called with `mutex` HELD; the sync read is
+// once-per-pairing so the lock hold is bounded.
+void HydrateHistoryIfNeeded(RollingHistory& history, uint32 bot,
+    uint32 playerOrChannel, std::deque<HistoryLine>& turns)
+{
+    uint64 const key = HistoryKey(bot, playerOrChannel);
+    if (history.hydrated.count(key))
+        return;
+    history.hydrated.insert(key);
+    if (!sPlayerbotAIConfig.llmHistoryPersist)
+        return;
+    auto result = CharacterDatabase.PQuery(
+        "SELECT `seq`, `speaker`, `line` FROM `bot_player_history` "
+        "WHERE `bot` = '%u' AND `player_or_channel` = '%u' "
+        "ORDER BY `seq` DESC LIMIT 32",
+        bot, playerOrChannel);
+    if (!result)
+        return;
+    std::vector<HistoryLine> loaded;
+    uint32 maxSeq = 0;
+    do
+    {
+        Field* fields = result->Fetch();
+        uint32 const seq = fields[0].GetUInt32();
+        if (seq > maxSeq)
+            maxSeq = seq;
+        loaded.push_back(HistoryLine(fields[1].GetString(), fields[2].GetString()));
+    } while (result->NextRow());
+    // fetched newest-first: prepend oldest-first ahead of whatever the
+    // process already holds (nothing, by construction - hydration runs
+    // on first touch)
+    for (auto itr = loaded.rbegin(); itr != loaded.rend(); ++itr)
+        turns.push_front(*itr);
+    history.lastSeq[key] = maxSeq;
+}
+
 void AppendHistoryTurn(uint32 bot, uint32 playerOrChannel,
     std::string const& speaker, std::string const& line)
 {
     RollingHistory& history = History();
     std::lock_guard<std::mutex> lock(history.mutex);
     std::deque<HistoryLine>& turns = history.turns[HistoryKey(bot, playerOrChannel)];
+    HydrateHistoryIfNeeded(history, bot, playerOrChannel, turns);
     // bounded per turn as well: unbounded lines could crowd out the
     // stable segments in the prompt budget below
     turns.push_back(HistoryLine(speaker, TruncUtf8(line, 240)));
+    // C8: the persistent tail rides the same choke point (LLMHistoryPersist,
+    // default on; 0 keeps history process-local exactly as before). The
+    // fire-and-forget INSERT never blocks the conversation; the seq is
+    // the per-key monotone the (bot, player_or_channel, seq) PK needs.
+    if (sPlayerbotAIConfig.llmHistoryPersist)
+    {
+        uint64 const key = HistoryKey(bot, playerOrChannel);
+        uint32 const seq = ++history.lastSeq[key];
+        CharacterDatabase.PExecute(
+#ifdef DO_SQLITE
+            // strftime('now') is UTC; MySQL's UNIX_TIMESTAMP reads the
+            // session tz - each engine is internally consistent with its
+            // own reads (the ts column is a display hint, never keyed)
+            "INSERT INTO `bot_player_history` (`bot`, `player_or_channel`, `seq`, `speaker`, `line`, `ts`) "
+            "VALUES ('%u', '%u', '%u', '%s', '%s', strftime('%%s','now'))",
+#else
+            "INSERT INTO `bot_player_history` (`bot`, `player_or_channel`, `seq`, `speaker`, `line`, `ts`) "
+            "VALUES ('%u', '%u', '%u', '%s', '%s', UNIX_TIMESTAMP())",
+#endif
+            bot, playerOrChannel, seq,
+            EscapeSql(TruncUtf8(speaker, 12)).c_str(),
+            EscapeSql(TruncUtf8(line, 240)).c_str());
+        // trim beyond the store cap + slack so the table stays bounded
+        if (seq > 40)
+            CharacterDatabase.PExecute(
+                "DELETE FROM `bot_player_history` WHERE `bot` = '%u' AND `player_or_channel` = '%u' AND `seq` <= '%u'",
+                bot, playerOrChannel, seq - 32);
+    }
     // tail-capped: only the oldest rolling turns ever drop, never the stable
     // prompt segments (which never live here). The storage cap must clear
     // the reader's largest window (BuildTrainedChatRequest): 32 on the
@@ -322,6 +393,29 @@ std::map<uint32, time_t>& VerifiedEvents()
 std::map<uint64, time_t>& SentimentRate()
 {
     static std::map<uint64, time_t> instance;
+    return instance;
+}
+
+// C6: the per-pairing daily TURN-award counters (keyed like
+// SentimentRate; day-bucketed UTC, process-local - a restart resets
+// them, the same documented reset semantics every quota carries)
+std::map<uint64, std::pair<time_t, uint32>>& TurnAwards()
+{
+    static std::map<uint64, std::pair<time_t, uint32>> instance;
+    return instance;
+}
+
+// C4: the per-master party-digest window (a bounded 12-line deque) and
+// the monotone window index that keys the MintOnceFact dedupe
+std::map<uint32, std::deque<std::string>>& PartyDigestWindow()
+{
+    static std::map<uint32, std::deque<std::string>> instance;
+    return instance;
+}
+
+std::map<uint32, uint32>& PartyDigestIndex()
+{
+    static std::map<uint32, uint32> instance;
     return instance;
 }
 
@@ -795,6 +889,8 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
             botGuid, player->GetGUIDLow(), factsCap);
         if (result)
         {
+            uint32 rewordSeed = 0;
+            bool const pastFirstMeeting = tier >= 2; // acquaintance+
             do
             {
                 std::string text = result->Fetch()[0].GetString();
@@ -804,6 +900,12 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
                 size_t const toneEnd = text.find(") ");
                 if (text.rfind("(tone", 0) == 0 && toneEnd != std::string::npos)
                     text = text.substr(toneEnd + 2);
+                // C1: render-time first-meeting rewording - a pairing
+                // past acquaintance never reads "met X for the first
+                // time" again (tier-gated so the ledger never
+                // contradicts Standing:; the write stays untouched)
+                if (pastFirstMeeting)
+                    text = pocketllm::RewordFirstMeetingRow(text, rewordSeed++);
                 facts.push_back(text);
             } while (result->NextRow());
             std::reverse(facts.begin(), facts.end());
@@ -1038,15 +1140,28 @@ void PlayerbotLlmMemory::AddRelationshipPoints(Player* bot, Player* player, int3
         // scale's fifth step (Bonded) derives from the point total on READ
         // (GetTrainedTier), so no migration is needed and the CHECK/enum
         // constraints can never reject a write.
-        "INSERT INTO `bot_player_relationship` (`bot`, `player`, `tier`, `points`, `last_interaction_at`) VALUES ('%u', '%u', 'stranger', %d, CURRENT_TIMESTAMP) "
+        // C5: tier_since stamps ONLY on a crossing - the CASE compares the
+        // POST-increment tier against the row's PRE-update tier (the seed
+        // column tier_since already exists; NULL = never crossed).
+        "INSERT INTO `bot_player_relationship` (`bot`, `player`, `tier`, `points`, `last_interaction_at`, `tier_since`) VALUES ('%u', '%u', 'stranger', %d, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) "
         "ON CONFLICT(`bot`, `player`) DO UPDATE SET `points` = `points` + excluded.`points`, "
         "`tier` = CASE WHEN `points` + excluded.`points` >= 60 THEN 'trusted' "
         "WHEN `points` + excluded.`points` >= 30 THEN 'ally' "
         "WHEN `points` + excluded.`points` >= 10 THEN 'acquaintance' ELSE 'stranger' END, "
+        "`tier_since` = CASE WHEN `tier` <> (CASE WHEN `points` + excluded.`points` >= 60 THEN 'trusted' "
+        "WHEN `points` + excluded.`points` >= 30 THEN 'ally' "
+        "WHEN `points` + excluded.`points` >= 10 THEN 'acquaintance' ELSE 'stranger' END) "
+        "THEN CURRENT_TIMESTAMP ELSE `tier_since` END, "
         "`last_interaction_at` = CURRENT_TIMESTAMP",
 #else
-        "INSERT INTO `bot_player_relationship` (`bot`, `player`, `tier`, `points`, `last_interaction_at`) VALUES ('%u', '%u', 'stranger', '%d', CURRENT_TIMESTAMP) "
-        "ON DUPLICATE KEY UPDATE `points` = `points` + '%d', `tier` = IF(`points` >= 60, 'trusted', "
+        // C5: the tier_since assignment PRECEDES the tier assignment -
+        // MySQL assigns left-to-right, so the IF compares the NEW tier
+        // expression against the row's still-OLD tier column and stamps
+        // only on a real crossing (pinned by the sqlite ODKU fixture).
+        "INSERT INTO `bot_player_relationship` (`bot`, `player`, `tier`, `points`, `last_interaction_at`, `tier_since`) VALUES ('%u', '%u', 'stranger', '%d', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) "
+        "ON DUPLICATE KEY UPDATE `points` = `points` + '%d', "
+        "`tier_since` = IF(IF(`points` >= 60, 'trusted', IF(`points` >= 30, 'ally', IF(`points` >= 10, 'acquaintance', 'stranger'))) <> `tier`, CURRENT_TIMESTAMP, `tier_since`), "
+        "`tier` = IF(`points` >= 60, 'trusted', "
         "IF(`points` >= 30, 'ally', IF(`points` >= 10, 'acquaintance', 'stranger'))), "
         "`last_interaction_at` = CURRENT_TIMESTAMP",
 #endif
@@ -1317,6 +1432,11 @@ std::vector<std::string> PlayerbotLlmMemory::GetJournal(Player* bot, Player* pla
         size_t const toneEnd = text.find(") ");
         if (text.rfind("(tone", 0) == 0 && toneEnd != std::string::npos)
             text = text.substr(toneEnd + 2);
+        // C1: the journal renders the same reworded shape the prompt
+        // sees (tier-gated: a stranger's journal still reads the first
+        // meeting for what it was)
+        if (GetTrainedTier(bot, player) >= 2)
+            text = pocketllm::RewordFirstMeetingRow(text, (uint32)lines.size());
         std::ostringstream line;
         line << label << ": " << text;
         lines.push_back(line.str());
@@ -1885,6 +2005,14 @@ void PlayerbotLlmMemory::OnTradeCompleted(Player* accepter, Player* initiator)
     // positive) - the W4 refusal lifts with it
     AddBoundedSentimentInput(bot->GetGUIDLow(), real->GetGUIDLow(), 1,
         std::string("traded fairly with ") + bot->GetName());
+    // C6: the trade deed - the bounded tone row above reuses the 60 s
+    // SentimentRate admission (the anti-farm gate for N trades in a
+    // minute); the deed delta itself is EXEMPT from the +-2 clamp by
+    // living here, outside AddBoundedSentimentInput, and never consumes
+    // the per-pairing daily cap (trades are already scarce)
+    if (uint32 const deed = sPlayerbotAIConfig.llmDeedPointsTrade)
+        AddRelationshipPoints(bot, real,
+            sPlayerbotAIConfig.llmTurnAwardWeighting ? (int32)deed : 1);
 
     // debt settlement: money TO the bot retires the newest unresolved
     // debt row (the reminder engine reads by class, so the row must go,
@@ -1980,6 +2108,12 @@ void PlayerbotLlmMemory::OnPlayerExploredArea(Player* player, uint32 zoneOrAreaI
             std::string("traveled with ") + player->GetName() + " to " + zoneName;
         if (HasSharedFactPrefix(bot->GetGUIDLow(), player->GetGUIDLow(), prefix))
             continue;
+        // C6: the first-visit deed rides the explore bit (naturally
+        // once per zone per pairing); 0 disables the AWARD, the fact at
+        // this hook continues
+        if (uint32 const deed = sPlayerbotAIConfig.llmDeedPointsFirstVisit)
+            AddRelationshipPoints(bot, player,
+                sPlayerbotAIConfig.llmTurnAwardWeighting ? (int32)deed : 1);
         LogFact(bot->GetGUIDLow(), player->GetGUIDLow(),
             prefix + " for the first time", "shared-event");
     }
@@ -2117,6 +2251,11 @@ std::string PlayerbotLlmMemory::AuthoredArrivalGreeting(Player* bot, Player* pla
     std::string line = PlayerbotLlmPersona::GreetingLine(bot, player);
     if (line.empty())
         return "";
+    // C7: the delivered greeting persists to the relationship row so
+    // the next boot's GreetingLine redraws past it (cross-restart
+    // verbatim replay); the marker rides the composer - every delivery
+    // site (interceptor, fallback, initiative arrival) lands here
+    NoteGreetingVoiced(bot, player, line);
     // The absence beat carries MAGNITUDE, never a passive line
     std::string const magnitude = pocketllm::AbsenceMagnitudeLine(absenceBucket);
     if (!magnitude.empty())
@@ -2446,6 +2585,237 @@ bool PlayerbotLlmMemory::QueueStreetReaction(Player* bot, Player* speaker,
     // only queues the emote when this returns false
     std::thread(RunStreetReaction, job).detach();
     return true;
+}
+
+std::string PlayerbotLlmMemory::LastGreetLine(Player* bot, Player* player)
+{
+    if (!bot || !player || !sPlayerbotAIConfig.llmGreetMemory)
+        return "";
+    auto result = CharacterDatabase.PQuery(
+        "SELECT `last_greet_line` FROM `bot_player_relationship` "
+        "WHERE `bot` = '%u' AND `player` = '%u'",
+        bot->GetGUIDLow(), player->GetGUIDLow());
+    if (!result)
+        return "";
+    // rows without the column value mean "never voiced" (the 0413
+    // no-backfill law) - an empty string, never a NULL deref
+    return result->Fetch()[0].GetString();
+}
+
+void PlayerbotLlmMemory::NoteGreetingVoiced(Player* bot, Player* player,
+    std::string const& line)
+{
+    if (!bot || !player || line.empty() || !sPlayerbotAIConfig.llmGreetMemory)
+        return;
+    CharacterDatabase.PExecute(
+        "UPDATE `bot_player_relationship` SET `last_greeted_at` = CURRENT_TIMESTAMP, "
+        "`last_greet_line` = '%s' WHERE `bot` = '%u' AND `player` = '%u'",
+        EscapeSql(TruncUtf8(line, 250)).c_str(), bot->GetGUIDLow(), player->GetGUIDLow());
+}
+
+void PlayerbotLlmMemory::NoteTierVoiced(uint32 bot, uint32 player, int tier)
+{
+    if (!bot || !player || tier <= 0)
+        return;
+    CharacterDatabase.PExecute(
+        "UPDATE `bot_player_relationship` SET `last_voiced_tier` = '%u' "
+        "WHERE `bot` = '%u' AND `player` = '%u'",
+        (uint32)tier, bot, player);
+}
+
+bool PlayerbotLlmMemory::PersistedLastVoicedTier(uint32 bot, uint32 player,
+    int& tierOut)
+{
+    // the 0413 column, honored only while the tier is FRESH (tier_since
+    // within 48 h) - the bridge's never-fire-on-stale-state doctrine,
+    // amended deliberately by C5: a persisted ceremony re-arms only the
+    // crossing that still reads as recent history
+    tierOut = -1;
+    auto result = CharacterDatabase.PQuery(
+#ifdef DO_SQLITE
+        "SELECT `last_voiced_tier`, strftime('%%s', `tier_since`) FROM `bot_player_relationship` "
+        "WHERE `bot` = '%u' AND `player` = '%u'",
+#else
+        "SELECT `last_voiced_tier`, UNIX_TIMESTAMP(`tier_since`) FROM `bot_player_relationship` "
+        "WHERE `bot` = '%u' AND `player` = '%u'",
+#endif
+        bot, player);
+    if (!result)
+        return false;
+    Field* fields = result->Fetch();
+    if (fields[0].IsNULL())
+        return false;
+    int const persisted = (int)fields[0].GetUInt32();
+    time_t since = 0;
+    if (!fields[1].IsNULL())
+        since = static_cast<time_t>(fields[1].GetUInt64());
+    if (!since || time(nullptr) - since > 48 * 3600)
+        return false; // stale: the map stays process-local for this pairing
+    tierOut = persisted;
+    return true;
+}
+
+bool PlayerbotLlmMemory::AwardCappedPoints(Player* bot, Player* player, int32 points)
+{
+    if (!bot || !player)
+        return false;
+    // the per-pairing daily cap (the SentimentRate keyed-map pattern -
+    // NOT the realm-global CloudQuotaAdmits) consumed by TURNS and
+    // SHARED-KILLS: a scripted whisper farm or an elite-grind loop tops
+    // out at LLMTurnAwardDailyCap points per pairing per UTC day.
+    // 0 = uncapped (the kill-switch row). Trade/quest/first-visit stay
+    // exempt (already scarce: rate-limited, non-repeatable, once-ever).
+    uint32 const cap = sPlayerbotAIConfig.llmTurnAwardDailyCap;
+    if (cap)
+    {
+        uint64 const key = (static_cast<uint64>(bot->GetGUIDLow()) << 32) | player->GetGUIDLow();
+        time_t const today = time(nullptr) / 86400;
+        std::lock_guard<std::mutex> lock(StateMutex());
+        std::map<uint64, std::pair<time_t, uint32>>& awards = TurnAwards();
+        auto itr = awards.find(key);
+        if (itr == awards.end() || itr->second.first != today)
+            awards[key] = {today, 0};
+        if (awards[key].second >= cap)
+            return false;
+        awards[key].second += 1;
+    }
+    AddRelationshipPoints(bot, player, points);
+    return true;
+}
+
+bool PlayerbotLlmMemory::AwardChatTurn(Player* bot, Player* player)
+{
+    return AwardCappedPoints(bot, player, 1);
+}
+
+bool PlayerbotLlmMemory::AwardChatTurnByGuid(uint32 botGuid, uint32 playerGuid)
+{
+    // the A4 closure's guid form: re-resolve, then the same capped path
+    if (!playerGuid)
+        return false;
+    Player* bot = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, botGuid));
+    Player* player = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, playerGuid));
+    if (!bot || !player)
+        return false;
+    return AwardChatTurn(bot, player);
+}
+
+void PlayerbotLlmMemory::OnQuestRewarded(Player* player, uint32 questId,
+    std::string const& questTitle, bool repeatable)
+{
+    // the CORE_REWARDQUEST anchor's single leg: grouped bots award the
+    // quest deed + mint the fact. Anti-farm law: a repeatable quest
+    // awards NOTHING and mints nothing (the farm surface is the turn-in
+    // loop, not the first completion); 0 on the deed key disables the
+    // AWARD while the fact at this hook continues.
+    if (!player || player->GetPlayerbotAI() || !player->isRealPlayer())
+        return;
+    if (!sPlayerbotAIConfig.llmEnabled)
+        return;
+    if (repeatable)
+        return;
+    Group* group = player->GetGroup();
+    if (!group)
+        return;
+    std::string const title = questTitle.empty()
+        ? std::string("an unnamed errand") : questTitle;
+    for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
+    {
+        Player* member = itr->getSource();
+        if (!member || member == player || !member->GetPlayerbotAI())
+            continue;
+        LogFact(member->GetGUIDLow(), player->GetGUIDLow(),
+            std::string("finished the errand '") + title +
+                "' alongside " + player->GetName(), "shared-event");
+        uint32 const deed = sPlayerbotAIConfig.llmDeedPointsQuest;
+        if (deed)
+            AddRelationshipPoints(member, player,
+                sPlayerbotAIConfig.llmTurnAwardWeighting ? (int32)deed : 1);
+    }
+    (void)questId;
+}
+
+void PlayerbotLlmMemory::NotePartyDigestLine(uint32 masterGuid, std::string const& line)
+{
+    // the C4 window: a bounded per-master rolling deque (12 entries,
+    // 160 B each) written at the A3-restructured party block. The
+    // EXISTING partyLineAt single-slot roundtable row is untouched.
+    if (!masterGuid || line.empty())
+        return;
+    std::lock_guard<std::mutex> lock(StateMutex());
+    std::deque<std::string>& window = PartyDigestWindow()[masterGuid];
+    window.push_back(TruncUtf8(line, 160));
+    while (window.size() > 12)
+        window.pop_front();
+}
+
+void PlayerbotLlmMemory::MaybeMintPartyDigest(uint32 masterGuid, uint32 groupId)
+{
+    // every window close (a full 12-line deque), ONE writer mints the
+    // digest: the tier >= 3 storyteller pick over the group candidates
+    // (SelectResponder - the same deterministic pick the A3 responder
+    // uses), a register-native 5-24 word clause (verb-initial, the
+    // fact corpus law), MintOnceFact keyed (bot, windowIndex) under
+    // the LLMPartyDigestPerDay quota. voiced_at stays unset (only a
+    // SURFACE may stamp it - the C2 law).
+    if (!masterGuid || !groupId || !sPlayerbotAIConfig.llmEnabled)
+        return;
+    std::vector<std::string> window;
+    uint32 windowIndex = 0;
+    {
+        std::lock_guard<std::mutex> lock(StateMutex());
+        std::deque<std::string>& deque = PartyDigestWindow()[masterGuid];
+        if (deque.size() < 12)
+            return;
+        window.assign(deque.begin(), deque.end());
+        deque.clear();
+        windowIndex = ++PartyDigestIndex()[masterGuid];
+    }
+    if (!CloudQuotaAdmits("party-digest", sPlayerbotAIConfig.llmPartyDigestPerDay))
+        return; // the window still closed; the quota only bounds the rows
+
+    std::vector<PlayerbotLlmGates::ResponderCandidate> candidates;
+    if (!CollectPartyCandidates(groupId, masterGuid, candidates))
+        return;
+    // the storyteller is the deterministic pick among tier >= 3 members
+    std::vector<PlayerbotLlmGates::ResponderCandidate> storytellers;
+    for (auto const& c : candidates)
+        if (c.tier >= 3)
+            storytellers.push_back(c);
+    if (storytellers.empty())
+        return;
+    uint32 const writer = PlayerbotLlmGates::SelectResponder(storytellers);
+    if (!writer)
+        return;
+
+    // the topic: the window's longest line trimmed to six words (a
+    // clause anchor, not a quote - the digest is a remembered beat)
+    std::string topic;
+    for (std::string const& line : window)
+        if (line.size() > topic.size())
+            topic = line;
+    size_t words = 0, cut = 0;
+    for (size_t i = 0; i < topic.size() && words < 6; ++i)
+        if (topic[i] == ' ')
+        {
+            ++words;
+            cut = i;
+        }
+    if (words >= 6 && cut)
+        topic.resize(cut);
+
+    static char const* const kDigest[3] = {
+        "argued through a long march with the party, mostly over ",
+        "marched with the party while they argued over ",
+        "shared the road with the party, arguing over ",
+    };
+    std::ostringstream digest;
+    digest << "party talk: " << kDigest[windowIndex % 3] << topic;
+    // MintOnceFact keyed (bot, windowIndex): a closed window mints at
+    // most once ever, even across process restarts within the day
+    MintOnceFact(writer, masterGuid,
+        (static_cast<uint64>(writer) << 32) ^ (0xD16E57u * (windowIndex + 1)),
+        86400, digest.str(), "shared-event");
 }
 
 void PlayerbotLlmMemory::TickInitiative(Player* bot)
@@ -2790,6 +3160,13 @@ void PlayerbotLlmMemory::OnPlayerGroupKill(Player* tapper, Unit* victim)
                     if (!HasSharedFactPrefix(member->GetGUIDLow(), tapper->GetGUIDLow(), prefix))
                         LogFact(member->GetGUIDLow(), tapper->GetGUIDLow(),
                             prefix + " in " + zone, "shared-event");
+                    // C6: the shared-kill deed CONSUMES the per-pairing
+                    // daily cap (an elite-grind loop is the same farm
+                    // surface as a whisper farm); 0 disables the award,
+                    // the witnessed fact and the town row continue
+                    if (uint32 const deed = sPlayerbotAIConfig.llmDeedPointsSharedKill)
+                        AwardCappedPoints(member, tapper,
+                            sPlayerbotAIConfig.llmTurnAwardWeighting ? (int32)deed : 1);
                     if (!townRowMinted)
                     {
                         ShareGossip(member->GetGUIDLow(),
@@ -3397,15 +3774,24 @@ void PlayerbotLlmMemory::MintWeeklyDossier(Player* player)
     // gossip slice carries it into every bot's prompt)
     uint32 dossierBot = 0;
     std::string topFact;
+    std::string topCategory = "shared-event";
     {
+        // C3: the pick widens beyond shared-event to the full LogFact
+        // whitelist; the per-category template supplies the subject.
+        // C4 coordination: party-digest rows ("party talk: ...") are
+        // EXCLUDED so a chatty group cannot crowd the weekly dossier.
         auto result = CharacterDatabase.PQuery(
-            "SELECT `bot`, `fact_text` FROM `bot_player_facts` WHERE `player` = '%u' "
-            "AND `category` = 'shared-event' ORDER BY `id` DESC LIMIT 1",
+            "SELECT `bot`, `fact_text`, `category` FROM `bot_player_facts` WHERE `player` = '%u' "
+            "AND `category` IN ('shared-event', 'preference', 'opinion', 'player-identity') "
+            "AND `fact_text` NOT LIKE 'party talk:%%' "
+            "ORDER BY `id` DESC LIMIT 1",
             player->GetGUIDLow());
         if (result)
         {
-            dossierBot = result->Fetch()[0].GetUInt32();
-            std::string text = result->Fetch()[1].GetString();
+            Field* row = result->Fetch();
+            dossierBot = row[0].GetUInt32();
+            std::string text = row[1].GetString();
+            topCategory = row[2].GetString();
             size_t const toneEnd = text.find(") ");
             if (text.rfind("(tone", 0) == 0 && toneEnd != std::string::npos)
                 text = text.substr(toneEnd + 2);
@@ -3419,21 +3805,28 @@ void PlayerbotLlmMemory::MintWeeklyDossier(Player* player)
         LastDossierAt()[player->GetGUIDLow()] = now;
     }
 
-    // the deterministic row: "the word on X" from the newest remembered
-    // truth (this is the LOCAL half and the cloud fallback in one). The
-    // lambda is copied into a detached thread - value captures ONLY
+    // C3: the row mints DE-FRAMED - a bare town-talk clause. The
+    // per-category template supplies the grammatical subject (the
+    // player's name: noun-phrase facts read whole in any frame, and the
+    // name keeps GossipAbout's word-boundary match working). The
+    // greeting rider and the murmur {E} templates own the single frame
+    // - the old "The word on X: <fact>" row double-framed at both.
+    // This lambda is copied into a detached thread - value captures ONLY
     std::string const dossierName = player->GetName();
-    auto mintDeterministic = [dossierBot, dossierName, topFact]()
+    std::string const dossierClause =
+        pocketllm::TownTalkClause(topCategory, dossierName, topFact);
+    auto mintDeterministic = [dossierBot, dossierClause]()
     {
-        ShareGossip(dossierBot,
-            "The word on " + dossierName + ": " + topFact, "dossier");
+        ShareGossip(dossierBot, dossierClause, "dossier");
     };
 
     // the cloud half upgrades the wording once per week on the external
     // tier (one capped call; ANY failure falls back to the deterministic
-    // row - fail-closed on wording, never on the row itself)
+    // row - fail-closed on wording, never on the row itself). C3 drops
+    // the 7-day pairing-age gate: the day-one reword is wanted (the
+    // weekly STAMP still bounds the cadence - one dossier per player
+    // per 7 days regardless of lane)
     if (!ExternalApiTierActive() ||
-        PairingAgeDays(dossierBot, player->GetGUIDLow()) < 7 || // nothing cloud fires uninvited at a first login
         !CloudQuotaAdmits("dossier", sPlayerbotAIConfig.llmDossierPerDay))
     {
         mintDeterministic();
@@ -3474,10 +3867,15 @@ void PlayerbotLlmMemory::MintWeeklyDossier(Player* player)
             {
                 std::vector<std::string> const lines =
                     pocketllm::SplitNarratorBlock(envelope.content);
-                if (lines.size() == 1)
+                // C3: the clamp + hygiene gate BEFORE the row exists -
+                // a 60-word run-on or marker-bearing line never becomes
+                // town talk (the old gate was only lines.size() == 1),
+                // and the row must CARRY the player's name on a word
+                // boundary - GossipAbout's match is the row's lifeblood
+                if (lines.size() == 1 && pocketllm::TownTalkLineUsable(lines[0]) &&
+                    pocketllm::ContainsWordExact(lines[0], playerName))
                 {
-                    ShareGossip(dossierBot,
-                        "The word on " + playerName + ": " + lines[0], "dossier");
+                    ShareGossip(dossierBot, lines[0], "dossier");
                     return;
                 }
             }
