@@ -35,7 +35,7 @@ LOCKFILE = ROOT / "schemas" / "realm-runtime-lockfile.json"
 CONNECTOR_URL = "https://github.com/MariaDB/mariadb-connector-c.git"
 CONNECTOR_COMMIT = "de6305915f86bb33c83b1fe782a2b8a76920aec1"
 CMANGOS_COMMIT = "082afd606f8e37ea939df6fdfcd4af81f8085e6e"
-PLAYERBOTS_COMMIT = "3b77c5f423a6139d69930bcee9643af7f198df1e"
+PLAYERBOTS_COMMIT = "89a5b3722a7dc33804996fffb91fcbd12f5a5001"
 MAX_PAGE = 0x4000
 BACKEND = "mysql"
 
@@ -905,6 +905,13 @@ PB_LLM_CONFIG_HEADER_ANDROID = """    ParsedUrl llmEndPointUrl;
     uint32 llmRoundtablePerDay, llmDossierEnabled, llmDossierPerDay;
     // C4 drama set-piece switch + the W5 curiosity switch (plan 5.4 keys)
     uint32 llmDramaEnabled, llmCuriosityEnabled;
+    // G3 TLS lane: peer-verification switch (default ON; 0 restores the
+    // pre-G3 unverified handshake for self-signed LAN endpoints) and the
+    // app-staged CA bundle path (empty = the Android system store
+    // fallback; bare SSL_VERIFY_PEER without any store fails every
+    // handshake on Android - no /etc/ssl/certs exists for native code)
+    uint32 llmTlsVerify;
+    std::string llmTlsCaFile;
 """
 PB_LLM_CONFIG_CPP_UPSTREAM = """    //LLM START
     llmEnabled = config.GetIntDefault("AiPlayerbot.LLMEnabled", 1);
@@ -1040,6 +1047,13 @@ PB_LLM_CONFIG_CPP_ANDROID = """    //LLM START
     llmDossierPerDay = (uint32)config.GetIntDefault("AiPlayerbot.LLMDossierPerDay", 1);
     llmDramaEnabled = (uint32)config.GetIntDefault("AiPlayerbot.LLMDramaEnabled", 1);
     llmCuriosityEnabled = (uint32)config.GetIntDefault("AiPlayerbot.LLMCuriosityEnabled", 1);
+    // G3: TLS verification for the external HTTPS endpoint. Default 1
+    // (verify + TLS 1.2 floor + hostname pin); 0 is the documented
+    // kill-switch restoring the unverified handshake for self-signed
+    // LAN endpoints. The CA file is the app-staged Mozilla bundle; an
+    // empty value falls back to the system hashed-dir store.
+    llmTlsVerify = (uint32)config.GetIntDefault("AiPlayerbot.LLMTLSVerify", 1);
+    llmTlsCaFile = config.GetStringDefault("AiPlayerbot.LLMTLSCaFile", "");
     {
         static char const* const kBlocks[] = {
             "voice-lock", "rule-autonomy", "rule-anti-omniscient",
@@ -1096,7 +1110,7 @@ public:
     // branch, A0) and tool-queue tagging; speakerGuid is the real player
     // whose turn triggered the generation (0 on autonomous turns) so queued
     // persistence tools attribute to the interlocutor, never the owner.
-    static std::string Generate(const std::string& prompt, uint32 botGuid, uint32 speakerGuid, PlayerbotLlamaRuntime::LlmCallSource source, uint64_t licenseStamp, int timeOutSeconds, int maxGenerations, std::vector<std::string>& debugLines);
+    static std::string Generate(const std::string& prompt, uint32 botGuid, uint32 speakerGuid, PlayerbotLlamaRuntime::LlmCallSource source, uint64_t licenseStamp, int timeOutSeconds, int maxGenerations, std::vector<std::string>& debugLines, uint64_t reqId = 0);
 
     // Ambient admission surfaces, shared with PlayerbotLlmChatter:
     // GovernorAdmit is the SAME duty-cycle check+consume Generate runs
@@ -1117,7 +1131,7 @@ private:
     // S10: endpoint/key overrides let the cloud-composer path POST to its
     // own endpoint through the same hardened client (null = the conf
     // endpoint, exactly the pre-S10 behavior)
-    static std::string GenerateHttp(const std::string& prompt, int timeOutSeconds, int maxGenerations, std::vector<std::string>& debugLines, ParsedUrl const* endpointOverride = nullptr, std::string const* apiKeyOverride = nullptr);
+    static std::string GenerateHttp(const std::string& prompt, int timeOutSeconds, int maxGenerations, std::vector<std::string>& debugLines, ParsedUrl const* endpointOverride = nullptr, std::string const* apiKeyOverride = nullptr, uint64_t reqId = 0);
     // S7/A12: the voice-filter chain (leak/era regeneration, hygiene,
     // dedupe reroll) - private static so it can drive GenerateHttp
     static std::string PocketLlmVoiceFilter(const std::string& raw, uint32 botGuid, uint32 speakerGuid, PlayerbotLlamaRuntime::LlmCallSource source, uint64_t licenseStamp, const std::string& body, int timeOutSeconds, int maxGenerations, std::vector<std::string>& debugLines, int& generationState, bool firstTruncated);
@@ -1303,7 +1317,24 @@ bool PlayerbotLLMInterface::InteractiveGenerationInFlight()
     return sPlayerbotLLMInterface.generationCount.load() > 0;
 }
 
-std::string PlayerbotLLMInterface::Generate(const std::string& prompt, uint32 botGuid, uint32 speakerGuid, PlayerbotLlamaRuntime::LlmCallSource source, uint64_t licenseStamp, int timeOutSeconds, int maxGenerations, std::vector<std::string> & debugLines) {
+std::string PlayerbotLLMInterface::Generate(const std::string& prompt, uint32 botGuid, uint32 speakerGuid, PlayerbotLlamaRuntime::LlmCallSource source, uint64_t licenseStamp, int timeOutSeconds, int maxGenerations, std::vector<std::string> & debugLines, uint64_t reqId) {
+    // A8 observability: one id per turn (the dispatch site pre-mints on
+    // the world thread; direct callers mint here), one begin line after
+    // the governor admits, exactly one end line classed by outcome.
+    // Duration from steady_clock - the log timestamps are second-
+    // resolution. No prompt or reply bytes ever ride these lines.
+    if (!reqId)
+        reqId = pocketllm::NextReqId();
+    pocketllm::NoteGenClass("");
+    std::chrono::steady_clock::time_point const t0 = std::chrono::steady_clock::now();
+    char const* const lane = sPlayerbotAIConfig.llmBackend == PlayerbotAIConfig::LLM_BACKEND_LLAMA ? "device" : "cloud";
+    auto logEnd = [&](char const* cls)
+    {
+        unsigned long const durMs = (unsigned long)std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - t0).count();
+        sLog.outBasic("BotLLM: gen end req=%llu bot=%u class=%s durMs=%lu",
+            (unsigned long long)reqId, botGuid, cls, durMs);
+    };
     pocketLlmGenerationState = 0;
 
     // A0 governor hoist: the duty-cycle governor sits ABOVE the backend
@@ -1320,8 +1351,14 @@ std::string PlayerbotLLMInterface::Generate(const std::string& prompt, uint32 bo
     {
         if (!debugLines.empty())
             debugLines.push_back("duty-cycle governor busy");
+        logEnd("busy");
         return source == PlayerbotLlamaRuntime::LLM_SRC_RPG_CHAT ? std::string() : std::string(POCKETREALM_LLM_BUSY);
     }
+
+    // A8: the begin line sits after the governor (a denied turn logs
+    // dispatch + end only - no generation ever started)
+    sLog.outBasic("BotLLM: gen begin req=%llu bot=%u lane=%s",
+        (unsigned long long)reqId, botGuid, lane);
 
     // A11 era logit bias: the always-ban terms, resolved once through the
     // embedded server's /tokenize endpoint (fail-open - no endpoint, no
@@ -1352,6 +1389,12 @@ std::string PlayerbotLLMInterface::Generate(const std::string& prompt, uint32 bo
     if (sPlayerbotAIConfig.llmBackend == PlayerbotAIConfig::LLM_BACKEND_LLAMA)
     {
         std::string raw = PlayerbotLlamaRuntime::Generate(prompt, botGuid, source, timeOutSeconds, debugLines);
+        // A8: symmetric device-lane classification (the assertion scope
+        // decision - both lanes log begin/end, pinned host-side)
+        if (raw.empty() || raw == "error")
+            logEnd(raw == "error" ? "error" : "empty");
+        else
+            logEnd("ok");
         if (raw.empty() || raw == "error")
             return raw;
 
@@ -1374,7 +1417,13 @@ std::string PlayerbotLLMInterface::Generate(const std::string& prompt, uint32 bo
     // the legacy regex path (their raw body flows to ParseResponse and the
     // conf-level patterns apply - the reviewed fallback for endpoints that
     // return non-OpenAI prose shapes).
-    std::string const httpBody = GenerateHttp(promptBody, timeOutSeconds, maxGenerations, debugLines);
+    std::string const httpBody = GenerateHttp(promptBody, timeOutSeconds, maxGenerations, debugLines, nullptr, nullptr, reqId);
+    // A8 classification precedence: a transport-noted class (http_%d /
+    // timeout / cap) outranks the shape classes; "error" is the bare
+    // transport failure, "empty" a clean reply with nothing voicable.
+    std::string const genClass = httpBody == "error"
+        ? (pocketllm::GenClassNote().empty() ? std::string("error") : pocketllm::GenClassNote())
+        : std::string("ok");
     pocketllm::CompletionEnvelope envelope = pocketllm::ParseCompletionEnvelope(httpBody);
     if (!envelope.parsed)
     {
@@ -1388,12 +1437,14 @@ std::string PlayerbotLLMInterface::Generate(const std::string& prompt, uint32 bo
         {
             if (!debugLines.empty())
                 debugLines.push_back("response carries no voicable text - staying quiet");
+            logEnd(httpBody == "error" ? genClass.c_str() : "empty");
             return std::string();
         }
         // A0: the HTTP branch runs the SAME tool extraction the in-process
         // branch always had - G-1 closed: <<tool>> calls from an envelope
         // reply are queued for the world-thread executor (speaker-tagged),
         // and the markers never reach the chat lines.
+        logEnd("ok");
         return PlayerbotLlmFilters::HygienePass(
             PlayerbotLlmTools::ExtractAndQueue(httpBody, botGuid, speakerGuid, source, licenseStamp),
             botGuid);
@@ -1403,6 +1454,7 @@ std::string PlayerbotLLMInterface::Generate(const std::string& prompt, uint32 bo
     {
         if (!debugLines.empty())
             debugLines.push_back("LLM content: " + envelope.content);
+        logEnd("ok");
         return PocketLlmVoiceFilter(envelope.content, botGuid, speakerGuid,
             source, licenseStamp, promptBody, timeOutSeconds, maxGenerations,
             debugLines, pocketLlmGenerationState, envelope.finishLength != 0);
@@ -1429,9 +1481,10 @@ std::string PlayerbotLLMInterface::Generate(const std::string& prompt, uint32 bo
             if (!debugLines.empty())
                 debugLines.push_back("empty content with reasoning present - one direct-answer retry");
             pocketllm::CompletionEnvelope retry = pocketllm::ParseCompletionEnvelope(
-                GenerateHttp(retryBody, timeOutSeconds, maxGenerations, debugLines));
+                GenerateHttp(retryBody, timeOutSeconds, maxGenerations, debugLines, nullptr, nullptr, reqId));
             if (retry.parsed && pocketllm::ContentUsable(retry))
             {
+                logEnd("ok");
                 return PocketLlmVoiceFilter(retry.content, botGuid, speakerGuid,
                     source, licenseStamp, retryBody, timeOutSeconds, maxGenerations,
                     debugLines, pocketLlmGenerationState, retry.finishLength != 0);
@@ -1441,11 +1494,17 @@ std::string PlayerbotLLMInterface::Generate(const std::string& prompt, uint32 bo
 
     if (!debugLines.empty())
         debugLines.push_back("no usable content in the response envelope - staying quiet");
+    logEnd("empty");
     return std::string();
 }
 
-std::string PlayerbotLLMInterface::GenerateHttp(const std::string& prompt, int timeOutSeconds, int maxGenerations, std::vector<std::string> & debugLines, ParsedUrl const* endpointOverride, std::string const* apiKeyOverride) {
+std::string PlayerbotLLMInterface::GenerateHttp(const std::string& prompt, int timeOutSeconds, int maxGenerations, std::vector<std::string> & debugLines, ParsedUrl const* endpointOverride, std::string const* apiKeyOverride, uint64_t reqId) {
     bool debug = !debugLines.empty();
+    // A8: per-request class reset (the http_%d / timeout notes below are
+    // thread-local; GenerateHttp is the only writer within a turn and
+    // its callers run on one worker thread per generation)
+    pocketllm::NoteGenClass("");
+    (void)reqId;
 """
 PB_SAY_HEADER_UPSTREAM = """#pragma once
 
@@ -1465,7 +1524,7 @@ PB_SAY_GEN_DECL_ANDROID = """        static delayedPackets GenerateResponsePacke
             , uint32 botGuid, uint32 speakerGuid, PlayerbotLlamaRuntime::LlmCallSource source, uint64_t licenseStamp
             , uint32 playerOrChannel, std::string botName
             , const WorldPacket chatTemplate, const WorldPacket emoteTemplate, const WorldPacket systemTemplate, const std::string startPattern, const std::string endPattern, const std::string deletePattern, const std::string splitPattern, bool debug = false
-            , uint32 replyClass = 0, bool longFormCued = false);
+            , uint32 replyClass = 0, bool longFormCued = false, uint64_t reqId = 0);
 """
 PB_SAY_GEN_DEF_UPSTREAM = """delayedPackets ChatReplyAction::GenerateResponsePackets(const std::string json
     , const WorldPacket chatTemplate, const WorldPacket emoteTemplate, const WorldPacket systemTemplate, const std::string startPattern, const std::string endPattern, const std::string deletePattern, const std::string splitPattern, bool debug)
@@ -1483,7 +1542,7 @@ PB_SAY_GEN_DEF_ANDROID = """delayedPackets ChatReplyAction::GenerateResponsePack
     , uint32 botGuid, uint32 speakerGuid, PlayerbotLlamaRuntime::LlmCallSource source, uint64_t licenseStamp
     , uint32 playerOrChannel, std::string botName
     , const WorldPacket chatTemplate, const WorldPacket emoteTemplate, const WorldPacket systemTemplate, const std::string startPattern, const std::string endPattern, const std::string deletePattern, const std::string splitPattern, bool debug
-    , uint32 replyClass, bool longFormCued)
+    , uint32 replyClass, bool longFormCued, uint64_t reqId)
 {
     std::vector<std::string> debugLines;
 
@@ -1496,7 +1555,7 @@ PB_SAY_GEN_DEF_ANDROID = """delayedPackets ChatReplyAction::GenerateResponsePack
 
     auto startTime = time(nullptr);
 
-    std::string response = PlayerbotLLMInterface::Generate(json, botGuid, speakerGuid, source, licenseStamp, sPlayerbotAIConfig.llmGenerationTimeout, sPlayerbotAIConfig.llmMaxSimultaniousGenerations, debugLines);
+    std::string response = PlayerbotLLMInterface::Generate(json, botGuid, speakerGuid, source, licenseStamp, sPlayerbotAIConfig.llmGenerationTimeout, sPlayerbotAIConfig.llmMaxSimultaniousGenerations, debugLines, reqId);
 
     // governor busy placeholder: player-visible feedback instead of a silent
     // queue; the autonomous RPG path never gets here (it returns empty).
@@ -1833,14 +1892,37 @@ PB_SAY_ASYNC_ANDROID = """                uint32 llmHistoryKey = (chatChannelSou
                 // S11: the long-form widening is earned per TURN - the
                 // flag resolves against the generation's own license stamp,
                 // so a plain turn keeps the short budget on every tier
-                futurePackets futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, bot->GetGUIDLow(), llmSpeakerGuid, PlayerbotLlamaRuntime::LLM_SRC_CHAT_REPLY, llmLicenseStamp, llmHistoryKey, bot->GetName(), chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug, 0u, PlayerbotLlmBridge::NoteLongFormCued(bot->GetGUIDLow(), llmLicenseStamp));
+                // A8: the turn's request id is minted here (world thread,
+                // before the async launch) so the dispatch line and the
+                // worker's begin/end lines correlate; unthrottled - the
+                // per-turn assertion needs every line at 320-bot bursts
+                uint64_t const llmReqId = pocketllm::NextReqId();
+                sLog.outBasic("BotLLM: dispatch bot=%u src=%d lane=%s req=%llu",
+                    bot->GetGUIDLow(), (int)PlayerbotLlamaRuntime::LLM_SRC_CHAT_REPLY,
+                    useLlamaBackend ? "device" : "cloud", (unsigned long long)llmReqId);
+                futurePackets futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, bot->GetGUIDLow(), llmSpeakerGuid, PlayerbotLlamaRuntime::LLM_SRC_CHAT_REPLY, llmLicenseStamp, llmHistoryKey, bot->GetName(), chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug, 0u, PlayerbotLlmBridge::NoteLongFormCued(bot->GetGUIDLow(), llmLicenseStamp), llmReqId);
 """
 PB_RPG_ASYNC_UPSTREAM = """    futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug);
+"""
+# A8: the RPG dispatch site logs BotLLM: dispatch like the conversational
+# lane, which needs pocketllm::NextReqId (PlayerbotLlmFilters.h).
+PB_RPG_INCLUDE_UPSTREAM = """#include "playerbot/PlayerbotLLMInterface.h"
+"""
+PB_RPG_INCLUDE_ANDROID = """#include "playerbot/PlayerbotLLMInterface.h"
+#include "playerbot/PlayerbotLlmFilters.h"
 """
 PB_RPG_ASYNC_ANDROID = """    // E1 reply class 1: ambient (one 80-byte line - a bark, not a speech);
     // longFormCued explicit false - ambient never earns the widening
     // (defaults do not bind through the std::async function pointer)
-    futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, bot->GetGUIDLow(), uint32(0), PlayerbotLlamaRuntime::LLM_SRC_RPG_CHAT, uint64_t(0), 0, bot->GetName(), chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug, 1u, false);
+    // A8: same dispatch line as the conversational lane
+    {
+        uint64_t const llmReqId = pocketllm::NextReqId();
+        sLog.outBasic("BotLLM: dispatch bot=%u src=%d lane=%s req=%llu",
+            bot->GetGUIDLow(), (int)PlayerbotLlamaRuntime::LLM_SRC_RPG_CHAT,
+            sPlayerbotAIConfig.llmBackend == PlayerbotAIConfig::LLM_BACKEND_LLAMA ? "device" : "cloud",
+            (unsigned long long)llmReqId);
+        futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, bot->GetGUIDLow(), uint32(0), PlayerbotLlamaRuntime::LLM_SRC_RPG_CHAT, uint64_t(0), 0, bot->GetName(), chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug, 1u, false, llmReqId);
+    }
 """
 # The RPG ambient-chatter path (bot <-> NPC barks) still built the HTTP JSON
 # envelope and kept the JSON start pattern, which drops every plain-prose
@@ -1926,9 +2008,32 @@ PB_SAY_RAID_CASE_ANDROID = """                case ChatChannelSource::SRC_PARTY:
 """
 PB_DEBUG_GEN_UPSTREAM = """    std::string response = PlayerbotLLMInterface::Generate(json, sPlayerbotAIConfig.llmGenerationTimeout, sPlayerbotAIConfig.llmMaxSimultaniousGenerations, debugLines);
 """
-PB_DEBUG_GEN_ANDROID = """    std::string response = PlayerbotLLMInterface::Generate(json, bot->GetGUIDLow(), uint32(0), PlayerbotLlamaRuntime::LLM_SRC_DEBUG, uint64_t(0), sPlayerbotAIConfig.llmGenerationTimeout, sPlayerbotAIConfig.llmMaxSimultaniousGenerations, debugLines);
+PB_DEBUG_GEN_ANDROID = """    // A8: the debug lane logs the same dispatch/begin/end triple
+    uint64_t const llmReqId = pocketllm::NextReqId();
+    sLog.outBasic("BotLLM: dispatch bot=%u src=%d lane=%s req=%llu",
+        bot->GetGUIDLow(), (int)PlayerbotLlamaRuntime::LLM_SRC_DEBUG,
+        sPlayerbotAIConfig.llmBackend == PlayerbotAIConfig::LLM_BACKEND_LLAMA ? "device" : "cloud",
+        (unsigned long long)llmReqId);
+    std::string response = PlayerbotLLMInterface::Generate(json, bot->GetGUIDLow(), uint32(0), PlayerbotLlamaRuntime::LLM_SRC_DEBUG, uint64_t(0), sPlayerbotAIConfig.llmGenerationTimeout, sPlayerbotAIConfig.llmMaxSimultaniousGenerations, debugLines, llmReqId);
     if (response == POCKETREALM_LLM_BUSY)
         response = "(governor busy)";
+"""
+# 0.c.1 debug gate: `.bot` chat events forced isMod for ANY requesting
+# player (the .bot command family registers at SEC_PLAYER), so
+# `debug llm` - which echoes the transport trace including the request
+# headers - was reachable by every player. The mod disjunct is removed:
+# a player event must carry a real moderator session; ownerless events
+# (console/mgr) keep mod powers.
+PB_DEBUG_MODGATE_UPSTREAM = """    bool isMod = event.getSource() == ".bot" || (event.getOwner() && event.getOwner()->GetSession() && event.getOwner()->GetSession()->GetSecurity() >= SEC_MODERATOR);
+"""
+PB_DEBUG_MODGATE_ANDROID = """    bool isMod = !event.getOwner() ||
+        (event.getOwner()->GetSession() && event.getOwner()->GetSession()->GetSecurity() >= SEC_MODERATOR);
+"""
+# A8: the debug dispatch line needs pocketllm::NextReqId
+PB_DEBUG_INCLUDE_UPSTREAM = """#include "playerbot/PlayerbotLLMInterface.h"
+"""
+PB_DEBUG_INCLUDE_ANDROID = """#include "playerbot/PlayerbotLLMInterface.h"
+#include "playerbot/PlayerbotLlmFilters.h"
 """
 PB_SESSION_LIFETIME_UPSTREAM = """void PlayerbotAI::SendDelayedPacket(WorldSession* session, futurePackets futPackets)
 {
@@ -2124,6 +2229,10 @@ PB_IFACE_CONNECT_ANDROID = """    bool connected = false;
         if (debug)
             debugLines.push_back("Connection to server failed or timed out");
 
+        // A8: a connect-phase ETIMEDOUT is the timeout class, everything
+        // else keeps the bare error class (empty note)
+        pocketllm::NoteGenClass(connectErr == ETIMEDOUT ? "timeout" : "");
+
 #ifdef _WIN32
         sLog.outError("BotLLM: Connection to server failed. Error: %d", connectErr);
         closesocket(sock);
@@ -2156,7 +2265,9 @@ PB_IFACE_INCLUDE_ANDROID = """#include "PlayerbotTextMgr.h"
 #include "PlayerbotLlmToolsCore.h"
 #include "PlayerbotLlmFilters.h"
 #include "PlayerbotLlmBridge.h"
+#include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cstdlib>
 #include <deque>
 #include <map>
@@ -2166,6 +2277,7 @@ PB_SAY_INCLUDE_UPSTREAM = """#include "playerbot/PlayerbotTextMgr.h"
 #include "Chat/ChannelMgr.h"
 """
 PB_SAY_INCLUDE_ANDROID = """#include "playerbot/PlayerbotTextMgr.h"
+#include "playerbot/PlayerbotLlmFilters.h"
 #include "playerbot/PlayerbotLlmMemory.h"
 #include "playerbot/PlayerbotLlmPersona.h"
 #include "playerbot/PlayerbotLlmTools.h"
@@ -2798,6 +2910,129 @@ PB_LLM_CONF_ANDROID = """# Time in seconds the server will wait for the generati
 # AiPlayerbot.LLMChatterComposerUrl =
 # AiPlayerbot.LLMChatterComposerModel = local
 # AiPlayerbot.LLMChatterComposerKey =
+# G3: TLS verification for the external HTTPS endpoint. 1 (default) =
+# verify the server certificate against the staged CA bundle (fallback:
+# the Android system store) and pin the hostname; TLS 1.2 floor. 0
+# restores the unverified handshake for self-signed LAN endpoints -
+# http:// endpoints are unaffected either way (the Bearer key already
+# rides those in cleartext; the app's normalizer warns about them).
+# AiPlayerbot.LLMTLSVerify = 1
+# The CA bundle the app stages next to the conf (absolute path; empty =
+# system store fallback).
+# AiPlayerbot.LLMTLSCaFile =
+"""
+# G3 part 1: the SSL_CTX setup. Upstream only disabled SSLv2/v3; the
+# cloud lane gets a TLS 1.2 floor, real peer verification (a staged CA
+# bundle, falling back to the Android system hashed-dir store - there is
+# no /etc/ssl/certs for native code on Android, so bare SSL_VERIFY_PEER
+# would fail every handshake), all behind the LLMTLSVerify kill-switch.
+PB_IFACE_TLSCTX_UPSTREAM = """        SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
+        SSL_CTX_set_mode(ctx, SSL_MODE_AUTO_RETRY);
+"""
+PB_IFACE_TLSCTX_ANDROID = """        SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
+        SSL_CTX_set_mode(ctx, SSL_MODE_AUTO_RETRY);
+        // G3: TLS 1.2 floor + verified chain. The CA material comes from
+        // the app-staged Mozilla bundle (LLMTLSCaFile absolute path);
+        // an empty/unloadable bundle falls back to the system store.
+        // LLMTLSVerify = 0 keeps today's handshake byte-for-byte for
+        // self-signed LAN endpoints.
+        SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
+        if (sPlayerbotAIConfig.llmTlsVerify)
+        {
+            SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, nullptr);
+            bool caLoaded = false;
+            if (!sPlayerbotAIConfig.llmTlsCaFile.empty())
+                caLoaded = SSL_CTX_load_verify_locations(
+                    ctx, sPlayerbotAIConfig.llmTlsCaFile.c_str(), nullptr) == 1;
+            if (!caLoaded)
+                SSL_CTX_load_verify_locations(ctx, nullptr, "/system/etc/security/cacerts");
+        }
+"""
+# G3 part 2: hostname pin. Upstream sets only SNI; chain-only
+# verification still accepts ANY valid certificate for any name, so the
+# hostname is pinned into the handshake whenever verification is on.
+# NOTE: the middle line of the upstream span carries trailing spaces
+# ("        \n"), so this constant is byte-exact rather than a tidy
+# triple-quoted block - a tidied copy would drift the anchor.
+PB_IFACE_TLSHOST_UPSTREAM = "        SSL_set_tlsext_host_name(ssl, parsedUrl.hostname.c_str());\n        \n        SSL_set_fd(ssl, sock);\n"
+PB_IFACE_TLSHOST_ANDROID = """        SSL_set_tlsext_host_name(ssl, parsedUrl.hostname.c_str());
+        // G3: match the hostname inside the verified handshake (SNI alone
+        // is not validation; without this a valid cert for any name passes)
+        if (sPlayerbotAIConfig.llmTlsVerify)
+            SSL_set1_host(ssl, parsedUrl.hostname.c_str());
+
+        SSL_set_fd(ssl, sock);
+"""
+# 0.c.1 redaction: the debug echo carried the full request INCLUDING the
+# Authorization: Bearer line and body to whichever player ran `debug llm`
+# (reachable at SEC_PLAYER through .bot debug). The wire request keeps
+# its key; only the echoed copy is redacted.
+# NOTE: like PB_IFACE_TLSHOST_UPSTREAM, the blank line inside this span
+# carries trailing spaces in the pristine file - byte-exact literal.
+PB_IFACE_REQECHO_UPSTREAM = "    std::string requestStr = request.str();\n    \n    if (debug)\n        debugLines.push_back(\"Send the request: \" + requestStr);\n"
+PB_IFACE_REQECHO_ANDROID = """    std::string requestStr = request.str();
+
+    if (debug)
+    {
+        // 0.c.1: debugLines are echoed to the requesting player - the
+        // Authorization value never rides them, under any debug path
+        std::string echo = requestStr;
+        size_t const auth = echo.find("Authorization: Bearer ");
+        if (auth != std::string::npos)
+        {
+            size_t const eol = echo.find("\\r\\n", auth);
+            echo.replace(auth,
+                (eol == std::string::npos ? echo.size() : eol) - auth,
+                "Authorization: Bearer [redacted]");
+        }
+        debugLines.push_back("Send the request: " + echo);
+    }
+"""
+# 0.c.3 port-parse crash: parseUrl's std::stoi throws out_of_range for
+# huge port literals and only invalid_argument was caught - the world
+# failed to boot at config load. Widen to std::exception and fail closed
+# (empty endpoint = an immediately-dead client), never a silent default.
+PB_LLM_EP_CATCH_UPSTREAM = """    try {
+        llmEndPointUrl = parseUrl(llmApiEndpoint);
+    }
+    catch (const std::invalid_argument& e) {
+        sLog.outError("Unable to parse LLMApiEndpoint url: %s", e.what());
+    }
+"""
+PB_LLM_EP_CATCH_ANDROID = """    try {
+        llmEndPointUrl = parseUrl(llmApiEndpoint);
+    }
+    catch (const std::exception& e) {
+        // 0.c.3: std::stoi inside parseUrl also throws out_of_range (a
+        // port literal beyond int range); the old single-class catch let
+        // that abort world boot. Fail closed: log, leave the endpoint
+        // empty so the HTTP client refuses it instantly (dead endpoint),
+        // never silently fall back to a default port.
+        sLog.outError("Unable to parse LLMApiEndpoint url: %s", e.what());
+        llmEndPointUrl = ParsedUrl();
+    }
+"""
+# A7.4 concurrency off-by-one + the A8 cap class: the old check admitted
+# maxGenerations + 1 in-flight generations, and a cap rejection was
+# indistinguishable from any other empty return.
+PB_IFACE_CONCUR_UPSTREAM = """    if (sPlayerbotLLMInterface.generationCount > maxGenerations)
+    {
+        if (debug)
+            debugLines.push_back("Maximum generations reached " + std::to_string(sPlayerbotLLMInterface.generationCount) + "/" + std::to_string(maxGenerations));
+        return {};
+    }
+"""
+PB_IFACE_CONCUR_ANDROID = """    if (sPlayerbotLLMInterface.generationCount >= maxGenerations)
+    {
+        // A7.4: >= - the old > admitted max+1 concurrent generations.
+        // A8: the cap class is its own failure class (never "busy" -
+        // the busy line is governor duty-cycle; a cap hit must fall to
+        // the A4 authored fallback, not the busy persona line).
+        pocketllm::NoteGenClass("cap");
+        if (debug)
+            debugLines.push_back("Maximum generations reached " + std::to_string(sPlayerbotLLMInterface.generationCount) + "/" + std::to_string(maxGenerations));
+        return {};
+    }
 """
 # S10: the endpoint/key override legs inside GenerateHttp - the composer
 # path POSTs to its own endpoint through the same hardened client. Both
@@ -3135,6 +3370,8 @@ PB_LLM_IFACE_HTTP_ANDROID = """    // status + framing hardening for real-world 
                 if (debug)
                     debugLines.push_back("HTTP status " + std::to_string(statusCode) + " - treating as error");
                 sLog.outError("BotLLM: HTTP status %d from the LLM endpoint", statusCode);
+                // A8: the end-of-turn line names the status class
+                pocketllm::NoteGenClass("http_" + std::to_string(statusCode));
                 return "error";
             }
         }
@@ -3789,15 +4026,23 @@ def prepare_cmangos_source() -> None:
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_JSON_DUP_UPSTREAM, PB_SAY_JSON_DUP_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_ASYNC_UPSTREAM, PB_SAY_ASYNC_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "RpgSubActions.cpp", PB_RPG_ASYNC_UPSTREAM, PB_RPG_ASYNC_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "RpgSubActions.cpp", PB_RPG_INCLUDE_UPSTREAM, PB_RPG_INCLUDE_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "RpgSubActions.cpp", PB_RPG_PROMPT_UPSTREAM, PB_RPG_PROMPT_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_RAID_CASE_UPSTREAM, PB_SAY_RAID_CASE_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "DebugAction.cpp", PB_DEBUG_GEN_UPSTREAM, PB_DEBUG_GEN_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "DebugAction.cpp", PB_DEBUG_MODGATE_UPSTREAM, PB_DEBUG_MODGATE_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "DebugAction.cpp", PB_DEBUG_INCLUDE_UPSTREAM, PB_DEBUG_INCLUDE_ANDROID)
     replace_anchor(bot_root / "PlayerbotAI.cpp", PB_SESSION_LIFETIME_UPSTREAM, PB_SESSION_LIFETIME_ANDROID)
     # LLM companion overlays (applied on top of the stage-1 LLM edits)
     replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_IFACE_INCLUDE_UPSTREAM, PB_IFACE_INCLUDE_ANDROID)
     # bounded TCP connect (non-blocking connect + select)
     replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_IFACE_SOCKINCLUDE_UPSTREAM, PB_IFACE_SOCKINCLUDE_ANDROID)
     replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_IFACE_CONNECT_UPSTREAM, PB_IFACE_CONNECT_ANDROID)
+    replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_IFACE_TLSCTX_UPSTREAM, PB_IFACE_TLSCTX_ANDROID)
+    replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_IFACE_TLSHOST_UPSTREAM, PB_IFACE_TLSHOST_ANDROID)
+    replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_IFACE_REQECHO_UPSTREAM, PB_IFACE_REQECHO_ANDROID)
+    replace_anchor(bot_root / "PlayerbotLLMInterface.cpp", PB_IFACE_CONCUR_UPSTREAM, PB_IFACE_CONCUR_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAIConfig.cpp", PB_LLM_EP_CATCH_UPSTREAM, PB_LLM_EP_CATCH_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_INCLUDE_UPSTREAM, PB_SAY_INCLUDE_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_CONTEXT_UPSTREAM, PB_SAY_CONTEXT_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_PROMPT_V2_UPSTREAM, PB_SAY_PROMPT_V2_ANDROID)
@@ -4472,6 +4717,71 @@ def stage(llvm: Path) -> dict:
     return record
 
 
+def write_lockfiles() -> list[str]:
+    """Warm-dir lockfile regeneration (T0.3): refresh every committed
+    realm-runtime lockfile's SOURCE-side pins (patches_content, the
+    overlay registries, the submodule commits) without running a build.
+
+    What this mode is for: an overlay edit trips patches_content in every
+    lane's lockfile at once, and the tripwire pin
+    (test_lockfiles_pin_patches_content) goes red until they are refreshed.
+    Rebuilding all lanes to do that costs hours; the artifacts, seed
+    transcripts and connector pins stay byte-pinned to the last FULL build
+    either way - this mode refreshes exactly the fields that are derivable
+    from the working tree and leaves the rest untouched, so the committed
+    lockfile again describes "these patch bytes, last built into these
+    artifacts". A full lane rebuild remains the only way to move the
+    artifact pins; treating a regenerated lockfile as a fresh build would
+    be wrong (the recorded .so digests still correspond to the previous
+    patch bytes until a rebuild lands)."""
+    updated: list[str] = []
+    lanes = [
+        ("x86_64", "mysql", "schemas/realm-runtime-lockfile.json"),
+        ("x86_64", "sqlite", "schemas/realm-runtime-lockfile-sqlite.json"),
+        ("arm64-v8a", "mysql", "schemas/realm-runtime-lockfile-arm64-v8a.json"),
+        ("arm64-v8a", "sqlite", "schemas/realm-runtime-lockfile-arm64-v8a-sqlite.json"),
+    ]
+    for abi, backend, name in lanes:
+        path = ROOT / name
+        if not path.is_file():
+            continue
+        record = json.loads(path.read_text(encoding="utf-8"))
+        record["cmangos_commit"] = CMANGOS_COMMIT
+        record["playerbots_commit"] = PLAYERBOTS_COMMIT
+        record["cmangos_source_overlays"] = [
+            dict(entry) for entry in CMANGOS_OVERLAYS
+            if backend in entry.get("backends", ("mysql", "sqlite"))]
+        record["playerbots_source_overlays"] = PLAYERBOTS_OVERLAYS
+        record["patches_content"] = patches_content_digests()
+        lock_bytes = (json.dumps(record, indent=2) + "\n").encode("utf-8")
+        if path.read_bytes() != lock_bytes:
+            path.write_bytes(lock_bytes)
+            updated.append(name)
+        if backend == "sqlite":
+            # The SQLite lane's APK identity asset is BYTE-IDENTICAL to
+            # the sibling lockfile by construction (Gradle asserts the
+            # equality at packaging; loadAndVerifySqliteIdentity consumes
+            # it on device). A real build rewrites both; the warm-dir
+            # regen must keep that invariant or the first
+            # -PsqliteProvider assembly fails on a stale asset. Artifact
+            # pins inside remain the last full build's - the same
+            # documented tradeoff as the lockfile itself.
+            asset = (NATIVE / f".build-o09-{abi}" / "realm-staging-sqlite" /
+                     "assets" / "database" / "provider-sqlite" /
+                     "BUILD_PROVENANCE.json")
+            if asset.is_file() and asset.read_bytes() != lock_bytes:
+                asset.write_bytes(lock_bytes)
+    if not updated:
+        print("lockfiles already current (no source-side pins changed)")
+    else:
+        print("regenerated source-side pins in:")
+        for name in updated:
+            print(f"  {name}")
+        print("NOTE: artifact pins still correspond to the last FULL lane "
+              "build - run a real build before shipping rebuilt binaries.")
+    return updated
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--abi", choices=("x86_64", "arm64-v8a"), default="x86_64")
@@ -4484,8 +4794,19 @@ def main() -> int:
                         help="apply overlays, run the CMake configure, verify the "
                              "fail-loud backend selection, restore, and stop. No "
                              "compile, no staging.")
+    parser.add_argument("--write-lockfiles", action="store_true",
+                        help="regenerate the SOURCE-side pins (patches_content, "
+                             "overlay registries, submodule commits) in every "
+                             "committed realm-runtime lockfile without building. "
+                             "Artifact pins keep describing the last full build; "
+                             "the warm-dir regen exists so an overlay edit does "
+                             "not require three lane rebuilds to re-green the "
+                             "patches_content tripwire.")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
+    if args.write_lockfiles:
+        write_lockfiles()
+        return 0
     select_abi(args.abi)
     global BACKEND
     BACKEND = args.backend

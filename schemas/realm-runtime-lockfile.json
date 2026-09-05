@@ -6,7 +6,7 @@
   "playerbots": true,
   "auction_house_bot": false,
   "cmangos_commit": "082afd606f8e37ea939df6fdfcd4af81f8085e6e",
-  "playerbots_commit": "3b77c5f423a6139d69930bcee9643af7f198df1e",
+  "playerbots_commit": "89a5b3722a7dc33804996fffb91fcbd12f5a5001",
   "database_backend": "mysql",
   "cmangos_source_overlays": [
     {
@@ -220,7 +220,7 @@
     "native/patches/playerbots/PlayerbotLlmChatter.h": "3db6b4857bf968519e89638d777160b391f011350e95185fce62a20c0dc4d409",
     "native/patches/playerbots/PlayerbotLlmChatterCore.h": "bcab8ac07a93a911d0b49dc18b5daa68c9b4827abb735aa00637474c18e96131",
     "native/patches/playerbots/PlayerbotLlmFilters.cpp": "9f7ef6e59cbe5bbed9d99403e73b65ae032a7039e02762aab9c7f7f5a96ca9a3",
-    "native/patches/playerbots/PlayerbotLlmFilters.h": "096eb357f699f68743454ea441004acd6715c022384bd40483a803d843601b49",
+    "native/patches/playerbots/PlayerbotLlmFilters.h": "4368bc4f226cbbf7ac7ed79ef089d5d4852206c45fd10f2e5eb95e9e0054807d",
     "native/patches/playerbots/PlayerbotLlmJson.h": "f33aca69e42a01f9134577d5f77b39f5200116d12243f0fb40b1c52d425db6c8",
     "native/patches/playerbots/PlayerbotLlmMemory.cpp": "ca1689d75cc9edc90a2fd7cf9c7869c49e29c7463cf07cdf28f0434239081f63",
     "native/patches/playerbots/PlayerbotLlmMemory.h": "dd7aac72857f6c632e987fc99cd7c706af0e35c4ba7f11ec19ca067ebadeb9ec",

@@ -23,6 +23,7 @@
  * Pure logic lives in PlayerbotLlmTruthCore.h (host-tested); this class
  * owns the stateful pieces (reply ring, bias cache, canned rotation).
  */
+#include <atomic>
 #include <cstdint>
 #include <string>
 
@@ -58,5 +59,42 @@ public:
     // "splice nothing".
     static std::string const& EraBiasJson();
 };
+
+// A8 generation observability. The transport legs inside GenerateHttp
+// cannot see the turn's shape (they return early with "error" strings),
+// so each distinct failure site notes its class here and Generate's
+// single end-of-turn log line consumes the note. Thread-local by
+// construction: every generation runs wholly on one worker thread.
+// NO content ever rides these - ids and class names only.
+namespace pocketllm
+{
+    namespace detail
+    {
+        // ONE thread-local slot shared by note/read (two function-local
+        // statics would be independent storage - the note would never
+        // reach the reader)
+        inline std::string& GenClassSlot()
+        {
+            static thread_local std::string noted;
+            return noted;
+        }
+    }
+    // Last writer wins within one generation; empty string = nothing noted.
+    inline void NoteGenClass(std::string const& cls)
+    {
+        detail::GenClassSlot() = cls;
+    }
+    inline std::string const& GenClassNote()
+    {
+        return detail::GenClassSlot();
+    }
+    // Process-wide monotonic request id, minted at the dispatch sites so
+    // dispatch/begin/end correlate across threads.
+    inline uint64_t NextReqId()
+    {
+        static std::atomic<uint64_t> counter(0);
+        return counter.fetch_add(1, std::memory_order_relaxed) + 1;
+    }
+}
 
 #endif

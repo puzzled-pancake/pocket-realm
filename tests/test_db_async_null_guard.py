@@ -283,3 +283,26 @@ def test_lockfiles_pin_patches_content() -> None:
             f"{name} patches content is stale vs the working tree: "
             f"changed={sorted(set(expected) ^ set(pinned))[:6]}... - "
             "rebuild that lane (the lockfile pins what IS staged)")
+
+
+def test_write_lockfiles_mode_is_idempotent_and_content_only() -> None:
+    """T0.3: the --write-lockfiles warm-dir regen refreshes ONLY the
+    source-side pins and rewrites nothing when the tree is current -
+    so the pin tripwire can be re-greened after an overlay edit without
+    a lane rebuild, while a no-op run never perturbs the committed bytes
+    (a gratuitous rewrite would show up as git noise on every CI run)."""
+    import json
+    names = ("realm-runtime-lockfile.json",
+             "realm-runtime-lockfile-sqlite.json",
+             "realm-runtime-lockfile-arm64-v8a.json",
+             "realm-runtime-lockfile-arm64-v8a-sqlite.json")
+    before = {n: (ROOT / "schemas" / n).read_bytes() for n in names
+              if (ROOT / "schemas" / n).is_file()}
+    updated = driver.write_lockfiles()
+    assert updated == [], "regen rewrote lockfiles on an unchanged tree"
+    for name, payload in before.items():
+        assert (ROOT / "schemas" / name).read_bytes() == payload
+        # the artifact pins must survive the regen path untouched: they
+        # still describe the last FULL lane build
+        record = json.loads(payload.decode("utf-8"))
+        assert record["artifacts"], f"{name} lost its artifact pins"

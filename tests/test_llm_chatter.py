@@ -130,8 +130,8 @@ def test_governor_extraction_and_raw_post():
     assert "globalWindow.size() < std::max<uint32>(1, sPlayerbotAIConfig.llmGovernorGlobalMax);" in driver
     # GenerateHttp carries the endpoint/key overrides (declaration + definition)
     assert "ParsedUrl const* endpointOverride = nullptr" in driver
-    assert "std::string const* apiKeyOverride = nullptr)" in driver
-    assert "ParsedUrl const* endpointOverride, std::string const* apiKeyOverride) {" in driver
+    assert "std::string const* apiKeyOverride = nullptr, uint64_t reqId = 0)" in driver
+    assert "ParsedUrl const* endpointOverride, std::string const* apiKeyOverride, uint64_t reqId) {" in driver
     # the override legs inside the HTTP client
     assert "endpointOverride ? *endpointOverride : sPlayerbotAIConfig.llmEndPointUrl" in driver
     assert "apiKeyOverride ? *apiKeyOverride : sPlayerbotAIConfig.llmApiKey" in driver

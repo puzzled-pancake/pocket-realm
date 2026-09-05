@@ -210,6 +210,16 @@ internal class ServerRuntimeFiles(context: Context) {
             runCatching { stageDefaultPromptsFile().absolutePath }.getOrNull()
         else
             null
+        // G3: stage the Mozilla CA bundle under the same gate. The native
+        // HTTPS client verifies external-endpoint certificates against it
+        // (LLMTLSCaFile absolute path; empty falls back to the Android
+        // system store, which often has nothing usable for user CAs). A
+        // staging failure fails open to the fallback - verification stays
+        // on, the store just changes.
+        val tlsCa = if (snapshot.llmEnabled || (BuildConfig.DEBUG && model.isFile))
+            runCatching { stageTlsCaBundle().absolutePath }.getOrNull()
+        else
+            null
         // The power file is staged once at world start whenever the LLM
         // subsystem can run, carrying the CURRENT ambience toggle in its
         // enabled flag plus the low-battery courtesy dim - the native
@@ -265,6 +275,7 @@ internal class ServerRuntimeFiles(context: Context) {
             speech = profile.llmSpeech,
             promptPackFile = promptPack,
             defaultPromptsFile = defaultPrompts,
+            tlsCaFile = tlsCa,
         )
     }
 
@@ -333,6 +344,29 @@ internal class ServerRuntimeFiles(context: Context) {
             return target
         val temp = File(run, ".$DEFAULT_PROMPTS_FILE_NAME.${android.os.Process.myPid()}.tmp")
         FileOutputStream(temp).use { stream -> stream.fd.sync() }
+        if (!temp.renameTo(target)) {
+            temp.copyTo(target, overwrite = true)
+            temp.delete()
+        }
+        return target
+    }
+
+    /**
+     * G3: the Mozilla CA bundle ships as an app asset and stages next to
+     * the conf (size-verified, the stageLoreCards discipline) so the
+     * native HTTPS client verifies external certificates by absolute
+     * path - Android has no /etc/ssl/certs for native code; the system
+     * hashed-dir store is only the fallback.
+     */
+    private fun stageTlsCaBundle(): File {
+        val target = File(run, TLS_CA_BUNDLE_FILE_NAME)
+        val expected = appContext.assets.open("llm/$TLS_CA_BUNDLE_FILE_NAME").use { it.available() }.toLong()
+        if (target.isFile && target.length() == expected)
+            return target
+        val temp = File(run, ".$TLS_CA_BUNDLE_FILE_NAME.${android.os.Process.myPid()}.tmp")
+        appContext.assets.open("llm/$TLS_CA_BUNDLE_FILE_NAME").use { input ->
+            FileOutputStream(temp).use { output -> input.copyTo(output) }
+        }
         if (!temp.renameTo(target)) {
             temp.copyTo(target, overwrite = true)
             temp.delete()
@@ -416,6 +450,9 @@ internal class ServerRuntimeFiles(context: Context) {
         /** B8: the staged EMPTY default-prompts file (run dir; native default name). */
         private const val DEFAULT_PROMPTS_FILE_NAME = "llm_character_card"
 
+        /** G3: the staged Mozilla CA bundle for external-endpoint TLS verification (asset: llm/). */
+        private const val TLS_CA_BUNDLE_FILE_NAME = "cacert.pem"
+
         /** B2: errors-only world log level, matching realmd's LogFileLevel = 1. */
         internal const val DEFAULT_WORLD_LOG_FILE_LEVEL = 1
 
@@ -475,6 +512,7 @@ internal class ServerRuntimeFiles(context: Context) {
             speech: BotLlmSpeech = BotLlmSpeech(),
             promptPackFile: String? = null,
             defaultPromptsFile: String? = null,
+            tlsCaFile: String? = null,
         ): String? {
             if (uiEnabled && externalMode) {
                 return LlmRuntimePolicy.confBlockExternal(
@@ -489,6 +527,7 @@ internal class ServerRuntimeFiles(context: Context) {
                     speech = speech,
                     promptPackFile = promptPackFile,
                     defaultPromptsFile = defaultPromptsFile,
+                    tlsCaFile = tlsCaFile,
                 )
             }
             if (uiEnabled && modelPresent) {
@@ -504,6 +543,7 @@ internal class ServerRuntimeFiles(context: Context) {
                     speech = speech,
                     promptPackFile = promptPackFile,
                     defaultPromptsFile = defaultPromptsFile,
+                    tlsCaFile = tlsCaFile,
                 )
             }
             if (!debugBuild || !modelPresent) return null
@@ -517,6 +557,10 @@ internal class ServerRuntimeFiles(context: Context) {
             // path, not only the HTTP ones
             val debugDefaultPrompts = if (!defaultPromptsFile.isNullOrBlank())
                 "\n            AiPlayerbot.LLMDefaultPromptsFile = \"$defaultPromptsFile\"" else ""
+            // G3: the staged CA bundle rides the debug block too - the TLS
+            // client is shared by the embedded-server HTTP path
+            val debugTlsCa = if (!tlsCaFile.isNullOrBlank())
+                "\n            AiPlayerbot.LLMTLSCaFile = \"$tlsCaFile\"" else ""
             // The banter toggle must gate the in-process debug
             // path too - the native default (1) otherwise runs the authored
             // initiative layer regardless of the toggle
@@ -529,7 +573,7 @@ internal class ServerRuntimeFiles(context: Context) {
                 AiPlayerbot.LLMThreads = 3
                 AiPlayerbot.LLMCpuFirstCore = 3
                 AiPlayerbot.LLMCtxSize = 4096
-                AiPlayerbot.LLMSlots = 4$debugBanter$debugLore$debugDefaultPrompts
+                AiPlayerbot.LLMSlots = 4$debugBanter$debugLore$debugDefaultPrompts$debugTlsCa
             """.trimIndent() + "\n"
         }
     }

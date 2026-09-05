@@ -116,6 +116,18 @@ internal object LlmRuntimePolicy {
         val rest = trimmed.substringAfter("://")
         val authority = rest.substringBefore('/')
         if (authority.isEmpty()) return null
+        // G3/0.c.3: an explicit port must be a real port (1..65535). The
+        // native parseUrl's std::stoi throws out_of_range on huge port
+        // literals, which used to abort world boot at config load (the
+        // widened native catch now fails the endpoint closed instead);
+        // bounding here keeps such a value out of the UI at all.
+        if (authority.contains(':')) {
+            val port = authority.substringAfterLast(':')
+            val asInt = port.toIntOrNull() ?: return null
+            if (asInt < 1 || asInt > MAX_PORT) return null
+            // host part before the port separator must be non-empty
+            if (authority.dropLast(port.length + 1).isEmpty()) return null
+        }
         return if (rest.contains('/')) trimmed else "$trimmed$EXTERNAL_CHAT_COMPLETIONS_PATH"
     }
 
@@ -183,6 +195,7 @@ internal object LlmRuntimePolicy {
         speech: BotLlmSpeech = BotLlmSpeech(),
         promptPackFile: String? = null,
         defaultPromptsFile: String? = null,
+        tlsCaFile: String? = null,
     ): String? {
         if (!llmEnabled) return null
         require(port in MIN_PORT..MAX_PORT) { "llm port out of range: $port" }
@@ -204,6 +217,7 @@ internal object LlmRuntimePolicy {
             speech = speech,
             promptPackFile = promptPackFile,
             defaultPromptsFile = defaultPromptsFile,
+            tlsCaFile = tlsCaFile,
         )
     }
 
@@ -233,6 +247,7 @@ internal object LlmRuntimePolicy {
         speech: BotLlmSpeech = BotLlmSpeech(),
         promptPackFile: String? = null,
         defaultPromptsFile: String? = null,
+        tlsCaFile: String? = null,
     ): String? {
         if (endpoint == null || model == null || apiKey == null) return null
         return confLines(
@@ -253,6 +268,7 @@ internal object LlmRuntimePolicy {
             speech = speech,
             promptPackFile = promptPackFile,
             defaultPromptsFile = defaultPromptsFile,
+            tlsCaFile = tlsCaFile,
         )
     }
 
@@ -339,6 +355,7 @@ internal object LlmRuntimePolicy {
         speech: BotLlmSpeech = BotLlmSpeech(),
         promptPackFile: String? = null,
         defaultPromptsFile: String? = null,
+        tlsCaFile: String? = null,
     ): String {
         // Advanced-tier overrides folded onto the measured profiles (0 keeps
         // the model/tier value); one effective profile feeds both the conf
@@ -399,6 +416,14 @@ internal object LlmRuntimePolicy {
             if (!defaultPromptsFile.isNullOrBlank()) {
                 "\n            AiPlayerbot.LLMDefaultPromptsFile = \"$defaultPromptsFile\""
             } else ""
+        // G3: the staged CA bundle for external-endpoint TLS verification.
+        // The native LLMTLSVerify switch defaults ON (hand-editable conf,
+        // not an app knob); this path is the staged-file half of the pair -
+        // absent falls back to the Android system store, never fails boot.
+        val tlsCaLine =
+            if (!tlsCaFile.isNullOrBlank()) {
+                "\n            AiPlayerbot.LLMTLSCaFile = \"$tlsCaFile\""
+            } else ""
         val packDeltaLines = speech.packDeltas.toSortedMap().entries.joinToString("") { (id, on) ->
             "\n            AiPlayerbot.LLMPromptBlock.$id = ${if (on) 1 else 0}"
         }
@@ -431,7 +456,7 @@ internal object LlmRuntimePolicy {
             AiPlayerbot.LLMContextLength = ${tier.contextLength}
             AiPlayerbot.LLMFactsCap = $factsCap
             AiPlayerbot.LLMMemoriesTail = $memoriesTail$botToBotLine$thinkingLine$providerSafeLine
-            AiPlayerbot.LLMBanterEnabled = ${if (banterEnabled) 1 else 0}$loreLine$chatterLine$promptPackLine$defaultPromptsLine$packDeltaLines$rpDialLines
+            AiPlayerbot.LLMBanterEnabled = ${if (banterEnabled) 1 else 0}$loreLine$chatterLine$promptPackLine$defaultPromptsLine$tlsCaLine$packDeltaLines$rpDialLines
         """.trimIndent() + "\n"
     }
 

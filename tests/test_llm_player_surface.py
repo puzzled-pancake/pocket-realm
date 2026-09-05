@@ -61,7 +61,7 @@ def test_reply_class_budgets_thread_through_both_callers():
     assert "bool longFormCued = false" in decl, \
         "the long-form cue flag defaults false (the RPG path opts out)"
     body = android_anchor("PB_SAY_GEN_DEF_ANDROID")
-    assert "uint32 replyClass, bool longFormCued)" in body
+    assert "uint32 replyClass, bool longFormCued, uint64_t reqId)" in body
     recorder = android_anchor("PB_SAY_RECORDER_ANDROID")
     assert "pocketllm::ApplyReplyBudget(lines, replyClass, sPlayerbotAIConfig.llmMaxNewTokens, longFormCued, sPlayerbotAIConfig.llmRpLongForm);" \
         in recorder, \
@@ -82,7 +82,7 @@ def test_reply_class_budgets_thread_through_both_callers():
     # conversational = whisper class; the ambient RPG path is the 1-line class
     assert "splitPattern, debug, 0u, PlayerbotLlmBridge::NoteLongFormCued" in chat
     rpg = android_anchor("PB_RPG_ASYNC_ANDROID")
-    assert "splitPattern, debug, 1u, false);" in rpg, \
+    assert "splitPattern, debug, 1u, false, llmReqId);" in rpg, \
         "ambient passes the cue flag explicitly false (defaults do not " \
         "bind through the std::async function pointer)"
     assert "a bark, not a speech" in rpg

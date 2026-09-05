@@ -120,6 +120,15 @@ to anyone who asks (GPL-2.0 section 3(b) written offer).
 
 ## AI bot LLM runtime
 
+- Mozilla CA root certificate bundle (`llm/cacert.pem`, staged next to the
+  realm conf for external-endpoint TLS verification) — MPL-2.0, © Mozilla
+  and its contributors, obtained in PEM form from curl.se/ca (the Mozilla
+  root store extraction). MPL-2.0 text:
+
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 - llama.cpp (llama-server, libllama-server-impl.so, libmtmd.so and the
   staged llama/ggml closure) — MIT, Copyright (c) 2016-2026 Georgi Gerganov
   and the llama.cpp contributors (github.com/ggml-org/llama.cpp), revision

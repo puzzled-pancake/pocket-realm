@@ -337,6 +337,45 @@ class LlmRuntimePolicyTest {
     }
 
     @Test
+    fun tlsCaLineEmitsOnlyWhenStaged() {
+        // G3: the staged Mozilla CA bundle rides every appended conf block
+        // by absolute path (the native client loads it for SSL_VERIFY_PEER;
+        // absent = the Android system-store fallback, never a boot failure)
+        val with = LlmRuntimePolicy.confBlock(llmEnabled = true, tlsCaFile = "/srv/run/cacert.pem")!!
+        assertTrue(with.contains("AiPlayerbot.LLMTLSCaFile = \"/srv/run/cacert.pem\"\n"))
+        val without = LlmRuntimePolicy.confBlock(llmEnabled = true)!!
+        assertFalse(without.contains("LLMTLSCaFile"))
+        val external = LlmRuntimePolicy.confBlockExternal(
+            "https://api.example.com/v1/chat/completions", "m", "k",
+            tlsCaFile = "/srv/run/cacert.pem",
+        )!!
+        assertTrue(external.contains("AiPlayerbot.LLMTLSCaFile = \"/srv/run/cacert.pem\"\n"))
+    }
+
+    @Test
+    fun externalEndpointPortMustBeARealPort() {
+        // G3/0.c.3: a huge or non-numeric port literal is rejected here
+        // (out of the UI entirely). The native parseUrl's std::stoi throws
+        // out_of_range on such literals - the world used to abort boot at
+        // config load; the widened native catch now fails the endpoint
+        // closed, and this bound keeps the value from being typed at all.
+        assertNull(LlmRuntimePolicy.normalizeExternalEndpoint("http://127.0.0.1:99999999999999/api"))
+        assertNull(LlmRuntimePolicy.normalizeExternalEndpoint("http://127.0.0.1:0/v1"))
+        assertNull(LlmRuntimePolicy.normalizeExternalEndpoint("http://127.0.0.1:-1/v1"))
+        assertNull(LlmRuntimePolicy.normalizeExternalEndpoint("http://127.0.0.1:abc/v1"))
+        assertNull(LlmRuntimePolicy.normalizeExternalEndpoint("http://:8080/v1"))
+        // real ports still normalize (bare origin gains the chat path)
+        assertEquals(
+            "http://127.0.0.1:8080/v1/chat/completions",
+            LlmRuntimePolicy.normalizeExternalEndpoint("http://127.0.0.1:8080"),
+        )
+        assertEquals(
+            "http://127.0.0.1:1/api/v1/generate",
+            LlmRuntimePolicy.normalizeExternalEndpoint("http://127.0.0.1:1/api/v1/generate"),
+        )
+    }
+
+    @Test
     fun chatterLinesEmitWheneverThePowerFileIsStagedAndGateOnItsFlag() {
         // the conf enables the SUBSYSTEM whenever the app staged
         // the power file (LLM on) - the FILE's enabled flag is the master
