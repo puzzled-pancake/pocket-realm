@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -39,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.pocketrealm.bots.BotProfile
@@ -326,7 +328,10 @@ fun HomeScreen(
                             )
                         }
                     },
-                    onFailure = { "Account control failed: ${it.javaClass.simpleName}" },
+                    // F2: binder-level failures get the same friendly copy as
+                    // the supervisor's ACCOUNT_CONTROL_FAILED path — the
+                    // exception class name belongs in diagnostics, not UI.
+                    onFailure = { accountProvisionFailureMessage("ACCOUNT_CONTROL_FAILED", null) },
                 )
             } finally {
                 accountOperationPending = false
@@ -408,8 +413,10 @@ fun HomeScreen(
                         onCreate = createAccount,
                         onClear = clearAccount,
                         landscape = true,
-                        creationEnabled = state is RealmState.Running &&
-                            !lanJoinActive && !accountOperationPending,
+                        // F2: realm-readiness gates the Create button only;
+                        // the fields stay editable (the operation-pending
+                        // disable is handled inside the card and stays).
+                        creationEnabled = state is RealmState.Running && !lanJoinActive,
                         operationPending = accountOperationPending,
                         modifier = Modifier.weight(1.18f),
                     )
@@ -448,7 +455,11 @@ fun HomeScreen(
                     onOpenSettings = onOpenSettings,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                if (state is RealmState.Running && !lanJoinActive) {
+                // F2: the account card renders in portrait at every realm
+                // state (not just Running) — the backend accepts account
+                // creation in WORLD_READY/CLIENT_FAILED and the idle card
+                // says to start the realm instead of vanishing.
+                if (!lanJoinActive) {
                     AccountCard(
                         username = username,
                         onUsername = { username = it },
@@ -461,7 +472,7 @@ fun HomeScreen(
                         onCreate = createAccount,
                         onClear = clearAccount,
                         landscape = false,
-                        creationEnabled = !accountOperationPending,
+                        creationEnabled = state is RealmState.Running,
                         operationPending = accountOperationPending,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -729,7 +740,13 @@ private fun CurrentSetupCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                AssistChip(onClick = onOpenBots, label = { Text("${profile.selectedTarget} bots") })
+                // F3: the chip admits the admission ramp ("grows from M")
+                // only when there is one — profiles that start complete
+                // must not claim a ramp.
+                AssistChip(
+                    onClick = onOpenBots,
+                    label = { Text(botCountChipLabel(profile.initialTarget, profile.selectedTarget)) },
+                )
                 AssistChip(onClick = onOpenBots, label = { Text(activity) })
                 AssistChip(onClick = onOpenSettings, label = {
                     Text("${display.resolution} · ${display.frameCap.fps} FPS")
@@ -780,10 +797,10 @@ private fun AccountCard(
             }
             if (landscape) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AccountFields(username, onUsername, password, onPassword, creationEnabled, Modifier.weight(1f))
+                    AccountFields(username, onUsername, password, onPassword, !operationPending, Modifier.weight(1f))
                 }
             } else {
-                AccountFields(username, onUsername, password, onPassword, creationEnabled, Modifier.fillMaxWidth())
+                AccountFields(username, onUsername, password, onPassword, !operationPending, Modifier.fillMaxWidth())
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -793,7 +810,9 @@ private fun AccountCard(
                 Switch(
                     checked = gmAccount,
                     onCheckedChange = onGmAccount,
-                    enabled = creationEnabled,
+                    // F2: inputs are realm-state-independent; only an
+                    // in-flight operation locks the form.
+                    enabled = !operationPending,
                     modifier = Modifier.testTag("account-gm"),
                 )
                 Text(
@@ -803,7 +822,14 @@ private fun AccountCard(
                 )
                 Button(
                     onClick = onCreate,
-                    enabled = creationEnabled && username.isNotBlank() && password.isNotBlank(),
+                    // F2: realm-readiness moved here from the field gating;
+                    // malformed drafts are caught per-keystroke above.
+                    enabled = accountCreateEnabled(
+                        realmReady = creationEnabled,
+                        accountOperationPending = operationPending,
+                        username = username,
+                        password = password,
+                    ),
                     modifier = Modifier.testTag("account-create"),
                 ) { Text("Create & remember") }
             }
@@ -837,6 +863,11 @@ private fun AccountFields(
     enabled: Boolean,
     modifier: Modifier,
 ) {
+    // F2: per-keystroke validation reusing the realm's own rule
+    // (UserAccountStore.isValidCredential) — the BotsScreen name dialog's
+    // isError/supportingText pattern; empty drafts are never red.
+    val usernameError = accountCredentialFieldError(username)
+    val passwordError = accountCredentialFieldError(password)
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedTextField(
             value = username,
@@ -844,6 +875,15 @@ private fun AccountFields(
             enabled = enabled,
             singleLine = true,
             label = { Text("Account name") },
+            // Credentials are ASCII-only: ask for the ASCII keyboard so the
+            // IME cannot type what the realm will refuse.
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+            isError = usernameError != null,
+            supportingText = {
+                // The realm stores logins uppercase (AccountMgr
+                // normalizes) — say so before the login screen surprises.
+                Text(usernameError ?: "Stored uppercase — any case works when you log in")
+            },
             modifier = Modifier.weight(1f).testTag("account-username"),
         )
         OutlinedTextField(
@@ -852,6 +892,9 @@ private fun AccountFields(
             enabled = enabled,
             singleLine = true,
             label = { Text("Password") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            isError = passwordError != null,
+            supportingText = { Text(passwordError ?: "1–16 letters or numbers") },
             visualTransformation = PasswordVisualTransformation(),
             modifier = Modifier.weight(1f).testTag("account-password"),
         )

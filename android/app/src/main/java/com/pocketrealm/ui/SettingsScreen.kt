@@ -1017,8 +1017,8 @@ fun SettingsScreen(
             Text(
                 "Playerbots speak through the on-device language model (or your own " +
                     "OpenAI-compatible server; configured in the LLM submenu). Off keeps " +
-                    "bots silent. Replies land at the next realm start; authored banter " +
-                    "and ambient chatter have their own switches in the submenu.",
+                    "bots silent. The switch applies at the next realm start; authored " +
+                    "banter and ambient chatter have their own switches in the submenu.",
                 style = MaterialTheme.typography.bodySmall,
             )
             onLlm?.let { action ->

@@ -69,7 +69,15 @@ def test_hard_trigger_gate_is_backend_independent():
     gate = _driver().PB_SAY_GATE_ANDROID
     assert "!useLlamaBackend ||" not in gate, (
         "the hard-trigger gate must not bypass for the HTTP backend (G-6)")
-    assert "SRC_WHISPER" in gate and "addressedToBot" in gate
+    # A3: the channel matrix (whisper always; party/raid addressed or -
+    # cloud only - one unaddressed responder; say name-addressed + real
+    # player) moved into the PURE PlayerbotLlmGates::HardTriggerAllowed
+    # helper (pinned host-side by tests/test_llm_gates.py); the payload
+    # must CONSUME it with the addressed/real-player/cloud inputs
+    # (consume, not copy)
+    assert "PlayerbotLlmGates::HardTriggerAllowed(" in gate
+    assert "addressedToBot" in gate
+    assert "gateSpeaker && gateSpeaker->isRealPlayer(), CloudLaneOpen()," in gate
 
 
 def test_tool_instructions_ride_both_backends():

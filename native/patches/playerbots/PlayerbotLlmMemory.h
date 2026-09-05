@@ -207,6 +207,41 @@ public:
     // lane: unbounded here (the governor is the only limiter).
     static bool InteractiveBudgetAdmits(uint32 playerGuid);
 
+    // ---- A3: the exactly-one party responder (cloud lane only). N bots
+    // hear one unaddressed party line; the deterministic pick
+    // (PlayerbotLlmGates::SelectResponder over CollectPartyCandidates)
+    // names the responder and THIS first-writer-wins claim enforces it
+    // when candidate lists diverge across the fan-out. Recording
+    // (NotePartyLine/ConsumePendingAnswer) happens for ALL bots; only
+    // the generation is exactly-one.
+
+    // Stable FNV-1a over the line text - every bot hashing the same
+    // party line must land on the identical claim key, so the hash has
+    // exactly one implementation (here), never at the call sites.
+    static uint64_t PartyMsgHash(std::string const& msg);
+
+    // First-writer-wins per (speaker, msgHash, groupId) under
+    // StateMutex: true when THIS bot holds the claim (a fresh claim
+    // stamps the rotation map). Expired entries are pruned on every
+    // call; the claim window is 5 s (the fan-out resolves within one
+    // tick - the window only covers cross-map stragglers).
+    static bool TryClaimPartyResponder(uint32 botGuid, uint32 speakerGuid,
+        uint64_t msgHash, uint32 groupId);
+
+    // The deterministic pick's candidate set: every BOT in the group
+    // with its relationship tier toward the SPEAKER (the existing
+    // GetTrainedTier lookup - reused, never duplicated) and its lastWon
+    // rotation stamp (smaller = spoke longer ago; stamped when a claim
+    // succeeds). True when at least one candidate was collected.
+    static bool CollectPartyCandidates(uint32 groupId, uint32 speakerGuid,
+        std::vector<PlayerbotLlmGates::ResponderCandidate>& out);
+
+    // The per-speaker flood gate (UNADDRESSED party lane only): N lines
+    // within 2 s coalesce into one generation - max one admitted
+    // generation per speaker per 2 s sliding window (check-and-stamp
+    // under StateMutex).
+    static bool PartyFloodAdmits(uint32 speakerGuid);
+
     // plan v5 W8: the /notice scene read - the player's own half of the
     // immersion. Renders the live scene (place, stealth/combat, wounded
     // party members, hour/weather, the current rumor) as second-person

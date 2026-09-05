@@ -85,7 +85,7 @@ class DatabaseStartPreparationTest {
         clean: Boolean,
         sqliteCapable: Boolean = true,
         sqliteInitialized: Boolean = false,
-        manifestCount: Int = 412,
+        manifestCount: Int = 413,
         sealedCount: Int? = null,
     ) = status(initialized, migrations, clean)
         .put("providerMode", providerMode)
@@ -152,7 +152,7 @@ class DatabaseStartPreparationTest {
             DatabaseStartPreparation.Action.READY,
             DatabaseStartPreparation.next(windowStatus(
                 providerMode = "SQLITE", initialized = true, migrations = true, clean = true,
-                sqliteInitialized = true, sealedCount = 412,
+                sqliteInitialized = true, sealedCount = 413,
             )),
         )
     }
@@ -165,7 +165,7 @@ class DatabaseStartPreparationTest {
             DatabaseStartPreparation.Action.PROVISION_SQLITE_PROVIDER,
             DatabaseStartPreparation.next(windowStatus(
                 providerMode = "SQLITE", initialized = true, migrations = false, clean = true,
-                sqliteInitialized = true, manifestCount = 415, sealedCount = 412,
+                sqliteInitialized = true, manifestCount = 414, sealedCount = 413,
             )),
         )
     }

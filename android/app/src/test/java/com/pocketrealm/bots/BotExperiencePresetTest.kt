@@ -25,6 +25,22 @@ class BotExperiencePresetTest {
         )
     }
 
+    @Test fun experiencePresetAdmissionMemoryFloorIsMonotonic() {
+        // B7: each step up the curated experience ladder must demand at
+        // least the free memory of the step below - a dip would let a
+        // "bigger" preset admit on devices the smaller one already rejects
+        // (CROWDED_REALM_400 once shipped 1_792 under ALIVE_REALM_320's
+        // 2_048). Scoped to experiencePresets ONLY: a union-catalog pin is
+        // wrong - BENCH_FORCED_1000 legitimately exceeds every experience
+        // floor at 3_072, and the frozen legacy adv4 catalog (CROWDED_400
+        // at 1_792) is never re-tuned.
+        val floors = BotProfiles.experiencePresets.map { it.admission.minFreeMemoryMiB }
+        assertEquals(listOf(768L, 1_024L, 1_536L, 2_048L, 2_048L, 2_048L, 2_048L), floors)
+        floors.zipWithNext().forEach { (smaller, bigger) ->
+            assertTrue("experience ladder memory floor dipped at $bigger (below $smaller)", bigger >= smaller)
+        }
+    }
+
     @Test fun aliveRealmIsTheRecommendedDefault() {
         val alive = BotProfiles.defaultProfile
         assertEquals(BotProfiles.ALIVE_REALM_320, alive)

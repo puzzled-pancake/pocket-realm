@@ -139,6 +139,14 @@ def select_inputs() -> list[Input]:
     # replay already-applied SQL on upgrade (append-only ledger invariant).
     selected.append(Input("playerbot-characters", ROOT / "native/llm/sql/ai_playerbot_llm_memory.sql"))
     selected.append(Input("playerbot-world", ROOT / "native/llm/sql/world_gossip.sql"))
+    # LLM memory v2 (C2 voiced-fact persistence + C8 conversation memory):
+    # an ALTER-only append over the 0411 seed tables plus one new table. The
+    # seed DDL above is NEVER edited to carry these columns - editing a
+    # shipped entry's bytes breaks the on-device ledger hash check and
+    # diverges fresh provisions from upgraded databases. This file lives in
+    # sql/migrations/ (also unglobbed) and stays the LAST entry: anything
+    # appended after a release ships must come after it in turn.
+    selected.append(Input("playerbot-characters", ROOT / "sql/migrations/ai_playerbot_llm_memory_v2.sql"))
     missing = [str(item.path) for item in selected if not item.path.is_file()]
     if missing:
         raise RuntimeError(f"missing pinned SQL inputs: {missing}")

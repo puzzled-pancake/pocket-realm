@@ -2781,6 +2781,140 @@ bool PlayerbotLlmMemory::CloudQuotaAdmits(char const* surface, uint32 perDay)
     return true;
 }
 
+// ---- A3: the exactly-one party responder -----------------------------------
+
+namespace {
+
+struct PartyResponderClaim
+{
+    uint32 botGuid;
+    int64_t expiresAt;
+    PartyResponderClaim() : botGuid(0), expiresAt(0) {}
+};
+
+// one key per (speaker, line, group): every bot hearing the same party
+// line computes the identical key, so the claim is per-LINE, not per-bot
+uint64 PartyClaimKey(uint32 speakerGuid, uint64_t msgHash, uint32 groupId)
+{
+    return (static_cast<uint64>(speakerGuid) << 24) ^
+        (msgHash * 0x9E3779B97F4A7C15ull) ^
+        (static_cast<uint64>(groupId) + 0x2545F4914F6CDD1Dull);
+}
+
+std::map<uint64, PartyResponderClaim>& PartyClaims()
+{
+    static std::map<uint64, PartyResponderClaim> instance;
+    return instance;
+}
+
+// the rotation stamp (the anti-monopolization field SelectResponder
+// consumes): bot guid -> ms-ordered mark of its last winning claim
+std::map<uint32, uint64_t>& PartyLastWonMs()
+{
+    static std::map<uint32, uint64_t> instance;
+    return instance;
+}
+
+// the flood gate's per-speaker admission stamp
+std::map<uint32, time_t>& PartyFloodLastAt()
+{
+    static std::map<uint32, time_t> instance;
+    return instance;
+}
+
+} // namespace
+
+uint64_t PlayerbotLlmMemory::PartyMsgHash(std::string const& msg)
+{
+    // FNV-1a 64: no seeded state, stable across processes - the N-bot
+    // fan-out must agree on the claim key for one line
+    uint64_t h = 14695981039346656037ull;
+    for (size_t i = 0; i < msg.size(); ++i)
+    {
+        h ^= (unsigned char)msg[i];
+        h *= 1099511628211ull;
+    }
+    return h;
+}
+
+bool PlayerbotLlmMemory::TryClaimPartyResponder(uint32 botGuid, uint32 speakerGuid,
+    uint64_t msgHash, uint32 groupId)
+{
+    if (!botGuid || !speakerGuid || !groupId)
+        return false;
+    int64_t const now = (int64_t)time(nullptr);
+    uint64 const key = PartyClaimKey(speakerGuid, msgHash, groupId);
+    std::lock_guard<std::mutex> lock(StateMutex());
+    // prune expired claims first: the state stays bounded and a stale
+    // claim can never block a later line (the window is seconds; the
+    // fan-out resolves within one tick)
+    std::map<uint64, PartyResponderClaim>& claims = PartyClaims();
+    for (auto itr = claims.begin(); itr != claims.end();)
+    {
+        if (itr->second.expiresAt <= now)
+            itr = claims.erase(itr);
+        else
+            ++itr;
+    }
+    if (claims.find(key) != claims.end())
+        return false; // first writer already holds this line
+    PartyResponderClaim& claim = claims[key];
+    claim.botGuid = botGuid;
+    claim.expiresAt = now + 5; // the short claim window
+    // the winner stamps the rotation map so the NEXT line's
+    // SelectResponder prefers a different equal-tier bot
+    PartyLastWonMs()[botGuid] = (uint64_t)now * 1000ull;
+    return true;
+}
+
+bool PlayerbotLlmMemory::CollectPartyCandidates(uint32 groupId, uint32 speakerGuid,
+    std::vector<PlayerbotLlmGates::ResponderCandidate>& out)
+{
+    out.clear();
+    if (!groupId)
+        return false;
+    Group* group = sObjectMgr.GetGroupById(groupId);
+    if (!group)
+        return false;
+    Player* speaker = speakerGuid
+        ? sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, speakerGuid))
+        : nullptr;
+    // snapshot the rotation stamps under the lock, then resolve tiers
+    // OUTSIDE it (GetTrainedTier hits the DB; StateMutex is never held
+    // across a query)
+    std::map<uint32, uint64_t> lastWon;
+    {
+        std::lock_guard<std::mutex> lock(StateMutex());
+        lastWon = PartyLastWonMs();
+    }
+    for (GroupReference* itr = group->GetFirstMember(); itr; itr = itr->next())
+    {
+        Player* member = itr->getSource();
+        if (!member || !member->GetPlayerbotAI() || !member->IsAlive())
+            continue; // bots only, and a dead bot cannot answer
+        PlayerbotLlmGates::ResponderCandidate c;
+        c.guid = member->GetGUIDLow();
+        c.tier = speaker ? GetTrainedTier(member, speaker) : 1;
+        auto won = lastWon.find(c.guid);
+        c.lastWonMs = won != lastWon.end() ? won->second : 0;
+        out.push_back(c);
+    }
+    return !out.empty();
+}
+
+bool PlayerbotLlmMemory::PartyFloodAdmits(uint32 speakerGuid)
+{
+    if (!speakerGuid)
+        return false;
+    time_t const now = time(nullptr);
+    std::lock_guard<std::mutex> lock(StateMutex());
+    time_t& lastAt = PartyFloodLastAt()[speakerGuid];
+    if (lastAt && now - lastAt < 2)
+        return false; // N lines within 2 s = ONE generation
+    lastAt = now;
+    return true;
+}
+
 std::vector<std::string> PlayerbotLlmMemory::RenderRecapDigest(Player* player)
 {
     std::vector<std::string> lines;

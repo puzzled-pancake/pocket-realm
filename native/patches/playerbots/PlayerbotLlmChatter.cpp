@@ -119,6 +119,23 @@ struct PendingLine
 size_t const kNoTemplate = static_cast<size_t>(-1);
 size_t const kQueueCap = 12;
 
+// A5: the cloud-failure latch classes and windows. The latch is
+// {lane, class, time} written ONLY by the composer worker's hard-failure
+// site (PostChatHttp == "error": transport refused / timed out /
+// non-2xx - the busy placeholder and the empty-but-parsed body never
+// latch), read-and-cleared at the murmur refill tick, and expires after
+// 10 minutes. failStreak counts CONSECUTIVE failed batches and doubles
+// the post-failure floor's effective spacing, capped at 8x; a batch that
+// produces usable content resets it.
+uint32 const kFailClassNone = 0;
+uint32 const kFailClassError = 1;
+uint32 const kFailClassTimeout = 2;
+uint32 const kFailStreakCapShift = 3;    // 1 << 3 = the 8x spacing cap
+time_t const kFailLatchExpirySec = 600;  // 10 minutes
+uint32 const kCloudFloorBaseSec = 270;   // the A5 floor's real spacing
+                                         // (floorMinSpacingSec is 0 on
+                                         // every live rung today)
+
 struct ChatterState
 {
     std::mutex mutex;
@@ -139,6 +156,13 @@ struct ChatterState
     // by worker threads and delivered on the WORLD thread in Tick - no
     // chat packet is ever sent from a worker (the module's own law)
     std::map<uint32, std::vector<std::string>> pendingSysLines;
+    // A5: the failure latch - atomics because the composer worker writes
+    // them off-thread while the world thread reads. The device worker
+    // NEVER writes them.
+    std::atomic<uint32> failLane{0};     // ChatterLayer of the failed batch
+    std::atomic<uint32> failClass{0};    // kFailClass* (0 = nothing latched)
+    std::atomic<time_t> failAt{0};       // when the hard failure landed
+    std::atomic<uint32> failStreak{0};   // consecutive failed batches
     // the reconciled power state (RUNG_OFF until a fresh file is seen)
     pocketllm::ChatterRung rung = pocketllm::RUNG_OFF;
     uint32 rng = 0;
@@ -621,10 +645,32 @@ void RunComposerBatchInner(ComposerJob const& job)
     std::string const http = PlayerbotLLMInterface::PostChatHttp(
         body, 30, &sPlayerbotAIConfig.llmChatterComposerUrlParsed,
         &sPlayerbotAIConfig.llmChatterComposerKey);
+    // A5: the failure latch - written ONLY here and ONLY on the hard
+    // class ("error": the endpoint refused / timed out / answered
+    // non-2xx). A busy or empty-but-parsed body NEVER latches: those are
+    // retry classes, and the floor must not fire for them. The murmur
+    // refill tick reads-and-clears the latch and lets the authored
+    // floor take the lane while the composer endpoint is dead (dead
+    // endpoint = authored fallback instead of silence - the cloud-lane
+    // half of the dead-endpoint law).
+    if (http == "error")
+    {
+        State().failLane.store((uint32)job.layer);
+        State().failClass.store(pocketllm::GenClassNote() == "timeout"
+            ? kFailClassTimeout
+            : kFailClassError);
+        State().failAt.store(time(nullptr));
+        uint32 const streak = State().failStreak.load();
+        if (streak < kFailStreakCapShift)
+            State().failStreak.store(streak + 1);
+    }
     pocketllm::CompletionEnvelope envelope = pocketllm::ParseCompletionEnvelope(http);
     if (envelope.parsed && pocketllm::ContentUsable(envelope) &&
         !job.factKeys.empty())
     {
+        // A5: a batch that produced usable content ends the failure
+        // streak - the spacing doubler tracks CONSECUTIVE failed batches
+        State().failStreak.store(0);
         std::vector<pocketllm::ScriptLine> script =
             pocketllm::ParseComposerScript(envelope.content, names);
         // the multi-party script DELIVERS: every accepted turn queues
@@ -1285,6 +1331,32 @@ void PlayerbotLlmChatter::Tick()
                 std::lock_guard<std::mutex> lock(s.mutex);
                 s.lastMurmurBatchAt = now;
             }
+            // A5: read-and-clear the composer failure latch HERE (the
+            // refill tick is where a dead cloud endpoint would otherwise
+            // mean pure silence on a composer-configured rung - the
+            // manual-override floor branch below is unreachable whenever
+            // a composer URL is configured). A live latch (hard error
+            // class, younger than the 10 min expiry) arms the authored
+            // post-failure floor for THIS refill; its effective spacing
+            // doubles per consecutive failed batch (the streak the
+            // composer worker maintains), capped at 8x. The leg is
+            // gated on CloudLaneOpen() - the key AND tier conjunction,
+            // never the bare key - so it never fires device-side, and
+            // the device worker never writes the latch in the first
+            // place.
+            bool cloudFloorArmed = false;
+            uint32 cloudFloorSpacingSec = kCloudFloorBaseSec;
+            {
+                time_t const failAtV = s.failAt.exchange(0);
+                if (failAtV && now - failAtV <= kFailLatchExpirySec)
+                {
+                    cloudFloorArmed = s.failClass.load() != kFailClassNone &&
+                        CloudLaneOpen();
+                    cloudFloorSpacingSec = std::max<uint32>(
+                        policy.floorMinSpacingSec, kCloudFloorBaseSec) <<
+                        std::min(s.failStreak.load(), kFailStreakCapShift);
+                }
+            }
             for (Player* player : players)
             {
                 std::vector<Player*> bots = MurmurCandidatesNear(player);
@@ -1303,23 +1375,75 @@ void PlayerbotLlmChatter::Tick()
 
                 if (policy.composer)
                 {
-                    // murmur is bot-to-bot (the player only
-                    // overhears), so at NORMAL with a composer configured
-                    // the batch is a CLOUD script over the nearby
-                    // personas; per-bot device calls are the fallback
-                    size_t const count = std::min<size_t>(3, bots.size());
-                    ComposerJob job;
-                    job.layer = pocketllm::LAYER_MURMUR;
-                    for (size_t i = 0; i < count; ++i)
+                    if (cloudFloorArmed)
                     {
-                        job.personas.push_back(DimsOf(bots[i], now));
-                        job.speakerGuids.push_back(bots[i]->GetGUIDLow());
+                        // A5 post-failure floor: the composer endpoint
+                        // failed hard, so the cloud script that would
+                        // have filled this window is dead - the authored
+                        // event-grounded floor takes the lane instead
+                        // (never for budget drops: those stopped at the
+                        // batch gate above). Same guard set as the
+                        // manual-override floor - its own effective
+                        // spacing (doubled per consecutive failed batch,
+                        // capped 8x), template spacing, the queue cap,
+                        // the ring - and it rides the NORMAL delivery
+                        // stamp in the drain loop (no arbiter exemption:
+                        // entry.floor lines are budget-checked and
+                        // charged like every murmur line).
+                        size_t const tpl = urand(0, uint32(pocketllm::MurmurFloorTemplateCount() - 1));
+                        std::string const floorText = pocketllm::ClampMurmurBytes(
+                            pocketllm::RenderFloorTemplate(tpl, speaker->GetName(),
+                                listener->GetName(), telling),
+                            pocketllm::kMurmurMaxBytes);
+                        if (pocketllm::ChatterLineSafe(floorText))
+                        {
+                            std::lock_guard<std::mutex> lock(s.mutex);
+                            if (now - s.lastFloorAt >= (time_t)cloudFloorSpacingSec &&
+                                pocketllm::TemplateSpacingAdmits(s.fatigue, tpl,
+                                    speaker->GetGUIDLow(), listener->GetGUIDLow(),
+                                    now, (int64_t)cloudFloorSpacingSec) &&
+                                s.queue.size() < kQueueCap)
+                            {
+                                PendingLine entry;
+                                entry.layer = pocketllm::LAYER_MURMUR;
+                                entry.floor = true;
+                                entry.speakerGuid = speaker->GetGUIDLow();
+                                entry.listenerGuid = listener->GetGUIDLow();
+                                entry.text = floorText;
+                                entry.factKey = row.factKey;
+                                entry.originator = row.originatorForSpeaker;
+                                entry.templateIdx = tpl;
+                                entry.notBefore = now + urand(policy.murmurDisplayMinSec,
+                                    policy.murmurDisplayMaxSec);
+                                if (pocketllm::RingAdmits(s.ring, entry.text))
+                                {
+                                    s.queue.push_back(entry);
+                                    s.lastFloorAt = now;
+                                }
+                            }
+                        }
                     }
-                    job.eventRows.push_back(telling);
-                    job.factKeys.push_back(row.factKey);
-                    job.displayMinSec = policy.murmurDisplayMinSec;
-                    job.displayMaxSec = policy.murmurDisplayMaxSec;
-                    DispatchComposerJob(job);
+                    else
+                    {
+                        // murmur is bot-to-bot (the player only
+                        // overhears), so at NORMAL with a composer
+                        // configured the batch is a CLOUD script over
+                        // the nearby personas; per-bot device calls are
+                        // the fallback
+                        size_t const count = std::min<size_t>(3, bots.size());
+                        ComposerJob job;
+                        job.layer = pocketllm::LAYER_MURMUR;
+                        for (size_t i = 0; i < count; ++i)
+                        {
+                            job.personas.push_back(DimsOf(bots[i], now));
+                            job.speakerGuids.push_back(bots[i]->GetGUIDLow());
+                        }
+                        job.eventRows.push_back(telling);
+                        job.factKeys.push_back(row.factKey);
+                        job.displayMinSec = policy.murmurDisplayMinSec;
+                        job.displayMaxSec = policy.murmurDisplayMaxSec;
+                        DispatchComposerJob(job);
+                    }
                 }
                 else if (policy.generated)
                 {

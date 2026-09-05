@@ -1,7 +1,7 @@
 """Seeding fidelity harness.
 
 Proves the manifest-driven rebuilt seeder end-to-end against the pinned
-412-entry migration manifest:
+413-entry migration manifest:
 
   - SEED OK with ZERO statement errors in every database and a sanitized
     summary that byte-matches the append-only baseline
@@ -1150,3 +1150,111 @@ def test_baseline_pins_manifest_hash_and_transcript_sizes(seed_run) -> None:
              for db in DB_NAMES}
     assert stored["transcript_sizes"] == sizes
     assert sum(sizes.values()) > 100_000_000
+
+
+# ---------------------------------------------------------------------------
+# C2 append-only tail parity (plan rp-depth-fix v2.3 §4 C2)
+# ---------------------------------------------------------------------------
+
+
+def _bot_table_infos(db_path: Path) -> dict[str, list[tuple]]:
+    """PRAGMA table_info rows for every bot_* table, keyed by table name
+    (cid, name, type, notnull, dflt_value, pk - the full shape)."""
+    conn = sqlite3.connect(str(db_path))
+    try:
+        names = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name LIKE 'bot\\_%' ESCAPE '\\'")]
+        return {name: conn.execute(
+            f'PRAGMA table_info("{name}")').fetchall() for name in names}
+    finally:
+        conn.close()
+
+
+def test_c2_tail_parity_fresh_replay_matches_truncated_plus_0413(
+        seed_run, tmp_path) -> None:
+    """The append-only law's mechanical backstop: a FRESH full-manifest
+    replay and an UPGRADE-shaped replay (the previous manifest minus its
+    last entry, then the 0413 v2 file applied as the upgrade step) must
+    converge on IDENTICAL PRAGMA table_info for every bot_* table.
+
+    This is the pin for the C2 bricking risk: editing the SHIPPED seed
+    DDL (ai_playerbot_llm_memory.sql) to carry the new columns inline
+    would diverge fresh provisions from the 0412-shaped databases the
+    field already holds - the truncated leg then fails loudly here
+    (duplicate column, or a shifted table_info) instead of at first boot
+    on a device. The truncated leg executes only schema-shaping
+    statements (CREATE/ALTER/DROP): PRAGMA table_info is DDL-determined,
+    and re-executing the 153 MiB characters INSERT corpus would buy no
+    fidelity over the fresh leg's full execution."""
+    manifest = json.loads(seeder.MANIFEST.read_text(encoding="utf-8"))
+    tail = manifest["entries"][-1]
+    assert tail["migration_id"] == (
+        "0413-playerbot-characters-ai_playerbot_llm_memory_v2"), tail
+    assert tail["database"] == "classiccharacters", tail
+    # entry_bytes re-verifies the file's bytes against the manifest's
+    # sql_sha256 pin - the upgrade leg replays exactly the shipped SQL.
+    v2_sql = seeder.entry_bytes(tail).decode("utf-8")
+
+    report = translator.TranslationReport()
+    variables: dict[str, str] = {}
+    db_states: dict[str, translator.DBSchemaState] = {}
+    schema_stmts: list[str] = []
+    for entry in manifest["entries"][:-1]:
+        text = seeder.entry_bytes(entry).decode("utf-8")
+        stmts = translator.translate_file_text(
+            text, entry["source_path"], report, variables,
+            db_state=db_states.setdefault(entry["database"],
+                                          translator.DBSchemaState()))
+        if entry["database"] == "classiccharacters":
+            schema_stmts.extend(
+                s for s in stmts if re.match(
+                    r"\s*(CREATE|ALTER|DROP)\b", s, re.I))
+    # The upgrade step: the v2 file translated as its own tail against the
+    # SAME replay-continued schema state an upgraded database would have.
+    schema_stmts.extend(translator.translate_file_text(
+        v2_sql, tail["source_path"], report, variables,
+        db_state=db_states["classiccharacters"]))
+
+    upgraded = tmp_path / "upgraded-characters.sqlite"
+    conn = sqlite3.connect(str(upgraded))
+    try:
+        conn.execute("PRAGMA foreign_keys=OFF")
+        for stmt in schema_stmts:
+            conn.execute(stmt)
+        conn.commit()
+    finally:
+        conn.close()
+
+    fresh_infos = _bot_table_infos(seed_run["out"] / "classiccharacters.sqlite")
+    upgraded_infos = _bot_table_infos(upgraded)
+    # The bot_* table SET itself must converge (a table only one leg has
+    # is a diverged provision, not just a changed column).
+    assert set(fresh_infos) == set(upgraded_infos), (
+        sorted(fresh_infos), sorted(upgraded_infos))
+    assert set(fresh_infos) == {
+        "bot_backstory", "bot_player_facts", "bot_player_relationship",
+        "bot_player_history"}, sorted(fresh_infos)
+    for name in sorted(fresh_infos):
+        assert fresh_infos[name] == upgraded_infos[name], (
+            f"bot_* schema divergence on {name}: fresh "
+            f"{fresh_infos[name]} vs upgraded {upgraded_infos[name]}")
+
+    # Shape pins for the 0413 columns themselves (order included - the
+    # appended-at-tail positions ARE the upgrade contract).
+    facts_cols = [r[1] for r in fresh_infos["bot_player_facts"]]
+    assert facts_cols[-1] == "voiced_at", facts_cols
+    rel_cols = [r[1] for r in fresh_infos["bot_player_relationship"]]
+    assert rel_cols[-3:] == ["last_voiced_tier", "last_greeted_at",
+                             "last_greet_line"], rel_cols
+    assert [(r[1], r[5]) for r in fresh_infos["bot_player_history"]
+            if r[5] > 0] == [("bot", 1), ("player_or_channel", 2),
+                             ("seq", 3)], fresh_infos["bot_player_history"]
+    # NULL default = "never voiced" - the no-backfill law, at the schema
+    # (explicit DEFAULT NULL renders as the 'NULL' literal in table_info).
+    for table, col in (("bot_player_facts", "voiced_at"),
+                       ("bot_player_relationship", "last_voiced_tier"),
+                       ("bot_player_relationship", "last_greeted_at"),
+                       ("bot_player_relationship", "last_greet_line")):
+        row = next(r for r in fresh_infos[table] if r[1] == col)
+        assert row[3] == 0 and row[4] == "NULL", (table, col, row)

@@ -883,7 +883,14 @@ object BotProfiles {
             5 * 60_000L, 10_000L),
     )
 
-    /** Larger persistent population; nearby fast, remote background. */
+    /**
+     * Larger persistent population; nearby fast, remote background.
+     * Memory floor 2_048 keeps the experience ladder monotonic (B7): every
+     * step up the curated ladder must demand at least the free memory of the
+     * step below - a dip would let a "bigger" preset admit on devices the
+     * smaller one already rejects. Matches ALIVE_REALM_320/FULL/MASSIVE and
+     * the custom-configuration default.
+     */
     val CROWDED_REALM_400 = BotProfile(
         id = "preset-crowded-realm-b400-v1",
         displayName = "Crowded Realm · 400 bots",
@@ -919,7 +926,7 @@ object BotProfiles {
         groupNearby = true,
         wanderWhenIdle = true,
         enableOffSpecStrategies = true,
-        admission = BotAdmissionLimits(250, 1_792, 2_048, 4 * 60_000L, 25, 25,
+        admission = BotAdmissionLimits(250, 2_048, 2_048, 4 * 60_000L, 25, 25,
             5 * 60_000L, 10_000L),
     )
 

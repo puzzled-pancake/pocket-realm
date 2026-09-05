@@ -848,9 +848,15 @@ def test_plan_v5_wave1_fixes_and_pin_gaps():
     assert "AuthoredBudgetHasRoom(PlayerbotLlmMemory::ARB_AMBIENT)" in refill, \
         "a spent ambient budget skips the murmur batch entirely"
 
-    caps = memory.split("uint32 const catCap = category == PlayerbotLlmMemory::ARB_AMBIENT")[1].split("int64_t const now")[0]
-    assert "std::min<uint32>(3, globalCap)" in caps, "ambient sub-cap 3/hr"
-    assert "std::min<uint32>(2, globalCap)" in caps, "reaction sub-cap 2/hr"
+    # A7 re-pin: catCap is now lane-split (cloud proportional caps over
+    # the same ternary; the device arm keeps the historical sub-caps)
+    caps = memory.split("uint32 const catCap = cloudTier")[1].split("int64_t const now")[0]
+    assert "std::min<uint32>(3, globalCap)" in caps, "device ambient sub-cap 3/hr"
+    assert "std::min<uint32>(2, globalCap)" in caps, "device reaction sub-cap 2/hr"
+    assert "std::max<uint32>(1, globalCap / 4)" in caps, \
+        "cloud ambient proportional cap (cap/4 - without it the street quota is unreachable)"
+    assert "std::max<uint32>(1, globalCap / 8)" in caps, \
+        "cloud reaction proportional cap (cap/8)"
 
     bridge = BRIDGE_CPP.read_text(encoding="utf-8")
     debt = bridge.split("case PlayerbotLlmBridge::EVENT_DEBT_SETTLED:")[1].split("default:")[0]

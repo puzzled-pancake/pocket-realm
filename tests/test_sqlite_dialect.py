@@ -403,17 +403,18 @@ def test_pinned_ddl_files_match_the_migration_manifest_hashes() -> None:
     assert len(by_source) == len(manifest["entries"]), (
         "duplicate source_path in the migration manifest")
     # Append-only discipline pinned mechanically: the exact entry count
-    # and the 0411/0412 tail (a silent mid-array insertion fails here,
+    # and the 0412/0413 tail (a silent mid-array insertion fails here,
     # not at seed time).
-    assert len(manifest["entries"]) == 412, (
+    assert len(manifest["entries"]) == 413, (
         f"migration manifest has {len(manifest['entries'])} entries, "
-        "expected the pinned 412")
+        "expected the pinned 413")
     assert [e["migration_id"] for e in manifest["entries"][-2:]] == [
-        "0411-playerbot-characters-ai_playerbot_llm_memory",
-        "0412-playerbot-world-world_gossip"], (
-        "the manifest tail must stay 0411/0412 (append-only)")
+        "0412-playerbot-world-world_gossip",
+        "0413-playerbot-characters-ai_playerbot_llm_memory_v2"], (
+        "the manifest tail must stay 0412/0413 (append-only)")
     for rel in ("native/llm/sql/ai_playerbot_llm_memory.sql",
-                "native/llm/sql/world_gossip.sql"):
+                "native/llm/sql/world_gossip.sql",
+                "sql/migrations/ai_playerbot_llm_memory_v2.sql"):
         entry = by_source.get(rel)
         assert entry is not None, f"{rel} missing from the migration manifest"
         blob = (ROOT / rel).read_bytes()

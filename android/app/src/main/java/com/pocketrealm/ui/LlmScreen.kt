@@ -202,12 +202,36 @@ internal fun LlmScreen(contentPadding: PaddingValues = PaddingValues()) {
                     "cloud-composer setup for richer party banter.",
                 onChange = { enabled -> update { it.copy(llmAmbience = enabled) } },
             )
+            // F3: the lane-neutral "how to talk" hint. Every claim is
+            // code-supported on BOTH lanes: name-addressing is the hard
+            // trigger for /say (a whisper always works), greeting lines
+            // come from tier pools (strangers draw the short lines), and
+            // the realm's population ramps from its initial count toward
+            // the target over the first minutes.
+            Text(
+                LLM_SPEECH_HINT,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("llm-speech-hint"),
+            )
             if (snap.llmExternalMode) {
                 Text(
                     "External endpoint — the embedded runtime stays stopped; " +
                         "settings apply at the next realm start.",
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.testTag("llm-external-note"),
+                )
+                HorizontalDivider()
+                // §0.a UI row: the Cloud conversation toggle (AiPlayerbot.
+                // LLMCloudChatter). Visible only when an external provider
+                // is configured — the key masters cloud-lane widenings and
+                // means nothing on the embedded lane.
+                SwitchRow(
+                    label = "Cloud conversation",
+                    checked = snap.llmCloudChatter,
+                    tag = "llm-cloud-chatter",
+                    support = LLM_CLOUD_CHATTER_SUPPORT,
+                    onChange = { enabled -> update { it.copy(llmCloudChatter = enabled) } },
                 )
             } else {
                 // Stats broadcasts arrive at >=1 Hz while the service lives; two
@@ -609,6 +633,34 @@ internal fun LlmScreen(contentPadding: PaddingValues = PaddingValues()) {
 
 /** Snapshot of the staged model + NPU readiness, polled on a 2 s tick. */
 private const val MODEL_POLL_MS = 2_000L
+
+/**
+ * F3: the lane-neutral "how to talk to bots" hint shown in the Runtime
+ * card. Pinned by the UI copy contract test — every clause must stay
+ * code-supported on both lanes: name-addressing is the both-lane hard
+ * trigger for /say (whispers always work); greeting length follows the
+ * relationship tier pools (strangers keep it short); the admission ramp
+ * grows the population from its initial count over the first minutes.
+ */
+internal const val LLM_SPEECH_HINT: String =
+    "How to talk: say a bot's name in chat (or whisper them) and they " +
+        "answer back. Strangers keep it short — bots you spend time with " +
+        "open up. A fresh realm also starts quiet: its population grows " +
+        "from the first few bots to the full target over the first minutes."
+
+/**
+ * §0.c.4 spend disclosure for the Cloud conversation toggle: what leaves
+ * the device, what it roughly costs (prompt-dominated), and when it
+ * applies. Pinned by the UI copy contract test.
+ */
+internal const val LLM_CLOUD_CHATTER_SUPPORT: String =
+    "Widens what your external provider is asked for: bots also answer " +
+        "party lines you did not address, react to street talk, and chat " +
+        "with each other. Bot chat, including your messages, is sent to " +
+        "your configured external provider — expect roughly 1–1.5M tokens " +
+        "per active evening (almost all of it is prompt context, not " +
+        "replies). Applies on the next realm start; daily quotas are " +
+        "per-session and reset when the realm restarts."
 
 /** E5: the picker's per-model trade-off line (small-first ordering). */
 private fun modelPickerLabel(desc: LlmModelDescriptor): String {

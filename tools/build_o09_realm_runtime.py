@@ -35,7 +35,7 @@ LOCKFILE = ROOT / "schemas" / "realm-runtime-lockfile.json"
 CONNECTOR_URL = "https://github.com/MariaDB/mariadb-connector-c.git"
 CONNECTOR_COMMIT = "de6305915f86bb33c83b1fe782a2b8a76920aec1"
 CMANGOS_COMMIT = "082afd606f8e37ea939df6fdfcd4af81f8085e6e"
-PLAYERBOTS_COMMIT = "0c9d44a1952cf2541adc75df550c33972643346a"
+PLAYERBOTS_COMMIT = "6c681ef8dd63cb96f111dc9239d569d6663347e5"
 MAX_PAGE = 0x4000
 BACKEND = "mysql"
 
@@ -1660,14 +1660,24 @@ PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBacken
     if (hardTriggerAllowed && gateSpeaker && gateSpeaker->isRealPlayer())
         PlayerbotLlmChatter::NotePlayerInteraction(gateSpeaker->GetGUIDLow());
 
-    // plan v5 C3: the roundtable row - a real master's PARTY line is
+    // plan v5 C3: the roundtable row + A3's exactly-one responder - a
+    // real master's PARTY line is
     // remembered so the next party-lane composer exchange can argue
     // about what the PLAYER just said (quota-capped at consumption).
-    // W5: an UNADDRESSED party line (no bot named - never a hard trigger)
-    // consumes an armed curiosity ask here; players answer on the channel
-    // the group talks on. The block sits OUTSIDE hardTriggerAllowed on
-    // purpose: hardTrigger == addressedToBot on SRC_PARTY, so the
-    // unaddressed leg is unreachable behind that gate
+    // W5: an UNADDRESSED party line (no bot named) consumes an armed
+    // curiosity ask here; players answer on the channel the group talks
+    // on. A3 widens the unaddressed leg into exactly-one RESPONDER
+    // (cloud lane only, behind the default-0 party reply arm):
+    // recording is preserved for ALL bots - the unaddressed leg now
+    // NotePartyLine beside the consume - while the GENERATION belongs to
+    // one bot. The claim is checked at the TOP of the party block so
+    // loser bots skip the context-building fan-out entirely, not just
+    // dispatch: every bot deterministically picks the same responder
+    // (SelectResponder over the group candidates), the picked bot then
+    // passes the per-speaker flood gate (N lines in 2 s = one
+    // generation) and takes the first-writer-wins claim. The addressed
+    // bot bypasses the claim; whisper/say paths never consult it.
+    bool partyResponderClaimed = true;
     if (gateSpeaker && gateSpeaker->isRealPlayer() &&
         chatChannelSource == ChatChannelSource::SRC_PARTY)
     {
@@ -1676,12 +1686,42 @@ PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBacken
         else
             PlayerbotLlmMemory::ConsumePendingAnswer(bot->GetGUIDLow(),
                 gateSpeaker->GetGUIDLow(), msg);
+        // A3: recording for ALL bots - the unaddressed line joins the
+        // roundtable row too (the old shape recorded it only when a bot
+        // was named)
+        if (!addressedToBot)
+            PlayerbotLlmChatter::NotePartyLine(gateSpeaker->GetGUIDLow(), msg);
+
+        if (!addressedToBot && CloudLaneOpen() &&
+            sPlayerbotAIConfig.llmPartyReplyEnabled != 0)
+        {
+            partyResponderClaimed = false;
+            if (Group* responderGroup = bot->GetGroup())
+            {
+                std::vector<PlayerbotLlmGates::ResponderCandidate> partyCandidates;
+                PlayerbotLlmMemory::CollectPartyCandidates(
+                    responderGroup->GetId(), gateSpeaker->GetGUIDLow(),
+                    partyCandidates);
+                uint32 const pickedResponder =
+                    PlayerbotLlmGates::SelectResponder(partyCandidates);
+                if (pickedResponder == bot->GetGUIDLow() &&
+                    PlayerbotLlmMemory::PartyFloodAdmits(gateSpeaker->GetGUIDLow()))
+                {
+                    partyResponderClaimed = PlayerbotLlmMemory::TryClaimPartyResponder(
+                        bot->GetGUIDLow(), gateSpeaker->GetGUIDLow(),
+                        PlayerbotLlmMemory::PartyMsgHash(msg), responderGroup->GetId());
+                }
+            }
+        }
     }
 
     // A1: the cloud lane widens the strategy gate (CloudLaneOpen() is the
     // key AND tier conjunction - llmEnabled == 2 + strategy stays today's
-    // external behavior byte-for-byte; == 3 stays the hand-conf lane)
-    if (bot->GetPlayerbotAI() && sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed && (bot->GetPlayerbotAI()->HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3 || CloudLaneOpen()) && chatChannelSource != ChatChannelSource::SRC_UNDEFINED && sPlayerbotAIConfig.llmBlockedReplyChannels.find(chatChannelSource) == sPlayerbotAIConfig.llmBlockedReplyChannels.end()
+    // external behavior byte-for-byte; == 3 stays the hand-conf lane).
+    // A3: the responder claim ANDs in here - it starts true and only the
+    // unaddressed cloud party leg can clear it, so the addressed,
+    // whisper and say paths never consult the claim
+    if (bot->GetPlayerbotAI() && sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed && partyResponderClaimed && (bot->GetPlayerbotAI()->HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3 || CloudLaneOpen()) && chatChannelSource != ChatChannelSource::SRC_UNDEFINED && sPlayerbotAIConfig.llmBlockedReplyChannels.find(chatChannelSource) == sPlayerbotAIConfig.llmBlockedReplyChannels.end()
         )
 """
 PB_SAY_PROMPT_UPSTREAM = """                for (auto& prompt : jsonFill)

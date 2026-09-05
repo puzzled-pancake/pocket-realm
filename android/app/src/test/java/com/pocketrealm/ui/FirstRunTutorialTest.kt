@@ -79,10 +79,17 @@ class FirstRunTutorialTest {
         // of it (that would dead-end the user)
         assertTrue("staged from a pc" in text)
         assertTrue("in-app download" in text)
-        // optional, offline, honest about skipping
+        // optional, honest about skipping
         assertTrue("optional" in step.title.lowercase())
-        assertTrue("offline" in text)
         assertTrue("skip it" in text)
+        // F3 lane honesty: the realm and game are always local; the bot
+        // chat is on-device BY DEFAULT and can be pointed at a cloud
+        // provider. The old unqualified claim must not come back.
+        assertTrue("offline" in text)
+        assertTrue("on this device" in text)
+        assertTrue("by default" in text)
+        assertTrue("cloud provider" in text)
+        assertFalse("everything runs on this device" in text)
     }
 
     @Test

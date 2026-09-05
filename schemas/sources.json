@@ -85,7 +85,7 @@
       "kind": "git-submodule",
       "upstream_url": "https://github.com/cmangos/playerbots.git",
       "branch": "pocket-realm",
-      "commit": "0c9d44a1952cf2541adc75df550c33972643346a",
+      "commit": "6c681ef8dd63cb96f111dc9239d569d6663347e5",
       "commit_date": "2026-07-31 (+ Pocket Realm Android patch)",
       "role": "Bot subsystem enabled only after the MariaDB-backed zero-bot gate; measured tiers and admission control are tracked with the bot feature.",
       "license": "GPL-2.0-or-later",
