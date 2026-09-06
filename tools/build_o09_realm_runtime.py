@@ -2210,20 +2210,26 @@ PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBacken
                 // claim everywhere and the addressed bot's bypass is
                 // the ONE generation (the 2-responder case is the
                 // pinned failure). The canonical name matcher decides.
-                uint32 addressedGuid = 0;
+                // Round-5 R1: only a named BOT member is an addressee
+                // (a named PLAYER addresses no bot - the line stays
+                // unaddressed for the ordering pick), and an addressee
+                // that is no candidate (dead) makes the pick 0 -
+                // bystanders STAND DOWN, never a second generation
+                // beside the addressee's own turn.
+                uint32 addressedBotGuid = 0;
                 for (GroupReference* memberItr = responderGroup->GetFirstMember();
                      memberItr; memberItr = memberItr->next())
                 {
                     Player* namedMember = memberItr->getSource();
-                    if (namedMember &&
+                    if (namedMember && namedMember->GetPlayerbotAI() &&
                         PlayerbotLlmGates::ContainsNameIgnoreCase(msg, namedMember->GetName()))
                     {
-                        addressedGuid = namedMember->GetGUIDLow();
+                        addressedBotGuid = namedMember->GetGUIDLow();
                         break;
                     }
                 }
                 uint32 const pickedResponder =
-                    PlayerbotLlmGates::SelectResponder(partyCandidates, addressedGuid);
+                    PlayerbotLlmGates::SelectResponder(partyCandidates, addressedBotGuid);
                 if (pickedResponder == bot->GetGUIDLow() &&
                     PlayerbotLlmMemory::PartyFloodAdmits(gateSpeaker->GetGUIDLow()))
                 {
@@ -3796,8 +3802,11 @@ PB_LLM_CONF_ANDROID = """# Time in seconds the server will wait for the generati
 # the Android system store) and pin the hostname; TLS 1.2 floor. 0
 # restores the unverified handshake (no peer/hostname check) for
 # self-signed LAN endpoints - the TLS 1.2 protocol floor itself stays
-# unconditional. http:// endpoints are unaffected either way (the Bearer
-# key already rides those in cleartext; the app's normalizer warns).
+# unconditional. http:// endpoints are unaffected either way: the Bearer
+# key already rides those in cleartext, so prefer https:// endpoints
+# outside a trusted LAN. External endpoints resolve IPv4 only (the
+# transport pins AF_INET) - serve the provider's IPv4 address or a
+# dual-stack host.
 # AiPlayerbot.LLMTLSVerify = 1
 # The CA bundle the app stages next to the conf (absolute path; empty =
 # system store fallback).

@@ -142,4 +142,6 @@ dispatch+end only (`NO_BEGIN_CLASSES == {busy}`) - and exactly one
 GenerateHttp, whose first check is the concurrency cap. Zero `BotLLM:`
 lines no-op PASSES unless `--require-a8` is given (then it fails). The
 result also carries nearest-rank `latencyMs` percentiles (`p50`/`p95`/`n`)
-computed from the end lines' `durMs` fields.
+computed from the end lines' `durMs` fields, plus the ok-class subset
+(`okP50`/`okP95`/`okN`) so fast busy/cap denials do not deflate the SLA
+cross-check.

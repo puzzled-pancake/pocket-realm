@@ -392,6 +392,9 @@ class LlmRuntimePolicyTest {
             cloudLane = CloudLaneConf(cloudChatter = true),
         )!!
         assertTrue(on.contains("AiPlayerbot.LLMCloudChatter = 1"))
+        // round-5 R5: the staged-0 ninth key is value-asserted too (the
+        // whole family is present-and-self-describing on the ON lane)
+        assertTrue(on.contains("AiPlayerbot.LLMPartyReplyEnabled = 0"))
         assertTrue(on.contains("AiPlayerbot.LLMCloudStreetSayPct = 25"))
         assertTrue(on.contains("AiPlayerbot.LLMStreetSayPerDay = 200"))
         assertTrue(on.contains("AiPlayerbot.LLMRpgChatPerDay = 300"))

@@ -33,6 +33,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PATCHES = ROOT / "native" / "patches" / "playerbots"
 MEMORY_H = PATCHES / "PlayerbotLlmMemory.h"
 MEMORY_CPP = PATCHES / "PlayerbotLlmMemory.cpp"
+GATES_H = PATCHES / "PlayerbotLlmGates.h"
 DRIVER = ROOT / "tools" / "build_o09_realm_runtime.py"
 
 
@@ -154,7 +155,7 @@ def test_payload_consumes_pick_and_claim_at_the_top_of_the_party_block():
     # just dispatch)
     assert "bool partyResponderClaimed = true;" in party
     assert "PlayerbotLlmMemory::CollectPartyCandidates(" in party
-    assert "PlayerbotLlmGates::SelectResponder(partyCandidates, addressedGuid)" in party
+    assert "PlayerbotLlmGates::SelectResponder(partyCandidates, addressedBotGuid)" in party
     assert "PlayerbotLlmMemory::TryClaimPartyResponder(" in party
     assert "PlayerbotLlmMemory::PartyFloodAdmits(gateSpeaker->GetGUIDLow())" in party
     assert "PlayerbotLlmMemory::PartyMsgHash(msg)" in party
@@ -225,26 +226,38 @@ def test_addressed_whisper_and_say_never_consult_the_claim():
 
 
 def test_addressed_line_resolves_the_pick_to_the_named_bot_round4():
-    """Round-4 R1: an ADDRESSED party/raid line must yield exactly ONE
-    generation - the named bot's own dispatch (its claim bypass). The
-    non-named bots compute the SAME addressedGuid from the same msg +
-    group, the pick resolves to it, and every bystander loses the claim
-    (no second responder, no Tier I double-burn - the plan's own A3.2
-    sketch parameter)."""
+    """Round-4 R1 + round-5 R1: an ADDRESSED party/raid line must yield
+    exactly ONE generation - the named bot's own dispatch (its claim
+    bypass). The non-named bots compute the SAME addressedBotGuid from
+    the same msg + group (BOT members only - a named player addresses
+    no bot and the line stays unaddressed for the ordering pick), the
+    pick resolves to it, and every bystander loses the claim (no second
+    responder, no Tier I double-burn - the plan's own A3.2 sketch
+    parameter). An addressee that is no candidate (dead) picks NOBODY:
+    bystanders stand down - never a second generation beside the
+    addressee's own turn."""
     gate = android_anchor("PB_SAY_GATE_ANDROID")
     party = gate.split("plan v5 C3: the roundtable row")[1].split(
         "if (sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed"
         " && partyResponderClaimed && replyGateAllowed")[0]
     claim_leg = party.split("if (!addressedToBot && CloudLaneOpen()")[1]
-    # the addressed guid is computed INSIDE the claim leg from the group
-    # members via the canonical name matcher
-    assert "uint32 addressedGuid = 0;" in claim_leg
+    # the addressed guid is computed INSIDE the claim leg from the
+    # group's BOT members via the canonical name matcher
+    assert "uint32 addressedBotGuid = 0;" in claim_leg
+    assert "namedMember->GetPlayerbotAI() &&" in claim_leg
     assert ("PlayerbotLlmGates::ContainsNameIgnoreCase(msg, "
             "namedMember->GetName())") in claim_leg
-    assert "addressedGuid = namedMember->GetGUIDLow();" in claim_leg
+    assert "addressedBotGuid = namedMember->GetGUIDLow();" in claim_leg
     # ... and the pick consumes it
     assert ("PlayerbotLlmGates::SelectResponder(partyCandidates, "
-            "addressedGuid)") in claim_leg
+            "addressedBotGuid)") in claim_leg
+    # round-5 R1: the pure pick STANDS DOWN when the addressed guid
+    # resolves to no candidate (dead/absent addressee) - never the
+    # ordering fallthrough
+    header = GATES_H.read_text(encoding="utf-8")
+    select = header.split("inline std::uint32_t SelectResponder")[1]
+    select = select.split("\n    }")[0]
+    assert "return 0; // the addressee cannot answer via the claim" in select
 
 
 def test_raid_arm_shares_the_exactly_one_claim_round3():

@@ -199,6 +199,12 @@ namespace PlayerbotLlmGates
     // bot's bypass is the ONE generation - the 2-responder case is the
     // pinned failure. Every bot computes the same addressedGuid from
     // the same msg + group, so the preference is fan-out-stable.
+    // Round-5 R1: an addressedGuid that resolves to NO candidate means
+    // the addressee cannot answer through the claim (dead or absent) -
+    // the pick returns 0 and bystanders STAND DOWN rather than falling
+    // through to the ordering: the line is addressed, and the widened
+    // unaddressed arm must not add a second generation beside the
+    // addressee's own turn.
     inline std::uint32_t SelectResponder(std::vector<ResponderCandidate> const& candidates,
         std::uint32_t addressedGuid = 0)
     {
@@ -209,6 +215,7 @@ namespace PlayerbotLlmGates
                 if (c.guid == addressedGuid)
                     return c.guid;
             }
+            return 0; // the addressee cannot answer via the claim
         }
         ResponderCandidate const* best = nullptr;
         for (ResponderCandidate const& c : candidates)

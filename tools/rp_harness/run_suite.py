@@ -60,6 +60,7 @@ def check_a8_lines(lines, require: bool = False) -> dict:
     counts: dict[str, dict[str, int]] = {}
     end_classes: dict[str, str] = {}
     durations: list[int] = []
+    ok_durations: list[int] = []
     botllm_lines = 0
 
     def bump(req: str, phase: str) -> None:
@@ -75,6 +76,8 @@ def check_a8_lines(lines, require: bool = False) -> dict:
         dur = RE_END_DUR.search(line)
         if dur:
             durations.append(int(dur.group(2)))
+            if cls and cls.group(2) == "ok":
+                ok_durations.append(int(dur.group(2)))
         for phase, pattern in (("dispatch", RE_DISPATCH), ("begin", RE_BEGIN),
                                ("end", RE_END)):
             match = pattern.search(line)
@@ -83,7 +86,9 @@ def check_a8_lines(lines, require: bool = False) -> dict:
 
     # plan A8: "p50/p95 from durMs" (round-4 R2) - nearest-rank
     # percentiles over every end line that carries a durMs; the report
-    # key rides into the JSON via the embedded result dict
+    # key rides into the JSON via the embedded result dict. Round-5 R7:
+    # fast denials (busy/cap) deflate the aggregate, so the ok-class
+    # subset is reported beside it (the honest SLA cross-check).
     def pct(values: list[int], p: float) -> int:
         rank = max(1, math.ceil(len(values) * p / 100.0))
         return sorted(values)[rank - 1]
@@ -92,6 +97,10 @@ def check_a8_lines(lines, require: bool = False) -> dict:
     if durations:
         latency_ms = {"p50": pct(durations, 50), "p95": pct(durations, 95),
                       "n": len(durations)}
+    if ok_durations:
+        latency_ms.update({"okP50": pct(ok_durations, 50),
+                           "okP95": pct(ok_durations, 95),
+                           "okN": len(ok_durations)})
 
     violations: list[str] = []
     if botllm_lines == 0:
@@ -132,7 +141,7 @@ def check_a8_log(path: str | Path, require: bool = False) -> dict:
         text = Path(path).read_text(encoding="utf-8", errors="replace")
     except OSError:
         return {"ok": not require, "noOp": not require, "botllmLines": 0,
-                "requests": 0,
+                "requests": 0, "latencyMs": {},
                 "violations": [] if not require
                 else [f"world log not readable: {path}"]}
     return check_a8_lines(text.splitlines(), require=require)

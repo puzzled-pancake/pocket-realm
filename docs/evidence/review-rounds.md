@@ -501,3 +501,111 @@ the harness lane's next touch); the three harness polish nits
 (first-match strictness is a recorded choice pending the realmd-auth
 text transport; the docstring claim and the parse-escape are
 device-gated-lane polish).
+
+## Round 5
+
+**Diffstat re-reviewed**: `git diff 6045eeb..aced79b` — 117 files,
++19093/−323 (the round-4 fix batch plus docs; same submodule ranges).
+All 8 reviewers dispatched fresh in one foreground message.
+
+**Result: 7/8 PASS → ROUND FAILS.**
+
+- **R1 (native cloud lane): FINDINGS** — 1 MAJOR: the dead-addressee
+  hole. A line naming a DEAD bot computes that bot's guid on every
+  bystander (the addressedGuid loop has no alive check) but dead bots
+  are excluded from the candidates, so the round-4 pick fell through
+  to ordering — an alive bystander claimed AND dispatched while the
+  dead addressee's own addressed turn also dispatched (no death filter
+  on the chain): TWO generations, the same exactly-one violation and
+  dormancy profile as the round-3/4 MAJORs; reproduced by a compiled
+  probe; the shipped battery even enshrined the fallthrough. All
+  round-4 fixes otherwise verified with an extended probe (addressed
+  → 1, unaddressed → 1, quoted → 1, fan-out stable, flood coalescing,
+  device byte-identity). +1 MINOR: the word-boundary law is byte-wise
+  (non-ASCII continuations and possessive run-ons like
+  "Varleigh'ssword" still match) — pre-existing, log-only, recorded as
+  residue.
+- **R2 (transport/security): PASS** — the p50/p95 fix verified with
+  the math independently re-derived against a reference across
+  n=1..100; both round-2 fixes mutation-verified again; anchors 153
+  ops; the CA bundle re-verified byte-identical to live curl.se
+  upstream TODAY; aced79b's driver delta proven transport-neutral
+  (zero BotLLM literal changes). 2 MINOR: two G3 "Adjacent, recorded"
+  notes never shipped (no cleartext warning for http:// endpoints
+  though the conf.dist parenthetical claimed one; no IPv4-required
+  note for the AF_INET pinning).
+- **R3 (authored corpus/persona): PASS** — golden de4bd8227a3ab0d1;
+  batteries 70 green; the E3 wiring mutation-tested live (guard
+  removal fails the pin, tree restored); target vector independently
+  recomputed (1,090 exactly); zero register violations under the
+  reviewer's own extended token list. No new findings.
+- **R4 (schema/persistence): PASS** — full replay + live hashing
+  again; the aced79b lockfile deltas proven to be exactly the gates
+  header sha re-pin; 97 sqlite tests green. No new findings.
+- **R5 (app conf/emission): PASS** — footprint claims confirmed
+  (one test file since round-3 review; production emission sources
+  byte-identical; baseline path verified at android/app/detekt-
+  baseline.xml, empty diff since b3bef5f); key-parity mutation-tested
+  live (5 mutants, all caught); the round-4 OFF/debug enumerations
+  confirmed and executed under gradle (32/32). 2 MINOR: the ON-block
+  gradle assert covers 8 of 9 (LLMPartyReplyEnabled = 0 not
+  value-asserted; host-side parity leg covers it); _driver_keys
+  matches comments in both directions (carried, currently matching
+  zero keys).
+- **R6 (app UX/supervisor): PASS** — gradle forced-fresh again
+  (BUILD SUCCESSFUL 48/48 executed; 138 classes, 1096/0/1; detekt 0
+  findings); all F2/F3/B5/F1/B7 items re-verified with pins. No new
+  findings.
+- **R7 (harness/tests): FINDINGS content MINOR-only** — every aced79b
+  pin addition mutation-tested on scratch copies (rpgchat order pin:
+  both reorder mutants killed; p50/p95: three math mutants killed;
+  quoted-name battery: header mutation → 4 failures; addressed-
+  resolution cases: resolution-removal → 2 failures; payload pins
+  fail against the pre-fix driver — the exact regression they guard);
+  vacuous-pattern grep zero; full suite re-run clean. 2 MINOR:
+  check_a8_log's unreadable-file return omitted latencyMs;
+  latencyMs aggregates all end-line classes (fast denials deflate it —
+  an ok-class subset would be the honest SLA cross-check).
+- **R8 (whole-plan conformance): PASS** — all 13 constraints
+  mechanically green; no hard §11 inversions; 5/5 NEW spot-checks
+  TRUE (25 across rounds 3-5); all 15 judgments SOUND (the 12
+  standing interpretations + raid-claims/party-recording + the
+  round-4 addressedGuid reading + the residue rationales re-confirmed
+  with no material change). 1 MINOR: T0.5's banned-token CI grep never
+  authored as a standing gate.
+
+**Fixes applied between Round 5 and Round 6** (one commit):
+
+- [R1 MAJOR] Dead-addressee stand-down: the payload loop now records
+  only named BOT members (a named PLAYER addresses no bot — the line
+  stays unaddressed for the ordering pick), and `SelectResponder`
+  returns 0 when an addressed guid resolves to no candidate —
+  bystanders STAND DOWN, never a second generation beside the
+  addressee's own turn. The battery's fallthrough case flipped to the
+  stand-down expectation with the round-5 rationale; the payload pin
+  extended (bot-only loop + the pure stand-down return).
+- [R7 MINOR] check_a8_log's unreadable-file return carries
+  `latencyMs: {}`; the latency block gains the ok-class subset
+  (`okP50`/`okP95`/`okN`) beside the aggregate (README + the pinned
+  test extended with a denial-mixing case).
+- [R5 MINOR] The ON-block gradle assert value-asserts
+  `AiPlayerbot.LLMPartyReplyEnabled = 0` (the staged-0 ninth key).
+- [R2 MINORs] The conf.dist G3 doc block corrected: the false "the
+  app's normalizer warns" parenthetical replaced with the honest
+  https://-preference note, and the IPv4-only (AF_INET) resolution
+  requirement documented.
+- [R8 MINOR] T0.5's banned-token grep authored as a standing gate:
+  tests/test_llm_no_boilerplate.py scans the authored pools, the
+  persona/composer surfaces, both emitter-spliced prompt headers, and
+  the whole driver for the assistant-register boilerplate phrases
+  (§0.1's diegetic carve-out honored by scope, stated in the
+  docstring).
+
+MINORs accepted as recorded residue (rationale): the byte-wise
+word-boundary law (non-ASCII continuations, possessive run-ons —
+pre-existing, ≤1 stray generation per typo'd mention, fixing it means
+a UTF-8-aware matcher late in the gate); the ON-block-vs-parity
+defense-in-depth asymmetry is now closed and the _driver_keys comment
+tolerance stays carried (matches zero keys today); R1's two-named-line
+note (one generation per named bot is the plan's per-bot addressed
+semantics — adjudicated SOUND by R8 in round 5).

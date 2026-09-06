@@ -502,8 +502,9 @@ def test_a8_scan_busy_and_cap_turn_shapes():
 
 def test_a8_scan_reports_p50_p95_from_durms():
     # plan A8's "p50/p95 from durMs" (round-4 R2): nearest-rank
-    # percentiles over every end line carrying a durMs; the empty scan
-    # reports no latency block at all
+    # percentiles over every end line carrying a durMs; round-5 R7: the
+    # ok-class subset rides beside the aggregate (fast busy/cap denials
+    # deflate it); the empty scan reports no latency block at all
     lines = []
     for i, dur in enumerate((400, 100, 300, 200, 500, 600, 700), start=1):
         lines.append(f"BotLLM: dispatch bot=5 src=0 lane=chat req={i}")
@@ -512,8 +513,20 @@ def test_a8_scan_reports_p50_p95_from_durms():
     report = run_suite.check_a8_lines(lines)
     assert report["ok"], report["violations"]
     # sorted 100..700, n=7: nearest-rank p50 = ceil(3.5)=4th = 400;
-    # p95 = ceil(6.65)=7th = 700
-    assert report["latencyMs"] == {"p50": 400, "p95": 700, "n": 7}
+    # p95 = ceil(6.65)=7th = 700; all-ok turns carry the same ok subset
+    assert report["latencyMs"] == {"p50": 400, "p95": 700, "n": 7,
+                                   "okP50": 400, "okP95": 700, "okN": 7}
+    # a fast busy denial deflates the aggregate but not the ok subset
+    lines.append("BotLLM: dispatch bot=5 src=0 lane=chat req=8")
+    lines.append("BotLLM: gen end req=8 bot=5 class=busy durMs=1")
+    mixed = run_suite.check_a8_lines(lines)
+    assert mixed["ok"], mixed["violations"]
+    assert mixed["latencyMs"]["n"] == 8
+    # sorted [1,100..700]: nearest-rank p50 = ceil(4.0)=4th = 300 - the
+    # denial deflates the aggregate (was 400) but not the ok subset
+    assert mixed["latencyMs"]["p50"] == 300
+    assert mixed["latencyMs"]["okN"] == 7
+    assert mixed["latencyMs"]["okP50"] == 400
     assert run_suite.check_a8_lines([])["latencyMs"] == {}
 
 

@@ -1892,3 +1892,38 @@ commit:
   --write-lockfiles; anchors 153 ops; both C++ batteries green, FNV
   golden UNCHANGED at de4bd8227a3ab0d1; check_repo (1216 files)/
   check_sources OK.
+## Round 5 + fix batch (continuation run 4): the dead-addressee hole
+
+**Round 5: 7/8 PASS - ROUND FAILS.** R1 found one new MAJOR (logged in
+docs/evidence/review-rounds.md); all other reviewers PASSED (R3/R4/R6
+zero new findings; R8: 13 constraints green, 5/5 spot-checks, 15/15
+judgments SOUND). Fix batch landed, all gates green, one commit:
+
+- **R1#1 (MAJOR), dead-addressee double dispatch**: a line naming a
+  DEAD bot made every bystander compute the dead guid while the pick
+  fell through to ordering (dead bots are not candidates) - a bystander
+  claimed and dispatched beside the dead addressee's own addressed
+  turn: 2 generations. Fix: the payload loop records only named BOT
+  members (a named player addresses no bot - unaddressed semantics,
+  matching R1's probe expectations), and SelectResponder returns 0
+  when an addressed guid resolves to no candidate - bystanders stand
+  down. Battery fallthrough case flipped to the stand-down
+  expectation; payload pin extended (bot-only loop + the pure
+  return).
+- **R7/R5/R2/R8 MINORs fixed**: check_a8_log's unreadable-file return
+  carries latencyMs; the latency block gains the ok-class subset
+  (okP50/okP95/okN) + README + a denial-mixing test case; the ON-block
+  gradle assert value-asserts LLMPartyReplyEnabled = 0; the conf.dist
+  G3 doc corrected (the false "normalizer warns" parenthetical out, the
+  IPv4/AF_INET requirement documented); T0.5's banned-token grep
+  authored as tests/test_llm_no_boilerplate.py (9 token classes over
+  the pools + persona/composer surfaces + both prompt headers + the
+  whole driver).
+- **Residue recorded**: the byte-wise word-boundary law (non-ASCII
+  continuations, possessive run-ons - pre-existing, log-only);
+  _driver_keys comment tolerance (carried, matches zero keys).
+- **Gates**: pytest 8 failed (pre-existing), 620 passed (+1), 4
+  skipped; gradle testDebugUnitTest + detekt green (no baseline
+  regen); null-guard 9/9 after --write-lockfiles; anchors 153 ops;
+  gates battery + FNV golden UNCHANGED at de4bd8227a3ab0d1;
+  check_repo/check_sources OK.

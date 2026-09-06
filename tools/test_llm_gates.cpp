@@ -148,9 +148,11 @@ static void responder_selection()
     // everywhere and the addressed bot's bypass is the ONE generation
     CHECK(SelectResponder({{7, 1, 0}, {9, 3, 0}, {11, 2, 0}}, 7) == 7);
     CHECK(SelectResponder({{7, 1, 0}, {9, 3, 0}, {11, 2, 0}}, 11) == 11);
-    // an addressed guid outside the candidate set changes nothing (a
-    // dead or absent named bot: the normal ordering answers)
-    CHECK(SelectResponder({{7, 1, 0}, {9, 3, 0}}, 42) == 9);
+    // round-5 R1: an addressed guid resolving to NO candidate (the
+    // addressee is dead or absent) picks NOBODY - bystanders stand
+    // down, never the ordering fallthrough: the line is addressed and
+    // the widened unaddressed arm must not add a second generation
+    CHECK(SelectResponder({{7, 1, 0}, {9, 3, 0}}, 42) == 0);
     // the default (0) is the unaddressed line - pure ordering
     CHECK(SelectResponder({{7, 1, 0}, {9, 3, 0}}, 0) == 9);
 }
