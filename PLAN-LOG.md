@@ -2181,3 +2181,65 @@ triggered. Fix batch landed, all gates green, one commit:
   --write-lockfiles; anchors 154 ops (the new pair); both C++ batteries
   green, FNV golden UNCHANGED at de4bd8227a3ab0d1; check_repo (1217
   files)/check_sources OK. Round 8 re-dispatched fresh per 15.3.
+
+## Round 8 + fix batch (continuation run 5): the boundary second and the group-switch key
+
+**Round 8: 7/8 PASS - ROUND FAILS.** R1 found two new MAJORs (both
+compiled-probe attacks on the round-7 design, per the round-8 mandate);
+every other reviewer PASSED (R2/R5/R6/R8 ZERO findings; R3/R4/R7
+MINORs only). All logged in full in docs/evidence/review-rounds.md.
+Both judged reachable-in-practice (the boundary second is a full
+one-second window; kick+re-invite inside 30 s needs no timing
+coincidence) - fix and loop, cap NOT triggered. Fix batch landed, all
+gates green, one commit:
+
+- **R1#1 (MAJOR), the +30 s boundary second**: the prune (<=) and the
+  staleness oracle (strict >) disagreed AT the boundary - a drainer at
+  exactly age 30 saw a dead claim and a live line (2 gens; the
+  fan-out-straddle shape widened it to two seconds). Fix, both sides:
+  the oracle is now >= (drop at exactly window age), AND the fan-out
+  stamp moved AFTER the queue push (program order makes the marker's
+  clock-read >= the entry's m_time; a pre-push stamp could straddle a
+  second earlier). Invariant now airtight even under straddles: every
+  processed drainer (age <= window-1) sits strictly inside every
+  claim/marker's life (each stamps at >= m_time => expires >=
+  m_time+30 > m_time+29).
+- **R1#2 (MAJOR), the group-switch key**: the claim key carried the
+  DRAIN-time group id - a listener kicked + re-invited to another group
+  inside the window claimed under a fresh key beside the original
+  winner (2 gens, the second delivered to a group that never heard the
+  line). Fix: the key is GROUP-FREE (speaker, msgHash) - a speaker
+  stands in at most one group so the pair cannot collide across live
+  groups; the one cross-group shape (speaker moves + repeats identical
+  text in-window) now refuses the repeat (conservative). Responder
+  SELECTION stays group-scoped; only line OWNERSHIP is group-free.
+  TryClaimPartyResponder/TryStandDownPartyLine dropped the groupId
+  param end to end.
+- **R1#4 (MINOR) recorded as residue**: the flood-refund CAS can miss
+  across a second boundary (capture-before-admit vs the admit's
+  internal tick) - conservative only; the exact fix reshapes the admit
+  API late in the gate.
+- **R3/R7 (MINORs) fixed**: the lint's "i'm" prefix gets its OWN row
+  (the "i "+space prefix could never match it) and the apostrophe
+  classes admit curly U+2019; all 13 probe phrases caught, zero false
+  positives.
+- **R4 (MINOR) fixed**: RecordBotLine deleted (plan C6's "delete or
+  wire" - zero callers at baseline and through the run).
+- **R7 (MINOR) fixed**: send() normalizes a hung adb -
+  subprocess.TimeoutExpired joins the RelayError catch and rides the
+  retry/backoff/reconnect path (pinned).
+- **Pins**: the group-free key pinned END TO END (new
+  test_group_switcher_claims_under_the_line_key_round8 + the key-body
+  group-free assert + re-pinned full helper signatures); the oracle >=
+  with the boundary rationale; the push-before-stamp straddle law; the
+  harness hung-adb pin.
+- **Probe**: tmp/r8fix_probe.cpp (9 checks) - both round-8 attack
+  shapes closed, both round-7 regressions still closed, group-free key
+  semantics (switcher refused; distinct speakers distinct lines;
+  marker findable after a switch). All PASS.
+- **Gates**: pytest 8 failed (pre-existing set), 626 passed (+2),
+  4 skipped; gradle testDebugUnitTest + detekt BUILD SUCCESSFUL
+  (android tree untouched this batch); null-guard 9/9 after
+  --write-lockfiles; anchors 154 ops; gates battery OK; FNV golden
+  UNCHANGED at de4bd8227a3ab0d1; check_repo/check_sources OK. Round 9
+  re-dispatched fresh per 15.3.

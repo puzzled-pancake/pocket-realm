@@ -834,3 +834,138 @@ stay untouched late in the gate; durMs exposes reality); R2's B2.3
 lane-3 submodule-bump + manifest/PROVENANCE re-pin dance — the same
 rationale two prior rounds accepted for BroadcastHelper/Security
 one-liners; the run's lane-3 batches are done).
+
+## Round 8
+
+**Diffstat re-reviewed**: `git diff 6045eeb..5ba555e` — 118 files,
++20253/−323. All 8 reviewers dispatched fresh in one foreground
+message.
+
+**Result: 7/8 PASS → ROUND FAILS.**
+
+- **R1 (native cloud lane): FINDINGS** — 2 MAJOR, both compiled-probe
+  demonstrations attacking the round-7 fix design (the round-8
+  mandate): (1) the +30 s boundary second — the prune kills a
+  claim/marker at `expiresAt <= now` while the staleness oracle used a
+  strict `>`, so a drainer at exactly age 30 saw neither a live claim
+  nor a dropped line and re-claimed beside the original winner (2 gens;
+  the straddle shape — a fan-out crossing a second boundary — made the
+  hole two seconds wide); (2) the claim key carried the DRAIN-time
+  group id — a listener kicked and re-invited to another group inside
+  the window computed a FRESH key, claimed beside the original winner,
+  and delivered the second generation to a group that never heard the
+  line (no timing coincidence needed). +1 MINOR (the flood refund's CAS
+  can miss across a second boundary — the capture before the admit vs
+  the admit's internal clock tick; conservative direction). Verified
+  green: §0.13 at all 10 sites incl. both round-7 legs; device
+  byte-identity of every added leg (each disarming key tested); the
+  queue-path edge (QueueChatResponse has exactly one call site in both
+  the applied tree and pristine); A7 quota math; A1; rpgchat order;
+  threading/lock-order (PartyClaimWindowElapsed mutex-free; no reverse
+  acquisition); the deterministic matrix re-run (26 checks).
+- **R2 (transport/security): PASS — zero findings.** Anchors 154 ops
+  with the arithmetic re-derived (130+2+22; the 23rd write_bytes grep
+  hit is not a bot_root overlay); 5ba555e transport-NEUTRAL (zero new
+  BotLLM literals — both new payloads enumerated clean); rider 1
+  mutation-killed; A8 class truth compiled 13-shape battery; the CA
+  bundle byte-identical to live curl.se upstream TODAY; riders 3/5;
+  A9; the anchor mechanism mutation-tested on a scratch copy (drift
+  raises); 28/28 lockfile pins recomputed clean.
+- **R3 (authored corpus/persona): PASS** — 1 MINOR (the widened row's
+  `'m` arm structurally dead under the "i "+space prefix — "i'm unable
+  to assist" not caught; plus a curly-apostrophe hole noted). Golden
+  recompiled = de4bd8227a3ab0d1; the lint mutation matrix 99/99 on the
+  round-6 row; 15/18 on the widened row (both round-7-named misses
+  caught); 1,434-line independent register scan zero violations; E1
+  1,090 exactly; E2 30/30 keys resolving; E3 4/4 mutants killed; A5
+  all laws verified; 82/82 batteries.
+- **R4 (schema/persistence): PASS** — 1 MINOR (RecordBotLine dead code
+  — plan C6's "delete or wire the dead RecordBotLine" sub-item
+  unaddressed and unrecorded). Full replay 414/414 zero mismatches;
+  both fix commits' lockfile deltas exactly the expected sha re-pins;
+  the two new helpers verified schema-free; 0414 idempotence
+  mechanically proven (zero chain collisions); PROVENANCE recomputed;
+  seeder SEED OK zero churn; sqlite family 128 green; the round-7
+  checklist reword verified landed.
+- **R5 (app conf/emission): PASS — zero findings.** Baseline empty
+  since b3bef5f with zero hand suppressions; 9/9 parity; the parity
+  gate mutation-tested live 6/6 (+2 fresh-eye extras, the survivor
+  being the adjudicated comment-tolerance regex); appended-block law
+  verified in code, archaeology, and pins; 62 emission-pin tests green
+  under gradle; the round-7 debug-lane TLS pin verified live.
+- **R6 (app UX/supervisor): PASS — zero findings.** Gradle fresh
+  (BUILD SUCCESSFUL; 138 classes, 1097/0/1 — the new round-7 test
+  present and passing; detekt 0); F2/F3/§0.c.4/B5/F1/B7 all re-verified
+  with pins; both fix commits' android footprints exactly as logged.
+- **R7 (harness/tests): PASS** — 2 MINOR (the same dead `'m` arm —
+  mutation-verified surviving; an adb hang's subprocess.
+  TimeoutExpired escapes send()'s RelayError-only catch and the
+  suite's exit-2 contract). Full suite re-run "8 failed, 624 passed,
+  4 skipped" exact set; 29/30 mutants killed across the round-7 pin
+  family (the sole survivor = the lint row finding); the count
+  re-enumeration 5→6 verified; both new anchors byte-match pristine
+  at exactly one occurrence; weakening audit equal-or-stronger;
+  vacuous grep zero; C++ batteries compiled fresh (gates OK; golden
+  unchanged; fuzz clean).
+- **R8 (whole-plan conformance): PASS — zero findings.** All 13
+  constraints mechanically green (incl. kill-switch coverage of the
+  round-7 legs and the §0.b lane law on the new pair); §11 no hard
+  inversions; 5/5 NEW spot-checks TRUE (40 across rounds 1–8); all 16
+  interpretations + both round-7 design readings (TTL exactness,
+  fan-out completeness) re-derived SOUND; the round-7 residue
+  rationales HONEST.
+
+**Fixes applied between Round 8 and Round 9** (one commit; every fix
+cites its finding; probe-verified by a 9-check compiled probe
+replaying both R1 attack shapes plus the round-7 regressions):
+
+- [R1 MAJOR#1 — the boundary second] BOTH sides aligned: the staleness
+  oracle is `>=` (a line at exactly window age drops; with the `<=`
+  prune a strict `>` left one live-line/dead-claim second), AND the
+  fan-out stamp moved AFTER the queue push (program order makes the
+  marker's stamp clock-read ≥ the entry's m_time — a pre-push stamp
+  could land one second earlier when the clock ticks between them,
+  which re-opened the straddle shape). Invariant, now airtight even
+  under straddles: every processed drainer (age ≤ window−1) sits
+  strictly inside every claim's/marker's life (each stamps at ≥ m_time,
+  so expires ≥ m_time+30 > m_time+window−1).
+- [R1 MAJOR#2 — the group-switch key] The claim key is GROUP-FREE:
+  `PartyClaimKey(speakerGuid, msgHash)` and both helpers dropped the
+  groupId parameter (a speaker stands in at most one group, so the
+  pair cannot collide across two live groups; a switched listener now
+  computes the key that already owns the line and is refused). The one
+  cross-group shape — the speaker moves groups and repeats identical
+  text inside the window — now refuses the repeat: conservative (a
+  missed reply, never a double), the same direction as the adjudicated
+  party/raid shared-key residue. Responder SELECTION stays
+  group-scoped (CollectPartyCandidates keeps the group); only line
+  OWNERSHIP is group-free.
+- [R1 MINOR] Recorded as residue: the refund CAS's second-boundary
+  miss (capture-before-admit vs the admit's internal tick) is
+  conservative-direction only (a missed refund = today's pre-fix
+  behavior, never a wrong erase); the exact fix needs the admit's
+  stamp returned/out-paramed — an API reshuffle late in the gate
+  disproportionate to a log-noise-class nit (R1's own note).
+- [R3/R7 MINOR] The lint rows restructured: the soft-refusal row keeps
+  the "i "+space prefix forms and the "i'm" prefix gets its OWN row;
+  the apostrophe classes admit the curly U+2019 (the corpus is
+  ASCII-only — no false positive is possible). All variants verified
+  caught (13 phrase probe) with zero false positives; batteries green.
+- [R4 MINOR] RecordBotLine deleted (plan C6's "delete or wire": the
+  function had zero callers at baseline and through the run — the
+  def-in-overlay + header decl removed).
+- [R7 MINOR] send() normalizes a hung adb: subprocess.TimeoutExpired
+  joins the RelayError catch, is re-raised as RelayError("adb round
+  trip timed out …"), and rides the same retry/backoff/reconnect
+  transcript path (pinned: two reconnect events + the RelayError
+  contract).
+- Pins updated equal-or-stronger: the group-free key pinned END TO END
+  (key signature + body group-free, both helper decls, both payload
+  call shapes, the collector-keeps-group contrast); the oracle `>=`
+  with the boundary rationale; the stamp-after-push straddle law
+  (push_at < stamp_at); +1 harness pin (the hung-adb normalization);
+  the lint rows strengthened.
+
+MINORs accepted as recorded residue (rationale): R1's refund-CAS
+second-boundary miss (above); the round-7 residues carry (retry-leg
+class; B2.3 wording).

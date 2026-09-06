@@ -12,6 +12,7 @@ direct execution against fakes; no device is required.
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -324,6 +325,32 @@ def test_relay_session_records_op_timeout(tmp_path, monkeypatch):
         raised = True
     assert raised
     assert relay_session.transcript.by_kind("op_timeout")
+
+
+def test_relay_session_normalizes_a_hung_adb_timeout(tmp_path, monkeypatch):
+    # round-8 R7: a HUNG adb makes the runner raise subprocess.
+    # TimeoutExpired - neither RelayError nor OSError - and it used to
+    # escape send() uncaught, bypassing the suite's documented exit-2
+    # harness-error contract. send() now normalizes it into the same
+    # retry/backoff/reconnect path as every other relay failure.
+    monkeypatch.setattr(session_mod.time, "sleep", lambda s: None)
+
+    def hung_runner(argv: list[str], timeout: float) -> str:
+        raise subprocess.TimeoutExpired(cmd=argv, timeout=timeout)
+
+    relay_session = session_mod.RelaySession(
+        adb="adb", runner=hung_runner, workdir=tmp_path,
+        poll_interval_s=0.0, attempts=2)
+    try:
+        relay_session.send("ping", timeout_s=0.05)
+        raised = False
+    except session_mod.RelayError as error:
+        raised = True
+        assert "timed out" in str(error)
+    assert raised, "the normalized hang reaches the RelayError contract"
+    reconnects = relay_session.transcript.by_kind("reconnect")
+    assert len(reconnects) == 2, "each attempt records a reconnect event"
+    assert reconnects[0]["attempt"] == 1 and reconnects[0]["backoff_s"] > 0
 
 
 # ---- smoke suite schema over a fake session --------------------------------

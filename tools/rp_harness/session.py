@@ -163,7 +163,15 @@ class RelaySession:
                                    arg1=arg1, arg2=arg2, arg3=arg3, arg4=arg4)
             try:
                 response = self._round_trip(payload, timeout_s)
-            except RelayError as error:
+            except (RelayError, subprocess.TimeoutExpired) as error:
+                # round-8 R7: a hung adb (subprocess.TimeoutExpired from
+                # the runner) is a RELAY failure like any other -
+                # normalize it so the retry/backoff + transcript
+                # machinery sees one error class (it used to escape
+                # send() uncaught, bypassing the suite's documented
+                # exit-2 harness-error path).
+                if not isinstance(error, RelayError):
+                    error = RelayError(f"adb round trip timed out: {error}")
                 last_error = error
                 backoff = min(2.0 ** attempt, 8.0)
                 self.transcript.record(

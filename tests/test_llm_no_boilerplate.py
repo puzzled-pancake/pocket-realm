@@ -37,6 +37,8 @@ SURFACES = [
     ROOT / "tools" / "build_o09_realm_runtime.py",
 ]
 
+_APOS = "'’"  # straight + curly apostrophes (round-8 R3/R7)
+
 BANNED = [
     r"as an ai\b",
     r"i(?:'| a)m (?:just )?an ai\b",
@@ -44,9 +46,13 @@ BANNED = [
     r"safety guidelines",
     # round-6 R7: the contraction forms slip a naive grep - cover both;
     # round-7 R3: the adjacent soft-refusal variants join ("could not",
-    # "won't", "would not", "will not", "am/'m unable to")
-    r"i (?:can(?:'|no)?t|could not|won't|would not|will not|(?:am|'m) unable to)"
-    r" (?:assist|comply|help with)",
+    # "won't", "would not", "will not", "unable to"); round-8 R3/R7: the
+    # "i'm" prefix gets its own row (an "i "+space prefix can never
+    # match it) and the apostrophe classes admit the curly U+2019 (the
+    # corpus is ASCII-only, so no authored line can false-positive)
+    "i (?:can(?:[" + _APOS + "]|no)?t|could not|won[" + _APOS + "]t|would not|will not|am unable to)"
+    " (?:assist|comply|help with)",
+    "i[" + _APOS + "]m (?:unable to )?(?:assist|comply|help with)",
     r"i'm sorry, but i",
     r"harmful or inappropriate",
     r"my instructions",

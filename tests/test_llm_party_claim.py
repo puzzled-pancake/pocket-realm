@@ -90,8 +90,9 @@ def test_fnv_claim_key_runs_on_host(fnv_binary):
 
 def test_claim_helper_declared_and_mutex_guarded():
     header = MEMORY_H.read_text(encoding="utf-8")
-    assert "static bool TryClaimPartyResponder(uint32 botGuid, uint32 speakerGuid," in header
-    assert "static bool TryStandDownPartyLine(uint32 speakerGuid, uint64_t msgHash," in header
+    assert ("static bool TryClaimPartyResponder(uint32 botGuid, uint32 speakerGuid,\n"
+            "        uint64_t msgHash);") in header
+    assert "static bool TryStandDownPartyLine(uint32 speakerGuid, uint64_t msgHash);" in header
     assert "static bool CollectPartyCandidates(uint32 groupId, uint32 speakerGuid," in header
     assert "static bool PartyFloodAdmits(uint32 speakerGuid);" in header
     assert "static bool PartyClaimWindowElapsed(time_t lineTime);" in header
@@ -117,6 +118,13 @@ def test_claim_helper_declared_and_mutex_guarded():
     # the winner stamps the rotation map (the anti-monopolization field
     # the pure SelectResponder consumes)
     assert "PartyLastWonMs()[botGuid] = " in claim
+    # round-8 R1: the key is GROUP-FREE end to end (decl, key function,
+    # both call shapes) - a listener that switches groups between
+    # receive and drain must still compute the key that owns the line
+    assert "uint64 PartyClaimKey(uint32 speakerGuid, uint64_t msgHash)" in src
+    key_body = src.split("uint64 PartyClaimKey(uint32 speakerGuid, uint64_t msgHash)")[1]
+    key_body = key_body.split("\n}")[0]
+    assert "groupId" not in key_body, "the claim key must not mix the group id"
 
 
 def test_stand_down_marker_owns_the_addressed_line_round6():
@@ -334,8 +342,13 @@ def test_fanout_stamp_covers_the_leave_before_first_drain_hole_round7():
     an addressee that left (kick/leave) before ANY bystander drained
     left late bystanders a fresh ordering pick beside the addressee's
     still-queued own turn. The ADDRESSEE's own receive now stamps the
-    marker at fan-out time (world thread, strictly before any drain can
-    run), so the marker exists for every later interleaving."""
+    marker at fan-out time (world thread, inside the receive handler -
+    no drain can interleave), so the marker exists for every later
+    interleaving. Round-8 R1: the stamp sits AFTER the queue push so its
+    clock read is >= the entry's m_time (a pre-push stamp could land one
+    second earlier when the clock ticks between them, and the drain TTL
+    measures from m_time - an earlier-expiring marker re-opened the
+    boundary second)."""
     queue_call = android_anchor("PB_AI_QUEUE_CALL_ANDROID")
     # the stamp consults the CANONICAL matcher (agreeing with the drain
     # gate's addressedToBot exactly - the raw substring isMentioned
@@ -347,22 +360,22 @@ def test_fanout_stamp_covers_the_leave_before_first_drain_hole_round7():
     assert queue_call.index("if (isAiChat && CloudLaneOpen() &&") < \
         queue_call.index("PlayerbotLlmGates::ContainsNameIgnoreCase(message,")
     assert "sPlayerbotAIConfig.llmPartyReplyEnabled != 0 &&" in queue_call
-    # party/raid only, real-player speaker only, group resolved at
-    # receive time
+    # party/raid only, real-player speaker only
     assert ("(stampChannel == ChatChannelSource::SRC_PARTY ||" in queue_call and
             "stampChannel == ChatChannelSource::SRC_RAID)" in queue_call)
     assert "stampSpeaker->isRealPlayer()" in queue_call
-    # the SAME claim key the drain path computes (speaker low + the one
-    # hash implementation + the group id) - a different key would be a
+    # the SAME group-free claim key the drain path computes (speaker
+    # low + the one hash implementation) - a different key would be a
     # different line
     assert "PlayerbotLlmMemory::TryStandDownPartyLine(" in queue_call
     assert "PlayerbotLlmMemory::PartyMsgHash(message)" in queue_call
-    assert "stampGroup->GetId())" in queue_call
-    # and the stamp rides the fan-out (BEFORE the queue push it guards,
-    # not after it): the marker precedes every drain by construction
+    # and the stamp rides the fan-out but AFTER the push (round-8 R1:
+    # program order makes the marker's stamp >= the entry's m_time, so
+    # the marker outlives every non-dropped drain of the line)
     stamp_at = queue_call.index("PlayerbotLlmMemory::TryStandDownPartyLine(")
     push_at = queue_call.index("QueueChatResponse(msgtype, guid1,")
-    assert stamp_at < push_at, "the marker must be stamped at fan-out time"
+    assert push_at < stamp_at, \
+        "the marker must stamp at >= the push's clock read (the straddle law)"
 
 
 def test_drain_ttl_drops_window_expired_party_lines_round7():
@@ -381,8 +394,10 @@ def test_drain_ttl_drops_window_expired_party_lines_round7():
     oracle = oracle.split("\n}")[0]
     # the ONE window constant decides both the claim map and the line
     # TTL (a second constant could drift and re-open the gap between
-    # them)
-    assert "time(nullptr) - lineTime > PARTY_CLAIM_WINDOW_SECONDS" in oracle
+    # them); round-8 R1: >= (not >) is LOAD-BEARING - the prune kills a
+    # claim AT stamp+30 (expiresAt <= now), so a strict > oracle left
+    # one live-line/dead-claim boundary second that re-opened both legs
+    assert "time(nullptr) - lineTime >= PARTY_CLAIM_WINDOW_SECONDS" in oracle
     assert "lineTime != 0 &&" in oracle, "unstamped entries never drop"
     # pure time compare - no state, no mutex (the drain holds
     # chatRepliesMutex; the lock-order contract keeps StateMutex a leaf
@@ -409,6 +424,38 @@ def test_drain_ttl_drops_window_expired_party_lines_round7():
     assert "staleSpeaker->isRealPlayer()" in drain
     assert drain.count("chatReplies.pop();") == 2 and \
         drain.count("continue;") == 2
+
+
+def test_group_switcher_claims_under_the_line_key_round8():
+    """Round-8 R1 MAJOR#2: the claim key was (speaker, hash, groupId)
+    with the group resolved at DRAIN time - a listener kicked and
+    re-invited to another group inside the window computed a FRESH key,
+    claimed beside the original winner, and delivered a second
+    generation to a group that never heard the line. The key is now
+    GROUP-FREE (a speaker stands in at most one group, so (speaker,
+    hash) cannot collide across two live groups; the one cross-group
+    shape - the speaker moves groups and repeats the identical text
+    inside the window - now refuses the repeat, conservative) and both
+    drain-time call sites pass no group."""
+    gate = android_anchor("PB_SAY_GATE_ANDROID")
+    party = gate.split("plan v5 C3: the roundtable row")[1].split(
+        "if (sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed"
+        " && partyResponderClaimed && replyGateAllowed")[0]
+    claim_leg = party.split("if (!addressedToBot && CloudLaneOpen()")[1]
+    # the claim call shape: speaker low + the one hash - NO group id
+    assert ("PlayerbotLlmMemory::TryClaimPartyResponder(\n"
+            "                        bot->GetGUIDLow(), gateSpeaker->GetGUIDLow(),\n"
+            "                        PlayerbotLlmMemory::PartyMsgHash(msg));") in claim_leg
+    # the bystander marker call shape: same group-free key
+    assert ("PlayerbotLlmMemory::TryStandDownPartyLine(\n"
+            "                        gateSpeaker->GetGUIDLow(),\n"
+            "                        PlayerbotLlmMemory::PartyMsgHash(msg));") in claim_leg
+    # no call site anywhere in the payload still threads a group id in
+    assert "responderGroup->GetId());" not in claim_leg
+    # the candidates collector DOES keep the group (the pick is among
+    # the current group's bots - the groupless key only governs line
+    # ownership, not responder selection)
+    assert "CollectPartyCandidates(" in claim_leg
 
 
 def test_refused_claim_refunds_the_flood_stamp_round7():

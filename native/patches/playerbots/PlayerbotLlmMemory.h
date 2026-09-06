@@ -44,9 +44,6 @@ public:
     // (bot, channel) including the bot's own lines
     static void AppendTurn(uint32 bot, uint32 playerOrChannel, bool sharedChannel, std::string const& speaker, std::string const& line);
 
-    // replaces the legacy "manual string::llmcontext" self-recording writer
-    static void RecordBotLine(Player* bot, uint32 msgtype, std::string const& message, std::string const& chanName, std::string const& name);
-
     // ordered byte-stable context for the in-process backend
     static std::string BuildPromptContext(Player* bot, Player* player, int chatChannelSource, std::string const& chanName);
 
@@ -228,24 +225,27 @@ public:
     // exactly one implementation (here), never at the call sites.
     static uint64_t PartyMsgHash(std::string const& msg);
 
-    // First-writer-wins per (speaker, msgHash, groupId) under
-    // StateMutex: true when THIS bot holds the claim (a fresh claim
-    // stamps the rotation map). Expired entries are pruned on every
-    // call; the claim window (PARTY_CLAIM_WINDOW_SECONDS, round-6 R1:
-    // 30 s) exceeds every reachable chat-drain stagger - the fan-out
-    // does NOT resolve within one tick (UpdateAIInternal delays run
-    // 3-7 s on teleport/cast chains).
+    // First-writer-wins per (speaker, msgHash) under StateMutex: true
+    // when THIS bot holds the claim (a fresh claim stamps the rotation
+    // map). Expired entries are pruned on every call; the claim window
+    // (PARTY_CLAIM_WINDOW_SECONDS, round-6 R1: 30 s) exceeds every
+    // reachable chat-drain stagger - the fan-out does NOT resolve
+    // within one tick (UpdateAIInternal delays run 3-7 s on
+    // teleport/cast chains). Round-8 R1: the key is GROUP-FREE (a
+    // speaker stands in at most one group; the drain can only key by
+    // the CURRENT group, and a group-switching listener used that to
+    // claim under a fresh key beside the original winner).
     static bool TryClaimPartyResponder(uint32 botGuid, uint32 speakerGuid,
-        uint64_t msgHash, uint32 groupId);
+        uint64_t msgHash);
 
     // Round-6 R1 (addressed-line sibling): an ADDRESSED line stands
     // down with a MARKER in the same claim map (winner 0 = the
     // addressee's own arm owns the line; same window, same lazy prune)
     // so a staggered late drain cannot re-open the line after the
     // addressee leaves the group mid-fan-out. First writer wins; false
-    // when a claim or marker already owns the line.
-    static bool TryStandDownPartyLine(uint32 speakerGuid, uint64_t msgHash,
-        uint32 groupId);
+    // when a claim or marker already owns the line. Round-8 R1: the
+    // group-free key keeps the marker findable across group switches.
+    static bool TryStandDownPartyLine(uint32 speakerGuid, uint64_t msgHash);
 
     // Round-7 R1 (claim-window class closure): the drain-side staleness
     // oracle for a queued party/raid line. On the armed surface the

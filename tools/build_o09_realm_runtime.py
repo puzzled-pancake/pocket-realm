@@ -2236,7 +2236,7 @@ PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBacken
                 {
                     partyResponderClaimed = PlayerbotLlmMemory::TryClaimPartyResponder(
                         bot->GetGUIDLow(), gateSpeaker->GetGUIDLow(),
-                        PlayerbotLlmMemory::PartyMsgHash(msg), responderGroup->GetId());
+                        PlayerbotLlmMemory::PartyMsgHash(msg));
                     // Round-7 R1 MINOR: a REFUSED claim consumed the
                     // speaker's 2 s flood slot for nothing (identical-
                     // text re-send inside the window, or the shared
@@ -2259,10 +2259,13 @@ PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBacken
                     // marker and refuse; the winner-claim path above is
                     // unreachable for an addressed line (the pick
                     // resolves to the addressee, never to a bystander).
+                    // Round-8 R1: the key is group-free, so a bystander
+                    // that switched groups since the fan-out still finds
+                    // the fan-out stamp's marker (and its own claim
+                    // attempt hits the same key the winner holds).
                     PlayerbotLlmMemory::TryStandDownPartyLine(
                         gateSpeaker->GetGUIDLow(),
-                        PlayerbotLlmMemory::PartyMsgHash(msg),
-                        responderGroup->GetId());
+                        PlayerbotLlmMemory::PartyMsgHash(msg));
                 }
             }
         }
@@ -3611,40 +3614,6 @@ PB_AI_QUEUE_CALL_UPSTREAM = """                MANGOS_ASSERT(!message.empty());
                 QueueChatResponse(msgtype, guid1, ObjectGuid(), message, chanName, name, isAiChat);
 """
 PB_AI_QUEUE_CALL_ANDROID = """                MANGOS_ASSERT(!message.empty());
-                // Round-7 R1 (addressed-line fan-out stamp): the claim
-                // surface's marker for an ADDRESSED party/raid line was
-                // stamped only by bystander DRAINS - when the addressee
-                // left the group before any bystander drained, late
-                // bystanders found no named member and took a fresh
-                // ordering pick beside the addressee's still-queued own
-                // turn (two generations). The ADDRESSEE's own receive is
-                // the earliest moment the line is known addressed: stamp
-                // the stand-down marker HERE, at fan-out time on the
-                // world thread - strictly before any bot's drain can
-                // run - so the marker exists for every later
-                // interleaving (kick, leave, death; the drain-time
-                // bystander stamp stays as the idempotent backstop).
-                // The canonical matcher decides (not the raw substring
-                // isMentioned - it must agree with the drain gate's
-                // addressedToBot exactly); first writer wins.
-                if (isAiChat && CloudLaneOpen() &&
-                    sPlayerbotAIConfig.llmPartyReplyEnabled != 0 &&
-                    PlayerbotLlmGates::ContainsNameIgnoreCase(message, bot->GetName()))
-                {
-                    ChatChannelSource stampChannel =
-                        GetChatChannelSource(bot, msgtype, chanName);
-                    Player* stampSpeaker = sObjectAccessor.FindPlayer(guid1);
-                    Group* stampGroup = bot->GetGroup();
-                    if ((stampChannel == ChatChannelSource::SRC_PARTY ||
-                         stampChannel == ChatChannelSource::SRC_RAID) &&
-                        stampSpeaker && stampSpeaker->isRealPlayer() && stampGroup)
-                    {
-                        PlayerbotLlmMemory::TryStandDownPartyLine(
-                            stampSpeaker->GetGUIDLow(),
-                            PlayerbotLlmMemory::PartyMsgHash(message),
-                            stampGroup->GetId());
-                    }
-                }
                 // S8/A18 pacing: the LLM path answers whispers/part/raid
                 // the moment generation finishes (noDelay), but a /say
                 // ANSWER (a name mention - the only say that generates)
@@ -3667,6 +3636,44 @@ PB_AI_QUEUE_CALL_ANDROID = """                MANGOS_ASSERT(!message.empty());
                     llmSayNoDelay = false;
                 }
                 QueueChatResponse(msgtype, guid1, ObjectGuid(), message, chanName, name, llmSayNoDelay, llmSayStagger);
+                // Round-7 R1 (addressed-line fan-out stamp): the claim
+                // surface's marker for an ADDRESSED party/raid line was
+                // stamped only by bystander DRAINS - when the addressee
+                // left the group before any bystander drained, late
+                // bystanders found no named member and took a fresh
+                // ordering pick beside the addressee's still-queued own
+                // turn (two generations). The ADDRESSEE's own receive is
+                // the earliest moment the line is known addressed: stamp
+                // the stand-down marker HERE, at fan-out time on the
+                // world thread - no drain can interleave inside this
+                // handler, so the marker still precedes every drain.
+                // The canonical matcher decides (not the raw substring
+                // isMentioned - it must agree with the drain gate's
+                // addressedToBot exactly); first writer wins.
+                // Round-8 R1 (the straddle): the stamp sits AFTER the
+                // queue push ON PURPOSE - the marker must expire at
+                // >= the entry's m_time (a stamp before the push could
+                // land one second earlier when the clock ticks between
+                // them, and the drain TTL measures from m_time; an
+                // earlier-expiring marker re-opened the boundary
+                // second). Program order makes the stamp's clock read
+                // >= the push's.
+                if (isAiChat && CloudLaneOpen() &&
+                    sPlayerbotAIConfig.llmPartyReplyEnabled != 0 &&
+                    PlayerbotLlmGates::ContainsNameIgnoreCase(message, bot->GetName()))
+                {
+                    ChatChannelSource stampChannel =
+                        GetChatChannelSource(bot, msgtype, chanName);
+                    Player* stampSpeaker = sObjectAccessor.FindPlayer(guid1);
+                    if ((stampChannel == ChatChannelSource::SRC_PARTY ||
+                         stampChannel == ChatChannelSource::SRC_RAID) &&
+                        stampSpeaker && stampSpeaker->isRealPlayer())
+                    {
+                        PlayerbotLlmMemory::TryStandDownPartyLine(
+                            stampSpeaker->GetGUIDLow(),
+                            PlayerbotLlmMemory::PartyMsgHash(message));
+                    }
+                }
 """
 PB_UPDATEAI_UPSTREAM = """void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
 {

@@ -667,25 +667,6 @@ void PlayerbotLlmMemory::AppendTurn(uint32 bot, uint32 playerOrChannel, bool sha
             StripAstral(line)).c_str()));
 }
 
-void PlayerbotLlmMemory::RecordBotLine(Player* bot, uint32 msgtype, std::string const& message,
-    std::string const& chanName, std::string const& name)
-{
-    if (!sPlayerbotAIConfig.llmEnabled)
-        return;
-
-    // mirrors the context-key scheme of ChatReplyDo: whisper history is
-    // per (bot, player), everything else is shared per (bot, channel)
-    ChatChannelSource source = bot->GetPlayerbotAI()->GetChatChannelSource(bot, msgtype, chanName);
-    if (source == ChatChannelSource::SRC_WHISPER)
-    {
-        if (Player* player = sObjectAccessor.FindPlayerByName(name.c_str()))
-            AppendTurn(bot->GetGUIDLow(), player->GetGUIDLow(), false, bot->GetName(), message);
-        return;
-    }
-
-    AppendTurn(bot->GetGUIDLow(), 0x80000000u | static_cast<uint32>(source), true, bot->GetName(), message);
-}
-
 std::string PlayerbotLlmMemory::BuildPromptContext(Player* bot, Player* player, int chatChannelSource,
     std::string const& chanName)
 {
@@ -3565,13 +3546,23 @@ struct PartyResponderClaim
 // claim younger than this owns the line outright)
 int64_t const PARTY_CLAIM_WINDOW_SECONDS = 30;
 
-// one key per (speaker, line, group): every bot hearing the same party
-// line computes the identical key, so the claim is per-LINE, not per-bot
-uint64 PartyClaimKey(uint32 speakerGuid, uint64_t msgHash, uint32 groupId)
+// one key per (speaker, line): every bot hearing the same party line
+// computes the identical key, so the claim is per-LINE, not per-bot.
+// Round-8 R1: the group id is deliberately NOT in the key. The drain
+// can only key by the draining bot's CURRENT group - a listener kicked
+// and re-invited to another group inside the window computed a FRESH
+// key, claimed beside the original winner, and delivered a second
+// generation to a group that never heard the line. A speaker stands in
+// at most one group, so (speaker, hash) cannot collide across two live
+// groups; the one cross-group shape (the speaker moves groups and
+// repeats the identical text inside the window) now refuses the repeat
+// - conservative, the same direction as the adjudicated party/raid
+// shared-key residue, never a double generation.
+uint64 PartyClaimKey(uint32 speakerGuid, uint64_t msgHash)
 {
     return (static_cast<uint64>(speakerGuid) << 24) ^
         (msgHash * 0x9E3779B97F4A7C15ull) ^
-        (static_cast<uint64>(groupId) + 0x2545F4914F6CDD1Dull);
+        0x2545F4914F6CDD1Dull;
 }
 
 std::map<uint64, PartyResponderClaim>& PartyClaims()
@@ -3620,12 +3611,12 @@ uint64_t PlayerbotLlmMemory::PartyMsgHash(std::string const& msg)
 }
 
 bool PlayerbotLlmMemory::TryClaimPartyResponder(uint32 botGuid, uint32 speakerGuid,
-    uint64_t msgHash, uint32 groupId)
+    uint64_t msgHash)
 {
-    if (!botGuid || !speakerGuid || !groupId)
+    if (!botGuid || !speakerGuid)
         return false;
     int64_t const now = (int64_t)time(nullptr);
-    uint64 const key = PartyClaimKey(speakerGuid, msgHash, groupId);
+    uint64 const key = PartyClaimKey(speakerGuid, msgHash);
     std::lock_guard<std::mutex> lock(StateMutex());
     // prune expired claims first: the state stays bounded and a stale
     // claim can never block a later line. Round-6 R1: the window must
@@ -3658,7 +3649,7 @@ bool PlayerbotLlmMemory::TryClaimPartyResponder(uint32 botGuid, uint32 speakerGu
 }
 
 bool PlayerbotLlmMemory::TryStandDownPartyLine(uint32 speakerGuid,
-    uint64_t msgHash, uint32 groupId)
+    uint64_t msgHash)
 {
     // round-6 R1 (the addressed-line sibling): an ADDRESSED line stands
     // down with a MARKER, not just silence - a staggered late drain
@@ -3667,11 +3658,13 @@ bool PlayerbotLlmMemory::TryStandDownPartyLine(uint32 speakerGuid,
     // named member, and would otherwise take a fresh ordering pick
     // beside the addressee's turn. The marker (winner 0 = the
     // addressee's own arm owns the line) rides the same claim map,
-    // window and lazy prune; first writer wins.
-    if (!speakerGuid || !groupId)
+    // window and lazy prune; first writer wins. Round-8 R1: the key is
+    // GROUP-FREE (see PartyClaimKey) so a listener that switches groups
+    // between receive and drain still finds the line owned.
+    if (!speakerGuid)
         return false;
     int64_t const now = (int64_t)time(nullptr);
-    uint64 const key = PartyClaimKey(speakerGuid, msgHash, groupId);
+    uint64 const key = PartyClaimKey(speakerGuid, msgHash);
     std::lock_guard<std::mutex> lock(StateMutex());
     std::map<uint64, PartyResponderClaim>& claims = PartyClaims();
     for (auto itr = claims.begin(); itr != claims.end();)
@@ -3702,8 +3695,16 @@ bool PlayerbotLlmMemory::PartyClaimWindowElapsed(time_t lineTime)
     // window at its drain has no live claim or marker left - the caller
     // drops it rather than let a deferred bot re-open the line beside
     // its original winner. Pure time compare: no state, no mutex.
+    // Round-8 R1: the >= (not >) is LOAD-BEARING. The prune kills a
+    // claim/marker at expiresAt <= now (it dies AT stamp+30), so a
+    // strict-> oracle left one live-line/dead-claim SECOND (the
+    // boundary second re-opened both legs). With >=, every drainer the
+    // caller processes (age <= window-1) sits strictly inside every
+    // claim's or marker's life (each stamps at >= m_time, so expires at
+    // >= m_time+30 > m_time+window-1) - airtight even when the fan-out
+    // straddles a second boundary.
     return lineTime != 0 &&
-        time(nullptr) - lineTime > PARTY_CLAIM_WINDOW_SECONDS;
+        time(nullptr) - lineTime >= PARTY_CLAIM_WINDOW_SECONDS;
 }
 
 bool PlayerbotLlmMemory::CollectPartyCandidates(uint32 groupId, uint32 speakerGuid,
