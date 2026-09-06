@@ -49,11 +49,15 @@ BANNED = [
     # "won't", "would not", "will not", "unable to"); round-8 R3/R7: the
     # "i'm" prefix gets its own row (an "i "+space prefix can never
     # match it) and the apostrophe classes admit the curly U+2019 (the
-    # corpus is ASCII-only, so no authored line can false-positive)
-    "i (?:can(?:[" + _APOS + "]|no)?t|could not|won[" + _APOS + "]t|would not|will not|am unable to)"
-    " (?:assist|comply|help with)",
-    "i[" + _APOS + "]m (?:unable to )?(?:assist|comply|help with)",
-    r"i'm sorry, but i",
+    # corpus is ASCII-only, so no authored line can false-positive);
+    # round-9 R3: the verb tails widen (fulfill/provide/complete) and
+    # the negation arms join (spaced "can not", "am not able to"); the
+    # sorry-row takes the apostrophe class too (it was the last
+    # straight-only row)
+    "i (?:can(?:[" + _APOS + "]|no)?t|can not|could not|won[" + _APOS + "]t|would not|will not|am unable to|am not able to)"
+    " (?:assist|comply|help with|fulfill|provide|complete)",
+    "i[" + _APOS + "]m (?:unable to )?(?:assist|comply|help with|fulfill|provide|complete)",
+    "i[" + _APOS + "]m sorry, but i",
     r"harmful or inappropriate",
     r"my instructions",
     r"language model",

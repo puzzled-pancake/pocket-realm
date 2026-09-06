@@ -353,6 +353,29 @@ def test_relay_session_normalizes_a_hung_adb_timeout(tmp_path, monkeypatch):
     assert reconnects[0]["attempt"] == 1 and reconnects[0]["backoff_s"] > 0
 
 
+def test_relay_session_run_normalizes_a_hung_adb_timeout(tmp_path):
+    # round-9 R7: run() is the adb lane for the connect/pull legs too
+    # (wait-for-device, forward, pull) - the round-8 arm covered only
+    # send()'s console round trip, so a hung adb escaped those legs as
+    # a raw subprocess.TimeoutExpired, bypassing the suite's documented
+    # exit-2 RelayError contract. run() now normalizes it itself.
+    def hung_runner(argv: list[str], timeout: float) -> str:
+        raise subprocess.TimeoutExpired(cmd=argv, timeout=timeout)
+
+    relay_session = session_mod.RelaySession(
+        adb="adb", runner=hung_runner, workdir=tmp_path)
+    try:
+        relay_session.run("wait-for-device", timeout=0.05)
+        raised = False
+    except session_mod.RelayError as error:
+        raised = True
+        assert "timed out" in str(error)
+    assert raised, "the connect/pull legs share the RelayError contract"
+    # check=False tolerates the hang exactly like a RelayError failure
+    # (adb_root's tolerated root call must not crash on a hung daemon)
+    assert relay_session.run("root", timeout=0.05, check=False) == ""
+
+
 # ---- smoke suite schema over a fake session --------------------------------
 
 

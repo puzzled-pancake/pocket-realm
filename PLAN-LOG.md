@@ -2485,3 +2485,47 @@ docs/evidence/review-rounds.md with evidence.
   infra-gated.
 - Timing: full pytest ~7-8 min; gradle ~10 s-2 min cached; full
   gates + logs + commit for a fix batch ~25 min.
+
+## Round 9 fix batch (continuation run 6, landed pre-Round 10)
+
+One commit on top of 63c900c: the three owed MAJORs + MINOR triage.
+
+- **R1 MAJOR (per-entry straddle)**: the oracle drops at
+  `now - lineTime >= PARTY_CLAIM_WINDOW_SECONDS -
+  PARTY_CLAIM_FANOUT_STRADDLE_SECONDS`, new named constant = 1 s
+  (PlayerbotLlmMemory.cpp beside the window; reachability comment:
+  sequential world-thread receive handlers cross at most ONE clock
+  tick; >1 s span = world thread held inside one broadcast - outside
+  ordinary actions). Proof: processed drainer now <= m_time+28 <=
+  T+29 < T+30 <= every expiry (stamps >= T). Pins updated in
+  tests/test_llm_party_claim.py (margin form + constant pinned at 1);
+  header comment rewritten (R8 MINOR folded); tmp/r10fix_probe.cpp
+  9/9 PASS (both r9 attacks now drop, sweeps 0 doubles, mechanical
+  invariant, honest s=2 envelope section).
+- **R7 MAJOR#1**: external-block governor trio value-pinned
+  (4/16/48, trailing-
+ asserts, embedded-trio shape) in
+  externalBlockTargetsTheEndpointAndCarriesTheKeyLine.
+- **R7 MAJOR#2**: ci.yml android-unit now runs :app:detekt alongside
+  :app:testDebugUnitTest (same flags). LF/ASCII preserved, YAML
+  re-parsed. CI EXECUTION infra-gated here (no runners in this
+  environment) - wiring is the deliverable; on-host detekt
+  re-verified green this batch.
+- **MINORs**: R3 lint tails widened (fulfill/provide/complete,
+  "can not", "am not able to", sorry-row curly apostrophe; plant
+  6/6, controls clean, surfaces pass); R7 session.py run()
+  normalizes TimeoutExpired (connect/pull legs share the exit-2
+  contract) + new pin test; R8 header comment fixed (above); R4
+  stale build mirror RECORDED as residue (gitignored, wiped every
+  build - see review-rounds Round 9 fixes section 7).
+
+Gates (self-verified before the --no-verify commit): full pytest
+"8 failed, 627 passed, 4 skipped" (8 = the exact pre-existing set on
+clean 84c0c7b: 2x gladio unpack, 4x vortek lifecycle, 2x vortek
+winlator; +1 new harness pin); gradle :app:testDebugUnitTest
+:app:detekt -PpocketAbi=x86_64 -PpocketLane=full BUILD SUCCESSFUL
+(138 classes, 1097 tests, 0 failures, 1 skipped, detekt 0);
+--write-lockfiles ran (4 lockfile re-pins = overlay hash updates) and
+null-guard 9 passed; check_repo OK (1217 files, 0/0); check_sources
+OK; anchors replay 154 ops no drift; banter golden recompiled
+de4bd8227a3ab0d1. Round 10 dispatched against the new HEAD.

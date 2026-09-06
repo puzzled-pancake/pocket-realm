@@ -384,11 +384,12 @@ def test_drain_ttl_drops_window_expired_party_lines_round7():
     chains stack), so no fixed claim window exceeds every reachable
     first drain - a deferred bot re-claimed beside the original winner
     after the window pruned the claim. The line itself now expires with
-    the window: a queued party/raid line older than
-    PARTY_CLAIM_WINDOW_SECONDS at its drain is DROPPED (a missed reply,
-    never a second generation). On the armed surface the queue path is
-    noDelay (the queued m_time IS the fan-out instant) and entries are
-    unprocessable before m_time, so the age compare is exact."""
+    the window: a queued party/raid line aged past
+    PARTY_CLAIM_WINDOW_SECONDS (minus the round-9 R1 fan-out straddle
+    margin) at its drain is DROPPED (a missed reply, never a second
+    generation). On the armed surface the queue path is noDelay (the
+    queued m_time IS the fan-out instant) and entries are unprocessable
+    before m_time, so the age compare is exact."""
     src = MEMORY_CPP.read_text(encoding="utf-8")
     oracle = src.split("bool PlayerbotLlmMemory::PartyClaimWindowElapsed")[1]
     oracle = oracle.split("\n}")[0]
@@ -396,8 +397,18 @@ def test_drain_ttl_drops_window_expired_party_lines_round7():
     # TTL (a second constant could drift and re-open the gap between
     # them); round-8 R1: >= (not >) is LOAD-BEARING - the prune kills a
     # claim AT stamp+30 (expiresAt <= now), so a strict > oracle left
-    # one live-line/dead-claim boundary second that re-opened both legs
-    assert "time(nullptr) - lineTime >= PARTY_CLAIM_WINDOW_SECONDS" in oracle
+    # one live-line/dead-claim boundary second that re-opened both legs;
+    # round-9 R1: the invariant is per-LINE, not per-entry - a fan-out
+    # crossing a second boundary gives a later member's queue entry its
+    # own later m_time (T+1 beside a marker stamped at T), so the drop
+    # must fire one second EARLY: every processed drainer then sits
+    # strictly inside every claim/marker life (now <= m_time+28 <=
+    # T+29 < T+30 <= each expiry, T the fan-out's earliest push)
+    assert ("time(nullptr) - lineTime >=\n"
+            "        PARTY_CLAIM_WINDOW_SECONDS - "
+            "PARTY_CLAIM_FANOUT_STRADDLE_SECONDS") in oracle
+    assert ("int64_t const PARTY_CLAIM_FANOUT_STRADDLE_SECONDS = 1;"
+            in src), "the straddle margin is a NAMED constant pinned at 1 s"
     assert "lineTime != 0 &&" in oracle, "unstamped entries never drop"
     # pure time compare - no state, no mutex (the drain holds
     # chatRepliesMutex; the lock-order contract keeps StateMutex a leaf

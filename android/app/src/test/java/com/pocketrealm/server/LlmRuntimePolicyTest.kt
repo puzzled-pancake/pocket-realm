@@ -640,6 +640,18 @@ class LlmRuntimePolicyTest {
         assertTrue(block.contains("AiPlayerbot.LLMFactsCap = 48\n"))
         assertTrue(block.contains("AiPlayerbot.LLMMemoriesTail = 16\n"))
         assertTrue(block.contains("AiPlayerbot.LLMGenerationTimeout = 60\n"))
+        // Round-9 R7 MAJOR#1 (plan §10 T2): the external-block governor
+        // trio, value-pinned like the embedded one - a silent regression
+        // of EXTERNAL_TIER's governor knobs passed the whole suite (the
+        // same class the round-1 R5 MAJOR#2 convicted). The legacy
+        // "Simultanious" spelling IS the conf key the native reads.
+        listOf(
+            "AiPlayerbot.LLMMaxSimultaniousGenerations = 4",
+            "AiPlayerbot.LLMGovernorBotMax = 16",
+            "AiPlayerbot.LLMGovernorGlobalMax = 48",
+        ).forEach { key ->
+            assertTrue("missing governor line $key", block.contains(key + "\n"))
+        }
     }
 
     @Test

@@ -3546,6 +3546,19 @@ struct PartyResponderClaim
 // claim younger than this owns the line outright)
 int64_t const PARTY_CLAIM_WINDOW_SECONDS = 30;
 
+// Round-9 R1 (the per-entry straddle): the group receive handlers run
+// sequentially on the world thread, so one fan-out can cross a single
+// wall-clock second tick - a later member's queue entry carries
+// m_time = T+1 beside a marker/claim stamped at T. The staleness
+// oracle subtracts this margin so every PROCESSED drainer sits
+// strictly inside every claim/marker life (see
+// PartyClaimWindowElapsed); each second of margin is one more second
+// of live lines the drain drops (a missed reply, never a second
+// generation) - the conservative direction. A fan-out spanning MORE
+// than this would need the world thread held inside one broadcast for
+// over a second - outside every ordinary player action.
+int64_t const PARTY_CLAIM_FANOUT_STRADDLE_SECONDS = 1;
+
 // one key per (speaker, line): every bot hearing the same party line
 // computes the identical key, so the claim is per-LINE, not per-bot.
 // Round-8 R1: the group id is deliberately NOT in the key. The drain
@@ -3698,13 +3711,23 @@ bool PlayerbotLlmMemory::PartyClaimWindowElapsed(time_t lineTime)
     // Round-8 R1: the >= (not >) is LOAD-BEARING. The prune kills a
     // claim/marker at expiresAt <= now (it dies AT stamp+30), so a
     // strict-> oracle left one live-line/dead-claim SECOND (the
-    // boundary second re-opened both legs). With >=, every drainer the
-    // caller processes (age <= window-1) sits strictly inside every
-    // claim's or marker's life (each stamps at >= m_time, so expires at
-    // >= m_time+30 > m_time+window-1) - airtight even when the fan-out
-    // straddles a second boundary.
+    // boundary second re-opened both legs). Round-9 R1: that invariant
+    // was per-ENTRY, not per-LINE - a fan-out crossing a second
+    // boundary gives a later member's entry its own later m_time
+    // (T+1 beside a marker stamped at T), and that entry reached age
+    // 29 - processed - exactly when the marker pruned; with the
+    // winner gone a fresh ordering pick claimed beside the original
+    // generation. The straddle margin closes the class at its
+    // demonstrated width (the receive handlers are sequential and
+    // sub-second, so one broadcast crosses at most ONE second tick):
+    // a processed drainer has now <= m_time + window - margin - 1,
+    // and with m_time <= T + margin (T the fan-out's earliest push)
+    // that is <= T + window - 1 < T + window <= every claim/marker
+    // expiry (each stamps at >= T) - first-writer-wins holds across
+    // the WHOLE fan-out, not just the stamping bot's own entry.
     return lineTime != 0 &&
-        time(nullptr) - lineTime >= PARTY_CLAIM_WINDOW_SECONDS;
+        time(nullptr) - lineTime >=
+        PARTY_CLAIM_WINDOW_SECONDS - PARTY_CLAIM_FANOUT_STRADDLE_SECONDS;
 }
 
 bool PlayerbotLlmMemory::CollectPartyCandidates(uint32 groupId, uint32 speakerGuid,

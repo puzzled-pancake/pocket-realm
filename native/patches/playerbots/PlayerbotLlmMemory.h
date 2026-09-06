@@ -250,12 +250,17 @@ public:
     // Round-7 R1 (claim-window class closure): the drain-side staleness
     // oracle for a queued party/raid line. On the armed surface the
     // queue path is noDelay (the queued m_time IS the line's fan-out
-    // instant) and entries are unprocessable before m_time, so "line
-    // age > PARTY_CLAIM_WINDOW_SECONDS" at the drain means every claim
-    // or marker stamped for the line has expired - processing it would
-    // re-open the exactly-one surface (a deferred drain re-claiming
-    // beside the original winner). True = drop the line: a missed
-    // reply, never a second generation. Pure time compare (no state).
+    // instant) and entries are unprocessable before m_time, so a line
+    // aged >= PARTY_CLAIM_WINDOW_SECONDS minus the round-9 R1 fan-out
+    // straddle margin (PARTY_CLAIM_FANOUT_STRADDLE_SECONDS: a later
+    // member's queue entry carries m_time up to one second past the
+    // fan-out's earliest push, and the drop must fire early enough to
+    // outlive every claim or marker stamped for the line) is dropped:
+    // processing it could sit beside a claim/marker expiring that very
+    // second - re-opening the exactly-one surface (a deferred drain
+    // re-claiming beside the original winner). True = drop the line: a
+    // missed reply, never a second generation. Pure time compare (no
+    // state).
     static bool PartyClaimWindowElapsed(time_t lineTime);
 
     // The deterministic pick's candidate set: every BOT in the group

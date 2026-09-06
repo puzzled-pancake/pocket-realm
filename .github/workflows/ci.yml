@@ -53,5 +53,5 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
-      - name: Unit tests
-        run: ./gradlew :app:testDebugUnitTest -PpocketAbi=x86_64 -PpocketLane=full --console=plain
+      - name: Unit tests + detekt
+        run: ./gradlew :app:testDebugUnitTest :app:detekt -PpocketAbi=x86_64 -PpocketLane=full --console=plain

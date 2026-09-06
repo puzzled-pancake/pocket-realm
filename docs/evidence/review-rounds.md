@@ -976,9 +976,8 @@ class; B2.3 wording).
 +20568/−345. All 8 reviewers dispatched fresh in one foreground
 message.
 
-**Result: 6/8 PASS → ROUND FAILS.** (Fix batch owed — see the
-continuation-run-6 handoff in PLAN-LOG.md; the "Fixes applied between
-Round 9 and Round 10" section lands with that batch.)
+**Result: 6/8 PASS → ROUND FAILS.** (Fix batch landed — see "Fixes
+applied between Round 9 and Round 10" at the end of this entry.)
 
 - **R1 (native cloud lane): FINDINGS** — 1 MAJOR: the round-8 boundary
   invariant is per-ENTRY, not per-LINE. Each group member's receive
@@ -1082,3 +1081,89 @@ MINORs pending triage in the round-10 fix batch: R3's lint tails
 as residue — regenerated at next build); R7's connect/pull legs
 (1-line or residue — R7 itself graded it non-round-failing); R8's
 header comment (1-line fix).
+
+### Fixes applied between Round 9 and Round 10
+
+One commit (see PLAN-LOG "Round 9 fix batch"). All three MAJORs fixed
+equal-or-stronger with pins; three of the four pending MINORs fixed,
+the fourth recorded as residue.
+
+1. **R1 MAJOR (the per-entry straddle) - FIXED.** The oracle now
+   subtracts a NAMED one-second margin:
+   `PartyClaimWindowElapsed` drops at
+   `now - lineTime >= PARTY_CLAIM_WINDOW_SECONDS -
+   PARTY_CLAIM_FANOUT_STRADDLE_SECONDS` with
+   `PARTY_CLAIM_FANOUT_STRADDLE_SECONDS = 1` defined beside the window
+   (PlayerbotLlmMemory.cpp, with a reachability comment: the group
+   receive handlers run sequentially on the world thread and each is
+   microseconds, so one broadcast crosses at most ONE wall-clock tick;
+   a fan-out spanning more than the margin needs the world thread held
+   >1 s inside one SendPacket - outside every ordinary player action).
+   Proof: every processed drainer has now <= m_time+28 <= T+29 < T+30
+   <= every claim/marker expiry (each stamps at >= T, the fan-out's
+   earliest push) - first-writer-wins holds across the WHOLE fan-out.
+   Pins: tests/test_llm_party_claim.py (the >= assert now names the
+   margin form + the constant is pinned at 1 s with rationale); the
+   .cpp oracle comment carries the round-9 derivation; the header
+   comment (R8's stale-">" MINOR) rewritten for the margin form.
+   Compiled probe tmp/r10fix_probe.cpp: 9/9 PASS - both round-9
+   attacks replayed (straddle=1, owner-gone, drain=stamp+30 -> now
+   DROPPED, exactly 1 generation), both exhaustive sweeps (addressed:
+   s 0-1 x leave 0-29 x d2 0-31; claim leg: c 0-29 x s 0-1 x d2 0-40)
+   at ZERO doubles, a mechanical invariant check (every processed
+   drain < every expiry for stamps >= T), and an honest envelope
+   section documenting that s=2 (beyond the named constant) re-opens
+   at exactly the +30 instant - the constant names the exact bound.
+2. **R7 MAJOR#1 (external-block governor pins) - FIXED.**
+   externalBlockTargetsTheEndpointAndCarriesTheKeyLine now value-pins
+   the whole EXTERNAL_TIER governor trio on the emitted block
+   (LLMMaxSimultaniousGenerations = 4, LLMGovernorBotMax = 16,
+   LLMGovernorGlobalMax = 48 - trailing-
+ asserts, mirroring the
+   embedded trio's shape), with the plan §10 T2 citation and the note
+   that the legacy "Simultanious" spelling is the real conf key.
+   Gradle green: 138 classes, 1097/0/1.
+3. **R7 MAJOR#2 (CI detekt wiring) - FIXED.** .github/workflows/ci.yml
+   android-unit now runs `./gradlew :app:testDebugUnitTest :app:detekt
+   -PpocketAbi=x86_64 -PpocketLane=full --console=plain` (same flags;
+   step renamed "Unit tests + detekt"). The file stayed LF-only,
+   ASCII-only, and the YAML re-parsed after the edit. CI EXECUTION is
+   infra-gated here (no GitHub Actions runners in this environment) -
+   honestly logged: the wiring is the deliverable; detekt-clean was
+   re-verified on-host in this batch (BUILD SUCCESSFUL, 0 findings).
+4. **R3 MINOR (lint tails) - FIXED.** The boilerplate lint's refusal
+   rows widen: the verb alternation gains fulfill/provide/complete,
+   the negation arms gain spaced "can not" and "am not able to", and
+   the sorry-row takes the _APOS class (last straight-only row).
+   Plant-verified: all six tail forms (straight+curly) now CATCH;
+   positive controls ("i can complete...", "i will provide...") stay
+   clean; zero-width-byte check clean; all surfaces pass (1 passed).
+5. **R7 MINOR (hung-adb connect/pull legs) - FIXED.**
+   tools/rp_harness/session.py run() now catches
+   subprocess.TimeoutExpired alongside RelayError and normalizes it to
+   RelayError (check=False still tolerates) - the connect/pull legs
+   (wait-for-device, forward, pull) share send()'s round-8 exit-2
+   contract. Pinned by a NEW test
+   (test_relay_session_run_normalizes_a_hung_adb_timeout); suite 26
+   passed (was 25).
+6. **R8 MINOR (stale header comment) - FIXED** (folded into fix 1:
+   PlayerbotLlmMemory.h now states the margin form, not the strict
+   ">" form).
+7. **R4 MINOR (stale PRE-fix build mirror) - RECORDED AS RESIDUE.**
+   The gitignored PRE-fix mirror under native/cmangos/src/modules/
+   PlayerBots still contains the deleted RecordBotLine; it is wiped
+   and recreated from the overlay at every build (the build driver
+   owns that tree), inert to every pin, the same class as the
+   adjudicated orphaned .build-arm64-v8a residue. Rationale: editing a
+   build artifact mid-gate risks diverging the mirror from what the
+   next build regenerates anyway; the tracked overlay is the source of
+   truth and carries zero RecordBotLine references.
+
+Gates after the batch: pytest "8 failed, 627 passed, 4 skipped" (the 8
+exactly the documented pre-existing set on clean 84c0c7b; +1 new
+harness test); gradle :app:testDebugUnitTest + :app:detekt BUILD
+SUCCESSFUL (138 classes, 1097/0/1); null-guard 9 passed after
+--write-lockfiles (the 4 lockfile re-pins are the overlay hash
+updates); check_repo OK (1217 files, 0 errors, 0 warnings);
+check_sources OK; anchors replay 154 ops no drift; banter FNV golden
+recompiled = de4bd8227a3ab0d1.

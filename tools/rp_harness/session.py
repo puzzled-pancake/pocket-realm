@@ -85,10 +85,17 @@ class RelaySession:
         argv = self.adb_args(*args)
         try:
             return self.runner(argv, timeout)
-        except RelayError:
+        except (RelayError, subprocess.TimeoutExpired) as error:
+            # round-9 R7: run() is the adb lane for the connect/pull
+            # legs too (wait-for-device, forward, pull) - a hung adb
+            # raised a raw TimeoutExpired here, escaping the suite's
+            # documented exit-2 RelayError contract that send()'s
+            # round-8 arm already enforces on the console round trip.
+            if isinstance(error, subprocess.TimeoutExpired):
+                error = RelayError(f"adb invocation timed out: {error}")
             if not check:
                 return ""
-            raise
+            raise error
 
     def adb_root(self) -> None:
         # adb root restarts the daemon; failures are tolerated (some
