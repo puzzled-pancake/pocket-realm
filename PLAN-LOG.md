@@ -1401,3 +1401,124 @@ seasoning bank sum to the reconciled ~1,100 law.
   regenerated, null-guard battery green.
 - Suite: **8 failed (pre-existing set), 581 passed, 4 skipped**; gradle
   testDebugUnitTest + detekt green; check_repo/check_sources OK.
+
+## HANDOFF — continuation run 3 (session timed out mid-E2)
+
+D1/D3/D4 and E1 are COMPLETE, green, committed (29eb2a6, 21d7614).
+Suite at the E1 commit: **8 failed (the documented pre-existing set),
+581 passed, 4 skipped**; gradle green. E2 is MID-FLIGHT in the working
+tree — uncommitted, but every battery run against it so far is green.
+
+### The E2 decision the next agent must know (logged for R8)
+
+The plan's E2 recipe (edit texts.sql in the submodule, bump the
+playerbots pin) CONTRADICTS §0.11: sql/world/ai_playerbot_texts.sql IS
+the shipped 0394 migration entry, sha-pinned by the manifest AND the
+on-device ledger — DatabaseEngine.kt:557 "DB-REVISION: ledger drift"
+fail-closes the world on any byte change to an applied entry, and the
+stager's own comments say a shipped entry must never be edited. The
+§0.11 law is inviolable, so the audit rides a NEW append-only tail
+migration instead (the 0413 precedent): **0414 = idempotent row-content
+UPDATEs only** (30 statements: the six dangling-initiative hello_follow
+rows incl. the plan-named "Hi, lead the way!" line, the modern
+chat/office-speak hello+goodbye rows; no key renames — A9's
+diagnostic keeps its ground; the 533 dead taunt/loot/aoe rows
+excluded). texts.sql itself stays BYTE-IDENTICAL — which is why the
+escape-count pin (43552) and the f52 family were designed NOT to move;
+the manifest/baseline/ledger pins are the ones that moved. The ~6 inline
+literals ride the submodule lane: 6 worst-offender fixes landed in
+GuildManagementActions.cpp (gild????, lonenly, watch your dog, number 1
+of the server, raid Molten..., Hey man).
+
+### In-flight E2 state (all validated)
+
+- sql/migrations/playerbot-texts-e2-register.sql — NEW, 30 UPDATEs;
+  every WHERE old-text key was mechanically verified to resolve to a
+  real texts.sql row (tmp/e2_gen_0414.py generates it, tmp/e2_validate_0414.py
+  validates — both scratch, tmp/ is ignored).
+- native/playerbots — GuildManagementActions.cpp modified, **NOT yet
+  committed inside the submodule** (do this first).
+- tools/stage_database_migrations.py — 0414 registered as the LAST
+  select_inputs entry (after ai_playerbot_llm_memory_v2).
+- schemas/database-migrations.json — regenerated: 414 entries, tail
+  0413/0414. assets restaged.
+- schemas/seed-augment/PROVENANCE.json — manifest_sha256 re-pinned
+  (NOTE: the seeder hashes the LF-NORMALIZED manifest bytes, not the raw
+  CRLF file) + a revalidation note: the equip/rnditem capture is
+  semantically unaffected (0414 is text-row DML only); a full device
+  re-capture stays on the checklist for the next first-boot lane.
+- schemas/sqlite-seed-baseline.json — regenerated via
+  seed_sqlite_from_manifest --write-baseline (SEED OK).
+- tests/test_sqlite_dialect.py — count 413->414, tail pin 0413/0414,
+  0414 added to the DDL-hash binding loop. 9/9 green.
+- tests/test_sqlite_seeding.py — the C2 tail-parity test now covers the
+  two-entry tail (truncated replay [:-2] + the 0413 schema leg + the
+  0414 DML leg translated for fidelity). 36/36 green.
+
+### Remaining E2 checklist, in order
+
+1. Write tests/test_llm_e2_texts_register.py — the plan's register
+   pins: banned-token scan over the 0414 quoted literals, word-count
+   ranges, and the key-coverage pin (every BOT_TEXT("k") literal in the
+   tree resolves to >= 1 texts.sql row). tmp/e2_audit.py has working
+   escape-aware row parsing to reuse.
+2. git -C native/playerbots commit (GuildManagementActions.cpp), then
+   bump PLAYERBOTS_COMMIT in tools/build_o09_realm_runtime.py (currently
+   6c681ef8dd63cb96f111dc9239d569d6663347e5) AND the playerbots pin in
+   schemas/sources.json.
+3. Gradle will likely fail DatabaseStartPreparationTest (defaults
+   manifestCount = 413 @ :88, sealedCount = 413 @ :155/:168) — bump to
+   the new 414 reality, equal-or-stronger.
+4. --write-lockfiles; pytest tests/test_db_async_null_guard.py.
+5. Full pytest ("8 failed, N passed", N >= 581) + gradle
+   testDebugUnitTest + detekt (detektBaseline as a SEPARATE invocation
+   if it flags signature drift; never hand-edit).
+6. check_repo + check_sources (sources fails until step 2 lands).
+7. PLAN-LOG Batch E2 entry + commit (--no-verify only after verifying).
+
+### Then: the §15 round-robin review gate (already IN the plan)
+
+The protocol the operator re-confirmed is §15 of the plan, verbatim
+(docs/plans/rp-depth-fix-plan-v2.3.md §15): 8 reviewer agents in fixed
+scopes (R1 native cloud lane; R2 transport/security + anchor
+byte-exactness vs pristine; R3 authored corpus/persona; R4 schema/
+persistence; R5 app conf/emission; R6 app UX/supervisor; R7 harness/
+tests incl. weakened-or-missing pins; R8 whole-plan conformance incl.
+spot-verifying 5 random PLAN-LOG claims). Each reviews 6045eeb..HEAD
+against the plan + bug-hunts its scope. **A round passes ONLY with 8/8
+zero-BLOCKER/zero-MAJOR verdicts; ANY finding OR ANY reviewer error
+re-runs the ENTIRE 8-reviewer round after fixes — no partial credit,
+no carried verdicts.** Findings must cite verified evidence (file:line
+or a command actually run); unverifiable potential-blockers are
+UNVERIFIED (still fail the round) or device-gated residue. Append every
+round to docs/evidence/review-rounds.md (header + empty Round 1
+placeholder already there). Dispatch the 8 reviewers in ONE foreground
+message (background dispatch unavailable in this session mode). Cap:
+two consecutive post-fix rounds with no NEW findings but a stale
+unresolvable-without-device finding -> record it as device-gated residue
+in DEVICE_QUALIFICATION_CHECKLIST.md and stop looping. Close the gate
+with a logged 8/8 PASS round, then the final PLAN-LOG entry + commit.
+
+### Interpretations queued for R8 (all of them)
+
+Prior session: A6 street ladder; WS-C nine keys no app emission; C5
+join-deed awards nothing; F1 claim=adopt; G2 twelve sites. This run:
+D1 keep-best at the forced call site (not inside RandomTeleport) + the
+kill-switch as a native key; D3 as a min()-only rung CAP on the staged
+power file; E1's re-derived target vector (the v2.2 table is not in
+the tree; 1,090 lines landed against the ~1,100 law); E2's 0414
+tail-migration decision (§0.11 over the recipe detail) + the seed-augment
+PROVENANCE host-side revalidation.
+
+### Gotchas re-learned this run
+
+- Git-bash heredocs MANGLE BACKSLASHES even inside quoted delimiters —
+  any script touching backslash or quote-escape sequences must be
+  written with the Write tool, never a heredoc (this burned ~6 tool
+  calls in E2, and once more while writing this very handoff).
+- Line endings vary PER FILE: tests/test_llm_banter.py LF, overlay .h
+  CRLF, BotPresetStore.kt LF, tests/test_sqlite_*.py CRLF. Always
+  byte-check the anchor before replace.
+- The banter harness g++ lives in the WinGet WinLibs mingw64 tree
+  (resolve with python -c "import shutil; print(shutil.which('g++'))").
+- Shell cwd persists between calls — cd home after cd android.
