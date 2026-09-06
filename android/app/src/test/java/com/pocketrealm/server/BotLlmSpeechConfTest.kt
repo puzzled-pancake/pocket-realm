@@ -143,7 +143,7 @@ class BotLlmSpeechConfTest {
             externalApiKey = "",
             speech = BotLlmSpeech(replyTokens = 48, factsCap = 8),
         )!!
-        assertTrue(conf.contains("AiPlayerbot.LLMMaxNewTokens = 48"))
+        assertTrue(conf.contains("AiPlayerbot.LLMMaxNewTokens = 48\n"))
         assertTrue(conf.contains("AiPlayerbot.LLMFactsCap = 8"))
     }
 

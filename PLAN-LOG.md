@@ -2634,3 +2634,54 @@ are exactly the Memory.cpp/.h patch hashes) + null-guard 9 passed;
 check_repo OK (1217 files, 0/0); check_sources OK; anchors 154 ops
 no drift; golden recompiled de4bd8227a3ab0d1. Round 12 dispatched
 against the new HEAD.
+
+## Round 12 + fix batch (continuation run 6)
+
+Round 12 dispatched at HEAD 1a3017a (all 8 in one foreground
+message): **7/8 PASS - ROUND FAILS on R1's new MAJOR** (the
+cross-line residue: the registry re-registers a verbatim repeat past
+the window while the prior line's claim token still lives; the
+repeat's addressee-marker was first-writer-refused by the residue,
+the addressee dispatched its addressed arm anyway, and the residue
+dying inside the repeat's grant window let a bystander claim beside
+it - R1's multi-line probe: 195,678/226,800 combos double, minimum
+repeat offset +31 s, every ingredient an ordinary player action).
+R2/R4/R6 PASS zero findings; R3/R5/R7/R8 PASS with 5 MINORs (the
+lint "my instructions" over-breadth; one band-exploitable = 48
+assert; the De Morgan pin-inversion class; the "always passes"
+wording; R1's comment overstatement). Full evidence in
+review-rounds.md Round 12.
+
+The fix batch (one commit on top of 1a3017a):
+
+- **R1 MAJOR - generation scoping (erase-and-replace)**: the new
+  TokenOwnsCurrentLine helper scopes first-writer-wins to the
+  CURRENT registry generation - every accepted stamp sits in
+  [firstHeard, firstHeard+window-margin] of its own generation, so a
+  token expiring strictly before firstHeard+window is prior-line
+  residue and is erased. Both token writers now run freshness gate
+  -> generation-scoped ownership -> grant. Pins updated + the new
+  residue test. Probe tmp/r13fix_probe.cpp 8/8 (the two-line attack
+  replayed closed; 662,400-iteration sweep zero repeat-doubles;
+  reverse order answered; the exact discriminator boundary; r10/r11
+  regressions).
+- **Probe-discovered repair**: NotePartyLineHeard now prunes BEFORE
+  inserting (insert-before-prune LOST the first past-window
+  receive's instant - a lone-member repeat was left registry-less
+  and fail-closed where a fresh generation was owed). Pinned.
+- **R5 MINOR**: the = 48 assert delimiter-anchored.
+- **R7 MINOR**: both freshness gates pinned verbatim (the De Morgan
+  inversion class dies).
+- **R1/R8 wording**: the header states the generation-scoping law;
+  "always passes" replaced with the accurate stale-refusal note.
+- **R3 MINOR**: the lint over-breadth RECORDED as residue (zero
+  corpus hits; the named tightening trades coverage).
+
+Gates (self-verified before the --no-verify commit): full pytest
+"8 failed, 630 passed, 4 skipped" (8 = the exact pre-existing set;
++1 new pin test); gradle :app:testDebugUnitTest :app:detekt BUILD
+SUCCESSFUL (138 classes, 1097/0/1); --write-lockfiles (the re-pins
+are exactly the Memory.cpp/.h patch hashes) + null-guard 9 passed;
+check_repo OK (1217 files, 0/0); check_sources OK; anchors 154 ops
+no drift; golden recompiled de4bd8227a3ab0d1. Round 13 dispatched
+against the new HEAD.

@@ -255,6 +255,15 @@ public:
     // gate (an ungated drain-side stamper could stamp below
     // firstHeard and expire inside the grant range), so every
     // ACCEPTED token stamp >= firstHeard - both legs read one law.
+    // Round-12 R1 (generation scoping): the key is line-INSTANCE-
+    // blind (speaker+hash), so a verbatim repeat past the window
+    // re-registers fresh while the prior line's token may still be
+    // live - the token writers' ownership check is therefore scoped
+    // to the CURRENT registry generation (TokenOwnsCurrentLine): a
+    // token expiring strictly before firstHeard+window was stamped
+    // before this generation began and is erased (erase-and-replace),
+    // so a repeat line owns its own exactly-one; a current-generation
+    // token owns the line to at least firstHeard+window.
     // Premises, stated honestly: (1) the law assumes non-decreasing
     // wall-clock reads (round-11 R1 MINOR: a >=2 s backward clock
     // STEP landing between one receive handler's registry write and
@@ -263,9 +272,9 @@ public:
     // engine); (2) a fan-out straddle beyond the window re-registers
     // the line as fresh (round-11 R8 MINOR - a >30 s world-thread
     // stall inside one broadcast, far outside every adjudicated
-    // tier); inside the window the envelope is total. Absent at
-    // stamp/grant time = unprovable freshness = refuse (a missed
-    // reply, never a second generation).
+    // tier); inside the window, with generation scoping, the envelope
+    // is total. Absent at stamp/grant time = unprovable freshness =
+    // refuse (a missed reply, never a second generation).
     static void NotePartyLineHeard(uint32 speakerGuid, uint64_t msgHash);
 
     // Round-6 R1 (addressed-line sibling): an ADDRESSED line stands

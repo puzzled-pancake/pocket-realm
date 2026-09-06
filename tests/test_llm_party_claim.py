@@ -107,8 +107,10 @@ def test_claim_helper_declared_and_mutex_guarded():
     # expired claims are PRUNED (bounded state; a stale claim can never
     # block a later line)
     assert "claims.erase(itr)" in claim
-    # first-writer-wins: an existing live claim refuses the second writer
-    assert "first writer already holds this line" in claim
+    # first-writer-wins: an existing live CURRENT-GENERATION claim
+    # refuses the second writer (round-12: prior-line residue is
+    # erased by the generation-scoped check - see the round-12 test)
+    assert "if (TokenOwnsCurrentLine(key, heardItr->second))" in claim
     # round-6 R1: the window EXCEEDS every reachable chat-drain stagger
     # (UpdateAIInternal delays run 3-7 s on teleport/cast chains - the
     # 5 s window expired before late bystanders evaluated the line and
@@ -137,8 +139,10 @@ def test_stand_down_marker_owns_the_addressed_line_round6():
     marker = src.split("bool PlayerbotLlmMemory::TryStandDownPartyLine")[1].split(
         "bool PlayerbotLlmMemory::CollectPartyCandidates")[0]
     assert "std::lock_guard<std::mutex> lock(StateMutex());" in marker
-    # first writer wins - a claim OR a marker already owns the line
-    assert "a claim or marker already owns this line" in marker
+    # first writer wins - a CURRENT-generation claim or marker owns
+    # the line (round-12: prior-line residue is erased, not obeyed)
+    assert ("a current-generation claim or marker owns the line"
+            in marker)
     # the marker is a winner-0 claim with the SAME window
     assert "marker.botGuid = 0;" in marker
     assert "marker.expiresAt = now + PARTY_CLAIM_WINDOW_SECONDS;" in marker
@@ -448,23 +452,32 @@ def test_first_heard_registry_gates_the_claim_grant_round10():
         "a later member can only LOWER the stamp (the min law)"
     assert ("now - pruneItr->second > PARTY_CLAIM_WINDOW_SECONDS" in note), \
         "the registry prunes past the window (nothing admits after it)"
+    # round-12 R1 (prune-before-insert): the PRUNE precedes the insert
+    # - with the insert first, a past-window receive found the old
+    # entry (min-law: no update), then the prune erased it and the
+    # receive's instant was LOST (a lone-member repeat line left with
+    # no registry, fail-closed where a fresh generation was owed)
+    assert note.index("pruneItr") < note.index("heard[key] = now;"), \
+        "the prune runs BEFORE the insert/min (deterministic re-registration)"
     # the claim-side gate: absent-or-stale firstHeard refuses the grant
+    # (round-12: the gate runs BEFORE the ownership check - the residue
+    # discriminator needs a live registry entry)
     claim = src.split("bool PlayerbotLlmMemory::TryClaimPartyResponder")[1]
     claim = claim.split("\n}")[0]
-    present_at = claim.index("if (claims.find(key) != claims.end())")
     freshness_at = claim.index(
         "std::map<uint64, int64_t> const& heard = PartyLineHeardMap();")
+    owner_at = claim.index("if (TokenOwnsCurrentLine(key, heardItr->second))")
     grant_at = claim.index("PartyResponderClaim& claim = claims[key];")
-    assert present_at < freshness_at < grant_at, \
-        "the freshness gate sits between first-writer-wins and the grant"
-    freshness_block = claim[freshness_at:grant_at]
-    assert "return false;" in freshness_block, \
+    assert freshness_at < owner_at < grant_at, \
+        "freshness gate, then generation-scoped ownership, then grant"
+    gate_block = claim[freshness_at:owner_at]
+    assert "return false;" in gate_block, \
         "stale-or-absent firstHeard refuses the grant (fail closed)"
-    assert "heardItr == heard.end() ||" in freshness_block, \
+    assert "heardItr == heard.end() ||" in gate_block, \
         "absent firstHeard is unprovable freshness - refuse"
-    assert ("now - heardItr->second >=" in freshness_block and
+    assert ("now - heardItr->second >=" in gate_block and
             "PARTY_CLAIM_WINDOW_SECONDS - "
-            "PARTY_CLAIM_FANOUT_STRADDLE_SECONDS" in freshness_block), \
+            "PARTY_CLAIM_FANOUT_STRADDLE_SECONDS" in gate_block), \
         "the grant bound is the SAME window-minus-margin law as the drain TTL"
     # the header declares the registry beside the claim
     hdr = MEMORY_H.read_text(encoding="utf-8")
@@ -492,21 +505,77 @@ def test_stand_down_marker_carries_the_same_freshness_gate_round11():
     src = MEMORY_CPP.read_text(encoding="utf-8")
     marker = src.split("bool PlayerbotLlmMemory::TryStandDownPartyLine")[1]
     marker = marker.split("\n}")[0]
-    present_at = marker.index("if (claims.find(key) != claims.end())")
     freshness_at = marker.index(
         "std::map<uint64, int64_t> const& heard = PartyLineHeardMap();")
+    owner_at = marker.index(
+        "if (TokenOwnsCurrentLine(key, heardItr->second))")
     grant_at = marker.index("PartyResponderClaim& marker = claims[key];")
-    assert present_at < freshness_at < grant_at, \
-        "the marker's freshness gate sits between first-writer and grant"
-    freshness_block = marker[freshness_at:grant_at]
-    assert "return false;" in freshness_block, \
+    assert freshness_at < owner_at < grant_at, \
+        "freshness gate, then generation-scoped ownership, then stamp"
+    gate_block = marker[freshness_at:owner_at]
+    assert "return false;" in gate_block, \
         "stale-or-absent firstHeard refuses the marker (fail closed)"
-    assert "heardItr == heard.end() ||" in freshness_block, \
+    assert "heardItr == heard.end() ||" in gate_block, \
         "an absent registry can never anchor a marker stamp"
-    assert ("now - heardItr->second >=" in freshness_block and
+    assert ("now - heardItr->second >=" in gate_block and
             "PARTY_CLAIM_WINDOW_SECONDS - "
-            "PARTY_CLAIM_FANOUT_STRADDLE_SECONDS" in freshness_block), \
+            "PARTY_CLAIM_FANOUT_STRADDLE_SECONDS" in gate_block), \
         "the marker bound is the SAME window-minus-margin law (one law)"
+    # round-12 R7 MINOR: pin the gate block VERBATIM so a whole-
+    # condition sense inversion (De Morgan wrap preserving every
+    # substring) cannot survive
+    assert ("    if (heardItr == heard.end() ||\n"
+            "        now - heardItr->second >=\n"
+            "            PARTY_CLAIM_WINDOW_SECONDS - "
+            "PARTY_CLAIM_FANOUT_STRADDLE_SECONDS)\n"
+            "        return false;" in marker), \
+        "the marker gate's exact condition is pinned verbatim"
+
+
+def test_residue_token_from_a_prior_line_is_erased_round12():
+    """Round-12 R1 MAJOR (the cross-line residue): the claim key is
+    line-INSTANCE-blind (speaker+hash), so a verbatim repeat past the
+    window re-registers fresh in the first-heard registry while the
+    PRIOR line's claim token can still be live. The repeat's
+    addressee-marker was first-writer-REFUSED by the dead line's
+    residue token; the addressee dispatched its own addressed-arm turn
+    anyway (that arm never consults the claim), and once the residue
+    died inside the REPEAT's grant window - with the addressee gone -
+    a bystander claim granted beside it (R1's probe: 195,678 of
+    226,800 combos double, minimum repeat offset +31 s, every
+    ingredient an ordinary player action). The ownership check is now
+    generation-scoped (TokenOwnsCurrentLine): every accepted stamp
+    sits in [firstHeard, firstHeard+window-margin] of its OWN
+    generation, so a current token expires at >= firstHeard+window;
+    the registry prunes past the window and re-inserts fresh, so the
+    new firstHeard strictly exceeds the prior generation's last
+    possible stamp - a token expiring strictly before
+    firstHeard+window is prior-line residue and is ERASED, letting
+    the repeat line own its exactly-one."""
+    src = MEMORY_CPP.read_text(encoding="utf-8")
+    law = src.split("bool TokenOwnsCurrentLine")[1]
+    law = law.split("\n}")[0]
+    assert "claims.find(key)" in law
+    assert ("itr->second.expiresAt <\n"
+            "        firstHeard + PARTY_CLAIM_WINDOW_SECONDS" in law), \
+        "the exact generation discriminator is pinned"
+    assert "claims.erase(itr);" in law, \
+        "residue is erased (erase-and-replace)"
+    assert "return false;" in law and "return true;" in law
+    # BOTH token writers consult the generation-scoped ownership check
+    claim = src.split("bool PlayerbotLlmMemory::TryClaimPartyResponder")[1]
+    claim = claim.split("\n}")[0]
+    marker = src.split("bool PlayerbotLlmMemory::TryStandDownPartyLine")[1]
+    marker = marker.split("\n}")[0]
+    assert "if (TokenOwnsCurrentLine(key, heardItr->second))" in claim
+    assert "if (TokenOwnsCurrentLine(key, heardItr->second))" in marker
+    # and the claim's gate is verbatim-pinned too (R7's inversion class)
+    assert ("    if (heardItr == heard.end() ||\n"
+            "        now - heardItr->second >=\n"
+            "            PARTY_CLAIM_WINDOW_SECONDS - "
+            "PARTY_CLAIM_FANOUT_STRADDLE_SECONDS)\n"
+            "        return false;" in claim), \
+        "the claim gate's exact condition is pinned verbatim"
 
 
 def test_drain_ttl_drops_window_expired_party_lines_round7():

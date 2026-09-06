@@ -3636,6 +3636,38 @@ std::map<uint64, int64_t>& PartyLineHeardMap()
     return instance;
 }
 
+// Round-12 R1 (the cross-line residue): true when the key's existing
+// token belongs to the CURRENT registry generation (it owns the line);
+// false when absent - or when it is residue of a PRIOR identical-text
+// line whose registry entry was pruned and re-registered fresh, in
+// which case the stale token is erased here (erase-and-replace). The
+// discriminator is exact: every accepted stamp sits in [firstHeard,
+// firstHeard+window-margin] of its OWN generation, so a current-
+// generation token expires at >= firstHeard+window; the registry
+// prunes only past the window and re-inserts fresh, so the new
+// firstHeard strictly exceeds the prior generation's last possible
+// stamp (+2) - a token expiring strictly before firstHeard+window was
+// stamped before this generation began. R1's demonstrated attack (a
+// verbatim repeat >=31 s later, its addressee-marker refused by the
+// dead line's residue token, the residue dying inside the repeat's
+// grant window beside the addressee's own dispatch) dies on this
+// erase: the repeat's marker owns its own line.
+// Caller holds StateMutex.
+bool TokenOwnsCurrentLine(uint64 key, int64_t firstHeard)
+{
+    std::map<uint64, PartyResponderClaim>& claims = PartyClaims();
+    auto itr = claims.find(key);
+    if (itr == claims.end())
+        return false;                            // first writer
+    if (itr->second.expiresAt <
+        firstHeard + PARTY_CLAIM_WINDOW_SECONDS)
+    {
+        claims.erase(itr);                       // prior-line residue
+        return false;
+    }
+    return true;                                 // a current token owns it
+}
+
 } // namespace
 
 uint64_t PlayerbotLlmMemory::PartyMsgHash(std::string const& msg)
@@ -3672,14 +3704,13 @@ void PlayerbotLlmMemory::NotePartyLineHeard(uint32 speakerGuid,
     uint64 const key = PartyClaimKey(speakerGuid, msgHash);
     std::lock_guard<std::mutex> lock(StateMutex());
     std::map<uint64, int64_t>& heard = PartyLineHeardMap();
-    auto itr = heard.find(key);
-    if (itr == heard.end())
-        heard[key] = now;
-    else if (now < itr->second)
-        itr->second = now;
-    // lazy prune, the claim map's own idiom: an entry older than the
-    // window can never admit a claim again (the grant bound is
-    // window-margin < window), so the registry stays bounded
+    // Round-12 R1 (prune-before-insert): a receive PAST the window
+    // must re-register its line deterministically - with the insert
+    // first, the receive found the old entry (min-law: no update),
+    // then the prune erased it and the receive's own instant was
+    // LOST, leaving a lone-member repeat line with no registry (all
+    // its claims fail-closed: a missed reply where a fresh
+    // generation was owed). Prune first, then insert/min-stamp.
     for (auto pruneItr = heard.begin(); pruneItr != heard.end();)
     {
         if (now - pruneItr->second > PARTY_CLAIM_WINDOW_SECONDS)
@@ -3687,6 +3718,11 @@ void PlayerbotLlmMemory::NotePartyLineHeard(uint32 speakerGuid,
         else
             ++pruneItr;
     }
+    auto itr = heard.find(key);
+    if (itr == heard.end())
+        heard[key] = now;
+    else if (now < itr->second)
+        itr->second = now;
 }
 
 bool PlayerbotLlmMemory::TryClaimPartyResponder(uint32 botGuid, uint32 speakerGuid,
@@ -3715,26 +3751,27 @@ bool PlayerbotLlmMemory::TryClaimPartyResponder(uint32 botGuid, uint32 speakerGu
         else
             ++itr;
     }
-    if (claims.find(key) != claims.end())
-        return false; // first writer already holds this line (a claim
-                      // OR a stand-down marker - both own the line)
-    // Round-10 R1 (the claim-side freshness gate): the key is absent,
-    // so any prior marker/claim for this line has EXPIRED - grant only
-    // if the LINE (not this entry) is still young at the claim's own
-    // clock. Every token is stamped at >= its writer's receive, so it
-    // expires at >= firstHeard+window; a grant inside
-    // firstHeard+window-margin therefore implies every prior token was
-    // still LIVE at some earlier claim attempt (the absent-key case is
-    // exactly the expired-token case) - re-opening beside the original
-    // winner is unreachable, whatever the fan-out straddle or the
-    // mid-drain clock divergence that admit this drainer. Absent
-    // firstHeard = unprovable freshness = refuse (a missed reply,
-    // never a second generation).
+    // Round-10 R1 (the claim-side freshness gate): grant only if the
+    // LINE (not any entry's m_time) is young at the claim's own
+    // clock. Every current-generation token is stamped at >= its
+    // writer's receive >= firstHeard, so it expires at >=
+    // firstHeard+window; a grant inside firstHeard+window-margin can
+    // never meet an expired current-generation token, whatever the
+    // fan-out straddle or the drain's mid-work clock divergence that
+    // admit this drainer. Absent firstHeard = unprovable freshness =
+    // refuse (a missed reply, never a second generation). The gate
+    // runs BEFORE the ownership check: the round-12 residue
+    // discriminator needs a live registry entry.
     std::map<uint64, int64_t> const& heard = PartyLineHeardMap();
     auto heardItr = heard.find(key);
     if (heardItr == heard.end() ||
         now - heardItr->second >=
             PARTY_CLAIM_WINDOW_SECONDS - PARTY_CLAIM_FANOUT_STRADDLE_SECONDS)
+        return false;
+    // Round-12 R1: first-writer-wins over the CURRENT generation only
+    // (a claim OR a stand-down marker); residue of a prior
+    // identical-text line is erased (TokenOwnsCurrentLine).
+    if (TokenOwnsCurrentLine(key, heardItr->second))
         return false;
     PartyResponderClaim& claim = claims[key];
     claim.botGuid = botGuid;
@@ -3771,8 +3808,6 @@ bool PlayerbotLlmMemory::TryStandDownPartyLine(uint32 speakerGuid,
         else
             ++itr;
     }
-    if (claims.find(key) != claims.end())
-        return false; // a claim or marker already owns this line
     // Round-11 R1 (the ungated drain-side marker): this helper's
     // SECOND caller - the drain-side stand-down branch - runs under
     // NO isAiChat/strategy armament, so a strategy-less member (its
@@ -3783,16 +3818,22 @@ bool PlayerbotLlmMemory::TryStandDownPartyLine(uint32 speakerGuid,
     // and a fresh claim re-opened the line beside the original
     // winner. The marker now carries the SAME freshness gate as the
     // claim: absent registry = unprovable freshness = refuse (the
-    // receive-path caller always passes - its own registry write
-    // precedes it in the same handler, so firstHeard <= now), and
-    // with the gate every ACCEPTED token stamp >= firstHeard,
-    // restoring the grant proof's premise for both legs.
+    // receive-path caller is never refused as absent or backward -
+    // its own registry write precedes it in the same handler, so
+    // firstHeard <= now; round-12 R8 wording: a STALE refusal there,
+    // inside the stated straddle envelope, is conservative - a
+    // missed marker never dispatches), and with the gate every
+    // ACCEPTED token stamp >= firstHeard, the grant proof's premise
+    // for both legs. Round-12 R1: the ownership check below is
+    // generation-scoped (prior-line residue is erased).
     std::map<uint64, int64_t> const& heard = PartyLineHeardMap();
     auto heardItr = heard.find(key);
     if (heardItr == heard.end() ||
         now - heardItr->second >=
             PARTY_CLAIM_WINDOW_SECONDS - PARTY_CLAIM_FANOUT_STRADDLE_SECONDS)
         return false;
+    if (TokenOwnsCurrentLine(key, heardItr->second))
+        return false; // a current-generation claim or marker owns the line
     PartyResponderClaim& marker = claims[key];
     marker.botGuid = 0;
     marker.expiresAt = now + PARTY_CLAIM_WINDOW_SECONDS;

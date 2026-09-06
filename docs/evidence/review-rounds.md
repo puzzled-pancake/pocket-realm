@@ -1570,3 +1570,187 @@ exactly the Memory.cpp/.h patch-hash updates) and null-guard 9
 passed; check_repo OK (1217 files, 0/0); check_sources OK; anchors
 replay 154 ops no drift; banter FNV golden recompiled =
 de4bd8227a3ab0d1.
+
+## Round 12
+
+**Diffstat re-reviewed**: `git diff 6045eeb..1a3017a` — 120 files,
++21957/−357 (the round-11 fix batch 1a3017a on top of b55c2d1). All 8
+reviewers dispatched fresh in one foreground message.
+
+**Result: 7/8 PASS → ROUND FAILS.** (Fix batch landed — see "Fixes
+applied between Round 12 and Round 13" below; Round 13 re-ran all 8.)
+
+- **R1 (native cloud lane): FINDINGS** — 1 MAJOR + 1 MINOR. The MAJOR
+  (the cross-line residue): the first-heard registry re-registers a
+  verbatim REPEAT past the window as fresh while the PRIOR line's
+  claim token is still live — the repeat's addressee-marker was
+  first-writer-refused by the dead line's residue token, the
+  addressee dispatched its addressed-arm turn anyway (that arm never
+  consults the claim), and once the residue died inside the REPEAT's
+  grant window — with the addressee gone — a bystander claim granted
+  beside it: R1's probe (tmp/r12r1_probe.cpp, the first to model
+  MULTI-LINE timelines on one (speaker, msgHash) key) found 195,678
+  of 226,800 combos doubling, minimum repeat offset +31 s (the prune
+  boundary), every ingredient an ordinary player action (a claim
+  token from line 1, an invite between lines, a verbatim repeat, a
+  macros-scale flood gap, owner-gone, seconds-scale drain stagger —
+  NO stall, NO strategy-less bot). Fix directions named: refuse the
+  registry re-insert while a token is live; or treat a token stamped
+  before the current firstHeard as stale in the first-writer check
+  (erase-and-replace); or key by line instance. The MINOR: the law
+  comments' "inside the window the envelope is total" overstates
+  (the cross-line-reuse premise was unstated). Verified green: the
+  round-11 fix present and holding (muted-drain 1,326 combos zero;
+  r10 both legs refused; r9 shapes refused); no marker
+  false-refusal regressions; no ungated token stampers (all four
+  PartyClaims call sites enumerated); §0.13 all sites; device
+  byte-identity; A7; A1; rpgchat; threading; pins green; the full
+  suite exact.
+- **R2 (transport/security): PASS — zero findings.** Anchors 154 ops
+  (arithmetic re-derived; submodules clean at the pinned commits);
+  1a3017a census exactly the 11 expected files with zero transport
+  surface; lockfile re-pins recomputed byte-matching; rider 1
+  mutation-killed 2/2 with the build-order edge closed; riders 3/5;
+  G3 end-to-end with the CA bundle byte-identical to live curl.se
+  today; a fresh 22-case class-truth compile against the REAL
+  headers incl. the sentinel through HygienePass; A8 (8 sanctioned
+  literals); A9; hung-adb 26/26.
+- **R3 (authored corpus/persona): PASS** — 1 MINOR (the lint's
+  "my instructions" token is over-broad for authored prose — "my
+  instructions from the warchief were to hold this gate" would
+  false-positive; conservative direction only, zero corpus hits
+  today; RECORDED as residue with the named tightening). Verified:
+  golden recompiled = de4bd8227a3ab0d1, no-pool-touch
+  diffstat-verified; the lint teeth verified two ways incl. an
+  end-to-end plant spliced into a scratch copy of the real header;
+  fresh E0 C++ probe 1,218 lines through the real LineIsValid with
+  seeded-path isolation; E1 1,090 exactly; E2 30/30 with texts.sql
+  byte-frozen across the run; E3 mutation-tested 5/5; A5 360 real
+  renders; an extended register scan (1,327+353+181 literals) zero
+  hits; 85 corpus tests green.
+- **R4 (schema/persistence): PASS — zero findings, zero MINORs.**
+  1a3017a's 4 lockfile deltas EXACTLY the two patch-hash re-pins
+  (recomputed byte-exact); no schema/migration/seed/PROVENANCE
+  movement; 0414 still LAST; migration replay 414/414; 0414
+  idempotence re-proven; PROVENANCE recomputed + fail-close
+  demonstrated live; sqlite family 216 green incl. the party-claim
+  files; C-column writers all live post-churn.
+- **R5 (app conf/emission): PASS** — 1 MINOR (one band-exploitable
+  un-anchored assert remains: LLMMaxNewTokens = 48 at
+  BotLlmSpeechConfTest:146 — 48→480 is inside the emission clamp
+  band [24,600]; FIXED this batch; the other leftovers listed
+  band-safe). Verified: all 13 round-11 anchors sound at three
+  levels; the OFF = 10 positive code-grounded and joint-exact with
+  the negative; both = 96 sites context-anchored and passing 10/10 +
+  32/32; emission byte-identical since bec78fd; CloudLaneConf 9/9;
+  parity mutation-tested 4/4 on a sandbox; detekt baseline empty +
+  forced-fresh clean; the full suite 1097/0/1 fresh.
+- **R6 (app UX/supervisor): PASS — zero findings.** Gradle forced
+  fresh 48/48 executed: 138 classes, 1097/0/1, detekt 0; 1a3017a's
+  android footprint = the two test files only; F2 (incl. the
+  "Stored uppercase" hint vs AccountMgr::normalizeString), F3,
+  §0.c.4 verbatim clause, B7 floors, B5 manifest/fence/hysteresis,
+  F1 orphan policy — all re-verified with pins; the string sweep
+  found nothing unsupported.
+- **R7 (harness/tests): PASS** — 1 MINOR (a De Morgan whole-condition
+  inversion of the freshness gate survives the substring pins —
+  generic to the exact-string pin architecture; FIXED this batch
+  with verbatim gate-block pins). Verified: the marker-gate pin
+  kills 6/7 mutants incl. every mandated class; the nesting pin
+  KILLS R7's round-11 compiled de-nesting mutant (re-verified by
+  re-compiling it) with the brittleness trade-off judged acceptable;
+  the Kotlin delimiters mutation-killed in a scratch worktree (K1
+  10→100 killed by the NEW positive pin — the closure is
+  load-bearing; K2 2→20 killed at both sites); full pytest fresh
+  "8 failed, 629 passed, 4 skipped" byte-compared EXACT; weakening
+  audit clean; vacuous-grep zero; T1 walked; the fix probe
+  recompiled independently 6/6.
+- **R8 (whole-plan conformance): PASS** — 1 MINOR (the round-11
+  "receive-path caller always passes" phrasing overstates by the
+  stale-refusal mode — conservative-direction only; FIXED in this
+  batch's comment rewrite). Verified: all 13 constraints green;
+  §0.a-d + §11 no hard inversions; 5/5 NEW spot-checks TRUE (60
+  across rounds 1-12); all 16 interpretations + the round-7..11
+  readings re-derived SOUND — the marker-gate reading verified
+  end-to-end and the two stated premises judged accurate for their
+  proofs; every round-11 fix-batch gate claim reproduced by own
+  runs (pytest exact, gradle counted, detekt forced-fresh, null-
+  guard/checks/anchors/golden/probe 6/6 all reproduced).
+
+MINORs triaged in the round-12 fix batch: R1's comment overstatement
+(fixed with the generation-scoping law stated); R5's = 48 anchor
+(fixed); R7's De Morgan class (fixed with verbatim gate pins); R8's
+"always passes" wording (fixed in the rewrite); R3's lint
+over-breadth (RECORDED as residue — the named tightening trades
+boilerplate coverage for prose freedom; zero corpus hits today).
+
+### Fixes applied between Round 12 and Round 13
+
+One commit (see PLAN-LOG "Round 12 fix batch"). The MAJOR fixed per
+R1's second named direction (erase-and-replace), plus a
+probe-discovered registry ordering repair.
+
+1. **R1 MAJOR (the cross-line residue) - FIXED, generation scoping.**
+   A new helper TokenOwnsCurrentLine (PlayerbotLlmMemory.cpp, in the
+   anonymous namespace beside the registry) scopes the first-writer
+   check to the CURRENT registry generation: every accepted stamp
+   sits in [firstHeard, firstHeard+window-margin] of its OWN
+   generation, so a current-generation token expires at >=
+   firstHeard+window; the registry prunes only past the window and
+   re-inserts fresh, so the new firstHeard strictly exceeds the
+   prior generation's last possible stamp (+2) - a token expiring
+   strictly before firstHeard+window is prior-line residue and is
+   ERASED (erase-and-replace), letting the repeat line own its
+   exactly-one. BOTH token writers (the claim and the stand-down
+   marker) now run: freshness gate FIRST (the discriminator needs a
+   live registry entry), then the generation-scoped ownership check,
+   then the grant/stamp. Pins: the two round-10/11 tests' position
+   asserts updated to the new order (equal-or-stronger: the gate
+   position is now load-bearing for the residue check); NEW
+   test_residue_token_from_a_prior_line_is_erased_round12 (the
+   discriminator verbatim, the erase, both writers consult it).
+   Probe tmp/r13fix_probe.cpp 8/8: R1's two-line attack replayed
+   (line-1 bystander claim + invite + verbatim repeat + owner-gone)
+   — the residue is erased at the repeat's marker attempt, the
+   repeat owns exactly one; a 662,400-iteration two-line sweep
+   (winner-claim instant x repeat offset 25-70 x leave x drains x
+   claim instants) at ZERO repeat-doubles with 468,640
+   both-lines-answered; the reverse order (marker line 1, the named
+   bot gone for the repeat) gets its own responder; the exact
+   discriminator boundary (a token stamped AT firstHeard is current;
+   prior residue expiring at fh_new+29 is erased); round-10/11
+   regressions closed.
+2. **PROBE-DISCOVERED registry repair (prune-before-insert).** The
+   fix author's probe caught a real ordering flaw beyond R1's
+   finding: with insert-before-prune, the FIRST receive of a
+   past-window repeat found the old entry (min-law: no update), then
+   the prune erased it and the receive's own instant was LOST - a
+   lone-member repeat line was left with no registry and fail-closed
+   where a fresh generation was owed (conservative, but wrong).
+   NotePartyLineHeard now prunes FIRST, then inserts/min-stamps: the
+   re-registration is deterministic on the first receive of the new
+   line. Pinned (the prune-before-insert order).
+3. **R1 MINOR + R8 MINOR (wording) - FIXED**: the header law block
+   now states the generation-scoping law (round-12 R1) and the
+   marker-gate comment replaces "always passes" with the accurate
+   "never refused as absent or backward; a stale refusal there is
+   conservative" (round-12 R8).
+4. **R5 MINOR - FIXED**: LLMMaxNewTokens = 48 delimiter-anchored
+   (BotLlmSpeechConfTest:146; the band-exploitable one; the
+   band-safe leftovers are R5-listed).
+5. **R7 MINOR - FIXED**: the freshness gates in BOTH helpers are
+   pinned VERBATIM (the exact four-line condition block) - the De
+   Morgan inversion class dies.
+6. **R3 MINOR - RECORDED AS RESIDUE**: the lint's "my instructions"
+   over-breadth (zero corpus hits; the tightening
+   "my instructions (prevent|are|do|say)" trades boilerplate
+   coverage for authored-prose freedom — named for a future pass).
+
+Gates after the batch: pytest "8 failed, 630 passed, 4 skipped" (the
+8 exactly the documented pre-existing set; +1 new residue pin);
+gradle :app:testDebugUnitTest + :app:detekt BUILD SUCCESSFUL (138
+classes, 1097/0/1); --write-lockfiles ran (the lockfile re-pins are
+exactly the Memory.cpp/.h patch-hash updates) and null-guard 9
+passed; check_repo OK (1217 files, 0/0); check_sources OK; anchors
+replay 154 ops no drift; banter FNV golden recompiled =
+de4bd8227a3ab0d1.
