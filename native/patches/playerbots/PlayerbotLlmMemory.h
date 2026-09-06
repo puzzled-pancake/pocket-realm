@@ -250,9 +250,22 @@ public:
     // grant consults: every marker/claim token is stamped at >= its
     // writer's receive and so expires at >= firstHeard+window, while
     // a grant needs now <= firstHeard+window-margin - a granted claim
-    // can never meet an expired prior token, at ANY straddle or drain
-    // clock divergence. Absent at claim time = unprovable freshness =
-    // the claim refuses (a missed reply, never a second generation).
+    // can never meet an expired prior token, at ANY drain clock
+    // divergence. Round-11 R1: the stand-down marker carries the SAME
+    // gate (an ungated drain-side stamper could stamp below
+    // firstHeard and expire inside the grant range), so every
+    // ACCEPTED token stamp >= firstHeard - both legs read one law.
+    // Premises, stated honestly: (1) the law assumes non-decreasing
+    // wall-clock reads (round-11 R1 MINOR: a >=2 s backward clock
+    // STEP landing between one receive handler's registry write and
+    // its marker stamp could re-open a microscopic shape -
+    // environmental, shared by every wall-clock window in the
+    // engine); (2) a fan-out straddle beyond the window re-registers
+    // the line as fresh (round-11 R8 MINOR - a >30 s world-thread
+    // stall inside one broadcast, far outside every adjudicated
+    // tier); inside the window the envelope is total. Absent at
+    // stamp/grant time = unprovable freshness = refuse (a missed
+    // reply, never a second generation).
     static void NotePartyLineHeard(uint32 speakerGuid, uint64_t msgHash);
 
     // Round-6 R1 (addressed-line sibling): an ADDRESSED line stands

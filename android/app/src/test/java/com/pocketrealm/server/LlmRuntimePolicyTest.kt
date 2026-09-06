@@ -43,7 +43,7 @@ class LlmRuntimePolicyTest {
     @Test
     fun enabledRuntimeTargetsLlamaServerOverHttp() {
         val block = LlmRuntimePolicy.confBlock(llmEnabled = true)
-        assertTrue(block!!.contains("AiPlayerbot.LLMEnabled = 2"))
+        assertTrue(block!!.contains("AiPlayerbot.LLMEnabled = 2\n"))
         assertTrue(block.contains("AiPlayerbot.LLMBackend = 0"))
         assertTrue(block.contains("AiPlayerbot.LLMApiEndpoint = http://127.0.0.1:8080/v1/chat/completions"))
         // The C++ client POSTs LLMApiJson verbatim; the template must carry the
@@ -266,7 +266,7 @@ class LlmRuntimePolicyTest {
     @Test
     fun enabledRuntimeBlockCarriesTheBanterLine() {
         val block = LlmRuntimePolicy.confBlock(llmEnabled = true)
-        assertTrue(block!!.contains("AiPlayerbot.LLMBanterEnabled = 1"))
+        assertTrue(block!!.contains("AiPlayerbot.LLMBanterEnabled = 1\n"))
         val off = LlmRuntimePolicy.confBlock(llmEnabled = true, banterEnabled = false)
         assertTrue(off!!.contains("AiPlayerbot.LLMBanterEnabled = 0"))
     }
@@ -420,12 +420,16 @@ class LlmRuntimePolicyTest {
             "https://api.example.com/v1/chat/completions", "m", "k",
         )!!
         assertFalse(off.contains("AiPlayerbot.LLMBotToBotChatChance = 25\n"))
+        // round-11 R5 MINOR: the OFF lane carries the tier default 10 -
+        // pin it positively (delimiter-anchored) so a cloud-OFF regression
+        // to inverted-priority economics cannot pass silently
+        assertTrue(off.contains("AiPlayerbot.LLMBotToBotChatChance = 10\n"))
         val override = LlmRuntimePolicy.confBlockExternal(
             "https://api.example.com/v1/chat/completions", "m", "k",
             speech = BotLlmSpeech(botToBotChatChance = 7),
             cloudLane = CloudLaneConf(cloudChatter = true),
         )!!
-        assertTrue(override.contains("AiPlayerbot.LLMBotToBotChatChance = 7"))
+        assertTrue(override.contains("AiPlayerbot.LLMBotToBotChatChance = 7\n"))
     }
 
     @Test
@@ -473,7 +477,7 @@ class LlmRuntimePolicyTest {
         val external = LlmRuntimePolicy.confBlockExternal(
             "https://api.example.com/v1/chat/completions", "m", "k",
         )!!
-        assertTrue(external.contains("AiPlayerbot.LLMProviderSafe = 1"))
+        assertTrue(external.contains("AiPlayerbot.LLMProviderSafe = 1\n"))
     }
 
     @Test
@@ -618,7 +622,7 @@ class LlmRuntimePolicyTest {
             model = "gpt-4o-mini",
             apiKey = "sk-test",
         )
-        assertTrue(block!!.contains("AiPlayerbot.LLMEnabled = 2"))
+        assertTrue(block!!.contains("AiPlayerbot.LLMEnabled = 2\n"))
         assertTrue(block.contains("AiPlayerbot.LLMBackend = 0"))
         assertTrue(block.contains("AiPlayerbot.LLMApiEndpoint = https://api.openai.com/v1/chat/completions"))
         assertTrue(block.contains("AiPlayerbot.LLMApiKey = sk-test"))

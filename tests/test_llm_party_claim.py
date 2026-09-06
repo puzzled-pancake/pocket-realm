@@ -390,6 +390,25 @@ def test_fanout_stamp_covers_the_leave_before_first_drain_hole_round7():
     heard_at = queue_call.index("PlayerbotLlmMemory::NotePartyLineHeard(")
     assert push_at < heard_at < stamp_at, \
         "the registry stamps between the push and the marker (min-bound law)"
+    # round-11 R7 MINOR: the channel/speaker gate must CONTAIN both
+    # writes (presence-only pins survived a de-nested matcher in R7's
+    # compiled mutant) - the verbatim nested shape is pinned
+    nested = (
+        "stampSpeaker && stampSpeaker->isRealPlayer())\n"
+        "                    {\n"
+        "                        PlayerbotLlmMemory::NotePartyLineHeard(\n"
+        "                            stampSpeaker->GetGUIDLow(),\n"
+        "                            PlayerbotLlmMemory::PartyMsgHash(message));\n"
+        "                        if (PlayerbotLlmGates::ContainsNameIgnoreCase(message, bot->GetName()))\n"
+        "                        {\n"
+        "                            PlayerbotLlmMemory::TryStandDownPartyLine(\n"
+        "                                stampSpeaker->GetGUIDLow(),\n"
+        "                                PlayerbotLlmMemory::PartyMsgHash(message));\n"
+        "                        }\n"
+        "                    }"
+    )
+    assert nested in queue_call, \
+        "both the registry write and the addressee marker sit inside the channel/speaker gate"
     # the channel/speaker gate resolves ONCE and the canonical matcher
     # now nests INSIDE it (the marker stays addressee-only; the
     # registry write is the every-member part)
@@ -451,6 +470,43 @@ def test_first_heard_registry_gates_the_claim_grant_round10():
     hdr = MEMORY_H.read_text(encoding="utf-8")
     assert ("static void NotePartyLineHeard(uint32 speakerGuid, "
             "uint64_t msgHash);" in hdr)
+
+
+def test_stand_down_marker_carries_the_same_freshness_gate_round11():
+    """Round-11 R1 MAJOR: TryStandDownPartyLine's second caller - the
+    drain-side stand-down branch - runs under no isAiChat/strategy
+    armament, so a strategy-less member (its receive never wrote the
+    first-heard registry, its push carries the legacy +10-20 s
+    stagger) could stamp the line's FIRST marker token at a clock
+    read BELOW firstHeard while the fan-out was stalled behind
+    mid-drain members: the addressee's receive-marker was then
+    refused (first writer), and once the addressee left, a bystander
+    claim in [marker_expiry, firstHeard+window-margin] - a window the
+    ungated stamp itself prices at >= 2 s - granted beside the
+    original winner (R1's probe: 893 doubles over 5043 combos,
+    minimal straddle 12 s). The marker now carries the claim's own
+    gate: absent-or-stale firstHeard refuses - and with it every
+    ACCEPTED token stamp >= firstHeard, restoring the grant proof's
+    premise for both legs (the receive-path caller always passes:
+    its own registry write precedes it in the same handler)."""
+    src = MEMORY_CPP.read_text(encoding="utf-8")
+    marker = src.split("bool PlayerbotLlmMemory::TryStandDownPartyLine")[1]
+    marker = marker.split("\n}")[0]
+    present_at = marker.index("if (claims.find(key) != claims.end())")
+    freshness_at = marker.index(
+        "std::map<uint64, int64_t> const& heard = PartyLineHeardMap();")
+    grant_at = marker.index("PartyResponderClaim& marker = claims[key];")
+    assert present_at < freshness_at < grant_at, \
+        "the marker's freshness gate sits between first-writer and grant"
+    freshness_block = marker[freshness_at:grant_at]
+    assert "return false;" in freshness_block, \
+        "stale-or-absent firstHeard refuses the marker (fail closed)"
+    assert "heardItr == heard.end() ||" in freshness_block, \
+        "an absent registry can never anchor a marker stamp"
+    assert ("now - heardItr->second >=" in freshness_block and
+            "PARTY_CLAIM_WINDOW_SECONDS - "
+            "PARTY_CLAIM_FANOUT_STRADDLE_SECONDS" in freshness_block), \
+        "the marker bound is the SAME window-minus-margin law (one law)"
 
 
 def test_drain_ttl_drops_window_expired_party_lines_round7():

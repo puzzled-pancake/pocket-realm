@@ -1355,6 +1355,218 @@ Gates after the batch: pytest "8 failed, 628 passed, 4 skipped" (the
 8 exactly the documented pre-existing set; +1 new registry pin);
 gradle :app:testDebugUnitTest + :app:detekt BUILD SUCCESSFUL (138
 classes, 1097/0/1); --write-lockfiles ran (the lockfile re-pins are
-the Memory.cpp/.h + driver hash updates) and null-guard 9 passed;
-check_repo OK (1217 files, 0/0); check_sources OK; anchors replay
-154 ops no drift; banter FNV golden recompiled = de4bd8227a3ab0d1.
+exactly the Memory.cpp/.h patch-hash updates - round-11 R4 MINOR
+correction: the driver itself carries no lockfile entry; its payload
+edits are pinned by the content pins, not the lockfiles) and
+null-guard 9 passed; check_repo OK (1217 files, 0/0); check_sources
+OK; anchors replay 154 ops no drift; banter FNV golden recompiled =
+de4bd8227a3ab0d1.
+
+## Round 11
+
+**Diffstat re-reviewed**: `git diff 6045eeb..b55c2d1` — 119 files,
++21586/−347 (the round-10 fix batch b55c2d1 on top of 7b2dd24). All 8
+reviewers dispatched fresh in one foreground message.
+
+**Result: 7/8 PASS → ROUND FAILS.** (Fix batch landed — see "Fixes
+applied between Round 11 and Round 12" below; Round 12 re-ran all 8.)
+
+- **R1 (native cloud lane): FINDINGS** — 1 MAJOR + 1 MINOR. The MAJOR
+  (the marker leg had no first-heard anchor): the round-10 proof
+  premise "every token is stamped at >= its writer's receive >=
+  firstHeard" is false for the DRAIN-side stand-down marker — its
+  caller runs under NO isAiChat/strategy armament, and
+  TryStandDownPartyLine carried no freshness gate. A strategy-less
+  member (the nc surface removes "ai chat" per-bot; its receive
+  writes NO registry entry; its push carries the legacy +10-20 s
+  stagger) draining while the fan-out is stalled behind mid-drain
+  members stamps the line's FIRST token BELOW firstHeard: the
+  addressee's receive-marker is then refused (first writer), the
+  addressee dispatches gen 1, and with the addressee gone a bystander
+  claim in [marker_expiry, firstHeard+window-margin] — a window the
+  ungated stamp prices at >= 2 s — grants beside it. R1's independent
+  probe (tmp/r11r1_probe.cpp, 21/21, per-member isAiChat modeling
+  that the fix author's round-10 probe lacked): 893 doubles over 5043
+  combos, minimal straddle 12 s. Fix directions named: gate
+  TryStandDownPartyLine on the registry (fail-closed), or have the
+  drain-side branch call NotePartyLineHeard first, or match the
+  receive armament. The MINOR: the "ANY divergence" immunity assumes
+  non-decreasing clocks — a >= 2 s backward wall-clock step landing
+  between one receive handler's registry write and marker stamp
+  re-opens a microscopic shape (environmental; the comments should
+  state the premise). Verified green: both round-10 attacks refused;
+  29,700-iteration positive-divergence sweeps zero doubles; cross-arm
+  zero; the min() law; the prune/grant boundary exact; fail-closed;
+  the deterministic matrix; device byte-identity; §0.13 all sites;
+  A7; A1; rpgchat; threading (the registry's world-thread lock
+  acquisition judged brief and bounded); pins 16/16.
+- **R2 (transport/security): PASS** — 1 MINOR (pre-existing at
+  baseline 6045eeb: some baseline anchors match more pristine
+  occurrences than their registration count — first-match patching
+  with quiet drift detection on a future submodule re-pin; recorded
+  as residue). Verified: anchors 154 ops with the PB_AI_QUEUE_CALL
+  UPSTREAM occurrence-count independently verified; all 132 UPSTREAM
+  literals occurrence-checked against pristine; b55c2d1
+  transport-neutral (census zero); lockfile re-pins recomputed and
+  byte-matching; CA bundle byte-identical to live curl.se; fresh
+  22/22 class-truth battery incl. the sentinel through the real
+  HygienePass; rider 1 mutation-killed 2/2; riders 3/5; A8; A9;
+  hung-adb 26/26.
+- **R3 (authored corpus/persona): PASS** — 1 MINOR (theoretical
+  cross-lane state-key collision: persona guid<<8 lane vs pool
+  guid<<24 lane collide when one bot's guid is exactly 65,536x
+  another's with coinciding low bytes; quality-only recency-ring
+  sharing; the two-lane layout is the plan's own §6 E0 law — recorded
+  as residue). Verified: golden recompiled = de4bd8227a3ab0d1 with
+  the no-pool-touch claim diffstat-verified; the lint plant-verified
+  12 hits all caught with clean controls; fresh C++ E0 probe 1,218
+  lines through the real LineIsValid; E1 1,090 exactly; E2 30/30 (the
+  initial 26/30 was the reviewer's own parser asymmetry, corrected);
+  E3 mutation-tested 4/4 killed; A5 360 renders through the real
+  template chain; 104 corpus tests green.
+- **R4 (schema/persistence): PASS** — 2 MINORs: (1) the round-10
+  fixes-section line "the lockfile re-pins are the Memory.cpp/.h +
+  driver hash updates" is imprecise — the driver carries NO lockfile
+  entry (grep zero; write_lockfiles refreshes only
+  commits/overlay-registries/patches_content) — one-line log
+  correction, FIXED this batch; (2) pre-existing environmental: the
+  manifest/lockfile pins hash raw worktree bytes (409/414 CRLF
+  on-disk vs LF git blobs) and are authoring-machine-bound — runbook
+  note, recorded as residue. Verified: b55c2d1's 4 lockfile deltas
+  EXACTLY the two patch-hash re-pins (two-sided byte proof); the
+  expected-set statement corrected; migration replay 414/414; 0414
+  idempotence; PROVENANCE recomputed + fail-close demonstrated; seed
+  replay zero baseline churn; sqlite family 160 green; C-columns
+  re-verified post-churn.
+- **R5 (app conf/emission): PASS** — 2 MINORs (the same class R5
+  itself convicted): (1) the OFF-side delimiter change weakened the
+  negative BotToBotChatChance pin (an OFF block emitting = 250 now
+  passes) and EXTERNAL_TIER's botToBotChatChance = 10 has no positive
+  pin — closure: the positive = 10 delimiter pin; (2) same-class
+  delimiter gaps on non-economics asserts (LLMEnabled = 2 at :46/:621
+  — the native == 2 strategy grant, ProviderSafe = 1, BanterEnabled =
+  1, override = 7, and the speech-conf trio). BOTH FIXED this batch.
+  Verified: the ten economics anchors + GovernorWindow airtight at
+  three levels (form, template, 34-needle mutation probe); emission
+  byte-identical since bec78fd; CloudLaneConf 9/9; parity
+  mutation-tested 4/4; detekt baseline empty + forced-fresh clean;
+  1097/0/1 fresh.
+- **R6 (app UX/supervisor): PASS — zero findings.** Gradle forced
+  fresh (48 tasks executed): 138 classes, 1097/0/1, detekt 0;
+  b55c2d1's android footprint = the test file only; F2/F3/§0.c.4/B7/
+  B5/F1 all re-verified with pins (F2's "Stored uppercase" hint
+  independently verified against AccountMgr::normalizeString);
+  adjudicated residues confirmed present and not re-reported.
+- **R7 (harness/tests): PASS** — 1 MINOR (the fan-out stamp pin gates
+  the channel/speaker check by PRESENCE, not containment: a compiled
+  de-nesting mutant — the marker stamping for any channel when named
+  — survived every test reading the payload; the shape predates the
+  round-10/11 batches. FIXED this batch with a verbatim nesting pin).
+  Verified: the registry pins kill 10/10 mutants; the extended
+  fan-out pin kills 5/5; the replaced `!= 0 &&` assert judged
+  equal-or-stronger (the old form is false against the current
+  payload — replacement was structurally required); the R5 fix live
+  32/32; full pytest fresh "8 failed, 628 passed, 4 skipped" with the
+  8 ids byte-compared EXACT against the deselect list; rp_harness
+  read whole; weakening audit clean (12 removed asserts all
+  replaced equal-or-stronger); vacuous-grep zero; T1/T2 walked; C++
+  batteries compiled fresh.
+- **R8 (whole-plan conformance): PASS** — 1 MINOR (the round-10
+  logged "at ANY fan-out straddle" overstates: the registry's
+  insert-before-prune lets a receive straddling past the window
+  re-register the line as fresh while a prior token just expired —
+  requires a > 30 s world-thread stall inside one broadcast, far
+  outside every adjudicated tier; closure: state the
+  straddle-within-window envelope or refuse the re-insert. FIXED this
+  batch by stating the envelope in the law comments). Verified: all
+  13 constraints mechanically green; §0.a-d + §11 no hard inversions;
+  5/5 NEW spot-checks TRUE (55 across rounds 1-11); all 16
+  interpretations + round-7/8/9/10 readings re-derived SOUND — the
+  first-heard chain's arithmetic re-derived (grant => now <=
+  firstHeard+28 < firstHeard+30 <= every expiry), the single
+  clock-read inside TryClaimPartyResponder confirmed; the fix-batch
+  gates reproduced by own runs (pytest exact, gradle counted, detekt
+  forced-fresh, null-guard/checks/anchors/golden/probe all
+  reproduced).
+
+MINORs triaged in the round-11 fix batch: R1's clock premise and
+R8's envelope wording (both FIXED in the law comments); R5's two pin
+classes (both FIXED); R7's containment gap (FIXED with a verbatim
+nesting pin); R4's log imprecision (FIXED); R2's baseline anchor
+first-match patching, R3's cross-lane key collision, and R4's
+authoring-machine-bound pins (all RECORDED as residue — pre-existing
+or plan-spec-law, outside the run's diff).
+
+### Fixes applied between Round 11 and Round 12
+
+One commit (see PLAN-LOG "Round 11 fix batch"). The MAJOR fixed per
+R1's first named direction; all six MINORs triaged.
+
+1. **R1 MAJOR (the ungated drain-side marker) - FIXED.**
+   TryStandDownPartyLine now carries the claim's own freshness gate:
+   an absent or stale (window-margin) first-heard registry entry
+   refuses the stamp (fail closed) — PlayerbotLlmMemory.cpp, with the
+   round-11 derivation in the comment. The receive-path caller always
+   passes (its own registry write precedes it in the same handler, so
+   firstHeard <= now), and with the gate every ACCEPTED token stamp
+   >= firstHeard, restoring the grant proof's premise for both legs:
+   the strategy-less member's early marker (registry absent at its
+   stamp instant) is refused, the addressee's receive-marker owns the
+   key through firstHeard+window, and the attack claim meets a live
+   marker or the freshness refusal. Pin:
+   test_stand_down_marker_carries_the_same_freshness_gate_round11
+   (gate position between first-writer and grant; fail-closed absent;
+   the same window-minus-margin law). Probe tmp/r12fix_probe.cpp 6/6:
+   the round-11 attack replayed with per-member isAiChat modeling
+   (R1's critique of the earlier probe), the legacy +10-20 s
+   non-aiChat stagger, and the stalled fan-out — mutedDrain refused,
+   1 generation; a 422,994-iteration sweep over the round-11 attack
+   space (stall 0-16 s x stagger 10-20 s x leave 1-29 s x claim
+   20-45 s x drain offset) at ZERO doubles; the round-10 attacks
+   still closed; a fresh drain-side backstop marker (strategy-less
+   addressee, fresh line) still stamps.
+2. **R1 MINOR + R8 MINOR (premise honesty) - FIXED in the law
+   comments**: the header's NotePartyLineHeard block now states both
+   premises — non-decreasing wall-clock reads (the >= 2 s backward
+   step shape, environmental, shared by every wall-clock window in
+   the engine) and the straddle-within-window envelope (a fan-out
+   span past the window re-registers the line as fresh — a > 30 s
+   world-thread stall inside one broadcast, far outside every
+   adjudicated tier; inside the window the envelope is total). The
+   .cpp registry comment matches ("whatever the drain's mid-work
+   clock divergence, and for any fan-out straddle inside the
+   window").
+3. **R5 MINORs - FIXED.** The OFF lane now carries the positive
+   delimiter pin `AiPlayerbot.LLMBotToBotChatChance = 10\n` beside
+   the negative; thirteen more value asserts delimiter-anchored
+   (LLMEnabled = 2 on both lanes — the native == 2 strategy grant,
+   BanterEnabled = 1, the override = 7, ProviderSafe = 1, and the
+   speech-conf family = 10/= 20/= 100/= 96 x2 incl. both =96 sites
+   context-anchored).
+4. **R7 MINOR (containment) - FIXED.** The fan-out stamp pin now
+   asserts the VERBATIM nested shape — both the registry write and
+   the addressee marker inside the channel/speaker gate (R7's
+   compiled de-nesting mutant dies on it).
+5. **R4 MINOR (log imprecision) - FIXED** (the round-10 fixes-section
+   lockfile line corrected in place: the driver carries no lockfile
+   entry).
+6. **RECORDED AS RESIDUE** (with rationale, not re-fixable
+   mid-gate): R2's baseline-anchor first-match patching (pre-existing
+   at 6045eeb, deterministic on replay from the pinned pristine
+   commit, outside the run's diff); R3's cross-lane state-key
+   collision (the plan's own §6 E0 two-lane law; quality-only;
+   requires one guid exactly 65,536x another with coinciding low
+   bytes — a lane-B bit-23 mask is the named closure if the lanes
+   are ever revisited); R4's authoring-machine-bound raw-byte pins
+   (pre-existing environmental; a fresh LF checkout fails host-side
+   entry_bytes — runbook note, re-pinning churn would violate §0.11
+   for zero device benefit).
+
+Gates after the batch: pytest "8 failed, 629 passed, 4 skipped" (the
+8 exactly the documented pre-existing set; +1 new round-11 pin);
+gradle :app:testDebugUnitTest + :app:detekt BUILD SUCCESSFUL (138
+classes, 1097/0/1); --write-lockfiles ran (the lockfile re-pins are
+exactly the Memory.cpp/.h patch-hash updates) and null-guard 9
+passed; check_repo OK (1217 files, 0/0); check_sources OK; anchors
+replay 154 ops no drift; banter FNV golden recompiled =
+de4bd8227a3ab0d1.

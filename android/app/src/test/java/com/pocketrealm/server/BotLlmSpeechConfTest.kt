@@ -32,7 +32,7 @@ class BotLlmSpeechConfTest {
         // bot-to-bot 10 come from the registry tier, not the speech object)
         assertTrue(conf.contains("AiPlayerbot.LLMFactsCap = 12"))
         assertTrue(conf.contains("AiPlayerbot.LLMMemoriesTail = 6"))
-        assertTrue(conf.contains("AiPlayerbot.LLMBotToBotChatChance = 10"))
+        assertTrue(conf.contains("AiPlayerbot.LLMBotToBotChatChance = 10\n"))
         // default RP layer emits nothing (sentinels = follow the global pack)
         assertFalse(conf.contains("LLMPromptBlock"))
         assertFalse(conf.contains("LLMRp"))
@@ -54,9 +54,9 @@ class BotLlmSpeechConfTest {
         val voice = conf.indexOf("AiPlayerbot.LLMPromptBlock.voice-lock = 1")
         assertTrue(bold >= 0 && voice >= 0 && bold < voice)
         assertTrue(conf.contains("AiPlayerbot.LLMRpInitiative = 80"))
-        assertTrue(conf.contains("AiPlayerbot.LLMRpVolatility = 20"))
+        assertTrue(conf.contains("AiPlayerbot.LLMRpVolatility = 20\n"))
         assertFalse(conf.contains("LLMRpReactivity"))
-        assertTrue(conf.contains("AiPlayerbot.LLMRpLongForm = 100"))
+        assertTrue(conf.contains("AiPlayerbot.LLMRpLongForm = 100\n"))
         // external mode carries the same RP surface
         val external = ServerRuntimeFiles.llmOverrides(
             uiEnabled = true,
@@ -103,12 +103,12 @@ class BotLlmSpeechConfTest {
                 memoriesTail = 4,
             ),
         )
-        assertTrue(conf.contains("AiPlayerbot.LLMMaxNewTokens = 96"))
-        assertTrue(conf.contains("AiPlayerbot.LLMBotToBotChatChance = 20"))
+        assertTrue(conf.contains("AiPlayerbot.LLMMaxNewTokens = 96\n"))
+        assertTrue(conf.contains("AiPlayerbot.LLMBotToBotChatChance = 20\n"))
         assertTrue(conf.contains("AiPlayerbot.LLMFactsCap = 16"))
         assertTrue(conf.contains("AiPlayerbot.LLMMemoriesTail = 4"))
         assertFalse(conf.contains("AiPlayerbot.LLMFactsCap = 12"))
-        assertFalse(conf.contains("AiPlayerbot.LLMBotToBotChatChance = 10"))
+        assertFalse(conf.contains("AiPlayerbot.LLMBotToBotChatChance = 10\n"))
         // the reply-length override also feeds the legacy JSON template
         assertTrue(conf.contains("\"max_tokens\":96"))
     }
@@ -123,7 +123,7 @@ class BotLlmSpeechConfTest {
     @Test
     fun presetSpeechOutranksTheGlobalAdvancedTierOverride() {
         val conf = conf(BotLlmSpeech(replyTokens = 96), globalMaxNewTokens = 300)
-        assertTrue(conf.contains("AiPlayerbot.LLMMaxNewTokens = 96"))
+        assertTrue(conf.contains("AiPlayerbot.LLMMaxNewTokens = 96\n"))
         assertFalse(conf.contains("AiPlayerbot.LLMMaxNewTokens = 300"))
         // ...and the global override still applies when the preset follows the model
         val globalWins = conf(BotLlmSpeech(), globalMaxNewTokens = 300)

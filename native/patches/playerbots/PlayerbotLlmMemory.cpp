@@ -3621,12 +3621,15 @@ std::set<uint32>& GateRefusalNoted()
 // handlers run sequentially on the world thread inside one broadcast,
 // so the first writer IS the earliest receive; min() keeps the
 // invariant total against any out-of-order path). This is the
-// claim-side freshness authority: a claim grants only inside
-// window-margin of firstHeard, and every marker/claim token is
-// stamped at >= its writer's receive >= firstHeard (so expiring at
-// >= firstHeard+window) - a granted claim therefore can never meet
-// an expired prior token, whatever the fan-out straddle or the
-// drain's mid-work clock divergence.
+// freshness authority both the claim grant and the stand-down marker
+// consult: a token stamps/grants only inside window-margin of
+// firstHeard, and every accepted token is stamped at >= its writer's
+// receive >= firstHeard (so expiring at >= firstHeard+window) - a
+// grant therefore can never meet an expired prior token, whatever
+// the drain's mid-work clock divergence, and for any fan-out
+// straddle inside the window (beyond it the line re-registers as
+// fresh - the header's stated premise; round-11 R1 closed the one
+// ungated stamper that could stamp BELOW firstHeard).
 std::map<uint64, int64_t>& PartyLineHeardMap()
 {
     static std::map<uint64, int64_t> instance;
@@ -3770,6 +3773,26 @@ bool PlayerbotLlmMemory::TryStandDownPartyLine(uint32 speakerGuid,
     }
     if (claims.find(key) != claims.end())
         return false; // a claim or marker already owns this line
+    // Round-11 R1 (the ungated drain-side marker): this helper's
+    // SECOND caller - the drain-side stand-down branch - runs under
+    // NO isAiChat/strategy armament, so a strategy-less member (its
+    // receive never wrote the first-heard registry) could stamp the
+    // line's FIRST token at a clock read BELOW firstHeard while the
+    // fan-out was still stalled behind mid-drain members: that
+    // early-expiring marker then died INSIDE the claim grant range
+    // and a fresh claim re-opened the line beside the original
+    // winner. The marker now carries the SAME freshness gate as the
+    // claim: absent registry = unprovable freshness = refuse (the
+    // receive-path caller always passes - its own registry write
+    // precedes it in the same handler, so firstHeard <= now), and
+    // with the gate every ACCEPTED token stamp >= firstHeard,
+    // restoring the grant proof's premise for both legs.
+    std::map<uint64, int64_t> const& heard = PartyLineHeardMap();
+    auto heardItr = heard.find(key);
+    if (heardItr == heard.end() ||
+        now - heardItr->second >=
+            PARTY_CLAIM_WINDOW_SECONDS - PARTY_CLAIM_FANOUT_STRADDLE_SECONDS)
+        return false;
     PartyResponderClaim& marker = claims[key];
     marker.botGuid = 0;
     marker.expiresAt = now + PARTY_CLAIM_WINDOW_SECONDS;

@@ -2581,3 +2581,56 @@ BUILD SUCCESSFUL (138 classes, 1097/0/1); --write-lockfiles +
 null-guard 9 passed; check_repo OK (1217 files, 0/0);
 check_sources OK; anchors 154 ops no drift; golden recompiled
 de4bd8227a3ab0d1. Round 11 dispatched against the new HEAD.
+
+## Round 11 + fix batch (continuation run 6)
+
+Round 11 dispatched at HEAD b55c2d1 (all 8 in one foreground
+message): **7/8 PASS - ROUND FAILS on R1's new MAJOR** (the marker
+leg had no first-heard anchor: TryStandDownPartyLine's drain-side
+caller runs under no isAiChat armament, so a strategy-less member
+whose receive never wrote the registry could stamp the line's FIRST
+marker token BELOW firstHeard while the fan-out was stalled behind
+mid-drain members; that early-expiring marker died inside the claim
+grant range and a fresh claim re-opened the line - R1's per-member
+probe: 893 doubles over 5043 combos, minimal straddle 12 s). R6 PASS
+zero findings; R2/R3/R4/R5/R7/R8 PASS with 6 MINORs total (R1's
+clock premise + R8's envelope wording; R5's two pin classes; R7's
+containment gap; R4's log imprecision; plus R2/R3/R4 residue-grade
+observations). Full per-reviewer evidence in review-rounds.md
+Round 11.
+
+The fix batch (one commit on top of b55c2d1):
+
+- **R1 MAJOR**: TryStandDownPartyLine carries the claim's own
+  freshness gate (absent-or-stale firstHeard refuses, fail closed) -
+  the receive-path caller always passes (its own registry write
+  precedes it), and every ACCEPTED token stamp >= firstHeard
+  restores the grant proof for both legs. Pin
+  test_stand_down_marker_carries_the_same_freshness_gate_round11.
+  Probe tmp/r12fix_probe.cpp 6/6: the round-11 attack replayed with
+  per-member isAiChat modeling (R1's critique of the earlier probe
+  addressed), legacy non-aiChat stagger, stalled fan-out - 1
+  generation; 422,994-iteration sweep zero doubles; round-10
+  attacks still closed; the fresh backstop marker still stamps.
+- **R1/R8 premise MINORs**: both premises now stated in the law
+  comments (non-decreasing clocks; straddle within the window).
+- **R5 MINORs**: the OFF-lane positive = 10 delimiter pin + 13 more
+  delimiter anchors (LLMEnabled = 2 both lanes, BanterEnabled,
+  override, ProviderSafe, the speech-conf family).
+- **R7 MINOR**: a verbatim nesting pin (both writes inside the
+  channel/speaker gate - the compiled de-nesting mutant dies).
+- **R4 MINOR**: the imprecise lockfile log line corrected in place.
+- **Residue recorded**: R2's baseline-anchor first-match patching
+  (pre-existing at 6045eeb); R3's cross-lane state-key collision
+  (the plan's own two-lane law; bit-23 mask named as the closure);
+  R4's authoring-machine-bound raw-byte pins (pre-existing
+  environmental runbook note).
+
+Gates (self-verified before the --no-verify commit): full pytest
+"8 failed, 629 passed, 4 skipped" (8 = the exact pre-existing set;
++1 new pin test); gradle :app:testDebugUnitTest :app:detekt BUILD
+SUCCESSFUL (138 classes, 1097/0/1); --write-lockfiles (the re-pins
+are exactly the Memory.cpp/.h patch hashes) + null-guard 9 passed;
+check_repo OK (1217 files, 0/0); check_sources OK; anchors 154 ops
+no drift; golden recompiled de4bd8227a3ab0d1. Round 12 dispatched
+against the new HEAD.
