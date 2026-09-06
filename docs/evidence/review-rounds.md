@@ -969,3 +969,116 @@ replaying both R1 attack shapes plus the round-7 regressions):
 MINORs accepted as recorded residue (rationale): R1's refund-CAS
 second-boundary miss (above); the round-7 residues carry (retry-leg
 class; B2.3 wording).
+
+## Round 9
+
+**Diffstat re-reviewed**: `git diff 6045eeb..75739f0` — 118 files,
++20568/−345. All 8 reviewers dispatched fresh in one foreground
+message.
+
+**Result: 6/8 PASS → ROUND FAILS.** (Fix batch owed — see the
+continuation-run-6 handoff in PLAN-LOG.md; the "Fixes applied between
+Round 9 and Round 10" section lands with that batch.)
+
+- **R1 (native cloud lane): FINDINGS** — 1 MAJOR: the round-8 boundary
+  invariant is per-ENTRY, not per-LINE. Each group member's receive
+  handler runs sequentially on the world thread, so a fan-out can
+  straddle a second boundary: the addressee's handler push+stamps the
+  marker at T while a later member's handler pushes its copy at T+1.
+  The later entry's own m_time=T+1 lets it PROCESS at T+30 (age 29,
+  oracle `>=` false) exactly when the marker (expiresAt=T+30) is
+  pruned — with the addressee/winner gone from the group by then
+  (kick/leave/logout), the late drainer takes a fresh ordering pick
+  and claims: 2 generations. Compiled probe with an exhaustive sweep:
+  29 double-generation interleavings, ALL in the (straddle s=1,
+  owner-gone, drain=stamp+30) class; zero doubles without the straddle
+  (the round-8 fix holds inside its per-entry envelope). The claim leg
+  has the same cross-entry shape (a winner's map-thread drain
+  interleaving the world-thread fan-out). Fix directions named by R1:
+  give the oracle a one-second margin (process only age ≤ window−2),
+  or anchor the drop to the line's earliest m_time. Verified green:
+  the group-free key semantics introduce NO new double hazard (probe
+  battery: two live groups cannot share a speaker; repeats refused
+  conservatively; marker+claim share one key; selection stays
+  group-scoped); the deterministic matrix; device byte-identity of
+  every leg (each disarming key tested); §0.13 at all 10 sites; A7
+  quota math; A1; rpgchat order; threading/lock-order.
+- **R2 (transport/security): PASS — zero findings.** Anchors 154 ops
+  (arithmetic re-derived; the chained PB_SAY_PROMPT_V2 anchor verified
+  staged inside its parent); 75739f0 transport-neutral (zero new
+  BotLLM literals; a whole-driver census found zero unsanctioned
+  literals anywhere); the hung-adb normalization verified live and
+  pinned; rider 1 mutation-killed on scratch; class truth re-compiled
+  (15 cloud + 3 device shapes, the legacy arm carries the transport
+  class; the sentinel survives HygienePass byte-intact); the CA bundle
+  byte-identical to live curl.se upstream TODAY; riders 3/5; A9.
+- **R3 (authored corpus/persona): PASS** — 1 MINOR (lint tail-variant
+  residue: "i can't fulfill/provide/complete", "i am not able to
+  assist", spaced "i can not", and the curly "i'm sorry, but i …" tail
+  all miss — defense-in-depth only; every axis eight rounds adjudicated
+  is covered; widening is false-positive-safe per the ASCII-only
+  corpus argument). Golden recompiled = de4bd8227a3ab0d1; 42/42
+  phrase matrix caught incl. all round-8 misses, 0 false positives on
+  15 register probes; a fresh C++ E0 probe walked 1,218 pool-served
+  lines through the real LineIsValid — clean; state-key lanes
+  enumerated disjoint; E1 1,090 exactly; E2 30/30 keys resolving
+  (zero-match=0); E3 verified; A5 all laws; 124 tests green.
+- **R4 (schema/persistence): PASS** — 1 MINOR (the stale PRE-fix build
+  mirror inside the cmangos submodule still contains the deleted
+  RecordBotLine — gitignored by the submodule itself, wiped and
+  recreated from the overlay at every build, inert to every pin; the
+  same class as the adjudicated orphaned .build-arm64-v8a residue).
+  Full replay 414/414 zero mismatches; first-412 byte-identity; both
+  fix commits' lockfile deltas exactly the two sha re-pins; 0414
+  idempotence mechanically proven fresh (zero chain collisions, zero
+  no-ops); RecordBotLine zero-callers confirmed and the deletion
+  schema-neutral (AppendTurn retains 10+ live sites); PROVENANCE
+  recomputed + normalization re-demonstrated; baseline delta across
+  the run reconciled statement-by-statement; sqlite family 128 green.
+- **R5 (app conf/emission): PASS — zero findings.** Baseline empty
+  since b3bef5f, zero hand suppressions, all 1828 entries sorted with
+  every named file present; detekt forced-fresh clean; CloudLaneConf
+  9/9; parity gate mutation-tested live 5/5 (+restored control);
+  appended-block law verified in code, archaeology, and pins
+  (production emission byte-identical since bec78fd); 62/62 emission
+  tests green under gradle.
+- **R6 (app UX/supervisor): PASS — zero findings.** Gradle fresh twice
+  (138 classes, 1097/0/1, detekt 0 findings); 75739f0 touched zero
+  android files; F2/F3/§0.c.4/B5/F1/B7 all re-verified with pins.
+- **R7 (harness/tests): FINDINGS** — 2 MAJOR: (1) the plan §10
+  T2-NAMED external-block governor pins were never authored — the
+  constants live at LlmRuntimePolicy.kt:293-300 (governorBotMax=16,
+  governorGlobalMax=48, maxSimultaneousGenerations=4) but only the
+  embedded trio (2/8/8) and the 25 are pinned; a silent regression of
+  EXTERNAL_TIER's governor constants passes the whole suite + gradle
+  (the same class the round-1 R5 MAJOR#2 convicted); (2) `:app:detekt`
+  was never added to the android-unit CI job — plan §10 T2 names it
+  explicitly; `.github/workflows/ci.yml` has no detekt and the run
+  never touched `.github/` (detekt is configured but manual — once the
+  gate closes nothing re-runs it on push). +2 MINOR (the hung-adb
+  normalization covers send() only — the connect/pull legs still
+  escape the exit-2 contract; the lint's "i'm sorry, but i" row stayed
+  straight-apostrophe-only while round 8 admitted U+2019 elsewhere).
+  Verified green: full suite "8 failed, 626 passed, 4 skipped" exact
+  set; the round-8 pins mutation-tested 7/7 (+ the hung-adb revert
+  killed; lint plants 11/11 incl. both mandated forms, with the
+  i'm-row and _APOS individually load-bearing); the round-7
+  equal-or-stronger audit; weakening audit; vacuous grep zero; C++
+  batteries compiled fresh; the T1 matrix walked (the
+  test_llm_memory/persona filename note re-accepted).
+- **R8 (whole-plan conformance): PASS** — 1 MINOR (the header's
+  round-7 oracle summary comment at PlayerbotLlmMemory.h:254 still
+  says the strict-`>` form — comment-only; the .cpp body comment and
+  the pin carry the `>=` contract). All 13 constraints mechanically
+  green; §11 no hard inversions; 5/5 NEW spot-checks TRUE (45 across
+  rounds 1–9); all 16 interpretations plus both round-8 design
+  readings re-derived SOUND (note honestly: R8's boundary-invariant
+  derivation held per-ENTRY — the cross-entry skew R1 demonstrated was
+  outside its premise; R1's empirical sweep governs); the round-8
+  residue rationale judged HONEST.
+
+MINORs pending triage in the round-10 fix batch: R3's lint tails
+(cheap widening, false-positive-safe); R4's stale build mirror (record
+as residue — regenerated at next build); R7's connect/pull legs
+(1-line or residue — R7 itself graded it non-round-failing); R8's
+header comment (1-line fix).

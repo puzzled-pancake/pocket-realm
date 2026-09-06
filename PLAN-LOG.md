@@ -2243,3 +2243,245 @@ gates green, one commit:
   --write-lockfiles; anchors 154 ops; gates battery OK; FNV golden
   UNCHANGED at de4bd8227a3ab0d1; check_repo/check_sources OK. Round 9
   re-dispatched fresh per 15.3.
+
+## Round 9 (continuation run 5): 6/8 PASS - ROUND FAILS; fix batch owed
+
+Round 9 verdicts are logged in full in docs/evidence/review-rounds.md.
+R1 found ONE new MAJOR (the per-ENTRY vs per-LINE straddle - the sixth
+layer of the exactly-one surface) and R7 found TWO plan-deliverable
+MAJORs (the §10 T2 external-block governor pins never authored; :app:
+detekt never CI-wired). R2/R5/R6 ZERO findings; R3/R4/R8 MINORs only.
+The session timed out before the fix batch: continuation run 6 owes
+the fixes + Round 10.
+
+## HANDOFF — continuation run 6 (session timed out mid-gate, round-9 fix batch + Round 10 owed)
+
+The section-15 gate is STILL OPEN. Nine rounds have run; every round
+surfaced findings and rounds 1-8's fixes all landed green. Everything
+committed is green at HEAD 75739f0 (verified: pytest "8 failed, 626
+passed, 4 skipped" exact pre-existing set; gradle 1097/0/1 + detekt 0;
+null-guard 9/9; anchors 154 ops; FNV golden de4bd8227a3ab0d1;
+check_repo 1217 files / check_sources OK - the handoff commit you are
+reading is DOCS-ONLY, so that state carries). Your job: land the
+round-9 fix batch, then loop rounds until one records 8/8 PASS, then
+close the gate.
+
+### THE PROTOCOL (operator re-confirmed again, verbatim law - it is §15 of docs/plans/rp-depth-fix-plan-v2.3.md, already in the plan, DO NOT edit the frozen plan text)
+
+**Round-robin review with 8 independent reviewer agents in fixed
+scopes, each reviewing the full run diff (6045eeb..HEAD) against the
+plan AND bug-hunting its scope; if ANY one fails (BLOCKER/MAJOR or an
+infra error/timeout/non-verdict), ALL 8 GO AGAIN from scratch - no
+partial credit, no carried verdicts - until NONE fail.** MINORs are
+recorded in docs/evidence/review-rounds.md but do not fail a round.
+Every BLOCKER/MAJOR cites file:line evidence read or a command
+actually run; unverifiable = UNVERIFIED, never guessed. Reviewers are
+READ-ONLY toward tracked files (scratch under tmp/ only, NEVER
+commit).
+
+### Round verdicts so far
+
+R1 2/8 -> R2 6/8 -> R3 6/8 -> R4 7/8 -> R5 7/8 -> R6 7/8 -> R7 7/8 ->
+R8 7/8 -> R9 6/8. Rounds 3-9 failed on R1 MAJORs (all the same
+exactly-one responder surface, each layer narrower: SRC_RAID fan-out ->
+addressed double dispatch -> dead-addressee -> claim-window race ->
+additive deferral + leave-before-drain -> boundary second +
+group-switch key -> per-entry straddle) EXCEPT round 9, which ALSO
+failed on two R7 plan-deliverable MAJORs. All logged per-reviewer in
+docs/evidence/review-rounds.md with evidence.
+
+### THE THREE OWED MAJOR FIXES (land as ONE batch, with pins, equal-or-stronger)
+
+1. **R1 round-9 MAJOR - the per-entry straddle.** A fan-out crosses a
+   second boundary: the addressee's handler push+stamps the marker at
+   T, a LATER member's handler pushes its copy at T+1; that entry
+   processes at T+30 (age 29 by ITS m_time) exactly when the marker
+   (T+30) prunes; owner gone -> fresh ordering pick -> 2 gens. R1's
+   probe: 29 doubles, ALL (straddle=1s, owner-gone, drain=stamp+30);
+   zero without the straddle. FIX (R1's own direction, minimal):
+   give the oracle a one-second margin - PartyClaimWindowElapsed
+   returns true at `now - lineTime >= PARTY_CLAIM_WINDOW_SECONDS - 1`
+   (a NEW named constant beside the window, e.g.
+   PARTY_CLAIM_FANOUT_STRADDLE_SECONDS = 1, folded into the compare
+   with a comment citing round-9 R1). Proof shape: a processed drainer
+   then has now <= m_time+28 <= T+29 < T+30 <= every claim/marker
+   expiry (each stamps at >= T, the fan-out's earliest push). Judge the
+   margin honestly (1 s covers the demonstrated skew; 2 s is safer for
+   slow fan-outs - each extra second is one more second of potential
+   missed replies, the conservative direction). Update: the pin in
+   tests/test_llm_party_claim.py (the >= assert + rationale), the
+   header comment (which R8 flagged as stale anyway - see MINORs), the
+   .cpp oracle comment, and extend/adjust tmp probe logic (scratch).
+   Verify with a compiled probe replaying R1's attack (straddle=1 ->
+   1 gen).
+2. **R7 round-9 MAJOR#1 - the external-block governor pins.** Plan
+   §10 T2 names "the external-block governor pins (16/48/4/25
+   conditional - currently unpinned)". Only the 25 is pinned. The
+   trio lives at LlmRuntimePolicy.kt:293-300 (EXTERNAL_TIER:
+   governorBotMax=16, governorGlobalMax=48,
+   maxSimultaneousGenerations=4 -> emitted as AiPlayerbot.
+   LLMGovernorBotMax / LLMGovernorGlobalMax /
+   LLMMaxSimultaniousGenerations). Author the pins in
+   LlmRuntimePolicyTest.kt (extend
+   externalBlockTargetsTheEndpointAndCarriesTheKeyLine or a new test -
+   value-assert all three on the external block, mirroring the
+   embedded trio's shape at :96-99). Gradle must stay green.
+3. **R7 round-9 MAJOR#2 - CI detekt wiring.** Plan §10 T2: "CI:
+   :app:detekt added to the android-unit job". Edit
+   .github/workflows/ci.yml: add `:app:detekt` to the android-unit
+   job's gradlew invocation (same flags). FIRST .github touch of the
+   run - check the file's line endings before editing (byte-check),
+   validate the YAML parses (python -c "import yaml; yaml.safe_...
+   open(...)"). CI execution itself is infra-gated (cannot run GitHub
+   Actions here) - say so honestly in the log entry; the wiring is
+   the deliverable, and detekt-green was re-verified on-host this
+   session by R6.
+
+### THE OWED MINOR TRIAGE (fix-or-record, your judgment; prior rounds' pattern: fix the cheap, record the rest with rationale)
+
+- R3: lint tails ("can't fulfill/provide/complete", "am not able to",
+  spaced "can not", curly "i'm sorry") - cheap widening, provably
+  false-positive-safe (corpus is ASCII-only; R3/R7 both verified).
+- R8: stale header comment PlayerbotLlmMemory.h:254 still says the
+  ">" form - 1-line fix (fold into MAJOR#1's comment update).
+- R7: hung-adb normalization covers send() only (connect/pull legs in
+  session.py run() still raise un-normalized TimeoutExpired) - 1-line
+  (extend the except in run()) or record; R7 graded it non-failing.
+- R4: stale PRE-fix build mirror in native/cmangos/src/modules/
+  PlayerBots still contains the deleted RecordBotLine - RECORD as
+  residue (gitignored, wiped at every build, same class as the
+  adjudicated orphaned .build-arm64-v8a tree).
+
+### YOUR QUEUE, in order
+
+1. Read this handoff + the Round 9 entry in review-rounds.md + §15.
+2. Land the fix batch (3 MAJORs + MINOR triage) WITH pins, equal-or-
+   stronger, one commit.
+3. FULL gates before committing (per-commit discipline below) - note
+   the expected counts MOVE with your pins (pytest 626 -> 626+N where
+   N = new python tests; gradle 1097 -> 1097+M; recompute and say the
+   new numbers in the log entry and the next round's prompts).
+4. Append the "Fixes applied between Round 9 and Round 10" section to
+   the Round 9 entry in review-rounds.md (it has a pointer note) +
+   the PLAN-LOG batch entry; commit --no-verify after self-verifying.
+5. DISPATCH ROUND 10 - all 8 reviewers in ONE foreground message
+   (background dispatch unavailable). Reuse the round-9 prompt shapes
+   (in this session's transcript; the scopes are §15.1, unchanged):
+   R1 native cloud lane (THE EXACTLY-ONE SURFACE incl. the timing
+   layer - have it re-probe the STRADDLE/margin design with a compiled
+   probe; it has compiled one every round and caught rounds 3-9 with
+   them); R2 transport/security (riders, G3, A8, A9, anchors - RUN
+   python tmp/materialize_anchors.py, expect 154 ops); R3 corpus/
+   persona (recompile the golden - must equal de4bd8227a3ab0d1); R4
+   schema/persistence (C2/C8 law, seed re-pins, 0414 last, lockfile
+   deltas exact); R5 app conf/emission (CloudLaneConf 9/9, appended-
+   block law, parity gate mutation-tested, detekt baseline empty
+   since b3bef5f); R6 app UX/supervisor (RUN the full gradle suite);
+   R7 harness/tests (rp_harness, T1/T2 matrix, hunt weakened/
+   tautological/missing pins - incl. the NEW governor pins + the CI
+   wiring as fresh-eyes targets, and re-run the FULL pytest); R8
+   whole-plan conformance (13 §0 constraints + §0.a-d, §11, 5 NEW
+   PLAN-LOG spot-checks not among the 45 already TRUE, the 16 logged
+   interpretations + the round-8/9 design readings incl. the new
+   margin design).
+   EVERY prompt must include: the NEW HEAD sha (after your commit);
+   the fix commits to verify (the round-9 batch + 75739f0 at minimum);
+   the KNOWN NON-FINDINGS block (pytest ends "8 failed, <N> passed, 4
+   skipped" - the 8 are PRE-EXISTING on clean 84c0c7b: 2x
+   test_gladio_client_unpack_transport, 4x test_vortek_lifecycle_
+   hardening, 2x test_vortek_winlator_baseline; device-gated items
+   are runbook entries; the adjudicated-residue list lives in
+   review-rounds.md - now incl. the refund-CAS miss, retry-leg class,
+   B2.3 wording, and the stale build mirror if you record it); the
+   verify-not-vibe rule; the no-device note; the MANDATORY output
+   format (final message ends with exactly one line "VERDICT: PASS" or
+   "VERDICT: FINDINGS"; numbered findings with severity
+   (BLOCKER|MAJOR|MINOR) + title + evidence + justification;
+   MINOR-only still yields PASS); READ-ONLY toward tracked files.
+6. IF 8/8 PASS: append the Round 10 entry (per-reviewer verdicts +
+   the diffstat + the note that the round CLOSES the gate), then the
+   FINAL PLAN-LOG entry (gate closed; run summary: all commits, all
+   round verdicts R1 2/8 -> ... -> R10 8/8, suite state, the full
+   residue list) and commit --no-verify (sanctioned ONLY because you
+   verified the suite yourself first). DONE.
+7. IF any BLOCKER/MAJOR or reviewer error: fix equal-or-stronger,
+   full gates, log, commit, re-run the ENTIRE round. No partial
+   credit.
+8. Escalation-honesty cap (§15.5): NOT triggered (every round 3-9
+   surfaced NEW findings). Judgment note: the R1 layers keep
+   narrowing (r7: any >30s deferral; r8: the exact boundary second;
+   r9: boundary second + 1s fan-out straddle + owner gone). If Round
+   10's R1 finds yet another layer, judge honestly: reachable-in-
+   practice (compiled demonstration + ordinary player actions) ->
+   fix and loop; theoretical + unobservable without a device ->
+   the cap's device-gated residue route in
+   DEVICE_QUALIFICATION_CHECKLIST.md. Two consecutive post-fix
+   rounds with no NEW findings is the other cap trigger.
+
+### Per-commit discipline (every commit, no exceptions)
+
+- python -m pytest tests/ -q -> must end "8 failed, N passed" with
+  N >= 626 (+ your new pins), 4 skipped. The 8 failures are
+  pre-existing; never fix them, never let a new failure hide among
+  them.
+- cd android && ./gradlew :app:testDebugUnitTest :app:detekt
+  -PpocketAbi=x86_64 -PpocketLane=full -> BUILD SUCCESSFUL. If detekt
+  flags signature drift: ./gradlew :app:detektBaseline as a SEPARATE
+  invocation, never hand-edit detekt-baseline.xml, say so in the
+  commit message.
+- After any overlay/driver edit: python
+  tools/build_o09_realm_runtime.py --write-lockfiles, then re-run
+  tests/test_db_async_null_guard.py -q (9 passed).
+- python tools/check_repo.py and python tools/check_sources.py -> OK.
+- Commit with --no-verify only after self-verifying. New behavior
+  lands WITH its pins in the same commit. Append the PLAN-LOG entry
+  per batch.
+
+### Edit lanes (the build driver wipes and recreates native/cmangos/src/modules/PlayerBots every build)
+
+- Overlay files: edit native/patches/playerbots/ ONLY.
+- Anchor-managed files: edits EXTEND the _UPSTREAM//_ANDROID payload
+  pairs in tools/build_o09_realm_runtime.py; UPSTREAM must byte-match
+  the pristine submodule; register new pairs in
+  prepare_cmangos_source(). (The run has added one pair: PB_AI_DRAIN_
+  STALE - anchors now replay 154 ops.)
+- Submodule single-tree files: edit native/playerbots/..., COMMIT
+  INSIDE THE SUBMODULE, bump PLAYERBOTS_COMMIT + sources.json, regen
+  lockfiles (avoid if possible late in the gate - rounds 3-9 refused
+  one-line submodule polish for exactly this cost).
+- sql/migrations/: append-only; 0414 is the LAST manifest entry.
+- Reading applied state: python tmp/materialize_anchors.py (read-only
+  replay, raises on drift).
+
+### Gotchas (hard-learned across SIX sessions - do not rediscover)
+
+- Heredocs/edits are DOUBLY fragile: backslashes mangled, one long
+  append silently truncated, AND this session a normal Edit-tool
+  insert of a unicode apostrophe produced ZERO-WIDTH bytes (U+200B/
+  200C) inside a regex - byte-check (python repr) after ANY edit that
+  touches non-ASCII, and prefer python-scripted writes for anything
+  delicate.
+- Line endings vary PER FILE (tests/test_llm_*.py mostly CRLF;
+  test_llm_banter.py + test_llm_e1_corpus.py LF; overlay .h/.cpp
+  CRLF; BotPresetStore.kt/CloudLaneConf.kt LF; .github/workflows/ci.yml
+  - CHECK before editing). Byte-check before replaces.
+- Shell cwd does NOT reset between Bash calls: cd
+  C:/pocket_realm_complete after any cd android.
+- Background subagents unavailable: dispatch all 8 reviewers in ONE
+  foreground message (multiple Agent calls in one message - works
+  reliably; a round is 10-20 min wall clock; ~7-10M subagent tokens
+  total). An agent may die "off-peak-ticket-expired" at DISPATCH
+  (nothing landed - redo the whole round) or AFTER verified-green
+  work (check the tree before redoing anything).
+- The gates harness g++: python -c "import shutil;
+  print(shutil.which('g++'))" (WinGet WinLibs mingw64). The banter
+  FNV golden is de4bd8227a3ab0d1 (tests/test_llm_banter.py:61);
+  re-pin in the SAME commit only if a seeded pool changes.
+- The seed-augment PROVENANCE hash is over LF-NORMALIZED manifest
+  bytes; the seeder fail-closes on any manifest change.
+- Devices/emulators/CI unavailable: device-gated items are checklist
+  entries (DEVICE_QUALIFICATION_CHECKLIST.md); the CI wiring fix is
+  verified by parse + on-host detekt, honestly logged as
+  infra-gated.
+- Timing: full pytest ~7-8 min; gradle ~10 s-2 min cached; full
+  gates + logs + commit for a fix batch ~25 min.
