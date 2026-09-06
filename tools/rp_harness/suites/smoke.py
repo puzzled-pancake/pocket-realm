@@ -4,7 +4,8 @@ Flow: stack-up-bot -> world-account -> reset-state -> pick two online bots
 -> world-chat whisper carrying a per-run sentinel -> bot_reply assert
 within a generous bound (three-way outcome, see auto_reply.py) ->
 llm-memory-state sanity. Emits JUnit-ish JSON (run_suite.py adds the A8
-world-log post-pass).
+world-log post-pass). Any relay reconnect/backoff event FAILS the suite
+(plan H2: reconnects fail smoke, are tolerated in the battery).
 """
 from __future__ import annotations
 
@@ -188,6 +189,19 @@ def _report(steps: list[dict], suite_started: float, transcript: Transcript,
             session, sentinel: str | None = None) -> dict:
     for record in steps:
         record.pop("started", None)
+    # H2 (round-3 R7#4): reconnect/backoff events are first-class
+    # transcript events and FAIL smoke (the battery suite tolerates
+    # them; run_suite still raises on exhausted retries). Checked here
+    # so every exit path - early return or clean finish - sees it.
+    reconnects = [e for e in transcript.events if e.get("kind") == "reconnect"]
+    if reconnects:
+        steps.append({
+            "name": "relay-stability",
+            "status": "failed",
+            "reason": f"{len(reconnects)} relay reconnect/backoff event(s) - "
+                      "plan H2: reconnects fail smoke (tolerated in battery)",
+            "details": {"events": reconnects[:5]},
+        })
     passed = sum(1 for s in steps if s["status"] == "passed")
     skipped = sum(1 for s in steps if s["status"] == "skipped")
     failed = sum(1 for s in steps if s["status"] == "failed")

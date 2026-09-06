@@ -405,9 +405,12 @@ class LlmRuntimePolicyTest {
     fun deviceLaneNeverCarriesCloudKeys() {
         // 0.13's mirror case: the device-lane block (confBlock) never
         // emits any cloud key - LLMCloudChatter included - so key-on +
-        // tier-off is byte-identical to today's device behavior
+        // tier-off is byte-identical to today's device behavior.
+        // Round-3 R5#1: the enumeration is the WHOLE CloudLaneConf
+        // family - all 9 keys (LLMPartyReplyEnabled included).
         val block = LlmRuntimePolicy.confBlock(llmEnabled = true)!!
-        for (key in listOf("LLMCloudChatter", "LLMCloudStreetSayPct",
+        for (key in listOf("LLMCloudChatter", "LLMPartyReplyEnabled",
+                           "LLMCloudStreetSayPct",
                            "LLMCloudLineBudgetPerHour", "LLMStreetSayPerDay",
                            "LLMRpgChatPerDay", "LLMBotToBotPerDay",
                            "LLMCloudInteractivePerPlayerHour", "LLMDialogueFastLane")) {

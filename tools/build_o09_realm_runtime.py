@@ -2159,28 +2159,39 @@ PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBacken
     // passes the per-speaker flood gate (N lines in 2 s = one
     // generation) and takes the first-writer-wins claim. The addressed
     // bot bypasses the claim; whisper/say paths never consult it.
+    // Round-3 R1#1: the block covers SRC_RAID too - HardTriggerAllowed
+    // admits unaddressed raid lines on the cloud lane, so the exactly-
+    // one claim must govern them or every raid bot would dispatch (the
+    // N-generation fan-out A3 exists to prevent). The recording/digest
+    // legs stay party-only (round-1 adjudicated residue: raid
+    // roundtable fuel is logged MINOR); the claim body is shared by
+    // both group channels - raid groups carry the same group ids.
     bool partyResponderClaimed = true;
     if (gateSpeaker && gateSpeaker->isRealPlayer() &&
-        chatChannelSource == ChatChannelSource::SRC_PARTY)
+        (chatChannelSource == ChatChannelSource::SRC_PARTY ||
+         chatChannelSource == ChatChannelSource::SRC_RAID))
     {
-        // C4: every real-master party line joins the digest window
-        // (bounded, per-master; the partyLineAt roundtable row is
-        // untouched); a full window mints ONE deterministic digest row
-        // by the storyteller pick under the LLMPartyDigestPerDay quota
-        PlayerbotLlmMemory::NotePartyDigestLine(gateSpeaker->GetGUIDLow(), msg);
-        if (Group* digestGroup = bot->GetGroup())
-            PlayerbotLlmMemory::MaybeMintPartyDigest(gateSpeaker->GetGUIDLow(),
-                digestGroup->GetId());
-        if (addressedToBot)
-            PlayerbotLlmChatter::NotePartyLine(gateSpeaker->GetGUIDLow(), msg);
-        else
-            PlayerbotLlmMemory::ConsumePendingAnswer(bot->GetGUIDLow(),
-                gateSpeaker->GetGUIDLow(), msg);
-        // A3: recording for ALL bots - the unaddressed line joins the
-        // roundtable row too (the old shape recorded it only when a bot
-        // was named)
-        if (!addressedToBot)
-            PlayerbotLlmChatter::NotePartyLine(gateSpeaker->GetGUIDLow(), msg);
+        if (chatChannelSource == ChatChannelSource::SRC_PARTY)
+        {
+            // C4: every real-master party line joins the digest window
+            // (bounded, per-master; the partyLineAt roundtable row is
+            // untouched); a full window mints ONE deterministic digest row
+            // by the storyteller pick under the LLMPartyDigestPerDay quota
+            PlayerbotLlmMemory::NotePartyDigestLine(gateSpeaker->GetGUIDLow(), msg);
+            if (Group* digestGroup = bot->GetGroup())
+                PlayerbotLlmMemory::MaybeMintPartyDigest(gateSpeaker->GetGUIDLow(),
+                    digestGroup->GetId());
+            if (addressedToBot)
+                PlayerbotLlmChatter::NotePartyLine(gateSpeaker->GetGUIDLow(), msg);
+            else
+                PlayerbotLlmMemory::ConsumePendingAnswer(bot->GetGUIDLow(),
+                    gateSpeaker->GetGUIDLow(), msg);
+            // A3: recording for ALL bots - the unaddressed line joins the
+            // roundtable row too (the old shape recorded it only when a bot
+            // was named)
+            if (!addressedToBot)
+                PlayerbotLlmChatter::NotePartyLine(gateSpeaker->GetGUIDLow(), msg);
+        }
 
         if (!addressedToBot && CloudLaneOpen() &&
             sPlayerbotAIConfig.llmPartyReplyEnabled != 0)
@@ -2219,8 +2230,21 @@ PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBacken
             bot->GetPlayerbotAI()->HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT),
             CloudLaneOpen(),
             sPlayerbotAIConfig.llmBlockedReplyChannels.find(chatChannelSource) != sPlayerbotAIConfig.llmBlockedReplyChannels.end());
+    // A1 (round-3 R1#2): a hard trigger the reply gate is about to
+    // refuse is the dead-gate signature (the incident that started
+    // this plan). Logged once per bot per session via the memory stamp
+    // so a 320-bot realm never floods; claim-loser bots are not
+    // refusals (the responder claim already excluded them above), and
+    // ambient non-triggers never reach this check.
+    if (sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed &&
+        partyResponderClaimed && !replyGateAllowed &&
+        PlayerbotLlmMemory::NoteGateRefusalOnce(bot->GetGUIDLow()))
+    {
+        sLog.outBasic("BotLLM: reply gate refused bot=%u src=%d (once per bot per session)",
+            bot->GetGUIDLow(), (int)chatChannelSource);
+    }
     if (sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed && partyResponderClaimed && replyGateAllowed
-        )
+    )
 """
 PB_SAY_PROMPT_UPSTREAM = """                for (auto& prompt : jsonFill)
                 {
@@ -2541,13 +2565,35 @@ PB_RPG_QUOTA_UPSTREAM = """bool RpgAIChatAction::RequestNewLines()
 {
     if (packets.size())
         return false;
+
+    if (futPackets.valid())
+        return false;
+
+    int32 chatLine = AI_VALUE2(int32, "manual int", "rpg ai chat line");
+
+    if (chatLine == -1)
+        return false;
 """
 PB_RPG_QUOTA_ANDROID = """bool RpgAIChatAction::RequestNewLines()
 {
+    if (packets.size())
+        return false;
+
+    if (futPackets.valid())
+        return false;
+
+    int32 chatLine = AI_VALUE2(int32, "manual int", "rpg ai chat line");
+
+    if (chatLine == -1)
+        return false;
+
     // A1b: the RPG lane is open on BOTH lanes today; on the cloud lane
-    // it stays open but generation-quota'd (conversations vs lines differ
-    // 10x - the quota counts triggers). Silent stop on exhaustion; one
-    // Basic line per UTC day records that the lane went quiet.
+    // it stays open but generation-quota'd (conversations vs lines
+    // differ 10x - the quota counts triggers). Round-3 R1#3: the spend
+    // sits AFTER the cheap local guards (the street-ladder
+    // cheap-before-expensive law) - a reset-but-unrearmed chatLine
+    // burns nothing. Silent stop on exhaustion; one Basic line per UTC
+    // day records that the lane went quiet.
     if (CloudLaneOpen())
     {
         static int64_t lastQuotaNoteDay = 0;
@@ -2562,9 +2608,6 @@ PB_RPG_QUOTA_ANDROID = """bool RpgAIChatAction::RequestNewLines()
             return false;
         }
     }
-
-    if (packets.size())
-        return false;
 """
 PB_RPG_ASYNC_UPSTREAM = """    futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug);
 """

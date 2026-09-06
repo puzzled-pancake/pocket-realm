@@ -220,7 +220,7 @@ static int RunInvariants()
         CHECK(IsFirstMeetingRow("met Varleigh for the first time"),
             "first-meeting shape detected");
         CHECK(!IsFirstMeetingRow("met Varleigh once on the road"),
-            "rewored rows are not re-detected");
+            "reworded rows are not re-detected");
         CHECK(!IsFirstMeetingRow("wants a wolf pelt"),
             "unrelated rows pass through");
         CHECK(!IsFirstMeetingRow(""), "empty is not a first meeting");

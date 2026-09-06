@@ -1802,3 +1802,52 @@ them into the round log text, they do not block.
   bytes; the seeder fail-closes on any manifest change - re-pin
   PROVENANCE then re-run seed_sqlite_from_manifest --write-baseline.
 - Commits use --no-verify ONLY after self-verifying the full suite.
+## Round 3 + fix batch (continuation run 4): the gate round-robin continues
+
+**Round 3 (fresh full re-run after the partially-dead first dispatch):
+6/8 PASS - ROUND FAILS.** R1 and R7 each reported one MAJOR (logged in
+full in docs/evidence/review-rounds.md); R2/R3/R4/R5/R6/R8 PASSED
+(MINORs only). Fix batch landed, all gates green, one commit:
+
+- **R1#1 (MAJOR), SRC_RAID fan-out**: A3's exactly-one responder was
+  party-only while the widened HardTriggerAllowed admits unaddressed
+  SRC_RAID on the cloud lane - with LLMPartyReplyEnabled flipped to 1,
+  one raid line would dispatch N generations. Fix: the party block's
+  outer condition now covers (SRC_PARTY || SRC_RAID) with the
+  recording/digest legs nested under a party-only guard; the
+  claim/selection/flood body is SHARED (one clearing, one assignment -
+  raid groups carry the same group ids, the helpers are group-id
+  generic). Device lane byte-identical (the claim leg is
+  CloudLaneOpen()-gated). Pins updated equal-or-stronger + the new
+  test_raid_arm_shares_the_exactly_one_claim_round3.
+- **R7#1 (MAJOR), the missing A1 pin**: the plan-mandated pristine-read
+  source-contract pin for AiFactory's cloud-lane strategy grant (0.b
+  lane-3 law + 11 same-commit law) was never authored. Fix: NEW
+  tests/test_llm_a1_strategy_grant.py (4 tests) - the exact grant
+  expression, the == 2 arm, the module-convention include, single
+  occurrence, read from the pristine submodule.
+- **R1#2 (MINOR) fixed**: A1's "refusal logs once per bot per session"
+  deliverable landed - PlayerbotLlmMemory::NoteGateRefusalOnce
+  (StateMutex, process-local set) + the SayAction payload call firing
+  only for a hard trigger the reply gate refused; the new BotLLM:
+  literal joined the A8 no-content allowlist, which now also scans
+  PB_SAY_GATE_ANDROID (folding the allowlist-coverage MINOR).
+- **R1#3 (MINOR) fixed**: the rpgchat quota spend moved after the
+  cheap local guards (packets/futPackets/chatLine) - the PB_RPG_QUOTA
+  anchor span extended, UPSTREAM byte-match verified, anchors still
+  replay 153 ops clean.
+- **R7#2/#4, R5#1, R3#2/#4, R4#1 (MINORs) fixed**: README A8 busy
+  carve-out (+ cap-carries-begin); smoke now FAILS on reconnect
+  transcript events per H2 (checked in _report so every exit path sees
+  it) + pin; deviceLaneNeverCarriesCloudKeys enumerates all 9 keys;
+  test_seasoning rename; "reworded" CHECK; dead-row figure dropped.
+- **Residue recorded** (rationale in the round log): recv-phase timeout
+  class; BroadcastHelper "wanna" + PlayerbotSecurity comment (submodule
+  dance); 533 in the sha-pinned 0414 + plan text; MySQL ODKU executed
+  fixture (device-gated); T0.1/T0.2 rails; R5 carried nits; R8 wording.
+- **Gates**: pytest 8 failed (the documented pre-existing set), 616
+  passed (+6), 4 skipped; gradle :app:testDebugUnitTest + :app:detekt
+  BUILD SUCCESSFUL (no baseline regen); null-guard 9/9 after
+  --write-lockfiles; anchors 153 ops; both C++ batteries green with the
+  FNV golden UNCHANGED at de4bd8227a3ab0d1; check_repo/check_sources
+  OK.

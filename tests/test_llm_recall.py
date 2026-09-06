@@ -884,7 +884,10 @@ def test_plan_v5_wave1_fixes_and_pin_gaps():
         "if (bot->GetPlayerbotAI()")[0]
     assert "if (gateSpeaker && gateSpeaker->isRealPlayer() &&" in party_block, \
         "the party block gates on speaker + channel"
-    assert "else\n            PlayerbotLlmMemory::ConsumePendingAnswer" in party_block, \
+    # round-3 R1#1 nested the recording legs under the SRC_PARTY guard
+    # (raid joins the claim only) - the consume keeps its shape at the
+    # deeper indent
+    assert "else\n                PlayerbotLlmMemory::ConsumePendingAnswer" in party_block, \
         "the unaddressed leg consumes the armed ask"
     for key, default in (("LLMDramaEnabled", 1), ("LLMCuriosityEnabled", 1)):
         assert f'GetIntDefault("AiPlayerbot.{key}", {default})' in driver, \

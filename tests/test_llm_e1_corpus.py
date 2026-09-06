@@ -162,7 +162,7 @@ def test_the_seeded_pool_family_is_untouched_where_e0_promised():
     assert "case POOL_CHEER: count = sizeof(kCheer)/sizeof(void*); return kCheer;" in text
 
 
-def test_seaoning_bank_rows_follow_the_archetype_order():
+def test_seasoning_bank_rows_follow_the_archetype_order():
     text = CORE.read_text(encoding="utf-8")
     block = _table_lines_block(text, "kArchetypePhrase[4][12] = ")
     for tag in ("// ARCHETYPE_GRUFF", "// ARCHETYPE_SHY",

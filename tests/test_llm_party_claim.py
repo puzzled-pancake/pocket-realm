@@ -10,8 +10,10 @@ case; this file pins the runtime half that lives in the overlay tree:
     feeds the pure pick
   - the SayAction driver payload (PB_SAY_GATE_ANDROID) consumes
     SelectResponder + the claim at the TOP of the party block and ANDs
-    the claim into the gated flow for the UNADDRESSED party case only -
-    the addressed bot bypasses, whisper/say never consult the claim
+    the claim into the gated flow for the UNADDRESSED party/raid case
+    only (round-3: SRC_RAID joins the CLAIM; recording/digest stay
+    party-only) - the addressed bot bypasses, whisper/say never consult
+    the claim
   - recording is preserved for ALL bots: the unaddressed leg keeps
     ConsumePendingAnswer AND adds NotePartyLine beside it
 The FNV claim-key hash is the one piece of pure decision logic in the
@@ -141,8 +143,12 @@ def test_flood_gate_is_a_two_second_window_under_the_mutex():
 
 def test_payload_consumes_pick_and_claim_at_the_top_of_the_party_block():
     gate = android_anchor("PB_SAY_GATE_ANDROID")
+    # round-3 R1#1 added the A1 refusal-log if with the same opening
+    # prefix as the strategy gate, so the split key is the FULL gate
+    # condition now (the refusal if reads !replyGateAllowed)
     party = gate.split("plan v5 C3: the roundtable row")[1].split(
-        "if (sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed")[0]
+        "if (sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed"
+        " && partyResponderClaimed && replyGateAllowed")[0]
     # the pick + claim are computed INSIDE the party block, BEFORE the
     # strategy gate below it (losers skip context-building entirely, not
     # just dispatch)
@@ -161,8 +167,9 @@ def test_payload_consumes_pick_and_claim_at_the_top_of_the_party_block():
     # the strategy arm through ReplyGateAllowed; the claim read rides
     # the same gate line)
     gate_line = gate.split(
-        "if (sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed")[1]
-    assert gate_line.startswith(" && partyResponderClaimed && replyGateAllowed"), \
+        "if (sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed"
+        " && partyResponderClaimed && replyGateAllowed")[1]
+    assert gate_line.startswith("\n    )"), \
         "the responder claim ANDs into the strategy gate"
 
 
@@ -170,36 +177,77 @@ def test_recording_preserved_for_all_bots_on_the_unaddressed_leg():
     gate = android_anchor("PB_SAY_GATE_ANDROID")
     party = gate.split("plan v5 C3: the roundtable row")[1].split(
         "if (bot->GetPlayerbotAI()")[0]
+    # round-3 R1#1 nested the recording/digest legs under a SRC_PARTY
+    # guard (raid joins the CLAIM only; raid recording stays the
+    # round-1 adjudicated MINOR residue) - the legs keep their shape at
+    # the deeper indent
+    assert ("if (chatChannelSource == ChatChannelSource::SRC_PARTY)\n"
+            "        {") in party
+    recording = party.split(
+        "if (chatChannelSource == ChatChannelSource::SRC_PARTY)")[1].split(
+        "if (!addressedToBot && CloudLaneOpen()")[0]
     # the armed-ask consumption survives (the W5 pin in test_llm_recall
     # pins the same shape) ...
-    assert "else\n            PlayerbotLlmMemory::ConsumePendingAnswer" in party
+    assert "else\n                PlayerbotLlmMemory::ConsumePendingAnswer" in recording
     # ... and the unaddressed leg now records the line for the
     # roundtable too - recording for ALL bots, generation for ONE
     assert ("if (!addressedToBot)\n"
-            "            PlayerbotLlmChatter::NotePartyLine(gateSpeaker->GetGUIDLow(), msg);") in party
+            "                PlayerbotLlmChatter::NotePartyLine(gateSpeaker->GetGUIDLow(), msg);") in recording
+    # the C4 digest legs sit inside the same party-only guard
+    assert "PlayerbotLlmMemory::NotePartyDigestLine(" in recording
+    assert "PlayerbotLlmMemory::MaybeMintPartyDigest(" in recording
 
 
 def test_addressed_whisper_and_say_never_consult_the_claim():
     gate = android_anchor("PB_SAY_GATE_ANDROID")
     # exactly ONE declaration, ONE clearing, ONE claim assignment, ONE
-    # read in the strategy gate: the claim is consulted nowhere else
-    # (whisper/say legs have no party claim)
-    assert gate.count("partyResponderClaimed") == 4
+    # read in the round-3 A1 refusal log, ONE read in the strategy
+    # gate: the claim is consulted nowhere else (whisper/say legs have
+    # no party claim)
+    assert gate.count("partyResponderClaimed") == 5
     # the clearing site is inside the party block AND gated on the
     # unaddressed leg - the addressed bot bypasses the claim entirely
     # (its line names it). The slice ends at the strategy gate (the
     # round-1 R1#3 consume restructured the gate to fold through
     # ReplyGateAllowed; the claim read still lives there and nowhere
-    # else)
+    # else; the round-3 refusal log reads it once between them)
     party = gate.split("plan v5 C3: the roundtable row")[1].split(
-        "if (sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed")[0]
-    # declaration + clearing + claim assignment inside the block; the
-    # 4th (and only other) use is the strategy-gate read itself
-    assert party.count("partyResponderClaimed") == 3
+        "if (sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed"
+        " && partyResponderClaimed && replyGateAllowed")[0]
+    # declaration + clearing + claim assignment + the refusal-log read
+    # inside the block; the 5th (and only other) use is the
+    # strategy-gate read itself
+    assert party.count("partyResponderClaimed") == 4
     # the claim defaults TRUE, so with the cloud arm off the gate's
     # behavior is byte-identical to the pre-A3 payload (HardTriggerAllowed
     # already returns false for unaddressed party lines on that lane)
     assert "bool partyResponderClaimed = true;" in party
+
+
+def test_raid_arm_shares_the_exactly_one_claim_round3():
+    """Round-3 R1#1: SRC_RAID unaddressed lines are admitted by the
+    widened HardTriggerAllowed on the cloud lane, so the claim must
+    govern them - ONE generation per line, never one per raid bot (the
+    fan-out A3 exists to prevent; it would also burn N interactive-
+    budget admissions against the speaker's Tier I cap)."""
+    gate = android_anchor("PB_SAY_GATE_ANDROID")
+    party = gate.split("plan v5 C3: the roundtable row")[1].split(
+        "if (sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed"
+        " && partyResponderClaimed && replyGateAllowed")[0]
+    # the block's outer condition covers BOTH group channels
+    assert "(chatChannelSource == ChatChannelSource::SRC_PARTY ||" in party
+    assert "chatChannelSource == ChatChannelSource::SRC_RAID)" in party
+    # the claim body is SHARED - one clearing and one assignment serve
+    # both channels (no raid duplicate that could drift from the party
+    # sequence)
+    assert party.count("partyResponderClaimed = false;") == 1
+    assert party.count(
+        "partyResponderClaimed = PlayerbotLlmMemory::TryClaimPartyResponder(") == 1
+    # and the claim leg itself is still the unaddressed cloud-lane arm
+    # with the default-0 key (device lane: byte-identical - the raid
+    # leg clears nothing there because CloudLaneOpen() is false)
+    claim_leg = party.split("if (!addressedToBot && CloudLaneOpen()")[1]
+    assert "sPlayerbotAIConfig.llmPartyReplyEnabled != 0)" in claim_leg
 
 
 def test_toggle_off_is_addressed_only_via_the_default0_arm():

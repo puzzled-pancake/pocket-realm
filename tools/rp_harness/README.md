@@ -99,7 +99,8 @@ Every event carries BOTH clocks: `mono_ms` (ms-resolution
 `time.monotonic()`-based) for latency math and `ts` (ISO-8601 UTC) for
 correlating against device logs across reconnects. Event kinds include
 `op_send`, `op_result`, `op_timeout`, `reconnect` (adb hiccup: attempt
-count + backoff - a recorded event, never a silent retry), `health`,
+count + backoff - a recorded event, never a silent retry; per plan H2 a
+reconnect FAILS the smoke suite and is tolerated in the battery), `health`,
 `forward`, `bot_reply`, `chat_line`, `sys_line`, `reply_evidence`.
 
 ## Assertions
@@ -133,6 +134,10 @@ is dead - exactly the regression this rail exists to catch).
 ## A8 invariants
 
 `run_suite.check_a8_lines` scans a world.log for, per req id: exactly
-one `BotLLM: dispatch ... req=N`, at least one `begin ... req=N`,
-exactly one `end ... req=N`. Zero `BotLLM:` lines no-op PASSES unless
-`--require-a8` is given (then it fails).
+one `BotLLM: dispatch ... req=N`, at least one `begin ... req=N`
+EXCEPT busy-class turns - both busy paths (the per-bot governor and the
+interactive budget) return BEFORE the begin line, so a busy turn is
+dispatch+end only (`NO_BEGIN_CLASSES == {busy}`) - and exactly one
+`end ... req=N`. A cap turn DOES carry a begin: the begin line precedes
+GenerateHttp, whose first check is the concurrency cap. Zero `BotLLM:`
+lines no-op PASSES unless `--require-a8` is given (then it fails).

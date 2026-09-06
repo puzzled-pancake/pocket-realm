@@ -3584,6 +3584,15 @@ std::map<uint32, time_t>& PartyFloodLastAt()
     return instance;
 }
 
+// A1's once-per-bot-per-session gate-refusal stamp (the dead-gate
+// diagnostic): process-local by design - it dies with the world
+// process, matching the quota-restart semantics
+std::set<uint32>& GateRefusalNoted()
+{
+    static std::set<uint32> instance;
+    return instance;
+}
+
 } // namespace
 
 uint64_t PlayerbotLlmMemory::PartyMsgHash(std::string const& msg)
@@ -3674,6 +3683,21 @@ bool PlayerbotLlmMemory::PartyFloodAdmits(uint32 speakerGuid)
     if (lastAt && now - lastAt < 2)
         return false; // N lines within 2 s = ONE generation
     lastAt = now;
+    return true;
+}
+
+bool PlayerbotLlmMemory::NoteGateRefusalOnce(uint32 botGuid)
+{
+    // A1 (round-3 R1#2): the reply gate refused a hard trigger - the
+    // dead-gate signature. Once per bot per session: the first refusal
+    // logs, every later one stays quiet (a 320-bot realm never floods).
+    if (!botGuid)
+        return false;
+    std::lock_guard<std::mutex> lock(StateMutex());
+    std::set<uint32>& noted = GateRefusalNoted();
+    if (noted.find(botGuid) != noted.end())
+        return false;
+    noted.insert(botGuid);
     return true;
 }
 

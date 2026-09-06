@@ -24,9 +24,9 @@ editing it fail-closes the world). This battery pins:
 - the six GuildManagement inline-literal fixes (old offenders gone, new
   wording present).
 
-The 533 dead rows (taunt/loot/aoe pools with no reader) stay excluded,
-and no key renames happened - A9's once-per-name miss-log diagnostic
-keeps its ground.
+The dead taunt/loot/aoe rows (pools with no reader; ~388 by strict
+pool count) stay excluded, and no key renames happened - A9's
+once-per-name miss-log diagnostic keeps its ground.
 """
 from __future__ import annotations
 

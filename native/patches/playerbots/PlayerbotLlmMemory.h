@@ -250,6 +250,13 @@ public:
     // under StateMutex).
     static bool PartyFloodAdmits(uint32 speakerGuid);
 
+    // A1: the once-per-bot-per-session stamp behind the SayAction
+    // payload's reply-gate refusal log (the dead-gate signature). True
+    // the FIRST time a bot is refused this session, false after - the
+    // set is process-local and dies with the world process (the
+    // quota-restart semantics).
+    static bool NoteGateRefusalOnce(uint32 botGuid);
+
     // ---- A2: the conversation fast-lane window. Arming is world-thread
     // at the ChatReplyDo dispatch site (and the A4 fallback delivery
     // leg); occupancy is guid-keyed per map under StateMutex with a TTL

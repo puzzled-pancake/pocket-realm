@@ -432,6 +432,23 @@ def test_smoke_suite_fails_fast_when_injection_fails(tmp_path):
     assert report["summary"]["failures"] >= 1
 
 
+def test_smoke_suite_fails_on_relay_reconnect_events(tmp_path):
+    # H2 (round-3 R7#4): reconnect/backoff events are first-class
+    # transcript events and FAIL smoke - a recovered adb hiccup is not
+    # a green per-change gate (the battery suite tolerates them; only
+    # exhausted retries raise from run_suite)
+    _, clean = _smoke(tmp_path)
+    assert "relay-stability" not in {t["name"] for t in clean["tests"]}
+    session = FakeSession(tmp_path)
+    session.transcript.record("reconnect", op="ping", attempt=1,
+                              backoff_s=2.0, error="adb dropped")
+    report = smoke_suite.run(session, reply_window_s=0.2, poll_interval_s=0.05)
+    by_name = {t["name"]: t for t in report["tests"]}
+    assert by_name["relay-stability"]["status"] == "failed"
+    assert "reconnect/backoff event(s)" in by_name["relay-stability"]["reason"]
+    assert report["summary"]["failures"] >= 1
+
+
 # ---- A8 invariants + the CLI -----------------------------------------------
 
 

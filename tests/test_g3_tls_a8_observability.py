@@ -221,12 +221,16 @@ def test_a8_lines_carry_no_content(driver):
         '"BotLLM: gen begin req=%llu bot=%u lane=%s"',
         '"BotLLM: gen end req=%llu bot=%u class=%s durMs=%lu"',
         '"BotLLM: rpgchat daily quota exhausted (%u generations)"',
+        '"BotLLM: reply gate refused bot=%u src=%d (once per bot per session)"',
         '"BotLLM: Connection to server failed. Error: %d"',
         '"BotLLM: Connection to server failed. Error: %s"',
         '"BotLLM: HTTP status %d from the LLM endpoint"',
     }
+    # round-3: the A1 refusal log landed in the SayAction gate payload,
+    # so that payload joins the scan (fixed fields only - %u/%d)
     for payload in (driver.PB_SAY_ASYNC_ANDROID, driver.PB_RPG_ASYNC_ANDROID,
-                    driver.PB_DEBUG_GEN_ANDROID, driver.PB_LLM_IFACE_CPP_ANDROID):
+                    driver.PB_DEBUG_GEN_ANDROID, driver.PB_LLM_IFACE_CPP_ANDROID,
+                    driver.PB_SAY_GATE_ANDROID):
         for fmt in re.findall(r'"BotLLM:[^"]*"', payload):
             assert fmt in sanctioned, (
                 f"unsanctioned BotLLM: log literal could carry content: {fmt}")

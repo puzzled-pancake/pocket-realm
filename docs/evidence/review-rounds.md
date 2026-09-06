@@ -242,3 +242,158 @@ legacy-fallback arm logs the noted class; run_suite NO_BEGIN_CLASSES
 narrowed to busy-only with the harness test and docstring corrected)
 plus the repeatedly-flagged bot2bot quota/depth order MINOR and the
 ContainsNameIgnoreCase dead-disjunct NIT. See Round 3's preamble.
+
+## Round 3
+
+**Diffstat re-reviewed**: `git diff 6045eeb..3ac8fcd` — 116 files,
++18312/−315 (the round-2 fix batch f8f3334 plus the PLAN-LOG handoff
+commit; same submodule ranges). Dispatch note: the FIRST Round 3
+dispatch died partially from an infra error — R1 and R2 agents expired
+at DISPATCH with nothing landed, while R3–R8 returned PASS with zero
+BLOCKER/MAJOR; per §15.3 a reviewer error invalidates the whole round
+(no partial credit, no carried verdicts), so the round was re-run
+FRESH with all 8 reviewers against the unchanged tree. This entry logs
+that fresh full round.
+
+**Result: 6/8 PASS → ROUND FAILS.**
+
+- **R1 (native cloud lane): FINDINGS** — 1 MAJOR: A3's exactly-one
+  responder is party-only while the widened hard trigger admits
+  unaddressed SRC_RAID on the cloud lane (`HardTriggerAllowed`'s
+  party/raid arm at PlayerbotLlmGates.h:72-79 vs the claim block gated
+  `chatChannelSource == SRC_PARTY` in the applied SayAction payload) —
+  once `LLMPartyReplyEnabled` flips 0→1, one unaddressed raid line
+  would dispatch N generations (N external calls, N Tier I budget
+  burns, no 2 s coalescing); dormant only because the key defaults 0.
+  +2 MINOR: A1's "refusal logs once per bot per session" deliverable
+  absent (no stamp anywhere in the payload); the rpgchat
+  CloudQuotaAdmits spend runs before the cheap `chatLine == -1`
+  early-return (a reset-but-unrearmed trigger burns a realm-global
+  admission without generating — contra the street-ladder
+  cheap-before-expensive discipline). Verified green: §0.13 at all 9
+  widened sites, device byte-identity (truth tables), quota math incl.
+  the round-2 depth-before-quota fix, threading (no nested StateMutex;
+  async boundary by-value only), consume-not-copy, plus an independent
+  52-probe edge battery compiled against the real gates header.
+- **R2 (transport/security): PASS** — anchors replay 153 ops no drift
+  (completeness independently confirmed: 129+2+22 registrations);
+  §0.c.1 redaction + SEC_MODERATOR debug-gate verified at payload
+  level with a scratch mutation failing the pin; §0.c.3 port bounds;
+  §0.c.5 prompt-dump absence; G3 TLS floor/verify/host-pin with the
+  staged CA bundle byte-identical to the live curl.se upstream (121
+  certs); A8 reqId threading at all three dispatch sites; BOTH round-2
+  fixes behavior-verified by compiling the real transport headers (10
+  failure shapes classify correctly; the legacy arm logs genClass) and
+  mutation-tested. 1 MINOR (recv-phase stalls classify as empty/ok
+  rather than timeout — durMs still exposes the stall; log-only).
+- **R3 (authored corpus/persona): PASS** — golden recompiled and
+  observed de4bd8227a3ab0d1 (the committed pin); 70-test corpus battery
+  green; lint teeth re-verified by repr (real \b escapes, no control
+  bytes); target vector, seasoning lane key arithmetic, pool order,
+  floor laws, E2's 30 UPDATEs with WHERE keys resolving byte-for-byte,
+  texts.sql byte-identity, E3 wiring all verified. 4 MINOR (one
+  same-class "wanna" drift left in BroadcastHelper; the known
+  test_seaoning typo; the known PlayerbotSecurity comment
+  overstatement; a "rewored" CHECK-message typo in the banter harness).
+- **R4 (schema/persistence): PASS** — migration law verified
+  mechanically (manifest first 412 entries byte-identical; full
+  select_inputs replay with zero sha mismatches; 0414 idempotence
+  proven on both fresh-provision and upgraded-ledger paths; texts.sql
+  blob-identical across the submodule range); all five 0413 columns +
+  the 0414 corrections have their writers/readers; PROVENANCE
+  LF-normalization mechanically demonstrated (mutation flips the hash,
+  EOL-only does not); seeder re-run SEED OK; sqlite batteries 97 green.
+  2 MINOR (the "533 dead rows" figure is wrong — 388 strict / 450
+  loose, a documentation nit the machine pins don't depend on; the
+  MySQL-dialect ODKU crossing semantics are pinned by ordering, not
+  executed — impossible off-device without MariaDB).
+- **R5 (app conf/emission): PASS** — CloudLaneConf 9/9 against the
+  driver registrations; appended-block-only law; write-set/snapshot;
+  the key-parity gate mutation-tested live in both directions (each
+  mutation failed the right leg; tree left clean); A7.6 pins green
+  under gradle; detekt baseline diff vs b3bef5f EMPTY and
+  machine-generated; no emission drift from either fix batch. 4 MINOR
+  (device-block pin enumerated 8 of 9 family keys — LLMPartyReplyEnabled
+  missing from the redundant list; three carried nits).
+- **R6 (app UX/supervisor): PASS** — gradle re-run fresh (1096 tests /
+  0 failures / 1 skipped, 138 classes) plus detekt forced-execute;
+  F2's four edits, F3 copy truthfulness (every string code-supported),
+  the §0.c.4 disclosure verbatim, B5/F1 seams incl. the save&exit race
+  and orphan self-heal adoption fencing, B7 scoped monotonicity — all
+  verified with pins named. No new findings.
+- **R7 (harness/tests): FINDINGS** — 1 MAJOR: the plan-mandated
+  source-contract pin for AiFactory's A1 cloud-lane strategy grant was
+  never authored (§0.b lane 3 "add the NEW host source-contract pin
+  reading the pristine tree"; §11 "the T1 pins land in the same commit
+  as their change"; §2 A1 "new pin") — the grant itself is correct
+  today (read and verified) but a regression to the bare key compiles
+  clean and passes the entire suite; the pin commit-bump half of the
+  recipe IS done. +3 MINOR (rp_harness README's A8 invariants still
+  describe the pre-f8f3334 shape; T0.1 compile gate and T0.2 vendored
+  emitter fixtures never authored — the protective intent is
+  substantially covered elsewhere; H2's "reconnect events fail smoke"
+  implemented as record-and-continue). The f8f3334 fixes verified at
+  three levels (payload emission order, checker, shipped test) with
+  mutation tests; full suite re-run clean to the documented 8.
+- **R8 (whole-plan conformance): PASS** — all 13 standing constraints
+  mechanically verified (one command/line each, incl. prompt
+  byte-freeze via empty git diff, edit lanes via the 153-op replay +
+  4-commit submodule range, schema law via the 414-entry manifest);
+  5/5 NEW PLAN-LOG spot-checks TRUE; all 12 logged interpretations
+  SOUND. 2 MINOR (§0.a's keyless-row text superseded in the safe
+  direction by interpretation 7; interpretation 4's "inside the
+  AdmissionTransitionGate" phrase misplaces stopAccepted's file — the
+  serialized-verb law holds).
+
+**Fixes applied between Round 3 and Round 4** (one commit; every fix
+cites its finding):
+
+- [R1 MAJOR] The party block's outer condition widened to
+  `(SRC_PARTY || SRC_RAID)` with the recording/digest legs nested
+  under a party-only guard — the claim/selection/flood body is SHARED
+  by both group channels (one clearing, one assignment; raid groups
+  carry the same group ids), so an unaddressed raid line gets exactly
+  one responder. Device lane byte-identical (the claim leg is
+  CloudLaneOpen()-gated); recording stays party-only per the round-1
+  adjudicated residue. Pins updated equal-or-stronger (split keys made
+  MORE specific; counts re-enumerated) + a new raid-arm pin.
+- [R7 MAJOR] tests/test_llm_a1_strategy_grant.py authored — the
+  pristine-read AiFactory grant pin (exact conjunction expression, the
+  == 2 arm, the module-convention include, single occurrence) plus the
+  refusal-stamp pins.
+- [R1 MINOR] A1's refusal-log deliverable landed:
+  `PlayerbotLlmMemory::NoteGateRefusalOnce` (StateMutex,
+  once-per-bot-per-session, process-local set) + the SayAction payload
+  call firing only for a hard trigger the reply gate refused (never
+  claim losers, never ambient non-triggers); pinned; the new
+  fixed-field `BotLLM:` literal joined the A8 no-content allowlist AND
+  that allowlist now scans PB_SAY_GATE_ANDROID too.
+- [R1 MINOR] The rpgchat quota spend moved AFTER the cheap local
+  guards (packets/futPackets/chatLine) — the PB_RPG_QUOTA anchor span
+  extended (UPSTREAM byte-match verified; anchors still replay 153
+  ops).
+- [R5 MINOR] deviceLaneNeverCarriesCloudKeys enumerates all 9 family
+  keys.
+- [R7 MINOR] rp_harness README A8 invariants corrected (busy =
+  dispatch+end only; cap DOES carry a begin).
+- [R7 MINOR] Smoke now FAILS on reconnect/backoff transcript events
+  (checked in `_report` so every exit path sees it) per H2; pinned in
+  test_rp_harness.
+- [R3/R4 MINORs] test_seasoning rename; "reworded" CHECK message; the
+  wrong dead-row count dropped from the E2 docstring.
+
+MINORs accepted as recorded residue (rationale): R2's recv-phase
+timeout classification (durMs exposes stalls; the verified class-truth
+chains stay untouched late in the gate); R3's BroadcastHelper "wanna"
++ PlayerbotSecurity comment (each requires the full submodule-bump +
+manifest/PROVENANCE re-pin dance for a one-line polish; two prior
+rounds accepted the Guild-scoping); the "533" figure inside the 0414
+migration comment (the shipped entry is sha-pinned — §0.11 forbids
+editing it; the machine pins are count-free) and in the plan text (the
+spec is not edited mid-gate); R4's MySQL ODKU executed fixture (no
+MariaDB host exists here — device-gated residue); R5's three carried
+nits; R7's T0.1/T0.2 (Phase-0 rail debt whose protective intent is
+covered by the lockfile pins, three-lane rebuild contract, anchor
+replay and host batteries — authoring the NDK build.ninja edge walker
+this late adds risk disproportionate to a MINOR); R8's two wording
+nits.
