@@ -2117,3 +2117,67 @@ files (scratch under tmp/ only, NEVER commit).
 - No device/emulator: device-gated items live in
   DEVICE_QUALIFICATION_CHECKLIST.md. Full pytest ~7 min; gradle ~10-60
   s cached; an 8-reviewer round ~10-20 min wall clock.
+
+## Round 7 + fix batch (continuation run 5): the timing layer closed at both ends
+
+**Round 7: 7/8 PASS - ROUND FAILS.** R1 found two new MAJORs (both
+compiled-probe demonstrations on the exactly-one TIMING layer, the
+round-7 prompt's specific mandate); every other reviewer PASSED (R6 and
+R8 with ZERO findings; R2/R3/R4/R5/R7 with one/two MINORs each). All
+logged in full in docs/evidence/review-rounds.md. Both MAJORs judged
+reachable-in-practice (a master's ordinary `wait 20`x2 freezes a grouped
+bot past the window; kicking a just-named bot before the first bystander
+drain is an ordinary sequence) - fix and loop, escalation cap NOT
+triggered. Fix batch landed, all gates green, one commit:
+
+- **R1#1 (MAJOR), the additive-deferral re-open**: the drain stagger is
+  ADDITIVE (IncreaseAIInternalUpdateDelay accumulates: repeated `wait`
+  +20 s each, teleport/cast chains stack), so no fixed claim window
+  exceeds every reachable first drain - a deferred bot re-claimed
+  beside the original winner after the window pruned the claim. Fix:
+  the LINE now expires with the window - NEW
+  PlayerbotLlmMemory::PartyClaimWindowElapsed (the one window constant,
+  pure compare) consumed by a NEW drain-loop anchor pair
+  (PB_AI_DRAIN_STALE_*) that drops a queued party/raid line older than
+  the window BEFORE ChatReplyDo, gated on the full claim-surface
+  armament (llmEnabled = the noDelay condition, CloudLaneOpen, the
+  default-0 party key) and real-player lines only. On the armed surface
+  m_time IS the fan-out instant and entries are unprocessable before
+  it, so the age compare is EXACT: drainer within the window always
+  sees the live claim; drainer past it is dropped. Expiry now means a
+  missed reply, never a second generation. Anchor count 153 -> 154.
+- **R1#2 (MAJOR), leave-before-first-drain**: the round-6 marker only
+  existed once a bystander drained while the addressee was a member -
+  an addressee kicked before ANY bystander drained left late
+  bystanders a fresh ordering pick beside the addressee's own queued
+  turn (2 gens). Fix: the ADDRESSEE's own receive stamps the marker at
+  FAN-OUT time (PB_AI_QUEUE_CALL payload, before the queue push - world
+  thread, strictly before any drain), decided by the CANONICAL matcher
+  (agrees with the drain gate's addressedToBot exactly); the drain-time
+  bystander stamp stays as the idempotent backstop.
+- **R1#3 (MINOR) fixed**: PartyFloodRefund (CAS-shaped - only the
+  attempt that stamped the slot lifts it) refunds the speaker's 2 s
+  flood slot on a lost claim; the payload captures the stamp before the
+  admit and refunds only on claim loss.
+- **R3/R5/R7/R4 MINORs fixed**: the lint's soft-refusal row widened
+  (could not / won't / would not / will not / unable to); the debug
+  lane's staged-TLS-CA line pinned (stagedTlsCaLineReachesTheDebugLane
+  Too); the unreadable-log latencyMs:{} shape pinned; the checklist's
+  greeting-upgrade parenthetical reworded to the true write-only state.
+- **Pins**: 3 NEW tests (fan-out stamp, drain TTL incl. the oracle's
+  purity + the armament chain, refund CAS + payload wiring); the
+  partyResponderClaimed count re-enumerated 5->6 (the refund read);
+  the lint row strengthened.
+- **Probe**: tmp/r7fix_probe.cpp (10 checks) replays both R1
+  interleavings + boundaries + the refund CAS - all PASS (kept as
+  scratch evidence; the shipped pins carry the contract).
+- **Residue recorded** (rationale in the round log): R2's retry-leg
+  class=empty (log-only, same genre as the adjudicated recv-phase
+  residue); R2's B2.3 "lesser" wording (lane-3 submodule dance for an
+  outDebug line - the accepted one-line-polish precedent).
+- **Gates**: pytest 8 failed (pre-existing set), 624 passed (+3),
+  4 skipped; gradle testDebugUnitTest + detekt BUILD SUCCESSFUL (new
+  debug-lane TLS test green; no baseline regen); null-guard 9/9 after
+  --write-lockfiles; anchors 154 ops (the new pair); both C++ batteries
+  green, FNV golden UNCHANGED at de4bd8227a3ab0d1; check_repo (1217
+  files)/check_sources OK. Round 8 re-dispatched fresh per 15.3.

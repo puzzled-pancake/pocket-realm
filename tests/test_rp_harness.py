@@ -539,6 +539,9 @@ def test_a8_scan_no_op_passes_on_silent_logs():
     assert not required["ok"] and required["violations"]
     missing = run_suite.check_a8_log(tmp_path_placeholder := "no-such.log")
     assert missing["ok"] and missing["noOp"]
+    # round-7 R7: the unreadable-log return still carries the (empty)
+    # latency block - the report shape is the same on every exit path
+    assert missing["latencyMs"] == {}
 
 
 def test_cli_end_to_end_with_a8(tmp_path, monkeypatch):

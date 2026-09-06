@@ -2230,12 +2230,23 @@ PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBacken
                 }
                 uint32 const pickedResponder =
                     PlayerbotLlmGates::SelectResponder(partyCandidates, addressedBotGuid);
+                time_t const floodStampedAt = time(nullptr);
                 if (pickedResponder == bot->GetGUIDLow() &&
                     PlayerbotLlmMemory::PartyFloodAdmits(gateSpeaker->GetGUIDLow()))
                 {
                     partyResponderClaimed = PlayerbotLlmMemory::TryClaimPartyResponder(
                         bot->GetGUIDLow(), gateSpeaker->GetGUIDLow(),
                         PlayerbotLlmMemory::PartyMsgHash(msg), responderGroup->GetId());
+                    // Round-7 R1 MINOR: a REFUSED claim consumed the
+                    // speaker's 2 s flood slot for nothing (identical-
+                    // text re-send inside the window, or the shared
+                    // party/raid claim key) - refund it (CAS-shaped: a
+                    // concurrent winner's newer stamp survives) so the
+                    // speaker's next DISTINCT line is not denied beside
+                    // a generation that never happened.
+                    if (!partyResponderClaimed)
+                        PlayerbotLlmMemory::PartyFloodRefund(
+                            gateSpeaker->GetGUIDLow(), floodStampedAt);
                 }
                 else if (addressedBotGuid != 0)
                 {
@@ -3540,10 +3551,100 @@ PB_AI_QUEUE_DEF_ANDROID = """void PlayerbotAI::QueueChatResponse(uint32 msgType,
     chatReplies.push(ChatQueuedReply(msgType, guid1.GetCounter(), guid2.GetCounter(), message, chanName, name, time(0) + (noDelay ? 0 : (delaySecs >= 0 ? delaySecs : urand(inCombat ? 15 : 10, inCombat ? 30 : 20)))));
 }
 """
+# Round-7 R1 (claim-window class closure): the drain-side TTL. The
+# claim window bounds the claim MAP, but the drain stagger is additive
+# (IncreaseAIInternalUpdateDelay accumulates: a master's repeated
+# "wait" adds up to 20 s per invocation, teleport/cast chains stack), so
+# a bot's first drain can land past ANY fixed window - the pruned claim
+# let the deferred bot re-claim beside the original winner. A party/raid
+# line older than the window can no longer generate: dropped here means
+# a missed reply, never a second generation. Gated on the full
+# claim-surface armament; llmEnabled is the queue path's noDelay
+# condition (without it lines carry the legacy 10-30 s stagger and must
+# stay byte-identical), and only real-player lines are the surface (bot
+# chatter is not).
+PB_AI_DRAIN_STALE_UPSTREAM = """            ChatQueuedReply holder = chatReplies.front();
+            time_t checkTime = holder.m_time;
+            if (checkTime && time(0) < checkTime)
+            {
+                delayedResponses.push_back(holder);
+                chatReplies.pop();
+                continue;
+            }
+            ChatReplyAction::ChatReplyDo(bot, holder.m_type, holder.m_guid1, holder.m_guid2, holder.m_msg, holder.m_chanName, holder.m_name);
+"""
+PB_AI_DRAIN_STALE_ANDROID = """            ChatQueuedReply holder = chatReplies.front();
+            time_t checkTime = holder.m_time;
+            if (checkTime && time(0) < checkTime)
+            {
+                delayedResponses.push_back(holder);
+                chatReplies.pop();
+                continue;
+            }
+            // Round-7 R1: entries are unprocessable before m_time and
+            // the armed queue path is noDelay (m_time == the line's
+            // fan-out instant), so "older than the claim window" at the
+            // drain means every claim/marker for this line has expired
+            // - processing it would re-open the exactly-one surface
+            // (the deferred bot re-claims beside the original winner).
+            // The cheap config reads gate first; the channel classify
+            // and the speaker lookup run only for already-stale lines.
+            if (checkTime && sPlayerbotAIConfig.llmEnabled > 0 && CloudLaneOpen() &&
+                sPlayerbotAIConfig.llmPartyReplyEnabled != 0 &&
+                PlayerbotLlmMemory::PartyClaimWindowElapsed(checkTime))
+            {
+                ChatChannelSource staleChannel =
+                    GetChatChannelSource(bot, holder.m_type, holder.m_chanName);
+                Player* staleSpeaker =
+                    sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, holder.m_guid1));
+                if ((staleChannel == ChatChannelSource::SRC_PARTY ||
+                     staleChannel == ChatChannelSource::SRC_RAID) &&
+                    staleSpeaker && staleSpeaker->isRealPlayer())
+                {
+                    chatReplies.pop();
+                    continue;
+                }
+            }
+            ChatReplyAction::ChatReplyDo(bot, holder.m_type, holder.m_guid1, holder.m_guid2, holder.m_msg, holder.m_chanName, holder.m_name);
+"""
 PB_AI_QUEUE_CALL_UPSTREAM = """                MANGOS_ASSERT(!message.empty());     
                 QueueChatResponse(msgtype, guid1, ObjectGuid(), message, chanName, name, isAiChat);
 """
 PB_AI_QUEUE_CALL_ANDROID = """                MANGOS_ASSERT(!message.empty());
+                // Round-7 R1 (addressed-line fan-out stamp): the claim
+                // surface's marker for an ADDRESSED party/raid line was
+                // stamped only by bystander DRAINS - when the addressee
+                // left the group before any bystander drained, late
+                // bystanders found no named member and took a fresh
+                // ordering pick beside the addressee's still-queued own
+                // turn (two generations). The ADDRESSEE's own receive is
+                // the earliest moment the line is known addressed: stamp
+                // the stand-down marker HERE, at fan-out time on the
+                // world thread - strictly before any bot's drain can
+                // run - so the marker exists for every later
+                // interleaving (kick, leave, death; the drain-time
+                // bystander stamp stays as the idempotent backstop).
+                // The canonical matcher decides (not the raw substring
+                // isMentioned - it must agree with the drain gate's
+                // addressedToBot exactly); first writer wins.
+                if (isAiChat && CloudLaneOpen() &&
+                    sPlayerbotAIConfig.llmPartyReplyEnabled != 0 &&
+                    PlayerbotLlmGates::ContainsNameIgnoreCase(message, bot->GetName()))
+                {
+                    ChatChannelSource stampChannel =
+                        GetChatChannelSource(bot, msgtype, chanName);
+                    Player* stampSpeaker = sObjectAccessor.FindPlayer(guid1);
+                    Group* stampGroup = bot->GetGroup();
+                    if ((stampChannel == ChatChannelSource::SRC_PARTY ||
+                         stampChannel == ChatChannelSource::SRC_RAID) &&
+                        stampSpeaker && stampSpeaker->isRealPlayer() && stampGroup)
+                    {
+                        PlayerbotLlmMemory::TryStandDownPartyLine(
+                            stampSpeaker->GetGUIDLow(),
+                            PlayerbotLlmMemory::PartyMsgHash(message),
+                            stampGroup->GetId());
+                    }
+                }
                 // S8/A18 pacing: the LLM path answers whispers/part/raid
                 // the moment generation finishes (noDelay), but a /say
                 // ANSWER (a name mention - the only say that generates)
@@ -5058,6 +5159,8 @@ def prepare_cmangos_source() -> None:
     replace_anchor(bot_root / "PlayerbotAI.h", PB_AI_QUEUE_DECL_UPSTREAM, PB_AI_QUEUE_DECL_ANDROID)
     replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_QUEUE_DEF_UPSTREAM, PB_AI_QUEUE_DEF_ANDROID)
     replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_QUEUE_CALL_UPSTREAM, PB_AI_QUEUE_CALL_ANDROID)
+    # round-7 R1: the drain-side TTL drop (claim-window class closure)
+    replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_DRAIN_STALE_UPSTREAM, PB_AI_DRAIN_STALE_ANDROID)
     # A2 fast-lane (rp-depth v2.3): enum + recheck helper in the header,
     # the priority early-return + bracket entry in the class
     replace_anchor(bot_root / "PlayerbotAI.h", PB_AI_DIALOGUE_ENUM_UPSTREAM, PB_AI_DIALOGUE_ENUM_ANDROID)

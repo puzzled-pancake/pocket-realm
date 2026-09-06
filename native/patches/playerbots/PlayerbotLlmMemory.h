@@ -247,6 +247,17 @@ public:
     static bool TryStandDownPartyLine(uint32 speakerGuid, uint64_t msgHash,
         uint32 groupId);
 
+    // Round-7 R1 (claim-window class closure): the drain-side staleness
+    // oracle for a queued party/raid line. On the armed surface the
+    // queue path is noDelay (the queued m_time IS the line's fan-out
+    // instant) and entries are unprocessable before m_time, so "line
+    // age > PARTY_CLAIM_WINDOW_SECONDS" at the drain means every claim
+    // or marker stamped for the line has expired - processing it would
+    // re-open the exactly-one surface (a deferred drain re-claiming
+    // beside the original winner). True = drop the line: a missed
+    // reply, never a second generation. Pure time compare (no state).
+    static bool PartyClaimWindowElapsed(time_t lineTime);
+
     // The deterministic pick's candidate set: every BOT in the group
     // with its relationship tier toward the SPEAKER (the existing
     // GetTrainedTier lookup - reused, never duplicated) and its lastWon
@@ -260,6 +271,14 @@ public:
     // generation per speaker per 2 s sliding window (check-and-stamp
     // under StateMutex).
     static bool PartyFloodAdmits(uint32 speakerGuid);
+
+    // Round-7 R1 MINOR: a REFUSED claim must not consume the speaker's
+    // 2 s flood slot - the coalescing law counts GENERATIONS ("N lines
+    // within 2 s = one generation") and a claim loss produced none.
+    // CAS-shaped: the erase lands only when the slot still carries THIS
+    // attempt's stamp, so a concurrent winner's stamp (set between this
+    // attempt's admit and its claim loss) always survives.
+    static void PartyFloodRefund(uint32 speakerGuid, time_t stampedAt);
 
     // A1: the once-per-bot-per-session stamp behind the SayAction
     // payload's reply-gate refusal log (the dead-gate signature). True

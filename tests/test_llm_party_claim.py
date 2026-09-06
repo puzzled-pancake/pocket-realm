@@ -94,6 +94,8 @@ def test_claim_helper_declared_and_mutex_guarded():
     assert "static bool TryStandDownPartyLine(uint32 speakerGuid, uint64_t msgHash," in header
     assert "static bool CollectPartyCandidates(uint32 groupId, uint32 speakerGuid," in header
     assert "static bool PartyFloodAdmits(uint32 speakerGuid);" in header
+    assert "static bool PartyClaimWindowElapsed(time_t lineTime);" in header
+    assert "static void PartyFloodRefund(uint32 speakerGuid, time_t stampedAt);" in header
     assert "static uint64_t PartyMsgHash(std::string const& msg);" in header
 
     src = MEMORY_CPP.read_text(encoding="utf-8")
@@ -234,10 +236,10 @@ def test_recording_preserved_for_all_bots_on_the_unaddressed_leg():
 def test_addressed_whisper_and_say_never_consult_the_claim():
     gate = android_anchor("PB_SAY_GATE_ANDROID")
     # exactly ONE declaration, ONE clearing, ONE claim assignment, ONE
-    # read in the round-3 A1 refusal log, ONE read in the strategy
-    # gate: the claim is consulted nowhere else (whisper/say legs have
-    # no party claim)
-    assert gate.count("partyResponderClaimed") == 5
+    # read in the round-3 A1 refusal log, ONE read in the round-7 flood
+    # refund, ONE read in the strategy gate: the claim is consulted
+    # nowhere else (whisper/say legs have no party claim)
+    assert gate.count("partyResponderClaimed") == 6
     # the clearing site is inside the party block AND gated on the
     # unaddressed leg - the addressed bot bypasses the claim entirely
     # (its line names it). The slice ends at the strategy gate (the
@@ -248,9 +250,9 @@ def test_addressed_whisper_and_say_never_consult_the_claim():
         "if (sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed"
         " && partyResponderClaimed && replyGateAllowed")[0]
     # declaration + clearing + claim assignment + the refusal-log read
-    # inside the block; the 5th (and only other) use is the
-    # strategy-gate read itself
-    assert party.count("partyResponderClaimed") == 4
+    # + the round-7 refund read inside the block; the 6th (and only
+    # other) use is the strategy-gate read itself
+    assert party.count("partyResponderClaimed") == 5
     # the claim defaults TRUE, so with the cloud arm off the gate's
     # behavior is byte-identical to the pre-A3 payload (HardTriggerAllowed
     # already returns false for unaddressed party lines on that lane)
@@ -322,3 +324,115 @@ def test_toggle_off_is_addressed_only_via_the_default0_arm():
     driver = DRIVER.read_text(encoding="utf-8")
     assert 'GetIntDefault("AiPlayerbot.LLMPartyReplyEnabled", 0)' in driver, \
         "the party reply arm defaults 0 (addressed-only until staged on)"
+
+
+# ---- round-7 R1: the timing layer closed at both ends -----------------------
+
+def test_fanout_stamp_covers_the_leave_before_first_drain_hole_round7():
+    """Round-7 R1 MAJOR#2: the drain-time bystander marker only existed
+    once a bystander drained while the addressee was still a member -
+    an addressee that left (kick/leave) before ANY bystander drained
+    left late bystanders a fresh ordering pick beside the addressee's
+    still-queued own turn. The ADDRESSEE's own receive now stamps the
+    marker at fan-out time (world thread, strictly before any drain can
+    run), so the marker exists for every later interleaving."""
+    queue_call = android_anchor("PB_AI_QUEUE_CALL_ANDROID")
+    # the stamp consults the CANONICAL matcher (agreeing with the drain
+    # gate's addressedToBot exactly - the raw substring isMentioned
+    # would miss case-variant mentions and re-open the hole)
+    assert ("PlayerbotLlmGates::ContainsNameIgnoreCase(message, "
+            "bot->GetName())") in queue_call
+    # gated on the full claim-surface armament (device lane and the
+    # staged default-0 key never stamp: byte-identical)
+    assert queue_call.index("if (isAiChat && CloudLaneOpen() &&") < \
+        queue_call.index("PlayerbotLlmGates::ContainsNameIgnoreCase(message,")
+    assert "sPlayerbotAIConfig.llmPartyReplyEnabled != 0 &&" in queue_call
+    # party/raid only, real-player speaker only, group resolved at
+    # receive time
+    assert ("(stampChannel == ChatChannelSource::SRC_PARTY ||" in queue_call and
+            "stampChannel == ChatChannelSource::SRC_RAID)" in queue_call)
+    assert "stampSpeaker->isRealPlayer()" in queue_call
+    # the SAME claim key the drain path computes (speaker low + the one
+    # hash implementation + the group id) - a different key would be a
+    # different line
+    assert "PlayerbotLlmMemory::TryStandDownPartyLine(" in queue_call
+    assert "PlayerbotLlmMemory::PartyMsgHash(message)" in queue_call
+    assert "stampGroup->GetId())" in queue_call
+    # and the stamp rides the fan-out (BEFORE the queue push it guards,
+    # not after it): the marker precedes every drain by construction
+    stamp_at = queue_call.index("PlayerbotLlmMemory::TryStandDownPartyLine(")
+    push_at = queue_call.index("QueueChatResponse(msgtype, guid1,")
+    assert stamp_at < push_at, "the marker must be stamped at fan-out time"
+
+
+def test_drain_ttl_drops_window_expired_party_lines_round7():
+    """Round-7 R1 MAJOR#1: the drain stagger is ADDITIVE (a master's
+    repeated 'wait' adds up to 20 s per invocation; teleport/cast
+    chains stack), so no fixed claim window exceeds every reachable
+    first drain - a deferred bot re-claimed beside the original winner
+    after the window pruned the claim. The line itself now expires with
+    the window: a queued party/raid line older than
+    PARTY_CLAIM_WINDOW_SECONDS at its drain is DROPPED (a missed reply,
+    never a second generation). On the armed surface the queue path is
+    noDelay (the queued m_time IS the fan-out instant) and entries are
+    unprocessable before m_time, so the age compare is exact."""
+    src = MEMORY_CPP.read_text(encoding="utf-8")
+    oracle = src.split("bool PlayerbotLlmMemory::PartyClaimWindowElapsed")[1]
+    oracle = oracle.split("\n}")[0]
+    # the ONE window constant decides both the claim map and the line
+    # TTL (a second constant could drift and re-open the gap between
+    # them)
+    assert "time(nullptr) - lineTime > PARTY_CLAIM_WINDOW_SECONDS" in oracle
+    assert "lineTime != 0 &&" in oracle, "unstamped entries never drop"
+    # pure time compare - no state, no mutex (the drain holds
+    # chatRepliesMutex; the lock-order contract keeps StateMutex a leaf
+    # and this helper never asks for it)
+    assert "StateMutex" not in oracle
+
+    drain = android_anchor("PB_AI_DRAIN_STALE_ANDROID")
+    # the drop sits between the notBefore hold and the dispatch handoff
+    assert drain.index("PlayerbotLlmMemory::PartyClaimWindowElapsed(") < \
+        drain.index("ChatReplyAction::ChatReplyDo(")
+    # gated on the FULL claim-surface armament: llmEnabled is the queue
+    # path's noDelay condition (without it lines carry the legacy
+    # 10-30 s stagger and m_time stops being the fan-out instant), the
+    # conjunction law and the default-0 key match the claim leg
+    assert ("if (checkTime && sPlayerbotAIConfig.llmEnabled > 0 && "
+            "CloudLaneOpen() &&") in drain
+    assert "sPlayerbotAIConfig.llmPartyReplyEnabled != 0 &&" in drain
+    assert "PlayerbotLlmMemory::PartyClaimWindowElapsed(checkTime)" in drain
+    # party/raid only (the claim surface's channels) ...
+    assert ("(staleChannel == ChatChannelSource::SRC_PARTY ||" in drain and
+            "staleChannel == ChatChannelSource::SRC_RAID)" in drain)
+    # ... real-player lines only (bot chatter is not the surface and
+    # must stay byte-identical), then the drop
+    assert "staleSpeaker->isRealPlayer()" in drain
+    assert drain.count("chatReplies.pop();") == 2 and \
+        drain.count("continue;") == 2
+
+
+def test_refused_claim_refunds_the_flood_stamp_round7():
+    """Round-7 R1 MINOR: a claim the picked bot LOST still consumed the
+    speaker's 2 s flood slot (identical-text re-send inside the window,
+    or the adjudicated party/raid shared key) - the speaker's next
+    DISTINCT line was denied beside a generation that never happened.
+    The refund is CAS-shaped: only the attempt that stamped the slot
+    lifts it, so a concurrent winner's stamp survives."""
+    src = MEMORY_CPP.read_text(encoding="utf-8")
+    refund = src.split("void PlayerbotLlmMemory::PartyFloodRefund")[1]
+    refund = refund.split("\n}")[0]
+    assert "std::lock_guard<std::mutex> lock(StateMutex());" in refund
+    # CAS: erase only when the slot still carries THIS attempt's stamp
+    assert "itr->second == stampedAt" in refund
+    assert "stamps.erase(itr);" in refund
+
+    gate = android_anchor("PB_SAY_GATE_ANDROID")
+    # the stamp value is captured BEFORE the admit (second-boundary
+    # skew means at worst a missed refund - today's behavior, never a
+    # wrong erase)
+    assert "time_t const floodStampedAt = time(nullptr);" in gate
+    assert gate.index("time_t const floodStampedAt = time(nullptr);") < \
+        gate.index("PlayerbotLlmMemory::PartyFloodAdmits(")
+    # and the refund fires ONLY on a lost claim
+    assert ("if (!partyResponderClaimed)\n"
+            "                        PlayerbotLlmMemory::PartyFloodRefund(") in gate

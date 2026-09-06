@@ -42,8 +42,11 @@ BANNED = [
     r"i(?:'| a)m (?:just )?an ai\b",
     r"content policy",
     r"safety guidelines",
-    # round-6 R7: the contraction forms slip a naive grep - cover both
-    r"i can(?:'|no)?t (?:assist|comply|help with)",
+    # round-6 R7: the contraction forms slip a naive grep - cover both;
+    # round-7 R3: the adjacent soft-refusal variants join ("could not",
+    # "won't", "would not", "will not", "am/'m unable to")
+    r"i (?:can(?:'|no)?t|could not|won't|would not|will not|(?:am|'m) unable to)"
+    r" (?:assist|comply|help with)",
     r"i'm sorry, but i",
     r"harmful or inappropriate",
     r"my instructions",

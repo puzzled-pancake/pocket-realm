@@ -696,3 +696,141 @@ UI additions are risk without a pinning device run; a natural
 follow-up after qualification); §0.b's GuildManagementActions.cpp
 enumeration lag (plan frozen mid-gate, the edit is sanctioned and
 pinned); R4's below-MINOR hydrate-order observation.
+
+## Round 7
+
+**Diffstat re-reviewed**: `git diff 6045eeb..13b769f` — 118 files,
++19745/−323. All 8 reviewers dispatched fresh in one foreground
+message.
+
+**Result: 7/8 PASS → ROUND FAILS.**
+
+- **R1 (native cloud lane): FINDINGS** — 2 MAJOR, both compiled-probe
+  demonstrations on the exactly-one TIMING layer (the round-7 prompt's
+  specific mandate): (1) the claim-window race at its next layer — the
+  drain stagger is ADDITIVE (IncreaseAIInternalUpdateDelay accumulates;
+  a master's repeated `wait` adds up to 20 s per invocation, teleport/
+  cast chains stack on top), so a bot's first drain can land past ANY
+  fixed window: the pruned claim let the deferred bot re-claim beside
+  the original winner (2 gens; controls at +1…+29 s stayed 1-gen, so
+  the round-6 fix holds inside its envelope); (2) the stand-down marker
+  only existed once a bystander drained while the addressee was still a
+  member — an addressee KICKED before any bystander drained left late
+  bystanders a fresh ordering pick beside the addressee's still-queued
+  own turn (2 gens; the leave-after-stamp interleaving verified
+  holding). +1 MINOR (a refused claim still consumed the speaker's 2 s
+  flood stamp). Verified green: the deterministic matrix CLOSED by the
+  extended probe (addressed/unaddressed/named-player/named-dead/
+  other-group/two-named/fan-out stability/flood/device byte-identity);
+  §0.13 at all 9 sites; A7 quota math incl. depth-before-quota; A1
+  grant + refusal stamp; rpgchat order; the stated lock-order contract
+  honored at every audited scope.
+- **R2 (transport/security): PASS** — 2 MINOR: the retry-leg transport
+  failure logs class=empty (the fall-through logEnd is hardcoded;
+  genClass was computed from the first call — log-only, durMs exposes
+  reality); plan B2.3's PlayerbotAIBase.cpp:35 "lesser" wording
+  deliverable never shipped and recorded nowhere (outDebug line,
+  invisible at staged LogFileLevel 1). Verified: anchors 153 ops with
+  the arithmetic independently re-derived (129+2+22); 13b769f
+  transport-neutral; both round-5 fix families verified (conf.dist G3
+  wording matches the AF_INET code; ok-class latency math exact); rider
+  1 redaction + SEC_MODERATOR gate mutation-killed; A8 class truth
+  compiled 10-shape battery; CA bundle byte-identical to live curl.se
+  upstream TODAY; rider 3 + rider 5; A9.
+- **R3 (authored corpus/persona): PASS** — 1 MINOR (adjacent
+  soft-refusal variants — "i could not assist"/"i won't help with" —
+  not covered by the contraction regex). Golden recompiled =
+  de4bd8227a3ab0d1; the 10-surface lint mutation-matrix 121/121 caught;
+  zero false positives; E0 word/state-key laws, E1 vector (1,090
+  exactly, independently recounted), E2's 30 UPDATEs all byte-resolving
+  + texts.sql blob-identical across the submodule range, E3
+  mutation-killed, A5 latch/cloud-scope/exclusivity verified.
+- **R4 (schema/persistence): PASS** — 1 MINOR (last_greeted_at is
+  write-only; the checklist parenthetical implied an authored T1 host
+  pin for the ≥6 h reader leg that does not exist). Full manifest
+  replay 414/414 zero mismatches; first-412 byte-identity; both fix
+  commits' lockfile deltas EXACTLY the expected sha re-pins; 0414
+  idempotence mechanically proven (zero chain collisions); PROVENANCE
+  LF-hash recomputed and matching; sqlite battery 120 green.
+- **R5 (app conf/emission): PASS** — 1 MINOR (the debug lane's G3 CA
+  emission line unpinned — device+external lanes are pinned). Baseline
+  diff vs b3bef5f EMPTY with zero hand suppressions; CloudLaneConf
+  9/9; the parity gate mutation-tested live with 6/6 mutants killed;
+  55/55 emission-pin tests green under gradle; both fix batches
+  emission-source-verified.
+- **R6 (app UX/supervisor): PASS — zero findings.** Gradle fresh
+  (BUILD SUCCESSFUL; 138 classes, 1096/0/1; detekt 0 findings); F2
+  four edits, F3 string-by-string code support, §0.c.4 verbatim, B5/F1
+  seams, B7 monotonicity all re-verified with pins.
+- **R7 (harness/tests): PASS** — 1 MINOR (the unreadable-log
+  `latencyMs: {}` return shape landed unpinned — a scratch mutation
+  deleting the key survived). Full suite re-run "8 failed, 621 passed,
+  4 skipped" with EXACTLY the pre-existing set; 9/9 mutants killed on
+  the round-6 pins (window constant + consumption, marker helper,
+  driver wiring, lint surfaces); bec78fd pins mutation-verified; the
+  T1/T2 matrix walked with no missing/tautological/weakened pin;
+  weakening audit of all run deletions equal-or-stronger; vacuous
+  grep zero.
+- **R8 (whole-plan conformance): PASS — zero findings.** All 13
+  constraints mechanically verified (incl. kill-switch coverage of the
+  round-6 window/marker behavior and §0.b lane law on the driver
+  extension); §11 no hard inversions; 5/5 NEW spot-checks TRUE (35
+  across rounds 3–7; the round-6 fix-batch claims + an early-batch
+  E2 hash claim); all 16 interpretations re-derived SOUND; the
+  round-6 residue rationales judged HONEST (incl. the ServerStatusJson
+  8-field ABI pin confirmed real).
+
+**Fixes applied between Round 7 and Round 8** (one commit; every fix
+cites its finding; probe-verified by a 10-check compiled probe
+replaying both R1 interleavings):
+
+- [R1 MAJOR#1 — the additive-deferral re-open] The line itself now
+  expires with the window: NEW `PlayerbotLlmMemory::
+  PartyClaimWindowElapsed(time_t)` (the one window constant, pure time
+  compare) + a NEW drain-loop anchor pair (PB_AI_DRAIN_STALE_*) that
+  drops a queued party/raid line older than the claim window BEFORE
+  ChatReplyDo — gated on the full claim-surface armament (llmEnabled —
+  the queue path's noDelay condition, without which lines carry the
+  legacy 10-30 s stagger and must stay byte-identical; CloudLaneOpen;
+  the default-0 party-reply key) and only real-player lines (the
+  channel classify + speaker lookup run only for already-stale
+  entries). On the armed surface m_time IS the fan-out instant and
+  entries are unprocessable before it, so the age compare is exact: a
+  drainer within the window always sees the live claim, a drainer past
+  it is dropped — expiry now means a missed reply, never a second
+  generation. The anchor count moves 153 → 154 (the new pair).
+- [R1 MAJOR#2 — leave-before-first-drain] The ADDRESSEE's own receive
+  stamps the stand-down marker at FAN-OUT time (the PB_AI_QUEUE_CALL
+  payload, before the QueueChatResponse push — world thread, strictly
+  before any drain can run), gated on the same armament, decided by
+  the CANONICAL matcher (not the raw substring isMentioned — it must
+  agree with the drain gate's addressedToBot exactly, or case-variant
+  mentions re-open the hole). The marker exists for every later
+  interleaving (kick/leave/death, any drain order); the drain-time
+  bystander stamp stays as the idempotent backstop.
+- [R1 MINOR] `PlayerbotLlmMemory::PartyFloodRefund(speakerGuid,
+  stampedAt)` — a lost claim refunds the speaker's 2 s flood slot
+  (CAS-shaped: only the attempt that stamped the slot lifts it, so a
+  concurrent winner's stamp survives); the SayAction leg captures the
+  stamp before the admit and refunds only on claim loss.
+- [R3 MINOR] The boilerplate lint's soft-refusal row widened: could
+  not / won't / would not / will not / (am|'m) unable to × assist /
+  comply / help with.
+- [R5 MINOR] `stagedTlsCaLineReachesTheDebugLaneToo` pins the debug
+  lane's CA line (presence when staged, absence when null).
+- [R7 MINOR] The unreadable-log return's `latencyMs: {}` shape pinned.
+- [R4 MINOR] The checklist's greeting-upgrade parenthetical reworded
+  to the true state (last_greeted_at is a write-only capture stamp;
+  the ≥6 h reader ships with its future leg; no host pin yet).
+- Pins updated equal-or-stronger: three NEW tests (fan-out stamp,
+  drain TTL, refund) + the partyResponderClaimed count re-enumerated
+  5→6 (the refund's read documented); the lint row strengthened.
+
+MINORs accepted as recorded residue (rationale): R2's retry-leg
+class=empty (log-only classification nit in the same genre as the
+adjudicated recv-phase-stall residue — the verified class-truth chains
+stay untouched late in the gate; durMs exposes reality); R2's B2.3
+"lesser" wording (a one-line outDebug polish that requires the full
+lane-3 submodule-bump + manifest/PROVENANCE re-pin dance — the same
+rationale two prior rounds accepted for BroadcastHelper/Security
+one-liners; the run's lane-3 batches are done).

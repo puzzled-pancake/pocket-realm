@@ -259,6 +259,33 @@ class ServerRuntimeFilesLlmGateTest {
         assertFalse(without.contains("LLMDefaultPromptsFile"))
     }
     @Test
+    fun stagedTlsCaLineReachesTheDebugLaneToo() {
+        // G3 (round-7 R5): the staged CA-bundle path must ride the DEBUG
+        // lane exactly as it rides the device and external lanes (the
+        // device/external pair is pinned in LlmRuntimePolicyTest's
+        // tlsCaLineEmitsOnlyWhenStaged) - the adb-workflow lane is the
+        // one place a wrong-host cert drill actually runs, so a lane
+        // that silently dropped the line would stage a bundle the
+        // process then ignores. Null (nothing staged) omits the line.
+        val debug = ServerRuntimeFiles.llmOverrides(
+            uiEnabled = false,
+            modelPresent = true,
+            modelAbsolutePath = "/data/models/qwen.gguf",
+            debugBuild = true,
+            tlsCaFile = "/srv/run/tls/ca-bundle.pem",
+        )!!
+        assertTrue(
+            debug.contains("AiPlayerbot.LLMTLSCaFile = \"/srv/run/tls/ca-bundle.pem\""),
+        )
+        val without = ServerRuntimeFiles.llmOverrides(
+            uiEnabled = false,
+            modelPresent = true,
+            modelAbsolutePath = "/data/models/qwen.gguf",
+            debugBuild = true,
+        )!!
+        assertFalse(without.contains("LLMTLSCaFile"))
+    }
+    @Test
     fun selectedModelsSamplingProfileReachesTheEmbeddedConfBlock() {
         // llmOverrides must forward the SELECTED model's profile to
         // confBlock; falling back to the BASE default fails nothing else

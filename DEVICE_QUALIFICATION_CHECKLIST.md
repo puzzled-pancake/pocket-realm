@@ -147,7 +147,8 @@ stretch goal per §9 H2). Per-step pass criteria (plan §10 T3):
       (`MaybeSessionStandingLine`), `standing` returns the stored tier,
       journal shows no duplicate facts, `gossip` persists, C8's
       last-session tail recalls. (The greeting-upgrade ≥ 6 h-absence leg
-      is a T1 host pin, not here.)
+      ships with its future reader - `last_greeted_at` is a write-only
+      data-capture stamp today; no host pin exists for that leg yet.)
 - [ ] **Step 8 Drills**: dead endpoint = `127.0.0.1:<closed port>`
       (instant refusal, not a SYN burn); pass = fallback ≤ SLA+10 s AND
       ≥ 1 failure-class log AND exactly ONE delivered line (the A4/A5

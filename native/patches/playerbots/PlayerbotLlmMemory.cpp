@@ -3689,6 +3689,23 @@ bool PlayerbotLlmMemory::TryStandDownPartyLine(uint32 speakerGuid,
     return true;
 }
 
+bool PlayerbotLlmMemory::PartyClaimWindowElapsed(time_t lineTime)
+{
+    // Round-7 R1 (claim-window class closure): the drain staggers are
+    // ADDITIVE (IncreaseAIInternalUpdateDelay accumulates: a master's
+    // repeated "wait" adds up to 20 s per invocation, teleport and cast
+    // chains stack on top), so NO fixed claim window can exceed every
+    // reachable first drain. The window still bounds the claim map; the
+    // line itself is bounded HERE instead. On the armed surface the
+    // queue path is noDelay (the queued m_time IS the fan-out instant)
+    // and the drain cannot run before m_time, so a line older than the
+    // window at its drain has no live claim or marker left - the caller
+    // drops it rather than let a deferred bot re-open the line beside
+    // its original winner. Pure time compare: no state, no mutex.
+    return lineTime != 0 &&
+        time(nullptr) - lineTime > PARTY_CLAIM_WINDOW_SECONDS;
+}
+
 bool PlayerbotLlmMemory::CollectPartyCandidates(uint32 groupId, uint32 speakerGuid,
     std::vector<PlayerbotLlmGates::ResponderCandidate>& out)
 {
@@ -3735,6 +3752,25 @@ bool PlayerbotLlmMemory::PartyFloodAdmits(uint32 speakerGuid)
         return false; // N lines within 2 s = ONE generation
     lastAt = now;
     return true;
+}
+
+void PlayerbotLlmMemory::PartyFloodRefund(uint32 speakerGuid, time_t stampedAt)
+{
+    // Round-7 R1 MINOR: a claim the caller LOST consumed the speaker's
+    // flood slot for nothing (identical-text re-send within the window,
+    // or the adjudicated party/raid shared key) - without this refund
+    // the speaker's next DISTINCT line inside 2 s was denied beside a
+    // generation that never happened. CAS-shaped erase: only the
+    // attempt that stamped the slot lifts it, so a concurrent winner's
+    // stamp (set between this attempt's admit and its claim loss)
+    // survives and keeps coalescing real generations.
+    if (!speakerGuid || !stampedAt)
+        return;
+    std::lock_guard<std::mutex> lock(StateMutex());
+    std::map<uint32, time_t>& stamps = PartyFloodLastAt();
+    std::map<uint32, time_t>::iterator itr = stamps.find(speakerGuid);
+    if (itr != stamps.end() && itr->second == stampedAt)
+        stamps.erase(itr);
 }
 
 bool PlayerbotLlmMemory::NoteGateRefusalOnce(uint32 botGuid)
