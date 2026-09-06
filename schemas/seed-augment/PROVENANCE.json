@@ -1,11 +1,13 @@
 {
   "schema": 1,
   "description": "Binds the precomputed playerbot cache capture to the migrations manifest it was taken against. The world's cache-load branches have no version check; this file is the only staleness tripwire - a manifest advance must fail the seed until the capture is re-validated.",
-  "manifest_sha256": "552d5d44f0b89002a329c2ed52b3426b62569addc7dab0620e1db68a7e69dd32",
+  "manifest_sha256": "e36d96944a7b1f7b4b5396e933353602c875dbc93e7df8ad9ff4c36b2c69e97d",
   "captured_from": "differential lane x86_64 emulator, first-boot world build of 2026-08-27 (run 20260827-172613 lineage)",
   "captured_at": "2026-08-28",
   "tables": [
     "ai_playerbot_rnditem_cache",
     "ai_playerbot_equip_cache"
-  ]
+  ],
+  "revalidated_at": "2026-09-06",
+  "revalidation_note": "Manifest advanced by 0414-playerbot-world-playerbot-texts-e2-register (idempotent hello/goodbye/hello_follow TEXT-row UPDATEs only; no schema change, no item/equipment corpus change). The equip/rnditem cache capture is semantically unaffected; host-side re-validation per the guard contract. A full device re-capture stays on the checklist for the next first-boot lane run."
 }

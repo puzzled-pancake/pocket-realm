@@ -35,7 +35,7 @@ LOCKFILE = ROOT / "schemas" / "realm-runtime-lockfile.json"
 CONNECTOR_URL = "https://github.com/MariaDB/mariadb-connector-c.git"
 CONNECTOR_COMMIT = "de6305915f86bb33c83b1fe782a2b8a76920aec1"
 CMANGOS_COMMIT = "ce83805d48f9c98b2af617096be5347acb8a1f17"
-PLAYERBOTS_COMMIT = "6c681ef8dd63cb96f111dc9239d569d6663347e5"
+PLAYERBOTS_COMMIT = "7e2cd2fbbbb4eaa3e1696ee80e9bf8e170b6256d"
 MAX_PAGE = 0x4000
 BACKEND = "mysql"
 

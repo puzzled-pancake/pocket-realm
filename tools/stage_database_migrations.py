@@ -147,6 +147,12 @@ def select_inputs() -> list[Input]:
     # sql/migrations/ (also unglobbed) and stays the LAST entry: anything
     # appended after a release ships must come after it in turn.
     selected.append(Input("playerbot-characters", ROOT / "sql/migrations/ai_playerbot_llm_memory_v2.sql"))
+    # E2 (rp-depth-fix-plan v2.3 s6): the texts.sql register audit -
+    # idempotent row-content UPDATEs riding the append-only tail (the
+    # 0394 texts.sql entry itself stays byte-identical; the ledger law).
+    # Stays the LAST entry: anything appended after a release ships must
+    # come after it in turn.
+    selected.append(Input("playerbot-world", ROOT / "sql/migrations/playerbot-texts-e2-register.sql"))
     missing = [str(item.path) for item in selected if not item.path.is_file()]
     if missing:
         raise RuntimeError(f"missing pinned SQL inputs: {missing}")

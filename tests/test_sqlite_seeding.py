@@ -1188,7 +1188,16 @@ def test_c2_tail_parity_fresh_replay_matches_truncated_plus_0413(
     and re-executing the 153 MiB characters INSERT corpus would buy no
     fidelity over the fresh leg's full execution."""
     manifest = json.loads(seeder.MANIFEST.read_text(encoding="utf-8"))
-    tail = manifest["entries"][-1]
+    # E2 widened the tail: 0414 (texts register UPDATEs, classicmangos)
+    # rides after 0413. The parity upgrade shape is manifest minus its
+    # last TWO entries, then both tail files applied in order - the 0414
+    # leg is DML-only, so PRAGMA parity is structural for 0413 and
+    # trivially held for 0414 (it shapes nothing).
+    tail_e2 = manifest["entries"][-1]
+    assert tail_e2["migration_id"] == (
+        "0414-playerbot-world-playerbot-texts-e2-register"), tail_e2
+    assert tail_e2["database"] == "classicmangos", tail_e2
+    tail = manifest["entries"][-2]
     assert tail["migration_id"] == (
         "0413-playerbot-characters-ai_playerbot_llm_memory_v2"), tail
     assert tail["database"] == "classiccharacters", tail
@@ -1200,7 +1209,7 @@ def test_c2_tail_parity_fresh_replay_matches_truncated_plus_0413(
     variables: dict[str, str] = {}
     db_states: dict[str, translator.DBSchemaState] = {}
     schema_stmts: list[str] = []
-    for entry in manifest["entries"][:-1]:
+    for entry in manifest["entries"][:-2]:
         text = seeder.entry_bytes(entry).decode("utf-8")
         stmts = translator.translate_file_text(
             text, entry["source_path"], report, variables,
@@ -1210,6 +1219,14 @@ def test_c2_tail_parity_fresh_replay_matches_truncated_plus_0413(
             schema_stmts.extend(
                 s for s in stmts if re.match(
                     r"\s*(CREATE|ALTER|DROP)\b", s, re.I))
+    # the 0414 upgrade leg: DML-only, translated against the replayed
+    # classicmangos state so the upgrade replay stays faithful to
+    # what a device applies (its UPDATEs shape no schema)
+    e2_sql = seeder.entry_bytes(tail_e2).decode("utf-8")
+    translator.translate_file_text(
+        e2_sql, tail_e2["source_path"], report, variables,
+        db_state=db_states.setdefault(tail_e2["database"],
+                                      translator.DBSchemaState()))
     # The upgrade step: the v2 file translated as its own tail against the
     # SAME replay-continued schema state an upgraded database would have.
     schema_stmts.extend(translator.translate_file_text(

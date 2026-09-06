@@ -1522,3 +1522,55 @@ PROVENANCE host-side revalidation.
 - The banter harness g++ lives in the WinGet WinLibs mingw64 tree
   (resolve with python -c "import shutil; print(shutil.which('g++'))").
 - Shell cwd persists between calls — cd home after cd android.
+## Batch E2 (continuation run 3): the texts.sql register audit
+
+**Outcome: complete, green, committed.** The plan's recipe (edit
+texts.sql in the submodule) contradicted s0.11 - the shipped 0394 entry
+is sha-pinned by the manifest AND the on-device ledger
+("DB-REVISION: ledger drift" fail-close) - so the audit rode a NEW
+append-only tail migration instead (logged for R8 to judge: the s0.11
+law wins over the plan's recipe detail; the 0413 precedent).
+
+- **0414 (sql/migrations/playerbot-texts-e2-register.sql)**: 30
+  idempotent row-content UPDATEs, each keyed WHERE name + old-text so a
+  fresh provision (manifest replay) and an upgraded ledger both land
+  corrected exactly once. Scope: the six dangling-initiative
+  hello_follow rows (incl. the plan-named "Hi, lead the way!" line -
+  replacements describe self, never command the player), the modern
+  chat-speak hello rows (What's up!, How's it going?), the office-speak
+  hello rows (productive day, How may I assist you today), and the
+  drifted goodbye family (Toodledoo/Ciao/Cheerio/see you in court...).
+  No key renames (A9's diagnostic keeps its ground); the 533 dead
+  taunt/loot/aoe rows stay excluded. texts.sql stays BYTE-IDENTICAL -
+  pinned mechanically now (manifest sha == pristine file sha).
+- **Six inline-literal fixes** in GuildManagementActions.cpp (submodule
+  lane): gild????, lonenly, watch your dog, number 1 of the server,
+  raid Molten..., Hey man. Submodule commit 7e2cd2fb; PLAYERBOTS_COMMIT
+  and the sources.json pin bumped; lockfiles regenerated.
+- **Stager/manifest**: 0414 registered as the LAST select_inputs entry
+  (anything appended after a release must come after it in turn);
+  manifest regenerated to 414 entries; seed baseline regenerated; the
+  seed-augment PROVENANCE manifest hash re-pinned (LF-normalized bytes)
+  with the host-side revalidation note - 0414 is text-row DML only, the
+  equip/rnditem capture is semantically unaffected, full device
+  re-capture stays on the qualification checklist.
+- **Pins**: tests/test_llm_e2_texts_register.py (13 tests) - the 0394
+  byte-identity law, the 0414 shape law (UPDATE-only DML, manifest
+  tail), WHERE-key resolution against pristine texts.sql (the
+  mechanical pre-commit verification made permanent), the register lint
+  over every replacement literal (banned tokens, chat acronyms, digits,
+  ASCII, per-family word bands), replacement distinctness, the
+  key-coverage pin (every BOT_TEXT("k") literal across submodule +
+  overlays + driver payloads resolves to >= 1 texts.sql row, modulo a
+  FROZEN two-key pre-existing upstream miss set: wait_travel_combat,
+  wandering - A9's runtime diagnostic is the witness; the set must not
+  grow), and the six Guild offender-gone/replacement-present pins.
+  tests/test_sqlite_dialect.py 9/9 (count 414, tail 0413/0414, 0414 in
+  the DDL-hash binding loop); the C2 tail-parity test covers the
+  two-entry tail (36/36). DatabaseStartPreparationTest fixtures bumped
+  to the 414 reality (advance case 415/414) - detekt flagged the
+  windowStatus signature drift; the baseline was regenerated via a
+  SEPARATE :app:detektBaseline invocation (never hand-edited).
+- Suite: **8 failed (pre-existing set), 594 passed, 4 skipped**; gradle
+  testDebugUnitTest + detekt green; check_repo/check_sources OK;
+  null-guard 9/9 after --write-lockfiles.

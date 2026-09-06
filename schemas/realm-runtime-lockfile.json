@@ -6,7 +6,7 @@
   "playerbots": true,
   "auction_house_bot": false,
   "cmangos_commit": "ce83805d48f9c98b2af617096be5347acb8a1f17",
-  "playerbots_commit": "6c681ef8dd63cb96f111dc9239d569d6663347e5",
+  "playerbots_commit": "7e2cd2fbbbb4eaa3e1696ee80e9bf8e170b6256d",
   "database_backend": "mysql",
   "cmangos_source_overlays": [
     {

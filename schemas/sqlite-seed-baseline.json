@@ -1,6 +1,6 @@
 {
-  "entries": 413,
-  "manifest_sha256": "552d5d44f0b89002a329c2ed52b3426b62569addc7dab0620e1db68a7e69dd32",
+  "entries": 414,
+  "manifest_sha256": "e36d96944a7b1f7b4b5396e933353602c875dbc93e7df8ad9ff4c36b2c69e97d",
   "databases": {
     "classicrealmd": {
       "statements": 43,
@@ -27,8 +27,8 @@
       "error_samples": []
     },
     "classicmangos": {
-      "statements": 27856,
-      "applied": 27856,
+      "statements": 27886,
+      "applied": 27886,
       "errors": 0,
       "tables": 206,
       "rows": 1360801,
@@ -36,9 +36,9 @@
     }
   },
   "translation": {
-    "comment_sites": 58778,
-    "comment_files": 368,
-    "escape_rewrites": 121955,
+    "comment_sites": 58791,
+    "comment_files": 369,
+    "escape_rewrites": 121959,
     "escape_files": [
       "native/classic-db/ACID/acid_classic.sql",
       "native/classic-db/Full_DB/ClassicDB_1_12_1_z2815.sql.gz",
@@ -83,7 +83,8 @@
       "native/cmangos/sql/base/dbc/original_data/Spell.sql",
       "native/cmangos/sql/base/realmd.sql",
       "native/playerbots/sql/world/ai_playerbot_texts.sql",
-      "native/playerbots/sql/world/classic/ai_playerbot_enchants.sql"
+      "native/playerbots/sql/world/classic/ai_playerbot_enchants.sql",
+      "sql/migrations/playerbot-texts-e2-register.sql"
     ],
     "escape_per_file": {
       "native/cmangos/sql/base/realmd.sql": 28,
@@ -129,14 +130,15 @@
       "native/playerbots/sql/world/classic/ai_playerbot_enchants.sql": 22,
       "native/cmangos/sql/base/dbc/original_data/DungeonEncounter.sql": 66,
       "native/cmangos/sql/base/dbc/original_data/Spell.sql": 763,
-      "native/classic-db/ACID/acid_classic.sql": 40
+      "native/classic-db/ACID/acid_classic.sql": 40,
+      "sql/migrations/playerbot-texts-e2-register.sql": 4
     },
     "escape_per_class": {
       "backslash": 241,
       "dquote": 4365,
       "r": 22795,
       "n": 26206,
-      "quote": 68348
+      "quote": 68352
     },
     "f52_nr_backslash": {
       "native/classic-db/Full_DB/ClassicDB_1_12_1_z2815.sql.gz": 5672,
@@ -158,7 +160,7 @@
       "saved_cs_client"
     ],
     "insert_chunks_split": 76,
-    "statements": 1137814,
+    "statements": 1137844,
     "nocase_columns": 677,
     "decimal_rewrites": 18,
     "positional_add_rebuilds": 14,
@@ -170,12 +172,12 @@
     "classicrealmd": "cc6eabe3e0739271f2daf18da9e72528389bdf1845aadba5e623949dbbf08a58",
     "classiccharacters": "6792fdb1eef2e0d80f7048a457a417484b97608212c29b2715ddf4cab7a5e829",
     "classiclogs": "e3d37a73da95ed619d1ca28891826d2d6d57631e3bdfccee15c35a076cfa289e",
-    "classicmangos": "20667dd28b77e283a6f24b437c093f260cef9afb90ee6229a3dad3d83156eb99"
+    "classicmangos": "f2b8726c5167adc72fb8040169aa96dbf8846a3cd2c783232a4321753982afd6"
   },
   "transcript_sizes": {
     "classicrealmd": 10901,
     "classiccharacters": 153514454,
     "classiclogs": 1382,
-    "classicmangos": 122497903
+    "classicmangos": 122502348
   }
 }
