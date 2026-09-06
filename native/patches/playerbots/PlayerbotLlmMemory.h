@@ -231,10 +231,21 @@ public:
     // First-writer-wins per (speaker, msgHash, groupId) under
     // StateMutex: true when THIS bot holds the claim (a fresh claim
     // stamps the rotation map). Expired entries are pruned on every
-    // call; the claim window is 5 s (the fan-out resolves within one
-    // tick - the window only covers cross-map stragglers).
+    // call; the claim window (PARTY_CLAIM_WINDOW_SECONDS, round-6 R1:
+    // 30 s) exceeds every reachable chat-drain stagger - the fan-out
+    // does NOT resolve within one tick (UpdateAIInternal delays run
+    // 3-7 s on teleport/cast chains).
     static bool TryClaimPartyResponder(uint32 botGuid, uint32 speakerGuid,
         uint64_t msgHash, uint32 groupId);
+
+    // Round-6 R1 (addressed-line sibling): an ADDRESSED line stands
+    // down with a MARKER in the same claim map (winner 0 = the
+    // addressee's own arm owns the line; same window, same lazy prune)
+    // so a staggered late drain cannot re-open the line after the
+    // addressee leaves the group mid-fan-out. First writer wins; false
+    // when a claim or marker already owns the line.
+    static bool TryStandDownPartyLine(uint32 speakerGuid, uint64_t msgHash,
+        uint32 groupId);
 
     // The deterministic pick's candidate set: every BOT in the group
     // with its relationship tier toward the SPEAKER (the existing

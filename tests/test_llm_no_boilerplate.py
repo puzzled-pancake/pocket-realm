@@ -19,7 +19,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 # prompt-adjacent text surfaces: the authored pools, the persona/
 # chatter composer surfaces, the prompt headers (emitter-spliced, so
-# ANY hit here also trips the byte-freeze lockfile pin), and the whole
+# ANY hit here also trips the byte-freeze lockfile pin), the compose
+# furniture/trained-cue surfaces whose prose rides into prompts
+# (round-6 R7: the five files beyond the original six), and the whole
 # driver (payload bodies + conf docs)
 SURFACES = [
     ROOT / "native" / "patches" / "playerbots" / "llm_banter_core.h",
@@ -27,6 +29,11 @@ SURFACES = [
     ROOT / "native" / "patches" / "playerbots" / "PlayerbotLlmChatterCore.h",
     ROOT / "native" / "patches" / "playerbots" / "PlayerbotLlmPrompt.h",
     ROOT / "native" / "patches" / "playerbots" / "PlayerbotLlmRecallCore.h",
+    ROOT / "native" / "patches" / "playerbots" / "PlayerbotLlmMemory.cpp",
+    ROOT / "native" / "patches" / "playerbots" / "PlayerbotLlmBridge.cpp",
+    ROOT / "native" / "patches" / "playerbots" / "PlayerbotLlmFilters.cpp",
+    ROOT / "native" / "patches" / "playerbots" / "PlayerbotLlmTruthCore.h",
+    ROOT / "native" / "patches" / "playerbots" / "PlayerbotLlmToolsCore.h",
     ROOT / "tools" / "build_o09_realm_runtime.py",
 ]
 
@@ -35,7 +42,8 @@ BANNED = [
     r"i(?:'| a)m (?:just )?an ai\b",
     r"content policy",
     r"safety guidelines",
-    r"i cannot (?:assist|comply|help with)",
+    # round-6 R7: the contraction forms slip a naive grep - cover both
+    r"i can(?:'|no)?t (?:assist|comply|help with)",
     r"i'm sorry, but i",
     r"harmful or inappropriate",
     r"my instructions",

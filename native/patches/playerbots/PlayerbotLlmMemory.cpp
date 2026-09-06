@@ -377,6 +377,11 @@ void AppendHistoryTurn(uint32 bot, uint32 playerOrChannel,
 
 // verified-event window gating share_gossip. Writers include map-thread
 // core hooks (GiveLevel), so every access is guarded.
+// LOCK-ORDER CONTRACT (round-6 R1#3, now stated): StateMutex is a leaf
+// - it is taken while the caller may hold the chat-drain
+// chatRepliesMutex (SayAction's claim leg), but StateMutex scopes must
+// never acquire chatRepliesMutex (or queue a chat reply) in return;
+// the reverse ordering would invert silently.
 std::mutex& StateMutex()
 {
     static std::mutex instance;
@@ -3554,6 +3559,12 @@ struct PartyResponderClaim
     PartyResponderClaim() : botGuid(0), expiresAt(0) {}
 };
 
+// the claim window bounds every reachable chat-drain stagger (round-6
+// R1: the engine's UpdateAIInternal delays run 3-7 s on teleport/cast
+// chains, so the fan-out does NOT resolve within one tick; a marker or
+// claim younger than this owns the line outright)
+int64_t const PARTY_CLAIM_WINDOW_SECONDS = 30;
+
 // one key per (speaker, line, group): every bot hearing the same party
 // line computes the identical key, so the claim is per-LINE, not per-bot
 uint64 PartyClaimKey(uint32 speakerGuid, uint64_t msgHash, uint32 groupId)
@@ -3617,8 +3628,15 @@ bool PlayerbotLlmMemory::TryClaimPartyResponder(uint32 botGuid, uint32 speakerGu
     uint64 const key = PartyClaimKey(speakerGuid, msgHash, groupId);
     std::lock_guard<std::mutex> lock(StateMutex());
     // prune expired claims first: the state stays bounded and a stale
-    // claim can never block a later line (the window is seconds; the
-    // fan-out resolves within one tick)
+    // claim can never block a later line. Round-6 R1: the window must
+    // exceed every reachable chat-drain stagger - each bot drains its
+    // chatReplies inside UpdateAIInternal, whose delay the engine
+    // routinely sets to seconds (near/far teleport chains 3-7 s, cast
+    // time + react + avg, the reactDelay*10 floor), so a 5 s window
+    // expired BEFORE late bystanders evaluated the line and the
+    // rotation stamp armed the next tie-order bot to re-claim it. 30 s
+    // bounds every realistic drain while the lazy prune keeps the map
+    // bounded.
     std::map<uint64, PartyResponderClaim>& claims = PartyClaims();
     for (auto itr = claims.begin(); itr != claims.end();)
     {
@@ -3628,13 +3646,46 @@ bool PlayerbotLlmMemory::TryClaimPartyResponder(uint32 botGuid, uint32 speakerGu
             ++itr;
     }
     if (claims.find(key) != claims.end())
-        return false; // first writer already holds this line
+        return false; // first writer already holds this line (a claim
+                      // OR a stand-down marker - both own the line)
     PartyResponderClaim& claim = claims[key];
     claim.botGuid = botGuid;
-    claim.expiresAt = now + 5; // the short claim window
+    claim.expiresAt = now + PARTY_CLAIM_WINDOW_SECONDS;
     // the winner stamps the rotation map so the NEXT line's
     // SelectResponder prefers a different equal-tier bot
     PartyLastWonMs()[botGuid] = (uint64_t)now * 1000ull;
+    return true;
+}
+
+bool PlayerbotLlmMemory::TryStandDownPartyLine(uint32 speakerGuid,
+    uint64_t msgHash, uint32 groupId)
+{
+    // round-6 R1 (the addressed-line sibling): an ADDRESSED line stands
+    // down with a MARKER, not just silence - a staggered late drain
+    // re-evaluates the line after the addressee left the group
+    // mid-fan-out (its own queued turn already dispatched), finds no
+    // named member, and would otherwise take a fresh ordering pick
+    // beside the addressee's turn. The marker (winner 0 = the
+    // addressee's own arm owns the line) rides the same claim map,
+    // window and lazy prune; first writer wins.
+    if (!speakerGuid || !groupId)
+        return false;
+    int64_t const now = (int64_t)time(nullptr);
+    uint64 const key = PartyClaimKey(speakerGuid, msgHash, groupId);
+    std::lock_guard<std::mutex> lock(StateMutex());
+    std::map<uint64, PartyResponderClaim>& claims = PartyClaims();
+    for (auto itr = claims.begin(); itr != claims.end();)
+    {
+        if (itr->second.expiresAt <= now)
+            itr = claims.erase(itr);
+        else
+            ++itr;
+    }
+    if (claims.find(key) != claims.end())
+        return false; // a claim or marker already owns this line
+    PartyResponderClaim& marker = claims[key];
+    marker.botGuid = 0;
+    marker.expiresAt = now + PARTY_CLAIM_WINDOW_SECONDS;
     return true;
 }
 

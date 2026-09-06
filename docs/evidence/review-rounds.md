@@ -609,3 +609,90 @@ defense-in-depth asymmetry is now closed and the _driver_keys comment
 tolerance stays carried (matches zero keys today); R1's two-named-line
 note (one generation per named bot is the plan's per-bot addressed
 semantics — adjudicated SOUND by R8 in round 5).
+
+## Round 6
+
+**Diffstat re-reviewed**: `git diff 6045eeb..bec78fd` — 118 files,
++19350/−323. All 8 reviewers dispatched fresh in one foreground
+message.
+
+**Result: 7/8 PASS → ROUND FAILS.**
+
+- **R1 (native cloud lane): FINDINGS** — 1 MAJOR: the claim-window
+  race, the fourth layer of the exactly-one surface. The 5 s claim
+  window expired before reachable chat-drain staggers (each bot drains
+  chatReplies inside UpdateAIInternal, whose delay the engine sets to
+  3-7 s on teleport/cast chains — the "fan-out resolves within one
+  tick" comment was false), and the winner's rotation stamp
+  deterministically armed the next tie-order bot to re-claim the same
+  line after expiry: a second generation for one line (compiled
+  demonstration against the real header; sibling instance: an
+  addressee who leaves mid-fan-out flips late bystanders from
+  stand-down to a fresh ordering pick). The deterministic matrix
+  itself was verified CLOSED by R1's own 42-check probe (addressed/
+  unaddressed/named-player/named-dead/other-group/two-named/fan-out
+  stability/flood/device byte-identity). +2 MINOR: party/raid share
+  the claim key when text repeats across one raid's two group channels
+  (conservative — a missed reply, never a double); the
+  chatRepliesMutex→StateMutex lock order was implicit (verified safe).
+- **R2 (transport/security): PASS — zero findings.** Both round-5
+  MINOR fixes verified landed exactly as logged (conf.dist G3 wording
+  matches the AF_INET code reality; ok-class latency subset with
+  hand-checked math); bec78fd proven transport-neutral; CA bundle
+  still byte-identical to live upstream.
+- **R3 (authored corpus/persona): PASS — zero new findings.** Golden
+  unchanged; the new boilerplate lint ran with zero false positives on
+  the authored register; E0-E3 + A5 all re-verified.
+- **R4 (schema/persistence): PASS — zero findings** (one below-MINOR
+  observation logged in the reviewer report only: hydrate-marks-key
+  before the LLMHistoryPersist gate — boot-loaded conf, default 1,
+  bounded; explicitly not a finding).
+- **R5 (app conf/emission): PASS — zero findings.** All three round-5
+  fix claims confirmed; 5/5 parity mutants caught; baseline untouched.
+- **R6 (app UX/supervisor): PASS** — gradle forced-fresh (1096/0/1,
+  detekt 0). 1 MINOR: plan §12's "'generations today' line in
+  Diagnostics" mitigation never shipped and is recorded nowhere (the
+  row's other mitigations all shipped; ServerStatusJson's ABI is
+  pinned at 8 fields and must not be touched) → recorded as accepted
+  residue below.
+- **R7 (harness/tests): PASS** — all bec78fd pins mutation-verified
+  (stand-down battery killed by header mutation; payload pins fail
+  against the pre-fix driver). 2 MINOR: the boilerplate lint's surface
+  list narrower than T0.5's wording; the contraction form
+  ("i can't assist") slipped the token grep.
+- **R8 (whole-plan conformance): PASS** — all 13 constraints green;
+  5/5 NEW spot-checks TRUE (30 across rounds 3-6); all 16 judgments
+  SOUND (the round-5 stand-down reading judged SOUND with the full
+  three-case trace). 1 MINOR: §0.b lane-3's file list never named
+  GuildManagementActions.cpp (plan-text enumeration lag; the edit
+  followed the lane-3 procedure and is pinned; plan frozen — no
+  action).
+
+**Fixes applied between Round 6 and Round 7** (one commit):
+
+- [R1 MAJOR] `PARTY_CLAIM_WINDOW_SECONDS = 30` (named constant at the
+  claim map, with the stagger rationale: near/far teleport chains set
+  UpdateAIInternal delays of 3-7 s, so the window must exceed every
+  reachable drain stagger; still lazily pruned and bounded) AND the
+  sibling closed structurally: `TryStandDownPartyLine` — an ADDRESSED
+  line's bystanders stamp a winner-0 MARKER in the same claim map
+  (same window, same prune, first-writer-wins), so a staggered late
+  drain can never re-open the line after the addressee leaves
+  mid-fan-out; wired on the addressed leg beside the claim. Pins
+  updated (window constant + the marker helper + the payload wiring).
+- [R1 MINOR] The chatRepliesMutex→StateMutex lock-order CONTRACT is
+  now stated at StateMutex (leaf-mutex rule) — the implicit order is
+  explicit.
+- [R7 MINORs] The boilerplate lint widened to 10 surfaces (Memory/
+  Bridge/Filters/TruthCore/ToolsCore prose added) and the contraction
+  regex (`i can(?:'|no)?t …`).
+
+MINORs accepted as recorded residue (rationale): the party/raid shared
+claim key (conservative direction — fewer generations, matching the
+flood law's channel-agnostic coalescing); §12's "generations today"
+Diagnostics line (the row's binding mitigations shipped and are
+pinned; the ServerStatusJson ABI is pinned at 8 fields — late-in-gate
+UI additions are risk without a pinning device run; a natural
+follow-up after qualification); §0.b's GuildManagementActions.cpp
+enumeration lag (plan frozen mid-gate, the edit is sanctioned and
+pinned); R4's below-MINOR hydrate-order observation.

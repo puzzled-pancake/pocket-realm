@@ -91,13 +91,14 @@ def test_fnv_claim_key_runs_on_host(fnv_binary):
 def test_claim_helper_declared_and_mutex_guarded():
     header = MEMORY_H.read_text(encoding="utf-8")
     assert "static bool TryClaimPartyResponder(uint32 botGuid, uint32 speakerGuid," in header
+    assert "static bool TryStandDownPartyLine(uint32 speakerGuid, uint64_t msgHash," in header
     assert "static bool CollectPartyCandidates(uint32 groupId, uint32 speakerGuid," in header
     assert "static bool PartyFloodAdmits(uint32 speakerGuid);" in header
     assert "static uint64_t PartyMsgHash(std::string const& msg);" in header
 
     src = MEMORY_CPP.read_text(encoding="utf-8")
     claim = src.split("bool PlayerbotLlmMemory::TryClaimPartyResponder")[1].split(
-        "bool PlayerbotLlmMemory::CollectPartyCandidates")[0]
+        "bool PlayerbotLlmMemory::TryStandDownPartyLine")[0]
     # the claim rides the existing StateMutex pattern
     assert "std::lock_guard<std::mutex> lock(StateMutex());" in claim
     # expired claims are PRUNED (bounded state; a stale claim can never
@@ -105,12 +106,43 @@ def test_claim_helper_declared_and_mutex_guarded():
     assert "claims.erase(itr)" in claim
     # first-writer-wins: an existing live claim refuses the second writer
     assert "first writer already holds this line" in claim
-    # the short claim window (seconds: the N-bot fan-out resolves within
-    # one tick, the window only covers cross-map stragglers)
-    assert "claim.expiresAt = now + 5;" in claim
+    # round-6 R1: the window EXCEEDS every reachable chat-drain stagger
+    # (UpdateAIInternal delays run 3-7 s on teleport/cast chains - the
+    # 5 s window expired before late bystanders evaluated the line and
+    # the rotation stamp armed the next tie-order bot to re-claim it)
+    assert "int64_t const PARTY_CLAIM_WINDOW_SECONDS = 30;" in src
+    assert "claim.expiresAt = now + PARTY_CLAIM_WINDOW_SECONDS;" in claim
     # the winner stamps the rotation map (the anti-monopolization field
     # the pure SelectResponder consumes)
     assert "PartyLastWonMs()[botGuid] = " in claim
+
+
+def test_stand_down_marker_owns_the_addressed_line_round6():
+    """Round-6 R1 (addressed-line sibling): an ADDRESSED line stands
+    down with a MARKER in the same claim map - a staggered late drain
+    (after the addressee left the group mid-fan-out) sees a live marker
+    and refuses instead of taking a fresh ordering pick beside the
+    addressee's still-queued own turn."""
+    src = MEMORY_CPP.read_text(encoding="utf-8")
+    marker = src.split("bool PlayerbotLlmMemory::TryStandDownPartyLine")[1].split(
+        "bool PlayerbotLlmMemory::CollectPartyCandidates")[0]
+    assert "std::lock_guard<std::mutex> lock(StateMutex());" in marker
+    # first writer wins - a claim OR a marker already owns the line
+    assert "a claim or marker already owns this line" in marker
+    # the marker is a winner-0 claim with the SAME window
+    assert "marker.botGuid = 0;" in marker
+    assert "marker.expiresAt = now + PARTY_CLAIM_WINDOW_SECONDS;" in marker
+    # and the payload stamps it on the addressed leg (first bystander)
+    gate = android_anchor("PB_SAY_GATE_ANDROID")
+    party = gate.split("plan v5 C3: the roundtable row")[1].split(
+        "if (sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed"
+        " && partyResponderClaimed && replyGateAllowed")[0]
+    claim_leg = party.split("if (!addressedToBot && CloudLaneOpen()")[1]
+    assert "else if (addressedBotGuid != 0)" in claim_leg
+    assert "PlayerbotLlmMemory::TryStandDownPartyLine(" in claim_leg
+    # the lock-order contract is now STATED where the mutex lives
+    assert "LOCK-ORDER CONTRACT" in src.split("std::mutex& StateMutex")[0].split(
+        "// verified-event window")[1]
 
 
 def test_candidates_collector_reuses_the_tier_lookup():

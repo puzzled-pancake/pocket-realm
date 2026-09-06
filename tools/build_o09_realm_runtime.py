@@ -2237,6 +2237,22 @@ PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBacken
                         bot->GetGUIDLow(), gateSpeaker->GetGUIDLow(),
                         PlayerbotLlmMemory::PartyMsgHash(msg), responderGroup->GetId());
                 }
+                else if (addressedBotGuid != 0)
+                {
+                    // round-6 R1 (addressed-line sibling): the line is
+                    // ADDRESSED - every bystander stamps the stand-down
+                    // MARKER (first writer wins) so a staggered late
+                    // drain cannot re-open the line after the addressee
+                    // leaves the group mid-fan-out (its own queued turn
+                    // already dispatched). Late bystanders see a live
+                    // marker and refuse; the winner-claim path above is
+                    // unreachable for an addressed line (the pick
+                    // resolves to the addressee, never to a bystander).
+                    PlayerbotLlmMemory::TryStandDownPartyLine(
+                        gateSpeaker->GetGUIDLow(),
+                        PlayerbotLlmMemory::PartyMsgHash(msg),
+                        responderGroup->GetId());
+                }
             }
         }
     }

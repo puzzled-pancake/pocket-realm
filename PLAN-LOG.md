@@ -1927,3 +1927,193 @@ judgments SOUND). Fix batch landed, all gates green, one commit:
   regen); null-guard 9/9 after --write-lockfiles; anchors 153 ops;
   gates battery + FNV golden UNCHANGED at de4bd8227a3ab0d1;
   check_repo/check_sources OK.
+## Round 6 + fix batch (continuation run 4): the claim-window race
+
+**Round 6: 7/8 PASS - ROUND FAILS.** R1 found one new MAJOR (logged in
+full in docs/evidence/review-rounds.md); R2/R3/R4/R5 passed with ZERO
+findings, R6/R7/R8 with one/two MINORs. Fix batch landed, all gates
+green, one commit:
+
+- **R1#1 (MAJOR), the claim-window race**: the 5 s party-claim window
+  expired before reachable chat-drain staggers (UpdateAIInternal
+  delays run 3-7 s on teleport/cast chains), and the winner's rotation
+  stamp armed the next tie-order bot to re-claim the same line after
+  expiry - a second generation. Fix (both of R1's suggested shapes):
+  the window is now the named constant PARTY_CLAIM_WINDOW_SECONDS = 30
+  (exceeds every reachable stagger; lazy prune keeps the map bounded),
+  AND the addressed-line sibling is closed structurally - NEW
+  PlayerbotLlmMemory::TryStandDownPartyLine stamps a winner-0 MARKER
+  in the same claim map on the addressed leg (same window, same prune,
+  first-writer-wins), so a staggered late drain can never re-open a
+  line whose addressee left mid-fan-out. The deterministic matrix
+  itself was probe-verified CLOSED by R1 this round (42 checks).
+- **R1#3 (MINOR) fixed**: the chatRepliesMutex -> StateMutex lock
+  order is now a STATED contract at StateMutex (leaf-mutex rule).
+- **R7 (MINORs) fixed**: the T0.5 boilerplate lint widened to 10
+  surfaces (Memory/Bridge/Filters/TruthCore/ToolsCore prose) + the
+  contraction regex (i can't assist...).
+- **Residue recorded** (rationale in the round log): party/raid shared
+  claim key (conservative); the 12 "generations today" Diagnostics
+  line; 0.b's GuildManagementActions enumeration lag.
+- **Gates**: pytest 8 failed (pre-existing set), 621 passed (+1),
+  4 skipped; gradle testDebugUnitTest + detekt green (android tree
+  byte-identical this batch); null-guard 9/9 after --write-lockfiles;
+  anchors 153 ops; both C++ batteries green, FNV golden UNCHANGED at
+  de4bd8227a3ab0d1; check_repo (1217 files)/check_sources OK.
+
+## HANDOFF — continuation run 5 (session timed out mid-gate, Round 7 owed)
+
+The section-15 gate is STILL OPEN. Six rounds have run; every round so
+far surfaced findings and every fix batch landed green. Everything
+committed is green at HEAD. Your job: dispatch Round 7 (all 8,
+fresh), loop all-or-again until a round records 8/8 PASS, then close
+the gate and write the final PLAN-LOG entry.
+
+### THE PROTOCOL (operator re-confirmed verbatim) — it is ALREADY in the plan
+
+docs/plans/rp-depth-fix-plan-v2.3.md section 15 IS the round-robin
+review: **8 independent reviewer agents in fixed scopes, each reviewing
+the full run diff (6045eeb..HEAD) against the plan AND bug-hunting its
+scope; if ANY reviewer reports a BLOCKER/MAJOR OR errors out (infra,
+timeout, non-verdict), apply fixes and RE-RUN THE ENTIRE 8-reviewer
+round from scratch - no partial credit, no carried verdicts - until one
+full round records 8/8 zero-BLOCKER/zero-MAJOR.** MINORs are recorded
+in docs/evidence/review-rounds.md but do not fail a round. Every
+BLOCKER/MAJOR must cite file:line evidence actually read or a command
+actually run; unverifiable = UNVERIFIED (still fails); device-gated
+items are checklist residue. Reviewers must be READ-ONLY toward tracked
+files (scratch under tmp/ only, NEVER commit).
+
+### Where things stand exactly
+
+- **Commits this run (continuation run 4)**: b3bef5f (E2, prior
+  session), 9272f2e (round-1 fixes), f8f3334 (round-2 fixes), 3ac8fcd
+  (run-4 handoff), f27b02e (round-3 fixes), aced79b (round-4 fixes),
+  bec78fd (round-5 fixes), + the round-6 fix batch commit (this
+  commit - see git log -1).
+- **Round verdicts**: R1 2/8 -> R2 6/8 -> R3 6/8 (fresh re-run after a
+  partially-dead dispatch) -> R4 7/8 -> R5 7/8 -> R6 7/8. ALL logged in
+  docs/evidence/review-rounds.md (Rounds 1-6, each with per-reviewer
+  verdicts, the fixes between rounds, and the accepted-residue list
+  WITH rationale - do not re-fix residue, it is adjudicated).
+- **Suite at the round-6 commit**: pytest "8 failed, 621 passed,
+  4 skipped" (the 8 are PRE-EXISTING on clean 84c0c7b: 2x
+  test_gladio_client_unpack_transport, 4x test_vortek_lifecycle_
+  hardening, 2x test_vortek_winlator_baseline - never fix, never let a
+  new failure hide among them); gradle :app:testDebugUnitTest +
+  :app:detekt green; check_repo/check_sources OK; null-guard 9/9;
+  anchors replay 153 ops (python tmp/materialize_anchors.py); FNV
+  golden de4bd8227a3ab0d1 (tests/test_llm_banter.py:61).
+- **The R1 exactly-one saga (rounds 3-6, all R1 MAJORs, each layer
+  fixed and probe-verified)**: SRC_RAID fan-out (f27b02e) ->
+  addressed-line double dispatch via SelectResponder addressedGuid
+  (aced79b) -> dead-addressee stand-down (bec78fd) -> the claim-window
+  race + the stand-down marker (this commit). Round 7's R1 prompt
+  should re-probe the TIMING layer with a compiled probe (window 30 s
+  vs staggers; the marker vs the addressee-leaves-mid-fan-out race;
+  the fan-out matrix) - R1 has compiled its own probe every round and
+  it is the best verifier this gate has.
+
+### YOUR QUEUE, in order
+
+1. Spot-verify the tree (git log --oneline -3; pytest
+   tests/test_llm_party_claim.py tests/test_llm_no_boilerplate.py -q;
+   python tmp/materialize_anchors.py).
+2. **Dispatch Round 7 - ALL 8 reviewers in ONE foreground message**
+   (background dispatch unavailable; an agent may die
+   "off-peak-ticket-expired" AT DISPATCH - nothing landed, redo the
+   whole round - or AFTER verified-green work - check the tree first).
+   Scopes (section 15.1, unchanged): R1 native cloud lane (s2
+   A1/A3/A5/A7 + PlayerbotLlmGates.h + SayAction/AiFactory/RpgTriggers
+   payloads; conjunction law, device byte-identity, quota math,
+   threading, THE EXACTLY-ONE SURFACE incl. the timing layer); R2
+   native transport/security (s0.c riders, G3, A8 observability, A9,
+   anchor byte-exactness via tmp/materialize_anchors.py, 153 ops); R3
+   authored corpus/persona (E0/E1/E2/E3 + A5 floor wording; re-compile
+   the golden - g++ -std=c++11 -O2 -Wall -I native/patches/playerbots
+   -o tmp/rX.exe tools/test_llm_banter_core.cpp - must equal
+   de4bd8227a3ab0d1); R4 schema/persistence (C2/C8 law, seed re-pin
+   family, 0414); R5 app conf/emission (CloudLaneConf 9/9,
+   appended-block law, key parity, detekt baseline legitimacy); R6 app
+   UX/supervisor (F2/F3 copy truth, s0.c.4 disclosure, B5/F1, B7; RUN
+   the full gradle suite); R7 harness/tests (rp_harness, T1/T2 pin
+   matrix, hunt weakened/tautological/missing pins); R8 whole-plan
+   conformance (all 13 s0 constraints + s0.a/b/c/d, s11 ordering, 5
+   random PLAN-LOG spot-checks NOT yet done - 30 are already TRUE
+   across rounds 3-6, the round log lists them - and the 16 logged
+   interpretations, all judged SOUND so far).
+   EVERY prompt must include: the HEAD sha; the fix commits to verify
+   (at minimum this round-6 commit + bec78fd); the KNOWN NON-FINDINGS
+   block (the 8 pre-existing pytest failures + device-gated items are
+   runbook entries + the adjudicated-residue list lives in
+   review-rounds.md); the verify-not-vibe rule; the no-device note;
+   and the MANDATORY output format - final message ends with exactly
+   one line "VERDICT: PASS" or "VERDICT: FINDINGS", numbered findings
+   with severity (BLOCKER|MAJOR|MINOR) + title + evidence +
+   justification; MINOR-only still yields PASS.
+3. **IF 8/8 PASS**: append the Round 7 entry to
+   docs/evidence/review-rounds.md (per-reviewer verdicts + diffstat +
+   the note that the gate is CLOSED by this round), then write the
+   FINAL PLAN-LOG entry (gate closed; the run summary: all commits,
+   all round verdicts, the suite state, the residue list) and commit
+   with --no-verify (sanctioned ONLY after self-verifying the suite).
+   DONE.
+4. **IF any BLOCKER/MAJOR or reviewer error**: fix equal-or-stronger
+   (never weaken or delete a pin), run the FULL gates (below), append
+  the round entry + fix-batch entry to the logs, commit, then
+  re-dispatch the ENTIRE 8-reviewer round (Round 8, 9, ...). No
+  partial credit.
+5. **Escalation-honesty cap** (plan 15.5; NOT triggered - every round
+  3-6 surfaced NEW findings): if two consecutive post-fix rounds
+  surface no NEW findings but a stale one cannot resolve without a
+  device, record it as device-gated residue in
+  DEVICE_QUALIFICATION_CHECKLIST.md and stop looping. Note the pattern:
+  each R1 MAJOR has been a NARROWER layer of the same exactly-one
+  surface; if Round 7's R1 finds yet another layer, judge honestly
+  whether it is reachable-in-practice (like rounds 3-6 -> fix and
+  loop) or theoretical + unobservable without a device (-> the cap's
+  device-gated residue route).
+
+### Per-commit discipline (every commit, no exceptions)
+
+- python -m pytest tests/ -q -> must end "8 failed, N passed" with
+  N >= 621 (plus 4 skips). The 8 failures are pre-existing on clean
+  84c0c7b (gladio x2, vortek_lifecycle x4, vortek_winlator x2).
+- cd android && ./gradlew :app:testDebugUnitTest :app:detekt
+  -PpocketAbi=x86_64 -PpocketLane=full -> BUILD SUCCESSFUL. If detekt
+  flags signature drift: ./gradlew :app:detektBaseline as a SEPARATE
+  invocation (config cache breaks on combined runs), never hand-edit
+  detekt-baseline.xml, and say so in the commit message.
+- After any overlay/driver edit: python
+  tools/build_o09_realm_runtime.py --write-lockfiles, then re-run
+  tests/test_db_async_null_guard.py -q (9 passed).
+- python tools/check_repo.py and python tools/check_sources.py -> OK.
+- New behavior lands WITH its pins in the same commit; append the
+  PLAN-LOG entry per batch; commit with --no-verify ONLY after
+  self-verifying the suite.
+
+### Gotchas (hard-learned across five sessions)
+
+- Git-bash heredocs are fragile in this harness (one long append
+  silently truncated mid-body): for anything load-bearing, use the
+  Write tool to a tmp/ file then `cat tmp/file >> target` - and
+  byte-check the target tail afterwards. Backslash-sensitive python:
+  ALWAYS the Write tool, never a heredoc.
+- Line endings vary PER FILE (tests/test_llm_*.py mostly CRLF;
+  test_llm_banter.py + test_llm_e1_corpus.py LF; overlay .h/.cpp CRLF;
+  BotPresetStore.kt/CloudLaneConf.kt LF) - byte-check before replaces.
+- Shell cwd persists between Bash calls - cd C:/pocket_realm_complete
+  after any cd android.
+- Background subagents unavailable: dispatch all 8 reviewers in ONE
+  foreground message; "off-peak-ticket-expired" kills at dispatch
+  (nothing landed - redo the round) or after green work (check the
+  tree before redoing anything).
+- g++ resolves via python -c "import shutil; print(shutil.which('g++'))"
+  (WinGet WinLibs mingw64). The banter FNV golden is
+  de4bd8227a3ab0d1 (tests/test_llm_banter.py:61) - re-pin only if a
+  seeded pool changes, in the SAME commit.
+- The seed-augment PROVENANCE hash is over LF-NORMALIZED manifest
+  bytes; the seeder fail-closes on any manifest change.
+- No device/emulator: device-gated items live in
+  DEVICE_QUALIFICATION_CHECKLIST.md. Full pytest ~7 min; gradle ~10-60
+  s cached; an 8-reviewer round ~10-20 min wall clock.
