@@ -8,7 +8,9 @@ Usage:
 
 The A8 log invariants (a post-pass over a world.log): per conversational
 turn (one req id) exactly ONE `BotLLM: dispatch ... req=N` line, at least
-one `begin ... req=N`, exactly one `end ... req=N`. With zero `BotLLM:`
+one `begin ... req=N` (ZERO begins on a busy-class turn - both busy
+paths return before the begin line; a cap-class turn DOES carry a begin),
+exactly one `end ... req=N`. With zero `BotLLM:`
 lines in the log the check NO-OP PASSES unless --require-a8 is given
 (the world must then have produced at least one generation line).
 
@@ -39,10 +41,14 @@ RE_BOTLLM = re.compile(r"BotLLM:")
 RE_DISPATCH = re.compile(r"BotLLM:\s*dispatch\b.*?\breq=(\d+)")
 RE_BEGIN = re.compile(r"BotLLM:\s*(?:gen\s+)?begin\b.*?\breq=(\d+)")
 RE_END = re.compile(r"BotLLM:\s*(?:gen\s+)?end\b.*?\breq=(\d+)")
-# the end line carries the class; busy/cap turns are the pinned
-# dispatch+end-only shape (a governor denial never starts a generation)
+# the end line carries the class. A BUSY-class turn is the pinned
+# dispatch+end-only shape (both busy paths - the governor and the
+# interactive budget - return BEFORE the begin line). A CAP-class turn
+# DOES carry a begin: the begin line precedes GenerateHttp, whose first
+# check is the concurrency cap (round-2 R2#2/R7#1 - the cap denial
+# happens after the generation was logged as started).
 RE_END_CLASS = re.compile(r"BotLLM:\s*(?:gen\s+)?end\b.*?\breq=(\d+)\b.*?\bclass=(\w+)")
-NO_BEGIN_CLASSES = frozenset({"busy", "cap"})
+NO_BEGIN_CLASSES = frozenset({"busy"})
 
 
 def check_a8_lines(lines, require: bool = False) -> dict:
@@ -82,8 +88,8 @@ def check_a8_lines(lines, require: bool = False) -> dict:
                 f"req={req}: {row['dispatch']} dispatch lines (expected exactly 1)")
         end_cls = end_classes.get(req, "")
         if end_cls in NO_BEGIN_CLASSES:
-            # busy/cap: the governor denied the turn before any
-            # generation started - dispatch + end only, never a begin
+            # busy: the governor denied the turn before any generation
+            # started - dispatch + end only, never a begin
             if row["begin"] != 0:
                 violations.append(
                     f"req={req}: begin line on a {end_cls}-class turn "

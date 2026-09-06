@@ -458,15 +458,18 @@ def test_a8_scan_balanced_duplicate_and_missing():
     assert any("without a dispatch line" in v for v in orphan["violations"])
 
 
-def test_a8_scan_busy_and_cap_turns_are_dispatch_end_only():
-    # the pinned governor-denial shapes: a busy (duty-cycle) or cap
-    # (concurrency) turn logs dispatch + end with NO begin - no
-    # generation ever started. The scan must accept these and still
-    # flag a begin line on a denied turn.
+def test_a8_scan_busy_and_cap_turn_shapes():
+    # the pinned denial shapes (round-2 R2#2/R7#1): a BUSY turn (the
+    # governor or the interactive budget - both return BEFORE the begin
+    # line) logs dispatch + end with NO begin; a CAP turn (the
+    # concurrency check inside GenerateHttp, which runs AFTER the begin
+    # line) logs dispatch + begin + end. The scan must accept both real
+    # shapes and still flag a begin line on a busy turn.
     denied = run_suite.check_a8_lines([
         "BotLLM: dispatch bot=5 src=0 lane=chat req=11",
         "BotLLM: gen end req=11 bot=5 class=busy durMs=3",
         "BotLLM: dispatch bot=6 src=0 lane=chat req=12",
+        "BotLLM: gen begin req=12 bot=6 lane=chat",
         "BotLLM: gen end req=12 bot=6 class=cap durMs=0",
     ])
     assert denied["ok"] and denied["requests"] == 2, denied["violations"]

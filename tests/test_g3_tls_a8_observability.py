@@ -202,6 +202,13 @@ def test_cap_class_outranks_the_shape_classes(driver):
             "        : (httpBody == \"error\" ? std::string(\"error\") : std::string(\"ok\"));"
             ) in payload
     assert 'logEnd(genClass != "ok" ? genClass.c_str() : "empty");' in payload
+    # round-2 R2#1: the legacy-prose-fallback arm carries every
+    # transport failure too (the sentinel body "error" is voicable-
+    # looking prose, so it lands there) - its end line must log the
+    # noted class, never an unconditional "ok"
+    legacy_arm = payload.split("response carries no voicable text - staying quiet")[1]
+    assert "logEnd(genClass.c_str());" in legacy_arm
+    assert 'logEnd("ok");' not in legacy_arm.split("ContentUsable")[0]
 
 
 def test_a8_lines_carry_no_content(driver):

@@ -155,3 +155,90 @@ MINORs accepted as recorded residue (with rationale) or fixed where
 trivial: the NOBLE seasoning row swap, the manifest source_commits
 refresh + arm64 restage, the stale docstrings, the checklist refresh,
 the TLS-floor doc wording.
+
+## Round 2
+
+**Diffstat re-reviewed**: `git diff 6045eeb..9272f2e` — 116 files,
++18038/−315 (the round-1 fix batch is commit 9272f2e; same submodule
+ranges). Dispatched 8 reviewers fresh per §15.3 (4+4 in two concurrent
+foreground waves against the same frozen tree; no tree changes during
+the round).
+
+**Result: 6/8 PASS → ROUND FAILS.**
+
+- **R1: PASS** — all three round-1 fixes verified holding
+  (InteractiveBudgetAdmits placement/semantics; BotToBotAdmits at all
+  four sites with likePlayer un-gated and device byte-identity;
+  consume-not-copy with truth-table-equivalence checks and a compiled
+  harness run). 2 new MINOR: bot2bot quota burns on depth-capped
+  denials (quota stage before depth stage — the street-ladder law pins
+  the opposite discipline); dead disjunct in ContainsNameIgnoreCase's
+  right-boundary test ("Varleigh'x" matches; isalnum('\'') is false so
+  the 's clause never fires).
+- **R2: FINDINGS** — 2 MAJOR, both in the round-1 fix family: (1) the
+  A8 class truth is still broken on the WIDER surface — every transport
+  failure returns the sentinel body "error", LooksLikeVoicableText
+  ("error") is TRUE, so the legacy-prose-fallback arm runs and its
+  logEnd("ok") is unconditional: timeout / http_%d / error classes are
+  unreachable (a connect-refused failure logs as a fast success;
+  reviewer compiled the real headers and traced all three); (2)
+  run_suite's new class-aware invariant wrongly expects no-begin on CAP
+  turns — the begin line is emitted BEFORE GenerateHttp (whose first
+  check is the cap), so a real cap turn carries dispatch+begin+end and
+  the canonical smoke gate false-fails it (reviewer ran the real shape
+  through the checker; the round-1 harness test enshrined the wrong
+  expectation). Busy is correct (both busy paths return before begin).
+  +3 MINOR (vacuous allowlist entries; A9 reply-miss logs the constant
+  name; no pin on the legacy arm's class — how finding 1 survived).
+- **R3: PASS** — both round-1 fixes verified (lint byte-clean with
+  teeth; NOBLE/ROGUEISH swap with the golden re-run UNCHANGED at
+  de4bd8227a3ab0d1 by the reviewer's own compile). 1 minor note
+  (uppercase-acronym hardening suggestion).
+- **R4: PASS** — voiced_at verified end-to-end (reader/lazy-seed/stamp
+  placement/IsNULL convention/sqlite parity; all five 0413 columns now
+  have writers+readers); all four round-1 MINORs verified fixed
+  (source_commits one-line diff vs b3bef5f, arm64 0414.sqlz on disk,
+  PROVENANCE = recomputed LF-normalized sha, checklist entries; the
+  un-authored T2 downgrade test judged acceptable — the marker-count
+  laws are already pinned and the drill is device-gated); seeder
+  re-run SEED OK with zero baseline churn; sqlite batteries 45/45. 1
+  new MINOR: last_greet_line varchar(255) vs the writer's
+  escape-aware worst case (theoretical; a future 0415 or a 120-truncate
+  closes it).
+- **R5: PASS** — both fixes verified WITH live mutation testing of the
+  key-parity gate (dropped family member, new driver key, orphan
+  Kotlin key, frozen-set rot in both directions — each fails the right
+  leg; tree left clean). A7.6 pins green under gradle (32/32 class).
+  detekt baseline diff vs b3bef5f EMPTY. +5 MINOR (char-literal parser
+  edge, pin-completeness nits, port-segment cosmetics, upgrade-marker
+  as plain default-off, B8 staged-payload pin device-gated).
+- **R6: PASS** — the checklist residue entry verified honest; all
+  round-1 clean areas re-verified (F1/B5/F2/F3/B7; gradle 1096/0/1);
+  no fix-batch regression. +3 MINOR (carried enum-token polish;
+  carried BIND_AUTO_CREATE comment; NEW: the toggle support copy
+  mentions party answers while LLMPartyReplyEnabled is staged 0 —
+  truthful at the documented T3 flip; reword if T3-party never goes
+  green).
+- **R7: FINDINGS** — 4 of 5 round-1 fixes verified sound with fresh
+  eyes on every new pin (111 tests green; T1 matrix coverage
+  re-walked, both round-1 gaps confirmed closed); the fifth (run_suite
+  class-aware) has the same wrong-cap-expectation MAJOR as R2#2
+  (independently re-derived from the payload emission order + an
+  empirical checker run; busy-half correct). +3 MINOR
+  (_driver_keys regexes driver comments in the orphan direction;
+  stale run_suite docstring; allowlist scope note).
+- **R8: PASS** — all 13 standing constraints re-verified mechanically
+  on the current tree (including the new behaviors' kill-switch
+  surface, §0.11 one-line manifest diff, §0.13 self-gating, edit
+  lanes, 153-op anchor replay); 5/5 NEW PLAN-LOG spot-checks TRUE; all
+  11 round-1 interpretations re-confirmed SOUND plus the NEW
+  per-bot-vs-per-pair depth-cap interpretation judged SOUND (the four
+  chance sites are broadcasts — no peer guid exists to key a pair on;
+  per-bot strictly dominates for containment). 2 MINOR (the shared
+  bot2bot quota-order note; plan cite drift on the silence pin).
+
+**Fixes applied between Round 2 and Round 3**: the two MAJORs (A8
+legacy-fallback arm logs the noted class; run_suite NO_BEGIN_CLASSES
+narrowed to busy-only with the harness test and docstring corrected)
+plus the repeatedly-flagged bot2bot quota/depth order MINOR and the
+ContainsNameIgnoreCase dead-disjunct NIT. See Round 3's preamble.

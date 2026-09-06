@@ -130,9 +130,12 @@ namespace PlayerbotLlmGates
             {
                 char const c = msg[end];
                 // "'s" keeps the boundary: "Varleigh's" still addresses
-                // Varleigh; any other alnum continuation is a different word
-                rightBound = !(std::isalnum(static_cast<unsigned char>(c))) ||
-                    (c == '\'' && end + 1 < msg.size() && msg[end + 1] == 's');
+                // Varleigh; any other continuation - alnum or a
+                // different apostrophe tail ("Varleigh'x") - is a
+                // different word
+                rightBound = !std::isalnum(static_cast<unsigned char>(c)) &&
+                    (c != '\'' ||
+                     (end + 1 < msg.size() && msg[end + 1] == 's'));
             }
             if (leftBound && rightBound)
                 return true;

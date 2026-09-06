@@ -181,7 +181,9 @@ def test_bot2bot_containment_semantics():
     # the helper's own law (overlay source contract): cloud-lane-only
     # (device byte-identity), the daily quota via CloudQuotaAdmits
     # (0 = surface off), and the per-bot consecutive depth cap reset by
-    # a real-player trigger
+    # a real-player trigger. Depth is checked BEFORE the quota (round-2
+    # R1#1/R8#1): a later stage's rejection must not spend an earlier
+    # stage's quota - the street-ladder law.
     src = (PATCHES / "PlayerbotLlmMemory.cpp").read_text(encoding="utf-8")
     body = src.split("bool PlayerbotLlmMemory::BotToBotAdmits")[1].split("\n}")
     fn = body[0]
@@ -189,6 +191,8 @@ def test_bot2bot_containment_semantics():
     assert "if (!ExternalApiTierActive())" in fn
     assert fn.index("if (!ExternalApiTierActive())") < fn.index("CloudQuotaAdmits")
     assert "BOT2BOT_MAX_CONSECUTIVE" in fn
+    assert fn.index("BOT2BOT_MAX_CONSECUTIVE") < fn.index("CloudQuotaAdmits"), \
+        "the depth check must precede the quota spend"
     reset = src.split("void PlayerbotLlmMemory::NoteBotPlayerInteraction")[1].split("\n}")[0]
     assert "BotToBotConsecutive().erase(botGuid);" in reset
     # the reset is stamped beside the say-path player-interaction stamp

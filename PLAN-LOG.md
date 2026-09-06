@@ -1652,3 +1652,34 @@ Suite after the batch: **8 failed (the documented pre-existing set),
 baseline regen needed this time); check_repo/check_sources OK;
 null-guard 9/9 after --write-lockfiles; materialize_anchors replays
 153 ops with no drift.
+## Round 2 fix batch (§15 review gate): the two MAJORs + two carried MINORs
+
+Round 2 returned 6/8 PASS; R2 and R7 independently found the same two
+MAJORs, both introduced by the round-1 fixes themselves:
+
+- **A8 class truth on the legacy arm (R2#1)**: every transport failure
+  returns the sentinel body "error", which LooksLikeVoicableText admits
+  as prose - so it took the legacy-prose-fallback arm whose
+  logEnd("ok") was unconditional: timeout/http_%d/error were
+  unreachable (a connect-refused failure logged as a fast success).
+  The arm now logs genClass (a genuine prose body carries no note and
+  still logs "ok"); pinned (the fail-quiet arm's pin extended to the
+  legacy arm - no unconditional logEnd("ok") before ContentUsable).
+- **run_suite cap shape (R2#2/R7#1)**: the begin line precedes
+  GenerateHttp (whose first check is the concurrency cap), so a real
+  cap turn carries dispatch+begin+end - only busy (governor +
+  interactive budget) returns before begin. NO_BEGIN_CLASSES narrowed
+  to {busy}; the harness test and the module docstring corrected; the
+  round-1 wrong expectation ("busy/cap dispatch+end only") is gone.
+- **bot2bot quota/depth order (R1#1+R8#1, round-2 MINOR)**: depth is
+  now checked first in its own lock scope - a depth-saturated bot's
+  attempts stop burning the realm-global daily quota (the
+  street-ladder law); pinned (depth index < quota index).
+- **ContainsNameIgnoreCase dead disjunct (R1#2, NIT)**: the
+  right-boundary test now requires non-alnum AND (not-an-apostrophe OR
+  the 's tail) - "Varleigh'x" no longer matches; a harness case added
+  and the battery recompiled green.
+
+Suite after the batch: **8 failed (the documented pre-existing set),
+610 passed, 4 skipped**; gradle green; check_repo/check_sources OK;
+null-guard 9/9 after --write-lockfiles.

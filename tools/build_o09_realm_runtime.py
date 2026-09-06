@@ -1925,7 +1925,12 @@ std::string PlayerbotLLMInterface::Generate(const std::string& prompt, uint32 bo
         // branch always had - G-1 closed: <<tool>> calls from an envelope
         // reply are queued for the world-thread executor (speaker-tagged),
         // and the markers never reach the chat lines.
-        logEnd("ok");
+        // A8 (round-2 R2#1): this arm also carries every transport
+        // failure - the sentinel body "error" is five letters of
+        // voicable-looking prose, so it lands HERE, and the noted class
+        // (timeout / http_%d / error) must reach the log, never "ok".
+        // A genuine prose body carries no note: genClass is "ok".
+        logEnd(genClass.c_str());
         return PlayerbotLlmFilters::HygienePass(
             PlayerbotLlmTools::ExtractAndQueue(httpBody, botGuid, speakerGuid, source, licenseStamp),
             botGuid);

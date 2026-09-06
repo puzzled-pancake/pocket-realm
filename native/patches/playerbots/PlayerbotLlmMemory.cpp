@@ -3503,14 +3503,20 @@ bool PlayerbotLlmMemory::BotToBotAdmits(uint32 botGuid)
 {
     if (!ExternalApiTierActive())
         return true;
-    // quota first (it takes StateMutex itself - no lock may be held here)
+    // depth first, in its own lock scope (round-2 R1#1/R8#1): a later
+    // stage's rejection must not spend an earlier stage's quota - the
+    // street-ladder law. A depth-saturated bot's attempts stop burning
+    // the realm-global daily budget.
+    {
+        std::lock_guard<std::mutex> lock(StateMutex());
+        if (BotToBotConsecutive()[botGuid] >= BOT2BOT_MAX_CONSECUTIVE)
+            return false;
+    }
+    // the quota takes StateMutex itself - no lock may be held here
     if (!CloudQuotaAdmits("bot2bot", sPlayerbotAIConfig.llmBotToBotPerDay))
         return false;
     std::lock_guard<std::mutex> lock(StateMutex());
-    uint32& depth = BotToBotConsecutive()[botGuid];
-    if (depth >= BOT2BOT_MAX_CONSECUTIVE)
-        return false;
-    ++depth;
+    ++BotToBotConsecutive()[botGuid];
     return true;
 }
 

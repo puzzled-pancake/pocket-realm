@@ -102,6 +102,9 @@ static void name_addressing()
     CHECK(ContainsNameIgnoreCase("well met, Varleigh.", "Varleigh"));
     // punctuation boundaries count
     CHECK(ContainsNameIgnoreCase("Varleigh!", "Varleigh"));
+    // only the possessive 's tail keeps an apostrophe boundary
+    // (round-2 R1#2: "Varleigh'x" is a different word)
+    CHECK(!ContainsNameIgnoreCase("Varleigh'x happened", "Varleigh"));
     CHECK(!ContainsNameIgnoreCase(std::string(), "Varleigh"));
     CHECK(!ContainsNameIgnoreCase("nothing here", ""));
 }
