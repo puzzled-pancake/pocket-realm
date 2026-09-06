@@ -1639,13 +1639,12 @@ static char const* const kArchetypePhrase[4][12] = {
         "Blessings on this camp and its fools.",
         "The old oaths still carry weight.",
         "Patience is also a weapon. The sharp kind.",
-        "Coin first, questions later.",
-        "I know a shortcut. It's legal. Mostly.",
+        "Courage, and a care for the small folk.",
+        "The crown, the Light, then the ledger.",
     },
     // ARCHETYPE_ROGUEISH
     {
         "Keep your purse quiet and your feet quicker.",
-        "Reminds me of a job. The good kind.",
         "Don't ask where the knife's been.",
         "Doors open for the quiet and the quick.",
         "I count exits. Habit. Good habit.",
@@ -1655,7 +1654,8 @@ static char const* const kArchetypePhrase[4][12] = {
         "That's a fine purse. Well. Observed, only observed.",
         "Everyone's honest. At the right price.",
         "Locks are just doors with opinions.",
-        "Sleep with one boot on. Advice's free.",
+        "Coin first, questions later.",
+        "I know a shortcut. It's legal. Mostly.",
     },
 };
 } // namespace detail

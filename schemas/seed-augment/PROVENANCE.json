@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "description": "Binds the precomputed playerbot cache capture to the migrations manifest it was taken against. The world's cache-load branches have no version check; this file is the only staleness tripwire - a manifest advance must fail the seed until the capture is re-validated.",
-  "manifest_sha256": "e36d96944a7b1f7b4b5396e933353602c875dbc93e7df8ad9ff4c36b2c69e97d",
+  "manifest_sha256": "4175e8905cbfefb28769c8d84580dde95a71d938a1e05b1a20914c3019593599",
   "captured_from": "differential lane x86_64 emulator, first-boot world build of 2026-08-27 (run 20260827-172613 lineage)",
   "captured_at": "2026-08-28",
   "tables": [
@@ -9,5 +9,5 @@
     "ai_playerbot_equip_cache"
   ],
   "revalidated_at": "2026-09-06",
-  "revalidation_note": "Manifest advanced by 0414-playerbot-world-playerbot-texts-e2-register (idempotent hello/goodbye/hello_follow TEXT-row UPDATEs only; no schema change, no item/equipment corpus change). The equip/rnditem cache capture is semantically unaffected; host-side re-validation per the guard contract. A full device re-capture stays on the checklist for the next first-boot lane run."
+  "revalidation_note": "Manifest advanced by 0414-playerbot-world-playerbot-texts-e2-register (idempotent hello/goodbye/hello_follow TEXT-row UPDATEs only; no schema change, no item/equipment corpus change). The equip/rnditem cache capture is semantically unaffected; host-side re-validation per the guard contract. A full device re-capture stays on the checklist for the next first-boot lane run. Manifest re-staged after the E2 submodule pin bump (playerbots 6c681ef8 -> 7e2cd2fb in source_commits; the 6c681ef8..7e2cd2fb range touches zero .sql files - entries and sql_sha256 values identical). Semantics unchanged from the 0414 revalidation: idempotent TEXT-row UPDATEs only; equip/rnditem capture unaffected. Full device re-capture stays on the qualification checklist."
 }

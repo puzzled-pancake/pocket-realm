@@ -100,3 +100,120 @@ def test_key_defaults_match_the_plan_rows():
     ):
         needle = f'"AiPlayerbot.{key}", {default}'
         assert needle in driver_text, needle
+
+
+# ---- round-1 fix pins: the A7.1 tier-I interactive budget ---------------
+def _driver_module():
+    spec = importlib.util.spec_from_file_location("driver_gates_t1", DRIVER)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["driver_gates_t1"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_interactive_budget_bounds_tier_one_at_the_generate_chokepoint():
+    # round-1 R1#1/R7#1: the per-player hourly tier-I budget is WIRED -
+    # interactive cloud turns (a real player's whisper / addressed say /
+    # party-responder reply) pass through InteractiveBudgetAdmits inside
+    # Generate; autonomous CHAT_REPLY turns pass speakerGuid 0 and stay
+    # arbiter-owned; exhaustion returns the busy marker (the duty-cycle
+    # persona-line shape), logged class=busy.
+    driver = _driver_module()
+    payload = driver.PB_LLM_IFACE_CPP_ANDROID
+    assert ("if (source == PlayerbotLlamaRuntime::LLM_SRC_CHAT_REPLY && speakerGuid &&\n"
+            "        !PlayerbotLlmMemory::InteractiveBudgetAdmits(speakerGuid))") in payload
+    busy_block = payload.split("InteractiveBudgetAdmits(speakerGuid))")[1][:220]
+    assert 'logEnd("busy");' in busy_block
+    assert "return std::string(POCKETREALM_LLM_BUSY);" in busy_block
+    # the interface payload can reach the memory header
+    assert '#include "PlayerbotLlmMemory.h"' in driver.PB_IFACE_INCLUDE_ANDROID
+
+
+def test_interactive_turns_are_exempt_from_the_ambient_arbiter():
+    # the exemption half of A7.1: the ambient arbiter key family never
+    # appears in the interface payload - the CHAT_REPLY path is bounded
+    # by the per-player budget, never by the ambient cap
+    driver = _driver_module()
+    payload = driver.PB_LLM_IFACE_CPP_ANDROID
+    for banned in ("AuthoredLineAdmits", "llmCloudLineBudgetPerHour",
+                   "AuthoredBudgetHasRoom"):
+        assert banned not in payload, banned
+
+
+def test_interactive_budget_semantics_kill_switch_and_device_lane():
+    # the helper's own law (overlay source contract): 0 disables
+    # interactive cloud replies; the device lane returns true BEFORE the
+    # cap check (byte-identical device behavior, no counter growth)
+    src = (PATCHES / "PlayerbotLlmMemory.cpp").read_text(encoding="utf-8")
+    body = src.split("bool PlayerbotLlmMemory::InteractiveBudgetAdmits")[1].split("\n}")[0]
+    assert "if (!ExternalApiTierActive())" in body
+    assert body.index("if (!ExternalApiTierActive())") < body.index("if (!cap)")
+    assert "if (!cap)\n        return false;" in body
+    assert "used.second >= cap" in body
+
+
+def test_ambient_budget_zero_blocks_only_non_exempt_lines():
+    # T1's budget-0 law (round-1 R7#2): llmCloudLineBudgetPerHour = 0
+    # means the arbiter refuses to admit NON-exempt lines but never
+    # blocks an exempt one (the !globalCap => return exempt arm)
+    src = (PATCHES / "PlayerbotLlmMemory.cpp").read_text(encoding="utf-8")
+    assert "if (!globalCap)\n        return exempt;" in src
+
+
+def test_bot2bot_containment_is_wired_at_every_chance_site():
+    # round-1 R1#2: the bot2bot daily quota + autonomous-exchange depth
+    # cap ride the autonomous arm of ALL FOUR chance sites
+    # (SayToGuild/Yell/Say/SayToParty) - likePlayer sends stay un-gated.
+    driver = _driver_module()
+    assert "PlayerbotLlmMemory::BotToBotAdmits(bot->GetGUIDLow())" in driver.PB_AI_B2B_GUILD_ANDROID
+    assert "PlayerbotLlmMemory::BotToBotAdmits(bot->GetGUIDLow())" in driver.PB_AI_B2B_SITE_ANDROID
+    # the chained registration: the unique guild site + three identical
+    # sites walked in file order
+    text = DRIVER.read_text(encoding="utf-8")
+    assert text.count('replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_B2B_SITE_UPSTREAM, PB_AI_B2B_SITE_ANDROID)') == 3
+    assert text.count('replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_B2B_GUILD_UPSTREAM, PB_AI_B2B_GUILD_ANDROID)') == 1
+    # the pristine file carries exactly the four sites the anchors claim
+    pristine = (ROOT / "native" / "playerbots" / "playerbot" / "PlayerbotAI.cpp").read_text(encoding="utf-8", errors="replace")
+    assert pristine.count("llmBotToBotChatChance))") == 4
+
+
+def test_bot2bot_containment_semantics():
+    # the helper's own law (overlay source contract): cloud-lane-only
+    # (device byte-identity), the daily quota via CloudQuotaAdmits
+    # (0 = surface off), and the per-bot consecutive depth cap reset by
+    # a real-player trigger
+    src = (PATCHES / "PlayerbotLlmMemory.cpp").read_text(encoding="utf-8")
+    body = src.split("bool PlayerbotLlmMemory::BotToBotAdmits")[1].split("\n}")
+    fn = body[0]
+    assert 'if (!CloudQuotaAdmits("bot2bot", sPlayerbotAIConfig.llmBotToBotPerDay))' in fn
+    assert "if (!ExternalApiTierActive())" in fn
+    assert fn.index("if (!ExternalApiTierActive())") < fn.index("CloudQuotaAdmits")
+    assert "BOT2BOT_MAX_CONSECUTIVE" in fn
+    reset = src.split("void PlayerbotLlmMemory::NoteBotPlayerInteraction")[1].split("\n}")[0]
+    assert "BotToBotConsecutive().erase(botGuid);" in reset
+    # the reset is stamped beside the say-path player-interaction stamp
+    driver = _driver_module()
+    say = driver.PB_SAY_GATE_ANDROID
+    assert "PlayerbotLlmMemory::NoteBotPlayerInteraction(bot->GetGUIDLow());" in say
+
+
+def test_every_declared_gate_helper_is_consumed_not_copied():
+    # round-1 R1#3: the consume-not-copy law - each pure helper has a
+    # real runtime call site; no site keeps an inlined equivalent.
+    driver = _driver_module()
+    gate_say = driver.PB_SAY_GATE_ANDROID
+    # the word-boundary name law replaces the substring icontains
+    assert "PlayerbotLlmGates::ContainsNameIgnoreCase(msg, bot->GetName())" in gate_say
+    assert "boost::algorithm::icontains" not in gate_say
+    # the strategy gate folds through the reply-gate helper
+    assert "PlayerbotLlmGates::ReplyGateAllowed(" in gate_say
+    assert 'bot->GetPlayerbotAI()->HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3 || CloudLaneOpen()' not in gate_say
+    # the say-path response classification runs through the fold
+    gen = driver.PB_SAY_GEN_DEF_ANDROID
+    assert "PlayerbotLlmGates::ClassifyGeneration(" in gen
+    # the street ladder's verdict is the fold's verdict
+    src = (PATCHES / "PlayerbotLlmMemory.cpp").read_text(encoding="utf-8")
+    assert 'PlayerbotLlmGates::StreetAdmissionOrder(worldWindowClaimed,' in src
+    ladder = src.split("bool worldWindowClaimed = true;")[1].split('!= "dispatch")')[0]
+    # laziness preserved: the quota only spends after the pct roll hits
+    assert ladder.index("pctRollHit") < ladder.index("CloudQuotaAdmits")

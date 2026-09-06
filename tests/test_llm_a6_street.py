@@ -88,7 +88,14 @@ class TestLadderOrder:
 
     def test_pct_zero_is_emote_only(self):
         body = street_impl()
-        assert re.search(r"if \(!sPlayerbotAIConfig\.llmCloudStreetSayPct \|\|\s*\n\s*urand\(0, 99\) >=", body)
+        # round-1 R1#3 consume: the pct stage folds into pctRollHit - a
+        # falsy pct (0) can never hit, so the fold names reject:pct-roll
+        # and the street say never dispatches (emote-only, symmetric
+        # with quota exhaustion)
+        assert re.search(
+            r"bool const pctRollHit = worldWindowClaimed && botSlotFree &&\s*\n"
+            r"\s*sPlayerbotAIConfig\.llmCloudStreetSayPct &&\s*\n"
+            r"\s*urand\(0, 99\) < sPlayerbotAIConfig\.llmCloudStreetSayPct;", body)
 
     def test_quota_exhaustion_is_emote_only_symmetric(self):
         body = street_impl()

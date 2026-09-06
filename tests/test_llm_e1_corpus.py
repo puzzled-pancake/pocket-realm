@@ -124,7 +124,8 @@ def test_register_lint_on_every_e1_line(pool):
                 f"{name} names a mechanic ({word}): {line!r}"
         assert line.isascii(), f"{name} is not ASCII: {line!r}"
         for acronym in CHAT_ACRONYMS:
-            assert not re.search(rf"{acronym}", low),                 f"{name} has a chat acronym ({acronym}): {line!r}"
+            assert not re.search(rf"\b{acronym}\b", low), \
+                f"{name} has a chat acronym ({acronym}): {line!r}"
         assert not DIGIT_RE.search(line), f"{name} has a digit: {line!r}"
         assert "{" not in line.replace("{P}", "").replace("{B}", ""), \
             f"{name} uses braces outside the placeholders: {line!r}"

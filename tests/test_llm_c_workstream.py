@@ -171,6 +171,22 @@ class TestC6Economics:
         assert "AwardCappedPoints" not in trade
         assert "llmDeedPointsTrade" in trade
 
+    def test_trade_deed_rides_the_sentiment_admission(self):
+        # round-1 R7#3: the farm law - N completed trades in 60 s award
+        # exactly ONE deed. The deed is gated on the same SentimentRate
+        # admission as the tone row (AddBoundedSentimentInput now returns
+        # its verdict); an unconditional award would farm deeds.
+        trade = impl(MEMORY_CPP, "void PlayerbotLlmMemory::OnTradeCompleted(")
+        assert "bool const sentimentAdmitted = AddBoundedSentimentInput(" in trade
+        deed = trade.index("llmDeedPointsTrade")
+        gate = trade.index("if (sentimentAdmitted)")
+        assert gate < deed, "the deed award must sit inside the admission gate"
+        # the admission itself: one bounded input per (bot, player) per
+        # minute, verdict surfaced to callers
+        sent = impl(MEMORY_CPP, "bool PlayerbotLlmMemory::AddBoundedSentimentInput(")
+        assert "return false; // rate-limited" in sent
+        assert sent.rstrip().endswith("return true;\n}")
+
     def test_deed_zero_disables_award_not_fact(self):
         explore = impl(MEMORY_CPP, "void PlayerbotLlmMemory::OnPlayerExploredArea(")
         assert "llmDeedPointsFirstVisit" in explore
@@ -229,3 +245,48 @@ class TestC8HistoryPersistence:
     def test_sqlite_timestamp_is_escaped_for_pexecute(self):
         src = MEMORY_CPP.read_text(encoding="utf-8")
         assert "strftime('%%s','now')" in src
+
+
+class TestC2VoicedFactPersistence:
+    """Round-1 R4#1: voiced_at has exactly one stamp site (the
+    TickInitiative delivery block, where the fact id is in hand
+    synchronously - never at enqueue on delayed paths) and the
+    InitiatedFactIds seed is lazy (the newest-6 PQuery also selects
+    voiced_at; NULL = never voiced; no backfill)."""
+
+    def test_the_stamp_site_is_the_delivery_block(self):
+        src = MEMORY_CPP.read_text(encoding="utf-8")
+        m = re.search(r"void PlayerbotLlmMemory::TickInitiative\(.*?\n\}", src, re.S)
+        assert m, "TickInitiative missing"
+        body = m.group(0)
+        stamp = "UPDATE `bot_player_facts` SET `voiced_at` = '%u' WHERE `id` = '%u'"
+        assert stamp in body
+        # the stamp sits AFTER the in-process set and BEFORE the Say of
+        # the SAME leg (the delivery point, not the enqueue): the
+        # insert(usedFactId) is unique to the debt/goal leg, so the
+        # window between it and the next Say is that leg's delivery
+        delivered = body.index("InitiatedFactIds()[key].insert(usedFactId);")
+        said = body.index("bot->Say(line, LANG_UNIVERSAL);", delivered)
+        assert delivered < body.index(stamp) < said
+        # exactly one stamp site in the whole overlay
+        assert src.count("SET `voiced_at`") == 1
+
+    def test_the_lazy_seed_selects_voiced_at_in_the_newest6_query(self):
+        src = MEMORY_CPP.read_text(encoding="utf-8")
+        m = re.search(r"void PlayerbotLlmMemory::TickInitiative\(.*?\n\}", src, re.S)
+        body = m.group(0)
+        assert "SELECT `id`, `fact_text`, `category`, `voiced_at` FROM `bot_player_facts`" in body
+        # a voiced row seeds the in-process set (one initiation EVER, not
+        # one per process); NULL keeps today's behavior
+        assert "if (row.voiced)" in body
+        assert "InitiatedFactIds()[key].insert(row.id);" in body
+        # no boot-time scan: the seed rides the existing per-pair query
+        assert "FROM `bot_player_facts` WHERE `voiced_at` IS NOT NULL" not in src
+
+    def test_no_backfill_anywhere(self):
+        # NULL = never voiced; backfilling would permanently silence
+        # historical debt/goal initiations (the plan's stated law)
+        mig = (ROOT / "sql" / "migrations" / "ai_playerbot_llm_memory_v2.sql").read_text(encoding="utf-8")
+        low = mig.lower()
+        assert "voiced_at" in low
+        assert "update" not in low and "insert" not in low

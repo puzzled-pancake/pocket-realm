@@ -39,11 +39,16 @@ RE_BOTLLM = re.compile(r"BotLLM:")
 RE_DISPATCH = re.compile(r"BotLLM:\s*dispatch\b.*?\breq=(\d+)")
 RE_BEGIN = re.compile(r"BotLLM:\s*(?:gen\s+)?begin\b.*?\breq=(\d+)")
 RE_END = re.compile(r"BotLLM:\s*(?:gen\s+)?end\b.*?\breq=(\d+)")
+# the end line carries the class; busy/cap turns are the pinned
+# dispatch+end-only shape (a governor denial never starts a generation)
+RE_END_CLASS = re.compile(r"BotLLM:\s*(?:gen\s+)?end\b.*?\breq=(\d+)\b.*?\bclass=(\w+)")
+NO_BEGIN_CLASSES = frozenset({"busy", "cap"})
 
 
 def check_a8_lines(lines, require: bool = False) -> dict:
     """Scan world.log lines for the A8 per-turn invariants."""
     counts: dict[str, dict[str, int]] = {}
+    end_classes: dict[str, str] = {}
     botllm_lines = 0
 
     def bump(req: str, phase: str) -> None:
@@ -53,6 +58,9 @@ def check_a8_lines(lines, require: bool = False) -> dict:
         if not RE_BOTLLM.search(line):
             continue
         botllm_lines += 1
+        cls = RE_END_CLASS.search(line)
+        if cls:
+            end_classes[cls.group(1)] = cls.group(2)
         for phase, pattern in (("dispatch", RE_DISPATCH), ("begin", RE_BEGIN),
                                ("end", RE_END)):
             match = pattern.search(line)
@@ -72,7 +80,15 @@ def check_a8_lines(lines, require: bool = False) -> dict:
         if row["dispatch"] != 1:
             violations.append(
                 f"req={req}: {row['dispatch']} dispatch lines (expected exactly 1)")
-        if row["begin"] < 1:
+        end_cls = end_classes.get(req, "")
+        if end_cls in NO_BEGIN_CLASSES:
+            # busy/cap: the governor denied the turn before any
+            # generation started - dispatch + end only, never a begin
+            if row["begin"] != 0:
+                violations.append(
+                    f"req={req}: begin line on a {end_cls}-class turn "
+                    "(expected dispatch+end only)")
+        elif row["begin"] < 1:
             violations.append(f"req={req}: no begin line (expected >=1)")
         if row["end"] != 1:
             violations.append(f"req={req}: {row['end']} end lines (expected exactly 1)")

@@ -1574,3 +1574,81 @@ law wins over the plan's recipe detail; the 0413 precedent).
 - Suite: **8 failed (pre-existing set), 594 passed, 4 skipped**; gradle
   testDebugUnitTest + detekt green; check_repo/check_sources OK;
   null-guard 9/9 after --write-lockfiles.
+## Round 1 fix batch (§15 review gate): 13 MAJOR findings fixed, one commit
+
+Round 1 of the §15 gate returned 2/8 PASS (R6, R8) with 14 MAJOR
+findings across R1/R2/R3/R4/R5/R7 (one shared: InteractiveBudgetAdmits
+dead code, found independently by R1 and R7). All fixed:
+
+- **A7.1 wired (R1#1/R7#1)**: InteractiveBudgetAdmits now bounds every
+  real-player interactive cloud turn inside Generate (speakerGuid is
+  the real player on CHAT_REPLY turns; autonomous turns pass 0 and
+  stay arbiter-owned); exhaustion returns the busy marker (the
+  duty-cycle persona-line shape), logged class=busy. Pins: the wiring,
+  the interactive-exempt-from-the-ambient-arbiter law, the 0-disables +
+  device-lane-early-true semantics.
+- **A7.3 wired (R1#2)**: BotToBotAdmits (daily quota via
+  CloudQuotaAdmits("bot2bot") + a 3-consecutive-autonomous-lines depth
+  cap per bot, reset by NoteBotPlayerInteraction stamped beside the
+  say-path player-interaction stamp) ANDed into the autonomous arm of
+  ALL FOUR chance sites (SayToGuild/Yell/Say/SayToParty; likePlayer
+  sends un-gated; four new driver anchors, the three byte-identical
+  sites chained in file order). Device lane self-gates true
+  (byte-identity law). Pins for the wiring + semantics.
+- **Consume-not-copy (R1#3)**: ContainsNameIgnoreCase replaces the
+  substring icontains at the say gate (the word-boundary name law -
+  "Varleigha" no longer arms Varleigh's trigger); ReplyGateAllowed
+  folds the strategy gate; ClassifyGeneration decides the say-path
+  response classification; StreetAdmissionOrder names the street
+  ladder's verdict with stage resolution kept lazy (quota spends only
+  after the pct roll hits). Pin: every declared helper consumed, no
+  inlined equivalent remains.
+- **A8 cap class reaches the log (R2#1)**: genClass consults the
+  transport note on EVERY outcome (a cap rejection returns an empty
+  body - the note is the only signal separating it from a clean-empty
+  reply); the fail-quiet arm logs the noted class. Pinned.
+- **§0.c.5 pin (R2#2)**: no emission surface (device/debug/external)
+  ever wires LLMPromptDumpFile - gradle pin.
+- **E1 lint un-corrupted (R3#1)**: the chat-acronym lint's \b escapes
+  were literal backspace bytes (the heredoc gotcha) - restored; the
+  corpus re-verified clean.
+- **C2 voiced_at landed (R4#1)**: the newest-6 PQuery selects
+  voiced_at, voiced rows lazy-seed InitiatedFactIds (no boot scan, no
+  backfill), and the delivery block stamps it (exactly one stamp site,
+  after the in-process set, before the Say) - debt/goal initiations no
+  longer re-fire after restart. Pins added.
+- **Key parity 9/9 + T0.5 gate (R5#1)**: LLMPartyReplyEnabled joined
+  CloudLaneConf (native default 0 = self-describing emission); the T0.5
+  gate authored as tests/test_llm_key_parity.py - the cloud-lane family
+  emitted whole, a FROZEN 31-key documented conf-internal set (§0.12
+  rationale per class), and no orphan LLM-family emission (Kotlin
+  string literals state-machine-parsed).
+- **A7.6 device leak-proof pins (R5#2)**: every tier ctx < 65536
+  (named constant), device + debug blocks never emit LLMProviderSafe,
+  external block always emits = 1 - gradle pins.
+- **Budget-0 exempt law pinned (R7#2)** and the **trade deed farm law
+  fixed (R7#3)**: AddBoundedSentimentInput returns its admission
+  verdict; the deed rides it - N trades in 60 s award exactly ONE deed
+  (the deed stays clamp-exempt and cap-free). Pins updated
+  equal-or-stronger.
+- **A8 tautology + post-pass (R7#4/R7#5)**: the `or True` clause
+  replaced by a fixed-field allowlist over every BotLLM: literal;
+  check_a8_lines is class-aware (busy/cap turns are the pinned
+  dispatch+end-only shape - no begin) with new harness tests.
+
+MINORs fixed: NOBLE seasoning row swap (two rogue-voiced phrases moved
+to ROGUEISH, two new noble lines, shape 4x12 kept, FNV golden
+unchanged - kill-pool-only); manifest source_commits refreshed to
+7e2cd2fb + arm64 staging restaged (0414.sqlz now present) +
+PROVENANCE/baseline re-pinned through the seeder's own fail-close;
+stale 412/413-entry docstrings -> 414; DEVICE_QUALIFICATION_CHECKLIST
+refreshed (E1/E2 landed; device-gated residue: seed re-capture,
+downgrade drill + release-note string, the R6 promote/gate race
+observation); TLS floor doc now says the kill-switch restores the
+UNVERIFIED handshake, not the protocol floor.
+
+Suite after the batch: **8 failed (the documented pre-existing set),
+610 passed, 4 skipped**; gradle testDebugUnitTest + detekt green (no
+baseline regen needed this time); check_repo/check_sources OK;
+null-guard 9/9 after --write-lockfiles; materialize_anchors replays
+153 ops with no drift.

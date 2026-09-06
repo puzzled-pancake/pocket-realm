@@ -1172,7 +1172,7 @@ void PlayerbotLlmMemory::AddRelationshipPoints(Player* bot, Player* player, int3
         bot->GetGUIDLow(), player->GetGUIDLow(), points, points);
 }
 
-void PlayerbotLlmMemory::AddBoundedSentimentInput(uint32 bot, uint32 player, int32 clampedDelta,
+bool PlayerbotLlmMemory::AddBoundedSentimentInput(uint32 bot, uint32 player, int32 clampedDelta,
     std::string const& reason)
 {
     if (clampedDelta > 2)
@@ -1186,7 +1186,7 @@ void PlayerbotLlmMemory::AddBoundedSentimentInput(uint32 bot, uint32 player, int
         std::lock_guard<std::mutex> lock(StateMutex());
         std::map<uint64, time_t>& rate = SentimentRate();
         if (rate.find(key) != rate.end() && now - rate[key] < 60)
-            return; // rate-limited: one bounded input per (bot, player) per minute
+            return false; // rate-limited: one bounded input per (bot, player) per minute
         rate[key] = now;
     }
 
@@ -1218,6 +1218,7 @@ void PlayerbotLlmMemory::AddBoundedSentimentInput(uint32 bot, uint32 player, int
                             StripAstral(reason)).c_str()), 200)).c_str());
             }
         }
+    return true;
 }
 
 std::string PlayerbotLlmMemory::GetAbsenceBucket(Player* bot, Player* player)
@@ -2034,16 +2035,18 @@ void PlayerbotLlmMemory::OnTradeCompleted(Player* accepter, Player* initiator)
     // a real->bot trade is a bounded kindness: the +1 tone row also
     // resolves any standing grudge (the newest opinion row turns
     // positive) - the W4 refusal lifts with it
-    AddBoundedSentimentInput(bot->GetGUIDLow(), real->GetGUIDLow(), 1,
-        std::string("traded fairly with ") + bot->GetName());
-    // C6: the trade deed - the bounded tone row above reuses the 60 s
-    // SentimentRate admission (the anti-farm gate for N trades in a
-    // minute); the deed delta itself is EXEMPT from the +-2 clamp by
-    // living here, outside AddBoundedSentimentInput, and never consumes
-    // the per-pairing daily cap (trades are already scarce)
-    if (uint32 const deed = sPlayerbotAIConfig.llmDeedPointsTrade)
-        AddRelationshipPoints(bot, real,
-            sPlayerbotAIConfig.llmTurnAwardWeighting ? (int32)deed : 1);
+    bool const sentimentAdmitted = AddBoundedSentimentInput(bot->GetGUIDLow(),
+        real->GetGUIDLow(), 1, std::string("traded fairly with ") + bot->GetName());
+    // C6 (round-1 R7#3): the trade deed rides the SAME 60 s
+    // SentimentRate admission as the tone row - N completed trades in a
+    // minute award exactly ONE deed (the farm law). The deed delta
+    // itself stays EXEMPT from the +-2 clamp by living here, outside
+    // AddBoundedSentimentInput, and never consumes the per-pairing
+    // daily cap (trades are already scarce)
+    if (sentimentAdmitted)
+        if (uint32 const deed = sPlayerbotAIConfig.llmDeedPointsTrade)
+            AddRelationshipPoints(bot, real,
+                sPlayerbotAIConfig.llmTurnAwardWeighting ? (int32)deed : 1);
 
     // debt settlement: money TO the bot retires the newest unresolved
     // debt row (the reminder engine reads by class, so the row must go,
@@ -2573,25 +2576,40 @@ bool PlayerbotLlmMemory::QueueStreetReaction(Player* bot, Player* speaker,
     // the ladder, in the pinned order: world/zone window claim ->
     // per-bot slot -> pct roll -> daily quota -> dispatch. Any rejection
     // falls to the emote; quota exhaustion is emote-only, symmetric
-    // with pct = 0.
+    // with pct = 0. A6 consume (round-1 R1#3): the stages resolve lazily
+    // IN ORDER (a rejected claim must not burn the later stages - the
+    // quota only spends on a live dispatch), and the pure
+    // StreetAdmissionOrder fold names the verdict so the runtime order
+    // IS the host-pinned order.
     time_t const now = time(nullptr);
     uint32 const areaId = bot->GetAreaId();
+    bool worldWindowClaimed = true;
+    bool botSlotFree = true;
     {
         std::lock_guard<std::mutex> lock(StateMutex());
         if (LastCrowdEmoteAt() && now - LastCrowdEmoteAt() < 12)
-            return false;                       // reject:world-window
-        time_t& lastInArea = LastStreetSayAt()[areaId];
-        if (lastInArea && now - lastInArea < STREET_ZONE_WINDOW_SEC)
-            return false;                       // reject:zone-window
-        time_t& lastForBot = StreetSlotAt()[bot->GetGUIDLow()];
-        if (lastForBot && now - lastForBot < STREET_BOT_INTERVAL_SEC)
-            return false;                       // reject:bot-slot
+            worldWindowClaimed = false;         // reject:world-window
+        else
+        {
+            time_t& lastInArea = LastStreetSayAt()[areaId];
+            if (lastInArea && now - lastInArea < STREET_ZONE_WINDOW_SEC)
+                worldWindowClaimed = false;     // reject:zone-window
+        }
+        if (worldWindowClaimed)
+        {
+            time_t& lastForBot = StreetSlotAt()[bot->GetGUIDLow()];
+            if (lastForBot && now - lastForBot < STREET_BOT_INTERVAL_SEC)
+                botSlotFree = false;            // reject:bot-slot
+        }
     }
-    if (!sPlayerbotAIConfig.llmCloudStreetSayPct ||
-        urand(0, 99) >= sPlayerbotAIConfig.llmCloudStreetSayPct)
-        return false;                           // reject:pct-roll
-    if (!CloudQuotaAdmits("street", sPlayerbotAIConfig.llmStreetSayPerDay))
-        return false;                           // reject:quota
+    bool const pctRollHit = worldWindowClaimed && botSlotFree &&
+        sPlayerbotAIConfig.llmCloudStreetSayPct &&
+        urand(0, 99) < sPlayerbotAIConfig.llmCloudStreetSayPct;
+    bool const quotaAdmits = pctRollHit &&
+        CloudQuotaAdmits("street", sPlayerbotAIConfig.llmStreetSayPerDay);
+    if (PlayerbotLlmGates::StreetAdmissionOrder(worldWindowClaimed,
+            botSlotFree, pctRollHit, quotaAdmits) != "dispatch")
+        return false;
     {
         // stamps land only on a confirmed dispatch (a rejected claim
         // must not burn the windows in silence - the kill-banter law);
@@ -3040,41 +3058,52 @@ void PlayerbotLlmMemory::TickInitiative(Player* bot)
     {
         uint64 const key = InitiativeKey(bot->GetGUIDLow(), player->GetGUIDLow());
         auto result = CharacterDatabase.PQuery(
-            "SELECT `id`, `fact_text`, `category` FROM `bot_player_facts` WHERE `bot` = '%u' AND `player` = '%u' "
+            "SELECT `id`, `fact_text`, `category`, `voiced_at` FROM `bot_player_facts` WHERE `bot` = '%u' AND `player` = '%u' "
             "ORDER BY `id` DESC LIMIT 6",
             bot->GetGUIDLow(), player->GetGUIDLow());
         if (!result)
             continue;
-        std::vector<std::pair<uint32, std::pair<std::string, std::string>>> rows;
+        struct FactRow { uint32 id; std::string text; std::string category; bool voiced; };
+        std::vector<FactRow> rows;
         do
         {
             Field* fields = result->Fetch();
-            rows.push_back(std::make_pair(fields[0].GetUInt32(),
-                std::make_pair(fields[1].GetString(), fields[2].GetString())));
+            rows.push_back(FactRow{fields[0].GetUInt32(), fields[1].GetString(),
+                fields[2].GetString(), !fields[3].IsNULL()});
         } while (result->NextRow());
+        // C2 (round-1 R4#1): the lazy per-pair seed - a row whose
+        // voiced_at is set already had its one initiation in a previous
+        // process (NULL = never voiced; no backfill: historical rows
+        // keep today's per-process behavior). No boot-time scan.
+        {
+            std::lock_guard<std::mutex> lock(StateMutex());
+            for (FactRow const& row : rows)
+                if (row.voiced)
+                    InitiatedFactIds()[key].insert(row.id);
+        }
 
         std::string line;
         uint32 usedFactId = 0;
         // one tier read per player per scan (the per-row
         // GetTrainedTier re-query was the one wasteful shape in the scan)
         int const playerTier = GetTrainedTier(bot, player);
-        for (auto const& row : rows)
+        for (FactRow const& row : rows)
         {
-            std::string const& text = row.second.first;
+            std::string const& text = row.text;
             if (text.rfind("(tone", 0) == 0)
                 continue;
-            int const cls = pocketllm::FactClassOf(text, row.second.second);
+            int const cls = pocketllm::FactClassOf(text, row.category);
             if (cls == pocketllm::FACT_DEBT)
             {
                 line = pocketllm::DebtReminderLine(player->GetName(),
                     pocketllm::MoneyPhrase(text));
-                usedFactId = row.first;
+                usedFactId = row.id;
                 break;
             }
             if (cls == pocketllm::FACT_GOAL && playerTier >= 3)
             {
                 line = pocketllm::GoalAskAfterLine(player->GetName(), text);
-                usedFactId = row.first;
+                usedFactId = row.id;
                 break;
             }
         }
@@ -3091,6 +3120,13 @@ void PlayerbotLlmMemory::TickInitiative(Player* bot)
             std::lock_guard<std::mutex> lock(StateMutex());
             InitiatedFactIds()[key].insert(usedFactId);
         }
+        // C2: the durable half - exactly one stamp site, at the
+        // delivery block where the fact id is in hand synchronously
+        // (never at enqueue on delayed paths). Debt/goal initiations
+        // no longer re-fire after a restart.
+        CharacterDatabase.PExecute(
+            "UPDATE `bot_player_facts` SET `voiced_at` = '%u' WHERE `id` = '%u'",
+            (uint32)time(nullptr), usedFactId);
         bot->Say(line, LANG_UNIVERSAL);
         AppendTurn(bot->GetGUIDLow(),
             0x80000000u | static_cast<uint32>(ChatChannelSource::SRC_SAY), true,
@@ -3339,6 +3375,19 @@ static std::map<uint32, std::pair<int64_t, uint32>>& InteractiveBudgetUsed()
     return instance;
 }
 
+// A7.3 (round-1 R1#2): the bot2bot depth ledger - bot guid ->
+// consecutive autonomous lines since the last real-player
+// conversational trigger reached that bot
+static std::map<uint32, uint32>& BotToBotConsecutive()
+{
+    static std::map<uint32, uint32> instance;
+    return instance;
+}
+
+// the autonomous-exchange depth law: at most this many consecutive
+// bot2bot lines per bot between real-player interactions
+uint32 const BOT2BOT_MAX_CONSECUTIVE = 3;
+
 // plan v5 C5: the dossier's 7-day gate, per player (a per-day quota
 // cannot express weekly; a process-local stamp is honest about what a
 // restart resets)
@@ -3439,6 +3488,38 @@ bool PlayerbotLlmMemory::InteractiveBudgetAdmits(uint32 playerGuid)
         return false;
     ++used.second;
     return true;
+}
+
+// A7.3 (round-1 R1#2 wiring): bot2bot containment - the tier-II daily
+// quota (CloudQuotaAdmits surface, realm-global, process-local,
+// 0 = surface off) AND the autonomous-exchange depth cap. The chance
+// sites broadcast (no single peer guid is threaded through them), so
+// the depth counter is per BOT: at most 3 consecutive autonomous lines
+// between real-player interactions - for the dominant two-bot reply
+// loop this bounds the exchange and kills the only self-amplifying
+// lane. Device lane: unchanged (the authored-lines ceiling stays its
+// only bound; the 0.13 mirror-case byte-identity law).
+bool PlayerbotLlmMemory::BotToBotAdmits(uint32 botGuid)
+{
+    if (!ExternalApiTierActive())
+        return true;
+    // quota first (it takes StateMutex itself - no lock may be held here)
+    if (!CloudQuotaAdmits("bot2bot", sPlayerbotAIConfig.llmBotToBotPerDay))
+        return false;
+    std::lock_guard<std::mutex> lock(StateMutex());
+    uint32& depth = BotToBotConsecutive()[botGuid];
+    if (depth >= BOT2BOT_MAX_CONSECUTIVE)
+        return false;
+    ++depth;
+    return true;
+}
+
+// the reset half of the depth law: a real player's conversational
+// trigger reaching this bot clears its autonomous-exchange depth
+void PlayerbotLlmMemory::NoteBotPlayerInteraction(uint32 botGuid)
+{
+    std::lock_guard<std::mutex> lock(StateMutex());
+    BotToBotConsecutive().erase(botGuid);
 }
 
 bool PlayerbotLlmMemory::CloudQuotaAdmits(char const* surface, uint32 perDay)

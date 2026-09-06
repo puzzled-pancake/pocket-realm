@@ -416,6 +416,58 @@ class LlmRuntimePolicyTest {
     }
 
     @Test
+    fun cloudTierGroundCannotLeakOntoTheDeviceLane() {
+        // A7.6's leak-proof pins: ExternalApiTierActive() (the 0.13
+        // conjunction ground) requires LLMProviderSafe AND ctx >= 65536.
+        // Every device tier stays under the cloud ctx floor, the device
+        // and debug blocks never emit the key, and the external block
+        // always emits it as 1 - no device emission can open the cloud
+        // lane, and no cloud emission can carry a stale provider flag.
+        for (descriptor in LlmModelRegistry.all) {
+            assertTrue(
+                "tier ${descriptor.id} ctx ${descriptor.tierProfile.contextLength} " +
+                    "crosses the cloud floor",
+                descriptor.tierProfile.contextLength < CLOUD_TIER_MIN_CTX,
+            )
+        }
+        assertFalse(
+            LlmRuntimePolicy.confBlock(llmEnabled = true)!!.contains("LLMProviderSafe"),
+        )
+        val debugBlock = ServerRuntimeFiles.llmOverrides(
+            uiEnabled = false,
+            modelPresent = true,
+            modelAbsolutePath = "/data/models/qwen.gguf",
+            debugBuild = true,
+        )!!
+        assertFalse(debugBlock.contains("LLMProviderSafe"))
+        val external = LlmRuntimePolicy.confBlockExternal(
+            "https://api.example.com/v1/chat/completions", "m", "k",
+        )!!
+        assertTrue(external.contains("AiPlayerbot.LLMProviderSafe = 1"))
+    }
+
+    @Test
+    fun noEmissionSurfaceEverWiresThePromptDumpFile() {
+        // 0.c.5: LLMPromptDumpFile writes full prompts (facts + verbatim
+        // history) to a plaintext file - the app must never emit it on
+        // any lane (device, debug in-process, or external).
+        assertFalse(
+            LlmRuntimePolicy.confBlock(llmEnabled = true)!!.contains("LLMPromptDumpFile"),
+        )
+        val debugBlock = ServerRuntimeFiles.llmOverrides(
+            uiEnabled = false,
+            modelPresent = true,
+            modelAbsolutePath = "/data/models/qwen.gguf",
+            debugBuild = true,
+        )!!
+        assertFalse(debugBlock.contains("LLMPromptDumpFile"))
+        val external = LlmRuntimePolicy.confBlockExternal(
+            "https://api.example.com/v1/chat/completions", "m", "k",
+        )!!
+        assertFalse(external.contains("LLMPromptDumpFile"))
+    }
+
+    @Test
     fun externalEndpointPortMustBeARealPort() {
         // G3/0.c.3: a huge or non-numeric port literal is rejected here
         // (out of the UI entirely). The native parseUrl's std::stoi throws
@@ -580,5 +632,11 @@ class LlmRuntimePolicyTest {
         assertNull(LlmRuntimePolicy.confBlockExternal(null, "m", ""))
         assertNull(LlmRuntimePolicy.confBlockExternal(endpoint, null, ""))
         assertNull(LlmRuntimePolicy.confBlockExternal(endpoint, "m", null))
+    }
+
+    companion object {
+        // ExternalApiTierActive()'s ctx floor (the 0.13 conjunction
+        // ground): every device tier must stay strictly under it.
+        private const val CLOUD_TIER_MIN_CTX = 65536
     }
 }

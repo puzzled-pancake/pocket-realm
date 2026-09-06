@@ -308,11 +308,34 @@ unlocked by setting `POCKET_REALM_G1_DEVICE` to the device serial):
   (1250/16/8%) and ALIVE_REALM_320 (1500/18/15%) tuples commit only
   with the on-device benchmark artifact attached; no device in the
   authoring session.
-- **E1 pool-target authoring tranches** — authoring-tranche size vs
-  session budget: E0's 96 lines landed; the ~1,100-line E1 target
-  (greet/busy/silence/idle/floor/kill/condolence expansions) queues
-  behind dedicated authoring sessions.
-- **E2 texts.sql register audit** — authoring-tranche size vs session
-  budget plus lane-4 mechanics (playerbots submodule commit + the
-  sqlite-seed escape-count/digest re-pins the plan names); batched with
-  E1 to share the one submodule bump.
+
+### Landed since the last refresh (2026-09-06, review round 1)
+
+- **E1 pool targets** — landed host-side (commit 21d7614): the 1,090-line
+  corpus (greet 330 / busy 132 / silence 104 / idle 190 / kill 142 /
+  floor 120 / cheer 24 / seasoning 48) with the register-lint and
+  FNV-golden pins. On-device verification of the authored voice quality
+  rides the T3 welcome/journal steps below.
+- **E2 texts.sql register audit** — landed host-side (commit b3bef5f):
+  the 0414 append-only tail migration (30 idempotent row-content
+  UPDATEs; texts.sql byte-identical to the shipped 0394 entry) plus six
+  GuildManagement inline-literal fixes (submodule 7e2cd2fb).
+
+### Device-gated residue (first device session must close these)
+
+- **Seed-augment re-capture after 0414** — PROVENANCE.json carries the
+  host-side revalidation (0414 is text-row DML only; the equip/rnditem
+  capture is semantically unaffected), but a full re-capture from a
+  fresh first-boot lane run remains the durable fix; re-pin
+  `manifest_sha256` + `--write-baseline` when taken.
+- **0413/0414 downgrade fail-close drill** — after 0413, APK downgrade
+  fails closed (`DB-REVISION`); the only paths are stay-on-new or
+  reinstall (data loss). Run the drill on-device once; the release
+  notes must carry the string: "After this update, returning to an
+  older app version requires a full reinstall (realm data is lost)."
+- **First-promote/stop gate interleaving (round-1 R6 observation)** — a
+  first-ever promote intent queued behind a stop/save verb holding the
+  admission-transition gate could delay `startForeground()` past the
+  5 s contract. The demanded fence (startForeground-first +
+  stopAccepted) is implemented; observe one real promote/stop race on
+  device before closing.

@@ -1818,6 +1818,21 @@ std::string PlayerbotLLMInterface::Generate(const std::string& prompt, uint32 bo
         return source == PlayerbotLlamaRuntime::LLM_SRC_RPG_CHAT ? std::string() : std::string(POCKETREALM_LLM_BUSY);
     }
 
+    // A7.1 tier I (round-1 R1#1 wiring): interactive turns - a real
+    // player's whisper, addressed say, or party-responder reply - are
+    // exempt from the ambient arbiter and ride their own per-player
+    // hourly budget instead, bounded HERE (speakerGuid is the real
+    // player on every CHAT_REPLY turn; autonomous turns pass 0 and stay
+    // arbiter-owned). The helper self-gates to the cloud lane, so the
+    // device lane is byte-identical. Exhaustion is a duty-cycle-class
+    // denial - the persona busy line, exactly the governor's shape.
+    if (source == PlayerbotLlamaRuntime::LLM_SRC_CHAT_REPLY && speakerGuid &&
+        !PlayerbotLlmMemory::InteractiveBudgetAdmits(speakerGuid))
+    {
+        logEnd("busy");
+        return std::string(POCKETREALM_LLM_BUSY);
+    }
+
     // A8: the begin line sits after the governor (a denied turn logs
     // dispatch + end only - no generation ever started)
     sLog.outBasic("BotLLM: gen begin req=%llu bot=%u lane=%s",
@@ -1884,9 +1899,12 @@ std::string PlayerbotLLMInterface::Generate(const std::string& prompt, uint32 bo
     // A8 classification precedence: a transport-noted class (http_%d /
     // timeout / cap) outranks the shape classes; "error" is the bare
     // transport failure, "empty" a clean reply with nothing voicable.
-    std::string const genClass = httpBody == "error"
-        ? (pocketllm::GenClassNote().empty() ? std::string("error") : pocketllm::GenClassNote())
-        : std::string("ok");
+    // The note is consulted on EVERY outcome (round-1 R2#1): a cap
+    // rejection returns an empty body, and the note is the only signal
+    // separating it from a clean-but-empty reply.
+    std::string const genClass = !pocketllm::GenClassNote().empty()
+        ? pocketllm::GenClassNote()
+        : (httpBody == "error" ? std::string("error") : std::string("ok"));
     pocketllm::CompletionEnvelope envelope = pocketllm::ParseCompletionEnvelope(httpBody);
     if (!envelope.parsed)
     {
@@ -1900,7 +1918,7 @@ std::string PlayerbotLLMInterface::Generate(const std::string& prompt, uint32 bo
         {
             if (!debugLines.empty())
                 debugLines.push_back("response carries no voicable text - staying quiet");
-            logEnd(httpBody == "error" ? genClass.c_str() : "empty");
+            logEnd(genClass != "ok" ? genClass.c_str() : "empty");
             return std::string();
         }
         // A0: the HTTP branch runs the SAME tool extraction the in-process
@@ -2026,9 +2044,16 @@ PB_SAY_GEN_DEF_ANDROID = """delayedPackets ChatReplyAction::GenerateResponsePack
     // governor busy placeholder: player-visible feedback instead of a silent
     // queue; the autonomous RPG path never gets here (it returns empty).
     // Captured BEFORE the substitution so the recorder below can tell the
-    // placeholder apart from a genuine generation.
+    // placeholder apart from a genuine generation. A8 consume (round-1
+    // R1#3): the busy/error/empty fold runs through the pure
+    // ClassifyGeneration helper - one classification authority, pinned
+    // host-side (linesEmpty resolves later at the recorder; here the
+    // raw turn class decides).
     bool const busyReply = response == POCKETREALM_LLM_BUSY;
-    if (busyReply)
+    std::string const turnClass = PlayerbotLlmGates::ClassifyGeneration(
+        busyReply, response == "error" ? std::string("error") : std::string(),
+        response.empty(), /*linesEmpty=*/false);
+    if (turnClass == "busy")
     {
         // M6: the busy placeholder is drawn from the banter core's POOL_BUSY
         // recency ring (per-bot, novelty-weighted, tic-seasoned) instead of
@@ -2036,7 +2061,7 @@ PB_SAY_GEN_DEF_ANDROID = """delayedPackets ChatReplyAction::GenerateResponsePack
         // configured LLMBusyReply conf line if a draw ever fails.
         response = PlayerbotLlmPersona::BusyReply(botGuid);
     }
-    else if (response == "error" || response.empty())
+    else if (turnClass != "ok")
     {
         // a hard backend failure never reaches the player as a literal
         // "error" - the bot stays silent rather than break character
@@ -2057,7 +2082,7 @@ PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBacken
     // non-trigger, not a low-priority one. Case-insensitive: players
     // routinely type bot names in lowercase, and a dropped trigger is
     // silent (canned fallback).
-    bool addressedToBot = !msg.empty() && boost::algorithm::icontains(msg, bot->GetName());
+    bool addressedToBot = PlayerbotLlmGates::ContainsNameIgnoreCase(msg, bot->GetName());
     // resolved here (not inside the gated block) so the say trigger can
     // require a real player without touching the later `player` declaration
     Player* gateSpeaker = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, guid1));
@@ -2105,7 +2130,12 @@ PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBacken
     // delivery pauses around the player's own words (the global set
     // piece is exempt - general chat is not the player's channel).
     if (hardTriggerAllowed && gateSpeaker && gateSpeaker->isRealPlayer())
+    {
         PlayerbotLlmChatter::NotePlayerInteraction(gateSpeaker->GetGUIDLow());
+        // A7.3: the same real-player trigger resets this bot's
+        // autonomous-exchange depth (bot2bot containment)
+        PlayerbotLlmMemory::NoteBotPlayerInteraction(bot->GetGUIDLow());
+    }
 
     // plan v5 C3: the roundtable row + A3's exactly-one responder - a
     // real master's PARTY line is
@@ -2170,13 +2200,21 @@ PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBacken
         }
     }
 
-    // A1: the cloud lane widens the strategy gate (CloudLaneOpen() is the
-    // key AND tier conjunction - llmEnabled == 2 + strategy stays today's
-    // external behavior byte-for-byte; == 3 stays the hand-conf lane).
-    // A3: the responder claim ANDs in here - it starts true and only the
-    // unaddressed cloud party leg can clear it, so the addressed,
-    // whisper and say paths never consult the claim
-    if (bot->GetPlayerbotAI() && sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed && partyResponderClaimed && (bot->GetPlayerbotAI()->HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3 || CloudLaneOpen()) && chatChannelSource != ChatChannelSource::SRC_UNDEFINED && sPlayerbotAIConfig.llmBlockedReplyChannels.find(chatChannelSource) == sPlayerbotAIConfig.llmBlockedReplyChannels.end()
+    // A1 consume (round-1 R1#3): the strategy gate folds through the
+    // pure reply-gate helper - the ==3 hand-conf lane and the ==2 +
+    // strategy leg are today's external behavior byte-for-byte, the
+    // cloud arm is the conjunction-keyed widening; blocked-channel
+    // membership resolves here (the set is state, the verdict is pure).
+    // A3: the responder claim ANDs in beside it - it starts true and
+    // only the unaddressed cloud party leg can clear it, so the
+    // addressed, whisper and say paths never consult the claim
+    bool const replyGateAllowed = bot->GetPlayerbotAI() &&
+        PlayerbotLlmGates::ReplyGateAllowed(
+            static_cast<uint32>(chatChannelSource), sPlayerbotAIConfig.llmEnabled,
+            bot->GetPlayerbotAI()->HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT),
+            CloudLaneOpen(),
+            sPlayerbotAIConfig.llmBlockedReplyChannels.find(chatChannelSource) != sPlayerbotAIConfig.llmBlockedReplyChannels.end());
+    if (sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed && partyResponderClaimed && replyGateAllowed
         )
 """
 PB_SAY_PROMPT_UPSTREAM = """                for (auto& prompt : jsonFill)
@@ -2886,6 +2924,7 @@ PB_IFACE_INCLUDE_ANDROID = """#include "PlayerbotTextMgr.h"
 #include "PlayerbotLlmToolsCore.h"
 #include "PlayerbotLlmFilters.h"
 #include "PlayerbotLlmBridge.h"
+#include "PlayerbotLlmMemory.h"
 #include <atomic>
 #include <cctype>
 #include <chrono>
@@ -3688,9 +3727,10 @@ PB_LLM_CONF_ANDROID = """# Time in seconds the server will wait for the generati
 # G3: TLS verification for the external HTTPS endpoint. 1 (default) =
 # verify the server certificate against the staged CA bundle (fallback:
 # the Android system store) and pin the hostname; TLS 1.2 floor. 0
-# restores the unverified handshake for self-signed LAN endpoints -
-# http:// endpoints are unaffected either way (the Bearer key already
-# rides those in cleartext; the app's normalizer warns about them).
+# restores the unverified handshake (no peer/hostname check) for
+# self-signed LAN endpoints - the TLS 1.2 protocol floor itself stays
+# unconditional. http:// endpoints are unaffected either way (the Bearer
+# key already rides those in cleartext; the app's normalizer warns).
 # AiPlayerbot.LLMTLSVerify = 1
 # The CA bundle the app stages next to the conf (absolute path; empty =
 # system store fallback).
@@ -3746,8 +3786,10 @@ PB_IFACE_TLSCTX_ANDROID = """        SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | 
         // G3: TLS 1.2 floor + verified chain. The CA material comes from
         // the app-staged Mozilla bundle (LLMTLSCaFile absolute path);
         // an empty/unloadable bundle falls back to the system store.
-        // LLMTLSVerify = 0 keeps today's handshake byte-for-byte for
-        // self-signed LAN endpoints.
+        // LLMTLSVerify = 0 restores today's UNVERIFIED handshake for
+        // self-signed LAN endpoints (no peer/hostname check); the
+        // TLS 1.2 floor itself is unconditional - a protocol-floor
+        // exception is not part of the kill-switch's contract.
         SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
         if (sPlayerbotAIConfig.llmTlsVerify)
         {
@@ -4246,6 +4288,27 @@ PB_AI_INCLUDE_ANDROID = """#include "PlayerbotDbStore.h"
 #include "PlayerbotLlmMemory.h"
 #include "PlayerbotLlmPersona.h"
 #include "PlayerbotLlmTools.h"
+"""
+# A7.3 (round-1 R1#2 wiring): bot2bot containment at the four chance
+# sites (SayToGuild/Yell/Say/SayToParty). likePlayer sends stay
+# un-gated - the containment rides the autonomous arm only. Site 1 is
+# the deep-indent SayToGuild block (unique); the other three sites are
+# byte-identical, so three chained anchors with the same UPSTREAM walk
+# them in file order (replace_anchor consumes the first remaining
+# occurrence each time - deterministic on the pristine copy).
+PB_AI_B2B_GUILD_UPSTREAM = """                    if (likePlayer || (sPlayerbotAIConfig.llmEnabled > 0 && (HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3) &&
+                        sPlayerbotAIConfig.llmBotToBotChatChance))
+"""
+PB_AI_B2B_GUILD_ANDROID = """                    if (likePlayer || (sPlayerbotAIConfig.llmEnabled > 0 && (HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3) &&
+                        sPlayerbotAIConfig.llmBotToBotChatChance &&
+                        PlayerbotLlmMemory::BotToBotAdmits(bot->GetGUIDLow())))
+"""
+PB_AI_B2B_SITE_UPSTREAM = """    if (likePlayer || (sPlayerbotAIConfig.llmEnabled > 0 && (HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3) &&
+        sPlayerbotAIConfig.llmBotToBotChatChance))
+"""
+PB_AI_B2B_SITE_ANDROID = """    if (likePlayer || (sPlayerbotAIConfig.llmEnabled > 0 && (HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3) &&
+        sPlayerbotAIConfig.llmBotToBotChatChance &&
+        PlayerbotLlmMemory::BotToBotAdmits(bot->GetGUIDLow())))
 """
 PB_MGR_LOGIN_ANDROID = """void RandomPlayerbotMgr::OnBotLoginInternal(Player * const bot)
 {
@@ -4909,6 +4972,13 @@ def prepare_cmangos_source() -> None:
     replace_anchor(bot_root / "PlayerbotAI.h", PB_AI_DIALOGUE_RECHECK_UPSTREAM, PB_AI_DIALOGUE_RECHECK_ANDROID)
     replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_PRIORITY_DIALOGUE_UPSTREAM, PB_AI_PRIORITY_DIALOGUE_ANDROID)
     replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_BRACKET_DIALOGUE_UPSTREAM, PB_AI_BRACKET_DIALOGUE_ANDROID)
+    # A7.3 bot2bot containment (round-1 R1#2): the unique SayToGuild
+    # site first, then the three byte-identical sites chained in file
+    # order (each anchor consumes the next remaining pristine block)
+    replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_B2B_GUILD_UPSTREAM, PB_AI_B2B_GUILD_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_B2B_SITE_UPSTREAM, PB_AI_B2B_SITE_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_B2B_SITE_UPSTREAM, PB_AI_B2B_SITE_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_B2B_SITE_UPSTREAM, PB_AI_B2B_SITE_ANDROID)
     replace_anchor(bot_root / "aiplayerbot.conf.dist.in", PB_LLM_CONF_UPSTREAM, PB_LLM_CONF_ANDROID)
     # Writer migration: the manual NPC-chat debug store moves from the
     # cross-bot global key to a per-(bot,target) key so no old-format writer

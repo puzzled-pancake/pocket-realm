@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seed the four SQLite realm databases from the PINNED 412-entry
+"""Seed the four SQLite realm databases from the PINNED 414-entry
 migration manifest.
 
 Single source of truth: schemas/database-migrations.json — the same

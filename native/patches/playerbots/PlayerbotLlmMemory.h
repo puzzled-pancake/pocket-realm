@@ -81,7 +81,7 @@ public:
     static int GetTrainedTier(Player* bot, Player* player);
     static void AddRelationshipPoints(Player* bot, Player* player, int32 points);
     // bounded input for conversational tone (tool adjust_sentiment)
-    static void AddBoundedSentimentInput(uint32 bot, uint32 player, int32 clampedDelta, std::string const& reason);
+    static bool AddBoundedSentimentInput(uint32 bot, uint32 player, int32 clampedDelta, std::string const& reason);
 
     // wall-clock-aware greeting bucket: "short"/"medium"/"long" absence
     static std::string GetAbsenceBucket(Player* bot, Player* player);
@@ -206,6 +206,14 @@ public:
     // always admitted; the budget bounds the sustained rate). Device
     // lane: unbounded here (the governor is the only limiter).
     static bool InteractiveBudgetAdmits(uint32 playerGuid);
+
+    // A7.3 bot2bot containment (round-1 R1#2 wiring): the tier-II daily
+    // quota plus the autonomous-exchange depth cap (at most 3
+    // consecutive autonomous lines per bot, reset by a real player's
+    // conversational trigger reaching that bot). Device lane: admits
+    // unconditionally (the mirror-case byte-identity law).
+    static bool BotToBotAdmits(uint32 botGuid);
+    static void NoteBotPlayerInteraction(uint32 botGuid);
 
     // ---- A3: the exactly-one party responder (cloud lane only). N bots
     // hear one unaddressed party line; the deterministic pick

@@ -5,7 +5,7 @@
   "source_commits": {
     "cmangos": "ce83805d48f9c98b2af617096be5347acb8a1f17",
     "classic_db": "be1a5206bedccc8dc088b7c79dae31fcf3dbbfce",
-    "playerbots": "6c681ef8dd63cb96f111dc9239d569d6663347e5"
+    "playerbots": "7e2cd2fbbbb4eaa3e1696ee80e9bf8e170b6256d"
   },
   "expected_revisions": {
     "realm": "required_z2820_01_realmd_joindate_datetime",

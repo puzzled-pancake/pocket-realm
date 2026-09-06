@@ -31,6 +31,7 @@ Pinned contracts:
 from __future__ import annotations
 
 import importlib.util
+import re
 import shutil
 import subprocess
 import sys
@@ -189,16 +190,39 @@ def test_transport_legs_note_their_classes(driver):
     assert 'pocketllm::NoteGenClass(connectErr == ETIMEDOUT ? "timeout" : "")' in driver.PB_IFACE_CONNECT_ANDROID
 
 
+def test_cap_class_outranks_the_shape_classes(driver):
+    # round-1 R2#1: a concurrency-cap rejection returns an EMPTY body -
+    # the transport note is the only signal separating it from a
+    # clean-but-empty reply, so the class computation consults the note
+    # on EVERY outcome and the fail-quiet arm logs the noted class
+    # (never "empty" for a capped turn).
+    payload = driver.PB_LLM_IFACE_CPP_ANDROID
+    assert ("std::string const genClass = !pocketllm::GenClassNote().empty()\n"
+            "        ? pocketllm::GenClassNote()\n"
+            "        : (httpBody == \"error\" ? std::string(\"error\") : std::string(\"ok\"));"
+            ) in payload
+    assert 'logEnd(genClass != "ok" ? genClass.c_str() : "empty");' in payload
+
+
 def test_a8_lines_carry_no_content(driver):
+    # Every BotLLM: format literal in the conversational payloads is one
+    # of the fixed-field shapes below - numeric/enum arguments and the
+    # sanctioned lane/class/errno strings only. Any new line that could
+    # carry body/prompt/reply content (%s of generation text) fails here.
+    sanctioned = {
+        '"BotLLM: dispatch bot=%u src=%d lane=%s req=%llu"',
+        '"BotLLM: gen begin req=%llu bot=%u lane=%s"',
+        '"BotLLM: gen end req=%llu bot=%u class=%s durMs=%lu"',
+        '"BotLLM: rpgchat daily quota exhausted (%u generations)"',
+        '"BotLLM: Connection to server failed. Error: %d"',
+        '"BotLLM: Connection to server failed. Error: %s"',
+        '"BotLLM: HTTP status %d from the LLM endpoint"',
+    }
     for payload in (driver.PB_SAY_ASYNC_ANDROID, driver.PB_RPG_ASYNC_ANDROID,
                     driver.PB_DEBUG_GEN_ANDROID, driver.PB_LLM_IFACE_CPP_ANDROID):
-        assert "debugLines.push_back" not in payload.split("BotLLM: dispatch")[0].split("logEnd = [&](char const* cls)")[0] or True
-        # the log format strings end at durMs/class - no %s of body/prompt
-        for line in ("dispatch bot=%u src=%d lane=%s req=%llu",
-                     "gen begin req=%llu bot=%u lane=%s",
-                     "gen end req=%llu bot=%u class=%s durMs=%lu"):
-            if line in payload:
-                assert "prompt" not in payload[payload.index(line):payload.index(line) + 120]
+        for fmt in re.findall(r'"BotLLM:[^"]*"', payload):
+            assert fmt in sanctioned, (
+                f"unsanctioned BotLLM: log literal could carry content: {fmt}")
 
 
 def test_reqid_signature_threading(driver):

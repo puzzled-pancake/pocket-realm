@@ -458,6 +458,28 @@ def test_a8_scan_balanced_duplicate_and_missing():
     assert any("without a dispatch line" in v for v in orphan["violations"])
 
 
+def test_a8_scan_busy_and_cap_turns_are_dispatch_end_only():
+    # the pinned governor-denial shapes: a busy (duty-cycle) or cap
+    # (concurrency) turn logs dispatch + end with NO begin - no
+    # generation ever started. The scan must accept these and still
+    # flag a begin line on a denied turn.
+    denied = run_suite.check_a8_lines([
+        "BotLLM: dispatch bot=5 src=0 lane=chat req=11",
+        "BotLLM: gen end req=11 bot=5 class=busy durMs=3",
+        "BotLLM: dispatch bot=6 src=0 lane=chat req=12",
+        "BotLLM: gen end req=12 bot=6 class=cap durMs=0",
+    ])
+    assert denied["ok"] and denied["requests"] == 2, denied["violations"]
+    corrupted = run_suite.check_a8_lines([
+        "BotLLM: dispatch bot=5 src=0 lane=chat req=11",
+        "BotLLM: gen begin req=11 bot=5 lane=chat",
+        "BotLLM: gen end req=11 bot=5 class=busy durMs=3",
+    ])
+    assert not corrupted["ok"]
+    assert any("begin line on a busy-class turn" in v
+               for v in corrupted["violations"])
+
+
 def test_a8_scan_no_op_passes_on_silent_logs():
     silent = run_suite.check_a8_lines(
         ["POCKET_WORLD_LOOP starting stopped=0", "something else"])

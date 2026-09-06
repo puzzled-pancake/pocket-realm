@@ -1,7 +1,7 @@
 """Seeding fidelity harness.
 
 Proves the manifest-driven rebuilt seeder end-to-end against the pinned
-413-entry migration manifest:
+414-entry migration manifest:
 
   - SEED OK with ZERO statement errors in every database and a sanitized
     summary that byte-matches the append-only baseline

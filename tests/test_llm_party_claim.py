@@ -142,7 +142,7 @@ def test_flood_gate_is_a_two_second_window_under_the_mutex():
 def test_payload_consumes_pick_and_claim_at_the_top_of_the_party_block():
     gate = android_anchor("PB_SAY_GATE_ANDROID")
     party = gate.split("plan v5 C3: the roundtable row")[1].split(
-        "if (bot->GetPlayerbotAI()")[0]
+        "if (sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed")[0]
     # the pick + claim are computed INSIDE the party block, BEFORE the
     # strategy gate below it (losers skip context-building entirely, not
     # just dispatch)
@@ -157,9 +157,12 @@ def test_payload_consumes_pick_and_claim_at_the_top_of_the_party_block():
     # the claim leg is the unaddressed cloud-lane party reply arm only
     assert ("if (!addressedToBot && CloudLaneOpen() &&\n"
             "            sPlayerbotAIConfig.llmPartyReplyEnabled != 0)") in party
-    # the claim ANDs into the gated flow
-    gate_line = gate.split("if (bot->GetPlayerbotAI() && sPlayerbotAIConfig.llmEnabled > 0")[1]
-    assert gate_line.startswith(" && hardTriggerAllowed && partyResponderClaimed && ("), \
+    # the claim ANDs into the gated flow (the round-1 R1#3 consume folds
+    # the strategy arm through ReplyGateAllowed; the claim read rides
+    # the same gate line)
+    gate_line = gate.split(
+        "if (sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed")[1]
+    assert gate_line.startswith(" && partyResponderClaimed && replyGateAllowed"), \
         "the responder claim ANDs into the strategy gate"
 
 
@@ -184,9 +187,12 @@ def test_addressed_whisper_and_say_never_consult_the_claim():
     assert gate.count("partyResponderClaimed") == 4
     # the clearing site is inside the party block AND gated on the
     # unaddressed leg - the addressed bot bypasses the claim entirely
-    # (its line names it)
+    # (its line names it). The slice ends at the strategy gate (the
+    # round-1 R1#3 consume restructured the gate to fold through
+    # ReplyGateAllowed; the claim read still lives there and nowhere
+    # else)
     party = gate.split("plan v5 C3: the roundtable row")[1].split(
-        "if (bot->GetPlayerbotAI()")[0]
+        "if (sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed")[0]
     # declaration + clearing + claim assignment inside the block; the
     # 4th (and only other) use is the strategy-gate read itself
     assert party.count("partyResponderClaimed") == 3

@@ -17,6 +17,10 @@ package com.pocketrealm.server
 internal data class CloudLaneConf(
     /** AiPlayerbot.LLMCloudChatter - the Cloud conversation toggle. */
     val cloudChatter: Boolean = false,
+    /** Unaddressed party replies (A3) - 0 until the T3 party step is
+     * green, then 1 (the plan's staged default; native default is 0,
+     * so this emission is self-describing, not an override). */
+    val partyReplyEnabled: Int = 0,
     /** % of admitted crowd reactions that may speak (rest emote only). */
     val streetSayPct: Int = 25,
     /** Street /say generations per UTC day (realm-global, per-process). */
@@ -40,6 +44,7 @@ internal data class CloudLaneConf(
             return@buildString
         }
         append("\n            AiPlayerbot.LLMCloudChatter = 1")
+        append("\n            AiPlayerbot.LLMPartyReplyEnabled = $partyReplyEnabled")
         append("\n            AiPlayerbot.LLMCloudStreetSayPct = $streetSayPct")
         append("\n            AiPlayerbot.LLMStreetSayPerDay = $streetSayPerDay")
         append("\n            AiPlayerbot.LLMRpgChatPerDay = $rpgChatPerDay")
