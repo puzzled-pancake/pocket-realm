@@ -1683,3 +1683,122 @@ MAJORs, both introduced by the round-1 fixes themselves:
 Suite after the batch: **8 failed (the documented pre-existing set),
 610 passed, 4 skipped**; gradle green; check_repo/check_sources OK;
 null-guard 9/9 after --write-lockfiles.
+## HANDOFF — continuation run 4 (session timed out mid-gate, Round 3 dispatch partially died)
+
+E2 IS COMPLETE AND COMMITTED (b3bef5f). The section-15 round-robin
+review gate is MID-FLIGHT: two full rounds ran, both failed, both fix
+batches landed green; the Round 3 dispatch saw SIX of eight reviewers
+PASS but R1 and R2 died AT DISPATCH with "off-peak-ticket-expired"
+(nothing landed) - per the protocol a reviewer error invalidates the
+whole round, so Round 3 must be RE-RUN ENTIRELY. The tree is unchanged
+and fully green at f8f3334.
+
+### Where things stand exactly
+
+- Commits this run: b3bef5f (E2), 9272f2e (round-1 fix batch, 13
+  distinct MAJORs), f8f3334 (round-2 fix batch, 2 MAJORs + 2 MINORs).
+- docs/evidence/review-rounds.md carries Round 1 and Round 2 logged in
+  full. Round 3 is NOT logged yet - when you re-run it, log it with a
+  note that the first attempt died at dispatch (R1+R2 ticket-expired;
+  the six that ran all PASSED, which is encouraging but carries no
+  credit).
+- Suite at f8f3334: 8 failed (the documented pre-existing set: 2x
+  test_gladio_client_unpack_transport, 4x test_vortek_lifecycle_
+  hardening, 2x test_vortek_winlator_baseline - never fix these),
+  610 passed, 4 skipped; gradle testDebugUnitTest + detekt green;
+  check_repo/check_sources OK; null-guard 9/9; anchors replay 153 ops
+  with no drift (python tmp/materialize_anchors.py).
+
+### THE REMAINING WORK: finish the section-15 gate, then close out
+
+The protocol is section 15 of docs/plans/rp-depth-fix-plan-v2.3.md,
+verbatim in the tree - THIS IS THE ROUND-ROBIN REVIEW THE OPERATOR
+RE-CONFIRMED: 8 independent reviewer agents in fixed scopes, each
+reviewing the full run diff (6045eeb..HEAD) against the plan AND
+bug-hunting its scope; a round passes ONLY with 8/8 zero-BLOCKER/
+zero-MAJOR verdicts; if ANY reviewer reports a finding OR errors out
+(infra, timeout, non-verdict), apply fixes and RE-RUN THE ENTIRE
+8-reviewer round from scratch - no partial credit, no carried
+verdicts. Loop until a round records 8/8 PASS. Every finding must cite
+file:line evidence or a command actually run; an unverifiable
+potential-blocker is UNVERIFIED (still fails the round) or device-gated
+residue - never guessed.
+
+YOUR QUEUE, in order:
+1. Re-dispatch ALL 8 reviewers in ONE foreground message (background
+   dispatch unavailable; an agent may die "off-peak-ticket-expired" AT
+   DISPATCH - nothing landed, redo - or AFTER verified-green work -
+   check the tree first). Scopes (plan section 15.1): R1 native cloud
+   lane (s2 A1/A3/A5/A7 + PlayerbotLlmGates.h + SayAction/AiFactory/
+   RpgTriggers payloads; conjunction law, device byte-identity, quota
+   math, threading); R2 native transport/security (s0.c riders, G3,
+   A8 observability, A9, anchor byte-exactness via
+   tmp/materialize_anchors.py); R3 authored corpus/persona (E0/E1/E2/E3
+   + A5 floor wording); R4 schema/persistence (C2/C8 law, seed re-pin
+   family, 0414); R5 app conf/emission (CloudLaneConf, appended-block
+   law, key-parity gate, detekt baseline legitimacy, B2/B8); R6 app
+   UX/supervisor (F2/F3 copy truth, s0.c.4 disclosure, B5/F1, B7); R7
+   harness/tests (rp_harness, T1/T2 pin matrix, hunt weakened/
+   tautological/missing pins); R8 whole-plan conformance (all 13 s0
+   constraints + s0.a/b/c/d, s11 ordering, 5 random PLAN-LOG
+   spot-checks, the 12 logged interpretations). Each prompt must
+   include: the HEAD sha, the two fix commits to verify (9272f2e,
+   f8f3334) plus the prior-round context, the KNOWN NON-FINDINGS block
+   (the 8 pre-existing pytest failures + device-gated items are
+   runbook entries), the verify-not-vibe rule, and the mandatory
+   output format (end with exactly one line "VERDICT: PASS" or
+   "VERDICT: FINDINGS", numbered findings with severity + evidence).
+2. If 8/8 PASS: append the Round 3 entry to
+   docs/evidence/review-rounds.md (per-reviewer verdicts + diffstat +
+   the dispatch-death note), write the FINAL PLAN-LOG entry (the gate
+   closed; the run summary), commit with --no-verify (sanctioned only
+   because the suite was self-verified), DONE.
+3. If any finding or error: fix equal-or-stronger (full gates: pytest
+   "8 failed, 610+ passed", gradle testDebugUnitTest + detekt with
+   detektBaseline as a SEPARATE invocation if signature drift,
+   --write-lockfiles + null-guard after overlay/driver edits,
+   check_repo/check_sources), PLAN-LOG entry, commit, then re-run the
+   ENTIRE round (Round 4, 5, ...).
+4. Escalation-honesty cap (not yet triggered - every round so far
+   surfaced NEW findings): if two consecutive post-fix rounds surface
+   no NEW findings but a stale one cannot resolve without a device,
+   record it as device-gated residue in
+   DEVICE_QUALIFICATION_CHECKLIST.md and stop looping.
+
+### What the six completed Round 3 reviewers said (encouragement, NOT credit)
+
+R3/R4/R5/R6/R7/R8 all returned PASS with zero BLOCKER/MAJOR: the
+round-2 fixes verified holding (A8 legacy-arm class truth traced
+end-to-end; run_suite busy-only cap shape validated against the real
+emission order plus empirical checker probes; bot2bot depth-before-
+quota with no nested StateMutex; the Varleigh'x boundary case compiled
+green). R8 re-verified all 13 standing constraints, 5 fresh PLAN-LOG
+spot-checks TRUE, all 12 interpretations SOUND. New MINORs recorded
+(non-failing): test_seaoning typo; an overstated PlayerbotSecurity
+comment; A8 scan req-id collision across world restarts; allowlist
+payload coverage; case-sensitive possessive 'S; the A8 no-content
+allowlist payload coverage note. These are LOGGED-ONLY items - fold
+them into the round log text, they do not block.
+
+### Gotchas (all still true; do not rediscover)
+
+- Git-bash heredocs MANGLE BACKSLASHES even quoted - write any
+  backslash-sensitive python to a file under tmp/ via the Write tool.
+  This bit twice more this run (a byte-patch wrote a literal
+  backslash-n into test_llm_gates.py line 194 - caught by collection).
+- Line endings vary PER FILE (tests/test_llm_*.py CRLF,
+  test_llm_banter.py/test_llm_e1_corpus.py LF, overlay .h/.cpp CRLF,
+  BotPresetStore.kt / CloudLaneConf.kt LF). Byte-check before replace.
+- Shell cwd persists between calls - cd home after cd android.
+- Background subagents unavailable; dispatch 8 in ONE foreground
+  message; "off-peak-ticket-expired" can kill at dispatch (redo) or
+  after green work (check the tree before redoing).
+- g++ lives in the WinGet WinLibs mingw64 tree (python -c "import
+  shutil; print(shutil.which('g++'))").
+- Detekt: if it flags new Kotlin, run :app:detektBaseline as a SEPARATE
+  invocation (config cache breaks combined runs); never hand-edit the
+  baseline; say so in the commit message.
+- The seed-augment PROVENANCE hash is over LF-NORMALIZED manifest
+  bytes; the seeder fail-closes on any manifest change - re-pin
+  PROVENANCE then re-run seed_sqlite_from_manifest --write-baseline.
+- Commits use --no-verify ONLY after self-verifying the full suite.
