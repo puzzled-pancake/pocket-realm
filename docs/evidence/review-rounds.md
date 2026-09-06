@@ -1167,3 +1167,194 @@ SUCCESSFUL (138 classes, 1097/0/1); null-guard 9 passed after
 updates); check_repo OK (1217 files, 0 errors, 0 warnings);
 check_sources OK; anchors replay 154 ops no drift; banter FNV golden
 recompiled = de4bd8227a3ab0d1.
+
+## Round 10
+
+**Diffstat re-reviewed**: `git diff 6045eeb..7b2dd24` — 119 files,
++21139/−347 (the round-9 fix batch 7b2dd24 on top of 63c900c). All 8
+reviewers dispatched fresh in one foreground message.
+
+**Result: 7/8 PASS → ROUND FAILS.** (Fix batch landed — see "Fixes
+applied between Round 10 and Round 11" below; Round 11 re-ran all 8.)
+
+- **R1 (native cloud lane): FINDINGS** — 1 MAJOR + 1 MINOR. The MAJOR
+  (a NEW layer, the mid-drain clock divergence): the margin proof
+  validated only the TTL-gate instant, but the drain reads the clock
+  SEPARATELY at the TTL gate (PlayerbotAI.cpp:1267) and again at the
+  flood stamp, PartyFloodAdmits, and the claim/stand-down prune
+  (SayAction.cpp:842/:846/:875 → Memory.cpp:3631/:3679), with
+  unbounded work between (ChatReplyDo's blocklist/item/quest scans,
+  CollectPartyCandidates' per-candidate synchronous PQuery): an entry
+  with m_time=T+1 admitted at a TTL read late in second T+29 has its
+  claim read land at T+30, where the prune kills the T-stamped
+  marker/claim in the same drain the gate just admitted; owner gone →
+  fresh ordering pick → claim → 2 generations. R1's independent probe
+  (tmp/r10r1_probe.cpp, ms-resolution per-site clock reads): 15/15
+  incl. both legs' attacks, a 21/21 discriminator sweep (all doubles
+  exactly on the mid-drain tick cross, zero without), both exhaustive
+  sweeps localized to the (s=1, gate=T+29, tick) class. Reachability
+  argued the SAME TIER as round-9 (s=1 is the fix's own conceded
+  envelope; drain-in-a-specific-second adjudicated rounds 7-9; the
+  tick cross needs only ordinary DB latency; owner-gone adjudicated).
+  Fix directions named by R1: thread one drain timestamp, re-check
+  the window at the claim, or anchor to the line's earliest push. The
+  MINOR: the round-9 fix comment's "microseconds / at most one tick"
+  premise is wrong — the fan-out's QueueChatResponse push blocks on
+  the receiving bot's chatRepliesMutex, which a concurrently-draining
+  member holds across its ENTIRE ChatReplyDo (pre-existing upstream
+  scope), so fan-out straddles beyond 1 s are constructible. Verified
+  green: the round-9 fix landed as claimed (constant :3560, margin
+  oracle :3728-3730, header rewrite, pins equal-or-stronger); §0.13
+  all sites; device byte-identity; A7; A1; rpgchat order; threading
+  (StateMutex leaf); the round-9 probe reproduced 9/9.
+- **R2 (transport/security): PASS — zero findings.** Anchors 154 ops
+  (op arithmetic re-derived: 130 replace_anchor + 2 replace_all + 22
+  overlay write_bytes; drift-raise confirmed live); 7b2dd24
+  transport-neutral (whole-driver BotLLM census clean; lockfile
+  re-pins match current hashes); CA bundle byte-identical to live
+  curl.se today; class-truth compiled 18/18 (sentinel survives
+  HygienePass); rider 1 mutation-killed 3/3; riders 3/5; A8 invariants
+  + allowlist; A9; hung-adb run() normalization verified live (26/26).
+- **R3 (authored corpus/persona): PASS — zero findings.** Golden
+  recompiled = de4bd8227a3ab0d1 (no re-pin owed — no seeded pool
+  touched); the widened lint plant-verified on every new arm (66-cell
+  cross-product + curly forms) with controls clean and the ASCII claim
+  verified byte-wise on all 11 surfaces; 92-plant phrase matrix; fresh
+  C++ E0 probe walked 1,302 pool-served lines through the real
+  LineIsValid; state-key lanes disjoint; E1 1,090 exactly; E2 30/30
+  (independent tokenizer; first-parse misses were the reviewer's own
+  parser bug, corrected); E3 + A5 verified; corpus files 55+29+86
+  green. Residue notes (adjudicated umbrellas, not re-reported).
+- **R4 (schema/persistence): PASS** — 1 MINOR (escape-aware worst
+  case on bot_player_history.line/.speaker: varchar(12)/varchar(240)
+  with zero escape headroom, the same mechanism as the round-2
+  adjudicated last_greet_line residue; sqlite lane does not enforce
+  widths; at worst one context-tail row truncates on MariaDB —
+  recorded as residue this batch). Verified: migration replay
+  414/414 zero mismatches; first-412 byte-identity; 0414 idempotence
+  (30 rows pass 1, 0 pass 2); RecordBotLine zero-callers; PROVENANCE
+  recomputed + seeder fail-close; seed re-run OK with zero baseline
+  churn; 7b2dd24's 4 lockfile deltas EXACTLY the two overlay sha
+  re-pins (recomputed) and nothing else moved; sqlite family 139
+  green; all 414 assets hash-match both lanes.
+- **R5 (app conf/emission): PASS** — 1 MINOR (the ON-lane
+  cloud-economics value pins used the prefix-matchable form contrary
+  to the file's own trailing-delimiter convention — a Kotlin-only
+  25→250 class regression would pass every value gate; same-class
+  nit: LLMGovernorWindow unpinned on the external block). Verified:
+  the new governor pins airtight (scratch mutation probe 9/9:
+  longer-prefix, suffix-digit, swap, and template mutants all
+  caught; "Simultanious" confirmed the real native key at
+  PlayerbotAIConfig.cpp:819); emission byte-identical since bec78fd;
+  CloudLaneConf 9/9; appended-block law; key parity mutation-tested
+  5/5 on a full scratch copy; detekt baseline empty since b3bef5f
+  with zero hand suppressions; forced-fresh detekt clean; 62/62.
+- **R6 (app UX/supervisor): PASS — zero findings.** Gradle forced
+  fresh: BUILD SUCCESSFUL, 138 classes, 1097/0/1, detekt 0; 7b2dd24
+  android footprint = the test file only; F2/F3/§0.c.4/B7/B5/F1
+  re-verified with pins; CI wiring verified (invocation identical to
+  on-host, YAML parses, deselects exact); bug hunt clean.
+- **R7 (harness/tests): PASS — zero findings.** Full pytest fresh:
+  "8 failed, 627 passed, 4 skipped", the 8 ids byte-compared against
+  the CI deselect list — EXACT match; governor pins mutation-tested
+  (40/160/480 and 2/8/8 all fail, swap caught, gradle live); CI
+  detekt = plan §10 T2 verbatim, detekt task real + baseline present,
+  on-host re-run 0 findings, §10 T2 walk found nothing unpinned;
+  oracle margin pin STRENGTHENED (old strict-form assert replaced,
+  no stale PARTY_CLAIM pins anywhere, margin-reverted/margin=2/guard
+  dropped/`>` mutants each killed); lint tails 15/15 plants with
+  controls clean + zero-width scan clean; hung-adb normalization
+  COMPLETE (the only subprocess spawn is _default_runner; every adb
+  leg routes through run(); pin mutation-killed on scratch; 26
+  passed); weakening audit clean (7b2dd24 only added pins);
+  vacuous-grep zero; lockfile re-pins recomputed 8/8; C++ batteries
+  compiled fresh (gates 14, golden, fuzz 5); T1 matrix walked; A8
+  post-pass contract intact.
+- **R8 (whole-plan conformance): PASS — zero findings.** All 13 §0
+  constraints mechanically green (table with evidence); §0.a-d + §11
+  no hard inversions; 5/5 NEW spot-checks TRUE (50 across rounds
+  1-10); all 16 interpretations + round-7/8/9 readings re-derived
+  SOUND — the round-9 margin design judged SOUND with the premise
+  EXPLICIT (falsifiable envelope, pinned constant); the fix-batch
+  gate claims reproduced by own runs (pytest exact, gradle 1097/0/1
+  counted from XMLs, null-guard/checks/anchors/golden/probe all
+  reproduced); commit file list matches the logged batch.
+
+MINORs triaged in the round-10 fix batch: R1's comment premise
+(fixed — corrected + the design no longer depends on it); R4's
+bot_player_history escape headroom (RECORDED as residue — the
+round-2 adjudicated class; a shared truncate-with-headroom helper
+named for any future touch); R5's ON-lane pin hardness (fixed —
+trailing-delimiter asserts + GovernorWindow joined the external
+trio).
+
+### Fixes applied between Round 10 and Round 11
+
+One commit (see PLAN-LOG "Round 10 fix batch"). The MAJOR fixed
+structurally (R1's own third direction: anchor to the line); all
+three MINORs triaged.
+
+1. **R1 MAJOR (the mid-drain clock divergence) - FIXED, structural.**
+  The exactly-one law is now anchored to the LINE, not any entry's
+  m_time: a NEW first-heard registry (PlayerbotLlmMemory::
+  NotePartyLineHeard) min-stamps the line's earliest receive instant
+  for EVERY group member (the receive payload's channel/speaker gate
+  resolves once; the registry write precedes the addressee marker;
+  same group-free key, StateMutex, lazy prune past the window), and
+  TryClaimPartyResponder grants only inside window-margin of
+  firstHeard (absent = unprovable freshness = refuse, fail closed).
+  Proof: every marker/claim token is stamped at >= its writer's
+  receive >= firstHeard, so it expires at >= firstHeard+window; a
+  grant needs now <= firstHeard+window-margin - a granted claim can
+  never meet an expired prior token, at ANY fan-out straddle or ANY
+  mid-drain clock divergence (the ChatReplyDo signature was NOT
+  touched - the gate lives inside the memory helper, avoiding the
+  submodule lane). Pins: tests/test_llm_party_claim.py gains
+  test_first_heard_registry_gates_the_claim_grant_round10 (registry
+  min/prune/fail-closed + the grant bound = the same
+  window-minus-margin law, position-checked between first-writer and
+  grant) and the fan-out stamp pin extends (registry call after the
+  push, before the marker; single channel resolution; matcher
+  nested). Compiled probe tmp/r11fix_probe.cpp: 9/9 PASS - both
+  round-10 attacks replayed with ms-resolution per-site clock reads
+  (TTL read at T+29.99s, claim read at T+30.01s) now REFUSED;
+  exhaustive sweeps (marker leg: s 0-3 x leave 0-29 x gate 25-33s in
+  10ms steps x divergence 0-3s = 672,840 iterations; claim leg: same
+  shape over winner-claim instants = 672,840; cross-arm: straddled
+  addressee late-dispatch vs bystander claim, 1995 iterations) at
+  ZERO doubles; a mechanical token-floor invariant; round 7/8/9
+  regression shapes still drop.
+2. **R1 MINOR (the false "microseconds" premise) - FIXED.** The
+  straddle constant's comment, the oracle comment, and the header
+  now state the true mechanics (the fan-out push blocks on a
+  mid-drain member's chatRepliesMutex, pre-existing upstream scope,
+  so the span is NOT bounded at one tick) and record that the
+  exactly-one law no longer rests on any straddle bound: the margin
+  now governs only drop TIMING (a missed reply, conservative), and
+  the claim grant bound reuses the same window-minus-margin
+  expression so both sites read one law.
+3. **R5 MINOR (pin hardness) - FIXED.** Every ON-lane cloud-economics
+  value assert in LlmRuntimePolicyTest.kt now ends at the line
+  delimiter (CloudChatter=1, PartyReplyEnabled=0, StreetSayPct=25,
+  StreetSayPerDay=200, RpgChatPerDay=300, BotToBotPerDay=300,
+  LineBudgetPerHour=90, InteractivePerPlayerHour=240,
+  DialogueFastLane=1, BotToBotChatChance=25 on/off pair), and
+  LLMGovernorWindow = 60 joins the external block's governor
+  forEach (the EXTERNAL_TIER default confirmed at
+  LlmModelRegistry.kt:46).
+4. **R4 MINOR (bot_player_history escape headroom) - RECORDED AS
+  RESIDUE.** varchar(12)/varchar(240) with zero escape headroom is
+  the round-2 adjudicated last_greet_line class: sqlite (the release
+  lane) does not enforce widths; on MariaDB a fire-and-forget
+  PExecute at worst truncates one context-tail row - no schema
+  drift, no ledger impact. Not touched mid-gate (a 0415 or a shared
+  truncate-with-escape-headroom helper is the named closure if the
+  columns are ever revisited).
+
+Gates after the batch: pytest "8 failed, 628 passed, 4 skipped" (the
+8 exactly the documented pre-existing set; +1 new registry pin);
+gradle :app:testDebugUnitTest + :app:detekt BUILD SUCCESSFUL (138
+classes, 1097/0/1); --write-lockfiles ran (the lockfile re-pins are
+the Memory.cpp/.h + driver hash updates) and null-guard 9 passed;
+check_repo OK (1217 files, 0/0); check_sources OK; anchors replay
+154 ops no drift; banter FNV golden recompiled = de4bd8227a3ab0d1.

@@ -2529,3 +2529,55 @@ winlator; +1 new harness pin); gradle :app:testDebugUnitTest
 null-guard 9 passed; check_repo OK (1217 files, 0/0); check_sources
 OK; anchors replay 154 ops no drift; banter golden recompiled
 de4bd8227a3ab0d1. Round 10 dispatched against the new HEAD.
+
+## Round 10 + fix batch (continuation run 6)
+
+Round 10 dispatched at HEAD 7b2dd24 (all 8 in one foreground
+message): **7/8 PASS - ROUND FAILS on R1's new MAJOR** (the mid-drain
+clock divergence: the TTL gate and the claim/stand-down prune re-read
+the clock across ChatReplyDo's scans and tier queries, so an entry
+admitted at the gate's last second claimed beside a just-expired
+marker one second later; R1's ms-resolution probe: 21/21 doubles
+exactly on the mid-drain tick cross, both legs). R2/R3/R6/R7/R8 PASS
+zero findings; R4 PASS with 1 MINOR (bot_player_history escape
+headroom, the round-2 adjudicated class - recorded as residue); R5
+PASS with 1 MINOR (ON-lane economics pins prefix-matchable +
+GovernorWindow unpinned). R1 also filed the comment-premise MINOR
+(the fan-out push blocks on a mid-drain member's chatRepliesMutex -
+"at most one tick" was false). Full per-reviewer evidence in
+docs/evidence/review-rounds.md Round 10.
+
+The fix batch (one commit on top of 7b2dd24):
+
+- **R1 MAJOR - structural closure via R1's own third direction**
+  (anchor to the line's earliest push): NEW first-heard registry -
+  NotePartyLineHeard min-stamps the line's earliest receive for
+  EVERY member (receive payload: one channel/speaker gate, registry
+  write after the push, before the addressee marker; group-free key,
+  StateMutex, lazy prune past the window), and
+  TryClaimPartyResponder grants only inside window-margin of
+  firstHeard (absent = refuse, fail closed). Every token expires at
+  >= firstHeard+window > the grant bound, so a granted claim can
+  never meet an expired prior token - at ANY straddle or divergence
+  (no ChatReplyDo signature change; the submodule lane avoided).
+  Pins: new test_first_heard_registry_gates_the_claim_grant_round10
+  + extended fan-out stamp pin. Probe tmp/r11fix_probe.cpp 9/9: both
+  round-10 attacks refused; 672,840-iteration sweeps x2 + 1,995
+  cross-arm iterations at ZERO doubles (s 0-3, divergence 0-3 s, both
+  legs); token-floor invariant; r7/r8/r9 regression shapes drop.
+- **R1 MINOR**: the premise corrected in all three comments
+  (constant, oracle, header) + the law's independence from any
+  straddle bound recorded.
+- **R5 MINOR**: ON-lane economics asserts now end at the line
+  delimiter (10 keys) + GovernorWindow = 60 joins the external
+  governor forEach.
+- **R4 MINOR**: recorded as residue (round-2 adjudicated class; the
+  named closure is a truncate-with-escape-headroom helper or 0415).
+
+Gates (self-verified before the --no-verify commit): full pytest
+"8 failed, 628 passed, 4 skipped" (8 = the exact pre-existing set;
++1 new pin test); gradle :app:testDebugUnitTest :app:detekt
+BUILD SUCCESSFUL (138 classes, 1097/0/1); --write-lockfiles +
+null-guard 9 passed; check_repo OK (1217 files, 0/0);
+check_sources OK; anchors 154 ops no drift; golden recompiled
+de4bd8227a3ab0d1. Round 11 dispatched against the new HEAD.

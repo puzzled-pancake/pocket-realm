@@ -3546,17 +3546,25 @@ struct PartyResponderClaim
 // claim younger than this owns the line outright)
 int64_t const PARTY_CLAIM_WINDOW_SECONDS = 30;
 
-// Round-9 R1 (the per-entry straddle): the group receive handlers run
-// sequentially on the world thread, so one fan-out can cross a single
-// wall-clock second tick - a later member's queue entry carries
-// m_time = T+1 beside a marker/claim stamped at T. The staleness
-// oracle subtracts this margin so every PROCESSED drainer sits
-// strictly inside every claim/marker life (see
-// PartyClaimWindowElapsed); each second of margin is one more second
-// of live lines the drain drops (a missed reply, never a second
-// generation) - the conservative direction. A fan-out spanning MORE
-// than this would need the world thread held inside one broadcast for
-// over a second - outside every ordinary player action.
+// Round-9 R1 (the per-entry straddle; premise corrected round-10 R1
+// MINOR): the group receive handlers run sequentially on the world
+// thread and one fan-out USUALLY crosses at most a single wall-clock
+// tick, so a later member's queue entry can carry m_time = T+1 beside
+// a marker/claim stamped at T - the drain TTL subtracts this margin
+// so entries that could outlive their line's tokens drop early. But
+// the fan-out span is NOT bounded at one tick: the queue push blocks
+// on the receiving bot's chatRepliesMutex, which a concurrently
+// draining member holds across its entire ChatReplyDo (pre-existing
+// upstream scope, the synchronous tier queries included), so a
+// mid-drain member can widen the straddle past this margin. The
+// exactly-one law therefore does NOT rest on this constant anymore:
+// the round-10 first-heard registry (NotePartyLineHeard) anchors the
+// claim grant to the LINE's earliest receive - straddle-free and
+// divergence-free. The margin now governs only drop TIMING (each
+// second of it is one more second of live lines the drain drops: a
+// missed reply, never a second generation - the conservative
+// direction), and the claim grant bound reuses this same
+// window-minus-margin expression so both sites read ONE law.
 int64_t const PARTY_CLAIM_FANOUT_STRADDLE_SECONDS = 1;
 
 // one key per (speaker, line): every bot hearing the same party line
@@ -3608,6 +3616,23 @@ std::set<uint32>& GateRefusalNoted()
     return instance;
 }
 
+// Round-10 R1 (the first-heard registry): the LINE's earliest receive
+// instant, min-stamped by every group member's receive handler (the
+// handlers run sequentially on the world thread inside one broadcast,
+// so the first writer IS the earliest receive; min() keeps the
+// invariant total against any out-of-order path). This is the
+// claim-side freshness authority: a claim grants only inside
+// window-margin of firstHeard, and every marker/claim token is
+// stamped at >= its writer's receive >= firstHeard (so expiring at
+// >= firstHeard+window) - a granted claim therefore can never meet
+// an expired prior token, whatever the fan-out straddle or the
+// drain's mid-work clock divergence.
+std::map<uint64, int64_t>& PartyLineHeardMap()
+{
+    static std::map<uint64, int64_t> instance;
+    return instance;
+}
+
 } // namespace
 
 uint64_t PlayerbotLlmMemory::PartyMsgHash(std::string const& msg)
@@ -3621,6 +3646,44 @@ uint64_t PlayerbotLlmMemory::PartyMsgHash(std::string const& msg)
         h *= 1099511628211ull;
     }
     return h;
+}
+
+void PlayerbotLlmMemory::NotePartyLineHeard(uint32 speakerGuid,
+    uint64_t msgHash)
+{
+    // Round-10 R1 (the mid-drain clock divergence): the drain reads
+    // the clock at its TTL gate and AGAIN inside the claim/stand-down
+    // helpers, with real work between (ChatReplyDo's scans and
+    // CollectPartyCandidates' synchronous tier queries) - an entry
+    // admitted at the gate's second could hit a claim prune one second
+    // later where the line's marker/claim just died. The exactly-one
+    // law is now anchored to the LINE, not any entry's m_time: every
+    // member's receive min-stamps the line's earliest heard instant
+    // here, and TryClaimPartyResponder grants only inside window-margin
+    // of it - no marker/claim for the line can expire that early, so a
+    // granted claim never races a dead token regardless of straddle or
+    // divergence. Absent entry at claim time = stale (fail closed).
+    if (!speakerGuid)
+        return;
+    int64_t const now = (int64_t)time(nullptr);
+    uint64 const key = PartyClaimKey(speakerGuid, msgHash);
+    std::lock_guard<std::mutex> lock(StateMutex());
+    std::map<uint64, int64_t>& heard = PartyLineHeardMap();
+    auto itr = heard.find(key);
+    if (itr == heard.end())
+        heard[key] = now;
+    else if (now < itr->second)
+        itr->second = now;
+    // lazy prune, the claim map's own idiom: an entry older than the
+    // window can never admit a claim again (the grant bound is
+    // window-margin < window), so the registry stays bounded
+    for (auto pruneItr = heard.begin(); pruneItr != heard.end();)
+    {
+        if (now - pruneItr->second > PARTY_CLAIM_WINDOW_SECONDS)
+            pruneItr = heard.erase(pruneItr);
+        else
+            ++pruneItr;
+    }
 }
 
 bool PlayerbotLlmMemory::TryClaimPartyResponder(uint32 botGuid, uint32 speakerGuid,
@@ -3652,6 +3715,24 @@ bool PlayerbotLlmMemory::TryClaimPartyResponder(uint32 botGuid, uint32 speakerGu
     if (claims.find(key) != claims.end())
         return false; // first writer already holds this line (a claim
                       // OR a stand-down marker - both own the line)
+    // Round-10 R1 (the claim-side freshness gate): the key is absent,
+    // so any prior marker/claim for this line has EXPIRED - grant only
+    // if the LINE (not this entry) is still young at the claim's own
+    // clock. Every token is stamped at >= its writer's receive, so it
+    // expires at >= firstHeard+window; a grant inside
+    // firstHeard+window-margin therefore implies every prior token was
+    // still LIVE at some earlier claim attempt (the absent-key case is
+    // exactly the expired-token case) - re-opening beside the original
+    // winner is unreachable, whatever the fan-out straddle or the
+    // mid-drain clock divergence that admit this drainer. Absent
+    // firstHeard = unprovable freshness = refuse (a missed reply,
+    // never a second generation).
+    std::map<uint64, int64_t> const& heard = PartyLineHeardMap();
+    auto heardItr = heard.find(key);
+    if (heardItr == heard.end() ||
+        now - heardItr->second >=
+            PARTY_CLAIM_WINDOW_SECONDS - PARTY_CLAIM_FANOUT_STRADDLE_SECONDS)
+        return false;
     PartyResponderClaim& claim = claims[key];
     claim.botGuid = botGuid;
     claim.expiresAt = now + PARTY_CLAIM_WINDOW_SECONDS;
@@ -3717,14 +3798,19 @@ bool PlayerbotLlmMemory::PartyClaimWindowElapsed(time_t lineTime)
     // (T+1 beside a marker stamped at T), and that entry reached age
     // 29 - processed - exactly when the marker pruned; with the
     // winner gone a fresh ordering pick claimed beside the original
-    // generation. The straddle margin closes the class at its
-    // demonstrated width (the receive handlers are sequential and
-    // sub-second, so one broadcast crosses at most ONE second tick):
-    // a processed drainer has now <= m_time + window - margin - 1,
-    // and with m_time <= T + margin (T the fan-out's earliest push)
-    // that is <= T + window - 1 < T + window <= every claim/marker
-    // expiry (each stamps at >= T) - first-writer-wins holds across
-    // the WHOLE fan-out, not just the stamping bot's own entry.
+    // generation. The margin closes the demonstrated class (straddle
+    // <= margin): a processed drainer then has now <= m_time +
+    // window - margin - 1, and with m_time <= T + margin (T the
+    // fan-out's earliest push) that is <= T + window - 1 < T + window
+    // <= every claim/marker expiry (each stamps at >= T). Wider
+    // straddles are possible (round-10 R1 MINOR: the fan-out's queue
+    // push blocks on a mid-drain member's chatRepliesMutex, held
+    // across its whole ChatReplyDo), and this entry-side envelope
+    // then misses the drainer - a MISSED REPLY at worst, because the
+    // round-10 first-heard registry gates the CLAIM itself to the
+    // line's earliest receive (see NotePartyLineHeard): a second
+    // generation stays unreachable at any straddle or drain clock
+    // divergence.
     return lineTime != 0 &&
         time(nullptr) - lineTime >=
         PARTY_CLAIM_WINDOW_SECONDS - PARTY_CLAIM_FANOUT_STRADDLE_SECONDS;

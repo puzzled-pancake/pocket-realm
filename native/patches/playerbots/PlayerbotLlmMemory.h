@@ -234,9 +234,26 @@ public:
     // teleport/cast chains). Round-8 R1: the key is GROUP-FREE (a
     // speaker stands in at most one group; the drain can only key by
     // the CURRENT group, and a group-switching listener used that to
-    // claim under a fresh key beside the original winner).
+    // claim under a fresh key beside the original winner). Round-10
+    // R1: a grant additionally requires the LINE fresh at the claim's
+    // own clock - within window-margin of the first-heard registry
+    // (NotePartyLineHeard) - so a claim can never post-date every
+    // prior token's expiry, whatever the fan-out straddle or the
+    // drain's mid-work clock divergence.
     static bool TryClaimPartyResponder(uint32 botGuid, uint32 speakerGuid,
         uint64_t msgHash);
+
+    // Round-10 R1 (the first-heard registry): every group member's
+    // receive handler min-stamps the LINE's earliest receive instant
+    // (same group-free key as the claim map, same StateMutex, lazy
+    // prune at the window). This is the freshness authority the claim
+    // grant consults: every marker/claim token is stamped at >= its
+    // writer's receive and so expires at >= firstHeard+window, while
+    // a grant needs now <= firstHeard+window-margin - a granted claim
+    // can never meet an expired prior token, at ANY straddle or drain
+    // clock divergence. Absent at claim time = unprovable freshness =
+    // the claim refuses (a missed reply, never a second generation).
+    static void NotePartyLineHeard(uint32 speakerGuid, uint64_t msgHash);
 
     // Round-6 R1 (addressed-line sibling): an ADDRESSED line stands
     // down with a MARKER in the same claim map (winner 0 = the
@@ -253,14 +270,18 @@ public:
     // instant) and entries are unprocessable before m_time, so a line
     // aged >= PARTY_CLAIM_WINDOW_SECONDS minus the round-9 R1 fan-out
     // straddle margin (PARTY_CLAIM_FANOUT_STRADDLE_SECONDS: a later
-    // member's queue entry carries m_time up to one second past the
-    // fan-out's earliest push, and the drop must fire early enough to
-    // outlive every claim or marker stamped for the line) is dropped:
-    // processing it could sit beside a claim/marker expiring that very
-    // second - re-opening the exactly-one surface (a deferred drain
-    // re-claiming beside the original winner). True = drop the line: a
-    // missed reply, never a second generation. Pure time compare (no
-    // state).
+    // member's queue entry can carry m_time past the fan-out's
+    // earliest push, and the drop fires early so entries that could
+    // outlive the line's tokens go first) is dropped: processing it
+    // could sit beside a claim/marker expiring that very second. The
+    // margin bounds the straddle it covers - wider fan-out spans are
+    // possible (round-10 R1 MINOR: the push blocks on a mid-drain
+    // member's chatRepliesMutex), and at those widths the drop misses
+    // a drainer as a MISSED REPLY at worst: the claim grant itself is
+    // anchored to the first-heard registry (NotePartyLineHeard), so a
+    // second generation stays unreachable at any straddle. True =
+    // drop the line: a missed reply, never a second generation. Pure
+    // time compare (no state).
     static bool PartyClaimWindowElapsed(time_t lineTime);
 
     // The deterministic pick's candidate set: every BOT in the group

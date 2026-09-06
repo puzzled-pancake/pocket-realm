@@ -391,17 +391,20 @@ class LlmRuntimePolicyTest {
             "https://api.example.com/v1/chat/completions", "m", "k",
             cloudLane = CloudLaneConf(cloudChatter = true),
         )!!
-        assertTrue(on.contains("AiPlayerbot.LLMCloudChatter = 1"))
+        assertTrue(on.contains("AiPlayerbot.LLMCloudChatter = 1\n"))
         // round-5 R5: the staged-0 ninth key is value-asserted too (the
-        // whole family is present-and-self-describing on the ON lane)
-        assertTrue(on.contains("AiPlayerbot.LLMPartyReplyEnabled = 0"))
-        assertTrue(on.contains("AiPlayerbot.LLMCloudStreetSayPct = 25"))
-        assertTrue(on.contains("AiPlayerbot.LLMStreetSayPerDay = 200"))
-        assertTrue(on.contains("AiPlayerbot.LLMRpgChatPerDay = 300"))
-        assertTrue(on.contains("AiPlayerbot.LLMBotToBotPerDay = 300"))
-        assertTrue(on.contains("AiPlayerbot.LLMCloudLineBudgetPerHour = 90"))
-        assertTrue(on.contains("AiPlayerbot.LLMCloudInteractivePerPlayerHour = 240"))
-        assertTrue(on.contains("AiPlayerbot.LLMDialogueFastLane = 1"))
+        // whole family is present-and-self-describing on the ON lane);
+        // round-10 R5 MINOR: every value assert ends at the line
+        // delimiter so a regression to a longer same-prefix number
+        // (25 -> 250, 1 -> 10) cannot pass - the file's own convention
+        assertTrue(on.contains("AiPlayerbot.LLMPartyReplyEnabled = 0\n"))
+        assertTrue(on.contains("AiPlayerbot.LLMCloudStreetSayPct = 25\n"))
+        assertTrue(on.contains("AiPlayerbot.LLMStreetSayPerDay = 200\n"))
+        assertTrue(on.contains("AiPlayerbot.LLMRpgChatPerDay = 300\n"))
+        assertTrue(on.contains("AiPlayerbot.LLMBotToBotPerDay = 300\n"))
+        assertTrue(on.contains("AiPlayerbot.LLMCloudLineBudgetPerHour = 90\n"))
+        assertTrue(on.contains("AiPlayerbot.LLMCloudInteractivePerPlayerHour = 240\n"))
+        assertTrue(on.contains("AiPlayerbot.LLMDialogueFastLane = 1\n"))
     }
 
     @Test
@@ -412,11 +415,11 @@ class LlmRuntimePolicyTest {
             "https://api.example.com/v1/chat/completions", "m", "k",
             cloudLane = CloudLaneConf(cloudChatter = true),
         )!!
-        assertTrue(on.contains("AiPlayerbot.LLMBotToBotChatChance = 25"))
+        assertTrue(on.contains("AiPlayerbot.LLMBotToBotChatChance = 25\n"))
         val off = LlmRuntimePolicy.confBlockExternal(
             "https://api.example.com/v1/chat/completions", "m", "k",
         )!!
-        assertFalse(off.contains("AiPlayerbot.LLMBotToBotChatChance = 25"))
+        assertFalse(off.contains("AiPlayerbot.LLMBotToBotChatChance = 25\n"))
         val override = LlmRuntimePolicy.confBlockExternal(
             "https://api.example.com/v1/chat/completions", "m", "k",
             speech = BotLlmSpeech(botToBotChatChance = 7),
@@ -649,6 +652,9 @@ class LlmRuntimePolicyTest {
             "AiPlayerbot.LLMMaxSimultaniousGenerations = 4",
             "AiPlayerbot.LLMGovernorBotMax = 16",
             "AiPlayerbot.LLMGovernorGlobalMax = 48",
+            // round-10 R5 MINOR: the window joins the trio (the whole
+            // EXTERNAL_TIER governor block, one forEach)
+            "AiPlayerbot.LLMGovernorWindow = 60",
         ).forEach { key ->
             assertTrue("missing governor line $key", block.contains(key + "\n"))
         }

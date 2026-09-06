@@ -359,7 +359,11 @@ def test_fanout_stamp_covers_the_leave_before_first_drain_hole_round7():
     # staged default-0 key never stamp: byte-identical)
     assert queue_call.index("if (isAiChat && CloudLaneOpen() &&") < \
         queue_call.index("PlayerbotLlmGates::ContainsNameIgnoreCase(message,")
-    assert "sPlayerbotAIConfig.llmPartyReplyEnabled != 0 &&" in queue_call
+    # round-10 R1 restructure: the lane gate ends at the partyReply key
+    # (the name matcher nests inside) - the key still gates BOTH the
+    # registry write and the marker stamp
+    assert queue_call.index("sPlayerbotAIConfig.llmPartyReplyEnabled != 0") < \
+        queue_call.index("PlayerbotLlmMemory::NotePartyLineHeard(")
     # party/raid only, real-player speaker only
     assert ("(stampChannel == ChatChannelSource::SRC_PARTY ||" in queue_call and
             "stampChannel == ChatChannelSource::SRC_RAID)" in queue_call)
@@ -376,6 +380,77 @@ def test_fanout_stamp_covers_the_leave_before_first_drain_hole_round7():
     push_at = queue_call.index("QueueChatResponse(msgtype, guid1,")
     assert push_at < stamp_at, \
         "the marker must stamp at >= the push's clock read (the straddle law)"
+    # Round-10 R1 (the first-heard registry): EVERY member's receive
+    # min-stamps the line's earliest heard instant - inside the same
+    # lane/channel/speaker gate, AFTER the push, BEFORE the marker
+    # stamp (the registry must lower-bound every later stamp); the
+    # claim grant consults it (TryClaimPartyResponder) so a claim can
+    # never post-date every prior token's expiry at any fan-out
+    # straddle or drain clock divergence.
+    heard_at = queue_call.index("PlayerbotLlmMemory::NotePartyLineHeard(")
+    assert push_at < heard_at < stamp_at, \
+        "the registry stamps between the push and the marker (min-bound law)"
+    # the channel/speaker gate resolves ONCE and the canonical matcher
+    # now nests INSIDE it (the marker stays addressee-only; the
+    # registry write is the every-member part)
+    assert queue_call.count("ChatChannelSource stampChannel =") == 1
+    assert queue_call.count("sObjectAccessor.FindPlayer(guid1)") == 1
+    assert queue_call.count(
+        "PlayerbotLlmGates::ContainsNameIgnoreCase(message,") == 1
+
+
+def test_first_heard_registry_gates_the_claim_grant_round10():
+    """Round-10 R1 MAJOR (the mid-drain clock divergence): the drain
+    reads the clock at its TTL gate and AGAIN inside the claim/stand-
+    down helpers, with real work between (ChatReplyDo's scans,
+    CollectPartyCandidates' synchronous tier queries) - an entry
+    admitted at the gate's second could hit a claim prune one second
+    later where the line's marker/claim just died, and the straddled
+    bystander claimed beside the original winner (R1's compiled probe:
+    21/21 doubles exactly on the mid-drain tick cross). The exactly-one
+    law is now anchored to the LINE, not any entry's m_time: every
+    member's receive min-stamps the line's earliest heard instant
+    (NotePartyLineHeard), and TryClaimPartyResponder grants only inside
+    window-margin of it. Every marker/claim token is stamped at >= its
+    writer's receive and so expires at >= firstHeard+window, while the
+    grant bound is firstHeard+window-margin - a granted claim can
+    never meet an expired prior token, whatever the fan-out straddle
+    or the drain's mid-work clock divergence."""
+    src = MEMORY_CPP.read_text(encoding="utf-8")
+    # the registry: min-stamp under StateMutex, lazy prune at the window
+    note = src.split("void PlayerbotLlmMemory::NotePartyLineHeard")[1]
+    note = note.split("\n}")[0]
+    assert "std::lock_guard<std::mutex> lock(StateMutex());" in note
+    assert "PartyLineHeardMap()" in note
+    assert "heard[key] = now;" in note, \
+        "first writer records its receive instant"
+    assert ("else if (now < itr->second)" in note and
+            "itr->second = now;" in note), \
+        "a later member can only LOWER the stamp (the min law)"
+    assert ("now - pruneItr->second > PARTY_CLAIM_WINDOW_SECONDS" in note), \
+        "the registry prunes past the window (nothing admits after it)"
+    # the claim-side gate: absent-or-stale firstHeard refuses the grant
+    claim = src.split("bool PlayerbotLlmMemory::TryClaimPartyResponder")[1]
+    claim = claim.split("\n}")[0]
+    present_at = claim.index("if (claims.find(key) != claims.end())")
+    freshness_at = claim.index(
+        "std::map<uint64, int64_t> const& heard = PartyLineHeardMap();")
+    grant_at = claim.index("PartyResponderClaim& claim = claims[key];")
+    assert present_at < freshness_at < grant_at, \
+        "the freshness gate sits between first-writer-wins and the grant"
+    freshness_block = claim[freshness_at:grant_at]
+    assert "return false;" in freshness_block, \
+        "stale-or-absent firstHeard refuses the grant (fail closed)"
+    assert "heardItr == heard.end() ||" in freshness_block, \
+        "absent firstHeard is unprovable freshness - refuse"
+    assert ("now - heardItr->second >=" in freshness_block and
+            "PARTY_CLAIM_WINDOW_SECONDS - "
+            "PARTY_CLAIM_FANOUT_STRADDLE_SECONDS" in freshness_block), \
+        "the grant bound is the SAME window-minus-margin law as the drain TTL"
+    # the header declares the registry beside the claim
+    hdr = MEMORY_H.read_text(encoding="utf-8")
+    assert ("static void NotePartyLineHeard(uint32 speakerGuid, "
+            "uint64_t msgHash);" in hdr)
 
 
 def test_drain_ttl_drops_window_expired_party_lines_round7():

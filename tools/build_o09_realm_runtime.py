@@ -3658,9 +3658,19 @@ PB_AI_QUEUE_CALL_ANDROID = """                MANGOS_ASSERT(!message.empty());
                 // earlier-expiring marker re-opened the boundary
                 // second). Program order makes the stamp's clock read
                 // >= the push's.
+                // Round-10 R1 (the first-heard registry): the channel/
+                // speaker gate resolves ONCE and EVERY member min-stamps
+                // the LINE's earliest heard instant BEFORE any marker
+                // (the registry must lower-bound every later stamp) -
+                // the claim grant consults it inside
+                // TryClaimPartyResponder, so a claim can never
+                // post-date every prior token's expiry whatever the
+                // fan-out straddle or the drain's mid-work clock
+                // divergence (round-10 R1's demonstrated class: the
+                // TTL gate and the claim prune re-read the clock
+                // across ChatReplyDo's scans and the tier queries).
                 if (isAiChat && CloudLaneOpen() &&
-                    sPlayerbotAIConfig.llmPartyReplyEnabled != 0 &&
-                    PlayerbotLlmGates::ContainsNameIgnoreCase(message, bot->GetName()))
+                    sPlayerbotAIConfig.llmPartyReplyEnabled != 0)
                 {
                     ChatChannelSource stampChannel =
                         GetChatChannelSource(bot, msgtype, chanName);
@@ -3669,9 +3679,15 @@ PB_AI_QUEUE_CALL_ANDROID = """                MANGOS_ASSERT(!message.empty());
                          stampChannel == ChatChannelSource::SRC_RAID) &&
                         stampSpeaker && stampSpeaker->isRealPlayer())
                     {
-                        PlayerbotLlmMemory::TryStandDownPartyLine(
+                        PlayerbotLlmMemory::NotePartyLineHeard(
                             stampSpeaker->GetGUIDLow(),
                             PlayerbotLlmMemory::PartyMsgHash(message));
+                        if (PlayerbotLlmGates::ContainsNameIgnoreCase(message, bot->GetName()))
+                        {
+                            PlayerbotLlmMemory::TryStandDownPartyLine(
+                                stampSpeaker->GetGUIDLow(),
+                                PlayerbotLlmMemory::PartyMsgHash(message));
+                        }
                     }
                 }
 """
