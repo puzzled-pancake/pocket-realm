@@ -2685,3 +2685,252 @@ are exactly the Memory.cpp/.h patch hashes) + null-guard 9 passed;
 check_repo OK (1217 files, 0/0); check_sources OK; anchors 154 ops
 no drift; golden recompiled de4bd8227a3ab0d1. Round 13 dispatched
 against the new HEAD.
+
+## HANDOFF — continuation run 7 (session timed out after Round 13 returned; round-13 fix batch + Round 14 owed)
+
+The section-15 gate is STILL OPEN. Thirteen rounds have run; every
+round surfaced findings and rounds 1-12's fixes all landed green.
+Everything committed is green at HEAD 946b6e9 (verified by me AND by
+round-13 R8: pytest "8 failed, 630 passed, 4 skipped" on a clean run;
+gradle 138 classes 1097/0/1 + detekt 0; null-guard 9/9; anchors 154
+ops; golden de4bd8227a3ab0d1; check_repo 1217 files 0/0;
+check_sources OK — this handoff + the Round 13 entry are DOCS-ONLY,
+so that state carries). Round 13 returned 6/8 PASS and is NOW LOGGED
+in docs/evidence/review-rounds.md (with a pointer note like Round
+9's). Your job: land the round-13 fix batch, run the FULL gates, log
+and commit, then dispatch Round 14 and loop to a logged 8/8 PASS,
+then close the gate.
+
+### THE PROTOCOL (operator re-confirmed, verbatim law — it is §15 of docs/plans/rp-depth-fix-plan-v2.3.md, already in the frozen plan; DO NOT edit the plan text mid-gate)
+
+A round-robin review with 8 independent reviewer agents in fixed
+scopes (§15.1 R1-R8), each reviewing the full run diff
+(6045eeb..HEAD) against the plan AND bug-hunting its scope; if ANY
+one fails (reports a BLOCKER/MAJOR OR errors out — infra failure,
+timeout, non-verdict), ALL 8 GO AGAIN from scratch — no partial
+credit, no carried verdicts — until NONE fail. MINORs are recorded
+in docs/evidence/review-rounds.md but do not fail a round. Every
+BLOCKER/MAJOR cites file:line evidence read or a command actually
+run; unverifiable = UNVERIFIED, never guessed (an UNVERIFIED
+potential-MAJOR still fails the round). Reviewers are READ-ONLY
+toward tracked files (scratch under tmp/ only, NEVER commit). The
+gate closes when the log ends with a round recording 8/8 PASS.
+§15.5 escalation-honesty cap: if two consecutive post-fix rounds
+surface no NEW findings but a stale one cannot resolve without a
+device, record it as device-gated residue in
+DEVICE_QUALIFICATION_CHECKLIST.md and stop looping.
+
+### Round verdicts so far
+
+R1 2/8 -> R2 6/8 -> R3 6/8 -> R4 7/8 -> R5 7/8 -> R6 7/8 -> R7 7/8
+-> R8 7/8 -> R9 6/8 -> R10 7/8 -> R11 7/8 -> R12 7/8 -> R13 6/8.
+Rounds 3-13 all failed on R1 MAJORs against the same exactly-one
+party-responder surface, each layer narrower and increasingly a
+MIRROR of the previous fix: SRC_RAID fan-out -> addressed double
+dispatch -> dead-addressee -> claim-window race -> additive deferral
++ leave-before-drain -> boundary second + group-switch key ->
+per-entry straddle margin -> mid-drain clock divergence (the
+first-heard registry) -> ungated drain-side marker -> cross-line
+residue (generation scoping) -> the OLD line re-opened for its own
+stragglers BY that scoping. Round 13 ALSO failed on a second,
+independent MAJOR (R4 and R7 found it separately): a FLAKY TEST.
+
+### THE OWED ROUND-13 FIX BATCH (one commit, pins included, equal-or-stronger — never weaken or delete a pin)
+
+1. **R1 MAJOR — the old-line straggler re-open.** At a verbatim
+   repeat past the window the registry flips (fh_new); an old-line
+   entry straggled within the window (m_time = fh_old+10, TTL-alive
+   to fh_old+39) then passes both freshness gates (measured against
+   fh_new) while TokenOwnsCurrentLine ERASES the old line's live
+   winner token (every prior-generation token expires before
+   fh_new+30) -> the straggler claims: line 1 = 2 gens, line 2 = 0.
+   R1's probe: 84,825/84,825 combos (tmp/r13r1_probe.cpp — consult
+   it; per-line generation counting is the technique that found it).
+   R1's own fix directions: thread the drainer's m_time into the
+   claim (refuse when m_time < firstHeard), OR extend the
+   drain-stale gate (holder.m_time IS in hand there) to drop entries
+   whose generation moved past them. RECOMMENDED LANE (overlay-only;
+   ChatReplyDo's signature lives in the SUBMODULE — SayAction.h:40 —
+   do NOT touch it): a new overlay helper in
+   PlayerbotLlmMemory.{h,cpp}, e.g.
+   `PartyClaimGenerationMovedPast(speakerGuid, msgHash, lineTime)`
+   returning true when the key's CURRENT registry firstHeard >
+   lineTime (false when absent). The law that makes it exact:
+   firstHeard is the MIN receive of the current generation, so every
+   SAME-generation entry has m_time >= firstHeard (never dropped);
+   under the documented straddle-within-window premise every
+   prior-generation entry has m_time <= fh_old+30 < fh_new (always
+   dropped). Wire it into the PB_AI_DRAIN_STALE_ANDROID payload as a
+   sibling drop of the TTL drop (same cheap-gate armament
+   llmEnabled>0 && CloudLaneOpen() && llmPartyReplyEnabled != 0; NO
+   channel/speaker reclassification needed — the registry only
+   contains armed-lane party/raid real-speaker lines, so absence ->
+   false keeps every other lane byte-identical; holder.m_guid1 and
+   PartyMsgHash(holder.m_msg) are both in hand). Pins: a new test in
+   tests/test_llm_party_claim.py (the helper's law verbatim +
+   >-direction + absent->false + the drain payload wiring +
+   position), and update the header law comment (state the
+   old-entry drop; also fold R8's superset-bound wording note:
+   accepted stamps are [fh, fh+window-margin-1] under the >=
+   refusal). Probe: tmp/r14fix_probe.cpp replaying R1's attack
+   (straddle s in 4..28, repeat R in 31..55, straggler drain ->
+   exactly 1 gen for line 1) + a sweep + regressions for the round
+   9-12 shapes (r13fix_probe.cpp is the base — its regressions must
+   stay green).
+2. **R4+R7 MAJOR — the flaky gate test (fix FIRST; it poisons every
+   verification run).** tests/test_rp_harness.py:170-174
+   (test_event_carries_both_clocks_and_transcript_round_trips)
+   compares UNROUNDED `before = protocol.mono_ms()` against
+   record["mono_ms"], which tools/rp_harness/protocol.py:30 stores
+   as `round(mono_ms(), 3)` — the round-down floors the record below
+   before when both reads land in one tick (~19-25% per cold run; R4
+   measured 76/300 loop failures and saw 9-then-8 failed on two
+   identical full-suite runs). One-line fix: `before =
+   round(protocol.mono_ms(), 3)` (round is monotone) or an epsilon
+   compare. VERIFY determinism after fixing: loop the test ~100-300x
+   in fresh processes (0 failures), then run the FULL pytest TWICE —
+   both runs must end "8 failed, N passed, 4 skipped" with the
+   identical 8 ids.
+3. **R7 MINOR — the ownership consults verbatim-pinned.** In both
+   helpers pin the exact block `if (TokenOwnsCurrentLine(key,
+   heardItr->second))\n        return false;` (R7's body-voided
+   consult mutant survived the substring pins).
+
+### YOUR QUEUE, in order
+
+1. Read this handoff + the Round 13 entry in review-rounds.md + §15.
+   Spot-verify 3 claims (`git log --oneline -4` shows 946b6e9/
+   1a3017a/b55c2d1/7b2dd24; review-rounds.md contains Rounds 1-13
+   with no Round 14; `python tmp/materialize_anchors.py` -> 154 ops).
+2. Land the fix batch (items 1-3 above, ONE commit).
+3. FULL gates (per-commit discipline below) — the expected pytest
+   count MOVES with your new pin test (630 -> 630+N; recompute; the
+   flaky fix does not change the count). Loop the flaky test and
+   double-run the full suite as in item 2.
+4. Append the "Fixes applied between Round 13 and Round 14" section
+   to the Round 13 entry (it has the pointer note) + the PLAN-LOG
+   batch entry; commit --no-verify (sanctioned ONLY because you
+   verified the suite yourself first).
+5. DISPATCH ROUND 14 — all 8 reviewers in ONE foreground message
+   (background dispatch unavailable; multiple Agent calls in one
+   message works reliably; a round is 10-20 min wall clock, ~7-10M
+   subagent tokens). Scope skeletons below.
+6. IF 8/8 PASS: append the Round 14 entry (per-reviewer verdicts +
+   diffstat + the note that this round CLOSES the gate), write the
+   FINAL PLAN-LOG entry (gate closed; run summary: all commits, all
+   round verdicts R1 2/8 -> ... -> R14 8/8, the suite state, the
+   full residue list), commit --no-verify. DONE.
+7. IF any BLOCKER/MAJOR or reviewer error: fix equal-or-stronger,
+   full gates, log, commit, re-run the ENTIRE round (Round 15, ...).
+   No partial credit. An agent may die "off-peak-ticket-expired" at
+   DISPATCH (nothing landed — redo the whole round) or AFTER
+   verified-green work (check the tree before redoing anything).
+
+### Per-commit discipline (every commit, no exceptions)
+
+- `python -m pytest tests/ -q` -> must end "8 failed, N passed" with
+  N >= 630 + your new pins (plus 4 skips), the SAME 8 pre-existing
+  ids (the deselect list in .github/workflows/ci.yml: 2x
+  test_gladio_client_unpack_transport GladioClientValidationLaneContractTest,
+  4x test_vortek_lifecycle_hardening, 2x test_vortek_winlator_baseline
+  — never fix them, never let a new failure hide among them; after
+  the flaky-test fix the gate must be DETERMINISTIC — double-run it).
+- `cd android && ./gradlew :app:testDebugUnitTest :app:detekt
+  -PpocketAbi=x86_64 -PpocketLane=full` -> BUILD SUCCESSFUL (138
+  classes, 1097/0/1 expected unless you add Kotlin tests). If detekt
+  flags signature drift: `:app:detektBaseline` as a SEPARATE
+  invocation (the config cache breaks on combined runs), never
+  hand-edit detekt-baseline.xml, say so in the commit message.
+- After any overlay/driver edit: `python
+  tools/build_o09_realm_runtime.py --write-lockfiles`, then
+  `python -m pytest tests/test_db_async_null_guard.py -q` (9 passed).
+  The lockfile re-pins are EXACTLY the PlayerbotLlmMemory.cpp/.h
+  patch hashes (the driver carries NO lockfile entry — R4 verified).
+- `python tools/check_repo.py` (OK, 1217 files 0/0) and `python
+  tools/check_sources.py` (OK). `python tmp/materialize_anchors.py`
+  -> 154 ops no drift.
+
+### Edit lanes (the build driver wipes and recreates native/cmangos/src/modules/PlayerBots every build)
+
+- Overlay files: edit native/patches/playerbots/ ONLY.
+- Driver payloads (PB_AI_DRAIN_STALE_ANDROID etc.): edit the
+  _UPSTREAM//_ANDROID payload pairs in tools/build_o09_realm_runtime.py;
+  UPSTREAM must byte-match the pristine submodule.
+- Submodule files (e.g. SayAction.cpp/h): COMMIT INSIDE THE SUBMODULE,
+  bump PLAYERBOTS_COMMIT + schemas/sources.json, regen lockfiles —
+  AVOID late in the gate (rounds 3-13 never needed it; the round-13
+  fix lane above was chosen to avoid it).
+- sql/migrations/: append-only; 0414 stays LAST.
+
+### Round 14 reviewer dispatch (all 8 in ONE message; the scope skeleton)
+
+- R1 native cloud lane: §2 A1/A3/A5/A7 + PlayerbotLlmGates.h + the
+  SayAction/AiFactory/RpgTriggers payloads; conjunction law, device
+  byte-identity, quota math, threading, THE EXACTLY-ONE SURFACE —
+  have it re-probe the OLD-LINE-STRAGGLER/generation-drop design with
+  its OWN compiled probe (it has compiled one every round and caught
+  rounds 3-13 with them; its r13r1_probe.cpp is the prior attack).
+- R2 transport/security: riders, G3, A8, A9, anchors — RUN
+  materialize_anchors.py (154 ops); transport-neutrality census of
+  the new commit.
+- R3 corpus/persona: recompile the golden (`g++ -std=c++11 -O2 -Wall
+  -I native/patches/playerbots -o tmp/r14r3.exe
+  tools/test_llm_banter_core.cpp` -> de4bd8227a3ab0d1); phrase
+  matrix; E0/E1/E2/E3 + A5.
+- R4 schema/persistence: migration replay 414/414; the lockfile
+  deltas = exactly the two patch-hash re-pins; PROVENANCE; 0414 last.
+- R5 app conf/emission: CloudLaneConf 9/9; appended-block law; key
+  parity mutation-tested; detekt baseline empty since b3bef5f.
+- R6 app UX/supervisor: RUN the full gradle suite fresh.
+- R7 harness/tests: the T1/T2 pin matrix; hunt weakened/tautological/
+  missing pins (the NEW generation-drop pin + the flaky-test fix are
+  fresh-eyes targets); RUN the full pytest (and judge its
+  DETERMINISM — the round-13 finding was theirs).
+- R8 whole-plan conformance: all 13 §0 constraints + §0.a-d, §11, 5
+  NEW PLAN-LOG spot-checks (65 already verified TRUE — derive the
+  set from the round entries), all logged interpretations + the
+  round-7..13 design readings incl. the generation-drop reading.
+- EVERY prompt: the NEW HEAD sha; the fix commits to verify (the
+  round-13 batch + 946b6e9 at minimum); the KNOWN NON-FINDINGS block
+  (pytest ends "8 failed, <N>, 4 skipped" — the 8 pre-existing on
+  clean 84c0c7b per the ci.yml deselect list; device-gated items are
+  runbook entries in DEVICE_QUALIFICATION_CHECKLIST.md; the
+  adjudicated-residue list in review-rounds.md — now also including
+  the round-12 lint over-breadth, the band-safe un-anchored Kotlin
+  leftovers, baseline-anchor first-match patching, the cross-lane
+  state-key collision, authoring-machine-bound raw-byte pins,
+  bot_player_history escape headroom, refund-CAS second-boundary,
+  retry-leg class=empty, B2.3 wording, the stale build mirror); the
+  verify-not-vibe rule; the no-device note; READ-ONLY; the MANDATORY
+  output format (final line exactly `VERDICT: PASS` or `VERDICT:
+  FINDINGS`; numbered findings with severity + evidence +
+  justification; MINOR-only = PASS).
+
+### Gotchas (hard-learned across SEVEN sessions — do not rediscover)
+
+- Heredocs/edit fragility: backslashes mangled, appends truncated,
+  unicode apostrophes produced zero-width bytes. Use the Write tool
+  or python-scripted writes for anything delicate; BYTE-CHECK after
+  non-ASCII touches. For Kotlin `\n` pins, build strings via
+  chr(92)+'n' in python (a heredoc WILL corrupt them).
+- Line endings PER FILE: tests/test_llm_*.py mostly CRLF;
+  test_llm_banter.py/test_llm_e1_corpus.py LF; overlay .h/.cpp CRLF;
+  the driver + review-rounds.md + PLAN-LOG.md + ci.yml +
+  BotLlmSpeechConfTest.kt LF; LlmRuntimePolicyTest.kt CRLF. Always
+  byte-check before replaces (git's CRLF warnings on add are normal).
+- Shell cwd does NOT reset between Bash calls.
+- g++ resolves via `python -c "import shutil; print(shutil.which('g++'))"`.
+- The banter FNV golden is de4bd8227a3ab0d1 (re-pin only if a seeded
+  pool changes — none has since E1).
+- Full pytest ~7 min; gradle cached 10 s-2 min; a fix batch + gates +
+  logs + commit ~25-30 min; a round 10-20 min.
+- Judgment note for Round 14's R1: the layers are now MIRRORS of the
+  fixes (each fix's interaction re-probed). The generation-drop fix
+  is structural for the entry-side class (every dispatch either
+  belongs to the current generation — m_time >= firstHeard — or is
+  dropped). If R1 finds yet another layer, judge honestly:
+  reachable-in-practice (compiled demonstration + ordinary player
+  actions) -> fix and loop; theoretical + unobservable without a
+  device -> the §15.5 device-gated residue route. The cap's other
+  trigger (two consecutive post-fix rounds with no NEW findings) has
+  never fired — every round 3-13 surfaced NEW findings.

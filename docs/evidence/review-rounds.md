@@ -1754,3 +1754,133 @@ exactly the Memory.cpp/.h patch-hash updates) and null-guard 9
 passed; check_repo OK (1217 files, 0/0); check_sources OK; anchors
 replay 154 ops no drift; banter FNV golden recompiled =
 de4bd8227a3ab0d1.
+
+## Round 13
+
+**Diffstat re-reviewed**: `git diff 6045eeb..946b6e9` — 120 files,
++22312/−358 (the round-12 fix batch 946b6e9 on top of 1a3017a). All 8
+reviewers dispatched fresh in one foreground message.
+
+**Result: 6/8 PASS → ROUND FAILS.** (Fix batch owed — see the
+continuation-run-7 handoff in PLAN-LOG.md; the "Fixes applied between
+Round 13 and Round 14" section lands with that batch.)
+
+- **R1 (native cloud lane): FINDINGS** — 1 MAJOR: the round-12
+  generation flip re-opens a PRIOR line for its own straggled
+  drainers (the mirror image of the round-12 finding). At a verbatim
+  repeat past the window the registry re-registers fresh (fh_new);
+  an OLD-line straggled entry (m_time = fh_old+10, TTL-alive to
+  fh_old+39 — within-window straddles are the round-10 adjudicated
+  class) then passes BOTH freshness gates (measured against fh_new),
+  and TokenOwnsCurrentLine classifies the old line's STILL-LIVE
+  winner token as residue (every prior-generation token expires
+  before fh_new+30) and ERASES it — the straggler claims and
+  dispatches: line 1 = 2 generations, line 2 = 0. R1's probe
+  (tmp/r13r1_probe.cpp, 14/14, the first with per-line generation
+  counting): 84,825/84,825 combos double (straddle 4-28 x winner
+  0-28 x repeat 31-55 x drain instants); generalizes to three-line
+  timelines and the addressed leg; controls isolate both causes
+  (no-repeat → refused; no-straddle → TTL drops); falsifies the
+  header's "inside the window, with generation scoping, the envelope
+  is total". Every ingredient adjudicated-ordinary (no stall, no
+  strategy-less bot, no clock step). Fix directions named by R1:
+  thread the drainer's m_time into the claim (refuse when
+  m_time < firstHeard — the entry predates the current generation),
+  or extend the drain-stale gate (where holder.m_time IS in hand) to
+  drop entries whose registry generation has moved past them.
+  Verified green: the round-12 fix itself holds (residue erased, the
+  repeat owns exactly one); r10/r11 regressions closed; the
+  discriminator boundary exact in the 2-generation algebra; stale
+  claims never erase a current token (the freshness-first order is
+  correct); §0.13 all sites; device byte-identity; A7; rpgchat;
+  threading; pins 18 passed.
+- **R2 (transport/security): PASS — zero findings.** Anchors 154 ops
+  (arithmetic re-derived; a 133-literal occurrence census found only
+  the documented multi-site rows); 946b6e9 = exactly the 10 logged
+  files with zero transport surface (whole-commit grep clean); the 4
+  re-pins recomputed byte-exact; rider 1 mutation-killed 2/2; riders
+  3/5 (the empty-endpoint getaddrinfo fail-closed traced); G3
+  end-to-end with the CA bundle byte-identical to live curl.se today;
+  a fresh 22-check class-truth battery compiled against the REAL
+  headers (sentinel through HygienePass); A8 (8 sanctioned literals,
+  no new carriers) + the run_suite checker exercised live on
+  hostile logs; A9; hung-adb 26/26.
+- **R3 (authored corpus/persona): PASS — zero findings.** Golden
+  recompiled = de4bd8227a3ab0d1 (no seeded pool touched,
+  diffstat-verified); the lint 1 passed with teeth spot-verified
+  (17/18 plants caught; the miss was a deliberately malformed
+  control; the one false positive is the adjudicated round-12
+  residue); 85 corpus tests; a fresh C++ E0 probe walked 1,218 lines
+  through the real LineIsValid plus a 16M guid-pair lane-disjointness
+  sweep; E1 1,090 exactly; E2 30/30 (the "31st UPDATE" is a comment
+  word); E3 mutation-tested 3/3; A5 1,374 real renders through the
+  template chain; the in-scope diff hunt clean.
+- **R4 (schema/persistence): FINDINGS** — 1 MAJOR (a GATE-DETERMINISM
+  flake, the round-2-adjudicated false-fail class):
+  tests/test_rp_harness.py::test_event_carries_both_clocks_and_
+  transcript_round_trips compares the UNROUNDED before =
+  protocol.mono_ms() against record["mono_ms"], which protocol.py:30
+  stores as round(mono_ms(), 3) — the round-down can floor the record
+  below before (487,712 observable pairs in 2M adjacent reads on
+  R4's machine): 76/300 loop runs fail, and two consecutive
+  full-suite runs on the IDENTICAL tree gave "9 failed, 629 passed"
+  then "8 failed, 630 passed" — the canonical per-commit gate is
+  nondeterministic, intermittently poisoning the all-or-again loop.
+  Introduced by this run (e407e1e, Phase 0 rails). One-line fix:
+  round the before read too (round is monotone, so
+  round(v2,3) >= round(v1,3) always holds), or an epsilon compare.
+  Everything else clean: migration replay 414/414; first-412
+  byte-identity; 0414 idempotence (3 passes, 30/0/0); PROVENANCE
+  recomputed + fail-close demonstrated live; 946b6e9's 4 lockfile
+  deltas EXACTLY the two patch-hash re-pins (b6e18170…/b2168349…,
+  recomputed); 0414 still LAST; C-column writers all live; the
+  sqlite family green.
+- **R5 (app conf/emission): PASS — zero findings.** The = 48 anchor
+  mutation-verified with a REAL worktree mutant (emission x10 →
+  "= 480" fails the new pin; the round-12 un-anchored form PASSES
+  the same mutant — the closure is load-bearing); production
+  emission byte-identical since bec78fd; key parity mutation-tested
+  6/6 on scratch; detekt baseline empty since b3bef5f + forced-fresh
+  BUILD SUCCESSFUL 1097/0/1; the band-safe leftovers re-derived.
+- **R6 (app UX/supervisor): PASS — zero findings.** Gradle
+  forced-fresh 48/48 executed: 138 classes, 1097/0/1, detekt 0;
+  946b6e9's android footprint = the one test file; F2 (incl. every
+  failure-code branch traced to the real backend), F3, §0.c.4
+  verbatim, B7 floors, B5 manifest/fence/hysteresis/ids, F1 orphan
+  policy — all re-verified with pins; the string sweep found nothing
+  unsupported.
+- **R7 (harness/tests): FINDINGS** — 1 MAJOR (the SAME flaky test,
+  found independently: 19.5% measured fail rate, reproduced in an
+  isolation loop at iteration 3/25 with the assert
+  `525984859.0 >= 525984859.00000006`; root-caused identically to
+  the round-vs-unrounded compare; one-line fix) + 1 MINOR (the two
+  TokenOwnsCurrentLine consults are substring-pinned, not
+  verbatim-pinned — a scratch mutant voiding the consult's BODY
+  (call kept, `return false;` gone) survived the whole battery; the
+  fix is extending the verbatim pin to the consult + its
+  `return false;` line in both helpers). Verified green: the
+  round-12 residue pin kills all three mandated mutants; R7's
+  round-12 De Morgan inversion mutant DIES on the new verbatim
+  gate-block pins; the prune-before-insert order pin kills the
+  reorder mutant; the freshness-before-ownership position asserts
+  are load-bearing; the weakening audit of 946b6e9 CLEAN (only
+  strengthening); vacuous-grep zero; T1/T2 walked; the mandatory
+  full pytest run TWICE (9-then-8 failed — the flake).
+- **R8 (whole-plan conformance): PASS — zero findings.** All 13 §0
+  constraints mechanically green; §0.a-d + §11 no hard inversions;
+  5/5 NEW spot-checks TRUE (65 across rounds 1-13); all standing
+  interpretations + the round-7..12 readings re-derived SOUND — the
+  round-12 generation-scoping reading re-derived in full (every
+  prior-generation token erased with a >= 2 s separation band; the
+  discriminator exact) and the prune-before-insert reading SOUND
+  (cannot register a line earlier than its true first push — every
+  map value is an actual receive instant); every round-12 fix-batch
+  gate claim reproduced by own runs incl. the probe 8/8; one
+  NON-finding observation (the law comments state the accepted-stamp
+  range as [fh, fh+window-margin] where the >= refusal makes it
+  [fh, fh+window-margin-1] — a true loose superset bound,
+  conservative direction, recorded for the next wording touch).
+
+MINORs pending triage in the round-13 fix batch: R7's ownership-
+consult verbatim pins (fix); R8's comment superset bound (fold into
+the next comment touch); the two MAJORs above (fix).
