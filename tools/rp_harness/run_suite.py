@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -48,6 +49,9 @@ RE_END = re.compile(r"BotLLM:\s*(?:gen\s+)?end\b.*?\breq=(\d+)")
 # check is the concurrency cap (round-2 R2#2/R7#1 - the cap denial
 # happens after the generation was logged as started).
 RE_END_CLASS = re.compile(r"BotLLM:\s*(?:gen\s+)?end\b.*?\breq=(\d+)\b.*?\bclass=(\w+)")
+# the end line's duration (A8: "p50/p95 from durMs" - log timestamps are
+# second-resolution, durMs is the in-process steady_clock measure)
+RE_END_DUR = re.compile(r"BotLLM:\s*(?:gen\s+)?end\b.*?\breq=(\d+)\b.*?\bdurMs=(\d+)")
 NO_BEGIN_CLASSES = frozenset({"busy"})
 
 
@@ -55,6 +59,7 @@ def check_a8_lines(lines, require: bool = False) -> dict:
     """Scan world.log lines for the A8 per-turn invariants."""
     counts: dict[str, dict[str, int]] = {}
     end_classes: dict[str, str] = {}
+    durations: list[int] = []
     botllm_lines = 0
 
     def bump(req: str, phase: str) -> None:
@@ -67,11 +72,26 @@ def check_a8_lines(lines, require: bool = False) -> dict:
         cls = RE_END_CLASS.search(line)
         if cls:
             end_classes[cls.group(1)] = cls.group(2)
+        dur = RE_END_DUR.search(line)
+        if dur:
+            durations.append(int(dur.group(2)))
         for phase, pattern in (("dispatch", RE_DISPATCH), ("begin", RE_BEGIN),
                                ("end", RE_END)):
             match = pattern.search(line)
             if match:
                 bump(match.group(1), phase)
+
+    # plan A8: "p50/p95 from durMs" (round-4 R2) - nearest-rank
+    # percentiles over every end line that carries a durMs; the report
+    # key rides into the JSON via the embedded result dict
+    def pct(values: list[int], p: float) -> int:
+        rank = max(1, math.ceil(len(values) * p / 100.0))
+        return sorted(values)[rank - 1]
+
+    latency_ms: dict[str, int] = {}
+    if durations:
+        latency_ms = {"p50": pct(durations, 50), "p95": pct(durations, 95),
+                      "n": len(durations)}
 
     violations: list[str] = []
     if botllm_lines == 0:
@@ -79,7 +99,8 @@ def check_a8_lines(lines, require: bool = False) -> dict:
         if require:
             violations.append("no BotLLM: lines found (--require-a8 given)")
         return {"ok": not violations, "noOp": not require, "botllmLines": 0,
-                "requests": 0, "violations": violations}
+                "requests": 0, "violations": violations,
+                "latencyMs": latency_ms}
 
     for req in sorted(counts, key=int):
         row = counts[req]
@@ -101,7 +122,8 @@ def check_a8_lines(lines, require: bool = False) -> dict:
         if row["dispatch"] == 0:
             violations.append(f"req={req}: begin/end without a dispatch line")
     return {"ok": not violations, "noOp": False, "botllmLines": botllm_lines,
-            "requests": len(counts), "violations": violations}
+            "requests": len(counts), "violations": violations,
+            "latencyMs": latency_ms}
 
 
 def check_a8_log(path: str | Path, require: bool = False) -> dict:

@@ -105,6 +105,14 @@ static void name_addressing()
     // only the possessive 's tail keeps an apostrophe boundary
     // (round-2 R1#2: "Varleigh'x" is a different word)
     CHECK(!ContainsNameIgnoreCase("Varleigh'x happened", "Varleigh"));
+    // a QUOTED name still addresses (round-4 R1#2): the opening and
+    // closing apostrophes are boundaries; a word-INTERNAL apostrophe is
+    // not ("O'Varleigh" never addresses Varleigh)
+    CHECK(ContainsNameIgnoreCase("I saw 'Varleigh' nearby", "Varleigh"));
+    CHECK(ContainsNameIgnoreCase("'Varleigh', you there?", "Varleigh"));
+    CHECK(ContainsNameIgnoreCase("who is 'Varleigh'", "Varleigh"));
+    CHECK(ContainsNameIgnoreCase("say 'Varleigh's name", "Varleigh"));
+    CHECK(!ContainsNameIgnoreCase("O'Varleigh rules", "Varleigh"));
     CHECK(!ContainsNameIgnoreCase(std::string(), "Varleigh"));
     CHECK(!ContainsNameIgnoreCase("nothing here", ""));
 }
@@ -135,6 +143,16 @@ static void responder_selection()
     CHECK(SelectResponder({{9, 3, 100}, {7, 3, 100}}) == 7);
     // negative tier candidates still participate (stranger tier 0 < acquaintance 1)
     CHECK(SelectResponder({{7, 0, 0}, {9, 1, 900}}) == 9);
+    // round-4 R1: on an ADDRESSED line the pick resolves to the named
+    // bot regardless of tier/rotation - the unaddressed fan-out loses
+    // everywhere and the addressed bot's bypass is the ONE generation
+    CHECK(SelectResponder({{7, 1, 0}, {9, 3, 0}, {11, 2, 0}}, 7) == 7);
+    CHECK(SelectResponder({{7, 1, 0}, {9, 3, 0}, {11, 2, 0}}, 11) == 11);
+    // an addressed guid outside the candidate set changes nothing (a
+    // dead or absent named bot: the normal ordering answers)
+    CHECK(SelectResponder({{7, 1, 0}, {9, 3, 0}}, 42) == 9);
+    // the default (0) is the unaddressed line - pure ordering
+    CHECK(SelectResponder({{7, 1, 0}, {9, 3, 0}}, 0) == 9);
 }
 
 static void dialogue_eviction()

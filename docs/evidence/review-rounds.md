@@ -397,3 +397,107 @@ covered by the lockfile pins, three-lane rebuild contract, anchor
 replay and host batteries — authoring the NDK build.ninja edge walker
 this late adds risk disproportionate to a MINOR); R8's two wording
 nits.
+
+## Round 4
+
+**Diffstat re-reviewed**: `git diff 6045eeb..f27b02e` — 117 files,
++18782/−323 (the round-3 fix batch plus docs; same submodule ranges).
+All 8 reviewers dispatched fresh in one foreground message.
+
+**Result: 7/8 PASS → ROUND FAILS.**
+
+- **R1 (native cloud lane): FINDINGS** — 1 MAJOR: on an ADDRESSED
+  party/raid line the named bot dispatches via the addressed arm
+  (claim bypassed) while every non-named bot's deterministic claim
+  pick — highest tier among the OTHERS — also claims and dispatches:
+  TWO generations per addressed line once `LLMPartyReplyEnabled`
+  flips 1 (the plan's A3.5 pins "exactly ONE ... per player party
+  line" and names the 2-responder case a failure; the plan's own A3.2
+  sketch signature `SelectResponder(candidates, addressedGuid, seed)`
+  carried the missing preference; verified by a compiled probe of the
+  real header transcribing the payload control flow). All three
+  round-3 fixes verified holding (raid claim shared/no nesting/device
+  byte-identity; refusal stamp lazy-last; rpgchat order with the
+  extended UPSTREAM byte-verified). +1 MINOR: a quoted name
+  (`'Varleigh'`) never matches ContainsNameIgnoreCase (the closing
+  apostrophe reads as a bad continuation; asymmetric with the left
+  bound).
+- **R2 (transport/security): PASS** — round-2 fixes mutation-verified
+  again; anchors 153 ops (the extended RPG span byte-proven); the new
+  refusal literal fixed-field; the allowlist extension holds; the
+  unscanned BotLLM carriers enumerated harmlessly. 1 MINOR: run_suite
+  never computes the plan-A8 "p50/p95 from durMs".
+- **R3 (authored corpus/persona): PASS** — golden recompiled =
+  de4bd8227a3ab0d1; corpus batteries 70+14 green; lint teeth
+  repr-verified; E0/E1/E2/E3 + A5 all re-verified independently (own
+  parsers). 1 MINOR: a dead `tags =` assignment in the renamed
+  seasoning test.
+- **R4 (schema/persistence): PASS** — full replay 414 inputs zero
+  mismatches; texts.sql blob-identical; every column's writer/reader
+  re-verified; PROVENANCE LF-normalization mechanically demonstrated
+  (mutation flips, EOL does not); sqlite batteries 97 green. 1 MINOR:
+  an orphaned pre-run `.build-arm64-v8a` staging tree (gitignored,
+  unreferenced; deletion suggested at the next restage).
+- **R5 (app conf/emission): PASS** — no emission drift from f27b02e
+  (byte-check on all five emission sources); detekt baseline untouched
+  and consistent; the 9/9 device-pin fix confirmed; key-parity gate
+  mutation-tested live in 4 directions. 1 MINOR: the external-OFF pin
+  sampled 2 of 8 economics keys and the debug lane had no
+  family-absence pin (defense-in-depth class).
+- **R6 (app UX/supervisor): PASS** — gradle forced-fresh (138 classes,
+  1096/0/1) + detekt zero findings; F2/F3/B5/F1/B7 all re-verified
+  with pins named. No new findings.
+- **R7 (harness/tests): FINDINGS→PASS-shape content but listed
+  findings were MINOR-only** — the round-3 A1 pin mutation-tested (8
+  mutants, all killed); README/smoke fixes verified at every exit
+  path; the f27b02e weakening audit confirmed equal-or-stronger (the
+  old split key now matches 2 sites, the new key exactly 1 — the pins
+  got MORE specific); full suite re-run clean; vacuous-pattern grep
+  zero. 3 MINOR: the rpgchat quota-reorder landed unpinned (asymmetric
+  with the street ladder); run_suite's exit-2 path discards the
+  mid-suite record/transcript (diagnostic fidelity, device-gated);
+  harness polish nits (bot_reply first-match strictness, a stale
+  from_log_lines docstring claim, a non-RelayError parse escape).
+- **R8 (whole-plan conformance): PASS** — all 13 constraints
+  mechanically verified; 5/5 NEW spot-checks TRUE (the round-3
+  entry's own claims); all 12 interpretations SOUND + the two new
+  round-3 readings judged SOUND + the three residue rationales judged
+  HONEST. No new findings.
+
+**Fixes applied between Round 4 and Round 5** (one commit):
+
+- [R1 MAJOR] `SelectResponder` gained the plan's own A3.2 sketch
+  parameter: `addressedGuid` (defaulted 0 = unaddressed, pure
+  ordering) with immediate resolution to the named candidate. The
+  payload claim leg computes the addressed guid by iterating the
+  group's members through the canonical `ContainsNameIgnoreCase`
+  (every bystander computes the same value from the same msg + group,
+  so the fan-out is stable), and the pick resolves to the named bot —
+  the bystanders all lose the claim and the addressed bot's bypass is
+  the ONE generation. Battery cases added (preference, out-of-set,
+  default); a new payload pin
+  (test_addressed_line_resolves_the_pick_to_the_named_bot_round4).
+- [R1 MINOR] Quoted names address: the right boundary admits an
+  apostrophe tail when the next char is 's' (possessive, unchanged) or
+  non-alphanumeric/absent (closing quote); the left boundary admits a
+  preceding apostrophe when the char before it is non-alnum/absent
+  (opening quote) while "O'Varleigh"-style word-internal apostrophes
+  stay blocked. Battery cases added both directions.
+- [R7 MINOR] The rpgchat cheap-before-expensive order pinned
+  (packets/futPackets/chatLine all before the CloudQuotaAdmits spend).
+- [R2 MINOR] run_suite now computes nearest-rank p50/p95 over end-line
+  durMs values into the report's `latencyMs` block (+ README + a
+  pinned test with hand-checked ranks).
+- [R5 MINOR] The external-OFF absence pin enumerates all 8 economics
+  keys; the debug lane gains the full 9-key family-absence pin.
+- [R3 MINOR] The seasoning test's dead assignment removed.
+
+MINORs accepted as recorded residue (rationale): the orphaned
+`.build-arm64-v8a` tree (pre-dates the run, gitignored, unreferenced —
+delete at the next restage; not this gate's state to destroy);
+run_suite's exit-2 transcript discard (exit 2 still fails the gate;
+recovered hiccups already fail via relay-stability; the fix belongs to
+the harness lane's next touch); the three harness polish nits
+(first-match strictness is a recorded choice pending the realmd-auth
+text transport; the docstring claim and the parse-escape are
+device-gated-lane polish).

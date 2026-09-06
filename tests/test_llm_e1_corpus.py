@@ -168,9 +168,6 @@ def test_seasoning_bank_rows_follow_the_archetype_order():
     for tag in ("// ARCHETYPE_GRUFF", "// ARCHETYPE_SHY",
                 "// ARCHETYPE_NOBLE", "// ARCHETYPE_ROGUEISH"):
         assert tag in block, f"missing row tag {tag}"
-    tags = [i for i, t in enumerate(("// ARCHETYPE_GRUFF", "// ARCHETYPE_SHY",
-                                     "// ARCHETYPE_NOBLE", "// ARCHETYPE_ROGUEISH"))
-            if block.index(t)]
     assert block.index("// ARCHETYPE_GRUFF") < block.index("// ARCHETYPE_SHY") < \
         block.index("// ARCHETYPE_NOBLE") < block.index("// ARCHETYPE_ROGUEISH")
 

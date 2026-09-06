@@ -500,6 +500,23 @@ def test_a8_scan_busy_and_cap_turn_shapes():
                for v in corrupted["violations"])
 
 
+def test_a8_scan_reports_p50_p95_from_durms():
+    # plan A8's "p50/p95 from durMs" (round-4 R2): nearest-rank
+    # percentiles over every end line carrying a durMs; the empty scan
+    # reports no latency block at all
+    lines = []
+    for i, dur in enumerate((400, 100, 300, 200, 500, 600, 700), start=1):
+        lines.append(f"BotLLM: dispatch bot=5 src=0 lane=chat req={i}")
+        lines.append(f"BotLLM: gen begin req={i} bot=5 lane=chat")
+        lines.append(f"BotLLM: gen end req={i} bot=5 class=ok durMs={dur}")
+    report = run_suite.check_a8_lines(lines)
+    assert report["ok"], report["violations"]
+    # sorted 100..700, n=7: nearest-rank p50 = ceil(3.5)=4th = 400;
+    # p95 = ceil(6.65)=7th = 700
+    assert report["latencyMs"] == {"p50": 400, "p95": 700, "n": 7}
+    assert run_suite.check_a8_lines([])["latencyMs"] == {}
+
+
 def test_a8_scan_no_op_passes_on_silent_logs():
     silent = run_suite.check_a8_lines(
         ["POCKET_WORLD_LOOP starting stopped=0", "something else"])

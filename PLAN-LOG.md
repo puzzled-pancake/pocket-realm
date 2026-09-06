@@ -1851,3 +1851,44 @@ full in docs/evidence/review-rounds.md); R2/R3/R4/R5/R6/R8 PASSED
   --write-lockfiles; anchors 153 ops; both C++ batteries green with the
   FNV golden UNCHANGED at de4bd8227a3ab0d1; check_repo/check_sources
   OK.
+## Round 4 + fix batch (continuation run 4): one MAJOR left, fixed
+
+**Round 4: 7/8 PASS - ROUND FAILS.** R1 found one new MAJOR (logged in
+docs/evidence/review-rounds.md); every other reviewer PASSED (R6 and R8
+with zero new findings; R8 judged all 12 interpretations SOUND, the two
+new round-3 readings SOUND, the residue rationales HONEST, and 5/5 fresh
+PLAN-LOG spot-checks TRUE). Fix batch landed, all gates green, one
+commit:
+
+- **R1#1 (MAJOR), addressed-line double dispatch**: on a line NAMING a
+  bot, the named bot dispatched via the addressed bypass while the
+  claim pick among the OTHER members also dispatched - 2 generations
+  once LLMPartyReplyEnabled flips 1 (the plan's A3.5 exactly-one pin;
+  its own A3.2 sketch had the fix: SelectResponder(candidates,
+  addressedGuid, seed)). Fix: SelectResponder gained the addressedGuid
+  parameter (defaulted 0; immediate resolution to the named candidate);
+  the payload claim leg computes the addressed guid by iterating the
+  group through the canonical ContainsNameIgnoreCase - every bystander
+  computes the same value, the pick resolves to the named bot, all
+  bystanders lose the claim, and the addressed bot's bypass is the ONE
+  generation. Battery cases + a new payload pin.
+- **R1#2 (MINOR) fixed**: quoted names ('Varleigh') now address - the
+  right boundary admits a closing-quote apostrophe (next char
+  non-alnum/absent; the possessive 's rule unchanged; Varleigh'x still
+  rejected), the left boundary admits an opening-quote apostrophe while
+  word-internal O'Varleigh-style stays blocked. Battery cases both
+  directions.
+- **R7/R2/R5/R3 MINORs fixed**: the rpgchat cheap-before-expensive
+  order pinned; run_suite computes nearest-rank p50/p95 from end-line
+  durMs into the report (+ README + pinned test); the external-OFF pin
+  enumerates all 8 economics keys + the debug lane gains the 9-key
+  family-absence pin; the seasoning test's dead assignment removed.
+- **Residue recorded** (rationale in the round log): the orphaned
+  pre-run .build-arm64-v8a staging tree (delete at the next restage);
+  run_suite's exit-2 transcript discard; three harness polish nits.
+- **Gates**: pytest 8 failed (the documented pre-existing set), 619
+  passed (+3), 4 skipped; gradle testDebugUnitTest + detekt BUILD
+  SUCCESSFUL (no baseline regen); null-guard 9/9 after
+  --write-lockfiles; anchors 153 ops; both C++ batteries green, FNV
+  golden UNCHANGED at de4bd8227a3ab0d1; check_repo (1216 files)/
+  check_sources OK.

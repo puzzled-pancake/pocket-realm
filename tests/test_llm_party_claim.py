@@ -154,7 +154,7 @@ def test_payload_consumes_pick_and_claim_at_the_top_of_the_party_block():
     # just dispatch)
     assert "bool partyResponderClaimed = true;" in party
     assert "PlayerbotLlmMemory::CollectPartyCandidates(" in party
-    assert "PlayerbotLlmGates::SelectResponder(partyCandidates)" in party
+    assert "PlayerbotLlmGates::SelectResponder(partyCandidates, addressedGuid)" in party
     assert "PlayerbotLlmMemory::TryClaimPartyResponder(" in party
     assert "PlayerbotLlmMemory::PartyFloodAdmits(gateSpeaker->GetGUIDLow())" in party
     assert "PlayerbotLlmMemory::PartyMsgHash(msg)" in party
@@ -222,6 +222,29 @@ def test_addressed_whisper_and_say_never_consult_the_claim():
     # behavior is byte-identical to the pre-A3 payload (HardTriggerAllowed
     # already returns false for unaddressed party lines on that lane)
     assert "bool partyResponderClaimed = true;" in party
+
+
+def test_addressed_line_resolves_the_pick_to_the_named_bot_round4():
+    """Round-4 R1: an ADDRESSED party/raid line must yield exactly ONE
+    generation - the named bot's own dispatch (its claim bypass). The
+    non-named bots compute the SAME addressedGuid from the same msg +
+    group, the pick resolves to it, and every bystander loses the claim
+    (no second responder, no Tier I double-burn - the plan's own A3.2
+    sketch parameter)."""
+    gate = android_anchor("PB_SAY_GATE_ANDROID")
+    party = gate.split("plan v5 C3: the roundtable row")[1].split(
+        "if (sPlayerbotAIConfig.llmEnabled > 0 && hardTriggerAllowed"
+        " && partyResponderClaimed && replyGateAllowed")[0]
+    claim_leg = party.split("if (!addressedToBot && CloudLaneOpen()")[1]
+    # the addressed guid is computed INSIDE the claim leg from the group
+    # members via the canonical name matcher
+    assert "uint32 addressedGuid = 0;" in claim_leg
+    assert ("PlayerbotLlmGates::ContainsNameIgnoreCase(msg, "
+            "namedMember->GetName())") in claim_leg
+    assert "addressedGuid = namedMember->GetGUIDLow();" in claim_leg
+    # ... and the pick consumes it
+    assert ("PlayerbotLlmGates::SelectResponder(partyCandidates, "
+            "addressedGuid)") in claim_leg
 
 
 def test_raid_arm_shares_the_exactly_one_claim_round3():

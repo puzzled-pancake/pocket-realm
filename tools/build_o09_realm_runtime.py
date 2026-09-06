@@ -2203,8 +2203,27 @@ PB_SAY_GATE_ANDROID = """    bool useLlamaBackend = sPlayerbotAIConfig.llmBacken
                 PlayerbotLlmMemory::CollectPartyCandidates(
                     responderGroup->GetId(), gateSpeaker->GetGUIDLow(),
                     partyCandidates);
+                // A3.5 (round-4 R1): on an ADDRESSED line every
+                // non-named bot computes the SAME addressed guid from
+                // the same msg + group, and the pick resolves to the
+                // named bot - so the unaddressed fan-out loses the
+                // claim everywhere and the addressed bot's bypass is
+                // the ONE generation (the 2-responder case is the
+                // pinned failure). The canonical name matcher decides.
+                uint32 addressedGuid = 0;
+                for (GroupReference* memberItr = responderGroup->GetFirstMember();
+                     memberItr; memberItr = memberItr->next())
+                {
+                    Player* namedMember = memberItr->getSource();
+                    if (namedMember &&
+                        PlayerbotLlmGates::ContainsNameIgnoreCase(msg, namedMember->GetName()))
+                    {
+                        addressedGuid = namedMember->GetGUIDLow();
+                        break;
+                    }
+                }
                 uint32 const pickedResponder =
-                    PlayerbotLlmGates::SelectResponder(partyCandidates);
+                    PlayerbotLlmGates::SelectResponder(partyCandidates, addressedGuid);
                 if (pickedResponder == bot->GetGUIDLow() &&
                     PlayerbotLlmMemory::PartyFloodAdmits(gateSpeaker->GetGUIDLow()))
                 {

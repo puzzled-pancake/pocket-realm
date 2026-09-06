@@ -221,3 +221,16 @@ def test_every_declared_gate_helper_is_consumed_not_copied():
     ladder = src.split("bool worldWindowClaimed = true;")[1].split('!= "dispatch")')[0]
     # laziness preserved: the quota only spends after the pct roll hits
     assert ladder.index("pctRollHit") < ladder.index("CloudQuotaAdmits")
+
+
+def test_rpgchat_quota_spends_after_the_cheap_guards():
+    """Round-4 R7#1: the street-ladder cheap-before-expensive law holds
+    on the rpgchat arm too (the round-3 R1#3 fix, now pinned) - a
+    reset-but-unrearmed chatLine or a pending packet burst burns no
+    realm-global admission."""
+    driver = _driver_module()
+    payload = driver.PB_RPG_QUOTA_ANDROID
+    quota = payload.index('CloudQuotaAdmits("rpgchat"')
+    assert payload.index("if (packets.size())") < quota
+    assert payload.index("if (futPackets.valid())") < quota
+    assert payload.index("if (chatLine == -1)") < quota

@@ -104,8 +104,9 @@ namespace PlayerbotLlmGates
     // the call sites so the lowercase-name law is pinnable): a
     // word-bound match of the bot's name, case-insensitive, no substring
     // hits ("Varl" must not match "Varleigh") - the name must be the
-    // WHOLE word (or a possessive "'s" tail is still the name being
-    // addressed).
+    // WHOLE word (a possessive "'s" tail is still the name being
+    // addressed, and so is a QUOTED name - round-4 R1#2: the
+    // opening/closing apostrophes of 'Varleigh' are boundaries).
     inline bool ContainsNameIgnoreCase(std::string const& msg, std::string const& name)
     {
         if (name.empty() || msg.size() < name.size())
@@ -115,6 +116,10 @@ namespace PlayerbotLlmGates
             return std::tolower(static_cast<unsigned char>(a)) ==
                    std::tolower(static_cast<unsigned char>(b));
         };
+        auto isAlnum = [](char c)
+        {
+            return std::isalnum(static_cast<unsigned char>(c)) != 0;
+        };
         for (size_t i = 0; i + name.size() <= msg.size(); ++i)
         {
             if (!eqLower(msg[i], name[0]))
@@ -123,19 +128,33 @@ namespace PlayerbotLlmGates
                     [&](char a, char b) { return eqLower(a, b); }))
                 continue;
             size_t const end = i + name.size();
-            bool const leftBound = i == 0 ||
-                !(std::isalnum(static_cast<unsigned char>(msg[i - 1])) || msg[i - 1] == '\'');
+            // left bound: any non-alnum opener except an apostrophe
+            // that CONTINUES a word ("O'Varleigh" never addresses
+            // Varleigh) - but a preceding apostrophe opens a QUOTE when
+            // the char before it is not alphanumeric (or it opens the
+            // message), so "'Varleigh" and " 'Varleigh" match
+            bool leftBound;
+            if (i == 0)
+                leftBound = true;
+            else if (!isAlnum(msg[i - 1]) && msg[i - 1] != '\'')
+                leftBound = true;
+            else if (msg[i - 1] == '\'' && (i < 2 || !isAlnum(msg[i - 2])))
+                leftBound = true;
+            else
+                leftBound = false;
+            // right bound: any non-alnum except an apostrophe; an
+            // apostrophe tail admits only as the possessive 's
+            // ("Varleigh's") or a CLOSING quote - the next char is not
+            // alphanumeric ("Varleigh' " / "Varleigh'." / a trailing
+            // "Varleigh'"). "Varleigh'x" stays a different word.
             bool rightBound = end == msg.size();
             if (!rightBound)
             {
                 char const c = msg[end];
-                // "'s" keeps the boundary: "Varleigh's" still addresses
-                // Varleigh; any other continuation - alnum or a
-                // different apostrophe tail ("Varleigh'x") - is a
-                // different word
-                rightBound = !std::isalnum(static_cast<unsigned char>(c)) &&
+                rightBound = !isAlnum(c) &&
                     (c != '\'' ||
-                     (end + 1 < msg.size() && msg[end + 1] == 's'));
+                     (end + 1 < msg.size() && msg[end + 1] == 's') ||
+                     (end + 1 >= msg.size() || !isAlnum(msg[end + 1])));
             }
             if (leftBound && rightBound)
                 return true;
@@ -174,8 +193,23 @@ namespace PlayerbotLlmGates
     // is this deterministic pick - highest tier, longest-since-last-win
     // breaks ties, guid as the final stable tiebreak (0 = nobody; the
     // 0-responder case claims nothing and is pinned host-side).
-    inline std::uint32_t SelectResponder(std::vector<ResponderCandidate> const& candidates)
+    // Round-4 R1: on an ADDRESSED line the pick resolves to the named
+    // bot (addressedGuid, the plan's own A3.2 sketch parameter) so the
+    // unaddressed fan-out loses the claim everywhere and the addressed
+    // bot's bypass is the ONE generation - the 2-responder case is the
+    // pinned failure. Every bot computes the same addressedGuid from
+    // the same msg + group, so the preference is fan-out-stable.
+    inline std::uint32_t SelectResponder(std::vector<ResponderCandidate> const& candidates,
+        std::uint32_t addressedGuid = 0)
     {
+        if (addressedGuid)
+        {
+            for (ResponderCandidate const& c : candidates)
+            {
+                if (c.guid == addressedGuid)
+                    return c.guid;
+            }
+        }
         ResponderCandidate const* best = nullptr;
         for (ResponderCandidate const& c : candidates)
         {

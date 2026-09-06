@@ -360,12 +360,33 @@ class LlmRuntimePolicyTest {
         // line and NOTHING else, so every native default governs and the
         // widening stays conjunction-keyed OFF. ON: the toggle plus the
         // lane's economics, so a staged conf is self-describing.
+        // Round-4 R5: the OFF absence is the WHOLE economics family
+        // (all 8 non-toggle keys, not a 2-key sample).
         val off = LlmRuntimePolicy.confBlockExternal(
             "https://api.example.com/v1/chat/completions", "m", "k",
         )!!
         assertTrue(off.contains("AiPlayerbot.LLMCloudChatter = 0"))
-        assertFalse(off.contains("LLMCloudStreetSayPct"))
-        assertFalse(off.contains("LLMCloudLineBudgetPerHour"))
+        for (key in listOf("LLMPartyReplyEnabled", "LLMCloudStreetSayPct",
+                           "LLMCloudLineBudgetPerHour", "LLMStreetSayPerDay",
+                           "LLMRpgChatPerDay", "LLMBotToBotPerDay",
+                           "LLMCloudInteractivePerPlayerHour", "LLMDialogueFastLane")) {
+            assertFalse(key, off.contains(key))
+        }
+        // and the DEBUG lane carries none of the family either (it is a
+        // fixed literal - same defense-in-depth as the device block)
+        val debugBlock = ServerRuntimeFiles.llmOverrides(
+            uiEnabled = false,
+            modelPresent = true,
+            modelAbsolutePath = "/data/models/qwen.gguf",
+            debugBuild = true,
+        )!!
+        for (key in listOf("LLMCloudChatter", "LLMPartyReplyEnabled",
+                           "LLMCloudStreetSayPct", "LLMCloudLineBudgetPerHour",
+                           "LLMStreetSayPerDay", "LLMRpgChatPerDay",
+                           "LLMBotToBotPerDay", "LLMCloudInteractivePerPlayerHour",
+                           "LLMDialogueFastLane")) {
+            assertFalse(key, debugBlock.contains(key))
+        }
         val on = LlmRuntimePolicy.confBlockExternal(
             "https://api.example.com/v1/chat/completions", "m", "k",
             cloudLane = CloudLaneConf(cloudChatter = true),

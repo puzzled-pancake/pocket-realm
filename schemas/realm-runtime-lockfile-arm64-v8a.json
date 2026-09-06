@@ -222,7 +222,7 @@
     "native/patches/playerbots/PlayerbotLlmChatterCore.h": "3669a48da8114553f891ba5aecf824adc9c5454442c526da41768c597ebbbb16",
     "native/patches/playerbots/PlayerbotLlmFilters.cpp": "9f7ef6e59cbe5bbed9d99403e73b65ae032a7039e02762aab9c7f7f5a96ca9a3",
     "native/patches/playerbots/PlayerbotLlmFilters.h": "4368bc4f226cbbf7ac7ed79ef089d5d4852206c45fd10f2e5eb95e9e0054807d",
-    "native/patches/playerbots/PlayerbotLlmGates.h": "9e1a76faf089e3c5a35cf554ac58e2414a8338cfcca6698e508c29d8b6a9e78f",
+    "native/patches/playerbots/PlayerbotLlmGates.h": "c06781bdcfeb736b932e9354d684dcf8d1c05c12d8448cc894e0e97e6e0b2e69",
     "native/patches/playerbots/PlayerbotLlmJson.h": "f33aca69e42a01f9134577d5f77b39f5200116d12243f0fb40b1c52d425db6c8",
     "native/patches/playerbots/PlayerbotLlmMemory.cpp": "121c31387c96611b24d802e95a7759d282f9bb361c3618c67c2a37eaa5f80071",
     "native/patches/playerbots/PlayerbotLlmMemory.h": "9a43ff3bde8777221b0d4883c1d3594c558a7687b6dde9f06503172eb228d003",
