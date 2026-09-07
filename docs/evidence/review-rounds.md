@@ -1954,3 +1954,146 @@ re-pins) + null-guard 9 passed; check_repo OK (1217 files, 0/0);
 check_sources OK; anchors 154 ops no drift; golden recompiled
 de4bd8227a3ab0d1; party-claim pins 19 passed. Round 14 dispatched
 against the new HEAD.
+
+## Round 14
+
+**Diffstat re-reviewed**: `git diff 6045eeb..0c7e88b` — 120 files,
++23058/−358 (the round-13 fix batch 0c7e88b on top of 8991d78, which
+was docs-only). All 8 reviewers dispatched fresh in one foreground
+message.
+
+**Result: 8/8 PASS — THE GATE CLOSES.** Zero BLOCKER/MAJOR findings
+across all eight scopes; no reviewer errored out. Six MINORs recorded
+below (MINORs do not fail a round, §15.2); none weakens a pin or
+re-opens the exactly-one surface.
+
+- **R1 (native cloud lane): PASS** — 2 MINORs. The round-13 fix
+  re-probed with a compiled probe of its OWN (tmp/r14r1_probe.cpp,
+  derived from the shipped sources, 20/20): the helper law at exact
+  boundaries; the round-13 attack replayed under the engine's real
+  tick topology (straggler generation-dropped, line 1 keeps exactly
+  one, the repeat owns its own); an INDEPENDENT 95,004-combo two-line
+  sweep at zero doubles with line 2 always answered; a 9,135-combo
+  muted-member sweep with the legacy +10-30 s queue stagger (zero
+  doubles, 8,091 conservative drops); group switch + leave +
+  three-line double-flip timelines; the addressed leg; the r9-r12
+  regression shapes; discriminator boundaries. The next mirror
+  candidate — a registry flip landing between one drain's
+  generation-drop read and its claim read — was DEMONSTRATED in a
+  forbidden-ordering probe control, then verified STRUCTURALLY
+  UNREACHABLE: the registry is written only on the world thread
+  (World.cpp:1596 / WorldSession.cpp:472) while drains run on map
+  worker threads with the world thread blocked in MapUpdater::wait()
+  (MapManager.cpp:207-208) — the registry is frozen during every
+  drain phase. MINOR 1: the round-13 pin's absent-branch is
+  substring-pinned (an absent→true scratch mutant survives — same
+  class as round-13 R7's consult MINOR; named fix: pin the two-line
+  block verbatim). MINOR 2: the "envelope is total" premise omits its
+  third leg — the receive/drain phase freeze that makes the drop's
+  point-in-time snapshot sound (recommend naming it in the header
+  law; a future off-world-thread receive path would silently void
+  it). Everything else green: §0.13 conjunction at all 10 sites;
+  device byte-identity; A7 quota math; StateMutex leaf contract; 19
+  pins; 4-lane lockfile recompute; anchors dry-replayed; full pytest
+  exact-8.
+- **R2 (transport/security): PASS — zero findings.** Anchors 154 ops
+  (raise-on-drift mechanics re-derived); PB_AI_DRAIN_STALE_UPSTREAM
+  byte-verified against pristine (the extension touched only the
+  ANDROID side); the 0c7e88b census: exactly the 11 logged files,
+  zero transport surface (whole-commit keyword grep clean, zero new
+  log/packet carriers); the 4 re-pins recomputed byte-exact; riders
+  1/3 + G3 end-to-end (CA bundle byte-identical to live curl.se:
+  f66dff1b…80bc, 188900 bytes); a fresh 12/12 compiled class-truth
+  battery against the real header incl. 8-thread/16k-id reqId
+  concurrency; A8 hostile-log battery; hung-adb; both scratch mutants
+  killed 2/2; r14fix_probe 24/24 and r13fix 8/8 re-run; the shipped
+  helper compiled verbatim 6/6; the fixed flaky test 40/40; full
+  gates reproduced.
+- **R3 (authored corpus/persona): PASS** — 1 MINOR (a stale E0
+  landing comment in llm_banter_core.h:213-215 says "InitBanterState
+  … untouched" though C7 later added the boot-nonce term — wording
+  staleness only, the documented property still holds per its probe;
+  fold into the next wording touch). Golden recompiled =
+  de4bd8227a3ab0d1 (diffstat-verified no corpus surface in either
+  fix commit); 85 corpus/floor tests; a fresh compiled probe (1,218
+  pool-served lines through the real LineIsValid, 4,000-guid lane
+  sweeps, murmur-floor template chain, seeded-path isolation,
+  boot-nonce law); E3 mutation-tested 2/2; E2 register 30 UPDATEs +
+  idempotence; the 44-phrase sweep all diegetic.
+- **R4 (schema/persistence): PASS — zero findings.** Migration
+  replay 414/414 twice + 0414 idempotence 3 passes 30/0/0;
+  PROVENANCE recomputed over LF-normalized bytes with a live
+  fail-close demo; 0c7e88b's lockfile deltas EXACTLY the two Memory
+  re-pins (recomputed; the driver carries no lockfile entry); 0414
+  LAST; C-column writers all live; sqlite family 45 passed; the
+  append-only law swept whole-run (two tail adds, zero field edits);
+  the flake fix judged as the finder: the monotone-round argument
+  holds for the storage path, 150/150 fresh-process passes, and a
+  whole-harness mono_ms grep found no other unrounded-compare shape
+  (the line-201 candidate dissolved under speaker-mismatch/word-guard
+  analysis).
+- **R5 (app conf/emission): PASS** — 1 MINOR (the key-parity gate's
+  orphan leg is LLM*-scoped where §10 T0.5 words "and vice versa" —
+  every run-introduced non-LLM Kotlin key verified to resolve today;
+  the gate shape passed rounds 3-13 unobjected). 0c7e88b android
+  footprint EMPTY; production emission byte-identical since bec78fd;
+  CloudLaneConf 9/9 forced-fresh (138 classes, 1097/0/1, detekt 0);
+  key parity mutation-tested 3/3 on scratch; detekt baseline md5
+  unchanged since b3bef5f with an empty ManuallySuppressedIssues; the
+  device lane structurally cannot emit any cloud key.
+- **R6 (app UX/supervisor): PASS** — 1 MINOR (WORLD_NOT_READY copy
+  misdescribes the PAUSED phase — pre-existing at 6045eeb, the same
+  RealmState.Running mapping; recorded for a future copy touch).
+  Gradle forced-fresh 48/48 executed: 138 classes, 1097/0/1, detekt
+  0; both fix commits' android footprints exactly as logged (0c7e88b
+  empty; 946b6e9 one test line); F2 every failure-code branch traced
+  to the real backend; §0.c.4 disclosure verbatim; B7 floors
+  monotonic (CROWDED_REALM_400 2048); B5 manifest/fence/hysteresis;
+  F1 orphan policy; the string sweep clean.
+- **R7 (harness/tests): PASS** — 2 MINORs. MINOR 1: the new
+  helper's key-derivation line is unpinned — a scratch
+  PartyClaimKey(speakerGuid, msgHash) → (msgHash, speakerGuid)
+  arg-swap mutant survives the whole battery (the keys differ 16/16
+  realistic pairs, so the drop would consult a key space never
+  written and silently die) — identical class to round-13 R7's
+  consult MINOR; named fix: one more verbatim pin scoped to the
+  helper (the sibling key lines share the exposure). MINOR 2: a
+  residual unrounded-compare shape of the flake class in
+  tools/rp_harness/suites/smoke.py:121 (injected_at unrounded, later
+  compared against rounded records — unreachable today: every
+  compared record is stamped ≥ one adb round-trip after; made
+  uniform by rounding it too). Everything else green: the full suite
+  TWICE — "8 failed, 631 passed, 4 skipped" BOTH runs with identical
+  failed ids (the gate is deterministic; the round-13 flake is gone);
+  a 14-mutant battery on scratch with all 6 mandated mutants KILLED
+  (>, >=, <=, StateMutex delete, pop/continue void, drop-before-TTL,
+  armament removal) plus more killed — only the arg-swap survived
+  (MINOR 1); the flake fix judged sound (monotone quantizer) with
+  100/100 fresh-process loop; the weakening audit of both fix
+  commits CLEAN; the T1/T2 matrix walked with every round-13 pin
+  anchor unique; rp_harness relay ops cross-checked against
+  WorldConsoleRelay.kt; A8 hostile battery 11/11.
+- **R8 (whole-plan conformance): PASS — zero findings.** All 13 §0
+  constraints mechanically green (each with per-constraint evidence:
+  prompt files byte-frozen, tier caps untouched, kill-switch key
+  census, conjunction at every site, migration lane append-only with
+  0413/0414 the only adds, no bot-count reductions — B7 RAISED a
+  floor, no time estimates); §0.a-d + §11 no hard inversions; 5/5
+  NEW PLAN-LOG spot-checks TRUE (the round-13 batch's probe/gate
+  claims all reproduced, incl. r14fix 24/24 and r13fix 8/8 compiled
+  by the reviewer); the round-7..13 design readings re-derived SOUND
+  from the shipped sources — the newest generation-drop law's every
+  premise verified (push-before-write order at driver :3678/:3722,
+  sequential world-thread handlers, the prune bound making
+  fh_new ≥ fh_old+31, the registry's lane scope, the [fh,
+  fh+window-margin−1] accepted-stamp wording, the total-envelope
+  premise's three legs); the batch stayed strictly in its two
+  claimed edit lanes (no submodule commit, no sql/ edit); every gate
+  reproduced honestly.
+
+**This round CLOSES the §15 gate**: the log now ends with a round
+recording 8/8 PASS, per §15.5. The six recorded MINORs (R1's absent-
+branch pin gap + phase-freeze premise wording; R3's stale E0 comment;
+R5's orphan-leg scope; R6's PAUSED copy edge; R7's key-line pin gap +
+smoke.py injected_at rounding) are recorded for future work and do
+not block the gate; none touches a shipped defect.

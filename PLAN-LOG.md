@@ -3002,3 +3002,108 @@ the two Memory.cpp/.h patch-hash re-pins) + null-guard 9 passed;
 check_repo OK (1217, 0/0); check_sources OK; anchors 154 ops no
 drift; golden de4bd8227a3ab0d1. Round 14 dispatched against the new
 HEAD.
+
+## GATE CLOSED — §15 review gate complete (Round 14: 8/8 PASS)
+
+The §15 round-robin review gate of rp-depth-fix-plan-v2.3 is CLOSED
+at Round 14: all 8 reviewers returned PASS with ZERO BLOCKER/MAJOR
+findings (six MINORs recorded — MINORs do not fail a round, §15.2).
+The log in docs/evidence/review-rounds.md now ends with a round
+recording 8/8 PASS, the §15.5 closure condition. Full per-reviewer
+evidence in the Round 14 entry.
+
+### The verdict chain (14 rounds, all-or-again)
+
+R1 2/8 -> R2 6/8 -> R3 6/8 -> R4 7/8 -> R5 7/8 -> R6 7/8 -> R7 7/8
+-> R8 7/8 -> R9 6/8 -> R10 7/8 -> R11 7/8 -> R12 7/8 -> R13 6/8 ->
+**R14 8/8 PASS — GATE CLOSES.**
+
+Rounds 3-13 each failed on R1 MAJORs against the exactly-one
+party-responder surface, each layer a narrowing mirror of the
+previous fix: SRC_RAID fan-out -> addressed double dispatch ->
+dead-addressee -> claim-window race -> additive deferral +
+leave-before-drain -> boundary second + group-switch key ->
+per-entry straddle margin -> mid-drain clock divergence (the
+first-heard registry) -> ungated drain-side marker -> cross-line
+residue (generation scoping) -> the old-line straggler re-open
+(closed structurally by the entry-side generation drop: every
+dispatch either belongs to the current generation — m_time >=
+firstHeard — or is dropped). Round 14's R1 hunted the next mirror
+with its own probe: the forbidden mid-drain registry flip WOULD
+double, but is structurally unreachable (registry writes are
+world-thread-only; the world thread is blocked in MapUpdater::wait()
+for the whole drain phase) — recorded as a premise-wording MINOR.
+Round 13 also carried the independent R4+R7 MAJOR (the
+gate-determinism flake, fixed first: round both sides of the
+mono_ms compare; the canonical gate is deterministic again —
+verified by 200/200 and 150/150 and 100/100 fresh-process loops
+across the batch and three reviewers, plus identical double full
+runs four separate times).
+
+### The run, end to end (31 commits, 6045eeb..0c7e88b)
+
+- Phase 0 rails (e407e1e, 96d4a97): G3 TLS verification, A8
+  observability, §0.c riders, A9, B2/B8/H2, the RP harness.
+- WS-A cloud lane (ca2247d, 2d4f9b2, a1b9ea7): Gates.h + A1 widen,
+  A3 exactly-one party responder, A5 murmur floor, A7 two-tier
+  budgets, A2 fast-lane, A4 fallbacks, A6 street reactions.
+- WS-B/F/G + D2 (73b91b6): F1 orphan self-heal, B5 FGS, B3/B4/B6,
+  G1/G2, D2; then WS-D (29eb2a6: D1 spawn stack, D4 village ring,
+  D3 rung cap), §14 evidence pack (d8650e9).
+- WS-C memory (5231ef1): C1-C8 incl. the 0413 migration and C8
+  history persistence.
+- WS-E corpus (80e8af5 E0, 21d7614 E1, b3bef5f E2): the authored
+  pools to the word laws, the 0414 register tail.
+- The §15 gate (6a70d9c added the protocol mid-run; then 9272f2e,
+  f8f3334, f27b02e, aced79b, bec78fd, 13b769f, 5ba555e, 75739f0,
+  7b2dd24, b55c2d1, 1a3017a, 946b6e9, 0c7e88b: one fix batch per
+  failed round, every batch with its pins, probes, and full gates;
+  docs-only handoff/log commits 3ac8fcd, 63c900c, 7fa2518, cfb10f7,
+  8991d78 at session boundaries).
+
+### Suite state at gate close (HEAD 0c7e88b, re-verified by
+reviewers R2/R5/R7/R8 during Round 14)
+
+- python -m pytest tests/ -q -> "8 failed, 631 passed, 4 skipped",
+  DETERMINISTIC (identical ids on repeated runs; the 8 failures are
+  the pre-existing set on clean 84c0c7b — 2x
+  test_gladio_client_unpack_transport, 4x test_vortek_lifecycle_
+  hardening, 2x test_vortek_winlator_baseline — never fixed by
+  design, the ci.yml deselect list).
+- cd android && ./gradlew :app:testDebugUnitTest :app:detekt
+  -PpocketAbi=x86_64 -PpocketLane=full --rerun-tasks -> BUILD
+  SUCCESSFUL (138 classes, 1097/0/1, detekt 0).
+- Lockfiles pinned (the last deltas: exactly the two
+  PlayerbotLlmMemory.cpp/.h patch hashes); null-guard 9 passed;
+  anchors replay 154 ops no drift; banter golden de4bd8227a3ab0d1;
+  check_repo OK (1217 files, 0/0); check_sources OK.
+- Probes: tmp/r14fix_probe.cpp 24/24 (independently re-verified by
+  round-14 R1 with its own 95,004-combo sweep and R2), r13fix 8/8.
+
+### The recorded residue (adjudicated + round-14 MINORs; none blocks)
+
+Adjudicated across rounds 1-13: the round-12 lint "my instructions"
+over-breadth (zero corpus hits; the tightening trades coverage); the
+band-safe un-anchored Kotlin leftovers; baseline-anchor first-match
+patching (pre-existing at 6045eeb); the cross-lane state-key
+collision (the plan's own two-lane law; bit-23 mask named as the
+closure); authoring-machine-bound raw-byte pins (environmental
+runbook note); bot_player_history escape headroom (round-2 class;
+truncate-with-escape-headroom helper or 0415 named); the refund-CAS
+second-boundary miss; retry-leg class=empty; the B2.3 "lesser"
+wording; the stale build mirror. Device-gated items are runbook
+entries in DEVICE_QUALIFICATION_CHECKLIST.md (T3/T4/T5, B4/B5/B6,
+G1, A6, the party-reply staged default-0 flip).
+
+Round-14 recorded MINORs (future work, none a shipped defect): R1's
+absent-branch substring pin gap (verbatim two-line pin named) and
+the phase-freeze premise wording (name the receive/drain freeze in
+the header law); R3's stale E0 landing comment (InitBanterState vs
+C7's boot nonce); R5's key-parity orphan-leg LLM*-scope; R6's
+WORLD_NOT_READY copy vs the PAUSED phase (pre-existing at 6045eeb);
+R7's key-derivation-line pin gap (arg-swap mutant) and the
+smoke.py:121 injected_at rounding (unreachable today).
+
+The plan's merge gate is satisfied: implementation phases green, the
+§15 terminal review closed at 8/8. Any further change to the
+reviewed surface re-opens review for its scope.
