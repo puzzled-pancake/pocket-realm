@@ -569,6 +569,15 @@ def test_residue_token_from_a_prior_line_is_erased_round12():
     marker = marker.split("\n}")[0]
     assert "if (TokenOwnsCurrentLine(key, heardItr->second))" in claim
     assert "if (TokenOwnsCurrentLine(key, heardItr->second))" in marker
+    # round-13 R7 MINOR: the consult is pinned VERBATIM with its own
+    # return - a mutant voiding the consult's BODY (call kept,
+    # `return false;` gone) survived the substring-only pins above
+    consult = ("    if (TokenOwnsCurrentLine(key, heardItr->second))\n"
+               "        return false;")
+    assert consult in claim, \
+        "the claim's ownership consult is pinned verbatim with its return"
+    assert consult in marker, \
+        "the marker's ownership consult is pinned verbatim with its return"
     # and the claim's gate is verbatim-pinned too (R7's inversion class)
     assert ("    if (heardItr == heard.end() ||\n"
             "        now - heardItr->second >=\n"
@@ -576,6 +585,82 @@ def test_residue_token_from_a_prior_line_is_erased_round12():
             "PARTY_CLAIM_FANOUT_STRADDLE_SECONDS)\n"
             "        return false;" in claim), \
         "the claim gate's exact condition is pinned verbatim"
+
+
+def test_generation_moved_past_drops_old_line_stragglers_round13():
+    """Round-13 R1 MAJOR (the old-line straggler re-open): the round-12
+    generation scoping made both freshness gates and the residue
+    discriminator read the CURRENT registry generation, so a TTL-live
+    straggled entry of a PRIOR identical-text line (its registry key
+    re-registered fresh by a verbatim repeat past the window) passed
+    them all - the gates measured its age against the NEW firstHeard,
+    and TokenOwnsCurrentLine erased the old line's still-live winner
+    token as residue - the straggler claimed and dispatched a second
+    generation for the OLD line while the repeat's own responder was
+    refused beside its token (R1's probe: 84,825/84,825 combos, both
+    legs, three-line timelines). The drain's TTL gate now drops such
+    entries FIRST: PartyClaimGenerationMovedPast is true exactly when
+    the key's CURRENT firstHeard > lineTime - the entry predates the
+    current generation and cannot belong to it."""
+    src = MEMORY_CPP.read_text(encoding="utf-8")
+    helper = src.split("bool PlayerbotLlmMemory::PartyClaimGenerationMovedPast")[1]
+    helper = helper.split("\n}")[0]
+    # the helper rides StateMutex like every registry consult (the
+    # drain holds chatRepliesMutex and already nests StateMutex through
+    # ChatReplyDo's claim leg - StateMutex stays the leaf)
+    assert "std::lock_guard<std::mutex> lock(StateMutex());" in helper
+    # absent key -> false: the registry holds only armed-lane party/raid
+    # real-speaker lines, so every other lane misses the lookup and
+    # stays byte-identical
+    assert "if (itr == heard.end())" in helper
+    assert "return false;" in helper
+    # unstamped entries and null speakers never drop (fail open only in
+    # the no-proof direction, matching PartyClaimWindowElapsed)
+    assert "if (!speakerGuid || lineTime == 0)" in helper
+    # THE discriminator, verbatim: STRICTLY greater. firstHeard is the
+    # MIN receive of the current generation and every member's registry
+    # write follows its own queue push, so a same-generation entry
+    # carries m_time >= firstHeard (== is CURRENT, never dropped; >=
+    # here would drop every first-second same-generation entry), while
+    # under the within-window straddle premise every prior-generation
+    # entry carries m_time <= fh_old+30 < fh_new (always dropped; <=
+    # would re-open the +31 s straggler)
+    assert "return itr->second > (int64_t)lineTime;" in helper
+    # the header declares it beside the registry it reads
+    hdr = MEMORY_H.read_text(encoding="utf-8")
+    assert ("static bool PartyClaimGenerationMovedPast(uint32 speakerGuid,\n"
+            "        uint64_t msgHash, time_t lineTime);" in hdr)
+    # the header law states the entry-side drop and its one exception
+    # (the first-writer push/write second-boundary straddle: one
+    # conservative miss, never a second generation)
+    assert "drain's TTL gate drops such entries instead" in hdr
+    assert "(m_time = firstHeard-1: one entry dropped, a missed reply," in hdr
+
+    drain = android_anchor("PB_AI_DRAIN_STALE_ANDROID")
+    # the drop sits AFTER the TTL block (the TTL owns the no-repeat
+    # stragglers; this one owns the repeat-flip stragglers) and BEFORE
+    # the dispatch handoff - nothing that reaches ChatReplyDo can
+    # predate the current generation
+    ttl_at = drain.index("PlayerbotLlmMemory::PartyClaimWindowElapsed(checkTime)")
+    gen_at = drain.index("PlayerbotLlmMemory::PartyClaimGenerationMovedPast(")
+    assert ttl_at < gen_at < drain.index("ChatReplyAction::ChatReplyDo("), \
+        "generation drop after the TTL drop, before the dispatch"
+    # the whole gate + args pinned verbatim: same cheap-gate armament
+    # as the TTL drop, the entry's own speaker+hash+stamp (no channel/
+    # speaker reclassification - absence keeps other lanes
+    # byte-identical)
+    arm = ("if (checkTime && sPlayerbotAIConfig.llmEnabled > 0 && "
+           "CloudLaneOpen() &&\n"
+           "                sPlayerbotAIConfig.llmPartyReplyEnabled != 0 &&\n"
+           "                PlayerbotLlmMemory::PartyClaimGenerationMovedPast("
+           "holder.m_guid1,\n"
+           "                    PlayerbotLlmMemory::PartyMsgHash(holder.m_msg), "
+           "checkTime))")
+    assert arm in drain, \
+        "the generation drop's gate + args are pinned verbatim"
+    # and it DROPS (pop + continue inside its own branch)
+    tail = drain[gen_at:]
+    assert "chatReplies.pop();" in tail and "continue;" in tail
 
 
 def test_drain_ttl_drops_window_expired_party_lines_round7():
@@ -633,8 +718,11 @@ def test_drain_ttl_drops_window_expired_party_lines_round7():
     # ... real-player lines only (bot chatter is not the surface and
     # must stay byte-identical), then the drop
     assert "staleSpeaker->isRealPlayer()" in drain
-    assert drain.count("chatReplies.pop();") == 2 and \
-        drain.count("continue;") == 2
+    # round-13: the census counts the TTL drop's own pop+continue; the
+    # round-13 generation drop (below) adds the third - the notBefore
+    # hold above pops through delayedResponses, not here
+    assert drain.count("chatReplies.pop();") == 3 and \
+        drain.count("continue;") == 3
 
 
 def test_group_switcher_claims_under_the_line_key_round8():

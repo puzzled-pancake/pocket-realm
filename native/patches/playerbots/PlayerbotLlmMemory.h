@@ -263,7 +263,16 @@ public:
     // token expiring strictly before firstHeard+window was stamped
     // before this generation began and is erased (erase-and-replace),
     // so a repeat line owns its own exactly-one; a current-generation
-    // token owns the line to at least firstHeard+window.
+    // token owns the line to at least firstHeard+window. (The gates'
+    // >= refusal admits now-firstHeard only up to window-margin-1, so
+    // every ACCEPTED stamp sits in [firstHeard,
+    // firstHeard+window-margin-1] - round-13 R8's wording note.)
+    // Round-13 R1 (the old-line straggler re-open): the scoping
+    // re-opened a PRIOR line for its own straggled drainers - both
+    // freshness gates and the discriminator read the CURRENT
+    // generation, so a TTL-live entry of the OLD line passed them
+    // all and claimed; the drain-side TTL gate now drops such
+    // entries first (PartyClaimGenerationMovedPast - see below).
     // Premises, stated honestly: (1) the law assumes non-decreasing
     // wall-clock reads (round-11 R1 MINOR: a >=2 s backward clock
     // STEP landing between one receive handler's registry write and
@@ -272,10 +281,45 @@ public:
     // engine); (2) a fan-out straddle beyond the window re-registers
     // the line as fresh (round-11 R8 MINOR - a >30 s world-thread
     // stall inside one broadcast, far outside every adjudicated
-    // tier); inside the window, with generation scoping, the envelope
-    // is total. Absent at stamp/grant time = unprovable freshness =
-    // refuse (a missed reply, never a second generation).
+    // tier); inside the window, with generation scoping AND the
+    // round-13 entry-side generation drop, the envelope is total.
+    // Absent at stamp/grant time = unprovable freshness = refuse (a
+    // missed reply, never a second generation).
     static void NotePartyLineHeard(uint32 speakerGuid, uint64_t msgHash);
+
+    // Round-13 R1 (the old-line straggler re-open): generation
+    // scoping re-opened a PRIOR line for its own TTL-live
+    // stragglers - a drain-side entry whose m_time predates the
+    // CURRENT registry generation's firstHeard (a verbatim repeat
+    // past the window re-registered the key fresh while this
+    // straggled drain of the old line was still queued) passes
+    // both freshness gates (they measure against the NEW
+    // firstHeard), and TokenOwnsCurrentLine erases the old line's
+    // still-live winner token as residue beside it - the straggler
+    // claims and dispatches a second generation for the OLD line
+    // while the repeat's own responder is refused (R1's probe:
+    // 84,825/84,825 combos; both legs, three-line timelines). The
+    // drain's TTL gate drops such entries instead: true when the
+    // key's CURRENT firstHeard > lineTime (the entry belongs to a
+    // prior generation); false when absent (the registry holds only
+    // armed-lane party/raid real-speaker lines, so every other lane
+    // misses the lookup and stays byte-identical - the one
+    // present-key cross-lane shape, the same speaker verbatim-
+    // repeating identical text on another channel, is the round-8
+    // shared-key class and drops conservatively the same way).
+    // The law is exact in both directions under the stated
+    // premises: firstHeard is the MIN receive of the current
+    // generation and each member's registry write FOLLOWS its own
+    // queue push in the same receive handler, so every
+    // same-generation entry carries m_time >= firstHeard - except
+    // one first-writer push/write second-boundary straddle
+    // (m_time = firstHeard-1: one entry dropped, a missed reply,
+    // never a second generation); and under the within-window
+    // straddle premise every prior-generation entry carries
+    // m_time <= fh_old+30 < fh_new (the registry flips only past
+    // the window) - always dropped.
+    static bool PartyClaimGenerationMovedPast(uint32 speakerGuid,
+        uint64_t msgHash, time_t lineTime);
 
     // Round-6 R1 (addressed-line sibling): an ADDRESSED line stands
     // down with a MARKER in the same claim map (winner 0 = the

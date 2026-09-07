@@ -1884,3 +1884,73 @@ Round 13 and Round 14" section lands with that batch.)
 MINORs pending triage in the round-13 fix batch: R7's ownership-
 consult verbatim pins (fix); R8's comment superset bound (fold into
 the next comment touch); the two MAJORs above (fix).
+
+### Fixes applied between Round 13 and Round 14
+
+One commit on top of 8991d78 (all three items, pins included):
+
+- **R1 MAJOR — the old-line straggler re-open, closed by the
+  entry-side generation drop (overlay-only lane, per R1's own second
+  direction).** New `PlayerbotLlmMemory::PartyClaimGenerationMovedPast(
+  speakerGuid, msgHash, lineTime)`: true when the key's CURRENT
+  registry firstHeard > lineTime (absent → false), wired into the
+  PB_AI_DRAIN_STALE_ANDROID payload as a sibling drop of the TTL drop
+  (same cheap-gate armament llmEnabled>0 && CloudLaneOpen() &&
+  llmPartyReplyEnabled != 0; NO channel/speaker reclassification — the
+  registry holds only armed-lane party/raid real-speaker lines, so
+  absence → false keeps every other lane byte-identical; the one
+  present-key cross-lane shape, the same speaker verbatim-repeating
+  identical text on another channel, is the round-8 shared-key class
+  and drops conservatively the same way). The law, exact in both
+  directions under the stated premises: firstHeard is the MIN receive
+  of the current generation and each member's registry write FOLLOWS
+  its own queue push, so every same-generation entry carries
+  m_time >= firstHeard — the one exception is a first-writer
+  push/write second-boundary straddle (m_time = firstHeard-1: one
+  entry dropped, a missed reply, never a second generation); under
+  the within-window straddle premise every prior-generation entry
+  carries m_time <= fh_old+30 < fh_new (the registry flips only past
+  the window) — always dropped. Verified: tmp/r14fix_probe.cpp 24/24
+  (R1's exact attack replayed — straggler entry dropped, line 1 keeps
+  exactly its one generation, line 2 keeps its own exactly-one; the
+  84,825-combo exhaustive sweep at ZERO line-1 doubles with every
+  old-line straggler dropped and line 2 always answered; both
+  boundary-exception variants demonstrated conservative; the
+  three-line second-boundary shape; the addressed leg; round 10/11/12
+  regression shapes; the TokenOwnsCurrentLine discriminator
+  boundaries) — and tmp/r13fix_probe.cpp's 8 checks stay green; a
+  scratch syntax+law harness compiled the SHIPPED helper body verbatim
+  (6/6 law checks, -Wall -Wextra clean). Pins: new
+  test_generation_moved_past_drops_old_line_stragglers_round13
+  (helper law + >-direction + absent→false + the drain wiring and
+  its position after the TTL block); header + payload law comments
+  state the drop, its exception, and the cross-lane class.
+- **R4+R7 MAJOR — the gate-determinism flake (fixed FIRST).**
+  tests/test_rp_harness.py's both-clocks test now rounds its `before`
+  read (`round(protocol.mono_ms(), 3)` — round is monotone, matching
+  protocol.py's rounded store). Verified: 200/200 fresh-process loop
+  passes, then the FULL suite twice — "8 failed, 631 passed,
+  4 skipped" both times, identical failed ids (the 8 pre-existing).
+- **R7 MINOR — the ownership consults verbatim-pinned.** Both
+  TokenOwnsCurrentLine consults are now pinned with their own
+  `return false;` line (the body-voided consult mutant dies); the
+  drain payload's pop/continue census re-pinned 2 → 3 for the new
+  sibling drop.
+- **R8's non-finding wording note folded in**: the accepted-stamp
+  range is now stated as [firstHeard, firstHeard+window-margin-1]
+  (the >= refusal) in both the header law and the
+  TokenOwnsCurrentLine comment; the "envelope is total" premise now
+  names the entry-side generation drop as its third leg.
+
+Gates (self-verified before the --no-verify commit): full pytest
+TWICE — "8 failed, 631 passed, 4 skipped" both runs, the identical 8
+pre-existing ids (2× test_gladio_client_unpack_transport, 4×
+test_vortek_lifecycle_hardening, 2× test_vortek_winlator_baseline),
++1 new pin vs round 13's 630; gradle :app:testDebugUnitTest
+:app:detekt -PpocketAbi=x86_64 -PpocketLane=full --rerun-tasks
+BUILD SUCCESSFUL (138 classes, 1097/0/1, detekt 0); --write-lockfiles
+(the deltas EXACTLY the two PlayerbotLlmMemory.cpp/.h patch-hash
+re-pins) + null-guard 9 passed; check_repo OK (1217 files, 0/0);
+check_sources OK; anchors 154 ops no drift; golden recompiled
+de4bd8227a3ab0d1; party-claim pins 19 passed. Round 14 dispatched
+against the new HEAD.

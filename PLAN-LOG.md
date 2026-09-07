@@ -2934,3 +2934,71 @@ independent MAJOR (R4 and R7 found it separately): a FLAKY TEST.
   device -> the §15.5 device-gated residue route. The cap's other
   trigger (two consecutive post-fix rounds with no NEW findings) has
   never fired — every round 3-13 surfaced NEW findings.
+
+## Round 13 fix batch (continuation run 7): the old-entry generation drop + the gate-determinism flake
+
+Round 13 (logged in review-rounds.md) returned 6/8: R1's MAJOR (the
+round-12 generation scoping re-opened a PRIOR line for its own
+TTL-live stragglers - the entry-side mirror of the residue fix) and a
+second independent MAJOR from R4 and R7 (the canonical gate test
+tests/test_rp_harness.py::test_event_carries_both_clocks_and_
+transcript_round_trips is nondeterministic at HEAD: it compares the
+UNROUNDED before read against protocol.py's round(mono_ms(), 3)
+store, ~19-25% false-fail per cold run - two identical trees gave
+9-then-8 failed). R7 also filed the ownership-consult verbatim-pin
+MINOR; R8 a comment superset-bound wording note.
+
+The fix batch (one commit on top of 8991d78):
+
+- **R1 MAJOR - the entry-side generation drop (overlay-only, R1's own
+  second direction)**: the new PlayerbotLlmMemory::
+  PartyClaimGenerationMovedPast(speakerGuid, msgHash, lineTime)
+  returns true when the key's CURRENT registry firstHeard > lineTime
+  (absent -> false); the PB_AI_DRAIN_STALE_ANDROID payload drops on
+  it as a sibling of the TTL drop (same cheap-gate armament, no
+  channel/speaker reclassification - the registry holds only
+  armed-lane party/raid real-speaker lines, so absence -> false keeps
+  every other lane byte-identical; the one present-key cross-lane
+  shape is the round-8 shared-key class, conservative). The law is
+  exact both ways under the stated premises: firstHeard is the MIN
+  receive of the current generation and each member's registry write
+  follows its own queue push, so every same-generation entry carries
+  m_time >= firstHeard (the ONE exception: a first-writer push/write
+  second-boundary straddle, m_time = firstHeard-1 - one conservative
+  missed reply, never a double), while under the within-window
+  straddle premise every prior-generation entry carries
+  m_time <= fh_old+30 < fh_new - always dropped. Probe
+  tmp/r14fix_probe.cpp 24/24: R1's attack replayed closed (line 1
+  keeps its one generation, line 2 its own); the 84,825-combo sweep
+  at zero line-1 doubles, every straggler dropped, line 2 always
+  answered, and no member's OWN entry ever drops; both
+  boundary-exception variants conservative; three-line second
+  boundary; the addressed leg; round 10/11/12 regressions;
+  TokenOwnsCurrentLine boundaries. r13fix_probe stays 8/8; a scratch
+  harness compiled the SHIPPED helper verbatim (6/6 law checks,
+  -Wall -Wextra clean). Pin
+  test_generation_moved_past_drops_old_line_stragglers_round13 +
+  header/payload law comments (drop, exception, cross-lane class).
+- **R4+R7 MAJOR - the flake (fixed FIRST, it poisoned every
+  verification run)**: before = round(protocol.mono_ms(), 3) in the
+  both-clocks test (round is monotone vs the rounded store).
+  200/200 fresh-process loop; the FULL suite twice -> "8 failed,
+  631 passed, 4 skipped" both times, identical ids. THE GATE IS
+  DETERMINISTIC again.
+- **R7 MINOR**: both TokenOwnsCurrentLine consults verbatim-pinned
+  with their return false; (the body-voided mutant dies); the drain
+  payload pop/continue census re-pinned 2 -> 3.
+- **R8 wording**: accepted stamps stated as [firstHeard,
+  firstHeard+window-margin-1] (the >= refusal) in both law comments;
+  the total-envelope premise now names the entry-side drop as its
+  third leg.
+
+Gates (self-verified before the --no-verify commit): full pytest
+TWICE "8 failed, 631 passed, 4 skipped" (8 = the exact pre-existing
+set; +1 new pin); gradle :app:testDebugUnitTest :app:detekt
+-PpocketAbi=x86_64 -PpocketLane=full --rerun-tasks BUILD SUCCESSFUL
+(138 classes, 1097/0/1, detekt 0); --write-lockfiles (deltas exactly
+the two Memory.cpp/.h patch-hash re-pins) + null-guard 9 passed;
+check_repo OK (1217, 0/0); check_sources OK; anchors 154 ops no
+drift; golden de4bd8227a3ab0d1. Round 14 dispatched against the new
+HEAD.

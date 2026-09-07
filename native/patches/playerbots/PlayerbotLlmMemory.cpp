@@ -3641,8 +3641,10 @@ std::map<uint64, int64_t>& PartyLineHeardMap()
 // false when absent - or when it is residue of a PRIOR identical-text
 // line whose registry entry was pruned and re-registered fresh, in
 // which case the stale token is erased here (erase-and-replace). The
-// discriminator is exact: every accepted stamp sits in [firstHeard,
-// firstHeard+window-margin] of its OWN generation, so a current-
+// discriminator is exact: the gates' >= refusal admits now-firstHeard
+// only up to window-margin-1, so every accepted stamp sits in
+// [firstHeard, firstHeard+window-margin-1] of its OWN generation
+// (round-13 R8's wording note), so a current-
 // generation token expires at >= firstHeard+window; the registry
 // prunes only past the window and re-inserts fresh, so the new
 // firstHeard strictly exceeds the prior generation's last possible
@@ -3651,7 +3653,12 @@ std::map<uint64, int64_t>& PartyLineHeardMap()
 // verbatim repeat >=31 s later, its addressee-marker refused by the
 // dead line's residue token, the residue dying inside the repeat's
 // grant window beside the addressee's own dispatch) dies on this
-// erase: the repeat's marker owns its own line.
+// erase: the repeat's marker owns its own line. Round-13 R1: the
+// scoping itself re-opened the OLD line for its own straggled
+// drainers (the entry-side mirror of this check) - closed at the
+// drain's TTL gate by PartyClaimGenerationMovedPast, which drops
+// entries predating the current generation before any claim can
+// consult this discriminator.
 // Caller holds StateMutex.
 bool TokenOwnsCurrentLine(uint64 key, int64_t firstHeard)
 {
@@ -3723,6 +3730,53 @@ void PlayerbotLlmMemory::NotePartyLineHeard(uint32 speakerGuid,
         heard[key] = now;
     else if (now < itr->second)
         itr->second = now;
+}
+
+bool PlayerbotLlmMemory::PartyClaimGenerationMovedPast(uint32 speakerGuid,
+    uint64_t msgHash, time_t lineTime)
+{
+    // Round-13 R1 (the old-line straggler re-open): the round-12
+    // generation scoping made BOTH freshness gates and the residue
+    // discriminator read the CURRENT registry generation - so a
+    // TTL-live straggled entry of a PRIOR identical-text line (the
+    // registry re-registered fresh at a verbatim repeat past the
+    // window) passed them all: the gates measured its age against
+    // the NEW firstHeard, and TokenOwnsCurrentLine erased the old
+    // line's still-live winner token as residue - the straggler
+    // claimed and dispatched a second generation for the OLD line
+    // while the repeat's own responder was refused beside its token
+    // (R1's probe: 84,825/84,825 combos). This is the drop side of
+    // the same law: an entry whose m_time predates the CURRENT
+    // generation's firstHeard cannot belong to it. firstHeard is
+    // the MIN receive of the current generation and each member's
+    // registry write follows its own queue push in the same receive
+    // handler (sequential world-thread handlers: every later
+    // member's push postdates the first write), so every
+    // same-generation entry carries m_time >= firstHeard - except
+    // one first-writer push/write second-boundary straddle
+    // (m_time = firstHeard-1: one entry dropped, a missed reply,
+    // never a second generation). Under the documented within-window
+    // straddle premise every prior-generation entry carries
+    // m_time <= fh_old+30 < fh_new (the registry prunes only past
+    // the window and the flip therefore lands at >= fh_old+31) -
+    // always dropped. Absent key = false: the registry holds only
+    // armed-lane party/raid real-speaker lines, so every other lane
+    // misses the lookup and stays byte-identical; the one
+    // present-key cross-lane shape (the same speaker repeating
+    // identical text on another channel - the round-8 shared-key
+    // class) drops conservatively, the same direction as the
+    // claim's own refusal there. Caller: the chat drain, which
+    // holds chatRepliesMutex and already nests StateMutex through
+    // ChatReplyDo's claim leg (StateMutex stays the leaf).
+    if (!speakerGuid || lineTime == 0)
+        return false;
+    uint64 const key = PartyClaimKey(speakerGuid, msgHash);
+    std::lock_guard<std::mutex> lock(StateMutex());
+    std::map<uint64, int64_t> const& heard = PartyLineHeardMap();
+    auto itr = heard.find(key);
+    if (itr == heard.end())
+        return false;
+    return itr->second > (int64_t)lineTime;
 }
 
 bool PlayerbotLlmMemory::TryClaimPartyResponder(uint32 botGuid, uint32 speakerGuid,

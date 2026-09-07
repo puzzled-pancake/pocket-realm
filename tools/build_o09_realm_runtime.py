@@ -3608,6 +3608,46 @@ PB_AI_DRAIN_STALE_ANDROID = """            ChatQueuedReply holder = chatReplies.
                     continue;
                 }
             }
+            // Round-13 R1 (the old-line straggler re-open): the round-12
+            // generation scoping re-opened a PRIOR identical-text line
+            // for its own TTL-live stragglers - a straggled drain entry
+            // whose m_time predates the CURRENT registry generation's
+            // firstHeard (a verbatim repeat past the window
+            // re-registered the key fresh while this entry was still
+            // queued) passed the TTL oracle above (it measures from
+            // m_time), then both freshness gates and the residue
+            // discriminator inside the claim/marker helpers (they read
+            // the NEW generation), erasing the old line's still-live
+            // winner token and dispatching beside it: the OLD line got
+            // a second generation and the repeat's own responder was
+            // refused (R1's probe: 84,825/84,825 combos). Drop the
+            // entry instead - a missed reply, never a second
+            // generation. The consult is exact in both directions:
+            // firstHeard is the MIN receive of the current generation
+            // and every member's registry write follows its own queue
+            // push, so a same-generation entry carries
+            // m_time >= firstHeard (never dropped; the one exception
+            // is a first-writer push/write second-boundary straddle -
+            // m_time = firstHeard-1, one conservative miss), while
+            // under the within-window straddle premise every
+            // prior-generation entry carries m_time <= fh_old+30 <
+            // fh_new (always dropped). Same cheap-gate armament as
+            // the TTL drop; no channel/speaker reclassification is
+            // needed - the registry holds only armed-lane party/raid
+            // real-speaker lines, so every other lane misses the
+            // lookup (absent -> false) and stays byte-identical (the
+            // one present-key cross-lane shape - the same speaker
+            // verbatim-repeating identical text on another channel -
+            // is the round-8 shared-key class and drops
+            // conservatively the same way).
+            if (checkTime && sPlayerbotAIConfig.llmEnabled > 0 && CloudLaneOpen() &&
+                sPlayerbotAIConfig.llmPartyReplyEnabled != 0 &&
+                PlayerbotLlmMemory::PartyClaimGenerationMovedPast(holder.m_guid1,
+                    PlayerbotLlmMemory::PartyMsgHash(holder.m_msg), checkTime))
+            {
+                chatReplies.pop();
+                continue;
+            }
             ChatReplyAction::ChatReplyDo(bot, holder.m_type, holder.m_guid1, holder.m_guid2, holder.m_msg, holder.m_chanName, holder.m_name);
 """
 PB_AI_QUEUE_CALL_UPSTREAM = """                MANGOS_ASSERT(!message.empty());     

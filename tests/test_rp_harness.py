@@ -167,7 +167,10 @@ def test_jni_entry_points_declared_for_all_three_ops():
 
 
 def test_event_carries_both_clocks_and_transcript_round_trips(tmp_path):
-    before = protocol.mono_ms()
+    # round() is monotone (v2 >= v1 implies round(v2,3) >= round(v1,3)), and
+    # protocol.record stores round(mono_ms(), 3); rounding both sides keeps the
+    # compare deterministic when both reads land in one clock tick.
+    before = round(protocol.mono_ms(), 3)
     transcript = protocol.Transcript()
     transcript.record("op_send", op="ping")
     record = transcript.events[0]
