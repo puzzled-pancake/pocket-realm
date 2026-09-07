@@ -44,6 +44,7 @@ def test_every_new_upstream_anchor_is_byte_present_in_the_pristine_tree():
     submodule file (LF and CRLF variants, mirroring replace_anchor)."""
     cases = {
         "PB_MGR_RTEL_DECL_UPSTREAM": "RandomPlayerbotMgr.h",
+        "PB_MGR_RTEL_DEF_UPSTREAM": "RandomPlayerbotMgr.cpp",
         "PB_MGR_LEVEL_GUARD_UPSTREAM": "RandomPlayerbotMgr.cpp",
         "PB_MGR_RANDOMIZE_SETTLER_UPSTREAM": "RandomPlayerbotMgr.cpp",
         "PB_MGR_TELEPORT_EVENT_UPSTREAM": "RandomPlayerbotMgr.cpp",
@@ -62,7 +63,8 @@ def test_every_new_upstream_anchor_is_byte_present_in_the_pristine_tree():
 def test_every_new_anchor_pair_is_registered_in_prepare_cmangos_source():
     body = driver_text().split("def prepare_cmangos_source()")[1]
     for name in (
-        "PB_MGR_RTEL_DECL_UPSTREAM", "PB_MGR_LEVEL_GUARD_UPSTREAM",
+        "PB_MGR_RTEL_DECL_UPSTREAM", "PB_MGR_RTEL_DEF_UPSTREAM",
+        "PB_MGR_LEVEL_GUARD_UPSTREAM",
         "PB_MGR_RANDOMIZE_SETTLER_UPSTREAM", "PB_MGR_TELEPORT_EVENT_UPSTREAM",
         "PB_MGR_SPREAD_HELPERS_UPSTREAM", "PB_D1_CONFIG_HEADER_UPSTREAM",
         "PB_D1_CONFIG_CPP_UPSTREAM", "PB_D1_CONF_DIST_UPSTREAM",
@@ -82,6 +84,12 @@ def test_d1_force_flag_bypasses_the_level_guard_for_the_forced_path_only():
     decl = anchor_text("PB_MGR_RTEL_DECL_ANDROID")
     assert "bool activeOnly = false, bool force = false);" in decl, \
         "RandomTeleport grows the defaulted force parameter (existing callers unchanged)"
+    # the widened declaration is only half the contract: the pristine
+    # out-of-line definition must grow the same parameter or it matches no
+    # declaration (and the guard payload's `!force` has no referent)
+    definition = anchor_text("PB_MGR_RTEL_DEF_ANDROID")
+    assert "RandomPlayerbotMgr::RandomTeleport(Player* bot, std::vector<WorldLocation> &locs, bool hearth, bool activeOnly, bool force)" in definition, \
+        "the locs-overload DEFINITION is widened to match the declaration"
 
 
 def test_d1_arms_at_the_login_site_with_a_staggered_schedule_teleport():
@@ -163,8 +171,9 @@ def test_d4_settlers_are_exempt_from_relocation_and_the_randomize_event():
     randomize = anchor_text("PB_MGR_RANDOMIZE_SETTLER_ANDROID")
     assert 'GetEventValue(bot, "settler")' in randomize, \
         "the randomize event skips designated villagers"
-    assert "ScheduleRandomize(bot);" in randomize, \
-        "skipping still re-arms the cadence (no per-pass re-entry)"
+    assert "ScheduleRandomize(bot, urand(sPlayerbotAIConfig.minRandomBotRandomizeTime, sPlayerbotAIConfig.maxRandomBotRandomizeTime));" in randomize, \
+        "skipping still re-arms the cadence with the pristine urand bounds " \
+        "(ScheduleRandomize takes the cadence explicitly; no per-pass re-entry)"
     assert "Randomize(player);" in randomize, "the non-settler branch is preserved"
     helpers = anchor_text("PB_MGR_SPREAD_HELPERS_ANDROID")
     assert 'SetEventValue(botId, "settler", 1, -1);' in helpers, \

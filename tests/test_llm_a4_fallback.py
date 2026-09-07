@@ -60,10 +60,14 @@ class TestAsyncPlumbing:
         assert '#include "playerbot/PlayerbotLlmGates.h"' in head
 
     def test_rpg_dispatch_site_stays_silent(self):
-        # the autonomous RPG site passes no plan (defaulted = inactive)
+        # the autonomous RPG site passes no ACTIVE plan: the default-
+        # constructed (inactive) FallbackPlan, passed explicitly only
+        # because defaults do not bind through the std::async function
+        # pointer
         rpg = android_anchor("PB_RPG_ASYNC_ANDROID")
-        assert "FallbackPlan" not in rpg
         assert "llmFallback" not in rpg
+        assert "PlayerbotLlmGates::FallbackPlan()" in rpg
+        assert "FallbackPlan const&" not in rpg
 
 
 class TestWorkerFailureLeg:

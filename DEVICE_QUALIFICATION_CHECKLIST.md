@@ -340,3 +340,80 @@ unlocked by setting `POCKET_REALM_G1_DEVICE` to the device serial):
   5 s contract. The demanded fence (startForeground-first +
   stopAccepted) is implemented; observe one real promote/stop race on
   device before closing.
+
+## 9. Relay console ops runbook (QA live-session lessons, 2026-09-07)
+
+Written after the first live `tools/world_console.py` QA session. Three
+lessons that cost real time and are now law for every relay session; the
+host pin for the truthfulness change is
+`tests/test_world_runtime_relay_contract.py`.
+
+### 9.1 Attach order: attach the relay FIRST, then boot the stack
+
+- [ ] **Canonical order = attach-then-boot.** `am instrument` (the relay
+      harness) RESTARTS the app's main process on every attach: any world
+      the app was running stops silently. A second attach mid-session was
+      observed finding `tickCount:0` — a fresh world, not the soaked one.
+      Start `world_console.py` (or re-attach) BEFORE `stack-up-bot` /
+      `world-start-bot`, never over a running soak.
+- [ ] **Verify after every attach**: `world-status` → `tickCount` greater
+      than 0 and advancing before trusting any state captured from an
+      earlier attach; `state` READY with `tickCount:0` means the world
+      came up after the attach wiped the old one.
+- [ ] Long soaks that must survive host work should be driven through the
+      relay for their whole duration (the relay keeps the services bound;
+      it is the attach boundary, not the ops, that kills the world).
+
+### 9.2 stack-up-bot truthfulness (what ok:false means now)
+
+The composite (`WorldConsoleRelay.stackUpBot`) boots db init + migrations
++ start + health, realm start, then `world-start-bot <profileId>`, and its
+`ok` is the AND of the dbStart / realmStart / worldStartBotProfile legs.
+Two native changes (world_runtime.cpp) make the world leg honest:
+
+- [ ] **A failed foundation now fails the op.** `start()` waits (≤30 s,
+      outside the lifecycle lock) for the boot's early legs to settle and
+      returns the worker's real error code on FAILED instead of a blanket
+      spawn-OK. So a DB-leg failure closed under the composite surfaces as
+      `ok:false` with `worldStartBotProfile:false` and the operation JSON's
+      `error` naming the leg: `DB_CONNECT` / `DB_REVISION` (database),
+      `DATA_MISSING` / `DATA_BUILD` (world data), `CONFIG` (bad conf or
+      bot profile), `PORT_IN_USE`, `INTERNAL`. A boot still STARTING at
+      the 30 s deadline reports `ok:true` exactly as before — slow boots
+      keep the async contract (poll `world-status`).
+- [ ] **A bots-off world can no longer answer ok for a bot-profile
+      start.** If the profile's conf did not arm the playerbot lane
+      (unreadable or `Enabled=0`), the boot now FAILs with
+      `CONFIG`/"bot profile start did not arm the playerbot lane" instead
+      of coming up READY with the lane dark. (Only bot-profile starts
+      carry a nonzero `PocketRealm.BotTarget`; plain/integrated boots are
+      untouched.)
+- [ ] **Reading the verdict**: `playerbotsEnabled` is the lane flag
+      (true the moment a bot-profile world is READY); `botsOnline` ramps
+      asynchronously afterwards (0 right after READY is normal — the
+      admission controller raises the population over minutes). Never
+      treat `botsOnline:0` alone as failure; never treat
+      `playerbotsEnabled:false` as success for a bot-profile boot.
+
+### 9.3 The bots-on path (why an app-led boot has no bots)
+
+- [ ] **App-led boots deliberately default the bot lane OFF.** Every
+      non-bot-profile world start writes `aiplayerbot-disabled.conf`
+      (`AiPlayerbot.Enabled = 0`, `PocketRealm.BotTarget = 0` —
+      `ServerRuntimeFiles.kt worldConfig`); the integrated client session
+      (`mobile-low-v2-normal`) and the plain `world-start` op both use
+      it. `playerbotsEnabled:false` + `0/<n>` bots there is product
+      policy, not a bug.
+- [ ] **Canonical way on = a measured bot profile.** Relay:
+      `stack-up-bot <profileId>` or `world-start-bot <profileId>`
+      (default `mobile-balanced-b100-v1`), which writes
+      `aiplayerbot-<id>.conf` with `Enabled = 1` plus the profile's
+      bounds. In-app: Settings → Bots profile selection
+      (`botProfileId`) → supervisor `startBotProfileAt`. Native decision
+      point: `world_runtime.cpp run()` arms the lane
+      (`m_bot_enabled`) only when `sPlayerbotAIConfig.enabled`; that
+      atomic is what `world-status`/`world-bot-status` report as
+      `playerbotsEnabled`, with `botsOnline` from the low-CPU telemetry.
+- [ ] A Settings flip alone does NOT turn bots on for an already-running
+      world: the conf is written at world start, so flip → restart the
+      world (or reboot via the relay) and re-check `playerbotsEnabled`.

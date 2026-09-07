@@ -53,7 +53,7 @@ class WorldRuntime {
 public:
     int start(const std::string& config)
     {
-        std::lock_guard<std::mutex> guard(m_lifecycle);
+        std::unique_lock<std::mutex> guard(m_lifecycle);
         if (m_state.state() != POCKET_SERVER_STOPPED && m_state.state() != POCKET_SERVER_FAILED)
             return POCKET_SERVER_WRONG_STATE;
         if (config.empty()) return POCKET_SERVER_INVALID_ARGUMENT;
@@ -82,6 +82,25 @@ public:
         m_last_low_cpu_sampled_at = 0;
         m_state.transition(POCKET_SERVER_STARTING);
         m_worker = std::thread([this, config] { run(config); });
+        guard.unlock();
+        // Honest spawn verdict (the stack-up-bot composite lesson): the
+        // boot's early legs - config reject, database connect/revision,
+        // the bot-lane arming below - settle or fail within seconds, and
+        // the blanket OK this function used to return let the caller
+        // report success over a world that failed (or came up with the
+        // bot lane dark) a moment later. Wait for that verdict with the
+        // lifecycle lock released (stop() and a second start() must stay
+        // live), then report the real outcome: the worker's error code
+        // on FAILED, OK on READY. A boot still STARTING at the deadline
+        // keeps the old async contract - OK plus the caller's status
+        // polling - so slow devices see exactly the response they always
+        // did; only settled failures change what start() says.
+        const uint64_t deadline = pocket_server::monotonic_ms() + START_VERDICT_TIMEOUT_MS;
+        while (m_state.state() == POCKET_SERVER_STARTING &&
+               pocket_server::monotonic_ms() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        if (m_state.state() == POCKET_SERVER_FAILED)
+            return m_state.error();
         return POCKET_SERVER_OK;
     }
 
@@ -889,6 +908,22 @@ private:
                 }
                 m_bots_available.store(available, std::memory_order_release);
             }
+            else if (configured_bot_target > 0)
+            {
+                // Only a bot-profile start (world-start-bot / the
+                // stack-up-bot composite) carries a nonzero
+                // PocketRealm.BotTarget - plain and integrated app boots
+                // write the disabled conf with target 0 and must stay OK
+                // with the lane dark. If a bot-profile conf did not arm
+                // the lane (unreadable, or Enabled=0), the world used to
+                // come up READY with playerbotsEnabled=false and 0 bots
+                // while the caller had already been told ok. Fail the
+                // boot instead so the verdict names the leg.
+                fail(POCKET_SERVER_CONFIG,
+                     "bot profile start did not arm the playerbot lane");
+                cleanup();  // early fails skipped teardown
+                return;
+            }
 #endif
             if (!sMaster.StartNetworkEmbedded(1))
             {
@@ -1077,6 +1112,10 @@ private:
     std::atomic<uint32_t> m_db_probe_delay_ms{0};
     // >=60 consecutive ticks over 1s each (world loop wedged for a minute+).
     static constexpr uint32_t HARD_STALL_FAIL_STREAK = 60;
+    // start()'s settle wait (see start): long enough to cover the boot's
+    // early fail legs (config / DB / bot-lane arming), short of the Kotlin
+    // control timeout so slow boots keep the async OK + status polling.
+    static constexpr uint64_t START_VERDICT_TIMEOUT_MS = 30'000;
     std::atomic<bool> m_bot_enabled{false};
     std::atomic<uint32_t> m_bots_available{0};
     std::atomic<uint32_t> m_bots_online{0};

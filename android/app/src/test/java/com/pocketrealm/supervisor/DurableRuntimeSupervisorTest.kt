@@ -524,6 +524,82 @@ class DurableRuntimeSupervisorTest {
         assertTrue(backend.actions.none { it.startsWith("adopt:") || it.startsWith("force:") })
     }
 
+    @Test fun consentedForceStopUnblocksTheUnverifiedOrphanTheAutomaticLanesRefuse() = runTest {
+        val owner = ComponentOwner(SESSION, "aa".repeat(32))
+        val foreign = ComponentOwner(SESSION, "bb".repeat(32))
+        val initial = RuntimeSnapshot(
+            sessionId = SESSION,
+            phase = RuntimePhase.RUNNING,
+            clean = false,
+            components = RuntimeSnapshot.stoppedComponents() +
+                (RuntimeComponent.WORLD to ComponentSnapshot(
+                    ComponentLifecycle.READY, owner.instanceToken, 1, "world")),
+        )
+        val backend = FakeBackend().apply {
+            observations[RuntimeComponent.WORLD] = ComponentObservation(
+                RuntimeComponent.WORLD, ComponentLifecycle.READY, true, foreign, 999,
+                "foreign owner left by the failed start")
+        }
+        val runtime = runtime(backend, MemoryJournal(initial))
+
+        // The pinned refusal, unchanged on this exact fixture: the automatic
+        // recovery lane still will not kill the unverified owner.
+        val refused = runtime.recover()
+        assertFalse(refused.ok)
+        assertTrue(refused.snapshot.lastError!!.contains("UNVERIFIED_ORPHAN"))
+        assertTrue(backend.actions.none { it.startsWith("force:") })
+
+        val stopped = runtime.consentedForceStopOrphanStack()
+
+        assertTrue(stopped.ok)
+        assertEquals(RuntimePhase.STOPPED, stopped.snapshot.phase)
+        assertFalse(stopped.snapshot.clean)
+        assertEquals("consented-orphan-force-stop-committed", stopped.snapshot.lastDurableAction)
+        // The kill ran under the owner the world itself reports - never the
+        // stale journal token - and :database stayed with its recovery lane.
+        assertEquals(listOf("force:WORLD"), backend.actions.filter { it.startsWith("force:") })
+        assertEquals(foreign, backend.forceOwners.single().second)
+        assertTrue(backend.actions.none { it.contains("DATABASE") })
+
+        // The repair unblocks the normal start path: the next start runs
+        // recovery (database heal included) and reaches WORLD_READY.
+        backend.actions.clear()
+        val restarted = runtime.start("mobile-low-v1", includeClient = false)
+
+        assertTrue(restarted.ok)
+        assertEquals(RuntimePhase.WORLD_READY, restarted.snapshot.phase)
+        assertTrue(backend.actions.contains("recover:DATABASE"))
+    }
+
+    @Test fun consentedForceStopAdoptsAnOwnerlessOrphanUnderAFreshOwner() = runTest {
+        val owner = ComponentOwner(SESSION, "aa".repeat(32))
+        val initial = RuntimeSnapshot(
+            sessionId = SESSION,
+            phase = RuntimePhase.RUNNING,
+            clean = false,
+            components = RuntimeSnapshot.stoppedComponents() +
+                (RuntimeComponent.WORLD to ComponentSnapshot(
+                    ComponentLifecycle.READY, owner.instanceToken, 1, "world")),
+        )
+        val backend = FakeBackend().apply {
+            observations[RuntimeComponent.WORLD] = ComponentObservation(
+                RuntimeComponent.WORLD, ComponentLifecycle.READY, true, null, 999, "ownerless")
+        }
+        val runtime = runtime(backend, MemoryJournal(initial))
+
+        val stopped = runtime.consentedForceStopOrphanStack()
+
+        assertTrue(stopped.ok)
+        assertEquals(RuntimePhase.STOPPED, stopped.snapshot.phase)
+        assertTrue(backend.actions.indexOf("adopt:WORLD") < backend.actions.indexOf("force:WORLD"))
+        // forceStop ran under the ADOPTED owner, never the stale journal token.
+        assertEquals(
+            backend.adoptOwners[RuntimeComponent.WORLD],
+            backend.forceOwners.single { it.first == RuntimeComponent.WORLD }.second,
+        )
+        assertNotEquals(owner.instanceToken, backend.adoptOwners[RuntimeComponent.WORLD]!!.instanceToken)
+    }
+
     @Test fun foregroundPromotesWorldAndDatabaseImmediatelyOnRealPlayerPresence() = runTest {
         val backend = FakeBackend()
         val runtime = runtime(backend)

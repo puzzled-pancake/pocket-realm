@@ -11,8 +11,10 @@ object RuntimeFailureCopy {
 
     fun humanize(detail: String): String = when {
         "UNVERIFIED_ORPHAN" in detail ->
-            "A component from a previous session is still running but its ownership " +
-                "could not be verified. Tap Start to recover it safely and try again."
+            "A previous realm start left a world running that this device cannot " +
+                "verify as its own, so automatic recovery will not stop it. It must " +
+                "be force-stopped before the realm can start again — use Force stop " +
+                "realm below."
         "TimeoutCancellationException" in detail ->
             "A realm component stopped responding during the last operation. " +
                 "Tap Start to recover safely and try again."

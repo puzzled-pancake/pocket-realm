@@ -204,6 +204,12 @@ class RealmService : Service() {
             }
             ACTION_SAVE_EXIT -> submitOperation("save-stop") { supervisor.stop(StopMode.GRACEFUL) }
             ACTION_STOP -> submitOperation("forced-stop") { supervisor.stop(StopMode.FORCED) }
+            // Player-consented UNVERIFIED_ORPHAN repair: sent only by Home's
+            // confirmed "Force stop realm" action, never by an automatic lane.
+            ACTION_CONSENTED_ORPHAN_STOP ->
+                submitOperation("consented-orphan-force-stop") {
+                    supervisor.consentedForceStopOrphanStack()
+                }
             else -> applyOperationDisposition(supervisor.state.value)
         }
         return START_NOT_STICKY
@@ -603,6 +609,7 @@ class RealmService : Service() {
         const val ACTION_JOIN_LAN = "com.pocketrealm.action.JOIN_LAN"
         const val ACTION_SAVE_EXIT = "com.pocketrealm.action.SAVE_EXIT"
         const val ACTION_STOP = "com.pocketrealm.action.STOP"
+        const val ACTION_CONSENTED_ORPHAN_STOP = "com.pocketrealm.action.CONSENTED_ORPHAN_STOP"
         private const val EXTRA_PROFILE_ID = "com.pocketrealm.extra.PROFILE_ID"
         private const val EXTRA_INCLUDE_CLIENT = "com.pocketrealm.extra.INCLUDE_CLIENT"
         private const val EXTRA_LAN_ADDRESS = "com.pocketrealm.extra.LAN_ADDRESS"
@@ -662,6 +669,18 @@ class RealmService : Service() {
 
         fun saveExit(context: Context) {
             context.startService(Intent(context, RealmService::class.java).setAction(ACTION_SAVE_EXIT))
+        }
+
+        /**
+         * Player-consented UNVERIFIED_ORPHAN repair behind Home's confirmed
+         * "Force stop realm" action: the supervisor force-stops the leftover
+         * stack it cannot verify as its own, leaving the database to the next
+         * start's recovery + prepare heal.
+         */
+        fun consentedOrphanStop(context: Context) {
+            context.startService(
+                Intent(context, RealmService::class.java).setAction(ACTION_CONSENTED_ORPHAN_STOP),
+            )
         }
     }
 }

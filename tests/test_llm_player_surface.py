@@ -84,8 +84,9 @@ def test_reply_class_budgets_thread_through_both_callers():
     # conversational = whisper class; the ambient RPG path is the 1-line class
     assert "splitPattern, debug, 0u, PlayerbotLlmBridge::NoteLongFormCued" in chat
     rpg = android_anchor("PB_RPG_ASYNC_ANDROID")
-    assert "splitPattern, debug, 1u, false, llmReqId);" in rpg, \
-        "ambient passes the cue flag explicitly false (defaults do not " \
+    assert "splitPattern, debug, 1u, false, llmReqId, PlayerbotLlmGates::FallbackPlan());" in rpg, \
+        "ambient passes the cue flag explicitly false and the " \
+        "default-constructed (inactive) fallback plan (defaults do not " \
         "bind through the std::async function pointer)"
     assert "a bark, not a speech" in rpg
 

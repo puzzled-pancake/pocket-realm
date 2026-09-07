@@ -225,6 +225,76 @@ class DurableRuntimeSupervisor(
     }
 
     /**
+     * Player-consented repair lane for the pinned UNVERIFIED_ORPHAN refusal
+     * (dirtyRecoveryNeverKillsAnUnverifiedOwner): recovery, the health
+     * monitor, and stop all correctly refuse to kill a running component
+     * whose ownership cannot be verified against the journal. This verb
+     * exists ONLY behind the Home failure surface's explicit "Force stop
+     * realm" confirmation and is never reached from any automatic path.
+     *
+     * Each running component is stopped under the owner the component
+     * itself currently reports - the service-side requireOwner gate still
+     * verifies every kill - adopting first when the component is ownerless
+     * (the plan-F1 heal). :database is never killed directly (killing it
+     * without engine.close() orphans mariadbd): the next start's recovery
+     * lane owns its engine-ordered shutdown and the DB-RECOVERY prepare
+     * heal, which is why the verb commits a dirty STOPPED journal instead
+     * of a clean one.
+     */
+    suspend fun consentedForceStopOrphanStack(): RuntimeOperation = operationLock.withLock {
+        val current = _state.value
+        if (current.phase == RuntimePhase.STOPPED && current.clean) {
+            return@withLock operation(true, "already stopped")
+        }
+        publish(current.copy(
+            phase = RuntimePhase.STOPPING,
+            clean = false,
+            lastDurableAction = "consented-orphan-force-stop-requested",
+            recoverability = Recoverability.RECOVERY_REQUIRED,
+        ))
+        // :database stays with the engine-ordered recovery lane; everything
+        // a force-stop can retire goes in report order (client first while
+        // the world is still up, then world -> realm).
+        for (component in STOP_ORDER) {
+            if (component == RuntimeComponent.DATABASE) continue
+            val observed = runCatching { backend.observe(component) }.getOrElse {
+                fail(RuntimePhase.ERROR, "consented stop observe $component failed: ${it.message}")
+                return@withLock operation(false, _state.value.lastError ?: "consented stop failed")
+            }
+            if (observed.state == ComponentLifecycle.STOPPED) continue
+            val stopped = if (observed.owner == null) {
+                // Ownerless running component: the sanctioned adopt-then-
+                // forceStop heal under a freshly adopted owner.
+                adoptAndForceStopOrphan(component, current.sessionId ?: tokens.sessionId())
+            } else {
+                // Owned by a session this journal cannot verify - exactly the
+                // pinned refusal case. The player consented, so stop under the
+                // owner the component itself reports; forceStopOwned's
+                // requireOwner gate on the service side still checks it.
+                runCatching {
+                    withTimeout(timeouts.stop(component)) { backend.forceStop(component, observed.owner) }
+                }.getOrElse { RuntimeActionResult(false, it.message ?: it.javaClass.simpleName) }
+            }
+            if (!stopped.ok) {
+                fail(RuntimePhase.ERROR, "consented force stop failed for $component: ${stopped.detail}")
+                return@withLock operation(false, _state.value.lastError ?: "consented stop failed")
+            }
+        }
+        demoteForegroundStack()
+        // Dirty on purpose: the database generation is still unsealed, so
+        // the next start must run recovery (and its DB prepare heal) before
+        // the ordinary start stages - exactly the normal start path.
+        publish(RuntimeSnapshot(
+            phase = RuntimePhase.STOPPED,
+            clean = false,
+            components = RuntimeSnapshot.stoppedComponents(),
+            lastDurableAction = "consented-orphan-force-stop-committed",
+            recoverability = Recoverability.RECOVERY_REQUIRED,
+        ))
+        operation(true, "orphan stack force-stopped; start again to recover the database")
+    }
+
+    /**
      * One health-monitor tick of the orphan self-heal lane (plan F1) for one
      * component the monitor observed as ownerless-but-running. Consecutive
      * sightings accumulate grace ticks (the component's own owner-loss

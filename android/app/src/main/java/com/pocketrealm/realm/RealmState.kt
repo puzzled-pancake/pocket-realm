@@ -61,8 +61,16 @@ sealed interface RealmState {
     /**
      * A blocking failure that needs a human decision (e.g. unrepairable
      * corruption, missing storage). The realm is NOT running.
+     *
+     * [unverifiedOrphan] marks the pinned UNVERIFIED_ORPHAN refusal: a
+     * leftover running world this device cannot verify as its own. Only
+     * that failure offers the player-consented "Force stop realm" repair;
+     * every other failure keeps the generic error surface.
      */
-    data class Failed(val message: String) : RealmState
+    data class Failed(
+        val message: String,
+        val unverifiedOrphan: Boolean = false,
+    ) : RealmState
 }
 
 enum class ClientLaunchState { NOT_STARTED, READY, FAILED }

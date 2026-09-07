@@ -869,6 +869,16 @@ PB_MGR_RTEL_DECL_ANDROID = """        void RandomTeleport(Player* bot);
         Player* PocketPickSpreadAnchor(Player* bot) const;
         uint64 PocketVillageCellKey(Player const* bot) const;
 """
+# The declaration pair above widens the header's locs overload with the
+# defaulted `force` parameter; the out-of-line DEFINITION in the pristine
+# .cpp must grow the same parameter or the definition matches no
+# declaration (and the level-guard payload's `!force` has no referent).
+PB_MGR_RTEL_DEF_UPSTREAM = """void RandomPlayerbotMgr::RandomTeleport(Player* bot, std::vector<WorldLocation> &locs, bool hearth, bool activeOnly)
+{
+"""
+PB_MGR_RTEL_DEF_ANDROID = """void RandomPlayerbotMgr::RandomTeleport(Player* bot, std::vector<WorldLocation> &locs, bool hearth, bool activeOnly, bool force)
+{
+"""
 PB_MGR_LEVEL_GUARD_UPSTREAM = """	if (bot->GetLevel() < 5)
 		return;
 """
@@ -888,8 +898,10 @@ PB_MGR_RANDOMIZE_SETTLER_ANDROID = """            if (GetEventValue(bot, "settle
             {
                 // D4 (plan v2.3 s5): designated villagers are stable - the
                 // randomize event (level/gear reroll) would churn the
-                // village, so settlers skip it and just re-arm the cadence.
-                ScheduleRandomize(bot);
+                // village, so settlers skip it and just re-arm the cadence
+                // (pristine ScheduleRandomize takes the cadence explicitly;
+                // same urand bounds as the upstream schedule sites).
+                ScheduleRandomize(bot, urand(sPlayerbotAIConfig.minRandomBotRandomizeTime, sPlayerbotAIConfig.maxRandomBotRandomizeTime));
                 return true;
             }
             if (randomiser)
@@ -2667,15 +2679,19 @@ PB_RPG_QUOTA_ANDROID = """bool RpgAIChatAction::RequestNewLines()
 PB_RPG_ASYNC_UPSTREAM = """    futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug);
 """
 # A8: the RPG dispatch site logs BotLLM: dispatch like the conversational
-# lane, which needs pocketllm::NextReqId (PlayerbotLlmFilters.h).
+# lane, which needs pocketllm::NextReqId (PlayerbotLlmFilters.h). The A1b
+# quota block also needs CloudLaneOpen()/CloudQuotaAdmits, which live in
+# PlayerbotLlmMemory.h (it pulls in PlayerbotLlmGates.h for FallbackPlan).
 PB_RPG_INCLUDE_UPSTREAM = """#include "playerbot/PlayerbotLLMInterface.h"
 """
 PB_RPG_INCLUDE_ANDROID = """#include "playerbot/PlayerbotLLMInterface.h"
 #include "playerbot/PlayerbotLlmFilters.h"
+#include "playerbot/PlayerbotLlmMemory.h"
 """
 PB_RPG_ASYNC_ANDROID = """    // E1 reply class 1: ambient (one 80-byte line - a bark, not a speech);
     // longFormCued explicit false - ambient never earns the widening
-    // (defaults do not bind through the std::async function pointer)
+    // (defaults do not bind through the std::async function pointer; the
+    // trailing FallbackPlan default does not bind either - pass it)
     // A8: same dispatch line as the conversational lane
     {
         uint64_t const llmReqId = pocketllm::NextReqId();
@@ -2683,7 +2699,7 @@ PB_RPG_ASYNC_ANDROID = """    // E1 reply class 1: ambient (one 80-byte line - a
             bot->GetGUIDLow(), (int)PlayerbotLlamaRuntime::LLM_SRC_RPG_CHAT,
             sPlayerbotAIConfig.llmBackend == PlayerbotAIConfig::LLM_BACKEND_LLAMA ? "device" : "cloud",
             (unsigned long long)llmReqId);
-        futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, bot->GetGUIDLow(), uint32(0), PlayerbotLlamaRuntime::LLM_SRC_RPG_CHAT, uint64_t(0), 0, bot->GetName(), chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug, 1u, false, llmReqId);
+        futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, bot->GetGUIDLow(), uint32(0), PlayerbotLlamaRuntime::LLM_SRC_RPG_CHAT, uint64_t(0), 0, bot->GetName(), chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug, 1u, false, llmReqId, PlayerbotLlmGates::FallbackPlan());
     }
 """
 # The RPG ambient-chatter path (bot <-> NPC barks) still built the HTTP JSON
@@ -3053,7 +3069,7 @@ static_assert((int)PlayerbotLlmGates::GATE_SRC_SAY == (int)SRC_SAY, "GateSrc bri
 static_assert((int)PlayerbotLlmGates::GATE_SRC_YELL == (int)SRC_YELL, "GateSrc bridge drifted");
 static_assert((int)PlayerbotLlmGates::GATE_SRC_TRADE == (int)SRC_TRADE, "GateSrc bridge drifted");
 static_assert((int)PlayerbotLlmGates::GATE_SRC_GENERAL == (int)SRC_GENERAL, "GateSrc bridge drifted");
-static_assert((int)PlayerbotLlmGates::GATE_SRC_UNDEFINED == (int)SRC_UNDEFINED, "GateSrc bridge drifted")
+static_assert((int)PlayerbotLlmGates::GATE_SRC_UNDEFINED == (int)SRC_UNDEFINED, "GateSrc bridge drifted");
 #include "playerbot/PlayerbotLlmPersona.h"
 #include "playerbot/PlayerbotLlmTools.h"
 #include "playerbot/PlayerbotLlmToolsCore.h"
@@ -5147,6 +5163,7 @@ def prepare_cmangos_source() -> None:
     replace_anchor(bot_root / "PlayerbotAIConfig.h", PB_D1_CONFIG_HEADER_UPSTREAM, PB_D1_CONFIG_HEADER_ANDROID)
     replace_anchor(bot_root / "aiplayerbot.conf.dist.in", PB_D1_CONF_DIST_UPSTREAM, PB_D1_CONF_DIST_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotMgr.h", PB_MGR_RTEL_DECL_UPSTREAM, PB_MGR_RTEL_DECL_ANDROID)
+    replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_RTEL_DEF_UPSTREAM, PB_MGR_RTEL_DEF_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_LEVEL_GUARD_UPSTREAM, PB_MGR_LEVEL_GUARD_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_RANDOMIZE_SETTLER_UPSTREAM, PB_MGR_RANDOMIZE_SETTLER_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotMgr.cpp", PB_MGR_TELEPORT_EVENT_UPSTREAM, PB_MGR_TELEPORT_EVENT_ANDROID)

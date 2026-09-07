@@ -7,6 +7,7 @@ import android.content.ServiceConnection
 import android.os.IBinder
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.pocketrealm.BuildConfig
 import com.pocketrealm.server.IRealmControl
 import com.pocketrealm.server.IWorldControl
 import org.json.JSONObject
@@ -45,6 +46,10 @@ import java.util.concurrent.TimeUnit
  *       per-(bot,prefix) fact counts; empty player = world summary)
  *   stack-up-bot <profileId>   (db init+migrations+start → realm → world)
  *   quit
+ *   ping   (harness attach probe: alive/uptimeMs + runtimeBuildId and the
+ *       native source-commit pins baked from the lane lockfile at build
+ *       time, so a stale APK is detectable at attach; realm-status /
+ *       world-status responses carry the same telltale fields)
  */
 @RunWith(AndroidJUnit4::class)
 class WorldConsoleRelay {
@@ -151,6 +156,15 @@ class WorldConsoleRelay {
             "ping" -> JSONObject().put("ok", true).put("op", op)
                 .put("alive", true).put("uptimeMs",
                     System.currentTimeMillis() - startedAtMs)
+                // Attach-time stale-APK telltale: the harness compares these
+                // against the CURRENT lane lockfile (schemas/realm-runtime-
+                // lockfile*.json) before driving any op, so a stale relay is
+                // refused at attach instead of failing mid-run on missing JNI
+                // ops (world-chat/reset-state/llm-memory-state). Same values
+                // ride realm-status/world-status via ServerStatusJson.
+                .put("runtimeBuildId", BuildConfig.NATIVE_RUNTIME_BUILD_ID)
+                .put("nativeCmangosCommit", BuildConfig.NATIVE_CMANGOS_COMMIT)
+                .put("nativePlayerbotsCommit", BuildConfig.NATIVE_PLAYERBOTS_COMMIT)
             "stack-up-bot" -> stackUpBot(arg1)
             else -> JSONObject().put("ok", false).put("op", op)
                 .put("error", "unknown op (see WorldConsoleRelay doc)")

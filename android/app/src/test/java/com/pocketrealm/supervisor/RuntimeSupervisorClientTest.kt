@@ -167,6 +167,36 @@ class RuntimeSupervisorClientTest {
         )
     }
 
+    @Test fun onlyTheUnverifiedOrphanFailureCarriesTheForceStopRepairFlag() {
+        val orphan = RuntimeSupervisorClient.decodeRealmState(encoded(RuntimeSnapshot(
+            phase = RuntimePhase.ERROR,
+            clean = false,
+            lastError = "UNVERIFIED_ORPHAN: WORLD ownership did not match",
+        ))) as RealmState.Failed
+
+        assertTrue(orphan.unverifiedOrphan)
+        assertEquals(
+            RuntimeFailureCopy.humanize("UNVERIFIED_ORPHAN: WORLD ownership did not match"),
+            orphan.message,
+        )
+
+        // Every other failure keeps the generic error surface: no
+        // force-stop affordance for timeouts or plain dirty stops.
+        val timedOut = RuntimeSupervisorClient.decodeRealmState(encoded(RuntimeSnapshot(
+            phase = RuntimePhase.ERROR,
+            clean = false,
+            lastError = "WORLD: TimeoutCancellationException: Timed out waiting for 120000 ms",
+        ))) as RealmState.Failed
+        assertFalse(timedOut.unverifiedOrphan)
+
+        val dirtyStopped = RuntimeSupervisorClient.decodeRealmState(encoded(RuntimeSnapshot(
+            phase = RuntimePhase.STOPPED,
+            clean = false,
+            recoverability = Recoverability.RECOVERY_REQUIRED,
+        ))) as RealmState.Failed
+        assertFalse(dirtyStopped.unverifiedOrphan)
+    }
+
     private fun encoded(snapshot: RuntimeSnapshot, generationActive: Boolean = false): String =
         RuntimeSnapshotJson.encode(snapshot)
             .put("supervisorGenerationActive", generationActive)

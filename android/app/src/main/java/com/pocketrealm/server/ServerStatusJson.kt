@@ -25,6 +25,8 @@ internal object ServerStatusJson {
         .put("component", component).put("operation", operation)
         .put("result", result).put("error", ServerRuntimeContract.errorName(result.toLong()))
         .put("pid", Process.myPid()).put("runtimeBuildId", ServerRuntimeContract.RUNTIME_BUILD_ID)
+        .put("nativeCmangosCommit", ServerRuntimeContract.NATIVE_CMANGOS_COMMIT)
+        .put("nativePlayerbotsCommit", ServerRuntimeContract.NATIVE_PLAYERBOTS_COMMIT)
 
     private fun base(component: String, values: LongArray, detail: String) = JSONObject()
         .put("schema", ServerRuntimeContract.CONTROL_SCHEMA).put("ok", true)
@@ -34,4 +36,6 @@ internal object ServerStatusJson {
         .put("errorCode", values[2]).put("heartbeatMs", values[3])
         .put("detail", detail.take(512)).put("pid", Process.myPid())
         .put("runtimeBuildId", ServerRuntimeContract.RUNTIME_BUILD_ID)
+        .put("nativeCmangosCommit", ServerRuntimeContract.NATIVE_CMANGOS_COMMIT)
+        .put("nativePlayerbotsCommit", ServerRuntimeContract.NATIVE_PLAYERBOTS_COMMIT)
 }

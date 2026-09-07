@@ -125,14 +125,21 @@ class RuntimeSupervisorClient(context: Context) {
             check(value.optBoolean("ok"))
             val phase = RuntimePhase.valueOf(value.getString("phase"))
             val generationActive = value.optBoolean("supervisorGenerationActive")
-            val lastError = value.optString("lastError").trim().takeIf { it.isNotEmpty() }
+            val rawError = value.optString("lastError").trim().takeIf { it.isNotEmpty() }
+            // The UNVERIFIED_ORPHAN refusal carries a dedicated repair
+            // affordance; detect it on the raw detail before humanizing.
+            val unverifiedOrphan = rawError?.contains("UNVERIFIED_ORPHAN") == true
+            val lastError = rawError
                 // Plan F1: raw details (UNVERIFIED_ORPHAN, timeout classes)
                 // go to logs; the UI sees human copy.
                 ?.let(RuntimeFailureCopy::humanize)
             return when (phase) {
                 RuntimePhase.STOPPED, RuntimePhase.UNCONFIGURED -> {
                     if (value.optBoolean("clean") && lastError == null) RealmState.Idle
-                    else RealmState.Failed(lastError ?: "Previous runtime needs recovery before it can start.")
+                    else RealmState.Failed(
+                        lastError ?: "Previous runtime needs recovery before it can start.",
+                        unverifiedOrphan = unverifiedOrphan,
+                    )
                 }
                 RuntimePhase.PREPARING, RuntimePhase.DB_STARTING, RuntimePhase.REALM_STARTING,
                 RuntimePhase.WORLD_STARTING, RuntimePhase.CLIENT_STARTING -> {
@@ -162,7 +169,10 @@ class RuntimeSupervisorClient(context: Context) {
                 RuntimePhase.RECOVERING -> if (generationActive)
                     RealmState.Recovering(value.optString("lastDurableAction"))
                 else RealmState.Failed("The previous recovery was interrupted. Tap Start to recover safely.")
-                RuntimePhase.ERROR -> RealmState.Failed(lastError ?: "runtime failed")
+                RuntimePhase.ERROR -> RealmState.Failed(
+                    lastError ?: "runtime failed",
+                    unverifiedOrphan = unverifiedOrphan,
+                )
             }
         }
     }

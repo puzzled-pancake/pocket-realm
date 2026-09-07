@@ -271,6 +271,47 @@ fun HomeScreen(
             },
         )
     }
+    // UNVERIFIED_ORPHAN repair (the pinned refusal is automatic lanes only):
+    // the failure surface offers an explicit, player-consented force stop of
+    // the leftover stack; the next start then runs the normal recovery +
+    // database prepare heal path.
+    val orphanFailure = unverifiedOrphanFailure(state)
+    var confirmOrphanStop by remember { mutableStateOf(false) }
+    val orphanStopConsent = remember(context) {
+        OrphanForceStopConsent { RealmService.consentedOrphanStop(context) }
+    }
+    LaunchedEffect(orphanFailure) {
+        if (orphanFailure == null) {
+            confirmOrphanStop = false
+            orphanStopConsent.reset()
+        }
+    }
+    if (orphanFailure != null && confirmOrphanStop) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmOrphanStop = false },
+            title = { androidx.compose.material3.Text("Force stop realm") },
+            text = {
+                androidx.compose.material3.Text(
+                    "This force-stops the leftover world from the failed start. " +
+                        "Unsaved progress in that world is lost; the realm databases " +
+                        "are checked and repaired automatically on the next start.",
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        confirmOrphanStop = false
+                        orphanStopConsent.confirm()
+                    },
+                ) { androidx.compose.material3.Text("Force stop") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = { confirmOrphanStop = false },
+                ) { androidx.compose.material3.Text("Cancel") }
+            },
+        )
+    }
     val saveAndExit = { RealmService.saveExit(context) }
     val retryGame: () -> Unit = {
         if (!clientRetryPending) {
@@ -380,6 +421,7 @@ fun HomeScreen(
                     onSaveExit = saveAndExit,
                     onEnterGame = enterGame,
                     onRetryGame = retryGame,
+                    onForceStopOrphan = orphanFailure?.let { { confirmOrphanStop = true } },
                     clientRetryPending = clientRetryPending,
                     canLaunchGame = canLaunchGame,
                     settingsReady = settingsSnapshotState != null,
@@ -439,6 +481,7 @@ fun HomeScreen(
                     onSaveExit = saveAndExit,
                     onEnterGame = enterGame,
                     onRetryGame = retryGame,
+                    onForceStopOrphan = orphanFailure?.let { { confirmOrphanStop = true } },
                     clientRetryPending = clientRetryPending,
                     canLaunchGame = canLaunchGame,
                     settingsReady = settingsSnapshotState != null,
@@ -493,6 +536,8 @@ private fun RealmControlCard(
     onSaveExit: () -> Unit,
     onEnterGame: (() -> Unit)?,
     onRetryGame: () -> Unit,
+    /** Present only for the UNVERIFIED_ORPHAN failure: opens the force-stop confirmation. */
+    onForceStopOrphan: (() -> Unit)?,
     clientRetryPending: Boolean,
     canLaunchGame: Boolean,
     settingsReady: Boolean,
@@ -578,6 +623,16 @@ private fun RealmControlCard(
                             style = MaterialTheme.typography.labelSmall,
                             modifier = Modifier.widthIn(max = 260.dp),
                         )
+                        // UNVERIFIED_ORPHAN repair: distinct, consented force
+                        // stop of the leftover stack the automatic lanes
+                        // refuse to touch. Shown for that failure only.
+                        onForceStopOrphan?.let { forceStop ->
+                            OutlinedButton(
+                                onClick = forceStop,
+                                modifier = (if (fillRow) Modifier.fillMaxWidth() else Modifier)
+                                    .testTag("realm-force-stop-orphan"),
+                            ) { Text("Force stop realm") }
+                        }
                     }
                 }
                 is RealmState.Running -> {
@@ -973,4 +1028,37 @@ internal fun homeActionAvailability(
         joinLan = clientAvailable,
         launchClient = clientAvailable && canLaunchGame && !clientRetryPending,
     )
+}
+
+/**
+ * The pinned UNVERIFIED_ORPHAN refusal and only it: the failure surface
+ * offers the consented force-stop repair; every other failure keeps the
+ * generic error presentation with no extra action.
+ */
+internal fun unverifiedOrphanFailure(state: RealmState): RealmState.Failed? =
+    (state as? RealmState.Failed)?.takeIf { it.unverifiedOrphan }
+
+/**
+ * Dispatch-once consent ledger behind the force-stop confirmation: each
+ * player confirmation dispatches the sanctioned stop verb at most once -
+ * a double-tap on the confirm button never dispatches it twice - and the
+ * gate re-arms only when the failure surface leaves the orphan case
+ * (Home calls [reset] then). The dialog's open/closed flag is Compose
+ * state owned by the dialog itself; this class owns the consent ledger.
+ */
+internal class OrphanForceStopConsent(private val stopVerb: () -> Unit) {
+    private var dispatched = false
+
+    /** One player confirmation; true exactly when this call dispatched the stop verb. */
+    fun confirm(): Boolean {
+        if (dispatched) return false
+        dispatched = true
+        stopVerb()
+        return true
+    }
+
+    /** Re-arms the gate after the observed state left the orphan failure. */
+    fun reset() {
+        dispatched = false
+    }
 }

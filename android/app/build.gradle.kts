@@ -692,6 +692,232 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
     }
 }
 
+/**
+ * Build-time staleness fence for the staged realm runtime. A QA session once
+ * produced an exit-0/BUILD SUCCESSFUL APK whose packaged
+ * libpocket_world_runtime.so was days stale (missing the world-chat,
+ * reset-state and llm-memory-state JNI ops) because every existing gate
+ * compared the staging bytes only against the lockfile that the same stale
+ * lane had written. This fence closes the remaining gaps:
+ *
+ *  - every staged .so under native/.build-o09-<abi>/realm-staging[-sqlite]
+ *    is rehashed and compared against the lane lockfile's artifact pins;
+ *  - BUILD_PROVENANCE.json must exist and its artifact rows + source commits
+ *    must agree with the lockfile;
+ *  - the lockfile's cmangos_commit/playerbots_commit must still match the
+ *    schemas/sources.json pins (a lane built from moved submodules fails);
+ *  - staged files without a lockfile pin are refused.
+ *
+ * With requireStagedBytes=false only the committed-pin coherence is checked
+ * (the CI unit-test lane has no untracked staging outputs to hash). The
+ * semantics mirror the unit-tested contract
+ * com.pocketrealm.server.NativeRuntimeFreshness (android unit tests) - keep
+ * the two in sync in the same change. Skippable ONLY via
+ * -PpocketSkipNativeFreshness=true, which logs a loud warning.
+ */
+abstract class ValidateNativeRuntimeFreshnessTask : DefaultTask() {
+    @get:Input
+    abstract val selectedAbi: Property<String>
+
+    @get:Input
+    abstract val databaseBackend: Property<String>
+
+    @get:Input
+    abstract val laneLabel: Property<String>
+
+    @get:Input
+    abstract val repoRootPath: Property<String>
+
+    @get:Input
+    abstract val lockfileRelativePath: Property<String>
+
+    @get:Input
+    abstract val stagingRelativeDir: Property<String>
+
+    @get:Input
+    abstract val expectedCmangosCommit: Property<String>
+
+    @get:Input
+    abstract val expectedPlayerbotsCommit: Property<String>
+
+    @get:Input
+    abstract val requireStagedBytes: Property<Boolean>
+
+    @get:Input
+    abstract val skipRequested: Property<String>
+
+    private fun sha256Hex(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(1 shl 16)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    private fun artifactPins(record: Map<*, *>): List<Triple<String, Long, String>> =
+        (record["artifacts"] as? List<*>).orEmpty()
+            .mapNotNull { row -> row as? Map<*, *> }
+            .mapNotNull { row ->
+                val path = row["path"] as? String ?: return@mapNotNull null
+                val size = (row["size"] as? Number)?.toLong() ?: return@mapNotNull null
+                val sha256 = row["sha256"] as? String ?: return@mapNotNull null
+                Triple(path, size, sha256)
+            }
+
+    private fun fail(reasons: List<String>): Nothing =
+        throw GradleException(
+            "Native runtime freshness fence FAILED for ${laneLabel.get()}:\n" +
+                reasons.joinToString("\n") { reason -> "  - $reason" } +
+                "\n  Remedy: rerun the full lane build: " +
+                "python tools/build_o09_realm_runtime.py " +
+                "(matching -PpocketAbi/-PpocketLane)",
+        )
+
+    @TaskAction
+    fun validate() {
+        val skip = skipRequested.get().trim()
+        if (skip == "true") {
+            logger.warn(
+                "!!! -PpocketSkipNativeFreshness=true: the native staleness fence is " +
+                    "DISABLED for ${laneLabel.get()}; a stale realm-runtime .so can be " +
+                    "packaged silently !!!",
+            )
+            return
+        }
+        check(skip.isEmpty()) {
+            "Refusing ambiguous -PpocketSkipNativeFreshness='$skip'; pass exactly 'true' " +
+                "to skip loudly, or drop the property to run the fence"
+        }
+
+        val abi = selectedAbi.get()
+        val backend = databaseBackend.get()
+        val repoRoot = File(repoRootPath.get())
+        val lockfile = File(repoRoot, lockfileRelativePath.get())
+        val reasons = ArrayList<String>()
+
+        if (!lockfile.isFile) {
+            fail(listOf("realm runtime lockfile is missing: $lockfileRelativePath"))
+        }
+        val record = runCatching { JsonSlurper().parse(lockfile) as Map<*, *> }.getOrElse {
+            fail(listOf(
+                "realm runtime lockfile is not parseable JSON: $lockfileRelativePath " +
+                    "(${it.message ?: it.javaClass.simpleName})",
+            ))
+        }
+        val lockAbi = record["abi"] as? String
+        if (lockAbi != abi) {
+            reasons += "$lockfileRelativePath pins abi '$lockAbi' but the build selected '$abi'"
+        }
+        val lockBackend = record["database_backend"] as? String
+        if (lockBackend != backend) {
+            reasons += "$lockfileRelativePath pins database_backend '$lockBackend' but the " +
+                "build selected '$backend'"
+        }
+        val lockCmangos = record["cmangos_commit"] as? String
+        val lockPlayerbots = record["playerbots_commit"] as? String
+        if (lockCmangos != expectedCmangosCommit.get()) {
+            reasons += "$lockfileRelativePath cmangos_commit '$lockCmangos' != " +
+                "schemas/sources.json pin '${expectedCmangosCommit.get()}' (cmangos-core); " +
+                "the lane build ran against STALE source pins"
+        }
+        if (lockPlayerbots != expectedPlayerbotsCommit.get()) {
+            reasons += "$lockfileRelativePath playerbots_commit '$lockPlayerbots' != " +
+                "schemas/sources.json pin '${expectedPlayerbotsCommit.get()}' (playerbots); " +
+                "the lane build ran against STALE source pins"
+        }
+        val pins = artifactPins(record)
+        if (pins.isEmpty()) {
+            reasons += "$lockfileRelativePath has no artifact pins"
+        }
+
+        if (requireStagedBytes.get()) {
+            val stagingDir = File(repoRoot, stagingRelativeDir.get())
+            val stagingLibsDir = File(stagingDir, "jniLibs/$abi")
+            val provenanceFile = File(stagingDir, "BUILD_PROVENANCE.json")
+            var provenance: Map<*, *>? = null
+            if (!provenanceFile.isFile) {
+                reasons += "BUILD_PROVENANCE.json is missing under ${stagingRelativeDir.get()}; " +
+                    "the staged runtime predates provenance recording or the full lane " +
+                    "build never ran"
+            } else {
+                provenance = runCatching {
+                    JsonSlurper().parse(provenanceFile) as Map<*, *>
+                }.getOrNull()
+                if (provenance == null) {
+                    reasons += "BUILD_PROVENANCE.json under ${stagingRelativeDir.get()} is " +
+                        "not parseable JSON"
+                }
+            }
+            if (provenance != null) {
+                val provCmangos = provenance["cmangos_commit"] as? String
+                val provPlayerbots = provenance["playerbots_commit"] as? String
+                if (provCmangos != lockCmangos) {
+                    reasons += "BUILD_PROVENANCE.json cmangos_commit '$provCmangos' != " +
+                        "lockfile pin '$lockCmangos' (${stagingRelativeDir.get()})"
+                }
+                if (provPlayerbots != lockPlayerbots) {
+                    reasons += "BUILD_PROVENANCE.json playerbots_commit '$provPlayerbots' " +
+                        "!= lockfile pin '$lockPlayerbots' (${stagingRelativeDir.get()})"
+                }
+                val provPins = artifactPins(provenance).associateBy { File(it.first).name }
+                for ((path, size, sha256) in pins) {
+                    val prov = provPins[File(path).name]
+                    if (prov == null) {
+                        reasons += "BUILD_PROVENANCE.json has no record for $path"
+                    } else if (prov.second != size || !prov.third.equals(sha256, true)) {
+                        reasons += "BUILD_PROVENANCE.json records ${File(path).name} as " +
+                            "${prov.second} bytes / sha256 ${prov.third}, but the lockfile " +
+                            "pins $size bytes / sha256 $sha256"
+                    }
+                }
+            }
+            val stagedFiles = stagingLibsDir
+                .listFiles { file -> file.isFile && file.name.endsWith(".so") }
+                ?.toList().orEmpty()
+            val stagedByName = stagedFiles.associateBy { it.name }
+            for ((path, size, sha256) in pins) {
+                val staged = stagedByName[File(path).name]
+                if (staged == null || staged.length() == 0L) {
+                    reasons += "staged ${File(path).name} is missing or empty under " +
+                        "${stagingRelativeDir.get()}/jniLibs/$abi (lockfile pins $size " +
+                        "bytes, sha256 $sha256)"
+                    continue
+                }
+                if (staged.length() != size) {
+                    reasons += "staged ${staged.name} size ${staged.length()} != lockfile " +
+                        "pin $size (${stagingRelativeDir.get()}): the staged .so is STALE " +
+                        "relative to the reviewed lane pins"
+                }
+                val actualSha256 = sha256Hex(staged)
+                if (!actualSha256.equals(sha256, true)) {
+                    reasons += "staged ${staged.name} sha256 $actualSha256 != lockfile pin " +
+                        "$sha256 (${stagingRelativeDir.get()}): the staged .so is STALE " +
+                        "relative to the reviewed lane pins"
+                }
+            }
+            val pinnedNames = pins.map { File(it.first).name }.toSet()
+            stagedFiles.filter { it.name !in pinnedNames }.forEach { staged ->
+                reasons += "staged ${staged.name} has no lockfile pin; unpinned native " +
+                    "bytes must not ride into the APK " +
+                    "(${stagingRelativeDir.get()}/jniLibs/$abi)"
+            }
+        }
+        if (reasons.isNotEmpty()) {
+            fail(reasons)
+        }
+        logger.lifecycle(
+            "Native runtime freshness: OK for ${laneLabel.get()} " +
+                "(mode=${if (requireStagedBytes.get()) "staged-bytes" else "pins-only"}, " +
+                "${pins.size} pinned artifacts verified against $lockfileRelativePath)",
+        )
+    }
+}
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -843,6 +1069,151 @@ val pocketNdkLibraryTriple = when (pocketAbi) {
     else -> error("validated above")
 }
 
+// ---------------------------------------------------------------------------
+// Native runtime freshness: lockfile-derived telltale + staleness fence.
+//
+// The staged realm runtime enters the APK through stageNativeLibs (the
+// realmStage source below). A QA session once built an exit-0 APK whose
+// packaged libpocket_world_runtime.so was days stale; the fences registered
+// here make that impossible to miss: the staged bytes and provenance are
+// verified against the reviewed lane lockfile before anything packages the
+// libs, and the same pins are baked into BuildConfig as a runtime telltale
+// (relay ping / world-status runtimeBuildId) so a harness session detects a
+// stale APK at attach time instead of failing mid-run on missing JNI ops.
+// ---------------------------------------------------------------------------
+
+// Lockfile selection mirrors validateRealmRuntime exactly: x86_64 has no ABI
+// suffix, arm64 does, and the sqlite provider selects the sibling lockfile.
+val realmLockfileRelativePath = when {
+    sqliteProvider && pocketAbi == "x86_64" -> "schemas/realm-runtime-lockfile-sqlite.json"
+    sqliteProvider -> "schemas/realm-runtime-lockfile-$pocketAbi-sqlite.json"
+    pocketAbi == "x86_64" -> "schemas/realm-runtime-lockfile.json"
+    else -> "schemas/realm-runtime-lockfile-$pocketAbi.json"
+}
+val realmStagingRelativeDir = "native/.build-o09-$pocketAbi/" +
+    (if (sqliteProvider) "realm-staging-sqlite" else "realm-staging")
+
+// providers.fileContents keeps these configuration-time reads tracked by the
+// configuration cache: a lockfile or sources.json content change invalidates
+// the cached configuration instead of silently reusing stale pins (the exact
+// failure mode this fence kills, reborn at the configuration layer).
+val repoRootForNativePins = layout.projectDirectory.dir("../..")
+fun trackedJsonMap(relativePath: String): Map<*, *> {
+    val file = objects.fileProperty()
+    file.set(repoRootForNativePins.file(relativePath))
+    val text = providers.fileContents(file).asText.get()
+    check(text.isNotBlank()) {
+        "Required native-provenance JSON is missing or empty: $relativePath"
+    }
+    return runCatching { JsonSlurper().parseText(text) as Map<*, *> }.getOrElse {
+        throw GradleException(
+            "Required native-provenance JSON is not parseable: $relativePath",
+            it,
+        )
+    }
+}
+
+val realmLockfilePins = trackedJsonMap(realmLockfileRelativePath)
+val realmDatabaseBackend = realmLockfilePins["database_backend"] as? String
+    ?: throw GradleException(
+        "$realmLockfileRelativePath has no database_backend pin; the lane lockfile is malformed",
+    )
+val expectedDatabaseBackend = if (sqliteProvider) "sqlite" else "mysql"
+if (realmLockfilePins["abi"] != pocketAbi) {
+    throw GradleException(
+        "$realmLockfileRelativePath pins abi '${realmLockfilePins["abi"]}' but the build " +
+            "selected -PpocketAbi=$pocketAbi",
+    )
+}
+if (realmDatabaseBackend != expectedDatabaseBackend) {
+    throw GradleException(
+        "$realmLockfileRelativePath pins database_backend '$realmDatabaseBackend' but the " +
+            "build selected '$expectedDatabaseBackend'",
+    )
+}
+val realmCmangosCommit = realmLockfilePins["cmangos_commit"] as? String
+    ?: throw GradleException("$realmLockfileRelativePath has no cmangos_commit pin")
+val realmPlayerbotsCommit = realmLockfilePins["playerbots_commit"] as? String
+    ?: throw GradleException("$realmLockfileRelativePath has no playerbots_commit pin")
+val realmWorldRuntimePin = (realmLockfilePins["artifacts"] as? List<*>).orEmpty()
+    .mapNotNull { it as? Map<*, *> }
+    .firstOrNull { (it["path"] as? String)?.endsWith("libpocket_world_runtime.so") == true }
+    ?: throw GradleException(
+        "$realmLockfileRelativePath has no libpocket_world_runtime.so artifact pin",
+    )
+val realmWorldRuntimeSha256 = realmWorldRuntimePin["sha256"] as? String
+    ?: throw GradleException(
+        "$realmLockfileRelativePath libpocket_world_runtime.so pin has no sha256",
+    )
+// Changes whenever the pinned .so bytes OR the source-commit pins change, so
+// a harness can compare it against the id derivable from the CURRENT
+// lockfile and reject a stale APK at attach time.
+val nativeRuntimeBuildId = "o09-$pocketAbi-$realmDatabaseBackend-cmangos-" +
+    "${realmCmangosCommit.take(8)}-playerbots-${realmPlayerbotsCommit.take(8)}-" +
+    realmWorldRuntimeSha256.take(12)
+
+val sourcesPinsJson = trackedJsonMap("schemas/sources.json")
+fun sourcesCommitPin(sourceId: String): String =
+    (sourcesPinsJson["sources"] as? List<*>).orEmpty()
+        .mapNotNull { it as? Map<*, *> }
+        .firstOrNull { it["id"] == sourceId }
+        ?.let { it["commit"] as? String }
+        ?: throw GradleException("schemas/sources.json has no commit pin for '$sourceId'")
+val pinnedCmangosCommit = sourcesCommitPin("cmangos-core")
+val pinnedPlayerbotsCommit = sourcesCommitPin("playerbots")
+
+// Pins-only fence: verifies the committed lockfile stays coherent with
+// schemas/sources.json. Runs on every compile; the CI lane
+// (:app:testDebugUnitTest :app:detekt) never packages the untracked staging
+// outputs, so this is the strongest staleness check a fresh checkout can
+// make, and it fails CI when a lane lockfile was written from stale source
+// pins.
+val validateNativeRuntimePins = tasks.register<ValidateNativeRuntimeFreshnessTask>(
+    "validateNativeRuntimePins",
+) {
+    group = "verification"
+    description = "Verify the realm runtime lockfile identity/source pins against " +
+        "schemas/sources.json (no staged bytes required)."
+    selectedAbi.set(pocketAbi)
+    databaseBackend.set(expectedDatabaseBackend)
+    laneLabel.set("$pocketAbi/$pocketLane pins")
+    repoRootPath.set(repoRootForNativePins.asFile.absolutePath)
+    lockfileRelativePath.set(realmLockfileRelativePath)
+    stagingRelativeDir.set(realmStagingRelativeDir)
+    expectedCmangosCommit.set(pinnedCmangosCommit)
+    expectedPlayerbotsCommit.set(pinnedPlayerbotsCommit)
+    requireStagedBytes.set(false)
+    skipRequested.set(providers.gradleProperty("pocketSkipNativeFreshness").orElse(""))
+}
+
+// Full staged-bytes fence: wired ahead of every path that packages the realm
+// libs (stageNativeLibs plus the per-variant merge/package/assemble edges
+// below); a stale staging directory fails the build before any bytes move.
+val validateNativeRuntimeFreshness = tasks.register<ValidateNativeRuntimeFreshnessTask>(
+    "validateNativeRuntimeFreshness",
+) {
+    group = "verification"
+    description = "Fail the build when the staged realm runtime .so bytes or provenance " +
+        "disagree with the reviewed lane lockfile."
+    selectedAbi.set(pocketAbi)
+    databaseBackend.set(expectedDatabaseBackend)
+    laneLabel.set("$pocketAbi/$pocketLane staged bytes")
+    repoRootPath.set(repoRootForNativePins.asFile.absolutePath)
+    lockfileRelativePath.set(realmLockfileRelativePath)
+    stagingRelativeDir.set(realmStagingRelativeDir)
+    expectedCmangosCommit.set(pinnedCmangosCommit)
+    expectedPlayerbotsCommit.set(pinnedPlayerbotsCommit)
+    requireStagedBytes.set(true)
+    skipRequested.set(providers.gradleProperty("pocketSkipNativeFreshness").orElse(""))
+}
+
+tasks.matching { task ->
+    task.name.startsWith("compile") &&
+        (task.name.endsWith("Kotlin") || task.name.endsWith("JavaWithJavac"))
+}.configureEach {
+    dependsOn(validateNativeRuntimePins)
+}
+
 android {
     namespace = "com.pocketrealm"
     compileSdk = 35
@@ -874,6 +1245,16 @@ android {
         buildConfigField(
             "boolean", "ENABLE_CLIENT_DATA_PREPARATION", (pocketLane == "full").toString(),
         )
+        // Runtime staleness telltale generated from the reviewed lane
+        // lockfile (never hand-maintained): changes whenever the pinned .so
+        // bytes or source-commit pins change, so a harness comparing relay
+        // ping/world-status runtimeBuildId against the current lockfile
+        // catches a stale APK at attach time. Verified at build time by
+        // validateNativeRuntimeFreshness/validateNativeRuntimePins.
+        buildConfigField("String", "NATIVE_RUNTIME_BUILD_ID", "\"$nativeRuntimeBuildId\"")
+        buildConfigField("String", "NATIVE_CMANGOS_COMMIT", "\"$realmCmangosCommit\"")
+        buildConfigField("String", "NATIVE_PLAYERBOTS_COMMIT", "\"$realmPlayerbotsCommit\"")
+        buildConfigField("String", "NATIVE_WORLD_RUNTIME_SHA256", "\"$realmWorldRuntimeSha256\"")
         if (rp6HardwareQualificationRequested) {
             testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
             testInstrumentationRunnerArguments["class"] = rp6HardwareQualificationTestClass
@@ -1397,6 +1778,12 @@ val stageNativeLibs by tasks.registering(Sync::class) {
     val stagedDirName = if (pocketLane == "full") "staged-jniLibs-$pocketAbi" else "staged-jniLibs-$pocketAbi-$pocketLane"
     val stagedLib = layout.buildDirectory.dir("$stagedDirName/$pocketAbi")
     dependsOn(validateSelectedNativeClosure)
+    if (pocketLane == "full") {
+        // The realm .so bytes this Sync copies must already have passed the
+        // staleness fence: a stale staging dir never reaches the staged-jniLibs
+        // output that feeds every variant's APK merge.
+        dependsOn(validateNativeRuntimeFreshness)
+    }
 
     into(stagedLib)
     // Real realm facade — large APK-native .so, loaded by SONAME.
@@ -1708,8 +2095,14 @@ androidComponents {
                     // runs for every SHIPPING variant, not only the
                     // realmRuntime instrumentation type — debug/release
                     // must never package the realm runtimes without
-                    // digest validation.
-                    dependsOn(validateDatabaseRuntime, validateRealmRuntime)
+                    // digest validation. validateNativeRuntimeFreshness adds
+                    // the staleness fence: staged bytes, provenance, and
+                    // sources.json commit pins must all agree first.
+                    dependsOn(
+                        validateDatabaseRuntime,
+                        validateRealmRuntime,
+                        validateNativeRuntimeFreshness,
+                    )
                 }
         }
         if (variant.name == "databaseRuntime") {
@@ -1720,7 +2113,13 @@ androidComponents {
         if (variant.name == "realmRuntime") {
             tasks.matching { it.name == "merge${cap}JniLibFolders" ||
                 it.name == "merge${cap}Assets" || it.name == "assemble${cap}" }
-                .configureEach { dependsOn(validateDatabaseRuntime, validateRealmRuntime) }
+                .configureEach {
+                    dependsOn(
+                        validateDatabaseRuntime,
+                        validateRealmRuntime,
+                        validateNativeRuntimeFreshness,
+                    )
+                }
         }
     }
 }
