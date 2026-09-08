@@ -306,3 +306,48 @@ def test_hud_grows_while_talking_and_reveals_scroll_on_burst():
     assert apply_block.index("if not journaled then") < \
         apply_block.index("ConversationActive() and CHAT_TALK_HEIGHT"), \
         "the tall rect only applies inside the non-journaled branch"
+
+
+def test_whisper_is_direct_address_and_commands_keep_their_wall():
+    """QA run-4 (the silent whisper lane): a whisper to a bot is a sentence
+    aimed at the bot, but two upstream artifacts starved the whole
+    conversation lane. (1) The SMSG_MESSAGECHAT reply armament computed
+    isMentioned by name-substring and dropped every un-mentioned event 4
+    times out of 5 - and a whisper's text does not contain the bot's name -
+    so arming was a 1-in-5 lottery. (2) HandleCommand's group-state gates
+    refused whispers to grouped bots (FULL_GROUP/NOT_LEADER rate the bot
+    below INVITE) and spoke an unrelated command-refusal line, so the
+    player's one reply was canned refusal noise. The payloads: a whisper is
+    direct address (isMentioned), and a multi-word whisper with no command
+    shape keeps the gates' refuse-to-execute (identical security) but loses
+    the spoken refusal - the AI reply is the one answer. Single-word
+    whispers and link/money-marked text keep today's spoken wall."""
+    mention = android_anchor("PB_AI_WHISPER_MENTION_ANDROID")
+    assert "if (msgtype == CHAT_MSG_WHISPER)" in mention
+    assert "isMentioned = true;" in mention, \
+        "a whisper must arm the reply deterministically"
+    upstream = DRIVER.read_text(encoding="utf-8")
+    assert ('PB_AI_WHISPER_MENTION_UPSTREAM = """                bool '
+            'isMentioned = message.find(bot->GetName()) != '
+            'std::string::npos;' in upstream), \
+        "the mention anchor rides the pristine line byte-exactly"
+    gate1 = android_anchor("PB_AI_CMD_GATE1_ANDROID")
+    gate2 = android_anchor("PB_AI_CMD_GATE2_ANDROID")
+    for block in (gate1, gate2):
+        assert ("(type != CHAT_MSG_WHISPER) || llmConversationalWhisper"
+                in block), "both gates carry the conversational silent flag"
+        assert "return;" in block, (
+            "refused text still never executes - the security posture is "
+            "unchanged")
+    # the classifier's five conditions, pinned load-bearing
+    assert "type == CHAT_MSG_WHISPER" in gate1
+    assert "filtered.find(' ') != std::string::npos" in gate1, \
+        "single-word whispers keep the spoken wall"
+    assert "!GetChatHelper()->parseable(filtered)" in gate1, \
+        "link/money/trade-marked text keeps the spoken wall"
+    assert "commandSeparator" in gate1 and "commandPrefix" in gate1
+    # and the registration is real (the drift-raise mechanics hold)
+    driver = DRIVER.read_text(encoding="utf-8")
+    for name in ("PB_AI_WHISPER_MENTION", "PB_AI_CMD_GATE1", "PB_AI_CMD_GATE2"):
+        assert (f'replace_anchor(bot_root / "PlayerbotAI.cpp", '
+                f'{name}_UPSTREAM, {name}_ANDROID)' in driver), name

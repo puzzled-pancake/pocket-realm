@@ -3558,6 +3558,62 @@ PB_AI_BRACKET_DIALOGUE_ANDROID = """    case ActivePiorityType::VISIBLE_FOR_PLAY
     case ActivePiorityType::IN_DIALOGUE:
         return { 0,0 };
 """
+# plan A3/E3 (the conversational whisper lane): a whisper to a bot is a
+# sentence aimed at the bot, not a bot command - but upstream routes it
+# through HandleCommand's command-security gates, whose group-state
+# refusal (FULL_GROUP/NOT_LEADER rate the bot GUILD < INVITE) both
+# whispered an unrelated refusal line AND, with the random-bot system
+# auto-grouping every bot, fired on essentially every whisper a player
+# ever sent. Two surgical payloads:
+#   1. PB_AI_WHISPER_MENTION - in the SMSG_MESSAGECHAT reply armament, a
+#      whisper IS direct address: the name-substring isMentioned
+#      heuristic and the crowd-drop it feeds ("!isMentioned &&
+#      urand(0,4)") are say/party semantics and made the product promise
+#      ("whisper them and they answer back") a 1-in-5 lottery. The
+#      whisper hard trigger (HardTriggerAllowed GATE_SRC_WHISPER) is
+#      unconditional by design; this aligns the arming with it.
+#   2. PB_AI_CMD_GATE1/2 - a multi-word whisper with no command shape
+#      (nothing ChatHelper::parseable detects, no command separator, no
+#      command prefix) still REFUSES to execute (identical security:
+#      nothing a stranger said ever runs), but the spoken command-
+#      refusal is suppressed so the player gets exactly one answer: the
+#      AI conversation reply. Single-word whispers ("invite", "follow")
+#      keep today's spoken refusal wall (E3's group-seeking wall).
+PB_AI_WHISPER_MENTION_UPSTREAM = """                bool isMentioned = message.find(bot->GetName()) != std::string::npos;
+"""
+PB_AI_WHISPER_MENTION_ANDROID = """                bool isMentioned = message.find(bot->GetName()) != std::string::npos;
+                // plan A3/E3: a whisper is direct address by definition -
+                // the name-substring heuristic is a say/party semantic and
+                // starved the whisper lane (every un-mentioned whisper was
+                // dropped 4 times out of 5 before the reply armament ran)
+                if (msgtype == CHAT_MSG_WHISPER)
+                    isMentioned = true;
+"""
+PB_AI_CMD_GATE1_UPSTREAM = """    if (!IsAllowedCommand(filtered) && !GetSecurity()->CheckLevelFor(PlayerbotSecurityLevel::PLAYERBOT_SECURITY_INVITE, type != CHAT_MSG_WHISPER, &fromPlayer))
+        return;
+"""
+PB_AI_CMD_GATE1_ANDROID = """    // plan A3/E3: classify the conversational whisper once (see the
+    // whisper-mention payload): multi-word, no command shape. Both
+    // command gates below still refuse to execute such text - only the
+    // spoken refusal is suppressed (silent), so the observe path's AI
+    // reply is the one answer the player receives.
+    bool const llmConversationalWhisper = type == CHAT_MSG_WHISPER &&
+        filtered.find(' ') != std::string::npos &&
+        !GetChatHelper()->parseable(filtered) &&
+        (sPlayerbotAIConfig.commandPrefix.empty() ||
+         filtered.find(sPlayerbotAIConfig.commandPrefix) != 0) &&
+        filtered.find(sPlayerbotAIConfig.commandSeparator) == std::string::npos;
+    if (!IsAllowedCommand(filtered) && !GetSecurity()->CheckLevelFor(PlayerbotSecurityLevel::PLAYERBOT_SECURITY_INVITE, (type != CHAT_MSG_WHISPER) || llmConversationalWhisper, &fromPlayer))
+        return;
+"""
+PB_AI_CMD_GATE2_UPSTREAM = """    if (!IsAllowedCommand(filtered) && !GetSecurity()->CheckLevelFor(PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, type != CHAT_MSG_WHISPER, &fromPlayer))
+        return;
+"""
+PB_AI_CMD_GATE2_ANDROID = """    // plan A3/E3: llmConversationalWhisper was computed at the first
+    // gate; here it silences the second (ALLOW_ALL) refusal the same way
+    if (!IsAllowedCommand(filtered) && !GetSecurity()->CheckLevelFor(PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, (type != CHAT_MSG_WHISPER) || llmConversationalWhisper, &fromPlayer))
+        return;
+"""
 PB_AI_QUEUE_DEF_UPSTREAM = """void PlayerbotAI::QueueChatResponse(uint32 msgType, ObjectGuid guid1, ObjectGuid guid2, std::string message, std::string chanName, std::string name, bool noDelay)
 {
     std::scoped_lock lock(chatRepliesMutex);
@@ -5240,6 +5296,9 @@ def prepare_cmangos_source() -> None:
     replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_QUEUE_DEF_UPSTREAM, PB_AI_QUEUE_DEF_ANDROID)
     replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_QUEUE_CALL_UPSTREAM, PB_AI_QUEUE_CALL_ANDROID)
     # round-7 R1: the drain-side TTL drop (claim-window class closure)
+    replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_WHISPER_MENTION_UPSTREAM, PB_AI_WHISPER_MENTION_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_CMD_GATE1_UPSTREAM, PB_AI_CMD_GATE1_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_CMD_GATE2_UPSTREAM, PB_AI_CMD_GATE2_ANDROID)
     replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_DRAIN_STALE_UPSTREAM, PB_AI_DRAIN_STALE_ANDROID)
     # A2 fast-lane (rp-depth v2.3): enum + recheck helper in the header,
     # the priority early-return + bracket entry in the class
