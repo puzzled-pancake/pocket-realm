@@ -28,15 +28,20 @@ VSWHERE = Path(
 
 GOLDEN_BANTER_FNV1A64 = "de4bd8227a3ab0d1"
 
-# battery -> (harness, expected stdout substring)
+# battery -> (harness, expected stdout substring, argv beyond the exe)
 BATTERIES = {
-    "banter_core": ("test_llm_banter_core.cpp", "banter invariants passed"),
-    "chatter": ("test_llm_chatter.cpp", "chatter core battery"),
-    "gates": ("test_llm_gates.cpp", "llm gates battery: OK"),
-    "truth": ("test_llm_truth.cpp", "llm truth host battery"),
-    "recall": ("test_llm_recall.cpp", "llm recall host battery"),
-    "act_tools": ("test_llm_act_tools.cpp", "act tools battery passed"),
-    "json_client": ("test_llm_json_client.cpp", "json client invariants passed"),
+    "banter_core": ("test_llm_banter_core.cpp", "banter invariants passed", ()),
+    "chatter": ("test_llm_chatter.cpp", "chatter core battery", ()),
+    "gates": ("test_llm_gates.cpp", "llm gates battery: OK", ()),
+    "truth": ("test_llm_truth.cpp", "llm truth host battery", ()),
+    "recall": ("test_llm_recall.cpp", "llm recall host battery", ()),
+    "act_tools": ("test_llm_act_tools.cpp", "act tools battery passed", ()),
+    "json_client": ("test_llm_json_client.cpp", "json client invariants passed", ()),
+    "prompt_format": (
+        "test_llm_prompt_format.cpp",
+        "prompt-format byte-diff gate passed",
+        ("bytediff", str(ROOT / "tests" / "llm_prompt_vectors.json")),
+    ),
 }
 
 
@@ -82,7 +87,7 @@ def main() -> int:
     failures = 0
     with tempfile.TemporaryDirectory(prefix="pocketrealm-msvc-smoke-") as tmp:
         work = Path(tmp)
-        for name, (harness, expected) in BATTERIES.items():
+        for name, (harness, expected, argv) in BATTERIES.items():
             source = TOOLS / harness
             if not source.is_file():
                 print(f"SKIP {name}: harness {harness} not staged")
@@ -95,7 +100,7 @@ def main() -> int:
                 print(log.read_text(encoding="utf-8", errors="replace")[-2000:])
                 continue
             run = subprocess.run(
-                [str(exe)], capture_output=True, text=True, timeout=300,
+                [str(exe), *argv], capture_output=True, text=True, timeout=300,
                 cwd=str(ROOT))
             if run.returncode != 0 or expected not in run.stdout:
                 failures += 1

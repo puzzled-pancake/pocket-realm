@@ -3664,3 +3664,57 @@ harnesses, so pure-MSVC boxes don't silently skip) is the next 2b
 increment.
 
 Gate: python scripts/smoke_win_msvc.py -> exit 0, 7/7 PASS.
+
+## Windows port Phases 2c-2e: the native lane — both realm DLLs built and co-loaded
+
+The load-bearing native milestone is in: the ENTIRE realm (CMaNGOS classic
++ Playerbots + the ~30 overlay patches) compiles and links under MSVC as
+pocket_realmd_runtime.dll (5.7 MB) + pocket_world_runtime.dll (22.9 MB),
+SQLITE backend, verified fail-loud backend selection, and — the
+architecture's biggest open risk from the six-agent review — BOTH DLLs
+load into the SAME JVM with all static initializers and both JNI shims
+resolving (NativeCoLoadTest, requires the built lane, skips cleanly
+otherwise).
+
+Phase 2c — dependency lane (scripts/build_win_deps.py +
+native/win-deps/vcpkg.json): vcpkg manifest mode at pinned commit
+784e1b71 (builtin-baseline, full clone — version>= needs history),
+triplet x64-windows-static-md (static libs + dynamic CRT — the /MT first
+attempt mixed CRTs against the cmangos MSVC platform's hardcoded /MD and
+died at link with std::cin/locale-facet unresolveds), OpenSSL (legacy
+provider loads — realmd's OSSL_PROVIDER requirement), Boost 1.92
+(vcpkg-name discovery, not hardcoded -vc145-mt tags), zlib (zs.lib in
+this generation), and the repo-pinned SQLite 3.46.1 amalgamation
+compiled with cl into native/.deps/prefix-win-x86_64. Smoke links
+everything together.
+
+Phase 2d — tools/build_win_realm_runtime.py: imports the o09 driver and
+reuses its staging verbatim (pinned submodule commits, playerbots CMake
+mirror, anchor overlays, sqlite hardening, db null guards, post-build
+byte-pristine restore), then configures for MSVC/Ninja in a vcvars64
+batch (CCACHE_DISABLE=1 — a MinGW ccache shadows cl; quoted cmake path)
+and builds both runtime targets. First-party CMake changes, all
+WIN32-gated in native/realm-runtime/CMakeLists.txt: ELF staging options
+and dl/z links gated off; WIN32-side find_package for ZLIB (explicit
+zs.lib cache vars), SQLite3 + OpenSSL (the cmangos root only discovers
+them under if(UNIX)), JNI (JDK headers; NDK ships them on Android);
+/EHsc+/utf-8+/bigobj+/permissive- onto the runtime targets (the cmangos
+platform settings do not reach them; without /EHsc boost's
+exception-disabled decl path emits out-of-line throw_exception refs);
+win_exception_shim.cpp satisfies any residual out-of-line decls by
+aborting loudly. Source fix in the o09 overlay payload (shared by both
+lanes): `near` is a reserved MSVC token — renamed to nearLocs in the
+login-spread keep-best narrowing (identifier only, zero behavior change;
+patches_content pins unaffected — they cover native/patch files, not
+inline overlay constants).
+
+Phase 2e — desktop/build.gradle.kts puts the native lane's output dir on
+the test JVM's java.library.path; NativeCoLoadTest System.loads both
+DLLs and calls both shims' statusNative in one process.
+
+Gates: python tools/build_win_realm_runtime.py green end-to-end (926
+targets, backend verified, JNI export tables checked via dumpbin,
+submodule restored pristine); desktop gradlew build green incl. the
+co-load test; desktop+manifest+MSVC pytest pins 7/7. The realmd-listens/
+world-cycle halves of the 2e gate move to Phase 3 where the seeded DB and
+generated conf exist to make them meaningful.

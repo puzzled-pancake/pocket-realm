@@ -1,0 +1,62 @@
+{
+  "$comment": [
+    "Pocket Realm Windows native dependency manifest (Phase 2c of the",
+    "Windows port). Consumed by scripts/build_win_deps.py with the vcpkg",
+    "toolchain pinned at VCPKG_COMMIT below; versions mirror the Android",
+    "lane pins (schemas/sources.json: openssl 3.4.x; realm-runtime CMake:",
+    "Boost 1.86.0) so both platforms compile against the same dependency",
+    "generation. Triplet: x64-windows-static (static libs + static /MT CRT,",
+    "matching Boost_USE_STATIC_RUNTIME=ON in the Android build).",
+    "sqlite3 is deliberately NOT here: the repo pins the 3.46.1 amalgamation",
+    "(sqlite-amalgamation-3460100, staged under native/.deps/src/sqlite) and",
+    "the MSVC lane compiles that exact source, same as the Android sqlite",
+    "provider lane."
+  ],
+  "name": "pocketrealm-win-deps",
+  "version-string": "0.103.0-alpha",
+  "builtin-baseline": "784e1b71001e5dc405af24e860a5c4bc193ea6cf",
+  "dependencies": [
+    "openssl",
+    {
+      "name": "boost-asio",
+      "version>=": "1.86.0"
+    },
+    {
+      "name": "boost-bimap",
+      "version>=": "1.86.0"
+    },
+    {
+      "name": "boost-filesystem",
+      "version>=": "1.86.0"
+    },
+    {
+      "name": "boost-multi-index",
+      "version>=": "1.86.0"
+    },
+    {
+      "name": "boost-stacktrace",
+      "version>=": "1.86.0"
+    },
+    {
+      "name": "boost-program-options",
+      "version>=": "1.86.0"
+    },
+    {
+      "name": "boost-regex",
+      "version>=": "1.86.0"
+    },
+    {
+      "name": "boost-serialization",
+      "version>=": "1.86.0"
+    },
+    {
+      "name": "boost-system",
+      "version>=": "1.86.0"
+    },
+    {
+      "name": "boost-thread",
+      "version>=": "1.86.0"
+    },
+    "zlib"
+  ]
+}

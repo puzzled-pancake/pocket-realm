@@ -1147,7 +1147,9 @@ void RandomPlayerbotMgr::PocketLoginSpreadTeleport(Player* bot)
     std::vector<WorldLocation> locs = locsPerLevelCache[bot->GetLevel()];
     if (anchor)
     {
-        std::vector<WorldLocation> near;
+        // `near` is a reserved token under MSVC (16-bit segment modifier
+        // legacy), so the local is nearLocs; identical semantics.
+        std::vector<WorldLocation> nearLocs;
         WorldLocation const* bestAny = nullptr;
         float bestAnyDist = 0.0f;
         for (auto const& loc : locs)
@@ -1162,17 +1164,17 @@ void RandomPlayerbotMgr::PocketLoginSpreadTeleport(Player* bot)
                 }
                 continue;
             }
-            near.push_back(loc);
+            nearLocs.push_back(loc);
         }
-        if (!near.empty())
+        if (!nearLocs.empty())
         {
-            std::sort(near.begin(), near.end(), [anchor](WorldLocation const& a, WorldLocation const& b)
+            std::sort(nearLocs.begin(), nearLocs.end(), [anchor](WorldLocation const& a, WorldLocation const& b)
             {
                 return WorldPosition(a).fDist(WorldPosition(anchor)) < WorldPosition(b).fDist(WorldPosition(anchor));
             });
-            if (near.size() > POCKET_SPREAD_KEEP_BEST)
-                near.resize(POCKET_SPREAD_KEEP_BEST);
-            locs.swap(near);
+            if (nearLocs.size() > POCKET_SPREAD_KEEP_BEST)
+                nearLocs.resize(POCKET_SPREAD_KEEP_BEST);
+            locs.swap(nearLocs);
         }
         else if (bestAny)
         {

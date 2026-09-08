@@ -135,3 +135,8 @@ CMakeConfigureLog.yaml
 
 # Local ML tooling cache (unsloth studio), never repo source
 unsloth_compiled_cache/
+
+# Windows native lane dependency installs (vcpkg manifest mode output)
+native/win-deps/vcpkg_installed/
+# Windows native build trees
+native/.build-win-x86_64/

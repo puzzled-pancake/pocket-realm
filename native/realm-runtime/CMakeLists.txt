@@ -3,9 +3,33 @@ cmake_minimum_required(VERSION 3.16)
 set(POCKET_SERVER_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 set(CMANGOS_SRC ${CMAKE_SOURCE_DIR}/src)
 
+if(WIN32)
+    # Windows-only dependency discovery, BEFORE the target definitions below
+    # (the loop attaches JNI_INCLUDE_DIRS). The Android lane resolves `z`/`dl`
+    # from the NDK sysroot; the Windows lane links vcpkg's zlib explicitly
+    # and has no dl. SQLite3 and OpenSSL are found here too: the cmangos root
+    # only discovers them under if(UNIX ...), and the fail-loud backend
+    # selection still gates the DO_SQLITE define. JNI comes from the JDK on
+    # Windows (the NDK ships it on Android).
+    find_package(ZLIB REQUIRED)
+    find_package(SQLite3 REQUIRED)
+    find_package(OpenSSL REQUIRED)
+    find_package(JNI REQUIRED)
+    # OpenSSL's static libcrypto needs the Windows system shops: CAPI store
+    # access (crypt32), sockets (ws2_32), registry/crypto (advapi32, user32).
+    set(POCKET_PLATFORM_LIBS ZLIB::ZLIB crypt32 ws2_32 advapi32 user32)
+else()
+    set(POCKET_PLATFORM_LIBS z dl)
+endif()
+
 set(POCKET_COMMON
     ${POCKET_SERVER_ROOT}/src/server_common.cpp
 )
+if(WIN32)
+    # Satisfies out-of-line boost::throw_exception references that MSVC PCH
+    # objects can carry; aborts loudly if ever actually reached.
+    list(APPEND POCKET_COMMON ${POCKET_SERVER_ROOT}/src/win_exception_shim.cpp)
+endif()
 
 add_library(pocket_realmd_runtime SHARED
     ${POCKET_COMMON}
@@ -36,10 +60,23 @@ foreach(target pocket_realmd_runtime pocket_world_runtime)
         ${CMAKE_SOURCE_DIR}/src/realmd
         ${CMAKE_SOURCE_DIR}/dep/include/gsoap
     )
-    target_link_options(${target} PRIVATE
-        "-Wl,-z,max-page-size=0x4000"
-        "-Wl,--exclude-libs,ALL"
-    )
+    if(WIN32)
+        target_include_directories(${target} PRIVATE ${JNI_INCLUDE_DIRS})
+        # The cmangos MSVC platform settings apply to its own targets only;
+        # without /EHsc these TUs compile in the exception-disabled mode that
+        # emits out-of-line boost::throw_exception calls (unresolved at link).
+        target_compile_options(${target} PRIVATE /EHsc /utf-8 /bigobj /permissive-)
+    endif()
+    if(NOT WIN32)
+        # ELF staging gates: 16 KiB max-page-size for Android 15+ and symbol
+        # hiding of the statically linked dependencies. Both are meaningless
+        # on PE/MSVC (no page-size relocation contract, no symbol
+        # interposition between DLLs).
+        target_link_options(${target} PRIVATE
+            "-Wl,-z,max-page-size=0x4000"
+            "-Wl,--exclude-libs,ALL"
+        )
+    endif()
     set_target_properties(${target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endforeach()
 
@@ -59,10 +96,10 @@ else()
 endif()
 
 target_link_libraries(pocket_realmd_runtime PRIVATE
-    shared ${POCKET_DB_LIBS} OpenSSL::SSL OpenSSL::Crypto z dl
+    shared ${POCKET_DB_LIBS} OpenSSL::SSL OpenSSL::Crypto ${POCKET_PLATFORM_LIBS}
 )
 target_link_libraries(pocket_world_runtime PRIVATE
-    game shared gsoap ${POCKET_DB_LIBS} OpenSSL::SSL OpenSSL::Crypto z dl
+    game shared gsoap ${POCKET_DB_LIBS} OpenSSL::SSL OpenSSL::Crypto ${POCKET_PLATFORM_LIBS}
 )
 if(BUILD_PLAYERBOTS)
     # CMaNGOS applies this directory-locally to game/mangosd, so the embedded

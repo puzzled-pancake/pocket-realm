@@ -1,0 +1,267 @@
+#!/usr/bin/env python3
+"""Build the Pocket Realm realm runtimes as Windows DLLs with MSVC.
+
+The Windows-port native lane (Phase 2d). Reuses the o09 driver's source
+staging verbatim — pinned submodule commits, the playerbots CMake mirror,
+anchor-verified overlays, sqlite hardening, db null guards — by importing
+tools/build_o09_realm_runtime.py, then configures the SAME tree for
+MSVC/Ninja with the Phase-2c dependency prefix (vcpkg x64-windows-static
+OpenSSL/Boost/zlib + the repo-pinned SQLite amalgamation) and builds
+pocket_realmd_runtime.dll + pocket_world_runtime.dll.
+
+Differences from the o09 lane that this driver owns:
+  - toolchain: vcvars64 + cl.exe instead of the NDK
+  - dependency prefix: native/.deps/prefix-win-x86_64 (+ the vcpkg install
+    tree) instead of the Android prefixes
+  - backend: SQLITE only (the Windows v1 lane; fail-loud like o09)
+  - staging gates: PE (DLL exists + JNI export tables) instead of ELF
+    DT_NEEDED/page-size checks; jniLibs staging and the Android lockfiles
+    are untouched
+  - the submodule is left byte-pristine after every run (same invariant)
+
+Outputs land in native/.build-win-x86_64/.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+import build_o09_realm_runtime as o09  # noqa: E402
+
+BUILD = ROOT / "native" / ".build-win-x86_64"
+VCPKG_INSTALLED = ROOT / "native" / "win-deps" / "vcpkg_installed" / "x64-windows-static-md"
+WIN_PREFIX = ROOT / "native" / ".deps" / "prefix-win-x86_64"
+
+
+def which_cmake() -> str:
+    found = subprocess.run(["where", "cmake"], capture_output=True, text=True)
+    path = (found.stdout or "").strip().splitlines()
+    assert path, "cmake not on PATH"
+    return path[0]
+
+
+CMAKE = which_cmake()
+
+VSWHERE = Path(
+    os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")
+) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
+
+
+def find_vcvars() -> Path:
+    found = subprocess.run(
+        [str(VSWHERE), "-latest", "-products", "*", "-property", "installationPath"],
+        capture_output=True, text=True, check=True, timeout=30)
+    install = (found.stdout or "").strip().splitlines()
+    assert install, "vswhere found no Visual Studio installation"
+    vcvars = Path(install[0]) / "VC" / "Auxiliary" / "Build" / "vcvars64.bat"
+    assert vcvars.is_file(), f"vcvars64.bat missing under {install[0]}"
+    return vcvars
+
+
+def run(cmd, **kwargs):
+    print(f"+ {' '.join(str(c) for c in cmd)}", flush=True)
+    return subprocess.run([str(c) for c in cmd], check=True, **kwargs)
+
+
+def output(cmd, cwd: Path) -> str:
+    return subprocess.run([str(c) for c in cmd], cwd=str(cwd), capture_output=True,
+                          text=True, check=True).stdout.strip()
+
+
+def dependency_preflight() -> None:
+    required = [
+        VCPKG_INSTALLED / "include" / "openssl" / "ssl.h",
+        VCPKG_INSTALLED / "lib" / "libssl.lib",
+        VCPKG_INSTALLED / "lib" / "libcrypto.lib",
+        # This vcpkg generation ships zlib as zs.lib.
+        VCPKG_INSTALLED / "lib" / "zs.lib",
+        WIN_PREFIX / "lib" / "sqlite3.lib",
+        WIN_PREFIX / "include" / "sqlite3.h",
+    ]
+    missing = [str(p) for p in required if not p.is_file()]
+    if missing:
+        raise RuntimeError(
+            "Windows dependencies missing; run scripts/build_win_deps.py first:\n  "
+            + "\n  ".join(missing)
+        )
+
+
+def configure_command() -> list[str]:
+    cmangos = ROOT / "native" / "cmangos"
+    deps = VCPKG_INSTALLED
+    sqlite_prefix = WIN_PREFIX
+    return [
+        CMAKE, "-S", cmangos, "-B", BUILD,
+        "-G", "Ninja",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
+        "-DBUILD_GAME_SERVER=ON", "-DBUILD_LOGIN_SERVER=ON", "-DBUILD_SCRIPTDEV=ON",
+        "-DBUILD_EXTRACTORS=OFF", "-DBUILD_PLAYERBOTS=ON", "-DBUILD_AHBOT=OFF",
+        "-DBUILD_DEPRECATED_PLAYERBOT=OFF", "-DBUILD_POCKET_RUNTIME=ON",
+        f"-DPOCKET_RUNTIME_DIR={ROOT / 'native' / 'realm-runtime'}",
+        # Fail-loud backend selection: SQLITE is the real switch (same
+        # contract as the o09 sqlite lane).
+        "-DSQLITE=ON",
+        f"-DOPENSSL_ROOT_DIR={deps}",
+        f"-DOPENSSL_INCLUDE_DIR={deps / 'include'}",
+        f"-DOPENSSL_SSL_LIBRARY={deps / 'lib' / 'libssl.lib'}",
+        f"-DOPENSSL_CRYPTO_LIBRARY={deps / 'lib' / 'libcrypto.lib'}",
+        "-DBoost_USE_STATIC_LIBS=ON", "-DBoost_USE_STATIC_RUNTIME=ON",
+        f"-DCMAKE_PREFIX_PATH={deps}",
+        # Explicit sqlite paths like every other dep: the pinned amalgamation
+        # is the only acceptable source.
+        f"-DSQLite3_INCLUDE_DIR={sqlite_prefix / 'include'}",
+        f"-DSQLite3_LIBRARY={sqlite_prefix / 'lib' / 'sqlite3.lib'}",
+        # This vcpkg generation ships zlib as zs.lib; FindZLIB would never
+        # discover it by name, so the paths are explicit like every other dep.
+        f"-DZLIB_LIBRARY={deps / 'lib' / 'zs.lib'}",
+        f"-DZLIB_INCLUDE_DIR={deps / 'include'}",
+        "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
+        # The DO_SQLITE overlay headers reach every target through
+        # QueryResultSqlite.h; the UNIX lane attaches SQLite3_INCLUDE_DIRS
+        # in the cmangos root, the Windows lane carries it globally (same
+        # pattern as the o09 connector include).
+        f"-DCMAKE_CXX_FLAGS=/I{WIN_PREFIX / 'include'}",
+    ]
+
+
+def in_msvc_env(vcvars: Path, body: str, log: Path) -> None:
+    log.parent.mkdir(parents=True, exist_ok=True)
+    script = log.with_suffix(".bat")
+    script.write_text(
+        "@echo off\r\n"
+        # A MinGW ccache on PATH intercepts cl.exe; keep compiles uncached
+        # so iteration evidence is always the real compiler's.
+        "set CCACHE_DISABLE=1\r\n"
+        f'call "{vcvars}" >nul 2>&1\r\n'
+        f"cd /d {BUILD}\r\n"
+        f"{body}\r\n"
+        "exit /b %ERRORLEVEL%\r\n",
+        encoding="ascii",
+    )
+    result = subprocess.run(["cmd", "/c", str(script)])
+    if result.returncode != 0:
+        tail = ""
+        if log.is_file():
+            tail = log.read_text(encoding="utf-8", errors="replace")[-4000:]
+        raise RuntimeError(f"MSVC cmake failed (exit {result.returncode}):\n{tail}")
+
+
+def verify_jni_exports(vcvars: Path, dll: Path, symbols: list[str]) -> None:
+    """PE staging gate: every JNI export the Kotlin shim declares must be
+    present in the DLL's export table (dumpbin /exports, which only exists
+    inside the MSVC environment)."""
+    work = BUILD / "verify"
+    work.mkdir(parents=True, exist_ok=True)
+    script = work / f"{dll.stem}-dumpbin.bat"
+    script.write_text(
+        "@echo off\r\n"
+        f'call "{vcvars}" >nul 2>&1\r\n'
+        f'dumpbin /exports "{dll}"\r\n',
+        encoding="ascii",
+    )
+    result = subprocess.run(["cmd", "/c", str(script)], capture_output=True, text=True)
+    found = result.stdout
+    missing = [s for s in symbols if s not in found]
+    assert not missing, f"{dll.name} missing JNI exports: {missing}"
+
+
+def verify_backend_selection(configure_stdout: str) -> None:
+    """Same two-leg evidence contract as o09.verify_backend_selection, read
+    from THIS lane's build graph (the o09 helper is hardwired to the Android
+    build dir): the fail-loud status line, then the DO_SQLITE define in the
+    generated Ninja graph."""
+    status = None
+    for line in configure_stdout.splitlines():
+        if "Pocket Realm database backend:" in line:
+            status = line.split("Pocket Realm database backend:", 1)[1].strip()
+    if status is None or not status.startswith("SQLITE"):
+        raise RuntimeError(
+            f"backend selection not verified: configure status={status!r}, "
+            "expected SQLITE (the fail-loud CMake overlay is required "
+            "evidence; never trust a SQLITE claim without it)")
+    build_ninja = BUILD / "build.ninja"
+    if not build_ninja.is_file():
+        raise RuntimeError(f"backend selection not verified: {build_ninja} missing")
+    ninja = build_ninja.read_text(encoding="utf-8", errors="replace")
+    if "-DDO_SQLITE" not in ninja:
+        raise RuntimeError(f"-DDO_SQLITE absent from {build_ninja}")
+    if "-DDO_MYSQL" in ninja:
+        raise RuntimeError(f"-DDO_MYSQL unexpectedly present in {build_ninja}")
+
+
+def main() -> int:
+    if os.name != "nt":
+        print("windows-only lane", file=sys.stderr)
+        return 2
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--configure-only", action="store_true")
+    parser.add_argument("--force", action="store_true",
+                        help="wipe the build directory before configuring")
+    args = parser.parse_args()
+
+    dependency_preflight()
+
+    cmangos = ROOT / "native" / "cmangos"
+    tracked_dirty = subprocess.run(["git", "diff", "--quiet"], cwd=cmangos).returncode != 0 or \
+        subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=cmangos).returncode != 0
+    untracked = output(["git", "ls-files", "--others", "--exclude-standard"], cmangos)
+    if tracked_dirty or untracked:
+        raise RuntimeError(
+            "CMaNGOS submodule has unrecorded changes; clean it before building "
+            "(git -C native/cmangos checkout -- . && git -C native/cmangos clean -fd)"
+        )
+
+    # The o09 staging machinery keyed to the sqlite backend.
+    o09.BACKEND = "sqlite"
+    o09.prepare_cmangos_source()
+    try:
+        if args.force:
+            shutil.rmtree(BUILD, ignore_errors=True)
+        BUILD.mkdir(parents=True, exist_ok=True)
+        vcvars = find_vcvars()
+        # Quote the cmake path inside the generated batch (Program Files).
+        cmd = configure_command()
+        configure_body = f'"{cmd[0]}" ' + " ".join(str(c) for c in cmd[1:])
+        configure_body += f' > "{BUILD / "configure.log"}" 2>&1'
+        in_msvc_env(vcvars, configure_body, BUILD / "configure.log")
+        capture = (BUILD / "configure.log").read_text(encoding="utf-8", errors="replace")
+        verify_backend_selection(capture)
+        if args.configure_only:
+            print(f"configure-only: backend=sqlite verified in {BUILD}")
+            return 0
+        build_body = (
+            f'"{CMAKE}" --build "{BUILD}" --target pocket_realmd_runtime '
+            f'pocket_world_runtime -j {os.cpu_count() or 4} '
+            f'> "{BUILD / "build.log"}" 2>&1'
+        )
+        in_msvc_env(vcvars, build_body, BUILD / "build.log")
+
+        realmd_dll = BUILD / "pocket-runtime-build" / "pocket_realmd_runtime.dll"
+        world_dll = BUILD / "pocket-runtime-build" / "pocket_world_runtime.dll"
+        for dll in (realmd_dll, world_dll):
+            assert dll.is_file(), f"expected DLL missing: {dll}"
+        verify_jni_exports(vcvars, realmd_dll, ["Java_com_pocketrealm_server_RealmNative_"])
+        verify_jni_exports(vcvars, world_dll, [
+            "Java_com_pocketrealm_server_WorldNative_startNative",
+            "Java_com_pocketrealm_server_WorldNative_worldChatNative",
+            "Java_com_pocketrealm_server_WorldNative_llmMemoryStateNative",
+        ])
+        print(f"windows realm runtimes built:\n  {realmd_dll}\n  {world_dll}")
+        return 0
+    finally:
+        o09.restore_cmangos_source()
+        leftover = output(["git", "status", "--porcelain"], cmangos)
+        if leftover:
+            raise RuntimeError(f"post-build submodule drift (restore missed a file):\n{leftover}")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -87,3 +87,12 @@ dependencies {
 application {
     mainClass = "com.pocketrealm.desktop.MainKt"
 }
+
+tasks.named<Test>("test") {
+    // The shared JNI shims loadLibrary() by name; the native lane's DLL
+    // output dir must be searchable. Tests skip cleanly when absent.
+    jvmArgs(
+        "-Djava.library.path=" +
+            rootProject.projectDir.resolve("../native/.build-win-x86_64/pocket-runtime-build").normalize(),
+    )
+}
