@@ -36,6 +36,13 @@ val sharedManifest: Map<*, *> =
 val androidTreeRoot = rootProject.file("../" + sharedManifest["android_tree_root"])
 val sharedPaths: List<String> = (sharedManifest["shared"] as List<*>).map { it.toString() }
 val sharedAndroidSources = fileTree(androidTreeRoot) { include(sharedPaths) }
+val androidTestTreeRoot = rootProject.file("../" + sharedManifest["android_test_tree_root"])
+val sharedTestPaths: List<String> = (sharedManifest["shared_tests"] as List<*>).map { it.toString() }
+val sharedAndroidTestSources = fileTree(androidTestTreeRoot) { include(sharedTestPaths) }
+// Debug-source-set synthetic client archive fixtures (proprietary-free zip/7z/
+// Inno generators) shared by both builds' JVM tests.
+val androidDebugTreeRoot = rootProject.file("../" + sharedManifest["android_debug_tree_root"])
+val sharedDebugPaths: List<String> = (sharedManifest["shared_debug"] as List<*>).map { it.toString() }
 
 kotlin {
     jvmToolchain(17)
@@ -46,6 +53,12 @@ kotlin {
 // directories on Gradle 8.10, while source() accepts them correctly.
 tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileKotlin") {
     source(sharedAndroidSources)
+}
+
+tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileTestKotlin") {
+    source(sharedAndroidTestSources)
+    // Synthetic fixtures compile into the test source set.
+    source(fileTree(androidDebugTreeRoot) { include(sharedDebugPaths) })
 }
 
 detekt {
@@ -62,8 +75,10 @@ dependencies {
     implementation(compose.material3)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
     implementation("org.json:json:20240303")
-    // Inno Setup LZMA decoder (same codec the Android app's importer uses).
+    // Inno Setup LZMA decoder + synthetic archive fixtures (same codecs the
+    // Android app's importer uses).
     implementation("org.tukaani:xz:1.10")
+    implementation("org.apache.commons:commons-compress:1.28.0")
     testImplementation(kotlin("test"))
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")

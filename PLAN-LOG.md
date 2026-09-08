@@ -3581,3 +3581,60 @@ needed for androidx POMs the CMP desktop artifacts depend on);
 android `:app:testDebugUnitTest :app:detekt -PpocketAbi=x86_64
 -PpocketLane=full` green after the clock split (1135 tests, 0
 failures); the new pytest 5/5.
+
+## Windows port Phase 1: shared test suite + desktop infrastructure
+
+The 40-file clean-subject JVM test suite now runs in the desktop build
+too — same single-source-of-truth discipline as the main code: a
+`shared_tests` list (plus `shared_debug` for the proprietary-free
+synthetic zip/7z/Inno fixtures from the debug source set) in
+desktop/shared-sources.json, wired into compileTestKotlin. 269 tests
+(265 shared + 4 desktop-owned) green on the desktop JVM, including
+the full 39-test DurableRuntimeSupervisor durability suite.
+
+Two more behavior-neutral shared-tree edits fell out of compiler
+closure discovery (the grep inventory can't see same-package
+references; the compiler can):
+
+- RuntimeSnapshotJournalCodec (decode AND the encode half that lived
+  as a private fun in AtomicSupervisorJournal) split into its own
+  pure file; both platforms now share one codec for the durable
+  journal format. The Android detekt baseline didn't follow moved
+  code, so the moved literals became named constants
+  (LEGACY_SCHEMA/DETAIL_MAX_CHARS/ACTION_MAX_CHARS) rather than new
+  baseline entries.
+- StagedArchiveStore lost its android.content.Context convenience
+  constructor (one Android call site now passes the same File), so
+  the shared file has no android surface at all.
+
+Dropped from the initial test pick after closure analysis (subjects
+get desktop twins in Phase 3): ServerRuntimeFiles/LlmRuntimePolicy/
+binder-vocabulary tests; the SAF-scanner import-lane tests
+(ArchiveDetectionTest, InnoLaneTest) wait for the Phase-4 desktop
+importer.
+
+Desktop infrastructure landed:
+- DesktopStorageRoots: %LOCALAPPDATA%\PocketRealm layout mirroring
+  the Android StorageRoots contract (realm/content/runtime/settings).
+- storage/Settings desktop twin: Windows-relevant subset only
+  (runtimeMode LOCAL + LAN off defaults pinned by the shared
+  RuntimeTopologyTest on both platforms); JSON-file store with atomic
+  replace (DesktopSettingsStore).
+- DesktopSupervisorJournal: identical durable semantics to
+  AtomicSupervisorJournal (shared codec, temp+fsync+atomic rename,
+  corrupt-file → ERROR/dirty snapshot, never a throw). Windows
+  cannot fsync a directory via FileChannel — documented, contents
+  still forced before the move.
+- DesktopLog (console+file sink) and DesktopRuntimeBackend: all 14
+  RuntimeBackend verbs present; mutating verbs fail loudly with
+  DESKTOP_BACKEND_NOT_WIRED, observe() reports honestly STOPPED —
+  the reused supervisor state machine can now be exercised on
+  desktop around the stub.
+- DesktopSupervisorJournalTest: round-trip, absent-null,
+  corrupt-file posture, atomic-rewrite-no-debris.
+
+Gates (self-verified before commit): desktop `gradlew build` green
+(269/269 tests, detekt clean); android `:app:testDebugUnitTest
+:app:detekt -PpocketAbi=x86_64 -PpocketLane=full` green after all
+four shared-tree edits; the manifest pytest now pins all three lists
+(shared/shared_tests/shared_debug) 5/5.

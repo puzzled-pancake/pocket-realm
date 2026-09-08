@@ -82,10 +82,6 @@ class StagedArchiveCopier(
  * disk-full, and rejection never strand multi-GB orphans.
  */
 class StagedArchiveStore(private val root: File) {
-    constructor(context: android.content.Context) : this(
-        File(File(context.noBackupFilesDir, "client"), "incoming"),
-    )
-
     fun stagedFile(importId: String): File {
         root.mkdirs()
         return File(root, "$importId.pkg")

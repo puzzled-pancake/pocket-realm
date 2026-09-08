@@ -21,6 +21,11 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 
 fun main() = application {
+    val roots = DesktopStorageRoots()
+    roots.ensureDirectories()
+    DesktopLog.attachFile(roots.logs)
+    val settings = DesktopSettingsStore(roots.settingsFile).load()
+    DesktopLog.i("Main", "Pocket Realm for Windows starting (${settings.runtimeMode})")
     Window(
         onCloseRequest = ::exitApplication,
         title = "Pocket Realm (Windows)",

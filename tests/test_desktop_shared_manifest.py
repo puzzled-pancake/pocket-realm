@@ -19,6 +19,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST_PATH = ROOT / "desktop" / "shared-sources.json"
 ANDROID_TREE_ROOT = "android/app/src/main/java/com/pocketrealm"
+ANDROID_TEST_TREE_ROOT = "android/app/src/test/java/com/pocketrealm"
+ANDROID_DEBUG_TREE_ROOT = "android/app/src/debug/java/com/pocketrealm"
 DESKTOP_BUILD_FILE = ROOT / "desktop" / "build.gradle.kts"
 
 IMPORT_ANDROID = re.compile(r"^import (android|androidx)\.", re.MULTILINE)
@@ -46,29 +48,44 @@ def _manifest():
 def test_manifest_shape_is_pinned():
     manifest = _manifest()
     assert manifest["android_tree_root"] == ANDROID_TREE_ROOT
-    shared = manifest["shared"]
-    assert shared, "shared list must not be empty"
-    assert shared == sorted(shared), "shared list must stay sorted"
-    assert len(shared) == len(set(shared)), "shared list must not repeat files"
-    for entry in shared:
-        assert not entry.startswith("/"), entry
-        assert "\\" not in entry, f"manifest paths use '/' separators: {entry}"
+    assert manifest["android_test_tree_root"] == ANDROID_TEST_TREE_ROOT
+    assert manifest["android_debug_tree_root"] == ANDROID_DEBUG_TREE_ROOT
+    for key in ("shared", "shared_tests", "shared_debug"):
+        entries = manifest[key]
+        assert entries, f"{key} list must not be empty"
+        assert entries == sorted(entries), f"{key} list must stay sorted"
+        assert len(entries) == len(set(entries)), f"{key} list must not repeat files"
+        for entry in entries:
+            assert not entry.startswith("/"), entry
+            assert "\\" not in entry, f"manifest paths use '/' separators: {entry}"
+            assert not entry.endswith("Test.kt") or key == "shared_tests", (
+                f"test file belong in shared_tests: {entry}"
+            )
 
 
 def test_every_shared_file_exists_and_is_android_free():
-    for entry in _manifest()["shared"]:
-        path = ROOT / ANDROID_TREE_ROOT / entry
-        assert path.is_file(), f"manifest lists missing file: {entry}"
-        text = path.read_text(encoding="utf-8")
-        matched = IMPORT_ANDROID.search(text)
-        assert matched is None, f"{entry} imports {matched.group(0) if matched else ''}"
-        matched = INLINE_ANDROID.search(text)
-        assert matched is None, (
-            f"{entry} references {matched.group(0) if matched else ''} "
-            "fully-qualified; it needs a desktop twin instead of manifest entry"
-        )
-        for lib in ANDROID_ONLY_LIBS:
-            assert lib not in text, f"{entry} depends on Android-only library {lib}"
+    tree_roots = {
+        "shared": ANDROID_TREE_ROOT,
+        "shared_tests": ANDROID_TEST_TREE_ROOT,
+        "shared_debug": ANDROID_DEBUG_TREE_ROOT,
+    }
+    manifest = _manifest()
+    for key, tree_root in tree_roots.items():
+        for entry in manifest[key]:
+            path = ROOT / tree_root / entry
+            assert path.is_file(), f"{key} lists missing file: {entry}"
+            text = path.read_text(encoding="utf-8")
+            matched = IMPORT_ANDROID.search(text)
+            assert matched is None, (
+                f"{entry} imports {matched.group(0) if matched else ''}"
+            )
+            matched = INLINE_ANDROID.search(text)
+            assert matched is None, (
+                f"{entry} references {matched.group(0) if matched else ''} "
+                "fully-qualified; it needs a desktop twin instead of manifest entry"
+            )
+            for lib in ANDROID_ONLY_LIBS:
+                assert lib not in text, f"{entry} depends on Android-only library {lib}"
 
 
 def test_android_clock_split_stays_in_place():

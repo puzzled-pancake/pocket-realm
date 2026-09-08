@@ -99,7 +99,7 @@ class ManagedClientImporter(
         val importLease = ClientGenerationLease.acquireImportOperation(
             File(context.noBackupFilesDir, "client"),
         )
-        val stagedStore = StagedArchiveStore(context)
+        val stagedStore = StagedArchiveStore(File(File(context.noBackupFilesDir, "client"), "incoming"))
         try {
             stagedStore.reconcile(activeImportIds = journal.activeImportIds())
             val staging = journal.beginStagingOrResume(archiveUri, expectedBytes)
