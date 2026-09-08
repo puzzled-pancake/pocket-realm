@@ -3523,3 +3523,61 @@ three JNI ops present); anchors 158 ops no drift; golden
 de4bd8227a3ab0d1; check_repo OK (1223, 0/0); check_sources OK.
 Cleanup: emulator killed, mock killed, port free, the physical
 Retroid untouched.
+
+## Windows port Phase 0: desktop Gradle skeleton + shared-source manifest (6-agent-reviewed plan)
+
+The Windows-desktop conversion plan (sibling product alongside the
+Android app, per owner decision) went through the full six-agent
+round-robin review (architecture / native build / Gradle-Compose /
+data-DB / QA / product): verdicts 2 APPROVE-WITH-MINORS + 4
+BLOCKERS-FOUND, every finding a plan-text correction — the blockers
+were the false "supervisor is pure minus one file" claim (7 of 16
+supervisor files are android-tainted), the wrong seeder named
+(seed_sqlite_from_manifest.py, NOT the retired seed_realm_db.py),
+the missing desktop SQLite execution seam (DatabaseEngine legs run
+on android.database.sqlite), the unproven two-DLL-in-one-JVM
+co-load (now an explicit Phase-2 gate with the merged-library lane
+honestly labeled feature-crippled), the missing import screen and
+MSVC deps lane, and Gradle-9/KGP incompatibility (desktop ships its
+own 8.10.2 wrapper). All folded into the approved plan.
+
+Phase 0 executed:
+
+- Branch `windows-port`. One behavior-neutral shared-tree edit:
+  AndroidRuntimeClock split out of RuntimeContracts.kt into its own
+  file (same package, same symbol — Android compiles unchanged; the
+  desktop build provides a same-named JVM twin so DurableRuntimeSupervisor's
+  constructor default resolves without touching the shared source).
+- `desktop/shared-sources.json`: the single-source-of-truth manifest
+  (49 files) of android-tree files the desktop build compiles —
+  supervisor state machine + topology/model/policies, SQLite control
+  plane + seals + config policies, server contracts + JNI shims +
+  CloudLaneConf + NativeRuntimeFreshness, bots profiles/presets/
+  admission, importer model + full Inno parser, codecs
+  (ConfigWtf, ClientRealmEndpointProjection), fs/FileDigests,
+  SecretRedactor, LLM registry/prompt pack.
+- `desktop/` Gradle build: wrapper 8.10.2, Kotlin 2.0.21 (language
+  parity with AGP 9.3.1 built-in), Compose Multiplatform 1.7.1,
+  detekt 1.23.7 (desktop-owned sources only — shared files stay
+  gated by :app:detekt; each file linted by exactly one build),
+  org.json:20240303 + tukaani:xz:1.10 (the exact artifacts the
+  Android JVM suite already runs this code against). Shared files
+  join via compileKotlin source(fileTree(include=manifest)) — a
+  srcDir fileTree gets its files treated as directories on 8.10.
+- Thin Compose Desktop shell: window + NavigationRail + sealed-class
+  hand-rolled router (androidx.navigation has no desktop artifact).
+  Desktop twins: supervisor/AndroidRuntimeClock.kt,
+  com.pocketrealm.BuildConfig (native telltale constants, loudly
+  "windows-lane-unpinned" until Phase 2's win lockfile exists).
+- `tests/test_desktop_shared_manifest.py` (5 pins): manifest shape
+  (sorted/unique/'-'-separated, tree root pinned), every listed file
+  android-free (no android./androidx. imports, no fully-qualified
+  android.* refs, no zhanghai libarchive), the clock split stays in
+  place, desktop twins exist, the Gradle build consumes the manifest.
+
+Gates (self-verified before commit): desktop `gradlew build` green
+(compile + detekt + jar + startScripts; one repo fix: Google Maven
+needed for androidx POMs the CMP desktop artifacts depend on);
+android `:app:testDebugUnitTest :app:detekt -PpocketAbi=x86_64
+-PpocketLane=full` green after the clock split (1135 tests, 0
+failures); the new pytest 5/5.

@@ -1,6 +1,5 @@
 package com.pocketrealm.supervisor
 
-import android.os.SystemClock
 import java.security.SecureRandom
 import java.util.UUID
 
@@ -60,11 +59,6 @@ data class AccountProvisionResult(
 interface RuntimeClock {
     fun wallMs(): Long
     fun elapsedMs(): Long
-}
-
-object AndroidRuntimeClock : RuntimeClock {
-    override fun wallMs() = System.currentTimeMillis()
-    override fun elapsedMs() = SystemClock.elapsedRealtime()
 }
 
 interface RuntimeTokenSource {
