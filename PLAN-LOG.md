@@ -3452,3 +3452,74 @@ ids (+3 pins vs batch 2); anchors 155 ops no drift; golden
 de4bd8227a3ab0d1; check_repo OK; check_sources OK. The final
 focused verification run (the N1/N2 repros + regression smoke)
 closes this entry.
+
+## Whisper-lane fix + live retest: the AI conversation pipeline is verified end-to-end
+
+QA verification run #4 proved the recovery/relay fixes but surfaced one
+remaining product defect: ZERO generations ever dispatched from
+whispers — every reply was an authored pool line (the E3 group-state
+refusal), the mock's request log never grew, and no relationship could
+mint. Root cause (traced through the applied mirror this round, two
+upstream artifacts the plan's payloads never compensated):
+
+1. **The whisper reply armament starved.** HandleBotOutgoingPacket's
+   SMSG_MESSAGECHAT arm computed isMentioned by name-substring and
+   dropped un-mentioned events 4 times out of 5 (`!isMentioned &&
+   urand(0,4)`) — a whisper's text never contains the bot's name, so
+   arming was a 1-in-5 lottery, while the whisper hard trigger
+   (HardTriggerAllowed GATE_SRC_WHISPER) is unconditional by design.
+   Fix (PB_AI_WHISPER_MENTION payload): msgtype == CHAT_MSG_WHISPER =>
+   isMentioned = true (a whisper IS direct address; the name heuristic
+   is a say/party semantic).
+2. **The command gates spoke refusals for conversation.**
+   HandleCommand's group-state gates (FULL_GROUP/NOT_LEADER rate the
+   bot GUILD < INVITE) refused whispers to grouped bots and whispered
+   an unrelated authored command-refusal — with the random-bot system
+   auto-grouping essentially every bot, that refusal WAS the player's
+   only reply. Fix (PB_AI_CMD_GATE1/2 payloads): a multi-word whisper
+   with no command shape (nothing ChatHelper::parseable detects, no
+   command separator, no command prefix) keeps the gates'
+   refuse-to-EXECUTE (identical security posture — nothing a stranger
+   says ever runs) but passes silent=true so the spoken refusal is
+   suppressed and the AI reply is the one answer. Single-word whispers
+   ("invite", "follow") and link/money/trade-marked text keep today's
+   spoken wall (E3's group-seeking wall intact).
+
+Three new anchor pairs on unique pristine PlayerbotAI.cpp lines
+(anchors replay 158 ops, +3); pin
+test_whisper_is_direct_address_and_commands_keep_their_wall; lockfile
+re-pins exactly the PlayerbotAI.cpp payload-hash row.
+
+**Live retest (HEAD 864e94a, emulator, real client as Qaplay, mock
+endpoint):**
+- whisper → NO refusal line (the suppression works).
+- first contact → the deterministic E2 authored welcome delivered.
+- relationship MINTED (relationshipCount 1) + a fact row minted.
+- **N4 verified live with a non-zero case: listed_before=1,
+  cleared=(1,1), listed_after=0 — exact MATCH** (the batch-3 counter
+  fix holds on real rows).
+- generation dispatched: BotLLM: dispatch/begin/end triplet req=1
+  class=ok durMs=216, zero pairing violations, and the mock received
+  the full trained compose request (3,385 bytes, Bearer auth, the
+  persona+player prompt) — the cloud conversation pipeline works end
+  to end.
+- Environment note: two QA-lane artifacts cost round-trips this run
+  and are recorded for the next session: (a) `adb root` must be run
+  after every emulator reboot before RelaySession use (the session's
+  app-uid probe fails otherwise), and (b) the in-world client's
+  mariadb lib path must be re-pointed at the CURRENT
+  /data/app/.../lib/x86_64 dir after every reinstall (each install
+  moves it; the live path is readable from /proc/<pid of
+  :database>/maps), and the running mock writes requests.jsonl
+  relative to its cwd (an empty-looking log may just be the wrong
+  file).
+
+Gates (self-verified before the --no-verify commit): full pytest
+TWICE — "8 failed, 657 passed, 4 skipped" both runs (the identical 8
+pre-existing ids; +1 new pin); gradle :app:testDebugUnitTest
+:app:detekt --rerun-tasks BUILD SUCCESSFUL (141 classes, 1135/0/0 +
+1 skipped, detekt 0); native lane rebuild green (staging fresh, all
+three JNI ops present); anchors 158 ops no drift; golden
+de4bd8227a3ab0d1; check_repo OK (1223, 0/0); check_sources OK.
+Cleanup: emulator killed, mock killed, port free, the physical
+Retroid untouched.
