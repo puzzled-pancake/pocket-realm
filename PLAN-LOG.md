@@ -3638,3 +3638,29 @@ Gates (self-verified before commit): desktop `gradlew build` green
 :app:detekt -PpocketAbi=x86_64 -PpocketLane=full` green after all
 four shared-tree edits; the manifest pytest now pins all three lists
 (shared/shared_tests/shared_debug) 5/5.
+
+## Windows port Phase 2a: pure LLM cores proven MSVC-clean (bit-identical)
+
+The highest-risk early question of the native lane — does the first-party
+C++ actually compile and behave identically under MSVC? — is answered for
+the entire pure-core layer: scripts/smoke_win_msvc.py compiles all seven
+shipped host batteries (banter, chatter, gates, truth, recall, act_tools,
+json_client) with cl.exe (/std:c++17 /EHsc /utf-8 /O2 /W3, located via
+vswhere + vcvars64 — note: Build Tools installs carry cl.exe without the
+workload component metadata vswhere's -requires filter keys on, so the
+script verifies vcvars64.bat existence directly) and runs them.
+
+All seven PASS, and the banter battery's golden FNV-1a64 hash matches the
+pinned de4bd8227a3ab0d1 — the deterministic voice layer produces
+bit-identical output under MSVC, the g++ host lane, and the NDK build.
+Reviewer 2's verification that the ~30 patches contain zero POSIX/Android-
+only APIs held: no source changes were needed, only the compiler.
+
+The prompt-format byte-diff battery also ran manually with the pinned
+vectors (24/24 byte-exact rows, 0 mismatches) via the same MSVC flags —
+it is excluded from the committed gate only because it takes a vectors
+argument; wiring it (and the cl.exe fallback arm for the pytest llm
+harnesses, so pure-MSVC boxes don't silently skip) is the next 2b
+increment.
+
+Gate: python scripts/smoke_win_msvc.py -> exit 0, 7/7 PASS.
