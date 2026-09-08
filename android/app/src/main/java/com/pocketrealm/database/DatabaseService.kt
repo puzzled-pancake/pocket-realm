@@ -100,14 +100,34 @@ class DatabaseService : Service() {
         override fun stop(): String = guarded { engine.stop() }
         override fun stopOwned(instanceToken: String): String = guarded {
             ownership.requireOwner(instanceToken)
-            engine.stop().also {
-                ownership.clear(instanceToken)
-                if (it.optBoolean("ok")) demoteForeground()
-            }
+            // Releasing the claim is a handshake in THIS process, never an
+            // engine operation: an engine that is observably down (STOPPED or
+            // FAILED) has nothing to stop, so the owner-gated release
+            // succeeds for the claim while the durable seals stay as they
+            // are (an unsealed generation keeps its dirty state for the next
+            // start's recovery lane). A live engine still takes the ordinary
+            // clean stop - and a live-engine stop failure still throws, so
+            // the claim survives for the forced-stop escalation's own
+            // requireOwner gate.
+            val stopped = engine.stopForOwnerRelease()
+            ownership.clear(instanceToken)
+            if (stopped.optBoolean("ok")) demoteForeground()
+            stopped
         }
         override fun forceStopOwned(instanceToken: String): String = guarded {
             ownership.requireOwner(instanceToken)
-            engine.killForTest()
+            // Same law as stopOwned on the forced lane: killing an engine
+            // that is already down would refuse (killForTest has nothing to
+            // kill) and strand the escalation fallback with a stale claim.
+            // The release is still owner-gated, never unconditional.
+            if (engine.isEnded()) {
+                ownership.clear(instanceToken)
+                demoteForeground()
+                JSONObject().put("ok", true).put("alreadyDown", true)
+                    .put("claimReleased", true)
+            } else {
+                engine.killForTest()
+            }
         }
         override fun killForTest(): String = guarded {
             check(BuildConfig.DEBUG) { "test process kill is debug-only" }

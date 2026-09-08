@@ -561,40 +561,67 @@ class DurableRuntimeSupervisor(
                 backend.start(component, owner, spec)
             }
         }.getOrElse { error ->
-            // The DATABASE-side wedge of the orphan family: the service-side
-            // claim still names a prior session that ended without releasing
-            // it (its engine is already down, so every stop lane observed
-            // "already stopped" and skipped the claim release), and each new
-            // start's claim is rejected forever. Release it automatically
-            // ONLY on minted-session proof; an unprovable owner keeps the
-            // automatic refusal and, when the class is proven but the release
-            // fails, the consented force-stop repair surface.
-            if (component != RuntimeComponent.DATABASE || !isCrossSessionClaimRejection(error)) {
+            // N2: a server service left in FAILED by our own committed
+            // dirty-stop recovery (or by an unjournaled relay composite that
+            // died mid-boot) refuses the start at its requireStopped gate:
+            // "start requires a stopped native runtime; current
+            // state=FAILED". FAILED is an ended state - the native stop()
+            // absorbs it legally (FAILED -> STOPPED -> OK) under the claim
+            // this start just took, so the retry needs no process recycle
+            // and lands deterministically on this attempt instead of one
+            // error-cleanup attempt per component.
+            if ((component == RuntimeComponent.REALM || component == RuntimeComponent.WORLD) &&
+                isNativeNotStoppedRejection(error)
+            ) {
+                when (val retired = retireFailedNativeUnderFreshClaim(component, owner)) {
+                    NativeRetire.RETIRED -> runCatching {
+                        withTimeout(timeouts.start(component, BotProfiles.find(spec.profileId) != null)) {
+                            backend.start(component, owner, spec)
+                        }
+                    }.getOrElse { retry ->
+                        failStage(component, "${retry.javaClass.simpleName}: ${retry.message}")
+                        return false
+                    }
+                    is NativeRetire.REFUSED -> {
+                        failStage(component, retired.detail)
+                        return false
+                    }
+                }
+            } else if (component != RuntimeComponent.DATABASE || !isCrossSessionClaimRejection(error)) {
                 failStage(component, "${error.javaClass.simpleName}: ${error.message}")
                 return false
-            }
-            when (val reclaim = reclaimDatabaseClaimFromEndedOwnSession(owner)) {
-                DatabaseReclaim.NOT_PROVEN -> {
-                    failStage(component, "${error.javaClass.simpleName}: ${error.message}")
-                    return false
-                }
-                is DatabaseReclaim.RELEASE_FAILED -> {
-                    failStage(component, reclaim.detail)
-                    return false
-                }
-                DatabaseReclaim.RELEASED -> runCatching {
-                    withTimeout(timeouts.start(component, BotProfiles.find(spec.profileId) != null)) {
-                        backend.start(component, owner, spec)
+            } else {
+                // The DATABASE-side wedge of the orphan family: the service-side
+                // claim still names a prior session that ended without releasing
+                // it (its engine is already down, so every stop lane observed
+                // "already stopped" and skipped the claim release), and each new
+                // start's claim is rejected forever. Release it automatically
+                // ONLY on minted-session proof; an unprovable owner keeps the
+                // automatic refusal and, when the class is proven but the release
+                // fails, the consented force-stop repair surface.
+                when (val reclaim = reclaimDatabaseClaimFromEndedOwnSession(owner)) {
+                    DatabaseReclaim.NOT_PROVEN -> {
+                        failStage(component, "${error.javaClass.simpleName}: ${error.message}")
+                        return false
                     }
-                }.getOrElse { retry ->
-                    failStage(
-                        component,
-                        if (isCrossSessionClaimRejection(retry))
-                            "DB_OWNED_BY_DEAD_SESSION: database claim was rejected again " +
-                                "after the ended session's owner was released"
-                        else "${retry.javaClass.simpleName}: ${retry.message}",
-                    )
-                    return false
+                    is DatabaseReclaim.RELEASE_FAILED -> {
+                        failStage(component, reclaim.detail)
+                        return false
+                    }
+                    DatabaseReclaim.RELEASED -> runCatching {
+                        withTimeout(timeouts.start(component, BotProfiles.find(spec.profileId) != null)) {
+                            backend.start(component, owner, spec)
+                        }
+                    }.getOrElse { retry ->
+                        failStage(
+                            component,
+                            if (isCrossSessionClaimRejection(retry))
+                                "DB_OWNED_BY_DEAD_SESSION: database claim was rejected again " +
+                                    "after the ended session's owner was released"
+                            else "${retry.javaClass.simpleName}: ${retry.message}",
+                        )
+                        return false
+                    }
                 }
             }
         }
@@ -661,6 +688,47 @@ class DurableRuntimeSupervisor(
     /** The service-side cross-session claim rejection contract (ComponentOwnership). */
     private fun isCrossSessionClaimRejection(error: Throwable): Boolean =
         error.message?.contains("owned by another runtime session") == true
+
+    /** The services' requireStopped refusal (StartLogRotationPolicy). */
+    private fun isNativeNotStoppedRejection(error: Throwable): Boolean =
+        error.message?.contains("requires a stopped native runtime") == true
+
+    /** Outcome of the FAILED-native absorb below. */
+    private sealed interface NativeRetire {
+        /** The ended native runtime was stopped under the fresh claim; retry the start. */
+        data object RETIRED : NativeRetire
+        /** The absorb was refused; [detail] carries the typed reason. */
+        data class REFUSED(val detail: String) : NativeRetire
+    }
+
+    /**
+     * Absorbs a server service observed FAILED before its start retry: the
+     * graceful stop verb runs under the claim this start just took (the
+     * service's requireOwner gate checks it), and the native stop() legally
+     * retires FAILED to STOPPED - the supervisor owns these services'
+     * lifecycles, so a Start following our own committed dirty-stop recovery
+     * must not wait for a process recycle. Only FAILED is absorbable: any
+     * live state keeps the typed start refusal, exactly like every other
+     * never-kill-an-unverified-owner law.
+     */
+    private suspend fun retireFailedNativeUnderFreshClaim(
+        component: RuntimeComponent,
+        owner: ComponentOwner,
+    ): NativeRetire {
+        val observed = runCatching { backend.observe(component) }.getOrNull()
+            ?: return NativeRetire.REFUSED(
+                "$component: FAILED-native absorb could not observe the service")
+        if (observed.state != ComponentLifecycle.FAILED) {
+            return NativeRetire.REFUSED(
+                "$component: FAILED-native absorb refused: service state is ${observed.state}")
+        }
+        val stopped = stopOwned(component, owner)
+        if (!stopped.ok) {
+            return NativeRetire.REFUSED(
+                "$component: FAILED-native absorb stop failed: ${stopped.detail}")
+        }
+        return NativeRetire.RETIRED
+    }
 
     private fun mintSessionId(): String = tokens.sessionId().also { mintedSessions += it }
 

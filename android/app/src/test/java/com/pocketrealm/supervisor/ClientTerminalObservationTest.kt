@@ -13,6 +13,27 @@ class ClientTerminalObservationTest {
         assertFalse(clientGracefulReleaseReady("FAILED", cleanExit = true, runtimeFinished = true))
     }
 
+    @Test fun killBinderVerdictCarriesTheTypedRefusalNotABlanketKillDetail() {
+        // a blank body is the historical success (the process died mid-call
+        // after doing the work); an ok body keeps the historical detail
+        assertEquals(RuntimeActionResult(true, "owned process terminated"),
+            killBinderVerdict(""))
+        assertEquals(RuntimeActionResult(true, "owned process terminated"),
+            killBinderVerdict("""{"ok":true,"killed":true}"""))
+        // a typed refusal carries the service's own reason - the live N1
+        // wedge read as "owned process terminated" while the engine had
+        // answered "database is not active", hiding the remedy
+        assertEquals(RuntimeActionResult(false, "database is not active"),
+            killBinderVerdict(
+                """{"ok":false,"errorClass":"IllegalStateException","error":"database is not active"}"""))
+        assertEquals(RuntimeActionResult(false, "IllegalStateException"),
+            killBinderVerdict("""{"ok":false,"errorClass":"IllegalStateException"}"""))
+        // a body with neither field keeps the blanket detail rather than an
+        // empty string the failure surfaces cannot render
+        assertEquals(RuntimeActionResult(false, "owned process terminated"),
+            killBinderVerdict("""{"ok":false}"""))
+    }
+
     @Test fun ownedTerminalClientRemainsStoppingUntilOwnershipIsReleased() {
         assertTrue(clientTerminalLifecycle("EXITED", hasOwner = true) == ComponentLifecycle.STOPPING)
         assertTrue(clientTerminalLifecycle("FORCE_STOPPED", hasOwner = true) == ComponentLifecycle.STOPPING)

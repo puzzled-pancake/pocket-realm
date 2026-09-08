@@ -761,6 +761,196 @@ class DurableRuntimeSupervisorTest {
         assertTrue(backend.actions.contains("recover:DATABASE"))
     }
 
+    @Test fun stopOfADownDatabaseEngineReleasesTheClaimOnlyUnderTheExactOwner() = runTest {
+        val stale = ComponentOwner(SESSION, "aa".repeat(32))
+        val backend = FakeBackend().apply {
+            databaseStaleOwner = stale
+            observations[RuntimeComponent.DATABASE] = ComponentObservation(
+                RuntimeComponent.DATABASE, ComponentLifecycle.STOPPED, false, stale, 999,
+                "engine stopped; claim never released",
+            )
+        }
+
+        // The fake's realism contract for the live N1 wedge: the engine's
+        // stop requires RUNNING, so a stop of a down engine is the service's
+        // owner-gated claim release - and any other owner is refused by the
+        // same requireOwner gate the kill lanes rely on.
+        val wrongOwner = stale.copy(instanceToken = "bb".repeat(32))
+        val refused = runCatching {
+            backend.stop(RuntimeComponent.DATABASE, wrongOwner)
+        }.exceptionOrNull() as? IllegalStateException
+        assertNotNull(refused)
+        assertEquals("database ownership mismatch; operation withheld", refused?.message)
+        assertEquals(stale, backend.databaseStaleOwner)
+
+        val released = backend.stop(RuntimeComponent.DATABASE, stale)
+        assertTrue(released.ok)
+        assertNull(backend.databaseStaleOwner)
+
+        // A live engine keeps the ordinary clean-stop transition.
+        backend.databaseStaleOwner = stale
+        backend.observations[RuntimeComponent.DATABASE] = ComponentObservation(
+            RuntimeComponent.DATABASE, ComponentLifecycle.READY, true, stale, 999, "live",
+        )
+        val stopped = backend.stop(RuntimeComponent.DATABASE, stale)
+        assertTrue(stopped.ok)
+        assertEquals(ComponentLifecycle.STOPPED,
+            backend.observations.getValue(RuntimeComponent.DATABASE).state)
+        assertNull(backend.databaseStaleOwner)
+    }
+
+    @Test fun automaticProvenReleaseOnAFailedEngineReachesWorldReady() = runTest {
+        val tokens = SequentialSessionTokens()
+        val backend = FakeBackend()
+        val journal = MemoryJournal()
+        val runtime = runtime(backend, journal, tokens)
+
+        // The live world-kill shape, seen by the NEXT start: the engine
+        // died FAILED with the service-side claim still held while the
+        // teardown lanes all observed "already stopped" and skipped the
+        // release.
+        val first = runtime.start("mobile-low-v1", includeClient = false)
+        assertTrue(first.ok)
+        val staleOwner = ComponentOwner(
+            first.snapshot.sessionId!!,
+            first.snapshot.components.getValue(RuntimeComponent.DATABASE).instanceToken!!,
+        )
+        backend.observations[RuntimeComponent.DATABASE] = ComponentObservation(
+            RuntimeComponent.DATABASE, ComponentLifecycle.STOPPED, false, staleOwner, 999,
+            "engine stopped; claim never released",
+        )
+        backend.databaseStaleOwner = staleOwner
+        assertTrue(runtime.stop(StopMode.GRACEFUL).ok)
+        assertTrue(runtime.stop(StopMode.GRACEFUL).snapshot.clean)
+        // The kill residue surfaces between the teardown and the retry.
+        backend.observations[RuntimeComponent.DATABASE] = ComponentObservation(
+            RuntimeComponent.DATABASE, ComponentLifecycle.FAILED, false, staleOwner, 999,
+            "engine failed; claim never released",
+        )
+
+        tokens.session = "22222222-2222-4222-8222-222222222222"
+        backend.actions.clear()
+        val restarted = runtime.start("mobile-low-v1", includeClient = false)
+
+        assertTrue(restarted.ok)
+        assertEquals(RuntimePhase.WORLD_READY, restarted.snapshot.phase)
+        assertEquals(2, backend.actions.count { it == "start:DATABASE" })
+        assertTrue(backend.actions.indexOf("stop:DATABASE") <
+            backend.actions.lastIndexOf("start:DATABASE"))
+        assertEquals(staleOwner, backend.stopOwners.single { it.first == RuntimeComponent.DATABASE }.second)
+        assertNull(backend.databaseStaleOwner)
+        assertTrue(backend.actions.none { it.startsWith("force:") })
+    }
+
+    @Test fun consentedReleaseOnAFailedEngineClearsTheClaimWithoutAKill() = runTest {
+        val backend = FakeBackend()
+        val stale = ComponentOwner(SESSION, "aa".repeat(32))
+        // The post-world-kill journal: the dirty teardown already committed
+        // (ERROR, no tokens left), while the :database service still holds
+        // the dead session's claim over a FAILED engine - only the
+        // consented verb may release it.
+        val initial = RuntimeSnapshot(
+            phase = RuntimePhase.ERROR,
+            clean = false,
+            lastDurableAction = "dirty-stop-committed",
+            recoverability = Recoverability.RECOVERY_REQUIRED,
+        )
+        backend.apply {
+            databaseStaleOwner = stale
+            observations[RuntimeComponent.DATABASE] = ComponentObservation(
+                RuntimeComponent.DATABASE, ComponentLifecycle.FAILED, false, stale, 999,
+                "engine failed; claim never released",
+            )
+        }
+        val runtime = runtime(backend, MemoryJournal(initial))
+
+        val stopped = runtime.consentedForceStopOrphanStack()
+
+        assertTrue(stopped.ok)
+        assertEquals(RuntimePhase.STOPPED, stopped.snapshot.phase)
+        assertFalse(stopped.snapshot.clean)
+        assertEquals("consented-orphan-force-stop-committed", stopped.snapshot.lastDurableAction)
+        assertEquals(stale, backend.stopOwners.single { it.first == RuntimeComponent.DATABASE }.second)
+        assertNull(backend.databaseStaleOwner)
+        assertTrue(backend.actions.none { it.startsWith("force:") })
+
+        // The repair unblocks the normal start path.
+        val restarted = runtime.start("mobile-low-v1", includeClient = false)
+        assertTrue(restarted.ok)
+        assertEquals(RuntimePhase.WORLD_READY, restarted.snapshot.phase)
+    }
+
+    @Test fun startAfterCommittedDirtyStopRecoveryAbsorbsFailedServicesWithoutAProcessRecycle() = runTest {
+        // The power-loss-during-a-composite shape: the supervisor committed
+        // its dirty-stop recovery, but the :realm/:world services sit in
+        // FAILED native states their requireStopped gate refuses - the QA
+        // remedy took three Starts (one error-cleanup per component) and a
+        // process recycle. The start lane absorbs each FAILED service
+        // in-attempt: typed refusal, one graceful stop under the fresh
+        // claim, retry.
+        val initial = RuntimeSnapshot(
+            phase = RuntimePhase.ERROR,
+            clean = false,
+            lastDurableAction = "dirty-stop-committed",
+            recoverability = Recoverability.RECOVERY_REQUIRED,
+        )
+        val backend = FakeBackend().apply {
+            observations[RuntimeComponent.REALM] = ComponentObservation(
+                RuntimeComponent.REALM, ComponentLifecycle.FAILED, false, null, 999,
+                "realm start failed at DB_REVISION",
+            )
+            observations[RuntimeComponent.WORLD] = ComponentObservation(
+                RuntimeComponent.WORLD, ComponentLifecycle.FAILED, false, null, 999,
+                "world start failed at DB_REVISION",
+            )
+        }
+        val runtime = runtime(backend, MemoryJournal(initial))
+
+        val started = runtime.start("mobile-low-v1", includeClient = false)
+
+        assertTrue(started.ok)
+        assertEquals(RuntimePhase.WORLD_READY, started.snapshot.phase)
+        assertTrue(backend.actions.indexOf("stop:REALM") > backend.actions.indexOf("start:REALM"))
+        assertTrue(backend.actions.lastIndexOf("start:REALM") > backend.actions.indexOf("stop:REALM"))
+        assertTrue(backend.actions.indexOf("stop:WORLD") > backend.actions.indexOf("start:WORLD"))
+        assertTrue(backend.actions.lastIndexOf("start:WORLD") > backend.actions.indexOf("stop:WORLD"))
+        assertEquals(2, backend.actions.count { it == "start:REALM" })
+        assertEquals(2, backend.actions.count { it == "start:WORLD" })
+        assertTrue(backend.actions.none { it.startsWith("force:") })
+    }
+
+    @Test fun aServiceNotObservedFailedIsNeverAbsorbedByTheStartLane() = runTest {
+        // The absorb is gated on the OBSERVED state being FAILED at absorb
+        // time: a service whose refusal raced away (here: already STOPPED
+        // again by the absorb's own observation) keeps the loud typed
+        // failure - never a speculative stop of something not FAILED.
+        val initial = RuntimeSnapshot(
+            phase = RuntimePhase.ERROR,
+            clean = false,
+            lastDurableAction = "dirty-stop-committed",
+            recoverability = Recoverability.RECOVERY_REQUIRED,
+        )
+        val backend = FakeBackend().apply {
+            observations[RuntimeComponent.REALM] = ComponentObservation(
+                RuntimeComponent.REALM, ComponentLifecycle.FAILED, false, null, 999,
+                "realm start failed at DB_REVISION",
+            )
+            scriptedObservations[RuntimeComponent.REALM] = ArrayDeque(listOf(
+                ComponentObservation(
+                    RuntimeComponent.REALM, ComponentLifecycle.STOPPED, false, null, 999,
+                    "already stopped again by absorb time"),
+            ))
+        }
+        val runtime = runtime(backend, MemoryJournal(initial))
+
+        val rejected = runtime.start("mobile-low-v1", includeClient = false)
+
+        assertFalse(rejected.ok)
+        assertTrue(rejected.snapshot.lastError!!.contains("FAILED-native absorb refused"))
+        assertEquals(1, backend.actions.count { it == "start:REALM" })
+        assertTrue(backend.actions.none { it.startsWith("force:") })
+    }
+
     @Test fun foregroundPromotesWorldAndDatabaseImmediatelyOnRealPlayerPresence() = runTest {
         val backend = FakeBackend()
         val runtime = runtime(backend)
@@ -962,6 +1152,19 @@ class DurableRuntimeSupervisorTest {
             if (component == RuntimeComponent.DATABASE && databaseStaleOwner != null) {
                 throw IllegalStateException("database is owned by another runtime session")
             }
+            // The services' requireStopped gate (StartLogRotationPolicy): a
+            // server service whose native runtime sits in FAILED refuses the
+            // start with its typed message. The claim itself is taken first
+            // (the real backend claims before startAt), so the supervisor's
+            // absorb lane can stop under the fresh claim.
+            if ((component == RuntimeComponent.REALM || component == RuntimeComponent.WORLD) &&
+                observations.getValue(component).state == ComponentLifecycle.FAILED
+            ) {
+                observations[component] = observations.getValue(component).copy(owner = owner)
+                throw IllegalStateException(
+                    "${component.name.lowercase()} start requires a stopped native " +
+                        "runtime; current state=FAILED")
+            }
             val result = when {
                 component in failedStarts -> ComponentObservation(
                     component, ComponentLifecycle.FAILED, false, owner, 100, "injected start failure")
@@ -985,6 +1188,23 @@ class DurableRuntimeSupervisorTest {
             actions += "stop:$component"
             stopOwners += component to owner
             if (component in failedStops) return RuntimeActionResult(false, "injected timeout")
+            if (component == RuntimeComponent.DATABASE) {
+                val engineState = observations.getValue(component).state
+                // DatabaseEngine.stop() requires RUNNING (DatabaseEngine.kt
+                // "database is not running"): a stop of an engine that is
+                // observably down (STOPPED/FAILED) is the service's
+                // owner-gated claim release, never a clean-stop transition.
+                // Success ONLY under the exact recorded claim owner - the
+                // live N1 wedge was exactly this call refusing on both
+                // supervisor lanes while the claim survived.
+                if (engineState != ComponentLifecycle.READY && engineState != ComponentLifecycle.STARTING) {
+                    check(owner == databaseStaleOwner) {
+                        "database ownership mismatch; operation withheld"
+                    }
+                    databaseStaleOwner = null
+                    return RuntimeActionResult(true, "claim released; engine already down")
+                }
+            }
             if (component == RuntimeComponent.DATABASE && owner == databaseStaleOwner) {
                 databaseStaleOwner = null
             }
@@ -996,6 +1216,20 @@ class DurableRuntimeSupervisorTest {
             actions += "force:$component"
             forceOwners += component to owner
             if (component in failedForces) return RuntimeActionResult(false, "injected drain failure")
+            if (component == RuntimeComponent.DATABASE) {
+                val engineState = observations.getValue(component).state
+                // DatabaseService.forceStopOwned on an ended engine:
+                // killForTest has nothing to kill (its RUNNING/STARTING
+                // requirement refuses), so the forced lane is the same
+                // owner-gated claim release - never an unconditional clear.
+                if (engineState != ComponentLifecycle.READY && engineState != ComponentLifecycle.STARTING) {
+                    check(owner == databaseStaleOwner) {
+                        "database ownership mismatch; operation withheld"
+                    }
+                    databaseStaleOwner = null
+                    return RuntimeActionResult(true, "claim released; engine already down")
+                }
+            }
             if (component == RuntimeComponent.DATABASE && owner == databaseStaleOwner) {
                 databaseStaleOwner = null
             }

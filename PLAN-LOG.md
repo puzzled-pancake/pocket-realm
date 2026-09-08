@@ -3376,3 +3376,79 @@ pre-existing ids; +10 pins vs the previous batch: 8 relay-contract
 check_repo OK; check_sources OK. The second determinism run and
 the focused QA verification (repro both criticals, dirty-DB
 stack-up-bot heal, binder staleness) follow this entry.
+
+## Post-QA fix batch 3: verification-run findings (1 agent)
+
+QA verification run #3 at HEAD 204e4ab verified the batch-2 fixes
+LIVE: V1 (world-account vs FAILED/STOPPED worlds — typed
+WRONG_STATE, :world alive, no tombstone), V2 (binder rebind after
+world-kill, +1.4 s), V3 (dirty-DB stack-up-bot heal via
+supervisor-recover, 30.3 s), V5 (regression smoke — replies
+deliver, zero doubles, A8 5/5/5 triplets 0 violations, adjudicated
+silent lanes silent), V6 all PASS, with the fence + telltale
+matching the lockfile at every attach. V4 PARTIAL-FAILed and found
+one new CRITICAL + one MAJOR + two MINORs — fixed by one agent,
+integrated and gated by me.
+
+**FIXED (Agent I):**
+- CRITICAL N1 (the consented DB release unsatisfiable by
+  construction): DatabaseEngine.stop() requires RUNNING and
+  killForTest() requires RUNNING/STARTING, while stopOwned's
+  ownership.clear sat in .also{} AFTER the throwing stop — so a
+  claim held on a STOPPED/FAILED engine could never be released by
+  any lane (the live repro: confirm "Force stop realm" → "release
+  failed: owned process terminated"; the only escape was killing
+  :supervisor so the lease binder died). Releasing a CLAIM is now
+  decoupled from engine transitions: the new
+  stopForOwnerRelease()/releaseEndedEngineClaim() path treats an
+  already-down engine as success-for-the-claim (seals untouched —
+  a dirty generation stays dirty for the recovery lane), the clear
+  is owner-gated (never unconditional), live-engine paths keep
+  their typed refusals; killBinder returns the service's typed
+  error/errorClass instead of the hardcoded "owned process
+  terminated". The supervisor fake backend now MODELS the real
+  engine's RUNNING requirement (the QA gap that let dead code pass
+  unit tests) + the services' requireStopped gate. Both release
+  lanes (automatic proven-ended-own-session and consented) now
+  reach WORLD_READY on STOPPED and FAILED engines in tests.
+- MAJOR N2 (the §9.4 gate trusted a journal relay composites
+  never write): the gate now verifies the ENGINE's own seal marker
+  after the journal settles clean — cleanMarker:false drives the
+  engine's own recover() leg (the same one the supervisor's
+  prepare lane drives) and re-verifies; the composite's
+  legs-failure path carries errorClass DB_REVISION + the same
+  remedy string as the gate path (never a bare ok:false); and the
+  supervisor's start lane absorbs observed-FAILED native services
+  in-attempt (graceful stop under the fresh claim, retry once —
+  legal per the native stop state machine) so the QA's
+  three-attempts recovery is one attempt. The pinned AND-of-legs
+  composite line and dirtyRecoveryNeverKillsAnUnverifiedOwner are
+  untouched.
+- MINOR N4 (reset-state counters): the counters were a pooled
+  COUNT(*) that lost the busy race against the live writer and
+  silently reported 0 — they now iterate the same rows/key the
+  listing reads, before the deletes, with a bounded 3-attempt
+  retry; pinned.
+- MINOR N3 ADJUDICATED by-design (plan citations): the cloud lane
+  staying fallback-only until restart after an endpoint returns —
+  §0 constraint 6's fail-closed dead-endpoint law + §2 A4's
+  per-failure fallback classes define no endpoint re-probe; the
+  only timed re-admission in the plan is A5's chatter failure
+  latch, scoped to the composer batch lane; ExternalApiTierActive
+  is conf-static per process. Recorded as a follow-up candidate,
+  not a violation.
+
+Gates (self-verified before the --no-verify commit): native lane
+rebuild EXIT=0 (JNI ops present); gradle :app:testDebugUnitTest
+:app:detekt --rerun-tasks → BUILD SUCCESSFUL, 141 classes,
+1135/0/0 + 1 skipped, detekt 0 (baseline regenerated a third time
+via a separate :app:detektBaseline invocation — signature drift
+from the supervisor/relay growth; never hand-edited); one of the
+agent's test edits fixed at integration (assertFailsWith is
+kotlin.test, not org.junit.Assert, and the block calls a suspend —
+rewritten to the file's runCatching pattern); full pytest twice —
+"8 failed, 656 passed, 4 skipped", the identical 8 pre-existing
+ids (+3 pins vs batch 2); anchors 155 ops no drift; golden
+de4bd8227a3ab0d1; check_repo OK; check_sources OK. The final
+focused verification run (the N1/N2 repros + regression smoke)
+closes this entry.

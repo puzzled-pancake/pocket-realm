@@ -46,8 +46,9 @@ import java.util.concurrent.TimeUnit
  *       bot_player_relationship for one player or all)
  *   llm-memory-state <player> (H2 relay-min: per-bot relationship rows +
  *       per-(bot,prefix) fact counts; empty player = world summary)
- *   stack-up-bot <profileId>   (supervisor DB-RECOVERY gate when the journal
- *       is dirty, then db init+migrations+start → realm → world)
+ *   stack-up-bot <profileId>   (supervisor DB-RECOVERY gate when the
+ *       journal is dirty + engine clean-marker verify/heal when it is
+ *       not, then db init+migrations+start → realm → world)
  *   quit
  *   ping   (harness attach probe: alive/uptimeMs + runtimeBuildId and the
  *       native source-commit pins baked from the lane lockfile at build
@@ -211,7 +212,9 @@ class WorldConsoleRelay {
         // failed dbMigrations/dbStart and left the world leg at DB_REVISION.
         // The sanctioned heal is the supervisor's recovery lane - the same
         // DurableRuntimeSupervisor.recover() an app-led Start realm runs -
-        // driven over its Binder, never re-implemented here. If the lane
+        // driven over its Binder, never re-implemented here, PLUS the
+        // engine's own marker check (relay composites are not journaled, so
+        // the journal alone cannot prove the generation sealed). If the lane
         // cannot heal, fail fast and actionably instead of driving the legs.
         val recovery = healDatabaseThroughSupervisor()
         out.put("dbRecovery", recovery.optBoolean("ok"))
@@ -232,6 +235,21 @@ class WorldConsoleRelay {
         out.put("worldStartBotProfile", worldStart.optBoolean("ok"))
         out.put("ok", out.optBoolean("dbStart") && out.optBoolean("realmStart")
             && worldStart.optBoolean("ok"))
+        // A failed leg never answers a bare ok:false (the QA hit:
+        // dbMigrations/dbStart false with no errorClass and no remedy): the
+        // composite's foundation is the database, so the legs failure carries
+        // the gate path's own errorClass and the SAME remedy string, with the
+        // error naming exactly which legs failed.
+        if (!out.optBoolean("ok")) {
+            val failedLegs = listOf(
+                "dbInit", "dbMigrations", "dbStart", "dbHealth",
+                "realmStart", "worldStartBotProfile",
+            ).filterNot { leg -> out.optBoolean(leg) }
+            return out.put("errorClass", "DB_REVISION")
+                .put("error", "legs failed: ${failedLegs.joinToString(",")}; " +
+                    "remedy: one app-led Start realm (Home -> Start) heals the database, " +
+                    "then re-run stack-up-bot")
+        }
         return out
     }
 
@@ -242,7 +260,16 @@ class WorldConsoleRelay {
      * DurableRuntimeSupervisor.recover() -> recoverDatabase() ->
      * prepareDatabaseForStart(), the exact DB-RECOVERY lane an app-led
      * Start realm runs - so the composite's db legs always run over a
-     * sealed, prepared generation. A clean stopped journal skips the gate.
+     * sealed, prepared generation. A clean stopped journal skips that lane.
+     *
+     * The journal is not the only truth: relay composite boots are NOT
+     * journaled, so a power-loss/emulator kill during one leaves the journal
+     * STOPPED-clean while the engine died unsealed (db-status cleanMarker
+     * false). The gate therefore also verifies the ENGINE's own marker and,
+     * when it is unsealed, heals the generation with the engine's own
+     * recover verb - the exact RECOVER_DIRTY_GENERATION leg the supervisor's
+     * prepare lane drives on every DATABASE start - before answering
+     * none-needed.
      */
     private fun healDatabaseThroughSupervisor(): JSONObject = runCatching {
         val supervisor = bind("com.pocketrealm.service.RealmService")
@@ -259,8 +286,8 @@ class WorldConsoleRelay {
                 val phase = status.optString("phase")
                 val settled = phase in setOf("STOPPED", "UNCONFIGURED", "ERROR")
                 if (settled && status.optBoolean("clean"))
-                    return JSONObject().put("ok", true)
-                        .put("action", if (recoverySubmitted) "supervisor-recover" else "none-needed")
+                    return verifyEngineSealedOrHeal(
+                        if (recoverySubmitted) "supervisor-recover" else "none-needed")
                 if (phase == "RECOVERING") {
                     Thread.sleep(1_000); continue
                 }
@@ -288,6 +315,35 @@ class WorldConsoleRelay {
     }.getOrElse { failure ->
         JSONObject().put("ok", false)
             .put("error", "supervisor DB-RECOVERY lane unreachable: " +
+                (failure.message ?: failure.javaClass.simpleName))
+    }
+
+    /**
+     * The gate's engine half: success is a clean journal AND a sealed engine
+     * (db-status cleanMarker true). An unsealed generation is healed with the
+     * engine's own recover verb, then re-verified; a recovery that the
+     * engine refuses (fail-closed: pending transaction, live process) fails
+     * the gate with the engine's typed error.
+     */
+    private fun verifyEngineSealedOrHeal(action: String): JSONObject = runCatching {
+        val engine = JSONObject(db().status())
+        if (engine.optBoolean("cleanMarker")) {
+            return JSONObject().put("ok", true).put("action", action)
+        }
+        val recovered = JSONObject(db().recover())
+        if (!recovered.optBoolean("ok")) {
+            return JSONObject().put("ok", false)
+                .put("error", "engine dirty-generation recovery failed: " +
+                    recovered.optString("error", recovered.optString("errorClass")))
+        }
+        if (!JSONObject(db().status()).optBoolean("cleanMarker")) {
+            return JSONObject().put("ok", false)
+                .put("error", "engine clean-stop marker still absent after recovery")
+        }
+        JSONObject().put("ok", true).put("action", "engine-recover")
+    }.getOrElse { failure ->
+        JSONObject().put("ok", false)
+            .put("error", "engine clean-marker verification failed: " +
                 (failure.message ?: failure.javaClass.simpleName))
     }
 

@@ -297,3 +297,70 @@ def test_the_gate_budget_fits_the_host_console_slow_op_window():
     console = (ROOT / "tools" / "world_console.py").read_text(encoding="utf-8")
     assert 'SLOW_OPS = {"stack-up-bot"' in console
     assert "timeout_s = 900 if op in SLOW_OPS else 120" in console
+
+
+# ---- stack-up-bot engine-marker gate + legs verdict (round 3: N2) ------------
+#
+# A power-loss/emulator kill DURING a relay composite leaves the supervisor
+# journal STOPPED-clean (composites are not journaled) while the mariadb
+# engine died unsealed: db-status answers cleanMarker:false and every driven
+# db leg fails closed - yet the gate answered dbRecovery:true
+# dbRecoveryDetail:"none-needed" with no errorClass or remedy. The gate now
+# verifies the ENGINE's own marker as well, and a failed leg can never answer
+# a bare ok:false.
+
+
+def test_the_gate_verifies_the_engine_marker_not_only_the_journal():
+    relay = RELAY_KT.read_text(encoding="utf-8")
+    heal = relay.split("private fun healDatabaseThroughSupervisor")[1].split("\n    }")[0]
+    # a clean settled journal alone no longer answers: the verdict routes
+    # through the engine-marker check, and the "none-needed" label only
+    # survives as that check's clean-journal argument
+    assert "return verifyEngineSealedOrHeal(" in heal
+    assert '"none-needed")' in heal
+    engine = relay.split("private fun verifyEngineSealedOrHeal")[1].split("\n    }")[0]
+    # the engine's own field (db-status cleanMarker) is the truth...
+    assert 'engine.optBoolean("cleanMarker")' in engine
+    # ...an unsealed generation is healed with the engine's recover verb -
+    # the same RECOVER_DIRTY_GENERATION leg the supervisor's prepare lane
+    # drives on every DATABASE start, never the init/migrations/start legs -
+    # and the marker is re-verified afterwards
+    assert "JSONObject(db().recover())" in engine
+    assert 'JSONObject(db().status()).optBoolean("cleanMarker")' in engine
+
+
+def test_a_failed_leg_carries_the_gate_error_class_and_remedy():
+    relay = RELAY_KT.read_text(encoding="utf-8")
+    stack = relay.split("private fun stackUpBot")[1].split("\n    }")[0]
+    # never a bare ok:false: the legs failure carries errorClass DB_REVISION
+    # and the SAME remedy string as the gate path, with the error naming the
+    # failed legs (the live QA miss: dbMigrations/dbStart false, no class)
+    assert "if (!out.optBoolean(\"ok\"))" in stack
+    assert '.put("errorClass", "DB_REVISION")' in stack
+    assert stack.count("remedy: one app-led Start ") == 2
+    assert stack.count("heals the database") == 2
+    assert '"dbInit", "dbMigrations", "dbStart", "dbHealth",' in stack
+    assert "filterNot" in stack
+
+
+# ---- reset-state counters snapshot the listing source (round 3: N4) ----------
+#
+# llm-memory-state listed 2 relationships; 4 s later reset-state answered
+# ok:true factsCleared:0 relationshipsCleared:0 while the post-reset state was
+# correctly empty. The folded COUNT(*) reads ran on the pooled sync
+# connection, whose single step can lose the busy race with the live writer
+# and fold to a null result - reported as 0 over rows that existed.
+
+
+def test_reset_state_counters_snapshot_the_listing_source_before_clearing():
+    body = cpp_body("std::string reset_state(const std::string& player_name)")
+    # the counters are PRE-delete snapshots...
+    assert body.index("const uint32_t facts = count_rows") < body.index("DELETE FROM bot_player_facts")
+    # ...taken by iterating real rows from the same tables and player key the
+    # llm-memory-state listing reads, never a folded COUNT(*)
+    assert '"SELECT bot FROM %s WHERE player=\'%u\'"' in body
+    assert '"SELECT bot FROM %s"' in body
+    assert "do { ++counted; } while (result->NextRow());" in body
+    # a lost busy race is retried, never silently zeroed
+    assert "for (int attempt = 0; attempt < 3; ++attempt)" in body
+    assert "SELECT COUNT(*) FROM %s WHERE player" not in body

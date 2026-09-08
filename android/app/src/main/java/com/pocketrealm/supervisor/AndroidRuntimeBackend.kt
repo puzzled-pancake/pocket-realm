@@ -1087,9 +1087,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
     }
 
     private inline fun killBinder(block: () -> String): RuntimeActionResult = try {
-        val response = block()
-        if (response.isBlank()) RuntimeActionResult(true, "owned process terminated")
-        else RuntimeActionResult(JSONObject(response).optBoolean("ok"), "owned process terminated")
+        killBinderVerdict(block())
     } catch (_: android.os.DeadObjectException) {
         RuntimeActionResult(true, "owned process terminated")
     } catch (_: android.os.RemoteException) {
@@ -1125,6 +1123,24 @@ internal fun clientGracefulReleaseReady(
     cleanExit: Boolean,
     runtimeFinished: Boolean,
 ): Boolean = state == "EXITED" && cleanExit && runtimeFinished
+
+/**
+ * killBinder's verdict for a live (non-dead-binder) response. A refused
+ * typed kill carries the service's own reason (its guarded() convention:
+ * error + errorClass - e.g. "database is not active" for a kill of an
+ * engine that is already down), never a blanket "owned process
+ * terminated": the supervisor's failure copy and the consented repair
+ * surface must name the real refusal, or the wedge reads as a kill that
+ * happened. A successful (or blank - the process died mid-call) response
+ * keeps the historical detail.
+ */
+internal fun killBinderVerdict(response: String): RuntimeActionResult {
+    if (response.isBlank()) return RuntimeActionResult(true, "owned process terminated")
+    val parsed = JSONObject(response)
+    if (parsed.optBoolean("ok")) return RuntimeActionResult(true, "owned process terminated")
+    val typed = parsed.optString("error").ifBlank { parsed.optString("errorClass") }
+    return RuntimeActionResult(false, typed.ifBlank { "owned process terminated" })
+}
 
 internal fun clientTerminalLifecycle(state: String, hasOwner: Boolean): ComponentLifecycle {
     require(state == "EXITED" || state == "FORCE_STOPPED") { "not a terminal client state" }

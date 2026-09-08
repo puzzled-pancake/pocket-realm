@@ -58,6 +58,7 @@
     <ID>CyclomaticComplexMethod:DatabaseStartPreparation.kt$DatabaseStartPreparation$fun next(status: JSONObject): Action</ID>
     <ID>CyclomaticComplexMethod:DiagnosticsScreen.kt$@Composable fun DiagnosticsScreen(contentPadding: PaddingValues = PaddingValues())</ID>
     <ID>CyclomaticComplexMethod:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun recoverLocked(): Boolean</ID>
+    <ID>CyclomaticComplexMethod:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun startStage( component: RuntimeComponent, phase: RuntimePhase, sessionId: String, spec: RuntimeLaunchSpec, ): Boolean</ID>
     <ID>CyclomaticComplexMethod:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun stopLocked( mode: StopMode, finalPhase: RuntimePhase, preserveError: String?, ): RuntimeOperation</ID>
     <ID>CyclomaticComplexMethod:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$suspend fun consentedForceStopOrphanStack(): RuntimeOperation</ID>
     <ID>CyclomaticComplexMethod:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$suspend fun start(spec: RuntimeLaunchSpec): RuntimeOperation</ID>
@@ -304,6 +305,7 @@
     <ID>LongMethod:DatabaseEngine.kt$DatabaseEngine$private fun startDaemon( allowUnsealedBootstrap: Boolean = false, allowDirtyRecovery: Boolean = false, allowedTransactionKind: String? = null, ): JSONObject</ID>
     <ID>LongMethod:DatabaseSqliteControlPlane.kt$DatabaseSqliteControlPlane.SeedStatementScanner$fun feed(chunk: String): List&lt;SeedStatement&gt;</ID>
     <ID>LongMethod:DiagnosticsScreen.kt$@Composable fun DiagnosticsScreen(contentPadding: PaddingValues = PaddingValues())</ID>
+    <ID>LongMethod:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun startStage( component: RuntimeComponent, phase: RuntimePhase, sessionId: String, spec: RuntimeLaunchSpec, ): Boolean</ID>
     <ID>LongMethod:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun stopLocked( mode: StopMode, finalPhase: RuntimePhase, preserveError: String?, ): RuntimeOperation</ID>
     <ID>LongMethod:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$suspend fun consentedForceStopOrphanStack(): RuntimeOperation</ID>
     <ID>LongMethod:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$suspend fun start(spec: RuntimeLaunchSpec): RuntimeOperation</ID>
@@ -1574,6 +1576,7 @@
     <ID>ReturnCount:AndroidRuntimeBackend.kt$AndroidRuntimeBackend$private suspend fun stopClient(owner: ComponentOwner): RuntimeActionResult</ID>
     <ID>ReturnCount:AndroidRuntimeBackend.kt$ServiceHandle$suspend fun api(): T</ID>
     <ID>ReturnCount:AndroidRuntimeBackend.kt$internal fun compositeClientObservation( runtime: ComponentObservation, display: ClientDisplayHealth?, displayUnavailableDetail: String = "client display unavailable", ): ComponentObservation</ID>
+    <ID>ReturnCount:AndroidRuntimeBackend.kt$internal fun killBinderVerdict(response: String): RuntimeActionResult</ID>
     <ID>ReturnCount:ArchiveClientScanner.kt$ArchiveClientScanner$private fun rebase(rawName: String, rootPrefix: String): String?</ID>
     <ID>ReturnCount:ArmRendererAuto.kt$ArmRendererAuto$internal fun resolveAutoDxvkPackageId( requestedId: String, adrenoGpu: Boolean, probe: () -&gt; SystemVulkanCapabilities?, ): String</ID>
     <ID>ReturnCount:ArmRootfsProvisioner.kt$ArmRootfsProvisioner.Companion$internal fun hasNoUnscopedOpenGlClient(rootfs: File): Boolean</ID>
@@ -1624,9 +1627,12 @@
     <ID>ReturnCount:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun forceOwned(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult</ID>
     <ID>ReturnCount:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun reclaimDatabaseClaimFromEndedOwnSession(next: ComponentOwner): DatabaseReclaim</ID>
     <ID>ReturnCount:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun recoverLocked(): Boolean</ID>
+    <ID>ReturnCount:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun retireFailedNativeUnderFreshClaim( component: RuntimeComponent, owner: ComponentOwner, ): NativeRetire</ID>
     <ID>ReturnCount:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun startStage( component: RuntimeComponent, phase: RuntimePhase, sessionId: String, spec: RuntimeLaunchSpec, ): Boolean</ID>
     <ID>ReturnCount:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun stopLocked( mode: StopMode, finalPhase: RuntimePhase, preserveError: String?, ): RuntimeOperation</ID>
     <ID>ReturnCount:DurableRuntimeSupervisor.kt$DurableRuntimeSupervisor$private suspend fun stopOwned(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult</ID>
+    <ID>ReturnCount:DurableRuntimeSupervisorTest.kt$DurableRuntimeSupervisorTest.FakeBackend$override suspend fun forceStop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult</ID>
+    <ID>ReturnCount:DurableRuntimeSupervisorTest.kt$DurableRuntimeSupervisorTest.FakeBackend$override suspend fun stop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult</ID>
     <ID>ReturnCount:ImportProcessMetrics.kt$ImportProcessMetricsSampler$@Synchronized fun sample(context: Context): ImportProcessMetrics</ID>
     <ID>ReturnCount:ImportWorkerService.kt$ImportWorkerService$override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int</ID>
     <ID>ReturnCount:ImportWorkerService.kt$ImportWorkerService$private fun startArchiveImport(intent: Intent, startId: Int): Int</ID>

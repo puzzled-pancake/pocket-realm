@@ -485,6 +485,37 @@ internal class DatabaseEngine(private val context: Context) {
         }
     }
 
+    /** True when the engine observably has no live generation (STOPPED or
+     * FAILED) - the only states in which a claim release needs no engine work. */
+    fun isEnded(): Boolean = synchronized(lock) { state == State.STOPPED || state == State.FAILED }
+
+    /**
+     * The owner-gated stop verb behind DatabaseService.stopOwned. Releasing
+     * a CLAIM is a handshake in the :database process, not an engine
+     * operation: an engine that is observably down (STOPPED or FAILED -
+     * killed, crashed, or already recovered-and-stopped by a later lane)
+     * has nothing to stop, so the call is success-for-the-claim and the
+     * durable seals are left exactly as they are (an unsealed generation
+     * stays dirty for the next start's recovery lane; a valid clean seal is
+     * neither fabricated nor deleted). A live engine takes the ordinary
+     * clean-stop path with all of its drain proofs - this path never
+     * weakens stop() itself.
+     */
+    fun stopForOwnerRelease(): JSONObject = when (providerModeLocked()) {
+        DatabaseDurableState.ProviderMode.SQLITE -> synchronized(lock) {
+            if (isEnded()) releaseEndedEngineClaim() else sqliteStop()
+        }
+        DatabaseDurableState.ProviderMode.MARIADB -> synchronized(lock) {
+            if (isEnded()) releaseEndedEngineClaim() else stop()
+        }
+    }
+
+    /** The claim-release verdict for an ended engine; seals untouched. */
+    private fun releaseEndedEngineClaim(): JSONObject = JSONObject().put("ok", true)
+        .put("state", state.name)
+        .put("alreadyDown", true)
+        .put("claimReleased", true)
+
     fun recover(): JSONObject = when (providerModeLocked()) {
         DatabaseDurableState.ProviderMode.SQLITE -> sqliteRecover()
         DatabaseDurableState.ProviderMode.MARIADB -> synchronized(lock) {

@@ -504,18 +504,25 @@ public:
             if (!player_guid) return "{\"ok\":false,\"reason\":\"player-missing\"}";
         }
         // PExecute reports no affected rows, so the counts are pre-delete
-        // snapshots taken under the same call - exact for an idle test
-        // world, close enough otherwise
+        // snapshots taken under the same call. They iterate real rows from
+        // the same tables and player key the llm-memory-state listing reads
+        // (a folded COUNT(*) on the pooled sync connection loses the busy
+        // race with the live writer and folds to a null result - reported
+        // as 0 over rows that existed), and a lost read is retried, never
+        // silently zeroed.
         const auto count_rows = [&](const char* table) {
-            if (player_guid)
+            for (int attempt = 0; attempt < 3; ++attempt)
             {
-                if (auto result = CharacterDatabase.PQuery(
-                        "SELECT COUNT(*) FROM %s WHERE player='%u'", table, player_guid))
-                    return result->Fetch()[0].GetUInt32();
+                if (auto result = player_guid
+                        ? CharacterDatabase.PQuery(
+                              "SELECT bot FROM %s WHERE player='%u'", table, player_guid)
+                        : CharacterDatabase.PQuery("SELECT bot FROM %s", table))
+                {
+                    uint32_t counted = 0;
+                    do { ++counted; } while (result->NextRow());
+                    return counted;
+                }
             }
-            else if (auto result = CharacterDatabase.PQuery(
-                     "SELECT COUNT(*) FROM %s", table))
-                return result->Fetch()[0].GetUInt32();
             return uint32_t(0);
         };
         const uint32_t facts = count_rows("bot_player_facts");
