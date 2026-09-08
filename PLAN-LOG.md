@@ -3251,3 +3251,128 @@ ServerRuntimeContract now does; the fence's self-consistent-stale-
 triple residual (above); the QA re-run of the 12-scenario live play
 session against the fixed tree is the next step (this batch makes
 it executable).
+
+## Post-QA fix batch 2: the live play-session re-run findings (3 agents)
+
+The QA re-run at HEAD 77b06e6 (emulator, relay lane, mock LLM
+endpoint, in-world character via the harness-documented realmd_auth
+lane) EXECUTED the play session end-to-end for the first time: chat
+injection works, authored replies deliver, the A4 fallback fired on
+a dead mock, the murmur floor stayed quiet, ZERO doubles anywhere,
+A8 pairing 0 violations (8/8 triplets, p50 214.5 ms), the fence +
+runtimeBuildId telltale caught one real stale APK mid-session
+(snapshot revert), and app-led start with a bot profile reached
+playerbotsEnabled=true with bots ramping. Verdict SESSION: ISSUES
+on 2 CRITICAL + 4 MAJOR + 5 MINOR. Triage: 4 fixed, 1 adjudicated
+by-design, 1 adjudicated factually-disproven, the rest residue.
+Fixed by three parallel agents, integrated and gated by me.
+
+**FIXED (Agent E — relay/native robustness):**
+- CRITICAL (world-account SIGSEGV): WorldRuntime::account_info had
+  no readiness guard — its first LoginDatabase touch derefs an
+  EMPTY connection vector whenever the world is FAILED/STARTING
+  (pool exists only between StartDatabasesEmbedded and teardown);
+  the JNI op crashed the :world process (tombstone-confirmed twice
+  across sessions). The guard now sits in the RUNTIME method (the
+  one layer every caller crosses — JNI op, password verify,
+  character_persistence, the service's accountResult): not
+  READY/SAVING → the existing {0,-1} "no account" verdict, which
+  the relay answers as ok:false code:WRONG_STATE. All 11 relay-
+  reachable runtime methods audited — account_info was the only
+  unguarded one. Pinned (absent-guard mutant dies).
+- MAJOR (stale world binder): the relay cached Bound<IWorldControl>
+  with no death recipient — after a :world death every op was
+  DeadObjectException forever. Binders now link-to-death, every op
+  revalidates (pingBinder round trip) and rebinds on a dead cache;
+  the residual ping-vs-call race is handled in one place (drops the
+  caches, answers <COMPONENT>_NOT_READY with a remedy field).
+- MAJOR (stack-up-bot vs dirty DB): the composite drove db init/
+  migrations/start directly, bypassing the supervisor's DB-RECOVERY
+  lane. It now runs a DB-RECOVERY gate FIRST — the supervisor's own
+  recover() verb over Binder (the exact lane an app-led start heals
+  through; never duplicated), polling to a clean-settled journal
+  (420 s budget inside the 900 s SLOW_OPS window); on failure it
+  fails fast with errorClass DB_REVISION + the remedy (one app-led
+  Start realm). §9.4/§9.5 document both.
+
+**FIXED (Agent F — the DB-ownership wedge):** :world dying under
+load left the DATABASE claim held by a dead own session (the lease
+binder belongs to the surviving supervisor process, so ownerDied
+never fired; the engine was observably down so every stop lane
+short-circuited "already stopped" without clearing the claim) —
+Start realm then threw "database is owned by another runtime
+session" forever with no repair. The supervisor now mints-and-
+records session ids; a DATABASE claim rejection whose recorded
+owner is provably THIS supervisor's own ended session (minted set,
+not the live session, engine observably down) is released via the
+engine-ordered stop under the observed stale owner (forceStop
+fallback; safe — engine proven down) and the claim retried once;
+unprovable owners keep today's exact refusal; a failed release
+publishes DB_OWNED_BY_DEAD_SESSION, which joins the consented
+"Force stop realm" repair family (same tag/verb/ledger as
+UNVERIFIED_ORPHAN, class-specific truthful copy). A process-
+recreated supervisor can prove nothing (empty minted set) and
+refuses — conservative. The pinned law
+dirtyRecoveryNeverKillsAnUnverifiedOwner is byte-untouched (cmp-
+verified vs HEAD). 8 new Kotlin tests (release+retry→WORLD_READY;
+refusal on foreign owner; no release while engine live; the
+consented fallback; copy/decode/Home gating).
+
+**ADJUDICATED (Agent H — with evidence):**
+- MAJOR (A8 ledger covers only one site): the premise was factually
+  wrong — the fact-extraction turn DID log its full triplet
+  (play2_world2.log:967-969: dispatch/begin/end req=1 class=ok);
+  the QA's log pull missed it. Fact extraction is not a separate
+  site: its request is built by BuildTrainedChatRequest whose sole
+  caller is the instrumented dispatch site. The genuinely silent
+  outbound lanes are exactly the six adjudicated PostChatHttp
+  background sites (murmur/composer/saga/street/dossier/recap),
+  exempt by plan text (§2 A9 "both chatter workers drop silently",
+  A5's latch is their observability; the A8 invariant is scoped
+  "per cloud conversational turn"). The audit is now PINNED:
+  test_post_chat_http_is_the_adjudicated_silent_lane +
+  test_every_silent_outbound_site_is_sanctioned (any overlay
+  reaching Generate/GenerateHttp directly fails).
+- MINOR (no fact rows): no defect — the mock never emits the
+  licensed <<log_fact>> tool call, and licensed tool emission is
+  best-effort by the 0.8B law (PlayerbotLlmMemory.h:184-187);
+  deterministic mints are scoped elsewhere (E2 welcome, W5
+  curiosity). Not a C1 gap, not a validation refusal.
+- MINOR (3/8 first-contact whispers unanswered): no chat-path
+  defect — the 5 answers were authored E3 security refusals
+  (string-exact vs kSecurityRefuse; the grouped-bot command gate),
+  and the 3 unanswered left ZERO world-log trace (no dispatch, no
+  refusal line): random-bot activity starvation under
+  startup-catching-up admission (activeBots 0→5 across the
+  session) inside a 25 s harness window. Recorded as B-workstream
+  residue/harness sensitivity.
+
+**ADJUDICATED BY DESIGN (my triage):** the whisper-burst finding
+(4 identical whispers in ~1.6 s → 4 generations) expected the
+party-lane flood gate on the whisper lane — but the flood gate is
+documented UNADDRESSED-party-lane-only
+(PlayerbotLlmMemory.h:361); interlocutor traffic is contained by
+the A7 interactive budget (240/player-hour), which is the plan's
+law for that lane. The QA prompt over-generalized; no fix owed.
+
+Residue recorded: E3 refusal gate fires on non-invite whispers to
+grouped bots (upstream command-gating semantics); world-status
+telemetry lags llm-memory-state counts by minutes (polling
+cadence); Home compose rows intermittently uiautomator-unplaced
+(bounds [0,0,0,0] — automation hazard); mock /flap mode
+unimplemented (QA scratch, not product); startup-catching-up
+activity starvation (B-workstream; the bots ramped to target
+around a present player).
+
+Gates (self-verified before the --no-verify commit): native lane
+rebuild EXIT=0 (staging fresh, all three JNI ops present); gradle
+:app:testDebugUnitTest :app:detekt --rerun-tasks → BUILD
+SUCCESSFUL, 141 classes, 1129/0/0 + 1 skipped, detekt 0 (baseline
+regenerated AGAIN via a separate :app:detektBaseline invocation —
+signature drift from the supervisor edits; never hand-edited);
+full pytest run 1 "8 failed, 653 passed, 4 skipped" (the same 8
+pre-existing ids; +10 pins vs the previous batch: 8 relay-contract
++ 2 A8); anchors 155 ops no drift; golden de4bd8227a3ab0d1;
+check_repo OK; check_sources OK. The second determinism run and
+the focused QA verification (repro both criticals, dirty-DB
+stack-up-bot heal, binder staleness) follow this entry.

@@ -25,6 +25,19 @@ Pinned contracts:
         conversational dispatch site; classes busy|cap|timeout|http_%d|
         error|empty|ok; no content bytes ride the lines; the device lane
         classifies symmetrically (both lanes log begin/end)
+  A8*   SCOPE ADJUDICATION (QA round 2026-09-08): the ledger covers the
+        Generate -> GenerateHttp family only - every Generate() caller
+        is inside a begin/end by construction (the internal reqId mint).
+        Fact extraction/recall are NOT separate generation sites: they
+        ride the conversational turn's licensed tool note and dispatch
+        through the instrumented SayAction site. The background outbound
+        sites (murmur/composer/saga/street/dossier/recap prose) go
+        through PostChatHttp and log NOTHING, by plan: §2 A8's invariant
+        is scoped "per cloud conversational turn"; §2 A9 exempts them
+        ("both chatter workers drop silently - A5's latch is the fix on
+        the cloud lane"); §2 A5 makes the failure latch their
+        observability. Pinned below so a new outbound site that bypasses
+        Generate fails loud instead of silently widening the gap.
   keys  LLMTLSVerify/LLMTLSCaFile exist end to end: member, conf read,
         conf.dist documentation
 """
@@ -234,6 +247,72 @@ def test_a8_lines_carry_no_content(driver):
         for fmt in re.findall(r'"BotLLM:[^"]*"', payload):
             assert fmt in sanctioned, (
                 f"unsanctioned BotLLM: log literal could carry content: {fmt}")
+
+
+# --- A8 scope adjudication: the silent background lane --------------------
+#
+# QA round (2026-09-08, HEAD 77b06e6): a live pass saw BotLLM: triplets
+# only on the conversational dispatch site while background generations
+# (street) hit the mock with no ledger lines, and asked whether A8's law
+# covers every generation site. Adjudicated NO (docs/plans/
+# rp-depth-fix-plan-v2.3.md): §2 A8 plumbs reqId through Generate ->
+# GenerateHttp and states the run_suite invariant "per cloud
+# conversational turn" - the ledger is the conversational family's
+# (SayAction CHAT_REPLY / RpgSubActions RPG_CHAT / Debug DEBUG dispatch
+# sites + Generate's own begin/end, which no Generate() caller can
+# escape thanks to the internal reqId mint). The background workers are
+# exempt BY DESIGN: §2 A9 ("both chatter workers drop silently - A5's
+# latch is the fix on the cloud lane"), §2 A5's failure latch (their
+# sanctioned observability), and the S10 PostChatHttp law ("callers
+# that own their validation chain... fail SILENT"). The QA's specific
+# premise was also factually wrong: the 12:26:28 fact-licensed
+# generation (mock requests.jsonl entry 1) DID log its full triplet -
+# world log req=1 dispatch/begin/end class=ok durMs=215 - because fact
+# extraction is the conversational turn's licensed log_fact note, not a
+# separate site (BuildTrainedChatRequest's only caller is the SayAction
+# dispatch site).
+
+SILENT_BACKGROUND_SITES = {
+    # murmur device worker + composer worker + saga worker
+    "PlayerbotLlmChatter.cpp": 3,
+    # street reaction + weekly dossier reword + session recap prose
+    "PlayerbotLlmMemory.cpp": 3,
+}
+
+
+def test_post_chat_http_is_the_adjudicated_silent_lane(driver):
+    payload = driver.PB_LLM_IFACE_CPP_ANDROID
+    start = payload.index("PostChatHttp(std::string const& body")
+    body = payload[start:payload.index("std::string PlayerbotLLMInterface::", start)]
+    # delegates straight to GenerateHttp - it never enters Generate, so
+    # no begin/end can attach to its callers (the adjudicated design,
+    # not an observability gap)
+    assert "return GenerateHttp(body, timeOutSeconds, 1, noDebug" in body
+    # the S10 silent-fail law is the payload's own contract comment
+    assert "fail SILENT" in payload
+    # and the lane mints no ledger lines of its own
+    assert "BotLLM:" not in body
+
+
+def test_every_silent_outbound_site_is_sanctioned():
+    # The complete outbound-path audit as a pin: the ONLY overlay files
+    # that reach an endpoint directly are the six background sites
+    # (fact extraction / recall ride the conversational Generate path;
+    # the party digest is deterministic, zero calls). Any new
+    # PostChatHttp caller - or any overlay reaching GenerateHttp /
+    # Generate directly, bypassing the instrumented dispatch sites -
+    # fails here and must either route through Generate (gets the
+    # ledger for free) or extend this adjudication on purpose.
+    patches = ROOT / "native" / "patches" / "playerbots"
+    per_file = {}
+    for src in sorted(patches.glob("*.cpp")) + sorted(patches.glob("*.h")):
+        text = src.read_text(encoding="utf-8", errors="replace")
+        assert "PlayerbotLLMInterface::GenerateHttp(" not in text, src.name
+        assert "PlayerbotLLMInterface::Generate(" not in text, src.name
+        n = text.count("PlayerbotLLMInterface::PostChatHttp(")
+        if n:
+            per_file[src.name] = n
+    assert per_file == SILENT_BACKGROUND_SITES
 
 
 def test_reqid_signature_threading(driver):

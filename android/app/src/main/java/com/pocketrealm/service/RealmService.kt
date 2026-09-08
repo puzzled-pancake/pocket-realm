@@ -204,8 +204,10 @@ class RealmService : Service() {
             }
             ACTION_SAVE_EXIT -> submitOperation("save-stop") { supervisor.stop(StopMode.GRACEFUL) }
             ACTION_STOP -> submitOperation("forced-stop") { supervisor.stop(StopMode.FORCED) }
-            // Player-consented UNVERIFIED_ORPHAN repair: sent only by Home's
-            // confirmed "Force stop realm" action, never by an automatic lane.
+            // Player-consented repair for the refusals the automatic lanes
+            // keep: the UNVERIFIED_ORPHAN stack and the DB_OWNED_BY_DEAD_SESSION
+            // database lock. Sent only by Home's confirmed "Force stop realm"
+            // action, never by an automatic lane.
             ACTION_CONSENTED_ORPHAN_STOP ->
                 submitOperation("consented-orphan-force-stop") {
                     supervisor.consentedForceStopOrphanStack()
@@ -672,10 +674,11 @@ class RealmService : Service() {
         }
 
         /**
-         * Player-consented UNVERIFIED_ORPHAN repair behind Home's confirmed
-         * "Force stop realm" action: the supervisor force-stops the leftover
-         * stack it cannot verify as its own, leaving the database to the next
-         * start's recovery + prepare heal.
+         * Player-consented repair behind Home's confirmed "Force stop realm"
+         * action: the supervisor force-stops the leftover stack it cannot
+         * verify as its own, releases a database claim the journal cannot
+         * verify (an ended session's leftover lock), and leaves the engine to
+         * the next start's recovery + prepare heal.
          */
         fun consentedOrphanStop(context: Context) {
             context.startService(

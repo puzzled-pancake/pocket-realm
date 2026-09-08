@@ -260,6 +260,19 @@ public:
 
     std::pair<uint32_t, int32_t> account_info(const std::string& username)
     {
+        // The tombstone_02 crash path: LoginDatabase's query pool only
+        // exists between StartDatabasesEmbedded and teardown - escape_string
+        // indexes m_pQueryConnections[0] and PQuery divides by the pool
+        // size, both on an EMPTY vector while the world is FAILED or still
+        // STARTING (the service's accountResult asks this even when the
+        // op itself was refused, so the relay's account ops reach here on
+        // a dead world). Guard HERE, not at the JNI boundary: this method
+        // is the one layer every caller crosses (accountInfoNative,
+        // verify_account_password, character_persistence, accountResult)
+        // and the {0,-1} "no account" pair is the answer they already
+        // translate. Same READY/SAVING family as the sibling relay ops.
+        if (m_state.state() != POCKET_SERVER_READY && m_state.state() != POCKET_SERVER_SAVING)
+            return {0, -1};
         if (username.empty() || username.size() > 16) return {0, -1};
         std::string escaped = username;
         LoginDatabase.escape_string(escaped);

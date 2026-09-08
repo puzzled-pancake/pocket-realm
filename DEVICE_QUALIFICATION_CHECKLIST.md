@@ -343,9 +343,9 @@ unlocked by setting `POCKET_REALM_G1_DEVICE` to the device serial):
 
 ## 9. Relay console ops runbook (QA live-session lessons, 2026-09-07)
 
-Written after the first live `tools/world_console.py` QA session. Three
-lessons that cost real time and are now law for every relay session; the
-host pin for the truthfulness change is
+Written after the first live `tools/world_console.py` QA session (plus
+the 2026-09-08 round-2 robustness fixes, §9.4/§9.5). Lessons that cost
+real time and are now law for every relay session; the host pins are
 `tests/test_world_runtime_relay_contract.py`.
 
 ### 9.1 Attach order: attach the relay FIRST, then boot the stack
@@ -366,10 +366,12 @@ host pin for the truthfulness change is
 
 ### 9.2 stack-up-bot truthfulness (what ok:false means now)
 
-The composite (`WorldConsoleRelay.stackUpBot`) boots db init + migrations
-+ start + health, realm start, then `world-start-bot <profileId>`, and its
-`ok` is the AND of the dbStart / realmStart / worldStartBotProfile legs.
-Two native changes (world_runtime.cpp) make the world leg honest:
+The composite (`WorldConsoleRelay.stackUpBot`) first gates on the
+supervisor's DB-RECOVERY lane when the journal is dirty (§9.4), then
+boots db init + migrations + start + health, realm start, then
+`world-start-bot <profileId>`, and its `ok` is the AND of the dbStart /
+realmStart / worldStartBotProfile legs. Two native changes
+(world_runtime.cpp) make the world leg honest:
 
 - [ ] **A failed foundation now fails the op.** `start()` waits (≤30 s,
       outside the lifecycle lock) for the boot's early legs to settle and
@@ -417,3 +419,58 @@ Two native changes (world_runtime.cpp) make the world leg honest:
 - [ ] A Settings flip alone does NOT turn bots on for an already-running
       world: the conf is written at world start, so flip → restart the
       world (or reboot via the relay) and re-check `playerbotsEnabled`.
+
+### 9.4 stack-up-bot DB-RECOVERY gate (dirty databases, 2026-09-08)
+
+A live re-run found the composite unable to recover a dirty DB: it drove
+db initialize/migrations/start directly, bypassing the supervisor's
+DB-RECOVERY lane, so after a dirty stop the legs failed
+`dbMigrations/dbStart:false` and the world leg answered `DB_REVISION`
+(an app-led Start healed fine — QA used that as the sanctioned recovery).
+
+- [ ] **The composite now gates on the supervisor's recovery lane.**
+      `stack-up-bot` first binds `RealmService` (:supervisor) and reads
+      its journal: a dirty journal (a dirty stop, or the attach restart
+      tearing an app-led generation down) is healed by the supervisor's
+      own `recover()` verb — the exact
+      `DurableRuntimeSupervisor.recover() -> recoverDatabase() ->
+      prepareDatabaseForStart()` lane an app-led Start realm runs
+      (engine-ordered shutdown, dirty-generation recovery, resumed
+      init/migrations) — never re-implemented relay-side. The response
+      carries `dbRecovery:true` and a `dbRecoveryDetail` of
+      `none-needed` (journal already clean) or `supervisor-recover`.
+      A leftover RUNNING app-led generation is healed the same way:
+      recover orderly-stops it first.
+- [ ] **A gate failure fails fast and actionably**: `ok:false` with
+      `errorClass:"DB_REVISION"` and an error naming the remedy — one
+      app-led Start realm (Home → Start) heals the database, then re-run
+      `stack-up-bot`. Never drive the db legs manually over an unsealed
+      generation.
+- [ ] **Budget**: the gate waits up to 420 s for the supervisor to settle
+      (the host console waits 900 s for stack-up-bot); a recovery that
+      outlives it is reported with the journal's own phase/lastError,
+      not hung on.
+
+### 9.5 Relay robustness: dead binders, dead worlds (2026-09-08)
+
+- [ ] **A :world death no longer wedges the relay.** Every cached service
+      proxy is death-recipient backed (`linkToDeath`) and ping-revalidated
+      per op: after `world-kill` or a :world crash the next op drops the
+      stale proxy, rebinds to the recreated process, and drives it (a
+      fresh WorldRuntimeService starts with the world STOPPED — bring it
+      back with `world-start-bot <profileId>`). The narrow
+      death-between-check-and-call race answers `ok:false` with
+      `errorClass:"WORLD_NOT_READY"` plus a `remedy` field instead of a
+      bare DeadObjectException, and drops the dead cache for the next op
+      (same shape for `REALM_`/`DATABASE_NOT_READY`).
+- [ ] **Ops against a FAILED/STARTING world no longer crash :world.**
+      `world-account` / `world-account-status` / `world-gm` used to
+      SIGSEGV the :world process (null-deref at
+      `WorldNative_accountInfoNative+49`, tombstone_02): the native
+      account lookup ran unguarded over an empty LoginDatabase query
+      pool. Every relay-reachable native op now answers its typed
+      not-ready verdict without touching the DB or the world object
+      (`accountExists:false` for the account ops,
+      `{"ok":false,"reason":"world-not-ready"}` for the smoke-rail ops).
+      Host pins: `tests/test_world_runtime_relay_contract.py` (round-2
+      block).

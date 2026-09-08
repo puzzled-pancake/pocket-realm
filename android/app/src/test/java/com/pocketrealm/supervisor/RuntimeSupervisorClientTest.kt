@@ -197,6 +197,39 @@ class RuntimeSupervisorClientTest {
         assertFalse(dirtyStopped.unverifiedOrphan)
     }
 
+    @Test fun dbOwnedByDeadSessionFailureCarriesTheForceStopRepairFlag() {
+        val raw = "DATABASE: DB_OWNED_BY_DEAD_SESSION: ended own-session database owner " +
+            "could not be released: injected drain failure"
+        val stale = RuntimeSupervisorClient.decodeRealmState(encoded(RuntimeSnapshot(
+            phase = RuntimePhase.ERROR,
+            clean = false,
+            lastError = raw,
+        ))) as RealmState.Failed
+
+        assertTrue(stale.dbOwnedByDeadSession)
+        assertFalse(stale.unverifiedOrphan)
+        assertEquals(RuntimeFailureCopy.humanize(raw), stale.message)
+        assertFalse(stale.message.contains("DB_OWNED_BY_DEAD_SESSION"))
+
+        // The refusal case - an owner this supervisor cannot prove as its own
+        // ended session - keeps the generic error surface with no repair flag.
+        val refused = RuntimeSupervisorClient.decodeRealmState(encoded(RuntimeSnapshot(
+            phase = RuntimePhase.ERROR,
+            clean = false,
+            lastError = "DATABASE: IllegalStateException: database is owned by another runtime session",
+        ))) as RealmState.Failed
+        assertFalse(refused.dbOwnedByDeadSession)
+        assertFalse(refused.unverifiedOrphan)
+
+        // And the flag survives the dirty-stopped surface, like the orphan's.
+        val dirtyStopped = RuntimeSupervisorClient.decodeRealmState(encoded(RuntimeSnapshot(
+            phase = RuntimePhase.STOPPED,
+            clean = false,
+            lastError = raw,
+        ))) as RealmState.Failed
+        assertTrue(dirtyStopped.dbOwnedByDeadSession)
+    }
+
     private fun encoded(snapshot: RuntimeSnapshot, generationActive: Boolean = false): String =
         RuntimeSnapshotJson.encode(snapshot)
             .put("supervisorGenerationActive", generationActive)

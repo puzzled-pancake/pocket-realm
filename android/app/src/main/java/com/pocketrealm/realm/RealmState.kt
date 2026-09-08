@@ -63,13 +63,18 @@ sealed interface RealmState {
      * corruption, missing storage). The realm is NOT running.
      *
      * [unverifiedOrphan] marks the pinned UNVERIFIED_ORPHAN refusal: a
-     * leftover running world this device cannot verify as its own. Only
-     * that failure offers the player-consented "Force stop realm" repair;
-     * every other failure keeps the generic error surface.
+     * leftover running world this device cannot verify as its own.
+     * [dbOwnedByDeadSession] marks the DB_OWNED_BY_DEAD_SESSION wedge: the
+     * database ownership claim still names an earlier realm session of this
+     * device that ended without releasing it, so plain retries cannot start
+     * the realm. Both of those failures — and only those — offer the
+     * player-consented "Force stop realm" repair; every other failure keeps
+     * the generic error surface.
      */
     data class Failed(
         val message: String,
         val unverifiedOrphan: Boolean = false,
+        val dbOwnedByDeadSession: Boolean = false,
     ) : RealmState
 }
 

@@ -21,6 +21,16 @@ class DurableRuntimeSupervisor(
     private val orphanHeal = OrphanSelfHealPolicy(tokens)
     /** Consecutive ownerless-orphan sightings per component (monitor lane, plan F1). */
     private val orphanGraceTicks = mutableMapOf<RuntimeComponent, Int>()
+    /**
+     * Session ids minted by THIS supervisor instance. A DATABASE claim whose
+     * recorded session id is in this set, and is not the live session, is
+     * provably this device's own ended session: session ids are unguessable,
+     * only starts through this instance create claims carrying them, and a
+     * live claim's lease binder belongs to this process - so the recording
+     * supervisor epoch is this one. A process-recreated supervisor starts
+     * empty and can prove nothing; that case stays with the consented verb.
+     */
+    private val mintedSessions = mutableSetOf<String>()
     // Foreground-promotion driver state (plan B5); guarded by operationLock.
     private var foregroundPromoted = false
     private var foregroundEmptySamples = 0
@@ -66,7 +76,7 @@ class DurableRuntimeSupervisor(
             return@withLock operation(false, preflight.detail)
         }
 
-        val sessionId = tokens.sessionId()
+        val sessionId = mintSessionId()
         publish(RuntimeSnapshot(
             sessionId = sessionId,
             requestedProfile = spec.profileId,
@@ -235,11 +245,15 @@ class DurableRuntimeSupervisor(
      * Each running component is stopped under the owner the component
      * itself currently reports - the service-side requireOwner gate still
      * verifies every kill - adopting first when the component is ownerless
-     * (the plan-F1 heal). :database is never killed directly (killing it
-     * without engine.close() orphans mariadbd): the next start's recovery
-     * lane owns its engine-ordered shutdown and the DB-RECOVERY prepare
-     * heal, which is why the verb commits a dirty STOPPED journal instead
-     * of a clean one.
+     * (the plan-F1 heal). :database is never killed while a generation is
+     * live (killing it without engine.close() orphans mariadbd): the next
+     * start's recovery lane owns its engine-ordered shutdown and the
+     * DB-RECOVERY prepare heal, which is why the verb commits a dirty
+     * STOPPED journal instead of a clean one. The one addition: a DATABASE
+     * claim the journal cannot verify (an ended session's leftover lock)
+     * is released here under the owner the database itself reports -
+     * engine-ordered stop first, the process kill only while no live
+     * generation exists.
      */
     suspend fun consentedForceStopOrphanStack(): RuntimeOperation = operationLock.withLock {
         val current = _state.value
@@ -265,7 +279,7 @@ class DurableRuntimeSupervisor(
             val stopped = if (observed.owner == null) {
                 // Ownerless running component: the sanctioned adopt-then-
                 // forceStop heal under a freshly adopted owner.
-                adoptAndForceStopOrphan(component, current.sessionId ?: tokens.sessionId())
+                adoptAndForceStopOrphan(component, current.sessionId ?: mintSessionId())
             } else {
                 // Owned by a session this journal cannot verify - exactly the
                 // pinned refusal case. The player consented, so stop under the
@@ -277,6 +291,34 @@ class DurableRuntimeSupervisor(
             }
             if (!stopped.ok) {
                 fail(RuntimePhase.ERROR, "consented force stop failed for $component: ${stopped.detail}")
+                return@withLock operation(false, _state.value.lastError ?: "consented stop failed")
+            }
+        }
+        // The DATABASE-side sibling of this wedge family: with the engine
+        // down, the service-side claim can still name a prior session that
+        // ended without releasing it - the class the automatic start lane
+        // releases only on minted-session proof. The player consented, so a
+        // claim the journal cannot verify is released under the owner the
+        // database itself reports: the engine-ordered graceful stop first,
+        // and the process kill only while no live generation exists.
+        val database = runCatching { backend.observe(RuntimeComponent.DATABASE) }.getOrElse {
+            fail(RuntimePhase.ERROR, "consented stop observe DATABASE failed: ${it.message}")
+            return@withLock operation(false, _state.value.lastError ?: "consented stop failed")
+        }
+        val staleDatabaseOwner = database.owner?.takeIf { it != ownerOf(RuntimeComponent.DATABASE) }
+        if (staleDatabaseOwner != null) {
+            val released = runCatching {
+                withTimeout(timeouts.stop(RuntimeComponent.DATABASE)) {
+                    backend.stop(RuntimeComponent.DATABASE, staleDatabaseOwner)
+                }
+            }.getOrElse { RuntimeActionResult(false, it.message ?: it.javaClass.simpleName) }
+            val settled = if (released.ok) released
+            else if (database.state in ENDED_DATABASE_STATES) {
+                runCatching { backend.forceStop(RuntimeComponent.DATABASE, staleDatabaseOwner) }
+                    .getOrElse { RuntimeActionResult(false, it.message ?: it.javaClass.simpleName) }
+            } else released
+            if (!settled.ok) {
+                fail(RuntimePhase.ERROR, "consented database owner release failed: ${settled.detail}")
                 return@withLock operation(false, _state.value.lastError ?: "consented stop failed")
             }
         }
@@ -518,9 +560,43 @@ class DurableRuntimeSupervisor(
             withTimeout(timeouts.start(component, BotProfiles.find(spec.profileId) != null)) {
                 backend.start(component, owner, spec)
             }
-        }.getOrElse {
-            failStage(component, "${it.javaClass.simpleName}: ${it.message}")
-            return false
+        }.getOrElse { error ->
+            // The DATABASE-side wedge of the orphan family: the service-side
+            // claim still names a prior session that ended without releasing
+            // it (its engine is already down, so every stop lane observed
+            // "already stopped" and skipped the claim release), and each new
+            // start's claim is rejected forever. Release it automatically
+            // ONLY on minted-session proof; an unprovable owner keeps the
+            // automatic refusal and, when the class is proven but the release
+            // fails, the consented force-stop repair surface.
+            if (component != RuntimeComponent.DATABASE || !isCrossSessionClaimRejection(error)) {
+                failStage(component, "${error.javaClass.simpleName}: ${error.message}")
+                return false
+            }
+            when (val reclaim = reclaimDatabaseClaimFromEndedOwnSession(owner)) {
+                DatabaseReclaim.NOT_PROVEN -> {
+                    failStage(component, "${error.javaClass.simpleName}: ${error.message}")
+                    return false
+                }
+                is DatabaseReclaim.RELEASE_FAILED -> {
+                    failStage(component, reclaim.detail)
+                    return false
+                }
+                DatabaseReclaim.RELEASED -> runCatching {
+                    withTimeout(timeouts.start(component, BotProfiles.find(spec.profileId) != null)) {
+                        backend.start(component, owner, spec)
+                    }
+                }.getOrElse { retry ->
+                    failStage(
+                        component,
+                        if (isCrossSessionClaimRejection(retry))
+                            "DB_OWNED_BY_DEAD_SESSION: database claim was rejected again " +
+                                "after the ended session's owner was released"
+                        else "${retry.javaClass.simpleName}: ${retry.message}",
+                    )
+                    return false
+                }
+            }
         }
         val owned = observation.owner == owner
         if (!observation.ready || observation.state != ComponentLifecycle.READY || !owned) {
@@ -531,6 +607,62 @@ class DurableRuntimeSupervisor(
         publish(_state.value.copy(lastDurableAction = "${component.name.lowercase()}-ready"))
         return true
     }
+
+    /** Outcome of the automatic DATABASE stale-claim release below. */
+    private sealed interface DatabaseReclaim {
+        /** The recorded owner is not provably this instance's own ended session. */
+        data object NOT_PROVEN : DatabaseReclaim
+        /** The stale claim was released; the caller retries the claim once. */
+        data object RELEASED : DatabaseReclaim
+        /** Proof held but the release failed; [detail] carries the failure-class marker. */
+        data class RELEASE_FAILED(val detail: String) : DatabaseReclaim
+    }
+
+    /**
+     * Releases a DATABASE ownership claim left behind by one of THIS
+     * supervisor instance's own prior runtime sessions. The wedge is real:
+     * the engine is already down, so the stop lanes all short-circuit on
+     * "already stopped" without ever clearing the service-side claim, and
+     * every later start's claim is rejected forever - plain retries cannot
+     * heal it. Automatic release is legal only on proof: the claim's session
+     * id was minted by this instance (same supervisor epoch) and has since
+     * been replaced, and the engine observably has no live generation. A
+     * foreign or unverifiable session id is NOT proven - the automatic lanes
+     * refuse it exactly like the pinned UNVERIFIED_ORPHAN law - and only the
+     * consented force-stop verb may release it.
+     */
+    private suspend fun reclaimDatabaseClaimFromEndedOwnSession(next: ComponentOwner): DatabaseReclaim {
+        val observed = runCatching { backend.observe(RuntimeComponent.DATABASE) }.getOrNull()
+            ?: return DatabaseReclaim.NOT_PROVEN
+        val stale = observed.owner ?: return DatabaseReclaim.NOT_PROVEN
+        if (stale == next || stale.sessionId == next.sessionId) return DatabaseReclaim.NOT_PROVEN
+        if (stale.sessionId !in mintedSessions) return DatabaseReclaim.NOT_PROVEN
+        if (observed.state !in ENDED_DATABASE_STATES) return DatabaseReclaim.NOT_PROVEN
+        publish(_state.value.copy(
+            lastDurableAction = "database-ended-own-session-owner-release-requested"))
+        val stopped = runCatching {
+            withTimeout(timeouts.stop(RuntimeComponent.DATABASE)) {
+                backend.stop(RuntimeComponent.DATABASE, stale)
+            }
+        }.getOrElse { RuntimeActionResult(false, it.message ?: it.javaClass.simpleName) }
+        if (stopped.ok) return DatabaseReclaim.RELEASED
+        // The engine is proven down, so killing the recycling :database
+        // process releases the claim and orphans nothing - the same verb the
+        // recovery lane uses for a journaled database owner.
+        val killed = runCatching { backend.forceStop(RuntimeComponent.DATABASE, stale) }
+            .getOrElse { RuntimeActionResult(false, it.message ?: it.javaClass.simpleName) }
+        if (killed.ok) return DatabaseReclaim.RELEASED
+        return DatabaseReclaim.RELEASE_FAILED(
+            "DB_OWNED_BY_DEAD_SESSION: ended own-session database owner could not " +
+                "be released: ${killed.detail}",
+        )
+    }
+
+    /** The service-side cross-session claim rejection contract (ComponentOwnership). */
+    private fun isCrossSessionClaimRejection(error: Throwable): Boolean =
+        error.message?.contains("owned by another runtime session") == true
+
+    private fun mintSessionId(): String = tokens.sessionId().also { mintedSessions += it }
 
     private suspend fun recoverLocked(): Boolean {
         val prior = _state.value
@@ -854,6 +986,10 @@ class DurableRuntimeSupervisor(
         // Re-observe cadence inside the recovery-lane orphan grace (plan F1);
         // mirrors the 1s health-monitor tick.
         private const val ORPHAN_REOBSERVE_INTERVAL_MS = 1_000L
+        // A stale DATABASE ownership claim may be released (automatically or
+        // consented-and-killed) only while the engine observably has no live
+        // generation; a live one belongs to the engine-ordered stop lanes.
+        private val ENDED_DATABASE_STATES = setOf(ComponentLifecycle.STOPPED, ComponentLifecycle.FAILED)
         private val STARTABLE = setOf(RuntimePhase.STOPPED, RuntimePhase.ERROR, RuntimePhase.UNCONFIGURED)
         private val INACTIVE_TERMINAL_PHASES = setOf(
             RuntimePhase.STOPPED,

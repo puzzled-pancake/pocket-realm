@@ -29,6 +29,32 @@ class RuntimeFailureCopyTest {
         assertFalse(human.contains("Tap Start"))
     }
 
+    @Test fun `db owned by dead session detail maps to human copy`() {
+        val human = RuntimeFailureCopy.humanize(
+            "DATABASE: DB_OWNED_BY_DEAD_SESSION: ended own-session database owner " +
+                "could not be released: injected drain failure")
+        assertFalse(human.contains("DB_OWNED_BY_DEAD_SESSION"))
+        assertFalse(human.contains("DATABASE:"))
+        // Truthful about the wedge: the lock belongs to an ended session on
+        // this device, so retrying the start cannot clear it...
+        assertTrue(human.contains("database"))
+        assertTrue(human.contains("ended"))
+        assertTrue(human.contains("retrying"))
+        // ...and the only way forward is the dedicated consented action.
+        assertTrue(human.contains("Force stop realm"))
+        assertTrue(human.contains("checked and repaired"))
+    }
+
+    @Test fun `db owned by dead session copy keeps the unverified orphan copy distinct`() {
+        val stale = RuntimeFailureCopy.humanize("DB_OWNED_BY_DEAD_SESSION: database claim rejected")
+        val orphan = RuntimeFailureCopy.humanize("UNVERIFIED_ORPHAN: WORLD ownership did not match")
+        // The two repair classes never collapse into each other's copy.
+        assertTrue(stale.contains("locked"))
+        assertFalse(stale.contains("cannot verify"))
+        assertTrue(orphan.contains("cannot verify"))
+        assertFalse(orphan.contains("locked"))
+    }
+
     @Test fun `timeout cancellation detail maps to human copy`() {
         val human = RuntimeFailureCopy.humanize(
             "TimeoutCancellationException: Timed out waiting for 1800000 ms")

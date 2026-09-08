@@ -126,9 +126,11 @@ class RuntimeSupervisorClient(context: Context) {
             val phase = RuntimePhase.valueOf(value.getString("phase"))
             val generationActive = value.optBoolean("supervisorGenerationActive")
             val rawError = value.optString("lastError").trim().takeIf { it.isNotEmpty() }
-            // The UNVERIFIED_ORPHAN refusal carries a dedicated repair
-            // affordance; detect it on the raw detail before humanizing.
+            // The UNVERIFIED_ORPHAN refusal and the DB_OWNED_BY_DEAD_SESSION
+            // wedge carry a dedicated repair affordance; detect both on the
+            // raw detail before humanizing.
             val unverifiedOrphan = rawError?.contains("UNVERIFIED_ORPHAN") == true
+            val dbOwnedByDeadSession = rawError?.contains("DB_OWNED_BY_DEAD_SESSION") == true
             val lastError = rawError
                 // Plan F1: raw details (UNVERIFIED_ORPHAN, timeout classes)
                 // go to logs; the UI sees human copy.
@@ -139,6 +141,7 @@ class RuntimeSupervisorClient(context: Context) {
                     else RealmState.Failed(
                         lastError ?: "Previous runtime needs recovery before it can start.",
                         unverifiedOrphan = unverifiedOrphan,
+                        dbOwnedByDeadSession = dbOwnedByDeadSession,
                     )
                 }
                 RuntimePhase.PREPARING, RuntimePhase.DB_STARTING, RuntimePhase.REALM_STARTING,
@@ -172,6 +175,7 @@ class RuntimeSupervisorClient(context: Context) {
                 RuntimePhase.ERROR -> RealmState.Failed(
                     lastError ?: "runtime failed",
                     unverifiedOrphan = unverifiedOrphan,
+                    dbOwnedByDeadSession = dbOwnedByDeadSession,
                 )
             }
         }

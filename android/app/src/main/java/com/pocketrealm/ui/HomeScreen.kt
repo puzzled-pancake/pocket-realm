@@ -271,30 +271,39 @@ fun HomeScreen(
             },
         )
     }
-    // UNVERIFIED_ORPHAN repair (the pinned refusal is automatic lanes only):
-    // the failure surface offers an explicit, player-consented force stop of
-    // the leftover stack; the next start then runs the normal recovery +
-    // database prepare heal path.
-    val orphanFailure = unverifiedOrphanFailure(state)
+    // Consented force-stop repair (the pinned refusals are automatic lanes
+    // only): the failure surface offers an explicit, player-consented force
+    // stop of the leftover stack — the UNVERIFIED_ORPHAN world and the
+    // DB_OWNED_BY_DEAD_SESSION database lock; the next start then runs the
+    // normal recovery + database prepare heal path.
+    val repairFailure = forceStopRepairFailure(state)
     var confirmOrphanStop by remember { mutableStateOf(false) }
     val orphanStopConsent = remember(context) {
         OrphanForceStopConsent { RealmService.consentedOrphanStop(context) }
     }
-    LaunchedEffect(orphanFailure) {
-        if (orphanFailure == null) {
+    LaunchedEffect(repairFailure) {
+        if (repairFailure == null) {
             confirmOrphanStop = false
             orphanStopConsent.reset()
         }
     }
-    if (orphanFailure != null && confirmOrphanStop) {
+    if (repairFailure != null && confirmOrphanStop) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { confirmOrphanStop = false },
             title = { androidx.compose.material3.Text("Force stop realm") },
             text = {
                 androidx.compose.material3.Text(
-                    "This force-stops the leftover world from the failed start. " +
-                        "Unsaved progress in that world is lost; the realm databases " +
-                        "are checked and repaired automatically on the next start.",
+                    if (repairFailure.dbOwnedByDeadSession) {
+                        "This releases the realm database lock left by an earlier " +
+                            "ended session on this device and force-stops any " +
+                            "leftover world from the failed start. The realm " +
+                            "databases are checked and repaired automatically on " +
+                            "the next start."
+                    } else {
+                        "This force-stops the leftover world from the failed start. " +
+                            "Unsaved progress in that world is lost; the realm databases " +
+                            "are checked and repaired automatically on the next start."
+                    },
                 )
             },
             confirmButton = {
@@ -421,7 +430,7 @@ fun HomeScreen(
                     onSaveExit = saveAndExit,
                     onEnterGame = enterGame,
                     onRetryGame = retryGame,
-                    onForceStopOrphan = orphanFailure?.let { { confirmOrphanStop = true } },
+                    onForceStopOrphan = repairFailure?.let { { confirmOrphanStop = true } },
                     clientRetryPending = clientRetryPending,
                     canLaunchGame = canLaunchGame,
                     settingsReady = settingsSnapshotState != null,
@@ -481,7 +490,7 @@ fun HomeScreen(
                     onSaveExit = saveAndExit,
                     onEnterGame = enterGame,
                     onRetryGame = retryGame,
-                    onForceStopOrphan = orphanFailure?.let { { confirmOrphanStop = true } },
+                    onForceStopOrphan = repairFailure?.let { { confirmOrphanStop = true } },
                     clientRetryPending = clientRetryPending,
                     canLaunchGame = canLaunchGame,
                     settingsReady = settingsSnapshotState != null,
@@ -536,7 +545,7 @@ private fun RealmControlCard(
     onSaveExit: () -> Unit,
     onEnterGame: (() -> Unit)?,
     onRetryGame: () -> Unit,
-    /** Present only for the UNVERIFIED_ORPHAN failure: opens the force-stop confirmation. */
+    /** Present only for the consented force-stop repair failures (orphan world, dead-session database lock): opens the confirmation. */
     onForceStopOrphan: (() -> Unit)?,
     clientRetryPending: Boolean,
     canLaunchGame: Boolean,
@@ -1037,6 +1046,17 @@ internal fun homeActionAvailability(
  */
 internal fun unverifiedOrphanFailure(state: RealmState): RealmState.Failed? =
     (state as? RealmState.Failed)?.takeIf { it.unverifiedOrphan }
+
+/**
+ * The full consented force-stop repair surface: exactly the pinned
+ * UNVERIFIED_ORPHAN refusal and the DB_OWNED_BY_DEAD_SESSION wedge (the
+ * database still locked by an ended session of this device) expose the
+ * "Force stop realm" affordance; every other failure keeps the generic
+ * error presentation with no extra action.
+ */
+internal fun forceStopRepairFailure(state: RealmState): RealmState.Failed? =
+    unverifiedOrphanFailure(state)
+        ?: (state as? RealmState.Failed)?.takeIf { it.dbOwnedByDeadSession }
 
 /**
  * Dispatch-once consent ledger behind the force-stop confirmation: each

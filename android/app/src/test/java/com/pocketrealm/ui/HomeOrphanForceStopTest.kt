@@ -37,6 +37,28 @@ class HomeOrphanForceStopTest {
     }
 
     @Test
+    fun theDbOwnedByDeadSessionFailureJoinsTheForceStopRepairSurface() {
+        val stale = RealmState.Failed(
+            "The realm database is still locked by an earlier realm session on this device.",
+            dbOwnedByDeadSession = true,
+        )
+        assertNotNull(forceStopRepairFailure(stale))
+
+        // The orphan flag still routes through the same consented surface...
+        assertNotNull(forceStopRepairFailure(
+            RealmState.Failed("leftover world", unverifiedOrphan = true)))
+
+        // ...while similar copy on a generic failure, and every non-failure
+        // state, keep the generic surface with no affordance.
+        assertNull(forceStopRepairFailure(RealmState.Failed("database is locked")))
+        assertNull(forceStopRepairFailure(RealmState.Failed("runtime failed")))
+        assertNull(forceStopRepairFailure(RealmState.Idle))
+        assertNull(forceStopRepairFailure(RealmState.Starting(1)))
+        assertNull(forceStopRepairFailure(
+            RealmState.Running(System.currentTimeMillis(), RuntimeMode.LOCAL)))
+    }
+
+    @Test
     fun confirmingOnceDispatchesTheStopVerbExactlyOnce() {
         var dispatches = 0
         val consent = OrphanForceStopConsent { dispatches++ }

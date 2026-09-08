@@ -4,12 +4,14 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.os.DeadObjectException
 import android.os.IBinder
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.pocketrealm.BuildConfig
 import com.pocketrealm.server.IRealmControl
 import com.pocketrealm.server.IWorldControl
+import com.pocketrealm.supervisor.IRuntimeSupervisorControl
 import org.json.JSONObject
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -44,7 +46,8 @@ import java.util.concurrent.TimeUnit
  *       bot_player_relationship for one player or all)
  *   llm-memory-state <player> (H2 relay-min: per-bot relationship rows +
  *       per-(bot,prefix) fact counts; empty player = world summary)
- *   stack-up-bot <profileId>   (db init+migrations+start → realm → world)
+ *   stack-up-bot <profileId>   (supervisor DB-RECOVERY gate when the journal
+ *       is dirty, then db init+migrations+start → realm → world)
  *   quit
  *   ping   (harness attach probe: alive/uptimeMs + runtimeBuildId and the
  *       native source-commit pins baked from the lane lockfile at build
@@ -74,11 +77,7 @@ class WorldConsoleRelay {
                 JSONObject().put("ok", true).put("op", op).put("bye", true)
             } else {
                 runCatching { execute(op, command) }
-                    .fold(onSuccess = { it },
-                          onFailure = { failure ->
-                              JSONObject().put("ok", false).put("op", op)
-                                  .put("error", failure.message
-                                      ?: failure.javaClass.simpleName) })
+                    .fold(onSuccess = { it }, onFailure = { opFailure(op, it) })
             }
             outFile.writeText(response.put("atMs", System.currentTimeMillis()).toString())
             inFile.delete()
@@ -90,16 +89,47 @@ class WorldConsoleRelay {
         if (!inFile.isFile) null else JSONObject(inFile.readText())
     }.getOrNull()
 
+    // Failure shape follows the services' guarded() convention (errorClass +
+    // truthful error). A DeadObjectException means the target process died
+    // mid-op - the per-op pingBinder revalidation cannot fully close that
+    // race - so drop every dead cache (the next op rebinds) and answer with
+    // the dead component's NOT_READY class instead of a bare exception name
+    // the host cannot branch on.
+    private fun opFailure(op: String, failure: Throwable): JSONObject {
+        val deadComponents = ArrayList<String>()
+        if (control?.alive() == false) { control?.close(); control = null; deadComponents.add("DATABASE") }
+        if (realm?.alive() == false) { realm?.close(); realm = null; deadComponents.add("REALM") }
+        if (world?.alive() == false) { world?.close(); world = null; deadComponents.add("WORLD") }
+        val response = JSONObject().put("ok", false).put("op", op)
+            .put("errorClass", if (failure is DeadObjectException && deadComponents.isNotEmpty())
+                deadComponents.first() + "_NOT_READY" else failure.javaClass.simpleName)
+            .put("error", failure.message ?: failure.javaClass.simpleName)
+        if (failure is DeadObjectException)
+            response.put("remedy", "component process died mid-op; the stale binder was " +
+                "dropped and the next op rebinds - retry the op (world-start-bot to boot a world)")
+        return response
+    }
+
+    // Cached proxies are revalidated per op: a :world death used to wedge the
+    // relay permanently (every later op answered DeadObjectException until
+    // world-kill's unconditional unbind). A dead cache is closed so the
+    // rebind below reconnects to the recreated service process.
+    private fun <T> rebind(cached: Bound<T>?, component: String, convert: (IBinder) -> T): Bound<T> {
+        if (cached != null && cached.alive()) return cached
+        cached?.close()
+        return bind(component, convert)
+    }
+
     private fun db(): IDatabaseControl =
-        control?.api ?: bind("com.pocketrealm.database.DatabaseService")
+        rebind(control, "com.pocketrealm.database.DatabaseService")
             { IDatabaseControl.Stub.asInterface(it) }.also { control = it }.api
 
     private fun realmApi(): IRealmControl =
-        realm?.api ?: bind("com.pocketrealm.server.RealmRuntimeService")
+        rebind(realm, "com.pocketrealm.server.RealmRuntimeService")
             { IRealmControl.Stub.asInterface(it) }.also { realm = it }.api
 
     private fun worldApi(): IWorldControl =
-        world?.api ?: bind("com.pocketrealm.server.WorldRuntimeService")
+        rebind(world, "com.pocketrealm.server.WorldRuntimeService")
             { IWorldControl.Stub.asInterface(it) }.also { world = it }.api
 
     private fun execute(op: String, command: JSONObject): JSONObject {
@@ -176,6 +206,22 @@ class WorldConsoleRelay {
 
     private fun stackUpBot(profileId: String): JSONObject {
         val out = JSONObject().put("op", "stack-up-bot")
+        // DB-RECOVERY gate (the dirty-stop lesson): driving db
+        // initialize/migrations/start directly over an unsealed generation
+        // failed dbMigrations/dbStart and left the world leg at DB_REVISION.
+        // The sanctioned heal is the supervisor's recovery lane - the same
+        // DurableRuntimeSupervisor.recover() an app-led Start realm runs -
+        // driven over its Binder, never re-implemented here. If the lane
+        // cannot heal, fail fast and actionably instead of driving the legs.
+        val recovery = healDatabaseThroughSupervisor()
+        out.put("dbRecovery", recovery.optBoolean("ok"))
+            .put("dbRecoveryDetail", recovery.optString("action", recovery.optString("error")))
+        if (!recovery.optBoolean("ok")) {
+            return out.put("ok", false)
+                .put("errorClass", "DB_REVISION")
+                .put("error", recovery.optString("error") + "; remedy: one app-led Start " +
+                    "realm (Home -> Start) heals the database, then re-run stack-up-bot")
+        }
         val database = db()
         out.put("dbInit", JSONObject(database.initialize()).optBoolean("ok"))
         out.put("dbMigrations", JSONObject(database.applyPinnedMigrations()).optBoolean("ok"))
@@ -189,12 +235,69 @@ class WorldConsoleRelay {
         return out
     }
 
+    /**
+     * DB-RECOVERY gate for stack-up-bot: a dirty supervisor journal (a dirty
+     * stop, or the attach restart tearing an app-led generation down) is
+     * healed through the supervisor's own recover verb - RealmService's
+     * DurableRuntimeSupervisor.recover() -> recoverDatabase() ->
+     * prepareDatabaseForStart(), the exact DB-RECOVERY lane an app-led
+     * Start realm runs - so the composite's db legs always run over a
+     * sealed, prepared generation. A clean stopped journal skips the gate.
+     */
+    private fun healDatabaseThroughSupervisor(): JSONObject = runCatching {
+        val supervisor = bind("com.pocketrealm.service.RealmService")
+            { IRuntimeSupervisorControl.Stub.asInterface(it) }
+        try {
+            val deadline = System.currentTimeMillis() + SUPERVISOR_RECOVERY_TIMEOUT_MS
+            var recoverySubmitted = false
+            while (System.currentTimeMillis() < deadline) {
+                val status = JSONObject(supervisor.api.status())
+                // clean=true on a settled phase (STOPPED after recovery, or
+                // UNCONFIGURED/ERROR on a never-started journal) means the
+                // supervisor owns no generation: nothing to heal. Any other
+                // phase is an active or interrupted generation.
+                val phase = status.optString("phase")
+                val settled = phase in setOf("STOPPED", "UNCONFIGURED", "ERROR")
+                if (settled && status.optBoolean("clean"))
+                    return JSONObject().put("ok", true)
+                        .put("action", if (recoverySubmitted) "supervisor-recover" else "none-needed")
+                if (phase == "RECOVERING") {
+                    Thread.sleep(1_000); continue
+                }
+                if (!recoverySubmitted) {
+                    // the verb answers accepted immediately; a busy
+                    // coordinator (another lifecycle operation in flight) is
+                    // retried until the deadline
+                    if (JSONObject(supervisor.api.recover()).optBoolean("accepted"))
+                        recoverySubmitted = true
+                    Thread.sleep(1_000); continue
+                }
+                // a submitted recovery settled anywhere but a clean journal:
+                // it failed; the journal fields name the leg
+                return JSONObject().put("ok", false)
+                    .put("error", "supervisor recovery did not reach a clean settled journal" +
+                        " (${phase}/${status.optString("lastDurableAction")}):" +
+                        " ${status.optString("lastError")}")
+            }
+            JSONObject().put("ok", false)
+                .put("error", "supervisor DB recovery did not settle within " +
+                    "${SUPERVISOR_RECOVERY_TIMEOUT_MS / 1000}s")
+        } finally {
+            supervisor.close()
+        }
+    }.getOrElse { failure ->
+        JSONObject().put("ok", false)
+            .put("error", "supervisor DB-RECOVERY lane unreachable: " +
+                (failure.message ?: failure.javaClass.simpleName))
+    }
+
     private fun <T> bind(component: String, convert: (IBinder) -> T): Bound<T> {
         val latch = CountDownLatch(1)
         var binder: T? = null
+        var rawBinder: IBinder? = null
         val connection = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-                binder = convert(service!!); latch.countDown()
+                binder = convert(service!!); rawBinder = service; latch.countDown()
             }
             override fun onServiceDisconnected(name: ComponentName?) = Unit
         }
@@ -202,13 +305,35 @@ class WorldConsoleRelay {
         check(context.bindService(Intent().setClassName(context, component), connection,
             Context.BIND_AUTO_CREATE)) { "bindService failed: $component" }
         check(latch.await(60, TimeUnit.SECONDS)) { "bind timeout: $component" }
-        return Bound(binder!!, connection)
+        return Bound(binder!!, rawBinder!!, connection)
     }
 
-    private inner class Bound<T>(val api: T, private val connection: ServiceConnection) {
+    // The cached half of the per-op liveness contract: linkToDeath flips the
+    // flag the moment the owning process dies (a crash, killForTest, or a
+    // clean-stop retire), alive() re-proves it with a real pingBinder round
+    // trip, and close() always unlinks so a recycled connection never fires
+    // into a dropped cache.
+    private inner class Bound<T>(
+        val api: T,
+        private val binder: IBinder,
+        private val connection: ServiceConnection,
+    ) {
+        @Volatile private var dead = false
+        private val deathRecipient = IBinder.DeathRecipient { dead = true }
+
+        init { runCatching { binder.linkToDeath(deathRecipient, 0) } }
+
+        fun alive(): Boolean = !dead && binder.pingBinder()
+
         fun close() {
+            runCatching { binder.unlinkToDeath(deathRecipient, 0) }
             runCatching { context.unbindService(connection) }
             connections.remove(connection)
         }
+    }
+
+    companion object {
+        /** stack-up-bot's supervisor recovery budget; the host console waits 900 s for slow ops. */
+        private const val SUPERVISOR_RECOVERY_TIMEOUT_MS = 420_000L
     }
 }
