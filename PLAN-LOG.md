@@ -3847,3 +3847,41 @@ desktop suite 281/281 (seeder suite: full-discipline happy path,
 re-seed refusal, digest-mismatch honesty incl. the partial-generation
 posture, splitter locality on failing statements); seam + manifest
 pytest pins green; detekt + check_repo green.
+
+## Windows port Phase 3c: conf twin + the real backend — realmd BOOTS and listens on 3724
+
+ServerRuntimeFiles desktop twin (same conf text, same run/logs/lifecycle
+layout, same secureWrite discipline minus the POSIX chmod — NTFS profile
+ACLs cover the run dir) with deliberate lane differences: databaseInfo is
+SQLite-only (the DatabaseInfo string is the datadir file path — no
+MariaDB branch, no provider marker), the world always starts from the
+NORMAL PreparedDataStore lane (mmaps mandatory on desktop; the o09
+baseline shortcut does not exist here), and the playerbot LLM conf
+append arrives with the Phase-5 LlmRuntimePolicy twin (world starts with
+the bots-disabled block meanwhile). The settings twin gains
+worldDebugLogs (the B2 log-level toggle input).
+
+DesktopRuntimeBackend replaces the phase-1 stub with the real
+implementation: DATABASE = the materialized datadir (no daemon; clean
+stop = no WAL sidecars — walSidecars lists candidates, existence is
+filtered), REALM/WORLD = the in-process native runtimes driven with the
+Android services' exact transition discipline (stopped-state gate, log
+rotation between lifetimes, lifecycle records, CONTROL_TIMEOUT_MS stop,
+native-state → ComponentLifecycle mapping per the Android observation
+helper), provisionAccount through WorldNative (ACCOUNT_EXISTS by error
+index), projectRealmEndpoint as a real realmlist UPDATE+verify through
+the seam. Phase-4 verbs (client launcher, foreground) fail honestly.
+
+Discovery pinned by test: startNative returning 0 means the runtime
+ACCEPTED the launch — database-level failures surface asynchronously
+through the state machine (schemaless datadir → STARTING, never a sync
+throw), the same async model the Android services expose.
+
+Gates: gradlew bootRealmd PASSED against the real %LOCALAPPDATA%
+datadir — preflight seeded, database READY, realm STARTING → "Added
+realm id 1, name 'MaNGOS'" → 127.0.0.1:3724 ACCEPTED A CONNECTION →
+READY → clean stop rc=0 → no WAL sidecars. Desktop suite 294/294
+(conf-twin content pins, DATA_MISSING refusal, lifecycle shape,
+rotation gate, database observe/start/stop, world honest refusal,
+realm launch+settle, realmlist projection through the seam); detekt +
+check_repo green.

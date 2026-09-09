@@ -19,6 +19,7 @@ object Settings {
         val botSavedPresetId: String? = null,
         val autoLoginOnLaunch: Boolean = false,
         val lastActiveGeneration: Int = 0,
+        val worldDebugLogs: Boolean = false,
     ) {
         companion object {
             fun fromJson(text: String): Snapshot {
@@ -33,6 +34,7 @@ object Settings {
                         else value.optString("botSavedPresetId").ifEmpty { null },
                     autoLoginOnLaunch = value.optBoolean("autoLoginOnLaunch", false),
                     lastActiveGeneration = value.optInt("lastActiveGeneration", 0),
+                    worldDebugLogs = value.optBoolean("worldDebugLogs", false),
                 )
             }
         }
@@ -46,6 +48,7 @@ object Settings {
             .put("botSavedPresetId", botSavedPresetId)
             .put("autoLoginOnLaunch", autoLoginOnLaunch)
             .put("lastActiveGeneration", lastActiveGeneration)
+            .put("worldDebugLogs", worldDebugLogs)
             .toString()
     }
 }

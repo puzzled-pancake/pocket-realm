@@ -113,3 +113,13 @@ tasks.register<JavaExec>("seedRealmData") {
         args(project.property("stagingRoot"))
     }
 }
+
+// Phase-3 gate: boot realmd in-process, prove 127.0.0.1:3724 accepts a
+// connection, stop cleanly (see BootRealmd.kt).
+tasks.register<JavaExec>("bootRealmd") {
+    group = "bring-up"
+    description = "Boot realmd in-process and verify the 3724 listener + clean stop."
+    classpath = sourceSets.named("main").get().runtimeClasspath
+    mainClass.set("com.pocketrealm.desktop.BootRealmdKt")
+    jvmArgs("-Djava.library.path=$nativeLibraryPath")
+}
