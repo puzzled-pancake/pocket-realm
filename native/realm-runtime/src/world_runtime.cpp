@@ -1102,6 +1102,17 @@ private:
             World::StopNow(SHUTDOWN_EXIT_CODE);
             sMaster.StopEmbedded();
             m_started = false;
+            // Close the databases on EVERY teardown path. The Android
+            // lane reaped these connections implicitly when the world
+            // service process died; the Windows lane runs this runtime
+            // in-process inside the app JVM, where a lingering
+            // connection keeps the sqlite WAL sidecars alive past the
+            // stop — the clean-stop seal requires them gone.
+            CharacterDatabase.StopServerEmbedded();
+            WorldDatabase.StopServerEmbedded();
+            LoginDatabase.StopServerEmbedded();
+            LogsDatabase.StopServerEmbedded();
+            World::ResetForReinit();
         }
         else
         {

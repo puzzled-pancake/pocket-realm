@@ -40,6 +40,8 @@ BUILD = ROOT / "native" / ".build-win-x86_64"
 VCPKG_INSTALLED = ROOT / "native" / "win-deps" / "vcpkg_installed" / "x64-windows-static-md"
 WIN_PREFIX = ROOT / "native" / ".deps" / "prefix-win-x86_64"
 
+EXTRACTOR_TARGETS = ["ad", "vmap_extractor", "vmap_assembler", "MoveMapGen"]
+
 
 def which_cmake() -> str:
     found = subprocess.run(["where", "cmake"], capture_output=True, text=True)
@@ -94,7 +96,10 @@ def dependency_preflight() -> None:
         )
 
 
-def configure_command() -> list[str]:
+EXTRACTOR_TARGETS = ["ad", "vmap_extractor", "vmap_assembler", "MoveMapGen"]
+
+
+def configure_command(extractors: bool = False) -> list[str]:
     cmangos = ROOT / "native" / "cmangos"
     deps = VCPKG_INSTALLED
     sqlite_prefix = WIN_PREFIX
@@ -104,7 +109,8 @@ def configure_command() -> list[str]:
         "-DCMAKE_BUILD_TYPE=Release",
         "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
         "-DBUILD_GAME_SERVER=ON", "-DBUILD_LOGIN_SERVER=ON", "-DBUILD_SCRIPTDEV=ON",
-        "-DBUILD_EXTRACTORS=OFF", "-DBUILD_PLAYERBOTS=ON", "-DBUILD_AHBOT=OFF",
+        f"-DBUILD_EXTRACTORS={'ON' if extractors else 'OFF'}",
+        "-DBUILD_PLAYERBOTS=ON", "-DBUILD_AHBOT=OFF",
         "-DBUILD_DEPRECATED_PLAYERBOT=OFF", "-DBUILD_POCKET_RUNTIME=ON",
         f"-DPOCKET_RUNTIME_DIR={ROOT / 'native' / 'realm-runtime'}",
         # Fail-loud backend selection: SQLITE is the real switch (same
@@ -229,6 +235,9 @@ def main() -> int:
         return 2
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--configure-only", action="store_true")
+    parser.add_argument("--extractors", action="store_true",
+                        help="build the four data extractors (ad, vmap_extractor, "
+                             "vmap_assembler, MoveMapGen) instead of the runtimes")
     parser.add_argument("--force", action="store_true",
                         help="wipe the build directory before configuring")
     args = parser.parse_args()
@@ -254,7 +263,7 @@ def main() -> int:
         BUILD.mkdir(parents=True, exist_ok=True)
         vcvars = find_vcvars()
         # Quote the cmake path inside the generated batch (Program Files).
-        cmd = configure_command()
+        cmd = configure_command(extractors=args.extractors)
         configure_body = f'"{cmd[0]}" ' + " ".join(str(c) for c in cmd[1:])
         configure_body += f' > "{BUILD / "configure.log"}" 2>&1'
         in_msvc_env(vcvars, configure_body, BUILD / "configure.log")
@@ -262,6 +271,20 @@ def main() -> int:
         verify_backend_selection(capture)
         if args.configure_only:
             print(f"configure-only: backend=sqlite verified in {BUILD}")
+            return 0
+        if args.extractors:
+            build_body = (
+                f'"{CMAKE}" --build "{BUILD}" ' +
+                " ".join(f"--target {target}" for target in EXTRACTOR_TARGETS) +
+                f' -j {os.cpu_count() or 4} ' +
+                f'> "{BUILD / "extractors.log"}" 2>&1'
+            )
+            in_msvc_env(vcvars, build_body, BUILD / "extractors.log")
+            exes = [BUILD / "bin/x64_Release/Extractors" / f"{target}.exe"
+                    for target in EXTRACTOR_TARGETS]
+            for exe in exes:
+                assert exe.is_file(), f"expected extractor missing: {exe}"
+            print("windows extractors built:\n" + "\n".join(f"  {exe}" for exe in exes))
             return 0
         build_body = (
             f'"{CMAKE}" --build "{BUILD}" --target pocket_realmd_runtime '

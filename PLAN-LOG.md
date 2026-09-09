@@ -3925,3 +3925,47 @@ detekt clean; check_repo OK. Phase 3's full gate list is green:
 manifest-seed complete, realmd listening on 3724 (3c), protocol-level
 auth (this), world start fails honestly with the prepared-data copy
 (3c), clean stop saves + no WAL sidecars.
+
+## Windows port Phase 4: extractors, real data prep, FULL WORLD BOOT, client launcher
+
+The world server BOOTS on Windows: gradlew bootWorld passes — database +
+realm + world in-process against genuinely prepared 1.12.1 client data,
+world READY (vmaps + mmaps loaded), 127.0.0.1:8085 accepts a connection,
+world save rc=0, clean stops with the WAL-sidecar seal. Startup to READY
+takes ~2 seconds after the DB open.
+
+- Extractor lane: tools/build_win_realm_runtime.py --extractors builds
+  ad.exe, vmap_extractor.exe, vmap_assembler.exe, MoveMapGen.exe under
+  MSVC (BUILD_EXTRACTORS=ON; outputs under bin/x64_Release/Extractors).
+- Data prep: tools/win_prepare_data.py runs the four extractors against
+  C:\Vanilla wow 1.12.1 (client left byte-clean — outputs moved out as
+  they land), then assembles the PreparedDataStore contract verbatim:
+  generations/<uuid>/{dbc,maps,vmaps,mmaps} + data-manifest.json (every
+  file size+sha256) + active.json pointer. Published: 10,673 files
+  (dbc 158, maps 2429, vmapTrees 43, mmapMaps 43, mmapTiles 1966);
+  MoveMapGen all maps in 325 s at 16 threads. Two extractor quirks
+  pinned fail-loud in the tool: the assembler and MoveMapGen require
+  their OUTPUT dirs to pre-exist, and the assembler reports failure as
+  exit code 0 ("exit with errors" text) — the tool verifies vmtrees/
+  mmtiles itself.
+- First native-runtime source change of the port (first-party
+  realm-runtime, both lanes compile it): world cleanup() now closes all
+  four databases on the STARTED path too — Android reaped the sqlite
+  connections implicitly at process death, but the Windows lane runs
+  the world in-process inside the JVM where lingering connections kept
+  WAL sidecars alive past the stop (the plan's pre-identified overlay).
+  Same symbols as the adjacent never-started branch; zero new includes
+  (Android-lane compile risk nil, exercised at next APK build).
+- Desktop stopDatabase: bounded WAL drain + the Windows delete-pending
+  wrinkle (scanner-held handles keep names visible after sqlite's
+  delete; only sidecars that OPEN are live connections).
+- Client launcher: DesktopRuntimeBackend gains real CLIENT verbs —
+  realmlist re-projected every launch via the shared
+  ClientRealmEndpointProjection, WoW.exe spawned via ProcessBuilder in
+  its own directory, live-process observation, destroy-on-stop.
+  gradlew launchClient boots the full stack then launches the client
+  (interactive login; Enter saves + stops the realm).
+
+Gates: bootWorld PASSED (READY, 8085, save, clean stops incl. WAL
+seal); authGate re-passed after the world rebuild (regression);
+desktop suite 294/294; detekt + check_repo green.

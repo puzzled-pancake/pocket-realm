@@ -16,7 +16,9 @@ import com.pocketrealm.supervisor.RuntimeBackend
 import com.pocketrealm.supervisor.RuntimeComponent
 import com.pocketrealm.supervisor.RuntimeLaunchSpec
 import com.pocketrealm.supervisor.ComponentOwner
+import com.pocketrealm.client.ClientRealmEndpointProjection
 import com.pocketrealm.supervisor.WorldPresenceSample
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -41,9 +43,13 @@ import kotlinx.coroutines.withContext
 @Suppress("TooManyFunctions") // the shared RuntimeBackend seam dictates the verb count
 class DesktopRuntimeBackend(
     private val roots: DesktopStorageRoots = DesktopStorageRoots(),
+    private val clientDir: File? = null,
 ) : RuntimeBackend {
     private val files = ServerRuntimeFiles(roots)
     private val transitionLock = Any()
+
+    @Volatile
+    private var client: Process? = null
 
     override suspend fun preflight(spec: RuntimeLaunchSpec): RuntimeActionResult =
         withContext(Dispatchers.IO) {
@@ -67,14 +73,17 @@ class DesktopRuntimeBackend(
                 RuntimeComponent.DATABASE -> observeDatabase()
                 RuntimeComponent.REALM -> observeRealm()
                 RuntimeComponent.WORLD -> observeWorld()
-                RuntimeComponent.CLIENT -> ComponentObservation(
-                    component = component,
-                    state = ComponentLifecycle.STOPPED,
-                    ready = false,
-                    owner = null,
-                    pid = null,
-                    detail = "WoW.exe launcher arrives with phase 4",
-                )
+                RuntimeComponent.CLIENT -> {
+                    val process = client
+                    ComponentObservation(
+                        component = component,
+                        state = if (process?.isAlive == true) ComponentLifecycle.READY else ComponentLifecycle.STOPPED,
+                        ready = process?.isAlive == true,
+                        owner = null,
+                        pid = process?.pid()?.toInt(),
+                        detail = if (process?.isAlive == true) "WoW.exe running" else "client not running",
+                    )
+                }
             }
         }
 
@@ -87,7 +96,7 @@ class DesktopRuntimeBackend(
             RuntimeComponent.DATABASE -> startDatabase()
             RuntimeComponent.REALM -> startRealm(spec.endpoint)
             RuntimeComponent.WORLD -> startWorld(spec.endpoint)
-            RuntimeComponent.CLIENT -> observe(component)
+            RuntimeComponent.CLIENT -> startClient(spec.endpoint)
         }
     }
 
@@ -116,7 +125,14 @@ class DesktopRuntimeBackend(
                 RuntimeComponent.DATABASE -> stopDatabase()
                 RuntimeComponent.REALM -> stopRealm()
                 RuntimeComponent.WORLD -> stopWorld()
-                RuntimeComponent.CLIENT -> RuntimeActionResult(ok = false, detail = "CLIENT arrives with phase 4")
+                RuntimeComponent.CLIENT -> {
+                    val process = client
+                        ?: return@withContext RuntimeActionResult(ok = true, detail = "client not running")
+                    process.destroy()
+                    val exited = process.waitFor(CLIENT_STOP_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+                    client = null
+                    RuntimeActionResult(ok = exited || !process.isAlive, detail = "client destroyed")
+                }
             }
         }
 
@@ -206,6 +222,32 @@ class DesktopRuntimeBackend(
         }
     }
 
+    // ---------------- client component ----------------
+
+    /** Launch WoW.exe natively: the realmlist is re-projected on every
+     * launch (stale topology never survives), then the client spawns in
+     * its own directory. No synthetic input — the login is the user's. */
+    @Suppress("TooGenericExceptionCaught") // any launch failure surfaces as an honest throw
+    private fun startClient(endpoint: RealmEndpoint): ComponentObservation {
+        val dir = clientDir ?: error("client directory not configured (set it via the launcher)")
+        val exe = File(dir, "WoW.exe")
+        check(exe.isFile) { "WoW.exe not found under $dir" }
+        ClientRealmEndpointProjection.project(File(dir, "realmlist.wtf"), endpoint)
+        client?.let { if (it.isAlive) error("client already running (pid ${it.pid()})") }
+        val spawned = ProcessBuilder(exe.absolutePath)
+            .directory(dir)
+            .start()
+        client = spawned
+        return ComponentObservation(
+            component = RuntimeComponent.CLIENT,
+            state = ComponentLifecycle.READY,
+            ready = true,
+            owner = null,
+            pid = spawned.pid().toInt(),
+            detail = "WoW.exe launched at ${endpoint.address} (realmlist projected)",
+        )
+    }
+
     // ---------------- database component ----------------
 
     private fun observeDatabase(): ComponentObservation {
@@ -235,9 +277,20 @@ class DesktopRuntimeBackend(
     private fun stopDatabase(): RuntimeActionResult {
         // SQLite has no daemon; a clean stop means no connection left a
         // WAL sidecar behind (the shared control plane's clean-stop
-        // seal; walSidecars lists candidates, existence is ours).
-        val sidecars = DatabaseSqliteControlPlane.walSidecars(roots.sqliteDatadir)
-            .filter { it.isFile }
+        // seal; walSidecars lists candidates, existence is ours). The
+        // runtimes' StopServer closes connections on their stop paths —
+        // the last close deletes the sidecars — so drain-wait briefly
+        // before judging; a REAL leak still fails the gate.
+        // Windows wrinkle: sqlite deletes sidecars on close, but a
+        // scanner-held handle leaves the NAME in delete-pending state.
+        // A delete-pending file cannot be OPENED — only sidecars that
+        // actually open are held by a live connection.
+        val deadline = System.currentTimeMillis() + WAL_DRAIN_TIMEOUT_MS
+        var sidecars = liveWalSidecars()
+        while (sidecars.isNotEmpty() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(WAL_DRAIN_POLL_MS)
+            sidecars = liveWalSidecars()
+        }
         return if (sidecars.isEmpty()) {
             RuntimeActionResult(ok = true, detail = "no WAL sidecars; datadir at rest")
         } else {
@@ -247,6 +300,12 @@ class DesktopRuntimeBackend(
             )
         }
     }
+
+    private fun liveWalSidecars(): List<File> =
+        DatabaseSqliteControlPlane.walSidecars(roots.sqliteDatadir)
+            .filter { file ->
+                file.isFile && runCatching { java.io.RandomAccessFile(file, "r").use { } }.isSuccess
+            }
 
     // ---------------- realm + world components ----------------
 
@@ -357,6 +416,9 @@ class DesktopRuntimeBackend(
         const val WORLD_STATUS_WIDTH = 8
         const val FORCE_STOP_TIMEOUT_MS = 5_000L
         const val DETAIL_MAX_CHARS = 512
+        const val CLIENT_STOP_TIMEOUT_MS = 10_000L
+        const val WAL_DRAIN_TIMEOUT_MS = 15_000L
+        const val WAL_DRAIN_POLL_MS = 250L
 
         /** ServerRuntimeContract error index 10 (the errors table is
          * name-indexed, not constant-exported). */

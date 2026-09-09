@@ -142,3 +142,27 @@ tasks.register<JavaExec>("authGate") {
     mainClass.set("com.pocketrealm.desktop.AuthGateKt")
     jvmArgs("-Djava.library.path=$nativeLibraryPath")
 }
+// Phase-4 gate: full world boot against the prepared data (run
+// tools/win_prepare_data.py first), 8085 listener + clean save/stop.
+tasks.register<JavaExec>("bootWorld") {
+    group = "bring-up"
+    description = "Boot database+realm+world in-process; verify READY, 8085, save/stop."
+    classpath = sourceSets.named("main").get().runtimeClasspath
+    mainClass.set("com.pocketrealm.desktop.BootWorldKt")
+    jvmArgs("-Djava.library.path=$nativeLibraryPath")
+}
+// Phase-4d bring-up: boot the full stack + launch WoW.exe against it
+// (interactive; press Enter in the console to save + stop).
+tasks.register<JavaExec>("launchClient") {
+    group = "bring-up"
+    description = "Boot database+realm+world, then launch WoW.exe at loopback."
+    classpath = sourceSets.named("main").get().runtimeClasspath
+    mainClass.set("com.pocketrealm.desktop.LaunchClientKt")
+    jvmArgs("-Djava.library.path=$nativeLibraryPath")
+    standardInput = System.`in`
+    if (project.hasProperty("clientDir")) {
+        jvmArgs("-DclientDir=${project.property("clientDir")}")
+    }
+}
+
+
