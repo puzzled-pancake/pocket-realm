@@ -76,6 +76,12 @@ def ensure_vcpkg() -> str:
     if VCPKG_COMMIT != "PINNED_AT_FIRST_BOOTSTRAP" and current != VCPKG_COMMIT:
         run(["git", "-C", VCPKG_DIR, "fetch", "--depth", "1", "origin", VCPKG_COMMIT])
         run(["git", "-C", VCPKG_DIR, "checkout", VCPKG_COMMIT])
+        # Re-read: the earlier rev-parse describes the stale pre-checkout
+        # state and would misreport the lane's provenance.
+        current = subprocess.run(
+            ["git", "-C", VCPKG_DIR, "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=True).stdout.strip()
+        assert current == VCPKG_COMMIT, f"vcpkg checkout landed on {current}, not the pin"
     if not (VCPKG_DIR / "vcpkg.exe").is_file():
         run([VCPKG_DIR / "bootstrap-vcpkg.bat", "-disableMetrics"])
     return current

@@ -3718,3 +3718,39 @@ submodule restored pristine); desktop gradlew build green incl. the
 co-load test; desktop+manifest+MSVC pytest pins 7/7. The realmd-listens/
 world-cycle halves of the 2e gate move to Phase 3 where the seeded DB and
 generated conf exist to make them meaningful.
+
+## Windows port review hardening: CI desktop lane, drift-proof JNI gate, vcpkg provenance
+
+Post-milestone review of the Phases 0-2e commits (4 commits, ~2.4k lines)
+verdict: sound, zero regressions — desktop gradle 270/270 with the co-load
+gate RUNNING (not skipped), full pytest with only the 8 CI-deselected
+pre-existing vortek/gladio failures (verified byte-identical at the
+pre-port commit 5dc97c2 in a throwaway worktree), check_repo clean,
+submodule pristine. Three findings fixed in this commit:
+
+1. desktop-unit CI job (the plan's Phase 1 deliverable that had not
+   landed): windows-latest, `gradlew.bat test detekt`. The desktop
+   compile pulls the shared manifest's android-tree files, so CI now
+   catches an android.* import creeping into a shared file even when
+   only the Android lane was being edited — previously that drift was
+   dev-box-only. NativeCoLoadTest skips cleanly (CI has no MSVC lane).
+
+2. The build driver's JNI export gate now DERIVES its expected symbol
+   list from the Kotlin shims' own `external fun` declarations (JNI
+   mangling: package + class + name; `__`-suffixed overload names
+   matched by prefix), instead of the old shared-prefix substring for
+   realmd and 3 hand-picked names for world. Derivation immediately
+   corrected the record: the world shim carries 24 externals, not the
+   23 logged in the 2c-2e entry. All 28 exports verified present in the
+   built DLLs; a missing one now fails the build gate instead of
+   surfacing as a runtime UnsatisfiedLinkError phases later.
+
+3. scripts/build_win_deps.py ensure_vcpkg() re-parses HEAD after the
+   pinned checkout and asserts it equals the pin — it used to return
+   (and log) the stale pre-checkout commit as the lane's provenance.
+
+Gates: positive and negative export-gate runs against the built DLLs
+(bogus symbol rejected loudly); the exact CI command green locally
+(`gradlew test detekt`); ci.yml YAML-valid; full pytest unchanged
+(664 passed / 4 skipped / the 8 deselected known failures); check_repo
+OK.

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -154,10 +155,24 @@ def in_msvc_env(vcvars: Path, body: str, log: Path) -> None:
         raise RuntimeError(f"MSVC cmake failed (exit {result.returncode}):\n{tail}")
 
 
+def jni_symbols_from_shim(shim: Path) -> list[str]:
+    """Every JNI export the Kotlin shim declares, derived from its own
+    `external fun` declarations (package + file stem + function name, per
+    JNI name mangling) — the gate can never drift behind the shim."""
+    text = shim.read_text(encoding="utf-8")
+    package = re.search(r"^\s*package\s+([\w.]+)", text, re.MULTILINE)
+    assert package, f"no package declaration in {shim}"
+    prefix = "Java_" + package.group(1).replace(".", "_") + "_" + shim.stem + "_"
+    names = re.findall(r"\bexternal\s+fun\s+(\w+)", text)
+    assert names, f"no external fun declarations in {shim}"
+    return [prefix + name for name in names]
+
+
 def verify_jni_exports(vcvars: Path, dll: Path, symbols: list[str]) -> None:
     """PE staging gate: every JNI export the Kotlin shim declares must be
     present in the DLL's export table (dumpbin /exports, which only exists
-    inside the MSVC environment)."""
+    inside the MSVC environment). A missing export must fail HERE, not as a
+    runtime UnsatisfiedLinkError three phases later."""
     work = BUILD / "verify"
     work.mkdir(parents=True, exist_ok=True)
     script = work / f"{dll.stem}-dumpbin.bat"
@@ -168,8 +183,19 @@ def verify_jni_exports(vcvars: Path, dll: Path, symbols: list[str]) -> None:
         encoding="ascii",
     )
     result = subprocess.run(["cmd", "/c", str(script)], capture_output=True, text=True)
-    found = result.stdout
-    missing = [s for s in symbols if s not in found]
+    # Export table rows list the symbol as the last whitespace-separated
+    # token (ordinal hint RVA name); other lines never end in a Java_ token.
+    exports = {line.split()[-1] for line in result.stdout.splitlines()
+               if line.split() and line.split()[-1].startswith("Java_")}
+    assert exports, f"{dll.name}: dumpbin reported no JNI exports at all"
+    missing = []
+    for symbol in symbols:
+        if symbol in exports:
+            continue
+        # Overloaded externals mangle as <name>__<signature>; a prefix hit
+        # is still a bound method.
+        if not any(export.startswith(symbol + "__") for export in exports):
+            missing.append(symbol)
     assert not missing, f"{dll.name} missing JNI exports: {missing}"
 
 
@@ -248,12 +274,10 @@ def main() -> int:
         world_dll = BUILD / "pocket-runtime-build" / "pocket_world_runtime.dll"
         for dll in (realmd_dll, world_dll):
             assert dll.is_file(), f"expected DLL missing: {dll}"
-        verify_jni_exports(vcvars, realmd_dll, ["Java_com_pocketrealm_server_RealmNative_"])
-        verify_jni_exports(vcvars, world_dll, [
-            "Java_com_pocketrealm_server_WorldNative_startNative",
-            "Java_com_pocketrealm_server_WorldNative_worldChatNative",
-            "Java_com_pocketrealm_server_WorldNative_llmMemoryStateNative",
-        ])
+        verify_jni_exports(vcvars, realmd_dll, jni_symbols_from_shim(
+            ROOT / "android/app/src/main/java/com/pocketrealm/server/RealmNative.kt"))
+        verify_jni_exports(vcvars, world_dll, jni_symbols_from_shim(
+            ROOT / "android/app/src/main/java/com/pocketrealm/server/WorldNative.kt"))
         print(f"windows realm runtimes built:\n  {realmd_dll}\n  {world_dll}")
         return 0
     finally:

@@ -5,6 +5,10 @@
 #   - hygiene (ubuntu): check_repo + pytest
 #   - android-unit (windows): JVM unit tests only, with the mandatory
 #     -PpocketAbi/-PpocketLane properties (build.gradle.kts refuses without them).
+#   - desktop-unit (windows): the Windows sibling's JVM tests + detekt — the
+#     shared-source manifest compiles the same android-tree files here, so CI
+#     catches an android.* import creeping into a shared file even when only
+#     the Android lane was being edited.
 # tools/check_sources.py stays local (pre-commit hook) because its
 # prebuilt-archive checks require the local native/.providers cache.
 name: ci
@@ -55,3 +59,19 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Unit tests + detekt
         run: ./gradlew :app:testDebugUnitTest :app:detekt -PpocketAbi=x86_64 -PpocketLane=full --console=plain
+
+  desktop-unit:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      # The co-load gate (NativeCoLoadTest) skips cleanly: CI has no MSVC lane.
+      - name: Desktop JVM tests + detekt
+        run: ./gradlew.bat test detekt --console=plain
