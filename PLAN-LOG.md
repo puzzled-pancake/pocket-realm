@@ -3969,3 +3969,30 @@ takes ~2 seconds after the DB open.
 Gates: bootWorld PASSED (READY, 8085, save, clean stops incl. WAL
 seal); authGate re-passed after the world rebuild (regression);
 desktop suite 294/294; detekt + check_repo green.
+
+## Windows port Phases 5a + 6: whisper bridge gate, jpackage image, qualification record
+
+Phase 5a — gradlew whisperGate: the chat-injection bridge surface
+proven against the LIVE world without a client (onlinePlayers honest
+at 0, offline-sender whisper refused with the documented
+sender-not-online posture, unknown channel refused, llmMemoryState
+reads as JSON). The conversational half (whisper -> dispatch ->
+relationship -> N4 counters with live LLM) is human-in-the-loop by
+design — the injection path requires a real player session (a bot
+session reads as a bot; the source documents why session-grafting was
+rejected) — and is laid out step-by-step in the qualification record.
+
+Phase 6 — gradlew packageApp: jpackage app image (fat jar + both realm
+DLLs + the sqlite seam DLL + the four pinned .sqlz transcripts +
+BUILD_PROVENANCE.json, java.library.path=., win-console). Launch smoke
+PASSED: the packaged PocketRealm.exe runs on its bundled JVM (its own
+Main log line confirmed, alive >10s).
+
+docs/WINDOWS_QUALIFICATION.md records the campaign: every automated
+gate with its run command and evidence, the interactive login+whisper
+steps for the user, and the deliberately deferred tails (kill matrix
+runner, soak, Bots/LLM settings screens + HomeScreen port, win
+lockfile, auto-login, code signing).
+
+Gates: whisperGate PASSED; packageApp + launch smoke PASSED; the full
+gates table re-runnable per the doc.

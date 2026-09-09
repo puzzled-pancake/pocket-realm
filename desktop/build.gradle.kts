@@ -165,4 +165,80 @@ tasks.register<JavaExec>("launchClient") {
     }
 }
 
+// Phase-5 gate: the world-chat injection bridge surface (honest
+// failures without a client; the conversational half is interactive).
+tasks.register<JavaExec>("whisperGate") {
+    group = "bring-up"
+    description = "Boot the world and prove the chat-injection bridge contract."
+    classpath = sourceSets.named("main").get().runtimeClasspath
+    mainClass.set("com.pocketrealm.desktop.WhisperGateKt")
+    jvmArgs("-Djava.library.path=$nativeLibraryPath")
+}
+
+// Phase-6 packaging: jpackage app image carrying the native lanes
+// (realm DLLs + sqlite seam), the pinned seed transcripts, and the
+// build provenance. Inputs are machine-local build outputs — the task
+// skips honestly (not fails) when the native lanes have not been built.
+
+// Fat jar: jpackage's single --input classpath needs the whole app
+// (Compose + coroutines + json) in one artifact.
+val appJar = tasks.register<Jar>("appJar") {
+    archiveBaseName.set("pocketrealm-desktop-app")
+    manifest { attributes("Main-Class" to "com.pocketrealm.desktop.MainKt") }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from(sourceSets.named("main").get().output)
+    from({
+        configurations.named("runtimeClasspath").get().map { if (it.isDirectory) it else zipTree(it) }
+    })
+    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
+}
+
+tasks.register("packageApp") {
+    group = "bring-up"
+    description = "Build the jpackage app image with DLLs, seeds, and provenance."
+    dependsOn(appJar)
+    doLast {
+        val runtimeDir = rootProject.projectDir.resolve("../native/.build-win-x86_64/pocket-runtime-build")
+        val seamDir = rootProject.projectDir.resolve("../native/.build-win-x86_64/sqlite-seam-build")
+        val stagingRoot = rootProject.projectDir.resolve("../native/.build-o09-x86_64/realm-staging-sqlite")
+        val jarFile = appJar.get().outputs.files.singleFile
+        val seeds = listOf("classicrealmd", "classiccharacters", "classiclogs", "classicmangos")
+            .map { stagingRoot.resolve("assets/seed/$it.sqlz") }
+        val allInputs = listOf(
+            jarFile,
+            runtimeDir.resolve("pocket_realmd_runtime.dll"),
+            runtimeDir.resolve("pocket_world_runtime.dll"),
+            seamDir.resolve("pocket_sqlite.dll"),
+            stagingRoot.resolve("BUILD_PROVENANCE.json"),
+        ) + seeds
+        val missing = allInputs.filter { !it.isFile }
+        if (missing.isNotEmpty()) {
+            val listing = missing.joinToString(System.lineSeparator()) { "  $it" }
+            logger.lifecycle("packageApp SKIPPED (missing inputs):$listing")
+            return@doLast
+        }
+        val imageInput = layout.buildDirectory.dir("package/input").get().asFile
+        imageInput.deleteRecursively()
+        imageInput.mkdirs()
+        allInputs.forEach { it.copyTo(imageInput.resolve(it.name), overwrite = true) }
+        val outDir = layout.buildDirectory.dir("package").get().asFile
+        outDir.mkdirs()
+        exec {
+            commandLine(
+                "${System.getProperty("java.home")}/bin/jpackage.exe",
+                "--type", "app-image",
+                "--name", "PocketRealm",
+                "--input", imageInput.absolutePath,
+                "--main-jar", jarFile.name,
+                "--main-class", "com.pocketrealm.desktop.MainKt",
+                "--dest", outDir.absolutePath,
+                "--java-options", "-Djava.library.path=.",
+                "--win-console",
+            )
+        }
+        logger.lifecycle("app image: ${outDir.resolve("PocketRealm")}")
+    }
+}
+
+
 
