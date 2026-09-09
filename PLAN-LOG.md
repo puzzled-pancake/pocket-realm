@@ -3885,3 +3885,43 @@ READY → clean stop rc=0 → no WAL sidecars. Desktop suite 294/294
 rotation gate, database observe/start/stop, world honest refusal,
 realm launch+settle, realmlist projection through the seam); detekt +
 check_repo green.
+
+## Windows port Phase 3 complete: protocol-level SRP6 authentication against live realmd
+
+gradlew authGate passes end-to-end: boot realmd in-process, seed an
+SRP verifier row directly into classicrealmd.sqlite, run a minimal WoW
+1.12.1 (build 5875) logon client — challenge, SRP6 proof, server M2 —
+and verify the server persisted OUR session key. Three independent
+proofs: realmd accepted our M1 (it computes its own from the stored
+verifier), the server's M2 == SHA1(LE(A)|M1|LE(K)) (mutual), and the
+account row's sessionkey equals our K. The server log reads "User
+'AUTHGATE' successfully authenticated".
+
+The cmangos SRP6 byte conventions were the hard-won knowledge (a
+192-then-24-variant search against the live server, arbitrated by its
+verdicts, plus an offline reference harness compiled from the actual
+SRP6.cpp/BigNumber.cpp — tools/srp6_reference_harness.cpp):
+
+- BigNumber::SetBinary REVERSES its input (a little-endian
+  interpreter) — x, u, K, M are all digests/arrays read LE;
+- AsByteArray defaults to reverse=true — every wire field (B, N, s)
+  and every hashed contribution is the number's little-endian minimal
+  bytes; the client's A also crosses the wire little-endian;
+- the salt contributes its LE bytes under the RAW identity digest (the
+  verifier path's own std::reverse cancels the LE round-trip);
+- M1 = SHA1(N_xor_g RAW digest || SHA1(username) || LE(s) || LE(A) ||
+  LE(B) || LE(K)), and M1 crosses the wire UNREVERSED (M's
+  SetBinary+AsByteArray round trip cancels);
+- K = the interleaved even/odd SHA1s of S's LE 32 bytes, read
+  little-endian.
+
+Also in this commit: the realmdHold dev lane (boot + hold for external
+probes), and two transient python probes retired once AuthGate
+subsumed them. The temporary LogLevel=3 debugging posture is reverted
+to the reviewed level-1 conf.
+
+Gates: authGate PASSED twice consecutively; desktop suite 294/294;
+detekt clean; check_repo OK. Phase 3's full gate list is green:
+manifest-seed complete, realmd listening on 3724 (3c), protocol-level
+auth (this), world start fails honestly with the prepared-data copy
+(3c), clean stop saves + no WAL sidecars.

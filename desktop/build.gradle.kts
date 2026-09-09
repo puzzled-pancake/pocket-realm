@@ -123,3 +123,22 @@ tasks.register<JavaExec>("bootRealmd") {
     mainClass.set("com.pocketrealm.desktop.BootRealmdKt")
     jvmArgs("-Djava.library.path=$nativeLibraryPath")
 }
+
+// Dev/probe lane: boot realmd and HOLD it up for external probes.
+tasks.register<JavaExec>("realmdHold") {
+    group = "bring-up"
+    description = "Boot realmd and hold it up (60s) for external probes."
+    classpath = sourceSets.named("main").get().runtimeClasspath
+    mainClass.set("com.pocketrealm.desktop.RealmdHoldKt")
+    jvmArgs("-Djava.library.path=$nativeLibraryPath")
+}
+
+// Phase-3 gate: protocol-level SRP6 authentication against the live
+// realmd (verifier row seeded directly into classicrealmd.sqlite).
+tasks.register<JavaExec>("authGate") {
+    group = "bring-up"
+    description = "Boot realmd and prove a 1.12 SRP6 logon handshake end-to-end."
+    classpath = sourceSets.named("main").get().runtimeClasspath
+    mainClass.set("com.pocketrealm.desktop.AuthGateKt")
+    jvmArgs("-Djava.library.path=$nativeLibraryPath")
+}
