@@ -3803,3 +3803,47 @@ literal semicolons, comment semicolons) and the raw-byte digest
 accounting the Android seed leg keeps; pytest pins 5/5 (define-set
 parity, UTF-16 boundary, UTF-8 encoding force, shim-derived gate,
 win32 driver run); detekt + check_repo green.
+
+## Windows port Phase 3b: the seed-replay twin — four databases live in %LOCALAPPDATA%
+
+DesktopSqliteSeeder is the twin of the engine's seedSqliteDatadir /
+replaySeedDatabase legs, executing through the seam with the exact
+Android discipline: BUILD_PROVENANCE pins (gzip digest + raw digest +
+raw size) verified ON the replay itself, shared-config connection
+pragmas, one replay transaction per transcript with rollback on
+failure, quick_check + integrity_check both exactly "ok",
+wal_checkpoint(TRUNCATE), no WAL sidecars after close, atomic
+partial→live publication, and the generation marker. gradlew
+seedRealmData (JavaExec task) is the bring-up entry; re-seeding a
+populated datadir refuses loudly. DesktopStorageRoots gains the
+database root + sqlite-datadir (the shared control plane's
+SQLITE_DATADIR_NAME).
+
+Two real defects surfaced running the ACTUAL 29.6 MB corpus — both the
+kind unit suites cannot catch, both now fixed:
+
+- The o09 staging tree was a mixed-generation artifact from an
+  interrupted Android-lane pass (disk classiccharacters matched the
+  committed baseline while its provenance pin matched neither, and the
+  baseline's classicmangos entry matched nothing on disk). Regenerated
+  all four transcripts via o09.package_seed_transcripts against the
+  committed baseline (414 entries, 0 errors) and refreshed the
+  provenance pins — the staging tree is internally consistent again,
+  verified pin-by-pin.
+- A latent JNI bug in the seam: GetStringChars is NOT guaranteed
+  NUL-terminated, and prepare16_v2 had been given nByte=-1 (open16
+  likewise relied on termination). Fresh test heaps happen to supply
+  the missing terminator, so 281 JVM tests passed — the real replay
+  walked off the buffer and crashed the JVM. Fixed the canonical way:
+  explicit byte length from GetStringLength, tail inspection bounded
+  by the buffer end and done BEFORE ReleaseStringChars, and open16
+  fed an explicitly terminated copy.
+
+Gates: gradlew seedRealmData green end-to-end on the real corpus —
+statement counts match the C pinned-amalgamation fidelity harness
+EXACTLY (43 / 1,110,192 / 12 / 27,886), all digest pins verified
+during replay, integrity clean, no sidecars, atomic publication;
+desktop suite 281/281 (seeder suite: full-discipline happy path,
+re-seed refusal, digest-mismatch honesty incl. the partial-generation
+posture, splitter locality on failing statements); seam + manifest
+pytest pins green; detekt + check_repo green.

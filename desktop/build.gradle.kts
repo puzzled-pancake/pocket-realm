@@ -44,6 +44,13 @@ val sharedAndroidTestSources = fileTree(androidTestTreeRoot) { include(sharedTes
 val androidDebugTreeRoot = rootProject.file("../" + sharedManifest["android_debug_tree_root"])
 val sharedDebugPaths: List<String> = (sharedManifest["shared_debug"] as List<*>).map { it.toString() }
 
+// The native lanes' DLL output dirs (realm runtimes + the desktop SQLite
+// seam), for every JVM entry point that loads them by name.
+val nativeLibraryPath: String = listOf(
+    "../native/.build-win-x86_64/pocket-runtime-build",
+    "../native/.build-win-x86_64/sqlite-seam-build",
+).joinToString(File.pathSeparator) { rootProject.projectDir.resolve(it).normalize().toString() }
+
 kotlin {
     jvmToolchain(17)
 }
@@ -91,10 +98,18 @@ application {
 tasks.named<Test>("test") {
     // The shared JNI shims loadLibrary() by name; the native lanes' DLL
     // output dirs must be searchable. Tests skip cleanly when absent.
-    jvmArgs(
-        "-Djava.library.path=" + listOf(
-            rootProject.projectDir.resolve("../native/.build-win-x86_64/pocket-runtime-build"),
-            rootProject.projectDir.resolve("../native/.build-win-x86_64/sqlite-seam-build"),
-        ).joinToString(File.pathSeparator),
-    )
+    jvmArgs("-Djava.library.path=$nativeLibraryPath")
+}
+
+// Phase-3 bring-up: seed the four realm databases from the pinned
+// transcripts into %LOCALAPPDATA% (see SeedRealmData.kt).
+tasks.register<JavaExec>("seedRealmData") {
+    group = "bring-up"
+    description = "Seed the four realm databases into %LOCALAPPDATA% from the pinned transcripts."
+    classpath = sourceSets.named("main").get().runtimeClasspath
+    mainClass.set("com.pocketrealm.desktop.SeedRealmDataKt")
+    jvmArgs("-Djava.library.path=$nativeLibraryPath")
+    if (project.hasProperty("stagingRoot")) {
+        args(project.property("stagingRoot"))
+    }
 }

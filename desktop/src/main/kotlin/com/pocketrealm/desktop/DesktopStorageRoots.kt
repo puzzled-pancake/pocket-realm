@@ -1,5 +1,6 @@
 package com.pocketrealm.desktop
 
+import com.pocketrealm.database.DatabaseSqliteControlPlane
 import java.io.File
 
 /**
@@ -14,6 +15,10 @@ class DesktopStorageRoots(baseDir: File? = null) {
 
     /** Durable supervisor journal + recovery records. */
     val realm: File = File(root, "realm")
+
+    /** Seeded realm databases (the SQLite provider's datadir lives under
+     * here, mirroring the Android database root layout). */
+    val database: File = File(root, "database")
 
     /** Imported client content + prepared DBC/maps data. */
     val content: File = File(root, "content")
@@ -30,8 +35,13 @@ class DesktopStorageRoots(baseDir: File? = null) {
 
     val logs: File = File(runtime, "logs")
 
+    /** The SQLite provider's datadir (the shared control plane's
+     * SQLITE_DATADIR_NAME under the database root). */
+    val sqliteDatadir: File = File(database, DatabaseSqliteControlPlane.SQLITE_DATADIR_NAME)
+
     fun ensureDirectories() {
-        listOf(root, realm, content, runtime, settings, supervisorJournalDir, logs).forEach { it.mkdirs() }
+        listOf(root, realm, database, content, runtime, settings, supervisorJournalDir, logs)
+            .forEach { it.mkdirs() }
     }
 
     companion object {

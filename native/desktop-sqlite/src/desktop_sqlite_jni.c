@@ -87,35 +87,28 @@ static void raise_sqlite(JNIEnv* env, sqlite3* db, int rc, char const* note)
     }
 }
 
-/* True when the prepare tail holds anything besides ASCII whitespace —
- * i.e. the caller handed prepare more than one statement. */
-static int tail_has_content(void const* tail)
-{
-    jchar const* p = (jchar const*)tail;
-    if (p == NULL) {
-        return 0;
-    }
-    while (*p != 0) {
-        if (*p != ' ' && *p != '\t' && *p != '\n' && *p != '\r' &&
-            *p != '\f' && *p != '\v') {
-            return 1;
-        }
-        p++;
-    }
-    return 0;
-}
-
 JNIEXPORT jlong JNICALL
 Java_com_pocketrealm_database_DesktopSqlite_openNative(JNIEnv* env, jclass cls, jstring path)
 {
     (void)cls;
-    jchar const* chars = (*env)->GetStringChars(env, path, NULL);
-    if (chars == NULL) {
+    /* GetStringChars is NOT guaranteed NUL-terminated, but
+     * sqlite3_open16 takes a terminated UTF-16 path — copy with an
+     * explicit terminator (non-ASCII %LOCALAPPDATA% usernames ride
+     * this path). */
+    jsize len = (*env)->GetStringLength(env, path);
+    jchar* terminated = (jchar*)malloc(sizeof(jchar) * (size_t)(len + 1));
+    if (terminated == NULL) {
         return 0;
     }
+    (*env)->GetStringRegion(env, path, 0, len, terminated);
+    if ((*env)->ExceptionCheck(env)) {
+        free(terminated);
+        return 0;
+    }
+    terminated[len] = 0;
     sqlite3* db = NULL;
-    int rc = sqlite3_open16(chars, &db);
-    (*env)->ReleaseStringChars(env, path, chars);
+    int rc = sqlite3_open16(terminated, &db);
+    free(terminated);
     if (rc != SQLITE_OK) {
         raise_sqlite(env, db, rc, "at open");
         sqlite3_close(db);
@@ -149,15 +142,35 @@ Java_com_pocketrealm_database_DesktopSqlite_closeNative(JNIEnv* env, jclass cls,
 
 /* Shared prepare for the exec/query entry points: returns SQLITE_OK
  * with *out_stmt (or raises); the tail and bind checks belong to the
- * callers. */
+ * callers. The SQL text is passed with its EXPLICIT byte length —
+ * GetStringChars is not guaranteed NUL-terminated, and prepare16_v2
+ * with nByte=-1 would walk off the buffer (a latent crash the unit
+ * suite cannot catch: freshly-allocated test heaps happen to supply
+ * the missing terminator). The tail is inspected BEFORE the chars are
+ * released, bounded by the buffer end. */
 static int prepare_one(JNIEnv* env, sqlite3* db, jstring sql, sqlite3_stmt** out_stmt)
 {
+    jsize len = (*env)->GetStringLength(env, sql);
     jchar const* chars = (*env)->GetStringChars(env, sql, NULL);
     if (chars == NULL) {
         return SQLITE_NOMEM;
     }
     void const* tail = NULL;
-    int rc = sqlite3_prepare16_v2(db, chars, -1, out_stmt, &tail);
+    int rc = sqlite3_prepare16_v2(db, chars, (int)(len * (jsize)sizeof(jchar)),
+                                  out_stmt, &tail);
+    int tail_has_more = 0;
+    if (rc == SQLITE_OK && tail != NULL) {
+        jchar const* t = (jchar const*)tail;
+        jchar const* end = chars + len;
+        while (t < end) {
+            if (*t != ' ' && *t != '\t' && *t != '\n' && *t != '\r' &&
+                *t != '\f' && *t != '\v') {
+                tail_has_more = 1;
+                break;
+            }
+            t++;
+        }
+    }
     (*env)->ReleaseStringChars(env, sql, chars);
     if (rc != SQLITE_OK) {
         raise_sqlite(env, db, rc, "at prepare");
@@ -173,7 +186,7 @@ static int prepare_one(JNIEnv* env, sqlite3* db, jstring sql, sqlite3_stmt** out
         raise_sqlite(env, db, SQLITE_MISUSE, "bind parameters are not supported by the seam");
         return SQLITE_MISUSE;
     }
-    if (tail_has_content(tail)) {
+    if (tail_has_more) {
         sqlite3_finalize(*out_stmt);
         *out_stmt = NULL;
         raise_sqlite(env, db, SQLITE_MISUSE, "exec/query take exactly one statement");
@@ -215,16 +228,12 @@ Java_com_pocketrealm_database_DesktopSqlite_execNative(JNIEnv* env, jclass cls, 
 
 /* Shared first-row reader: prepares, steps once, and hands the stmt to
  * the caller (which reads the column, finalizes). Returns 0 when a row
- * is ready, 1 when the statement produced no rows, -1 on error. */
+ * is ready, 1 when the statement produced no rows — including the
+ * no-column policy PRAGMAs (busy_timeout and friends), matching the
+ * Android execPragma posture of an empty cursor — and -1 on error. */
 static int step_first_row(JNIEnv* env, sqlite3* db, jstring sql, sqlite3_stmt** out_stmt)
 {
     if (prepare_one(env, db, sql, out_stmt) != SQLITE_OK) {
-        return -1;
-    }
-    if (sqlite3_column_count(*out_stmt) < 1) {
-        raise_sqlite(env, db, SQLITE_MISUSE, "statement returns no columns");
-        sqlite3_finalize(*out_stmt);
-        *out_stmt = NULL;
         return -1;
     }
     int rc = sqlite3_step(*out_stmt);
