@@ -89,10 +89,12 @@ application {
 }
 
 tasks.named<Test>("test") {
-    // The shared JNI shims loadLibrary() by name; the native lane's DLL
-    // output dir must be searchable. Tests skip cleanly when absent.
+    // The shared JNI shims loadLibrary() by name; the native lanes' DLL
+    // output dirs must be searchable. Tests skip cleanly when absent.
     jvmArgs(
-        "-Djava.library.path=" +
-            rootProject.projectDir.resolve("../native/.build-win-x86_64/pocket-runtime-build").normalize(),
+        "-Djava.library.path=" + listOf(
+            rootProject.projectDir.resolve("../native/.build-win-x86_64/pocket-runtime-build"),
+            rootProject.projectDir.resolve("../native/.build-win-x86_64/sqlite-seam-build"),
+        ).joinToString(File.pathSeparator),
     )
 }

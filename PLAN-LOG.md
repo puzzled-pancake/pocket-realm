@@ -3754,3 +3754,52 @@ Gates: positive and negative export-gate runs against the built DLLs
 (`gradlew test detekt`); ci.yml YAML-valid; full pytest unchanged
 (664 passed / 4 skipped / the 8 deselected known failures); check_repo
 OK.
+
+## Windows port Phase 3a: the desktop SQLite execution seam
+
+pocket_sqlite.dll is in: the JNI surface (6 entry points — open/close/
+exec/queryLong/queryText/version) over the repo-pinned SQLite 3.46.1
+amalgamation, compiled with EXACTLY the production define set the
+fidelity harness uses (single-sourced: tests/test_win_sqlite_seam.py
+loads PRODUCTION_DEFINES from tests/test_sqlite_seeding.py and pins
+the CMakeLists against it). This is the desktop twin of
+android.database.sqlite for the pure DatabaseSqliteControlPlane legs —
+the engine-side executor that creates/seals/repairs the databases
+around the realm DLLs, which keep owning them live once booted.
+
+Load-bearing decisions:
+
+- ALL text crosses the JNI boundary as UTF-16 (sqlite3_open16 for
+  paths, prepare16_v2 for SQL, column_text16/errmsg16 for results):
+  Windows usernames put non-ASCII into %LOCALAPPDATA% paths, and JNI's
+  modified-UTF-8 helpers would hand SQLite CESU-8 for astral chars.
+  open16 alone defaults NEW databases to UTF-16 storage, so open forces
+  `PRAGMA encoding = 'UTF-8'` while the file is still empty — desktop
+  database files stay byte-identical to the Android lane's (pinned by a
+  header-encoding test reading the 4-byte field at offset 56).
+- exec mirrors framework execSQL semantics strictly: exactly one
+  statement (trailing SQL rejected), bind parameters rejected,
+  row-returning statements rejected — row-returning PRAGMAs
+  (journal_mode, wal_checkpoint) route through the query entry points,
+  same as the Android execPragma split. Failures raise with sqlite3's
+  own errmsg16 + extended rc; the engine layers statement index/offset
+  locality on top exactly like executeSeedStatement.
+- SQLITE_THREADSAFE=2 in the production set: connections are
+  single-thread by contract; the desktop engine twin drives each
+  database from its database thread, same discipline as Android.
+
+Lane: tools/build_win_sqlite_seam.py (vcvars + Ninja; reuses the realm
+driver's find_vcvars and jni_symbols_from_shim; quoted `cd /d`); native/
+desktop-sqlite/{CMakeLists.txt,src/desktop_sqlite_jni.c}; output under
+native/.build-win-x86_64/sqlite-seam-build/. The export gate derives
+from the Kotlin shim's own `external fun` declarations — same
+drift-proof derivation as the realm lane.
+
+Gates: driver green (version pin in sqlite3.h + 6 exports verified via
+dumpbin); desktop JVM suite 277/277 with the seam suite RUNNING —
+including a synthetic gzip transcript replayed through the SHARED
+SeedStatementScanner with 7-char chunking (statement-straddling,
+literal semicolons, comment semicolons) and the raw-byte digest
+accounting the Android seed leg keeps; pytest pins 5/5 (define-set
+parity, UTF-16 boundary, UTF-8 encoding force, shim-derived gate,
+win32 driver run); detekt + check_repo green.
