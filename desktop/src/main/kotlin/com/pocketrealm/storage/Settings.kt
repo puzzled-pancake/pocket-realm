@@ -25,7 +25,12 @@ object Settings {
             fun fromJson(text: String): Snapshot {
                 val value = org.json.JSONObject(text)
                 return Snapshot(
-                    runtimeMode = RuntimeMode.valueOf(value.optString("runtimeMode", RuntimeMode.LOCAL.name)),
+                    // Degrade per field (the Android twin's posture): one
+                    // unknown enum value must not throw and reset the
+                    // WHOLE snapshot to defaults on the next load.
+                    runtimeMode = runCatching {
+                        RuntimeMode.valueOf(value.optString("runtimeMode", RuntimeMode.LOCAL.name))
+                    }.getOrDefault(RuntimeMode.LOCAL),
                     allowLanPlayers = value.optBoolean("allowLanPlayers", false),
                     setupComplete = value.optBoolean("setupComplete", false),
                     botProfileId = value.optString("botProfileId", ""),

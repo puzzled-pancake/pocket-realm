@@ -12,6 +12,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
+import com.pocketrealm.desktop.requireNativeIfDemanded
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
@@ -34,7 +35,7 @@ class DesktopSqliteSeamTest {
 
     private fun stagedDll(): File =
         seamDir.resolve("pocket_sqlite.dll").also {
-            assumeTrue("sqlite seam not built (run tools/build_win_sqlite_seam.py): $it", it.isFile)
+            requireNativeIfDemanded("sqlite seam", it)
         }
 
     @Test
@@ -117,6 +118,7 @@ class DesktopSqliteSeamTest {
     }
 
     @Test
+    @Suppress("NestedBlockDepth") // the replay loop is the contract: one pass, chunk-straddling splits
     fun seedReplayThroughTheSharedControlPlaneScanner() {
         stagedDll()
         // A synthetic transcript with the splitter's hard cases: a

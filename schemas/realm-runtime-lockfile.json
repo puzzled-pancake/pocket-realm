@@ -61,6 +61,28 @@
       "reason": "Re-arm CMaNGOS process-global stop state immediately before each embedded world-thread launch."
     },
     {
+      "id": "embedded-io-context-restart",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "path": "src/mangosd/Master.cpp",
+      "reason": "Restart the asio io_context at the top of every embedded network start so network threads service the listener after an in-process stop/start cycle (run() returns immediately after stop() until restart())."
+    },
+    {
+      "id": "embedded-queue-thread-join",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "paths": [
+        "src/mangosd/Master.cpp",
+        "src/game/World/World.h",
+        "src/game/World/World.cpp"
+      ],
+      "reason": "Join the LFG/BattleGround queue threads on embedded stop via World::StopQueueThreads(); a second embedded start would otherwise assign over joinable std::thread slots and std::terminate the host process."
+    },
+    {
       "id": "result-callback-outside-queue-lock",
       "backends": [
         "mysql",
@@ -123,6 +145,14 @@
     }
   ],
   "playerbots_source_overlays": [
+    {
+      "id": "ahbot-config-absent-hard-disable",
+      "paths": [
+        "ahbot/AhBot.cpp",
+        "ahbot/AhBotConfig.cpp"
+      ],
+      "reason": "When ahbot.conf is absent, AhBotConfig::Initialize() returns before writing `enabled`, leaving it UNINITIALIZED, and AhBot::Update() never checks enabled before spawning the detached checker thread - whose ForceUpdate then dereferences garbage config state (updateInterval, item sets). A fresh process zeroes the heap so Android never observed it, but the embedded in-process lane recycles the heap across world boots and the second boot crashed the host JVM. Hard-disable on config-absence and gate Update on enabled: identical no-activity outcome on both platforms, minus the uninitialized read."
+    },
     {
       "id": "portable-unary-not-character-query",
       "paths": [

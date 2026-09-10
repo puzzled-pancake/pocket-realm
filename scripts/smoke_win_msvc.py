@@ -64,14 +64,17 @@ def find_vcvars() -> Path:
 
 def compile_with_msvc(vcvars: Path, source: Path, exe: Path, log: Path) -> bool:
     script = log.with_suffix(".bat")
-    script.write_text(
-        "@echo off\r\n"
-        f'call "{vcvars}" >nul 2>&1\r\n'
-        "cd /d %s\r\n"
-        "cl /nologo /EHsc /std:c++17 /utf-8 /O2 /W3 "
-        "/I%s %s /Fe:%s\r\n"
-        % (source.parent, PATCHES, source, exe),
-        encoding="ascii",
+    # write_bytes (text mode would double the line endings) and every
+    # interpolated path is quoted — %TEMP% profiles can contain spaces.
+    script.write_bytes(
+        (
+            "@echo off\r\n"
+            f'call "{vcvars}" >nul 2>&1\r\n'
+            'cd /d "%s"\r\n'
+            'cl /nologo /EHsc /std:c++17 /utf-8 /O2 /W3 '
+            '/I"%s" "%s" /Fe:"%s"\r\n'
+            % (source.parent, PATCHES, source, exe)
+        ).encode("ascii")
     )
     result = subprocess.run(
         ["cmd", "/c", str(script)], capture_output=True, text=True, timeout=300)

@@ -73,7 +73,7 @@ int main()
     x.SetBinary(xsha.GetDigest(), xsha.GetLength());
 
     Sha1Hash usha;
-    usha.UpdateBigNumbers(&A, &srv.GetHostPublicEphemeral());
+    usha.UpdateBigNumbers(&A, &srv.GetHostPublicEphemeral(), nullptr);
     usha.Finalize();
     BigNumber u;
     u.SetBinary(usha.GetDigest(), usha.GetLength());

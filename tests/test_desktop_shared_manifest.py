@@ -28,7 +28,11 @@ IMPORT_ANDROID = re.compile(r"^import (android|androidx)\.", re.MULTILINE)
 # code or comments; a package component followed by a class-looking token.
 INLINE_ANDROID = re.compile(
     r"\bandroid\.(os|util|content|net|database|provider|hardware"
-    r"|app|service|view|widget|telephony|preference)\.[A-Za-z_]"
+    r"|app|service|view|widget|telephony|preference"
+    # remaining framework packages a fully-qualified reference could
+    # sneak in under (android.system.Os, android.graphics.Bitmap, ...)
+    r"|system|graphics|media|text|security|animation|drm|speech"
+    r"|bluetooth|location|accounts|gles|renderscript|usb)\.[A-Za-z_]"
 )
 ANDROID_ONLY_LIBS = ("me.zhanghai.",)
 

@@ -26,7 +26,13 @@ class DesktopSettingsStore(private val file: File) {
     fun save(snapshot: Settings.Snapshot) {
         file.parentFile?.mkdirs()
         val temp = File(file.parentFile, ".${file.name}.${ProcessHandle.current().pid()}.tmp")
-        temp.writeText(snapshot.toJson(), StandardCharsets.UTF_8)
+        // fsync before the move (DataStore's durability posture): a plain
+        // writeText can leave an empty/partial file persisted across a
+        // power loss even after the rename lands.
+        java.io.FileOutputStream(temp).use { stream ->
+            stream.write(snapshot.toJson().toByteArray(StandardCharsets.UTF_8))
+            stream.fd.sync()
+        }
         try {
             Files.move(
                 temp.toPath(),

@@ -12,6 +12,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
+import com.pocketrealm.desktop.requireNativeIfDemanded
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
@@ -33,7 +34,7 @@ class DesktopSqliteSeederTest {
 
     private fun stagedDll(): File =
         File("../native/.build-win-x86_64/sqlite-seam-build/pocket_sqlite.dll").also {
-            assumeTrue("sqlite seam not built (run tools/build_win_sqlite_seam.py): $it", it.isFile)
+            requireNativeIfDemanded("sqlite seam", it)
         }
 
     /** A valid staging tree: seed/&lt;db&gt;.sqlz + BUILD_PROVENANCE.json

@@ -24,7 +24,7 @@ import kotlin.system.exitProcess
  *
  * Run from desktop/: gradlew whisperGate
  */
-@Suppress("TooGenericExceptionCaught", "LongMethod") // bring-up gate, linear by design
+@Suppress("TooGenericExceptionCaught") // bring-up gate: failures exit honestly
 fun main() {
     val roots = DesktopStorageRoots()
     roots.ensureDirectories()
@@ -51,6 +51,7 @@ fun main() {
         kotlinx.coroutines.runBlocking { backend.start(RuntimeComponent.WORLD, owner, spec) }
     } catch (failure: Throwable) {
         System.err.println("WORLD START REFUSED: ${failure.message}")
+        drain(backend, owner)
         exitProcess(EXIT_WORLD)
     }
     val deadline = System.currentTimeMillis() + WORLD_READY_TIMEOUT_MS
@@ -63,10 +64,32 @@ fun main() {
     }
     if (!ready) {
         System.err.println("WORLD NEVER REACHED READY")
+        drain(backend, owner)
         exitProcess(EXIT_WORLD)
     }
     println("world READY; exercising the bridge surface")
 
+    try {
+        bridgeChecks()
+    } catch (failure: Throwable) {
+        System.err.println("BRIDGE CHECK FAILED: ${failure.message}")
+        drain(backend, owner)
+        exitProcess(EXIT_BRIDGE)
+    }
+
+    val worldStop = kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.WORLD, owner) }
+    val realmStop = kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.REALM, owner) }
+    val dbStop = kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.DATABASE, owner) }
+    if (!worldStop.ok || !realmStop.ok || !dbStop.ok) {
+        System.err.println("CLEAN STOP FAILED: ${worldStop.detail} / ${realmStop.detail} / ${dbStop.detail}")
+        exitProcess(EXIT_STOP)
+    }
+    DesktopLog.i("WhisperGate", "phase-5 bridge gate passed")
+    println("PHASE-5 BRIDGE GATE PASSED")
+}
+
+/** The bridge surface assertions. */
+private fun bridgeChecks() {
     val online = WorldNative.onlinePlayersNative()
     check(online == 0) { "expected 0 online players without a client, got $online" }
     println("onlinePlayers: $online (honest without a client)")
@@ -93,21 +116,19 @@ fun main() {
     val memory = JSONObject(WorldNative.llmMemoryStateNative("NoSuchPlayer"))
     check(memory.has("ok")) { "memory state must be JSON: $memory" }
     println("llmMemoryState: $memory")
+}
 
-    val worldStop = kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.WORLD, owner) }
-    val realmStop = kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.REALM, owner) }
-    val dbStop = kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.DATABASE, owner) }
-    if (!worldStop.ok || !realmStop.ok || !dbStop.ok) {
-        System.err.println("CLEAN STOP FAILED: ${worldStop.detail} / ${realmStop.detail} / ${dbStop.detail}")
-        exitProcess(EXIT_STOP)
-    }
-    DesktopLog.i("WhisperGate", "phase-5 bridge gate passed")
-    println("PHASE-5 BRIDGE GATE PASSED")
+/** Best-effort stack drain for the error exits. */
+private fun drain(backend: DesktopRuntimeBackend, owner: ComponentOwner) {
+    runCatching { kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.WORLD, owner) } }
+    runCatching { kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.REALM, owner) } }
+    runCatching { kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.DATABASE, owner) } }
 }
 
 private const val EXIT_PREFLIGHT = 2
 private const val EXIT_WORLD = 3
-private const val EXIT_STOP = 4
+private const val EXIT_BRIDGE = 4
+private const val EXIT_STOP = 5
 private const val WORLD_READY_TIMEOUT_MS = 15 * 60 * 1000L
 private const val POLL_SLEEP_MS = 1_000L
-private const val CHAT_TIMEOUT_MS = 10_000L
+private const val CHAT_TIMEOUT_MS = ServerRuntimeContract.CONTROL_TIMEOUT_MS

@@ -2,6 +2,7 @@ package com.pocketrealm.desktop
 
 import com.pocketrealm.supervisor.ComponentLifecycle
 import com.pocketrealm.supervisor.ComponentOwner
+import com.pocketrealm.supervisor.RuntimeActionResult
 import com.pocketrealm.supervisor.RuntimeComponent
 import com.pocketrealm.supervisor.RuntimeLaunchSpec
 import com.pocketrealm.supervisor.RuntimeMode
@@ -13,7 +14,9 @@ import kotlin.system.exitProcess
  * Phase-4d bring-up: boot the full realm stack in-process, then launch
  * the user's WoW.exe against it (realmlist re-projected every launch).
  * The client stays up — press Enter in this console to save + stop the
- * realm cleanly (the client can also be closed first).
+ * realm cleanly (the client can also be closed first; Ctrl+C drains the
+ * stack through the same shutdown hook instead of orphaning WoW.exe and
+ * live WAL sidecars).
  *
  * Run from desktop/:
  *   gradlew launchClient -PclientDir="C:\Vanilla wow 1.12.1"
@@ -38,6 +41,7 @@ fun main() {
         includeClient = true,
     )
     val owner = ComponentOwner(sessionId = "launch-client", instanceToken = "launch-client")
+    registerDrainHook(backend, owner)
 
     val preflight = kotlinx.coroutines.runBlocking { backend.preflight(spec) }
     if (!preflight.ok) {
@@ -50,18 +54,12 @@ fun main() {
         kotlinx.coroutines.runBlocking { backend.start(RuntimeComponent.WORLD, owner, spec) }
     } catch (failure: Throwable) {
         System.err.println("WORLD START REFUSED: ${failure.message}")
+        drainStack(backend, owner, includeClient = false)
         exitProcess(EXIT_WORLD)
     }
-    val deadline = System.currentTimeMillis() + WORLD_READY_TIMEOUT_MS
-    var ready = false
-    while (!ready && System.currentTimeMillis() < deadline) {
-        val world = kotlinx.coroutines.runBlocking { backend.observe(RuntimeComponent.WORLD) }
-        if (world.state == ComponentLifecycle.READY) ready = true
-        else if (world.state == ComponentLifecycle.FAILED) break
-        else Thread.sleep(POLL_SLEEP_MS)
-    }
-    if (!ready) {
+    if (!waitForWorldReady(backend)) {
         System.err.println("WORLD NEVER REACHED READY")
+        drainStack(backend, owner, includeClient = false)
         exitProcess(EXIT_WORLD)
     }
     println("realm stack READY (realmd 3724, world 8085)")
@@ -74,17 +72,76 @@ fun main() {
     readLine()
 
     val save = kotlinx.coroutines.runBlocking { backend.saveWorld(owner) }
-    val clientStop = kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.CLIENT, owner) }
-    val worldStop = kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.WORLD, owner) }
-    val realmStop = kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.REALM, owner) }
-    val dbStop = kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.DATABASE, owner) }
-    println("save=${save.ok} client=${clientStop.ok} world=${worldStop.ok} realm=${realmStop.ok} db=${dbStop.ok}")
-    DesktopLog.i("LaunchClient", "session ended")
+    val stops = drainStack(backend, owner, includeClient = true)
+    val allClean = save.ok && stops.all { it.second.ok }
+    if (!allClean) {
+        System.err.println("SESSION END NOT CLEAN (see legs above)")
+        exitProcess(EXIT_STOP)
+    }
+    DesktopLog.i("LaunchClient", "session ended cleanly")
+}
+
+/** Poll the world to READY; FAILED ends the wait as not-ready. */
+@Suppress("ReturnCount") // one early return per settled terminal state is the clearest shape
+private fun waitForWorldReady(backend: DesktopRuntimeBackend): Boolean {
+    val deadline = System.currentTimeMillis() + WORLD_READY_TIMEOUT_MS
+    while (System.currentTimeMillis() < deadline) {
+        val world = kotlinx.coroutines.runBlocking { backend.observe(RuntimeComponent.WORLD) }
+        if (world.state == ComponentLifecycle.READY) return true
+        if (world.state == ComponentLifecycle.FAILED) return false
+        Thread.sleep(POLL_SLEEP_MS)
+    }
+    return false
+}
+
+/** Ctrl+C / unexpected-JVM-exit drain: without it, Windows terminates the
+ * process with the natives mid-flight and leaves WoW.exe + WAL sidecars
+ * behind. Bounded by the native stop timeouts; best-effort by design. */
+private fun registerDrainHook(backend: DesktopRuntimeBackend, owner: ComponentOwner) {
+    Runtime.getRuntime().addShutdownHook(Thread {
+        drainStack(backend, owner, includeClient = true)
+    })
+}
+
+/** Stop the whole stack in supervisor order (client → world → realm →
+ * database); every leg's verdict is printed, never swallowed. Legs whose
+ * component is already STOPPED are skipped, so the shutdown hook's
+ * re-drain after a normal drain is a quiet no-op instead of an ownership
+ * throw. */
+private fun drainStack(
+    backend: DesktopRuntimeBackend,
+    owner: ComponentOwner,
+    includeClient: Boolean,
+): List<Pair<String, RuntimeActionResult>> {
+    val legs = mutableListOf<Pair<String, RuntimeActionResult>>()
+    fun leg(name: String, result: RuntimeActionResult) {
+        legs += name to result
+        println("$name=${result.ok} ${result.detail}")
+    }
+    fun pending(component: RuntimeComponent): Boolean = runCatching {
+        kotlinx.coroutines.runBlocking { backend.observe(component) }.state != ComponentLifecycle.STOPPED
+    }.getOrDefault(true)
+    if (includeClient && pending(RuntimeComponent.CLIENT)) {
+        runCatching {
+            leg("client", kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.CLIENT, owner) })
+        }
+    }
+    if (pending(RuntimeComponent.WORLD)) {
+        runCatching { leg("world", kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.WORLD, owner) }) }
+    }
+    if (pending(RuntimeComponent.REALM)) {
+        runCatching { leg("realm", kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.REALM, owner) }) }
+    }
+    if (pending(RuntimeComponent.DATABASE)) {
+        runCatching { leg("db", kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.DATABASE, owner) }) }
+    }
+    return legs
 }
 
 private const val DEFAULT_CLIENT_DIR = "C:/Vanilla wow 1.12.1"
 private const val EXIT_CLIENT = 2
 private const val EXIT_PREFLIGHT = 3
 private const val EXIT_WORLD = 4
+private const val EXIT_STOP = 5
 private const val WORLD_READY_TIMEOUT_MS = 15 * 60 * 1000L
 private const val POLL_SLEEP_MS = 1_000L

@@ -92,6 +92,18 @@ CMANGOS_OVERLAYS = [
         "reason": "Re-arm CMaNGOS process-global stop state immediately before each embedded world-thread launch.",
     },
     {
+        "id": "embedded-io-context-restart",
+        "backends": ["mysql", "sqlite"],
+        "path": "src/mangosd/Master.cpp",
+        "reason": "Restart the asio io_context at the top of every embedded network start so network threads service the listener after an in-process stop/start cycle (run() returns immediately after stop() until restart()).",
+    },
+    {
+        "id": "embedded-queue-thread-join",
+        "backends": ["mysql", "sqlite"],
+        "paths": ["src/mangosd/Master.cpp", "src/game/World/World.h", "src/game/World/World.cpp"],
+        "reason": "Join the LFG/BattleGround queue threads on embedded stop via World::StopQueueThreads(); a second embedded start would otherwise assign over joinable std::thread slots and std::terminate the host process.",
+    },
+    {
         "id": "result-callback-outside-queue-lock",
         "backends": ["mysql", "sqlite"],
         "path": "src/shared/Database/SqlOperations.cpp",
@@ -148,6 +160,36 @@ CMANGOS_OVERLAYS = [
     },
 ]
 POCKET_INTERACT_SOURCE = NATIVE / "patches" / "cmangos" / "PocketRealmInteraction.cpp"
+AHBOT_UPDATE_GATE_UPSTREAM = """void AhBot::Update()
+{
+    if (sWorld.IsShutdowning())
+        return;
+"""
+AHBOT_UPDATE_GATE_ANDROID = """void AhBot::Update()
+{
+    // POCKET REALM: never spawn the checker thread without a loaded
+    // config - ForceUpdate dereferences config state (updateInterval,
+    // item sets) that is garbage when Initialize() never ran to success.
+    if (!sAhBotConfig.enabled)
+        return;
+
+    if (sWorld.IsShutdowning())
+        return;
+"""
+AHBOT_CONFIG_DISABLE_UPSTREAM = """bool AhBotConfig::Initialize()
+{
+    if (!config.SetSource(SYSCONFDIR"ahbot.conf", "AHBot_"))
+"""
+AHBOT_CONFIG_DISABLE_ANDROID = """bool AhBotConfig::Initialize()
+{
+    // POCKET REALM: hard-disable until a config actually loads. The
+    // early return below used to leave `enabled` uninitialized; a fresh
+    // process zeroes it (Android never observed a problem), but the
+    // embedded in-process lane recycles the heap across world boots and
+    // the second boot read garbage that enabled the disabled lane.
+    enabled = false;
+    if (!config.SetSource(SYSCONFDIR"ahbot.conf", "AHBot_"))
+"""
 
 
 def patches_content_digests() -> dict[str, str]:
@@ -243,6 +285,14 @@ POCKET_CHAT_ANDROID = """        case CHAT_MSG_WHISPER:
                 break;
 """
 PLAYERBOTS_OVERLAYS = [
+    {
+        "id": "ahbot-config-absent-hard-disable",
+        "paths": [
+            "ahbot/AhBot.cpp",
+            "ahbot/AhBotConfig.cpp",
+        ],
+        "reason": "When ahbot.conf is absent, AhBotConfig::Initialize() returns before writing `enabled`, leaving it UNINITIALIZED, and AhBot::Update() never checks enabled before spawning the detached checker thread - whose ForceUpdate then dereferences garbage config state (updateInterval, item sets). A fresh process zeroes the heap so Android never observed it, but the embedded in-process lane recycles the heap across world boots and the second boot crashed the host JVM. Hard-disable on config-absence and gate Update on enabled: identical no-activity outcome on both platforms, minus the uninitialized read.",
+    },
     {
         "id": "portable-unary-not-character-query",
         "paths": [
@@ -374,6 +424,79 @@ WORLD_THREAD_ANDROID = """    // Re-arm process-global world-loop state before e
 
     // Launch the world update thread.
     m_worldThread.reset(new MaNGOS::Thread(new WorldRunnable));
+"""
+EMBEDDED_IO_CONTEXT_RESTART_UPSTREAM = """bool Master::StartNetworkEmbedded(uint32_t network_threads)
+{
+    if (network_threads == 0) network_threads = 1;
+"""
+EMBEDDED_IO_CONTEXT_RESTART_ANDROID = """bool Master::StartNetworkEmbedded(uint32_t network_threads)
+{
+    if (network_threads == 0) network_threads = 1;
+
+    // Embedded re-init: asio's run() returns immediately after stop() until
+    // restart() is called. Without this, a second embedded start in the same
+    // process spawns network threads whose run() calls exit instantly and
+    // the listener stays unserviced.
+    m_context.restart();
+"""
+EMBEDDED_QUEUE_THREAD_JOIN_UPSTREAM = """    // Mirror the tail of Run() but without signals/CLI. The facade has already
+    // set World::StopNow before calling this.
+    if (m_worldThread)
+    {
+        m_worldThread->wait();
+    }
+
+    m_context.stop();
+"""
+EMBEDDED_QUEUE_THREAD_JOIN_ANDROID = """    // Mirror the tail of Run() but without signals/CLI. The facade has already
+    // set World::StopNow before calling this.
+    if (m_worldThread)
+    {
+        m_worldThread->wait();
+    }
+
+    // The LFG/BG queue threads exit their update loops once World::IsStopped()
+    // fires but stay joinable; join them here so the next embedded start can
+    // re-assign their std::thread slots (assigning over a joinable thread
+    // terminates the host process).
+    sWorld.StopQueueThreads();
+
+    m_context.stop();
+"""
+WORLD_QUEUE_STOP_DECL_UPSTREAM = """        void StartLFGQueueThread();
+        void StartBGQueueThread();
+"""
+WORLD_QUEUE_STOP_DECL_ANDROID = """        void StartLFGQueueThread();
+        void StartBGQueueThread();
+        void StopQueueThreads();
+"""
+WORLD_QUEUE_STOP_DEF_UPSTREAM = """void World::StartBGQueueThread()
+{
+    m_bgQueueThread = std::thread([&]()
+    {
+        m_bgQueue.Update();
+    });
+}
+"""
+WORLD_QUEUE_STOP_DEF_ANDROID = """void World::StartBGQueueThread()
+{
+    m_bgQueueThread = std::thread([&]()
+    {
+        m_bgQueue.Update();
+    });
+}
+
+void World::StopQueueThreads()
+{
+    // Embedded re-init counterpart to the Start*QueueThread launches: the
+    // only other join site is ~World, which never runs for the static sWorld
+    // instance. Callers must have set World::StopNow first (the queue update
+    // loops exit on World::IsStopped()).
+    if (m_lfgQueueThread.joinable())
+        m_lfgQueueThread.join();
+    if (m_bgQueueThread.joinable())
+        m_bgQueueThread.join();
+}
 """
 RESULT_QUEUE_UPSTREAM = """void SqlResultQueue::Update()
 {
@@ -5152,6 +5275,26 @@ def prepare_cmangos_source() -> None:
         WORLD_THREAD_ANDROID,
     )
     replace_anchor(
+        cmangos / "src" / "mangosd" / "Master.cpp",
+        EMBEDDED_IO_CONTEXT_RESTART_UPSTREAM,
+        EMBEDDED_IO_CONTEXT_RESTART_ANDROID,
+    )
+    replace_anchor(
+        cmangos / "src" / "mangosd" / "Master.cpp",
+        EMBEDDED_QUEUE_THREAD_JOIN_UPSTREAM,
+        EMBEDDED_QUEUE_THREAD_JOIN_ANDROID,
+    )
+    replace_anchor(
+        cmangos / "src" / "game" / "World" / "World.h",
+        WORLD_QUEUE_STOP_DECL_UPSTREAM,
+        WORLD_QUEUE_STOP_DECL_ANDROID,
+    )
+    replace_anchor(
+        cmangos / "src" / "game" / "World" / "World.cpp",
+        WORLD_QUEUE_STOP_DEF_UPSTREAM,
+        WORLD_QUEUE_STOP_DEF_ANDROID,
+    )
+    replace_anchor(
         cmangos / "src" / "shared" / "Database" / "SqlOperations.cpp",
         RESULT_QUEUE_UPSTREAM,
         RESULT_QUEUE_ANDROID,
@@ -5206,6 +5349,9 @@ def prepare_cmangos_source() -> None:
     # overload to the raw ping)
     replace_anchor(bot_root / "PlayerbotLoginMgr.cpp", PB_LOGIN_DB_SCHEDULE_UPSTREAM, PB_LOGIN_DB_SCHEDULE_ANDROID)
     replace_anchor(bot_root / "PlayerbotLoginMgr.cpp", PB_LOGIN_DB_SCHEDULE_UPSTREAM, PB_LOGIN_DB_SCHEDULE_ANDROID)
+    ahbot_root = mirror / "ahbot"
+    replace_anchor(ahbot_root / "AhBot.cpp", AHBOT_UPDATE_GATE_UPSTREAM, AHBOT_UPDATE_GATE_ANDROID)
+    replace_anchor(ahbot_root / "AhBotConfig.cpp", AHBOT_CONFIG_DISABLE_UPSTREAM, AHBOT_CONFIG_DISABLE_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotMgr.h", PB_MGR_INCLUDE_UPSTREAM, PB_MGR_INCLUDE_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotMgr.h", PB_MGR_TELEMETRY_TYPE_UPSTREAM, PB_MGR_TELEMETRY_TYPE_ANDROID)
     replace_anchor(bot_root / "RandomPlayerbotMgr.h", PB_MGR_GETTER_UPSTREAM, PB_MGR_GETTER_ANDROID)
@@ -5404,6 +5550,26 @@ def restore_cmangos_source() -> None:
         NATIVE / "cmangos" / "src" / "mangosd" / "Master.cpp",
         WORLD_THREAD_ANDROID,
         WORLD_THREAD_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "mangosd" / "Master.cpp",
+        EMBEDDED_QUEUE_THREAD_JOIN_ANDROID,
+        EMBEDDED_QUEUE_THREAD_JOIN_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "mangosd" / "Master.cpp",
+        EMBEDDED_IO_CONTEXT_RESTART_ANDROID,
+        EMBEDDED_IO_CONTEXT_RESTART_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "World" / "World.cpp",
+        WORLD_QUEUE_STOP_DEF_ANDROID,
+        WORLD_QUEUE_STOP_DEF_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "game" / "World" / "World.h",
+        WORLD_QUEUE_STOP_DECL_ANDROID,
+        WORLD_QUEUE_STOP_DECL_UPSTREAM,
     )
     replace_anchor(
         NATIVE / "cmangos" / "src" / "shared" / "Database" / "SqlOperations.cpp",

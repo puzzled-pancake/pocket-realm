@@ -53,6 +53,115 @@ class DesktopServerRuntimeFilesTest {
         }
     }
 
+    /** Stages a minimal valid NORMAL generation the way
+     * tools/win_prepare_data.py publishes (manifest + authenticated
+     * active pointer) so worldConfig's full body can be pinned. */
+    private fun stageActiveGeneration(roots: DesktopStorageRoots) {
+        val id = "12345678-1234-1234-1234-123456789abc"
+        val dataRoot = File(roots.content, "o11-server")
+        val generation = File(dataRoot, "generations/$id").apply { mkdirs() }
+        val records = listOf(
+            "dbc/A.dbc" to "dbc", "maps/0000000.map" to "map",
+            "vmaps/000.vmtree" to "vmtree", "mmaps/000.mmap" to "mmap",
+            "mmaps/0000000.mmtile" to "mmtile",
+        ).map { (path, contents) ->
+            val file = File(generation, path).apply { parentFile?.mkdirs(); writeText(contents) }
+            org.json.JSONObject().put("path", path).put("size", file.length()).put("sha256", sha256(file))
+        }
+        val manifest = org.json.JSONObject().put("schema", 1).put("complete", true)
+            .put("mode", "NORMAL").put("clientBuild", 5875).put("cmangosFamily", "classic")
+            .put("counts", org.json.JSONObject().put("dbc", 100).put("maps", 100)
+                .put("vmapTrees", 1).put("vmapTiles", 0).put("mmapMaps", 1).put("mmapTiles", 1))
+            .put("files", org.json.JSONArray(records))
+        val manifestFile = File(generation, "data-manifest.json").apply { writeText(manifest.toString()) }
+        File(dataRoot, "active.json").writeText(
+            org.json.JSONObject().put("schema", 1).put("mode", "NORMAL")
+                .put("generation", id).put("manifestSha256", sha256(manifestFile)).toString(),
+        )
+    }
+
+    private fun sha256(file: File): String =
+        java.security.MessageDigest.getInstance("SHA-256").digest(file.readBytes())
+            .joinToString("") { "%02x".format(it) }
+
+    @Test
+    fun worldConfigPinsTheFullConfBody() {
+        val (roots, files) = files()
+        stageActiveGeneration(roots)
+        val conf = files.worldConfig().readText()
+        // The load-bearing contract lines, pinned so a drift on either
+        // twin (this one or the Android original) shows up as a test
+        // failure rather than a silent divergence.
+        listOf(
+            "RealmID = 1",
+            "WorldServerPort = 8085",
+            "BindIP = \"127.0.0.1\"",
+            "Network.Threads = 1",
+            "Console.Enable = 0",
+            "Ra.Enable = 0",
+            "SOAP.Enabled = 0",
+            "vmap.enableLOS = 1",
+            "vmap.enableHeight = 1",
+            "vmap.enableIndoorCheck = 1",
+            "mmap.enabled = 1",
+            "LogLevel = 1",
+            "LogFileLevel = 1", // errors-only default (the debug toggle flips this to 3)
+            "PlayerLimit = 10",
+            "MaxOverspeedPings = 0",
+            "MaxCoreStuckTime = 0",
+            "Corpse.Decay.NORMAL = 1800",
+            "Corpse.Decay.RARE = 3600",
+            "Corpse.Decay.ELITE = 3600",
+            "Corpse.Decay.RAREELITE = 7200",
+            "Corpse.Decay.WORLDBOSS = 14400",
+            "PocketRealm.NearbyInteract = 1",
+            "PocketRealm.BotTarget = 0",
+        ).forEach { line ->
+            assertTrue("mangosd.conf must pin \"$line\":\n$conf", line in conf)
+        }
+        // The bots-disabled block is its own conf staged beside mangosd.conf.
+        val botConf = File(File(File(roots.runtime, "server"), "run"), "aiplayerbot-disabled.conf").readText()
+        listOf(
+            "AiPlayerbot.Enabled = 0",
+            "AiPlayerbot.RandomBotAutologin = 0",
+            "AiPlayerbot.RandomBotLoginAtStartup = 0",
+            "AiPlayerbot.RandomBotAutoCreate = 0",
+            "AiPlayerbot.CommandServerPort = 0",
+            "AiPlayerbot.LLMEnabled = 0",
+            "AiPlayerbot.ShowProgressBars = 0",
+        ).forEach { line ->
+            assertTrue("aiplayerbot-disabled.conf must pin \"$line\":\n$botConf", line in botConf)
+        }
+        assertTrue("DataDir must point at the prepared generation", "DataDir = \"" in conf)
+        assertTrue(
+            "all four database infos must point at the sqlite datadir",
+            File(roots.sqliteDatadir, "classicrealmd.sqlite3").absolutePath in conf &&
+                File(roots.sqliteDatadir, "classicmangos.sqlite3").absolutePath in conf &&
+                File(roots.sqliteDatadir, "classiccharacters.sqlite3").absolutePath in conf &&
+                File(roots.sqliteDatadir, "classiclogs.sqlite3").absolutePath in conf,
+        )
+    }
+
+    @Test
+    fun worldConfigDebugToggleFlipsTheLogFileLevel() {
+        val (roots, files) = files()
+        stageActiveGeneration(roots)
+        roots.settingsFile.parentFile?.mkdirs()
+        roots.settingsFile.writeText(Settings.Snapshot(worldDebugLogs = true).toJson())
+        val conf = files.worldConfig().readText()
+        assertTrue("debug toggle must stage LogFileLevel = 3:\n$conf", "LogFileLevel = 3" in conf)
+    }
+
+    @Test
+    fun secureWriteReplacesAtomicallyAcrossRewrites() {
+        val (_, files) = files()
+        repeat(3) { round ->
+            val conf = files.realmdConfig()
+            assertTrue(conf.isFile)
+            assertTrue("rewrite $round must not strand a temp", conf.parentFile!!.list()!!.none { it.endsWith(".tmp") })
+        }
+    }
+
     @Test
     fun lifecycleRecordsCarryTheTwinShape() {
         val (_, files) = files()

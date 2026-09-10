@@ -97,6 +97,8 @@ fun main() {
     }
     if (!realmReady) {
         System.err.println("REALM NEVER REACHED READY")
+        kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.REALM, owner) }
+        kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.DATABASE, owner) }
         exitProcess(EXIT_LISTEN)
     }
 
@@ -114,6 +116,8 @@ fun main() {
     }
     if (!persisted.equals(sessionKeyHex, ignoreCase = true)) {
         System.err.println("SESSION KEY MISMATCH: server=$persisted client=$sessionKeyHex")
+        kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.REALM, owner) }
+        kotlinx.coroutines.runBlocking { backend.stop(RuntimeComponent.DATABASE, owner) }
         exitProcess(EXIT_SESSION)
     }
     println(
@@ -263,6 +267,7 @@ internal object VsrpClient {
     private const val PROOF_BYTES = 20
     private const val SALT_BYTES = 32
     private const val VERSION_CHALLENGE_BYTES = 16
+    private const val LOGIN_FLAGS_BYTES = 4
     private const val READ_TIMEOUT_MS = 10_000
     private const val CLIENT_SECRET_BYTES = 19
     private const val GATE_CONNECT_TIMEOUT_MS = 5_000
@@ -284,7 +289,7 @@ internal object VsrpClient {
             val input = socket.getInputStream()
 
             val name = accountUpper.toByteArray(Charsets.US_ASCII)
-            // sAuthLogonChallengeBody: gamename[4] "WoW ", version
+            // sAuthLogonChallengeBody: gamename[4] "WoW\0", version
             // 1.12.1, build 5875 (LE), platform/os/locale REVERSED
             // (the server un-reverses), timezone bias, ip, name.
             val body = "WoW".toByteArray(Charsets.US_ASCII) + byteArrayOf(0) +
@@ -299,21 +304,21 @@ internal object VsrpClient {
 
             // Response: cmd, error, result, B[32], g_len, g, N_len(uint8),
             // N[32], s[32], version_challenge[16], security_flags.
-            val header = input.readExactly(3)
+            val header = input.readExactly(3, "challenge response header")
             check(header[0] == CMD_AUTH_LOGON_CHALLENGE.toByte() && header[1] == 0.toByte()) {
                 "challenge response header: ${header.toHex()}"
             }
             check(header[2] == AUTH_LOGON_SUCCESS.toByte()) {
                 "challenge rejected with result ${header[2].toInt() and 0xFF}"
             }
-            val bBytes = input.readExactly(EPHEMERAL_BYTES)
-            val gLen = input.readExactly(1)[0].toInt() and 0xFF
-            val gBytes = input.readExactly(gLen)
-            val nLen = input.readExactly(1)[0].toInt() and 0xFF
-            val nBytes = input.readExactly(nLen)
-            val sBytes = input.readExactly(SALT_BYTES)
-            input.readExactly(VERSION_CHALLENGE_BYTES)
-            val securityFlags = input.readExactly(1)[0].toInt() and 0xFF
+            val bBytes = input.readExactly(EPHEMERAL_BYTES, "challenge B")
+            val gLen = input.readExactly(1, "challenge g length")[0].toInt() and 0xFF
+            val gBytes = input.readExactly(gLen, "challenge g")
+            val nLen = input.readExactly(1, "challenge N length")[0].toInt() and 0xFF
+            val nBytes = input.readExactly(nLen, "challenge N")
+            val sBytes = input.readExactly(SALT_BYTES, "challenge salt")
+            input.readExactly(VERSION_CHALLENGE_BYTES, "challenge version banner")
+            val securityFlags = input.readExactly(1, "challenge security flags")[0].toInt() and 0xFF
             check(securityFlags == 0) { "unexpected security flags $securityFlags" }
             check(nBytes.contentEquals(VsrpMath.N.toPaddedBe(EPHEMERAL_BYTES).reversedArray())) {
                 "server N mismatch"
@@ -349,13 +354,21 @@ internal object VsrpClient {
             out.write(proof)
             out.flush()
 
-            // 1.12.1 proof response: cmd, error, M2[20], LoginFlags.
-            val response = input.readExactly(2 + PROOF_BYTES + 1)
+            // Build 5875's proof response frame is 26 bytes: cmd, error,
+            // M2[20], uint32 LoginFlags (the sAuthLogonProof_S_BUILD_6005
+            // layout the server writes whole). Drain the full frame and
+            // assert the flags tail stays zero instead of leaving it
+            // unread on the wire.
+            val response = input.readExactly(2 + PROOF_BYTES + LOGIN_FLAGS_BYTES, "logon proof response")
             check(response[0] == CMD_AUTH_LOGON_PROOF.toByte()) { "proof response cmd ${response[0]}" }
             check(response[1] == AUTH_LOGON_SUCCESS.toByte()) {
                 "logon proof REJECTED (result=${response[1].toInt() and 0xFF})"
             }
             val m2 = response.copyOfRange(2, 2 + PROOF_BYTES)
+            val loginFlags = response.copyOfRange(2 + PROOF_BYTES, response.size)
+            check(loginFlags.all { it == 0.toByte() }) {
+                "unexpected LoginFlags ${loginFlags.toHex()}"
+            }
             val expected = VsrpMath.serverProof(aPub, m1, sessionKey)
             check(m2.contentEquals(expected)) { "server M2 mismatch" }
             println("logon proof accepted; M2 verified; account=$accountUpper")
@@ -368,19 +381,27 @@ internal object VsrpClient {
     private fun reverseAscii(value: String): ByteArray =
         value.toByteArray(Charsets.US_ASCII).reversedArray()
 
-    /** platform/os are 3-character fields NUL-terminated to 4 bytes, so
-     * the reversed wire form carries the NUL FIRST. */
+    /** platform/os are 3-character fields NUL-terminated to 4 bytes. The
+     * server C-string-reads from index 0 BEFORE un-reversing (AuthSocket
+     * sets os[3]='\0' then reverses the parsed string), so the reversed
+     * wire form must carry the terminator LAST: "niW\0" parses back to
+     * "Win"; a NUL-first field parses as the empty string and would fail
+     * a StrictVersionCheck m_os=="Win" comparison. */
     private fun reverseAsciiNul(value: String): ByteArray =
-        byteArrayOf(0) + value.toByteArray(Charsets.US_ASCII).reversedArray()
+        value.toByteArray(Charsets.US_ASCII).reversedArray() + byteArrayOf(0)
 
     private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 
-    private fun InputStream.readExactly(count: Int): ByteArray {
+    private fun InputStream.readExactly(count: Int, stage: String): ByteArray {
         val buffer = ByteArray(count)
         var read = 0
         while (read < count) {
-            val n = read(buffer, read, count - read)
-            check(n > 0) { "socket closed after $read/$count bytes" }
+            val n = try {
+                read(buffer, read, count - read)
+            } catch (timeout: java.net.SocketTimeoutException) {
+                throw IllegalStateException("timeout reading $stage after $read/$count bytes", timeout)
+            }
+            check(n > 0) { "socket closed while reading $stage (after $read/$count bytes)" }
             read += n
         }
         return buffer

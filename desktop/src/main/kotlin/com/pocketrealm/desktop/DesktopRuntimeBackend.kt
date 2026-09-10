@@ -48,8 +48,22 @@ class DesktopRuntimeBackend(
     private val files = ServerRuntimeFiles(roots)
     private val transitionLock = Any()
 
+    /** Per-component ownership slots mirroring the Android services'
+     * ComponentOwnership handshake minus the IBinder lease: the owner's
+     * liveness is this JVM itself. The shared supervisor's readiness proofs
+     * (startStage), stopOwned guards, and orphan-heal policy all key off
+     * observation.owner, so every start claims, every observe echoes, and
+     * every owner-scoped verb verifies — null owners are only ever visible
+     * on genuinely ownerless (stopped) components. */
+    private val ownership = RuntimeComponent.entries.associateWith { OwnershipSlot(it.name) }
+
     @Volatile
     private var client: Process? = null
+
+    /** The active prepared-data generation's runtime lease, held from
+     * world start to world stop. */
+    @Volatile
+    private var worldDataLease: AutoCloseable? = null
 
     override suspend fun preflight(spec: RuntimeLaunchSpec): RuntimeActionResult =
         withContext(Dispatchers.IO) {
@@ -79,7 +93,7 @@ class DesktopRuntimeBackend(
                         component = component,
                         state = if (process?.isAlive == true) ComponentLifecycle.READY else ComponentLifecycle.STOPPED,
                         ready = process?.isAlive == true,
-                        owner = null,
+                        owner = ownership.getValue(component).current(),
                         pid = process?.pid()?.toInt(),
                         detail = if (process?.isAlive == true) "WoW.exe running" else "client not running",
                     )
@@ -92,6 +106,8 @@ class DesktopRuntimeBackend(
         owner: ComponentOwner,
         spec: RuntimeLaunchSpec,
     ): ComponentObservation = withContext(Dispatchers.IO) {
+        val slot = ownership.getValue(component)
+        slot.claim(owner)
         when (component) {
             RuntimeComponent.DATABASE -> startDatabase()
             RuntimeComponent.REALM -> startRealm(spec.endpoint)
@@ -106,6 +122,9 @@ class DesktopRuntimeBackend(
         endpoint: RealmEndpoint,
     ): RuntimeActionResult = withContext(Dispatchers.IO) {
         try {
+            check(ENDPOINT_ADDRESS.matches(endpoint.address)) {
+                "realmlist projection refuses non-IPv4 address: ${endpoint.address}"
+            }
             val realmd = DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, "classicrealmd")
             check(realmd.isFile) { "classicrealmd is not seeded" }
             DesktopSqliteConnection(realmd.absolutePath).use { db ->
@@ -121,39 +140,66 @@ class DesktopRuntimeBackend(
 
     override suspend fun stop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult =
         withContext(Dispatchers.IO) {
+            val slot = ownership.getValue(component)
+            slot.verifyOwner(owner)
             when (component) {
-                RuntimeComponent.DATABASE -> stopDatabase()
-                RuntimeComponent.REALM -> stopRealm()
-                RuntimeComponent.WORLD -> stopWorld()
-                RuntimeComponent.CLIENT -> {
-                    val process = client
-                        ?: return@withContext RuntimeActionResult(ok = true, detail = "client not running")
-                    process.destroy()
-                    val exited = process.waitFor(CLIENT_STOP_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
-                    client = null
-                    RuntimeActionResult(ok = exited || !process.isAlive, detail = "client destroyed")
-                }
+                RuntimeComponent.DATABASE -> stopDatabase().also { if (it.ok) slot.release(owner) }
+                RuntimeComponent.REALM -> stopRealm().also { if (it.ok) slot.release(owner) }
+                RuntimeComponent.WORLD -> stopWorld().also { if (it.ok) slot.release(owner) }
+                RuntimeComponent.CLIENT -> stopClient().also { if (it.ok) slot.release(owner) }
             }
         }
 
     override suspend fun forceStop(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult =
         withContext(Dispatchers.IO) {
+            val slot = ownership.getValue(component)
+            slot.verifyOwner(owner)
             when (component) {
                 RuntimeComponent.REALM -> {
+                    files.writeLifecycle("realm", false, "forced-stop")
                     val rc = runCatching { RealmNative.stopNative(FORCE_STOP_TIMEOUT_MS) }.getOrDefault(-1)
+                    if (rc == 0) slot.release(owner)
                     RuntimeActionResult(rc == 0, "forced realm stop rc=$rc")
                 }
                 RuntimeComponent.WORLD -> {
-                    val rc = runCatching { WorldNative.stopNative(FORCE_STOP_TIMEOUT_MS) }.getOrDefault(-1)
+                    files.writeLifecycle("world", false, "forced-stop")
+                    val rc = synchronized(transitionLock) {
+                        val stopped = runCatching { WorldNative.stopNative(FORCE_STOP_TIMEOUT_MS) }.getOrDefault(-1)
+                        runCatching { worldDataLease?.close() }
+                        worldDataLease = null
+                        stopped
+                    }
+                    if (rc == 0) slot.release(owner)
                     RuntimeActionResult(rc == 0, "forced world stop rc=$rc")
                 }
                 else -> stop(component, owner)
             }
         }
 
-    /** In-process single owner: adoption is vacuously true. */
+    /** Adoption mirrors the Android contract: refused unless the component
+     * is a RUNNING orphan right now (ownerless and not stopped). In-process
+     * that state should not occur — every start claims first — but the
+     * honest refusal keeps the supervisor's orphan-heal semantics sound. */
     override suspend fun adopt(component: RuntimeComponent, owner: ComponentOwner): RuntimeActionResult =
-        RuntimeActionResult(ok = true, detail = "in-process component adopted")
+        withContext(Dispatchers.IO) {
+            val observed = runCatching { observe(component) }.getOrElse {
+                return@withContext RuntimeActionResult(
+                    false,
+                    "adoption observe $component failed: ${it.message ?: it.javaClass.simpleName}",
+                )
+            }
+            val orphan = observed.state != ComponentLifecycle.STOPPED && observed.owner == null
+            if (!orphan) {
+                RuntimeActionResult(
+                    false,
+                    "adoption refused: ${component.name.lowercase()} is not an ownerless running component " +
+                        "(state=${observed.state})",
+                )
+            } else {
+                ownership.getValue(component).claim(owner)
+                RuntimeActionResult(true, "${component.name.lowercase()} adopted under ${owner.sessionId}")
+            }
+        }
 
     override suspend fun observeWorldPresence(): WorldPresenceSample = WorldPresenceSample.EMPTY
 
@@ -184,26 +230,55 @@ class DesktopRuntimeBackend(
         gmLevel: Int,
     ): AccountProvisionResult = withContext(Dispatchers.IO) {
         val world = observeWorld()
-        if (world.state != ComponentLifecycle.READY) {
-            return@withContext AccountProvisionResult(ok = false, code = "WORLD_NOT_RUNNING")
+        if (world.state != ComponentLifecycle.READY || world.owner != owner) {
+            return@withContext AccountProvisionResult(ok = false, code = "WORLD_NOT_READY")
         }
         try {
             val rc = WorldNative.createAccountNative(username, password, ServerRuntimeContract.CONTROL_TIMEOUT_MS)
             when {
-                rc == 0 && gmLevel == 0 -> AccountProvisionResult(ok = true, code = "OK")
-                rc == ERR_ACCOUNT_EXISTS ->
-                    AccountProvisionResult(ok = false, code = "ACCOUNT_EXISTS")
+                rc == ERR_ACCOUNT_EXISTS -> {
+                    // Never adopt or mutate an existing identity before
+                    // proving its password (the Android contract).
+                    if (!WorldNative.verifyAccountPasswordNative(username, password)) {
+                        AccountProvisionResult(ok = false, code = "ACCOUNT_PASSWORD_MISMATCH")
+                    } else {
+                        val info = WorldNative.accountInfoNative(username)
+                        AccountProvisionResult(
+                            ok = true,
+                            code = "ACCOUNT_VERIFIED",
+                            accountId = accountInfoId(info),
+                            gmLevel = accountInfoGmLevel(info),
+                        )
+                    }
+                }
                 rc != 0 -> AccountProvisionResult(ok = false, code = ServerRuntimeContract.errorName(rc.toLong()))
                 else -> {
-                    val gm = WorldNative.setAccountGmLevelNative(
-                        username, gmLevel, ServerRuntimeContract.CONTROL_TIMEOUT_MS,
+                    if (gmLevel != 0) {
+                        val gm = WorldNative.setAccountGmLevelNative(
+                            username, gmLevel, ServerRuntimeContract.CONTROL_TIMEOUT_MS,
+                        )
+                        if (gm != 0) {
+                            return@withContext AccountProvisionResult(
+                                ok = false,
+                                code = ServerRuntimeContract.errorName(gm.toLong()),
+                            )
+                        }
+                    }
+                    val info = WorldNative.accountInfoNative(username)
+                    AccountProvisionResult(
+                        ok = true,
+                        code = "ACCOUNT_CREATED",
+                        accountId = accountInfoId(info),
+                        gmLevel = if (gmLevel != 0) gmLevel else accountInfoGmLevel(info),
                     )
-                    if (gm == 0) AccountProvisionResult(ok = true, code = "OK")
-                    else AccountProvisionResult(ok = false, code = ServerRuntimeContract.errorName(gm.toLong()))
                 }
             }
         } catch (failure: Throwable) {
-            AccountProvisionResult(ok = false, code = "PROVISION-FAILED: ${failure.message}")
+            AccountProvisionResult(
+                ok = false,
+                code = "ACCOUNT_REJECTED",
+                detail = "PROVISION-FAILED: ${failure.message}",
+            )
         }
     }
 
@@ -216,9 +291,16 @@ class DesktopRuntimeBackend(
         }
 
     override fun close() {
+        // Supervisor stop order: client first while the world is still up,
+        // then world, then realm. DATABASE is stateless here (no daemon);
+        // its clean-stop seal is stopDatabase's sidecar drain, which the
+        // supervisor issues separately.
+        runCatching { stopClientProcess() }
         synchronized(transitionLock) {
-            runCatching { RealmNative.stopNative(FORCE_STOP_TIMEOUT_MS) }
             runCatching { WorldNative.stopNative(FORCE_STOP_TIMEOUT_MS) }
+            runCatching { worldDataLease?.close() }
+            worldDataLease = null
+            runCatching { RealmNative.stopNative(FORCE_STOP_TIMEOUT_MS) }
         }
     }
 
@@ -228,39 +310,71 @@ class DesktopRuntimeBackend(
      * launch (stale topology never survives), then the client spawns in
      * its own directory. No synthetic input — the login is the user's. */
     @Suppress("TooGenericExceptionCaught") // any launch failure surfaces as an honest throw
-    private fun startClient(endpoint: RealmEndpoint): ComponentObservation {
+    private fun startClient(endpoint: RealmEndpoint): ComponentObservation = synchronized(transitionLock) {
         val dir = clientDir ?: error("client directory not configured (set it via the launcher)")
         val exe = File(dir, "WoW.exe")
         check(exe.isFile) { "WoW.exe not found under $dir" }
-        ClientRealmEndpointProjection.project(File(dir, "realmlist.wtf"), endpoint)
+        // Refuse BEFORE projecting the realmlist: a refused launch must
+        // have no side effects on the client directory.
         client?.let { if (it.isAlive) error("client already running (pid ${it.pid()})") }
+        ClientRealmEndpointProjection.project(File(dir, "realmlist.wtf"), endpoint)
         val spawned = ProcessBuilder(exe.absolutePath)
             .directory(dir)
             .start()
         client = spawned
-        return ComponentObservation(
+        ComponentObservation(
             component = RuntimeComponent.CLIENT,
             state = ComponentLifecycle.READY,
             ready = true,
-            owner = null,
+            owner = ownership.getValue(RuntimeComponent.CLIENT).current(),
             pid = spawned.pid().toInt(),
             detail = "WoW.exe launched at ${endpoint.address} (realmlist projected)",
         )
     }
 
+    /** Graceful destroy with a bounded destroyForcibly escalation. The
+     * process field is cleared only once exit is proven — a survivor stays
+     * observable instead of being forgotten as a leaked WoW.exe. */
+    private fun stopClient(): RuntimeActionResult = stopClientProcess().let { result ->
+        if (result.ok) client = null
+        result
+    }
+
+    private fun stopClientProcess(): RuntimeActionResult {
+        val process = client ?: return RuntimeActionResult(ok = true, detail = "client not running")
+        process.destroy()
+        if (!process.waitFor(CLIENT_STOP_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+            process.destroyForcibly()
+            process.waitFor(CLIENT_STOP_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+        }
+        val exited = !process.isAlive
+        return if (exited) {
+            RuntimeActionResult(ok = true, detail = "client exited")
+        } else {
+            RuntimeActionResult(ok = false, detail = "client survived destroyForcibly (pid ${process.pid()})")
+        }
+    }
+
     // ---------------- database component ----------------
 
     private fun observeDatabase(): ComponentObservation {
+        // DATABASE is a materialization, not a daemon: "running" means
+        // seeded AND claimed by a live session (start claims, a clean
+        // stop releases). A seeded-but-unclaimed datadir is STOPPED —
+        // otherwise adoption and orphan-heal semantics would treat every
+        // at-rest datadir as a running orphan.
         val seeded = DATABASES.all { database ->
             DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, database).isFile
         }
+        val owner = ownership.getValue(RuntimeComponent.DATABASE).current()
+        val running = seeded && owner != null
         return ComponentObservation(
             component = RuntimeComponent.DATABASE,
-            state = if (seeded) ComponentLifecycle.READY else ComponentLifecycle.STOPPED,
-            ready = seeded,
-            owner = null,
+            state = if (running) ComponentLifecycle.READY else ComponentLifecycle.STOPPED,
+            ready = running,
+            owner = owner,
             pid = null,
-            detail = if (seeded) "sqlite datadir materialized (${roots.sqliteDatadir})" else "not seeded",
+            detail = if (running) "sqlite datadir materialized (${roots.sqliteDatadir})" else "not running",
         )
     }
 
@@ -328,7 +442,7 @@ class DesktopRuntimeBackend(
             component = RuntimeComponent.REALM,
             state = state,
             ready = state == ComponentLifecycle.READY,
-            owner = null,
+            owner = ownership.getValue(RuntimeComponent.REALM).current(),
             pid = null,
             detail = "${RealmNative.detailNative().take(DETAIL_MAX_CHARS)} " +
                 "(${ServerRuntimeContract.errorName(status[2])})",
@@ -345,7 +459,7 @@ class DesktopRuntimeBackend(
             component = RuntimeComponent.WORLD,
             state = state,
             ready = state == ComponentLifecycle.READY,
-            owner = null,
+            owner = ownership.getValue(RuntimeComponent.WORLD).current(),
             pid = null,
             detail = "${WorldNative.detailNative().take(DETAIL_MAX_CHARS)} " +
                 "(${ServerRuntimeContract.errorName(status[2])})",
@@ -374,25 +488,33 @@ class DesktopRuntimeBackend(
             files.writeLifecycle("world", false, "start-failed-data", failure.message ?: "config failure")
             error("world start refused: ${failure.message}")
         }
+        // Pin the active generation for the world's lifetime: while this
+        // lease is held, a concurrent publication cannot swap the data
+        // under the running world (the Android twin's lease contract).
+        worldDataLease = files.acquireNormalDataLease()
         files.writeLifecycle("world", false, "start", endpoint.address)
         val rc = WorldNative.startNative(config.absolutePath)
         if (rc != 0) {
+            runCatching { worldDataLease?.close() }
+            worldDataLease = null
             files.writeLifecycle("world", false, "start-failed", ServerRuntimeContract.errorName(rc.toLong()))
             error("world start failed: ${ServerRuntimeContract.errorName(rc.toLong())} (rc=$rc)")
         }
         observeWorld()
     }
 
+    private fun stopWorld(): RuntimeActionResult = synchronized(transitionLock) {
+        val rc = WorldNative.stopNative(ServerRuntimeContract.CONTROL_TIMEOUT_MS)
+        runCatching { worldDataLease?.close() }
+        worldDataLease = null
+        files.writeLifecycle("world", rc == 0, "stop", ServerRuntimeContract.errorName(rc.toLong()))
+        RuntimeActionResult(rc == 0, "world stop rc=$rc (${ServerRuntimeContract.errorName(rc.toLong())})")
+    }
+
     private fun stopRealm(): RuntimeActionResult = synchronized(transitionLock) {
         val rc = RealmNative.stopNative(ServerRuntimeContract.CONTROL_TIMEOUT_MS)
         files.writeLifecycle("realm", rc == 0, "stop", ServerRuntimeContract.errorName(rc.toLong()))
         RuntimeActionResult(rc == 0, "realm stop rc=$rc (${ServerRuntimeContract.errorName(rc.toLong())})")
-    }
-
-    private fun stopWorld(): RuntimeActionResult = synchronized(transitionLock) {
-        val rc = WorldNative.stopNative(ServerRuntimeContract.CONTROL_TIMEOUT_MS)
-        files.writeLifecycle("world", rc == 0, "stop", ServerRuntimeContract.errorName(rc.toLong()))
-        RuntimeActionResult(rc == 0, "world stop rc=$rc (${ServerRuntimeContract.errorName(rc.toLong())})")
     }
 
     private fun currentRealmState(): Long {
@@ -411,6 +533,43 @@ class DesktopRuntimeBackend(
         return status[1]
     }
 
+    private fun accountInfoId(info: LongArray): Long =
+        if (info.size == ACCOUNT_INFO_WIDTH) info[0] else 0L
+
+    private fun accountInfoGmLevel(info: LongArray): Int =
+        if (info.size == ACCOUNT_INFO_WIDTH) info[1].toInt() else 0
+
+    /** One component's ownership slot: the in-process mirror of the Android
+     * services' ComponentOwnership. claim accepts a fresh owner exactly
+     * when the slot is empty (same-owner re-claim is idempotent); the
+     * owner-scoped verbs verify; a successful owned stop releases. */
+    private class OwnershipSlot(private val component: String) {
+        private val lock = Any()
+        private var owner: ComponentOwner? = null
+
+        fun claim(requested: ComponentOwner) = synchronized(lock) {
+            check(owner == null || owner == requested) {
+                "$component is owned by another runtime session"
+            }
+            owner = requested
+        }
+
+        fun verifyOwner(requested: ComponentOwner) = synchronized(lock) {
+            checkNotNull(owner?.takeIf { it == requested }) {
+                "$component ownership mismatch; operation withheld"
+            }
+        }
+
+        fun release(requested: ComponentOwner) = synchronized(lock) {
+            check(owner == null || owner == requested) {
+                "$component ownership mismatch; release withheld"
+            }
+            owner = null
+        }
+
+        fun current(): ComponentOwner? = synchronized(lock) { owner }
+    }
+
     private companion object {
         const val REALM_STATUS_WIDTH = 5
         const val WORLD_STATUS_WIDTH = 8
@@ -419,6 +578,13 @@ class DesktopRuntimeBackend(
         const val CLIENT_STOP_TIMEOUT_MS = 10_000L
         const val WAL_DRAIN_TIMEOUT_MS = 15_000L
         const val WAL_DRAIN_POLL_MS = 250L
+        const val ACCOUNT_INFO_WIDTH = 2
+
+        /** The desktop seam's exec carries no bind parameters (it mirrors
+         * the framework's execSQL), so the realmlist UPDATE interpolates.
+         * v1 is loopback/LAN-IPv4 only: a strict dotted-quad guard keeps
+         * the interpolation closed. */
+        val ENDPOINT_ADDRESS = Regex("""^\d{1,3}(\.\d{1,3}){3}$""")
 
         /** ServerRuntimeContract error index 10 (the errors table is
          * name-indexed, not constant-exported). */

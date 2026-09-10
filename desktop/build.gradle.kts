@@ -71,10 +71,11 @@ tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileTestKotlin"
 detekt {
     buildUponDefaultConfig = true
     config.setFrom("detekt.yml")
-    // Only desktop-owned sources. Shared android-tree files are detekt-gated
-    // by the Android build (:app:detekt, with its baseline); each file is
-    // linted by exactly one build.
-    source.setFrom("src/main/kotlin")
+    // Desktop-owned main AND test sources. Shared android-tree files are
+    // detekt-gated by the Android build (:app:detekt, with its baseline);
+    // each file is linted by exactly one build — desktop tests are owned
+    // here (the Android :app:detekt never sees them).
+    source.setFrom("src/main/kotlin", "src/test/kotlin")
 }
 
 dependencies {
@@ -97,8 +98,13 @@ application {
 
 tasks.named<Test>("test") {
     // The shared JNI shims loadLibrary() by name; the native lanes' DLL
-    // output dirs must be searchable. Tests skip cleanly when absent.
+    // output dirs must be searchable. Tests skip cleanly when absent —
+    // unless -PrequireNatives demands them (the CI native lane), which
+    // flips every DLL-guarded assumeTrue into a hard failure.
     jvmArgs("-Djava.library.path=$nativeLibraryPath")
+    if (project.hasProperty("requireNatives")) {
+        systemProperty("pocketrealm.requireNatives", "true")
+    }
 }
 
 // Phase-3 bring-up: seed the four realm databases from the pinned
@@ -180,17 +186,29 @@ tasks.register<JavaExec>("whisperGate") {
 // build provenance. Inputs are machine-local build outputs — the task
 // skips honestly (not fails) when the native lanes have not been built.
 
-// Fat jar: jpackage's single --input classpath needs the whole app
-// (Compose + coroutines + json) in one artifact.
+// Fat jar: jpackage's single -- input classpath needs the whole app
+// (Compose + coroutines + json) in one artifact. module-info.class files
+// (root and multi-release) never merge correctly; signatures and index
+// lists are per-jar artifacts that would poison the merged manifest.
+// Multi-Release: true keeps the META-INF/versions/9+ classes several
+// dependencies carry actually loadable instead of inert dead weight.
 val appJar = tasks.register<Jar>("appJar") {
     archiveBaseName.set("pocketrealm-desktop-app")
-    manifest { attributes("Main-Class" to "com.pocketrealm.desktop.MainKt") }
+    manifest {
+        attributes("Main-Class" to "com.pocketrealm.desktop.MainKt")
+        attributes("Multi-Release" to "true")
+    }
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from(sourceSets.named("main").get().output)
     from({
         configurations.named("runtimeClasspath").get().map { if (it.isDirectory) it else zipTree(it) }
     })
-    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
+    exclude(
+        "module-info.class",
+        "META-INF/versions/**/module-info.class",
+        "META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA",
+        "META-INF/*.EC", "META-INF/INDEX.LIST",
+    )
 }
 
 tasks.register("packageApp") {
@@ -222,6 +240,15 @@ tasks.register("packageApp") {
         imageInput.mkdirs()
         allInputs.forEach { it.copyTo(imageInput.resolve(it.name), overwrite = true) }
         val outDir = layout.buildDirectory.dir("package").get().asFile
+        val image = outDir.resolve("PocketRealm")
+        // jpackage refuses an existing app-image destination; a stale
+        // image from a previous run (or a locked exe) must be cleared,
+        // with an actionable message when Windows still holds it open.
+        if (image.exists() && !image.deleteRecursively()) {
+            throw GradleException(
+                "cannot remove stale app image $image — close PocketRealm.exe and retry",
+            )
+        }
         outDir.mkdirs()
         exec {
             commandLine(
@@ -232,11 +259,15 @@ tasks.register("packageApp") {
                 "--main-jar", jarFile.name,
                 "--main-class", "com.pocketrealm.desktop.MainKt",
                 "--dest", outDir.absolutePath,
-                "--java-options", "-Djava.library.path=.",
+                // $APPDIR is jpackage's launcher cfg placeholder expanded
+                // to the absolute app dir at launch. The Windows launcher
+                // does NOT chdir, so "." resolved against the caller's cwd
+                // and every loadLibrary-by-name failed in the image.
+                "--java-options", "-Djava.library.path=\$APPDIR",
                 "--win-console",
             )
         }
-        logger.lifecycle("app image: ${outDir.resolve("PocketRealm")}")
+        logger.lifecycle("app image: $image")
     }
 }
 

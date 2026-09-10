@@ -34,8 +34,8 @@ class DesktopRuntimeBackendTest {
     private val seamDll = File("../native/.build-win-x86_64/sqlite-seam-build/pocket_sqlite.dll")
 
     private fun assumeNativesStaged() {
-        assumeTrue("realm runtime not built (run tools/build_win_realm_runtime.py): $realmDll", realmDll.isFile)
-        assumeTrue("sqlite seam not built (run tools/build_win_sqlite_seam.py): $seamDll", seamDll.isFile)
+        requireNativeIfDemanded("realm runtime", realmDll)
+        requireNativeIfDemanded("sqlite seam", seamDll)
     }
 
     private fun spec(endpoint: RealmEndpoint = RealmEndpoint.LOCAL) = RuntimeLaunchSpec(
@@ -67,9 +67,15 @@ class DesktopRuntimeBackendTest {
     fun databaseObserveReflectsSeededState() {
         val seededRoots = DesktopStorageRoots(folder.newFolder("seeded"))
         materializeDatadir(seededRoots)
-        val seeded = runBlocking { DesktopRuntimeBackend(seededRoots).observe(RuntimeComponent.DATABASE) }
-        assertEquals(ComponentLifecycle.READY, seeded.state)
-        assertTrue(seeded.ready)
+        // Seeded but unclaimed: a materialization at rest is STOPPED —
+        // only a claimed (started) datadir is "running".
+        val atRest = runBlocking { DesktopRuntimeBackend(seededRoots).observe(RuntimeComponent.DATABASE) }
+        assertEquals(ComponentLifecycle.STOPPED, atRest.state)
+        assertFalse(atRest.ready)
+        val backend = DesktopRuntimeBackend(seededRoots)
+        val started = runBlocking { backend.start(RuntimeComponent.DATABASE, owner, spec()) }
+        assertEquals(ComponentLifecycle.READY, started.state)
+        assertTrue(started.ready)
 
         val emptyRoots = DesktopStorageRoots(folder.newFolder("bare"))
         val bare = runBlocking { DesktopRuntimeBackend(emptyRoots).observe(RuntimeComponent.DATABASE) }
@@ -142,7 +148,7 @@ class DesktopRuntimeBackendTest {
 
     @Test
     fun projectRealmEndpointUpdatesTheRealmlistRow() {
-        assumeTrue("sqlite seam not built: $seamDll", seamDll.isFile)
+        requireNativeIfDemanded("sqlite seam", seamDll)
         val roots = DesktopStorageRoots(folder.newFolder("roots"))
         roots.sqliteDatadir.mkdirs()
         val realmd = DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, "classicrealmd")
@@ -156,5 +162,56 @@ class DesktopRuntimeBackendTest {
         DesktopSqliteConnection(realmd.absolutePath).use { db ->
             assertEquals("127.0.0.1", db.queryText("SELECT address FROM realmlist WHERE id = 1;"))
         }
+    }
+
+    @Test
+    fun startClaimsOwnershipAndEveryObservationEchoesIt() {
+        val roots = DesktopStorageRoots(folder.newFolder("seeded"))
+        materializeDatadir(roots)
+        val backend = DesktopRuntimeBackend(roots)
+        val observation = runBlocking { backend.start(RuntimeComponent.DATABASE, owner, spec()) }
+        assertEquals(
+            "the supervisor's startStage readiness proof requires the observation to carry the owner",
+            owner,
+            observation.owner,
+        )
+        val observed = runBlocking { backend.observe(RuntimeComponent.DATABASE) }
+        assertEquals(owner, observed.owner)
+        val stop = runBlocking { backend.stop(RuntimeComponent.DATABASE, owner) }
+        assertTrue(stop.ok)
+        val released = runBlocking { backend.observe(RuntimeComponent.DATABASE) }
+        assertEquals("a successful owned stop releases the claim", null, released.owner)
+    }
+
+    @Test
+    fun stopWithForeignOwnerIsWithheld() {
+        val roots = DesktopStorageRoots(folder.newFolder("seeded"))
+        materializeDatadir(roots)
+        val backend = DesktopRuntimeBackend(roots)
+        runBlocking { backend.start(RuntimeComponent.DATABASE, owner, spec()) }
+        val foreign = ComponentOwner(sessionId = "other", instanceToken = "other")
+        try {
+            runBlocking { backend.stop(RuntimeComponent.DATABASE, foreign) }
+            fail("a foreign owner's stop must be withheld")
+        } catch (expected: IllegalStateException) {
+            assertTrue((expected.message ?: "").contains("ownership mismatch"))
+        }
+        // The rightful owner can still stop after the withheld attempt.
+        val stop = runBlocking { backend.stop(RuntimeComponent.DATABASE, owner) }
+        assertTrue(stop.ok)
+    }
+
+    @Test
+    fun adoptRefusesEverythingButOwnerlessRunningComponents() {
+        val roots = DesktopStorageRoots(folder.newFolder("seeded"))
+        materializeDatadir(roots)
+        val backend = DesktopRuntimeBackend(roots)
+        runBlocking { backend.start(RuntimeComponent.DATABASE, owner, spec()) }
+        val adopter = ComponentOwner(sessionId = "adopter", instanceToken = "adopter")
+        // Owned and READY: not an orphan — adoption must refuse.
+        assertFalse(runBlocking { backend.adopt(RuntimeComponent.DATABASE, adopter) }.ok)
+        runBlocking { backend.stop(RuntimeComponent.DATABASE, owner) }
+        // Stopped: not a running orphan either.
+        assertFalse(runBlocking { backend.adopt(RuntimeComponent.DATABASE, adopter) }.ok)
     }
 }

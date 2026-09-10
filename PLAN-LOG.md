@@ -3660,8 +3660,10 @@ The prompt-format byte-diff battery also ran manually with the pinned
 vectors (24/24 byte-exact rows, 0 mismatches) via the same MSVC flags —
 it is excluded from the committed gate only because it takes a vectors
 argument; wiring it (and the cl.exe fallback arm for the pytest llm
-harnesses, so pure-MSVC boxes don't silently skip) is the next 2b
-increment.
+harnesses, so pure-MSVC boxes don't silently skip) was planned as the
+next 2b increment. [Note added with the review-fix batch: both landed
+inside the 2c-2e commit (0f85f51) - the battery is the smoke's 8th and
+the cl.exe arm is tests/test_win_msvc_smoke.py.]
 
 Gate: python scripts/smoke_win_msvc.py -> exit 0, 7/7 PASS.
 
@@ -3996,3 +3998,110 @@ lockfile, auto-login, code signing).
 
 Gates: whisperGate PASSED; packageApp + launch smoke PASSED; the full
 gates table re-runnable per the doc.
+
+## Windows port review fixes: the 8-lane code review, P0s fixed and re-gated
+
+The requested 8-agent review of the windows-port branch returned 4 P0s,
+~15 P1s and ~30 P2s across six CHANGES-NEEDED lanes; every P0/P1 claim
+was independently re-verified against the code before fixing. All P0s
+and the substantive P1s are fixed and re-gated; the cheap P2s rode
+along. Fixed:
+
+- PACKAGING P0: the packaged app could never load its DLLs
+  (-Djava.library.path=. resolved against the caller's cwd; the Windows
+  jpackage launcher does not chdir and stages DLLs in app\). Now
+  $APPDIR (the launcher cfg placeholder), proven by a REAL packaged
+  smoke: PocketRealm.exe with -Dpocketrealm.nativeSmoke=1 loads
+  pocket_sqlite from any cwd and exits 0. packageApp now clears the
+  stale image (was: refused an existing destination, second run always
+  failed); the fat jar excludes module-info/signature/INDEX entries and
+  declares Multi-Release. The old "launch smoke" was blind (Main never
+  touched natives) - said so in the record.
+- NATIVE RESTART P0 cluster (second world boot in one process):
+  (1) Master::StopEmbedded never joined the LFG/BG queue threads - the
+  next StartLFGQueueThread assigned over joinable std::thread slots and
+  std::terminate'd the JVM (overlay: embedded-queue-thread-join +
+  World::StopQueueThreads); (2) the asio io_context was stopped but
+  never restart()ed - the second boot's listener was a zombie (overlay:
+  embedded-io-context-restart); (3) AhBot::Update spawned its detached
+  checker thread without any enabled check and AhBotConfig::Initialize
+  left `enabled` UNINITIALIZED on config-absence - fresh processes zero
+  it (Android never saw it), the in-process lane recycles the heap and
+  the second boot ran ForceUpdate on garbage state (overlay:
+  ahbot-config-absent-hard-disable); (4) world_runtime cleanup armed
+  m_started only after StartNetworkEmbedded, so a listener-bind throw
+  deleted the DB pools under the live world thread (now armed before).
+  Past all four, the second boot still FREEZES deterministically inside
+  its first World::Update ticks (tick 0 completes, tick 1 never returns;
+  tick-level logging + a minidump of the hung process show no thread
+  left inside the world DLL; the 30s stop timeout then frees pools
+  under the hung thread -> 0xC0000005, no hs_err). The v1 contract is
+  therefore ONE world lifetime per process: the facade refuses a second
+  start after READY with WRONG_STATE + explanation, gradlew bootWorld
+  -DbootCycles=2 pins cycle-1-full + cycle-2-refused-fast, and the
+  re-init audit is a tracked tail in the qualification doc. The guard
+  is shared native code: on Android it converts the SAME latent
+  restart crash (the unjoined queue threads would std::terminate the
+  app process there too) into the same honest WRONG_STATE refusal -
+  in-process world restart never worked on either platform.
+- BACKEND P0: observe() returned owner=null everywhere, breaking every
+  shared-supervisor ownership proof (startStage readiness, stopOwned
+  guards, orphan-heal classification). Now a per-component OwnershipSlot
+  (claim/verify/release) mirrors the Android services' handshake;
+  DATABASE observes READY only while claimed (an at-rest datadir is
+  STOPPED, not a running orphan); adopt refuses everything but ownerless
+  running components; CLIENT stop escalates destroyForcibly and keeps
+  the survivor observable; close() drains client->world->realm; the
+  world holds the PreparedDataStore runtime lease start->stop (the
+  Android twin's contract); provisionAccount ports the full Android
+  shape (WORLD_NOT_READY, verify-password branch, ACCOUNT_VERIFIED/
+  CREATED/PASSWORD_MISMATCH, accountId/gmLevel via accountInfo).
+- DATA-PREP P0: interrupted runs published partial vmaps/mmaps as
+  complete (any-file resume checks; MoveMapGen exits 0 even on per-map
+  failures). Resume is now VALIDATION-based (every extracted map must
+  have >=1 mmtile; per-map "[Map NNN] ... Failed" stdout scan; partial
+  output wiped and regenerated), active.json flips atomically
+  (os.replace) only after count minimums pass, failed publishes leave
+  no generation behind, stale generations pruned, and ad.exe runs -e 3
+  so the Cameras lane never extracts (the review also found extractor
+  Cameras debris in the live client - removed; the client dir is
+  byte-clean again, with before/after entry-set checks and refusal to
+  touch pre-existing extractor-named dirs).
+- AUTH P1: platform/os crossed the wire NUL-FIRST and the server
+  C-string-parses before un-reversing - it silently persisted empty
+  os/platform (would fail StrictVersionCheck). Now NUL-last; the live
+  gate verifies the account row reads os='Win' platform='x86'. The
+  proof response is drained as the full 26-byte build-5875 frame with
+  LoginFlags asserted zero; every read carries a stage label; the
+  session-mismatch and listen-failure exits drain the stack; the raw
+  NUL byte that made AuthGate.kt binary is gone; the srp6 reference
+  harness's missing nullptr varargs terminator is fixed.
+- Conf/settings P1s: secureWrite replaces via Files.move
+  REPLACE_EXISTING+ATOMIC_MOVE (renameTo cannot replace on Windows);
+  the full mangosd.conf body and bots-disabled block are pinned by a
+  golden test (the drift guard the twin design was missing) incl. the
+  LogFileLevel=3 debug variant; Settings degrades per-field on a bad
+  enum instead of resetting the whole snapshot; the settings store
+  fsyncs before the atomic rename.
+- Hygiene tail: CI gained the dispatch/weekly desktop-native lane
+  (deps + DLLs + gradlew test -PrequireNatives, flipping DLL-guarded
+  assumeTrue skips into failures); detekt now lints the desktop tests
+  too; the sqlite seam pins the full define=value (not just names); the
+  deps smoke asserts the staged sqlite is 3.46.1 (plus an amalgamation
+  sha stamp so a stale sqlite3.lib rebuilds); the batch writers use
+  write_bytes (no \r\r\n); NativeCoLoadTest pins the real status
+  contract; the manifest android-free regex covers the remaining
+  framework packages; build_win_realm_runtime wraps prepare in the try
+  and no longer masks the original failure with the drift raise.
+
+Contract note: world_runtime.cpp and the playerbots/cmangos overlays
+are shared with Android - the full NDK sqlite lane
+(tools/build_o09_realm_runtime.py --abi x86_64 --backend sqlite) and
+:app:testDebugUnitTest + :app:detekt both ran green AFTER these edits,
+closing the Phase-4 gap where a shared native edit had shipped without
+the Android-lane gate.
+
+Gates re-run green: desktop test+detekt (300 tests), bootRealmd,
+authGate (server-persisted os/platform verified), bootWorld single +
+bootCycles=2 (refusal pinned), whisperGate, packageApp x2 + packaged
+nativeSmoke exit 0, pytest + check_repo.

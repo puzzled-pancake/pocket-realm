@@ -56,6 +56,22 @@ public:
         std::unique_lock<std::mutex> guard(m_lifecycle);
         if (m_state.state() != POCKET_SERVER_STOPPED && m_state.state() != POCKET_SERVER_FAILED)
             return POCKET_SERVER_WRONG_STATE;
+        if (m_ever_ready)
+        {
+            // One world lifetime per process: after a successful boot the
+            // embedded cmangos lane cannot be re-initialized in place (the
+            // second boot freezes inside its first World::Update ticks and
+            // the teardown-while-hung then crashes the host JVM - see the
+            // windows-port review-fix PLAN-LOG entry). Android never rides
+            // this path (a failed FIRST boot may still be retried below);
+            // refuse honestly instead of hanging the process for 30 s and
+            // dying. Restart the app process for another world lifetime.
+            fail(POCKET_SERVER_WRONG_STATE,
+                 "in-process world restart is not supported: a world that "
+                 "reached READY once needs a fresh process for its next "
+                 "lifetime (restart the app)");
+            return POCKET_SERVER_WRONG_STATE;
+        }
         if (config.empty()) return POCKET_SERVER_INVALID_ARGUMENT;
         if (m_worker.joinable()) m_worker.join();
         m_stop.store(false, std::memory_order_release);
@@ -945,14 +961,22 @@ private:
                 return;
             }
 #endif
+            // Arm the started flag BEFORE the network bring-up: the listener
+            // bind inside StartNetworkEmbedded can throw (port busy), and by
+            // then the world thread and the LFG/BG queue threads are already
+            // running. The throw path lands in cleanup(), which must take
+            // the started branch (World::StopNow + StopEmbedded) — the
+            // not-started branch would delete the database pools under the
+            // live world thread.
+            m_started = true;
             if (!sMaster.StartNetworkEmbedded(1))
             {
                 fail(POCKET_SERVER_PORT_IN_USE, "world listener failed");
                 cleanup();  // early fails skipped teardown
                 return;
             }
-            m_started = true;
             m_state.transition(POCKET_SERVER_READY);
+            m_ever_ready = true;
             // Also exit on FAILED : the hard-stall watchdog fails the
             // state from the world thread; the loop must not outlive it or
             // stop()'s join hangs forever.
@@ -1102,26 +1126,18 @@ private:
             World::StopNow(SHUTDOWN_EXIT_CODE);
             sMaster.StopEmbedded();
             m_started = false;
-            // Close the databases on EVERY teardown path. The Android
-            // lane reaped these connections implicitly when the world
-            // service process died; the Windows lane runs this runtime
-            // in-process inside the app JVM, where a lingering
-            // connection keeps the sqlite WAL sidecars alive past the
-            // stop — the clean-stop seal requires them gone.
-            CharacterDatabase.StopServerEmbedded();
-            WorldDatabase.StopServerEmbedded();
-            LoginDatabase.StopServerEmbedded();
-            LogsDatabase.StopServerEmbedded();
-            World::ResetForReinit();
         }
-        else
-        {
-            CharacterDatabase.StopServerEmbedded();
-            WorldDatabase.StopServerEmbedded();
-            LoginDatabase.StopServerEmbedded();
-            LogsDatabase.StopServerEmbedded();
-            World::ResetForReinit();
-        }
+        // Close the databases on EVERY teardown path (started or not): the
+        // Android lane reaped these connections implicitly when the world
+        // service process died; the Windows lane runs this runtime
+        // in-process inside the app JVM, where a lingering connection keeps
+        // the sqlite WAL sidecars alive past the stop — the clean-stop seal
+        // requires them gone.
+        CharacterDatabase.StopServerEmbedded();
+        WorldDatabase.StopServerEmbedded();
+        LoginDatabase.StopServerEmbedded();
+        LogsDatabase.StopServerEmbedded();
+        World::ResetForReinit();
     }
 
     void fail(pocket_server_error error, const std::string& detail)
@@ -1167,6 +1183,7 @@ private:
     std::mutex m_lifecycle;
     std::thread m_worker;
     bool m_started{false};
+    bool m_ever_ready{false};
 };
 
 WorldRuntime g_runtime;

@@ -56,7 +56,11 @@ static void raise_sqlite(JNIEnv* env, sqlite3* db, int rc, char const* note)
         return;
     }
     char prefix[160];
-    _snprintf(prefix, sizeof(prefix), "sqlite rc=%d %s: ", rc, note);
+    /* snprintf (not _snprintf): the MSVC _ variant does not guarantee
+     * NUL-termination on overflow, and strlen below would then read
+     * past the buffer. */
+    snprintf(prefix, sizeof(prefix), "sqlite rc=%d %s: ", rc, note);
+    prefix[sizeof(prefix) - 1] = 0;
     jsize plen = (jsize)strlen(prefix);
     jchar const* emsg = db ? (jchar const*)sqlite3_errmsg16(db) : NULL;
     jsize mlen = 0;
@@ -98,6 +102,10 @@ Java_com_pocketrealm_database_DesktopSqlite_openNative(JNIEnv* env, jclass cls, 
     jsize len = (*env)->GetStringLength(env, path);
     jchar* terminated = (jchar*)malloc(sizeof(jchar) * (size_t)(len + 1));
     if (terminated == NULL) {
+        jclass oom = (*env)->FindClass(env, "java/lang/OutOfMemoryError");
+        if (oom != NULL) {
+            (*env)->ThrowNew(env, oom, "sqlite path copy");
+        }
         return 0;
     }
     (*env)->GetStringRegion(env, path, 0, len, terminated);
@@ -271,6 +279,13 @@ Java_com_pocketrealm_database_DesktopSqlite_queryTextNative(JNIEnv* env, jclass 
         int bytes = sqlite3_column_bytes16(stmt, 0);
         if (text != NULL && bytes >= 0) {
             result = (*env)->NewString(env, text, (jsize)(bytes / 2));
+        } else {
+            /* Non-NULL column but no text: a conversion/OOM failure on
+             * the sqlite side. Android's simpleQueryForString surfaces
+             * this; returning null silently would alias SQL NULL. */
+            sqlite3_finalize(stmt);
+            raise_sqlite(env, db, sqlite3_errcode(db), "at column_text16");
+            return NULL;
         }
     }
     sqlite3_finalize(stmt);

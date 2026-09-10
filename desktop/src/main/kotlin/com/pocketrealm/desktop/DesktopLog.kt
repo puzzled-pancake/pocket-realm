@@ -21,7 +21,12 @@ object DesktopLog {
     fun attachFile(logsDir: File) {
         logsDir.mkdirs()
         val file = File(logsDir, "pocket-realm.log")
-        sink = PrintStream(FileOutputStream(file, true), false, Charsets.UTF_8)
+        val replacement = PrintStream(FileOutputStream(file, true), false, Charsets.UTF_8)
+        // Close the previous sink on re-attach instead of leaking its
+        // file handle (each bring-up main attaches once; tests may attach
+        // repeatedly against fresh roots).
+        sink?.close()
+        sink = replacement
     }
 
     fun log(level: String, tag: String, message: String) {

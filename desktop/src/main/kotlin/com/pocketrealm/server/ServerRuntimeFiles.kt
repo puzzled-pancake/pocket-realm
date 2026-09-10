@@ -33,6 +33,12 @@ internal class ServerRuntimeFiles(private val roots: DesktopStorageRoots) {
     private val logs = File(root, "logs").apply { mkdirs() }
     private val lifecycle = File(root, "lifecycle").apply { mkdirs() }
     private val normalData = PreparedDataStore(File(roots.content, "o11-server"))
+
+    /** The world runtime pins the active generation for its whole
+     * lifetime (the Android twin's lease contract): while held, a
+     * concurrent publication cannot swap the data under a running
+     * world. Acquire in startWorld, close on stop. */
+    fun acquireNormalDataLease(): PreparedDataStore.GenerationLease = normalData.acquireRuntimeLease()
     private val settings = DesktopSettingsStore(roots.settingsFile)
 
     /** Rotate only between native process lifetimes; active writers are never renamed. */
@@ -150,8 +156,28 @@ internal class ServerRuntimeFiles(private val roots: DesktopStorageRoots) {
             stream.write(text.toByteArray(Charsets.UTF_8))
             stream.fd.sync()
         }
-        check(temp.renameTo(target) || (target.delete() && temp.renameTo(target))) {
-            "cannot replace ${target.name}"
+        // File.renameTo cannot replace an existing target on Windows, and
+        // the delete-then-rename fallback leaves a crash window with no
+        // conf at all. Files.move + REPLACE_EXISTING maps to MoveFileEx's
+        // atomic replace; ATOMIC_MOVE first, plain replace as the fallback
+        // for filesystems that reject the atomic flag.
+        try {
+            java.nio.file.Files.move(
+                temp.toPath(), target.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+            )
+        } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+            try {
+                java.nio.file.Files.move(
+                    temp.toPath(), target.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                )
+            } catch (failure: java.io.IOException) {
+                throw IllegalStateException("cannot replace ${target.name}: ${failure.message}", failure)
+            }
+        } catch (failure: java.io.IOException) {
+            throw IllegalStateException("cannot replace ${target.name}: ${failure.message}", failure)
         }
         return target
     }

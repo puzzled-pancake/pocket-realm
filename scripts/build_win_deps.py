@@ -2,10 +2,11 @@
 """Stage the Pocket Realm Windows native dependencies (Phase 2c lane).
 
 Clones/updates vcpkg at a pinned commit under native/.deps/vcpkg, installs
-the native/win-deps/vcpkg.json manifest for the x64-windows-static triplet
-(static libs, /MT CRT — matching the Android build's
-Boost_USE_STATIC_RUNTIME=ON posture), and compiles the repo-pinned SQLite
-3.46.1 amalgamation with cl.exe into the same prefix.
+the native/win-deps/vcpkg.json manifest for the x64-windows-static-md
+triplet (static libs linked against the dynamic /MD CRT — the JNI DLLs
+load inside the app JVM, which requires the same CRT family), and
+compiles the repo-pinned SQLite 3.46.1 amalgamation with cl.exe into the
+same prefix.
 
 Everything lands in native/.deps/prefix-win-x86_64 (gitignored), laid out
 CMake-consumable: include/ + lib/ + share/. The OpenSSL legacy provider is
@@ -36,6 +37,19 @@ VSWHERE = Path(
     os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")
 ) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
 
+# The pinned amalgamation's reported version; the smoke asserts it so a
+# stale sqlite3.lib (or a wrong pin) fails the gate instead of shipping.
+SQLITE_VERSION = "3.46.1"
+
+
+def sha256_of(path: Path) -> str:
+    import hashlib
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
 
 def run(cmd, **kwargs):
     print(f"+ {' '.join(str(c) for c in cmd)}", flush=True)
@@ -56,13 +70,16 @@ def find_vcvars() -> Path:
 def in_msvc_env(vcvars: Path, workdir: Path, body: str, log_name: str) -> int:
     """Run `body` (batch snippet) under vcvars64 in workdir; return exit code."""
     script = workdir / log_name
-    script.write_text(
-        "@echo off\r\n"
-        f'call "{vcvars}" >nul 2>&1\r\n'
-        f"cd /d {workdir}\r\n"
-        f"{body}\r\n"
-        "exit /b %ERRORLEVEL%\r\n",
-        encoding="ascii",
+    # write_bytes: text mode would translate each \r\n to \r\r\n on Windows,
+    # which cmd.exe tolerates for simple lines but breaks goto/label blocks.
+    script.write_bytes(
+        (
+            "@echo off\r\n"
+            f'call "{vcvars}" >nul 2>&1\r\n'
+            f"cd /d {workdir}\r\n"
+            f"{body}\r\n"
+            "exit /b %ERRORLEVEL%\r\n"
+        ).encode("ascii")
     )
     return subprocess.run(["cmd", "/c", str(script)]).returncode
 
@@ -97,9 +114,17 @@ def install_manifest() -> None:
 
 
 def build_sqlite(vcvars: Path) -> None:
+    stamp = PREFIX / "lib" / "sqlite3.lib.amalgamation-sha256"
+    amalgamation = SQLITE_SRC / "sqlite3.c"
     if (PREFIX / "lib" / "sqlite3.lib").is_file():
-        print("sqlite3.lib already staged")
-        return
+        # A stale lib from an older amalgamation pin must not silently
+        # persist: the stamp records the exact sqlite3.c the lib was
+        # built from and is re-verified on every run.
+        if stamp.is_file() and amalgamation.is_file() \
+                and stamp.read_text(encoding="ascii").strip() == sha256_of(amalgamation):
+            print("sqlite3.lib already staged (amalgamation sha verified)")
+            return
+        print("sqlite3.lib staged from a different amalgamation; rebuilding")
     assert SQLITE_SRC.is_dir(), (
         f"{SQLITE_SRC} missing — stage the pinned amalgamation first "
         "(tools/stage_sqlite_amalgamation.py)"
@@ -119,6 +144,7 @@ def build_sqlite(vcvars: Path) -> None:
         target = PREFIX / "include" / name
         target.write_bytes((SQLITE_SRC / name).read_bytes())
     (PREFIX / "lib" / "sqlite3.lib").write_bytes((out / "sqlite3.lib").read_bytes())
+    stamp.write_text(sha256_of(amalgamation) + "\n", encoding="ascii")
     print(f"sqlite3 staged into {PREFIX}")
 
 
@@ -171,11 +197,18 @@ def smoke(vcvars: Path) -> None:
         f'/link /LIBPATH:"{vcpkg}\\lib" /LIBPATH:"{PREFIX}\\lib" '
         f"{libs} advapi32.lib ws2_32.lib crypt32.lib user32.lib "
         f"> \"{work}\\smoke-build.log\" 2>&1\r\n"
-        f'if exist "{work}\\smoke.exe" "{work}\\smoke.exe"\r\n'
+        f'if exist "{work}\\smoke.exe" "{work}\\smoke.exe" '
+        f"> \"{work}\\smoke-run.log\" 2>&1\r\n"
     )
     code = in_msvc_env(vcvars, work, body, "smoke.bat")
     assert code == 0, f"dependency smoke failed (exit {code})"
-    print("dependency smoke: OK (legacy provider loads)")
+    run_log = (work / "smoke-run.log").read_text(encoding="utf-8", errors="replace")
+    assert f"sqlite {SQLITE_VERSION}" in run_log, (
+        f"staged sqlite3 is not the pinned {SQLITE_VERSION}: "
+        f"{[line for line in run_log.splitlines() if 'sqlite' in line.lower()]} "
+        "(rebuild the prefix with a fresh amalgamation)"
+    )
+    print("dependency smoke: OK (legacy provider loads, sqlite pin verified)")
 
 
 def main() -> int:

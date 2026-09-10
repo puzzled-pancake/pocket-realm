@@ -9,6 +9,10 @@
 #     shared-source manifest compiles the same android-tree files here, so CI
 #     catches an android.* import creeping into a shared file even when only
 #     the Android lane was being edited.
+#   - desktop-native (windows, dispatch + weekly): builds the vcpkg deps +
+#     both realm DLLs + the sqlite seam with MSVC, then runs the desktop
+#     suite with -PrequireNatives so every DLL-guarded test executes
+#     instead of skipping — desktop-unit alone never compiles C/C++.
 # tools/check_sources.py stays local (pre-commit hook) because its
 # prebuilt-archive checks require the local native/.providers cache.
 name: ci
@@ -16,6 +20,9 @@ name: ci
 on:
   push:
   pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * 1"
 
 jobs:
   hygiene:
@@ -47,6 +54,7 @@ jobs:
 
   android-unit:
     runs-on: windows-latest
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: android
@@ -62,6 +70,7 @@ jobs:
 
   desktop-unit:
     runs-on: windows-latest
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: desktop
@@ -72,6 +81,33 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
-      # The co-load gate (NativeCoLoadTest) skips cleanly: CI has no MSVC lane.
+      # The co-load gate (NativeCoLoadTest) skips cleanly: CI has no MSVC lane
+      # in this job; the desktop-native lane below builds them.
       - name: Desktop JVM tests + detekt
         run: ./gradlew.bat test detekt --console=plain
+
+  # The native desktop lane: MSVC builds + the DLL-guarded tests. Manual
+  # dispatch + weekly (the vcpkg bootstrap is far too slow for every push).
+  # The Android NDK lanes and lockfiles are untouched by this job.
+  desktop-native:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Stage native deps (vcpkg + OpenSSL legacy + boost + sqlite amalgamation)
+        run: python scripts/build_win_deps.py
+      - name: Build realm DLLs + extractors (MSVC)
+        run: python tools/build_win_realm_runtime.py --extractors
+      - name: Build the sqlite seam DLL
+        run: python tools/build_win_sqlite_seam.py
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Desktop suite with natives REQUIRED
+        working-directory: desktop
+        run: ./gradlew.bat test detekt -PrequireNatives --console=plain

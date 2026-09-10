@@ -61,6 +61,28 @@
       "reason": "Re-arm CMaNGOS process-global stop state immediately before each embedded world-thread launch."
     },
     {
+      "id": "embedded-io-context-restart",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "path": "src/mangosd/Master.cpp",
+      "reason": "Restart the asio io_context at the top of every embedded network start so network threads service the listener after an in-process stop/start cycle (run() returns immediately after stop() until restart())."
+    },
+    {
+      "id": "embedded-queue-thread-join",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "paths": [
+        "src/mangosd/Master.cpp",
+        "src/game/World/World.h",
+        "src/game/World/World.cpp"
+      ],
+      "reason": "Join the LFG/BattleGround queue threads on embedded stop via World::StopQueueThreads(); a second embedded start would otherwise assign over joinable std::thread slots and std::terminate the host process."
+    },
+    {
       "id": "result-callback-outside-queue-lock",
       "backends": [
         "mysql",
@@ -137,6 +159,14 @@
     }
   ],
   "playerbots_source_overlays": [
+    {
+      "id": "ahbot-config-absent-hard-disable",
+      "paths": [
+        "ahbot/AhBot.cpp",
+        "ahbot/AhBotConfig.cpp"
+      ],
+      "reason": "When ahbot.conf is absent, AhBotConfig::Initialize() returns before writing `enabled`, leaving it UNINITIALIZED, and AhBot::Update() never checks enabled before spawning the detached checker thread - whose ForceUpdate then dereferences garbage config state (updateInterval, item sets). A fresh process zeroes the heap so Android never observed it, but the embedded in-process lane recycles the heap across world boots and the second boot crashed the host JVM. Hard-disable on config-absence and gate Update on enabled: identical no-activity outcome on both platforms, minus the uninitialized read."
+    },
     {
       "id": "portable-unary-not-character-query",
       "paths": [
@@ -253,8 +283,8 @@
   "artifacts": [
     {
       "path": "native/.build-o09-arm64-v8a/realm-staging-sqlite/jniLibs/arm64-v8a/libpocket_realmd_runtime.so",
-      "size": 5864584,
-      "sha256": "4e438ae99d57d65bfe52bf5d455a8bae71861d2bfefb2cb5de08b3a6a73dafea",
+      "size": 5882304,
+      "sha256": "e3d432595069f656116195cf97df16584f8d47fd7054699849e71b204b5dd961",
       "needed": [
         "libc.so",
         "libdl.so",
@@ -269,8 +299,8 @@
     },
     {
       "path": "native/.build-o09-arm64-v8a/realm-staging-sqlite/jniLibs/arm64-v8a/libpocket_world_runtime.so",
-      "size": 34295376,
-      "sha256": "092733e25242e9f6fd21358000ca7bc823784a565d28a412509b4e2e3bccba70",
+      "size": 34535120,
+      "sha256": "2009dfb02638fe085a3ffcc0b1f4857ed895059cd8b64508ac34513757735fdf",
       "needed": [
         "libc.so",
         "libdl.so",
@@ -392,10 +422,10 @@
       "gzip_size": 424
     },
     "classicmangos": {
-      "sha256": "20667dd28b77e283a6f24b437c093f260cef9afb90ee6229a3dad3d83156eb99",
-      "size": 122497903,
-      "gzip_sha256": "5bc134b526c914437e0a915ccdaa965ae8c50fbcf5d8b0365d5a68ce5a062af3",
-      "gzip_size": 23230104
+      "sha256": "f2b8726c5167adc72fb8040169aa96dbf8846a3cd2c783232a4321753982afd6",
+      "size": 122502348,
+      "gzip_sha256": "c8541c9008bef68aeedb48c6b2be95d89f25e17507f785993de05f0455676ce0",
+      "gzip_size": 23231231
     },
     "classicrealmd": {
       "sha256": "cc6eabe3e0739271f2daf18da9e72528389bdf1845aadba5e623949dbbf08a58",

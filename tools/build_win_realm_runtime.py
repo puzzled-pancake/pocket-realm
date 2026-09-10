@@ -96,9 +96,6 @@ def dependency_preflight() -> None:
         )
 
 
-EXTRACTOR_TARGETS = ["ad", "vmap_extractor", "vmap_assembler", "MoveMapGen"]
-
-
 def configure_command(extractors: bool = False) -> list[str]:
     cmangos = ROOT / "native" / "cmangos"
     deps = VCPKG_INSTALLED
@@ -142,16 +139,20 @@ def configure_command(extractors: bool = False) -> list[str]:
 def in_msvc_env(vcvars: Path, body: str, log: Path) -> None:
     log.parent.mkdir(parents=True, exist_ok=True)
     script = log.with_suffix(".bat")
-    script.write_text(
-        "@echo off\r\n"
-        # A MinGW ccache on PATH intercepts cl.exe; keep compiles uncached
-        # so iteration evidence is always the real compiler's.
-        "set CCACHE_DISABLE=1\r\n"
-        f'call "{vcvars}" >nul 2>&1\r\n'
-        f"cd /d {BUILD}\r\n"
-        f"{body}\r\n"
-        "exit /b %ERRORLEVEL%\r\n",
-        encoding="ascii",
+    # write_bytes: text mode would translate each \r\n into \r\n\r\n on
+    # Windows, which cmd.exe tolerates for simple lines but breaks on
+    # goto/label blocks.
+    script.write_bytes(
+        (
+            "@echo off\r\n"
+            # A MinGW ccache on PATH intercepts cl.exe; keep compiles uncached
+            # so iteration evidence is always the real compiler's.
+            "set CCACHE_DISABLE=1\r\n"
+            f'call "{vcvars}" >nul 2>&1\r\n'
+            f"cd /d {BUILD}\r\n"
+            f"{body}\r\n"
+            "exit /b %ERRORLEVEL%\r\n"
+        ).encode("ascii")
     )
     result = subprocess.run(["cmd", "/c", str(script)])
     if result.returncode != 0:
@@ -256,8 +257,10 @@ def main() -> int:
 
     # The o09 staging machinery keyed to the sqlite backend.
     o09.BACKEND = "sqlite"
-    o09.prepare_cmangos_source()
     try:
+        # Inside the try: an anchor edit that throws mid-overlay must
+        # still hit the finally-restore below, not strand a dirty submodule.
+        o09.prepare_cmangos_source()
         if args.force:
             shutil.rmtree(BUILD, ignore_errors=True)
         BUILD.mkdir(parents=True, exist_ok=True)
@@ -306,8 +309,13 @@ def main() -> int:
     finally:
         o09.restore_cmangos_source()
         leftover = output(["git", "status", "--porcelain"], cmangos)
-        if leftover:
+        if leftover and sys.exc_info()[0] is None:
+            # Only raise when no exception is already in flight; masking
+            # the original failure with the drift report hides its cause.
             raise RuntimeError(f"post-build submodule drift (restore missed a file):\n{leftover}")
+        if leftover:
+            print(f"WARNING: post-build submodule drift after failure:\n{leftover}",
+                  file=sys.stderr)
 
 
 if __name__ == "__main__":

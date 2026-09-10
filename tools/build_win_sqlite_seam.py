@@ -39,14 +39,16 @@ PINNED_VERSION = "3.46.1"
 def in_msvc_env(vcvars: Path, workdir: Path, body: str, log: Path) -> None:
     log.parent.mkdir(parents=True, exist_ok=True)
     script = log.with_suffix(".bat")
-    script.write_text(
-        "@echo off\r\n"
-        "set CCACHE_DISABLE=1\r\n"
-        f'call "{vcvars}" >nul 2>&1\r\n'
-        f'cd /d "{workdir}"\r\n'
-        f"{body}\r\n"
-        "exit /b %ERRORLEVEL%\r\n",
-        encoding="ascii",
+    # write_bytes: text mode would double the CRLFs on Windows.
+    script.write_bytes(
+        (
+            "@echo off\r\n"
+            "set CCACHE_DISABLE=1\r\n"
+            f'call "{vcvars}" >nul 2>&1\r\n'
+            f'cd /d "{workdir}"\r\n'
+            f"{body}\r\n"
+            "exit /b %ERRORLEVEL%\r\n"
+        ).encode("ascii")
     )
     result = subprocess.run(["cmd", "/c", str(script)])
     if result.returncode != 0:
@@ -60,11 +62,12 @@ def dumpbin_java_exports(vcvars: Path, dll: Path) -> set[str]:
     work = BUILD / "verify"
     work.mkdir(parents=True, exist_ok=True)
     script = work / "dumpbin.bat"
-    script.write_text(
-        "@echo off\r\n"
-        f'call "{vcvars}" >nul 2>&1\r\n'
-        f'dumpbin /exports "{dll}"\r\n',
-        encoding="ascii",
+    script.write_bytes(
+        (
+            "@echo off\r\n"
+            f'call "{vcvars}" >nul 2>&1\r\n'
+            f'dumpbin /exports "{dll}"\r\n'
+        ).encode("ascii")
     )
     result = subprocess.run(["cmd", "/c", str(script)], capture_output=True, text=True)
     exports = {line.split()[-1] for line in result.stdout.splitlines()

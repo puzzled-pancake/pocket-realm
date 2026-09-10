@@ -21,6 +21,17 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 
 fun main() = application {
+    // Packaged-image smoke lane: -Dpocketrealm.nativeSmoke=1 makes the
+    // very first thing this main does a native DLL touch through the
+    // launcher-configured java.library.path (the jpackage $APPDIR
+    // expansion), then exit 0/1 without opening a window. That converts
+    // "the exe starts" into "the exe can actually load its bundled
+    // natives" — run it as: PocketRealm.exe with
+    // JAVA_TOOL_OPTIONS=-Dpocketrealm.nativeSmoke=1
+    if (System.getProperty("pocketrealm.nativeSmoke") != null) {
+        runNativeSmoke()
+        return@application
+    }
     val roots = DesktopStorageRoots()
     roots.ensureDirectories()
     DesktopLog.attachFile(roots.logs)
@@ -32,6 +43,20 @@ fun main() = application {
     ) {
         PocketRealmDesktopApp()
     }
+}
+
+@Suppress("TooGenericExceptionCaught") // smoke lane: any native failure is the result
+private fun runNativeSmoke(): Nothing {
+    try {
+        val version = com.pocketrealm.database.DesktopSqlite.versionNative()
+        println("nativeSmoke: pocket_sqlite loaded, sqlite $version")
+        println("NATIVE SMOKE PASSED")
+    } catch (failure: Throwable) {
+        System.err.println("nativeSmoke: native load failed: ${failure.message}")
+        System.err.println("NATIVE SMOKE FAILED")
+        kotlin.system.exitProcess(1)
+    }
+    kotlin.system.exitProcess(0)
 }
 
 @Composable

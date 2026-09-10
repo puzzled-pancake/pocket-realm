@@ -30,7 +30,10 @@ def test_msvc_pure_core_lane_passes():
         pytest.skip("windows-only compiler lane")
     result = subprocess.run(
         [sys.executable, str(SMOKE)],
-        capture_output=True, text=True, timeout=600, cwd=str(ROOT))
+        # 8 batteries, each a cl compile + run bounded at 300 s inside the
+        # smoke; a slow box must get battery results, not a TimeoutExpired
+        # false negative.
+        capture_output=True, text=True, timeout=2700, cwd=str(ROOT))
     assert result.returncode == 0, result.stdout + result.stderr[-2000:]
     assert "msvc pure-core smoke: all batteries passed" in result.stdout
     assert "PASS banter_core" in result.stdout

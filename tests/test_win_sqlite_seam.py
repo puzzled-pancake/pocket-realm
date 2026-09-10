@@ -47,10 +47,12 @@ def test_compiles_the_production_define_set():
     assert defines, "production define set is empty — the pin is broken"
     cmake = CMAKELISTS.read_text(encoding="utf-8")
     for define in defines:
-        token = define[2:].split("=")[0]
-        assert token in cmake, (
+        # The FULL define (name=value), not just the name: a value drift
+        # (SQLITE_THREADSAFE=2 -> =1, WAL_SYNCHRONOUS=2 -> =0) must fail
+        # the pin, not pass it.
+        assert define[2:] in cmake, (
             f"native/desktop-sqlite/CMakeLists.txt must compile with the production "
-            f"define set; missing {token}"
+            f"define set; missing {define[2:]}"
         )
 
 

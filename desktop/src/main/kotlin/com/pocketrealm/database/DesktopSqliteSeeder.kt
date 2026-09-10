@@ -246,6 +246,10 @@ internal class DesktopSqliteSeeder(
                 StandardCopyOption.ATOMIC_MOVE)
         } catch (_: AtomicMoveNotSupportedException) {
             Files.move(temp.toPath(), marker.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        } catch (move: java.io.IOException) {
+            // never strand a per-pid temp in the datadir on a failed move
+            temp.delete()
+            throw move
         }
     }
 
