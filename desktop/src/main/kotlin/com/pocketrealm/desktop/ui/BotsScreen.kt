@@ -78,6 +78,10 @@ fun BotsScreen(model: DesktopAppModel) {
     var tab by remember { mutableStateOf(0) }
     var nameDialog by remember { mutableStateOf<Pair<String, (String) -> Unit>?>(null) }
     var confirmDelete by remember { mutableStateOf<BotPresetStore.SavedPreset?>(null) }
+    // Store-verb failures surface here (the Android twin's contract: a
+    // persist I/O error must be a dialog, not an uncaught exception that
+    // kills the composition's scope).
+    var editorError by remember { mutableStateOf<String?>(null) }
 
     fun selectBuiltIn(profileId: String) {
         target = EditorTarget.BuiltIn(profileId)
@@ -116,16 +120,20 @@ fun BotsScreen(model: DesktopAppModel) {
                 if (dirty()) {
                     nameDialog = "Save modified preset as" to { name ->
                         scope.launch {
-                            val created = model.presets.create(name, base = null)
-                            working?.let { model.presets.save(created.id, it) }
-                            model.updateSettings {
-                                it.copy(
-                                    botSavedPresetId = created.id,
-                                    botProfileId = "",
-                                    botPopulationTarget = created.configuration.selectedTarget,
-                                )
+                            runCatching {
+                                val created = model.presets.create(name, base = null)
+                                working?.let { model.presets.save(created.id, it) }
+                                // The Android twin writes only the saved-preset
+                                // selection here (botPopulationTarget is the
+                                // legacy-migration fallback, not something this
+                                // path writes - the preset's own target governs).
+                                model.updateSettings {
+                                    it.copy(botSavedPresetId = created.id, botProfileId = "")
+                                }
+                                selectSaved(created.id)
+                            }.onFailure { failure ->
+                                editorError = "${failure.javaClass.simpleName}: ${failure.message}"
                             }
-                            selectSaved(created.id)
                         }
                     }
                 } else {
@@ -140,18 +148,37 @@ fun BotsScreen(model: DesktopAppModel) {
                 }
             }
             is EditorTarget.Saved -> {
-                if (dirty()) scope.launch { model.presets.save(current.presetId, base()) }
-                model.updateSettings {
-                    it.copy(botSavedPresetId = current.presetId, botProfileId = "")
+                // Android ordering: persist the configuration FIRST and only
+                // apply the selection when the save actually landed.
+                if (dirty()) {
+                    scope.launch {
+                        runCatching { model.presets.save(current.presetId, base()) }
+                            .onSuccess {
+                                model.updateSettings {
+                                    it.copy(botSavedPresetId = current.presetId, botProfileId = "")
+                                }
+                            }
+                            .onFailure { failure ->
+                                editorError = "${failure.javaClass.simpleName}: ${failure.message}"
+                            }
+                    }
+                } else {
+                    model.updateSettings {
+                        it.copy(botSavedPresetId = current.presetId, botProfileId = "")
+                    }
                 }
             }
             EditorTarget.NewDraft -> {
                 nameDialog = "New preset name" to { name ->
                     scope.launch {
-                        val created = model.presets.create(name, base = null)
-                        working?.let { model.presets.save(created.id, it) }
-                        model.updateSettings { it.copy(botSavedPresetId = created.id, botProfileId = "") }
-                        selectSaved(created.id)
+                        runCatching {
+                            val created = model.presets.create(name, base = null)
+                            working?.let { model.presets.save(created.id, it) }
+                            model.updateSettings { it.copy(botSavedPresetId = created.id, botProfileId = "") }
+                            selectSaved(created.id)
+                        }.onFailure { failure ->
+                            editorError = "${failure.javaClass.simpleName}: ${failure.message}"
+                        }
                     }
                 }
             }
@@ -174,27 +201,40 @@ fun BotsScreen(model: DesktopAppModel) {
                 tab = 0
             },
             onImport = {
-                importPresetFile(model) { selectSaved(it) }
+                importPresetFile(model, onError = { editorError = it }) { selectSaved(it) }
             },
             onExport = { preset ->
-                exportPresetFile(model, preset)
+                exportPresetFile(model, preset, onError = { editorError = it })
             },
             onDelete = { confirmDelete = it },
             onRename = { preset ->
                 nameDialog = "Rename preset" to { name ->
-                    scope.launch { model.presets.rename(preset.id, name) }
+                    scope.launch {
+                        runCatching { model.presets.rename(preset.id, name) }
+                            .onFailure { failure ->
+                                editorError = "${failure.javaClass.simpleName}: ${failure.message}"
+                            }
+                    }
                 }
             },
             onDuplicate = { preset ->
                 nameDialog = "Duplicate \"${preset.name}\"" to { name ->
                     scope.launch {
-                        val copy = model.presets.duplicate(preset.id, name)
-                        selectSaved(copy.id)
+                        runCatching { model.presets.duplicate(preset.id, name) }
+                            .onSuccess { copy -> selectSaved(copy.id) }
+                            .onFailure { failure ->
+                                editorError = "${failure.javaClass.simpleName}: ${failure.message}"
+                            }
                     }
                 }
             },
             onFavorite = { preset, favorite ->
-                scope.launch { model.presets.setFavorite(preset.id, favorite) }
+                scope.launch {
+                    runCatching { model.presets.setFavorite(preset.id, favorite) }
+                        .onFailure { failure ->
+                            editorError = "${failure.javaClass.simpleName}: ${failure.message}"
+                        }
+                }
             },
         )
         Card(modifier = Modifier.weight(1f).fillMaxHeight()) {
@@ -230,16 +270,28 @@ fun BotsScreen(model: DesktopAppModel) {
                             }
                         },
                     ) { Text("Reset") }
-                    OutlinedButton(onClick = {
-                        nameDialog = (if (target is EditorTarget.Saved) "Save" else "Save As") to { name ->
-                            scope.launch {
-                                val existing = (target as? EditorTarget.Saved)?.presetId
-                                    ?: model.presets.create(name, base = null).id
-                                model.presets.save(existing, base())
-                                selectSaved(existing)
+                    OutlinedButton(
+                        // The Android twin's gate: the Save/Save-As action
+                        // needs a real target (Saved/NewDraft) or an actual
+                        // edit - never a lazily-selected default duplicate.
+                        enabled = target is EditorTarget.Saved ||
+                            target is EditorTarget.NewDraft ||
+                            dirty(),
+                        onClick = {
+                            nameDialog = (if (target is EditorTarget.Saved) "Save" else "Save As") to { name ->
+                                scope.launch {
+                                    runCatching {
+                                        val existing = (target as? EditorTarget.Saved)?.presetId
+                                            ?: model.presets.create(name, base = null).id
+                                        model.presets.save(existing, base())
+                                        selectSaved(existing)
+                                    }.onFailure { failure ->
+                                        editorError = "${failure.javaClass.simpleName}: ${failure.message}"
+                                    }
+                                }
                             }
-                        }
-                    }) { Text(if (target is EditorTarget.Saved) "Save" else "Save As") }
+                        },
+                    ) { Text(if (target is EditorTarget.Saved) "Save" else "Save As") }
                     Button(enabled = target != null, onClick = ::apply) {
                         Text(if (dirty() && target is EditorTarget.Saved) "Save & apply" else "Apply")
                     }
@@ -288,14 +340,19 @@ fun BotsScreen(model: DesktopAppModel) {
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch {
-                        model.presets.delete(preset.id)
-                        if (settings.botSavedPresetId == preset.id) {
-                            model.updateSettings { it.copy(botSavedPresetId = null) }
-                        }
-                        if ((target as? EditorTarget.Saved)?.presetId == preset.id) {
-                            target = null
-                            working = null
-                        }
+                        runCatching { model.presets.delete(preset.id) }
+                            .onSuccess {
+                                if (settings.botSavedPresetId == preset.id) {
+                                    model.updateSettings { it.copy(botSavedPresetId = null) }
+                                }
+                                if ((target as? EditorTarget.Saved)?.presetId == preset.id) {
+                                    target = null
+                                    working = null
+                                }
+                            }
+                            .onFailure { failure ->
+                                editorError = "${failure.javaClass.simpleName}: ${failure.message}"
+                            }
                     }
                     confirmDelete = null
                 }) { Text("Delete") }
@@ -303,9 +360,23 @@ fun BotsScreen(model: DesktopAppModel) {
             dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("Cancel") } },
         )
     }
+    editorError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { editorError = null },
+            title = { Text("Preset transfer") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { editorError = null }) { Text("OK") }
+            },
+        )
+    }
 }
 
-private fun importPresetFile(model: DesktopAppModel, onImported: (String) -> Unit) {
+private fun importPresetFile(
+    model: DesktopAppModel,
+    onError: (String) -> Unit,
+    onImported: (String) -> Unit,
+) {
     Thread {
         val frame = java.awt.Window.getWindows().firstOrNull { it is java.awt.Frame } as? java.awt.Frame
         val dialog = java.awt.FileDialog(frame, "Import bot preset", java.awt.FileDialog.LOAD)
@@ -317,12 +388,17 @@ private fun importPresetFile(model: DesktopAppModel, onImported: (String) -> Uni
             kotlinx.coroutines.runBlocking {
                 runCatching { model.presets.importJson(raw) }
                     .onSuccess { onImported(it.id) }
+                    .onFailure { failure -> onError("${failure.javaClass.simpleName}: ${failure.message}") }
             }
         }
     }.apply { isDaemon = true }.start()
 }
 
-private fun exportPresetFile(model: DesktopAppModel, preset: com.pocketrealm.bots.BotPresetStore.SavedPreset) {
+private fun exportPresetFile(
+    model: DesktopAppModel,
+    preset: com.pocketrealm.bots.BotPresetStore.SavedPreset,
+    onError: (String) -> Unit,
+) {
     Thread {
         val frame = java.awt.Window.getWindows().firstOrNull { it is java.awt.Frame } as? java.awt.Frame
         val dialog = java.awt.FileDialog(frame, "Export bot preset", java.awt.FileDialog.SAVE)
@@ -330,7 +406,8 @@ private fun exportPresetFile(model: DesktopAppModel, preset: com.pocketrealm.bot
         dialog.isVisible = true
         val target = dialog.directory?.let { dir -> dialog.file?.let { name -> File(dir, name) } }
         if (target != null) {
-            target.writeText(model.presets.exportJson(preset), Charsets.UTF_8)
+            runCatching { target.writeText(model.presets.exportJson(preset), Charsets.UTF_8) }
+                .onFailure { failure -> onError("${failure.javaClass.simpleName}: ${failure.message}") }
         }
     }.apply { isDaemon = true }.start()
 }

@@ -4210,3 +4210,65 @@ pytest incl. the new lockfile battery, android :app:testDebugUnitTest +
 :app:detekt (-PpocketAbi=x86_64, untouched-by-contract verified),
 whisperGate on the relinked DLLs, kill matrix x3 + soak, packageApp x2 +
 packaged nativeSmoke, check_repo OK.
+
+## Windows-port 6-lane review fixes (review of 9604571)
+
+Five P1s + the confirmed P2/P3 tail, all fixed and re-gated:
+
+- Main.kt close path: `::exitApplication` as a lambda's final expression
+  coerced to Unit and never ran - the window could not be closed. Now a
+  state-driven close: onCloseRequest starts one background drain, a
+  "Saving the realm and stopping..." scrim replaces the content, and
+  exitApplication() fires from composition when the drain settles.
+- Support-bundle secret leak: llmExternalApiKey passed the shared
+  SecretRedactor untouched (its key regex predates api-key names; the
+  desktop is the only platform bundling its settings file). The key is
+  now an explicit canary in DesktopSupportBundle.
+- Dead diagnostics + bundles missing the app log: both read app.log but
+  DesktopLog writes pocket-realm.log. Name single-sourced via
+  DesktopSupportBundle.APP_LOG_FILE_NAME; the tail poll moved to
+  Dispatchers.IO and only recomposes on change.
+- longPathAware silent-skip: packageApp now FAILS when the manifest
+  helper runs and exits nonzero (the Store python alias stub is exactly
+  the silent case); no-python-at-all stays a logged skip.
+- Kill-matrix honesty: the docstring claimed a supervisor-journal
+  recovery contract the legs cannot exercise (both victims drive the
+  backend directly; the journal is unit-covered elsewhere). Renamed
+  mid-db-init -> early-boot, scoped victim discovery to this checkout's
+  path, empty java.exe output handled, WoW cleanup kills only pids that
+  appeared during the run, soak timeout kills the worker JVM and fails
+  with its verdict, sidecar liveness mirrors the backend's
+  delete-pending semantics, mid-save comment matches the code.
+- P2s: Bots BuiltIn+dirty apply no longer writes the default profile's
+  botPopulationTarget (Android parity: only the preset selection), the
+  Saved apply persists-then-applies, store-verb failures surface in a
+  "Preset transfer" dialog instead of killing the scope, Save/Save-As
+  carries the Android enabled gate, update-check moved off the UI
+  thread, updateSettings serialized + settings temp file unique per
+  call, UserAccountStore gained the ATOMIC_MOVE fallback and
+  collision-proof quarantine names, auto-login renames the chord
+  parameters (holdDown/releaseHeld) and stops echoing a credential
+  character in the VK-mapping failure, update feed is https-only.
+- P2s tooling/packaging: the conf twin's LLMBotToBotChatChance moved
+  back to the Android position after LLMMemoriesTail (minP/presence
+  lines restored for verbatim shape; EXTERNAL values never trigger
+  them), resolveBundledAsset no longer lists the run dir as a source
+  (a stale staged copy could self-verify), the external-lane test is
+  order-sensitive and pins the LLMApiJson body + sampling keys + the
+  cloud-lane bot-to-bot 25, a new test pins capped rungs (0/2),
+  pe_info falls back to SizeOfRawData and caps spans at raw size,
+  pe_dependents removed, realm lockfile artifacts pin pe_machine
+  (asserted in the pytest gate), --write-lockfile records the dbgeng
+  provenance note, --force preserves the sibling sqlite-seam-build,
+  stage_host enforces the forbidden-import rule in-lane, VC runtime
+  pick is newest-version-deterministic and concrt140 (imported by
+  nothing) dropped, the manifest merge edits the EXISTING
+  asmv3:windowsSettings element instead of appending a sibling, and
+  the UpdateResourceW discard path is only taken on Update failure.
+- Documented (not fixed): Bots editor draft persistence across route
+  switches is a known parity gap (deferred list).
+
+Gates re-run green: desktop test+detekt, pytest (lockfile battery +
+tripwires incl. regenerated win lockfile), packageApp + packaged
+nativeSmoke with the new failure policy, kill matrix live re-run
+(all three legs), check_repo, android :app:testDebugUnitTest + detekt.

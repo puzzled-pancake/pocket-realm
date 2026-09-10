@@ -294,6 +294,7 @@
       "path": "native/.build-win-x86_64/pocket-runtime-build/pocket_realmd_runtime.dll",
       "size": 5734912,
       "sha256": "2d296a5c7082b5077c35b2d084a7fa48fdc5237ae45d57d8d81bfa1e2d74b09f",
+      "pe_machine": "0x8664",
       "pe_imports": [
         "ADVAPI32.dll",
         "CRYPT32.dll",
@@ -320,6 +321,7 @@
       "path": "native/.build-win-x86_64/pocket-runtime-build/pocket_world_runtime.dll",
       "size": 23684608,
       "sha256": "dc7451fd0199f0155357c9d63c792897c191056087a50191ed01a475ca2f441b",
+      "pe_machine": "0x8664",
       "pe_imports": [
         "ADVAPI32.dll",
         "CRYPT32.dll",
@@ -349,6 +351,7 @@
       "path": "native/.build-win-x86_64/sqlite-seam-build/pocket_sqlite.dll",
       "size": 1362944,
       "sha256": "9d9cd73331e28221a4e39f0c1beb8c619ac66bcd38f98243365a15c91ba2abf7",
+      "pe_machine": "0x8664",
       "pe_imports": [
         "KERNEL32.dll",
         "VCRUNTIME140.dll",
@@ -389,6 +392,9 @@
   },
   "toolchain": {
     "generator": "Ninja",
-    "openssl": "vcpkg x64-windows-static-md (static; win-static-openssl-only overlay keeps the shipped dep/lib import libs off the link line)"
+    "openssl": "vcpkg x64-windows-static-md (static; win-static-openssl-only overlay keeps the shipped dep/lib import libs off the link line)",
+    "notable_imports": {
+      "dbgeng.dll": "WheatyExceptionReport crash reporter in the cmangos Windows platform layer"
+    }
   }
 }

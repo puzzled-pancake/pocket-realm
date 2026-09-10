@@ -65,27 +65,33 @@ object Win32AutoLogin {
     }
 
     private fun typeText(text: String): String? {
-        for (char in text) {
+        for ((index, char) in text.withIndex()) {
             val vks = user32.VkKeyScanW(char.code)
-            if (vks.toInt() == -1) return "character '$char' has no VK mapping"
+            if (vks.toInt() == -1) {
+                // The character itself never enters the reason: these are
+                // credential bytes and app.log rides into support bundles.
+                return "credential character at index $index has no VK mapping"
+            }
             val code = vks.toInt() and 0xFF
             val shift = (vks.toInt() shr 8) and 0x01 != 0
-            if (shift) tap(VK_SHIFT, pressOnly = true)?.let { return it }
+            if (shift) tap(VK_SHIFT, holdDown = true)?.let { return it }
             tap(code)?.let { return it }
-            if (shift) tap(VK_SHIFT, releaseOnly = true)?.let { return it }
+            if (shift) tap(VK_SHIFT, releaseHeld = true)?.let { return it }
             sleep(KEY_GAP_MS)
         }
         return null
     }
 
-    /** Press and release [vk]; [pressOnly]/[releaseOnly] send just one
-     * half (modifier chords). Returns the failure reason or null. */
-    private fun tap(vk: Int, pressOnly: Boolean = false, releaseOnly: Boolean = false): String? {
-        if (!releaseOnly) {
+    /** Press and release [vk]. [holdDown] sends the press half only and
+     * LEAVES THE KEY HELD; [releaseHeld] sends the release half only —
+     * together they form modifier chords (shift + letter). Returns the
+     * failure reason or null. */
+    private fun tap(vk: Int, holdDown: Boolean = false, releaseHeld: Boolean = false): String? {
+        if (!releaseHeld) {
             if (send(vk, up = false) != 1) return "SendInput press failed"
             sleep(KEY_HOLD_MS)
         }
-        if (!pressOnly) {
+        if (!holdDown) {
             if (send(vk, up = true) != 1) return "SendInput release failed"
         }
         return null

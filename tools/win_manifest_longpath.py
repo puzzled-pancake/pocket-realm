@@ -55,26 +55,25 @@ def merged(body: bytes) -> bytes | None:
     text = body.decode("utf-8-sig")
     if "longPathAware" in text:
         return None  # already applied
-    setting = (
-        '<longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/'
-        'WindowsSettings">true</longPathAware>'
-    )
-    windows_settings = (
-        '<asmv3:windowsSettings xmlns="http://schemas.microsoft.com/SMI/2016/'
-        'WindowsSettings">' + SETTING + "</asmv3:windowsSettings>"
-    )
+    # Merge INTO the existing windowsSettings element when one is present
+    # (jpackage's launcher carries an asmv3 one with the DPI settings):
+    # appending a second sibling element is non-canonical and a plausible
+    # SxS poison on other manifest shapes.
     # The closers must be matched LONGEST-FIRST: "</windowsSettings>" is a
     # substring of "</asmv3:windowsSettings>" and a naive replace would
     # split the element and corrupt the manifest (SxS refuses to load it).
     if "</asmv3:windowsSettings>" in text:
         text = text.replace(
             "</asmv3:windowsSettings>",
-            "</asmv3:windowsSettings>" + windows_settings, 1)
+            SETTING + "</asmv3:windowsSettings>", 1)
     elif "</windowsSettings>" in text:
         text = text.replace("</windowsSettings>", SETTING + "</windowsSettings>", 1)
     elif "</asmv3:application>" in text:
         text = text.replace(
-            "</asmv3:application>", windows_settings + "</asmv3:application>", 1)
+            "</asmv3:application>",
+            '<asmv3:windowsSettings xmlns="http://schemas.microsoft.com/SMI/2016/'
+            "WindowsSettings\">" + SETTING + "</asmv3:windowsSettings></asmv3:application>",
+            1)
     elif "</application>" in text:
         text = text.replace(
             "</application>",
@@ -114,9 +113,14 @@ def update(exe: Path, payload: bytes, lang: int) -> None:
         handle, ctypes.c_void_p(RT_MANIFEST), ctypes.c_void_p(1), lang,
         blob, len(payload),
     )
-    if not ok or not kernel32.EndUpdateResourceW(handle, False):
+    if not ok:
+        # UpdateResource failure: the documented discard path. A second
+        # End after a FAILED End-commit has undefined handle state, so the
+        # discard call happens only here.
         kernel32.EndUpdateResourceW(handle, True)
-        raise OSError(ctypes.get_last_error(), "UpdateResourceW/EndUpdateResourceW")
+        raise OSError(ctypes.get_last_error(), "UpdateResourceW")
+    if not kernel32.EndUpdateResourceW(handle, False):
+        raise OSError(ctypes.get_last_error(), "EndUpdateResourceW")
 
 
 def main() -> int:

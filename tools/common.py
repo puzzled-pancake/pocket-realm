@@ -238,14 +238,19 @@ def pe_info(path: Path | str) -> dict:
     sections = []
     for index in range(section_count):
         base = optional + optional_size + index * 40
-        _, virtual_size, virtual_address, _, raw_pointer = struct.unpack_from(
+        name, virtual_size, virtual_address, raw_size, raw_pointer = struct.unpack_from(
             "<8sIIII", data, base)
-        sections.append((virtual_address, virtual_size, raw_pointer))
+        sections.append((virtual_address, virtual_size, raw_size, raw_pointer))
 
     def rva_to_offset(rva: int) -> int:
-        for virtual_address, virtual_size, raw_pointer in sections:
-            span = max(virtual_size, 1)
-            if virtual_address <= rva < virtual_address + span:
+        for virtual_address, virtual_size, raw_size, raw_pointer in sections:
+            # VirtualSize==0 (spec: rare, resources only) falls back to the
+            # on-disk size; a live raw span caps at raw_size so an RVA can
+            # never map past the file bytes.
+            span = virtual_size or raw_size
+            if raw_size:
+                span = min(span, raw_size)
+            if virtual_address <= rva < virtual_address + max(span, 1):
                 return raw_pointer + (rva - virtual_address)
         raise RuntimeError(f"RVA {rva:#x} outside any section: {path}")
 
@@ -265,11 +270,6 @@ def pe_info(path: Path | str) -> dict:
         "subsystem": subsystem,
         "dependents": sorted(dependents),
     }
-
-
-def pe_dependents(path: Path | str) -> list[str]:
-    """Sorted DLL names from a PE image's import table."""
-    return pe_info(path)["dependents"]
 
 
 def wait_for_boot(adb: Path, serial: str, *, timeout_seconds: float = 300.0) -> None:

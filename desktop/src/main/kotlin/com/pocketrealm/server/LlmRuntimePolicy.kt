@@ -229,6 +229,13 @@ internal object LlmRuntimePolicy {
         val keyLine =
             if (apiKey.isEmpty()) ""
             else "\n            AiPlayerbot.LLMApiKey = $apiKey"
+        val minPLine =
+            if (profile.minP > 0.0) "\n            AiPlayerbot.LLMMinP = ${jsonNumber(profile.minP)}"
+            else ""
+        val presenceLine =
+            if (profile.presencePenalty > 0.0) {
+                "\n            AiPlayerbot.LLMPresencePenalty = ${jsonNumber(profile.presencePenalty)}"
+            } else ""
         val botToBotLine =
             if (botToBotChance > 0) "\n            AiPlayerbot.LLMBotToBotChatChance = $botToBotChance" else ""
         val providerSafeLine =
@@ -270,7 +277,7 @@ internal object LlmRuntimePolicy {
             AiPlayerbot.LLMTemp = ${jsonNumber(effectiveProfile.temperature)}
             AiPlayerbot.LLMTopP = ${jsonNumber(effectiveProfile.topP)}
             AiPlayerbot.LLMTopK = ${effectiveProfile.topK}
-            AiPlayerbot.LLMRepeatPenalty = ${jsonNumber(effectiveProfile.repeatPenalty)}$botToBotLine
+            AiPlayerbot.LLMRepeatPenalty = ${jsonNumber(effectiveProfile.repeatPenalty)}$minPLine$presenceLine
             AiPlayerbot.LLMMaxNewTokens = ${effectiveProfile.maxTokens}
             AiPlayerbot.LLMGenerationTimeout = $generationTimeout
             AiPlayerbot.LLMConnectTimeout = ${tier.connectTimeoutSec}
@@ -280,7 +287,7 @@ internal object LlmRuntimePolicy {
             AiPlayerbot.LLMGovernorGlobalMax = ${tier.governorGlobalMax}
             AiPlayerbot.LLMContextLength = ${tier.contextLength}
             AiPlayerbot.LLMFactsCap = $factsCap
-            AiPlayerbot.LLMMemoriesTail = $memoriesTail$providerSafeLine
+            AiPlayerbot.LLMMemoriesTail = $memoriesTail$botToBotLine$providerSafeLine
             AiPlayerbot.LLMBanterEnabled = ${if (banterEnabled) 1 else 0}$loreLine$chatterLine$promptPackLine$defaultPromptsLine$tlsCaLine${if (providerSafe) cloudLane.confLines() else ""}$packDeltaLines$rpDialLines
         """.trimIndent() + "\n"
     }

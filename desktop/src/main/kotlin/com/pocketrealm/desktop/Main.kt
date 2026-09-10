@@ -1,6 +1,8 @@
 package com.pocketrealm.desktop
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -12,10 +14,12 @@ import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
@@ -25,6 +29,9 @@ import com.pocketrealm.desktop.ui.DiagnosticsScreen
 import com.pocketrealm.desktop.ui.HomeScreen
 import com.pocketrealm.desktop.ui.LlmScreen
 import com.pocketrealm.desktop.ui.SettingsScreen
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 fun main() = application {
     // Packaged-image smoke lane: -Dpocketrealm.nativeSmoke=1 makes the
@@ -42,19 +49,53 @@ fun main() = application {
     val model = DesktopAppModel(clientDirOverride = clientDirOverride)
     DesktopLog.attachFile(model.roots.logs)
     DesktopLog.i("Main", "Pocket Realm for Windows starting (${model.settings.value.runtimeMode})")
+    // Plain snapshot-state holders (created outside composition on
+    // purpose): onCloseRequest writes them from the UI thread, the drain
+    // coroutine completes them from IO, and the Window content below
+    // observes both.
+    val closeRequested = mutableStateOf(false)
+    val drained = mutableStateOf(false)
     Window(
         onCloseRequest = {
-            // Closing the window ends the session: drain the stack through
-            // the supervisor (client -> world -> realm -> database) so a
-            // running realm saves instead of orphaning WoW.exe and WAL
-            // sidecars. Bounded by the native stop timeouts.
-            kotlinx.coroutines.runBlocking { runCatching { model.saveAndExit() } }
-            model.close()
-            ::exitApplication
+            // Closing the window ends the session: drain the stack
+            // (client -> world -> realm -> database) on a background
+            // thread so a running realm saves instead of orphaning
+            // WoW.exe and WAL sidecars. Bounded by the native stop
+            // timeouts; the UI shows a scrim meanwhile and the process
+            // exits when the drain settles. A second close click during
+            // the drain is absorbed (one drain, one exit).
+            if (!closeRequested.value) {
+                closeRequested.value = true
+                CoroutineScope(Dispatchers.IO).launch {
+                    runCatching { model.saveAndExit() }
+                    runCatching { model.close() }
+                    DesktopLog.i("Main", "session drained; exiting")
+                    drained.value = true
+                }
+            }
         },
         title = "Pocket Realm (Windows)",
     ) {
-        PocketRealmDesktopApp(model)
+        if (closeRequested.value) {
+            Box(
+                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "Saving the realm and stopping…",
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+            }
+        } else {
+            PocketRealmDesktopApp(model)
+        }
+        LaunchedEffect(drained.value) {
+            // exitApplication from composition (UI thread), mirroring the
+            // button-handler usage the Compose Desktop docs describe.
+            if (drained.value) {
+                exitApplication()
+            }
+        }
     }
 }
 

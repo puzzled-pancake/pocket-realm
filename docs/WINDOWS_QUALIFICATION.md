@@ -21,7 +21,7 @@ human-in-the-loop, and what is deliberately deferred.
 | Protocol-auth gate | `cd desktop && gradlew authGate` | full 1.12 SRP6 logon: M1 accepted, M2 verified, session key persisted server-side; realmd logs "successfully authenticated" |
 | World boot gate | `cd desktop && gradlew bootWorld` | world READY with vmaps+mmaps; 8085 accepts; save rc=0; clean stops incl. WAL seal; cycle-2 refusal pinned (one lifetime per process) |
 | Whisper bridge gate | `cd desktop && gradlew whisperGate` | chat-injection surface: honest sender-not-online / unknown-channel; onlinePlayers honest; memory state JSON |
-| Kill matrix + soak | `python tools/win_kill_matrix.py [--soak-min N]` | taskkill /F mid-db-init / mid-world-run / mid-save; every kill followed by a full recovery boot (heal or honest refusal), no WAL sidecars left; the soak leg holds one world lifetime then saves + stops cleanly |
+| Kill matrix + soak | `python tools/win_kill_matrix.py [--soak-min N]` | taskkill /F early-boot / mid-world-run (via the stdin-held launchClient victim, game client live) / mid-save; every kill followed by a full recovery boot proving SQLite's WAL recovery plus one complete clean cycle (READY, save rc=0, stop with WAL seal), no live sidecars left. NOTE: the supervisor journal is never written by these legs (they drive the backend directly); the journal's dirty-recovery contract is covered by the desktop JVM suite |
 | Vanilla-tweaks host lane | `python tools/build_vanilla_tweaks.py --host` | vanilla-tweaks.exe (x86_64-pc-windows-msvc) with PE machine/subsystem/import verification + lockfile |
 | Packaged app launch | `gradlew packageApp`, then run `build/package/PocketRealm/PocketRealm.exe` | jpackage app image with DLLs + app-local VC runtime + seeds + LLM assets + provenance; longPathAware launcher manifest; `JAVA_TOOL_OPTIONS=-Dpocketrealm.nativeSmoke=1` proves the exe loads its bundled natives |
 
@@ -64,6 +64,10 @@ scheduled weekly.
   empty. Realm-data zip export/import (the Android Settings card) —
   the desktop's datadir lives under `%LOCALAPPDATA%` for file-level
   copies until the archive twin lands.
+- Bots editor draft persistence across navigation (the Android screen's
+  `rememberSaveable` + configuration savers): switching routes on the
+  desktop discards an unsaved editor draft and in-progress LLM edits.
+  Known parity gap, deliberate until a state-saver pass.
 - Win32 SendInput auto-login is shipped with fixed timing; the Android
   app's tunable timing knobs were not ported (no IME/pointer pacing on
   a desktop).

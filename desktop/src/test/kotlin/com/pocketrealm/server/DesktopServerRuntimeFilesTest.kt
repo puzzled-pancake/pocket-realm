@@ -188,6 +188,7 @@ class DesktopServerRuntimeFilesTest {
     }
 
     @Test
+    @Suppress("LongMethod") // the pinned emission list IS the test's content
     fun llmExternalBlockEmitsTheExternalLane() {
         val (roots, files) = files()
         stageActiveGeneration(roots)
@@ -208,19 +209,47 @@ class DesktopServerRuntimeFilesTest {
         val botConf = File(File(roots.runtime, "server/run"), "aiplayerbot-${profile.id}.conf")
         val body = botConf.readText()
         // The external-lane emission, pinned against the Android confLines twin.
-        listOf(
+        val pinnedLines = listOf(
             "AiPlayerbot.LLMEnabled = 2",
             "AiPlayerbot.LLMBackend = 0",
             "AiPlayerbot.LLMApiEndpoint = https://api.openai.com/v1/chat/completions",
             "AiPlayerbot.LLMApiKey = sk-test",
-            "AiPlayerbot.LLMApiModel = gpt-test",
+            "AiPlayerbot.LLMApiJson = ${
+                LlmRuntimePolicy.apiJsonTemplate(
+                    "gpt-test",
+                    LlmRuntimePolicy.EXTERNAL_PROFILE,
+                    providerSafe = true,
+                )
+            }",
             "AiPlayerbot.LLMPromptFormat = 1",
+            "AiPlayerbot.LLMApiModel = gpt-test",
+            "AiPlayerbot.LLMTemp = 0.7",
+            "AiPlayerbot.LLMTopP = 0.9",
+            "AiPlayerbot.LLMTopK = 20",
+            "AiPlayerbot.LLMRepeatPenalty = 1",
+            "AiPlayerbot.LLMMaxNewTokens = 600",
+            "AiPlayerbot.LLMGenerationTimeout = 60",
+            "AiPlayerbot.LLMConnectTimeout = 10",
+            "AiPlayerbot.LLMFactsCap = 48",
+            "AiPlayerbot.LLMMemoriesTail = 16",
+            "AiPlayerbot.LLMBotToBotChatChance = 25", // cloud-lane widening, after the tail
             "AiPlayerbot.LLMProviderSafe = 1",
             "AiPlayerbot.LLMBanterEnabled = 1",
             "AiPlayerbot.LLMChatterEnabled = 1",
             "AiPlayerbot.LLMCloudChatter = 1",
-        ).forEach { line ->
-            assertTrue("external block must carry: $line in body", line in body)
+        )
+        // ORDER-SENSITIVE: the desktop object is a verbatim twin of the
+        // Android confLines emission - a key that moved position (parsed
+        // conf unchanged) must still fail here, or the twins can silently
+        // fork. Substring presence alone is not enough.
+        var searchFrom = 0
+        pinnedLines.forEach { line ->
+            val at = body.indexOf(line, searchFrom)
+            assertTrue(
+                "external block must carry, IN ORDER: $line\n$body",
+                at >= 0,
+            )
+            searchFrom = at + line.length
         }
         // The chatter power file is staged enabled with the NORMAL rung.
         val power = File(File(roots.runtime, "server/run"), "chatter-power.conf")
@@ -228,6 +257,34 @@ class DesktopServerRuntimeFilesTest {
         val powerBody = power.readText()
         assertTrue("enabled=1: $powerBody", "enabled=1" in powerBody)
         assertTrue("rung=4 (NORMAL): $powerBody", "rung=4" in powerBody)
+    }
+
+    @Test
+    fun chatterRungCapLowersTheStagedRung() {
+        // The default profile's NORMAL cap makes rung=4 indistinguishable
+        // from a broken always-4; a preset cap of 0 (off) and 2 must lower
+        // the staged rung exactly like the Android applyRungCap twin.
+        listOf(0 to "rung=0", 2 to "rung=2").forEach { (cap, expected) ->
+            val roots = DesktopStorageRoots(folder.newFolder("roots-cap-$cap"))
+            val files = ServerRuntimeFiles(roots)
+            stageActiveGeneration(roots)
+            roots.settingsFile.parentFile?.mkdirs()
+            roots.settingsFile.writeText(
+                Settings.Snapshot(
+                    llmEnabled = true,
+                    llmExternalUrl = "https://api.openai.com",
+                    llmAmbience = true, // the staged file's enabled flag
+                ).toJson(),
+            )
+            val base = com.pocketrealm.bots.BotProfiles.defaultProfile
+            val capped = base.copy(
+                llmSpeech = base.llmSpeech.copy(chatterRung = cap),
+            )
+            files.worldConfig(botProfile = capped)
+            val powerBody = File(File(roots.runtime, "server/run"), "chatter-power.conf").readText()
+            assertTrue("cap $cap must stage $expected:\n$powerBody", expected in powerBody)
+            assertTrue("cap $cap keeps the subsystem enabled:\n$powerBody", "enabled=1" in powerBody)
+        }
     }
 
     @Test

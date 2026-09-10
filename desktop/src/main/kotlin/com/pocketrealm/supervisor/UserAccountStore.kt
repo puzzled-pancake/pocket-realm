@@ -79,17 +79,34 @@ class UserAccountStore(private val directory: File) {
             stream.write(encoded)
             stream.fd.sync()
         }
-        java.nio.file.Files.move(
-            temp.toPath(), recordFile.toPath(),
-            java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-            java.nio.file.StandardCopyOption.ATOMIC_MOVE,
-        )
+        // ATOMIC_MOVE first with the plain-replace fallback its sibling
+        // stores carry: AppData can be redirected (roaming profiles) onto
+        // filesystems that reject the atomic flag, and a save must
+        // degrade, not fail outright.
+        try {
+            java.nio.file.Files.move(
+                temp.toPath(), recordFile.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+            )
+        } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+            java.nio.file.Files.move(
+                temp.toPath(), recordFile.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+            )
+        }
     }
 
     private fun quarantineLocked() {
         if (!recordFile.isFile) return
         directory.mkdirs()
-        val quarantine = File(directory, "account.invalid.${System.currentTimeMillis()}.json")
+        // nanoTime suffix: two corrupt loads within one millisecond must
+        // not silently overwrite each other's forensic copy (the Android
+        // twin's Os.rename fails loudly; Files.move would replace).
+        val quarantine = File(
+            directory,
+            "account.invalid.${System.currentTimeMillis()}-${System.nanoTime()}.json",
+        )
         runCatching {
             java.nio.file.Files.move(
                 recordFile.toPath(), quarantine.toPath(),

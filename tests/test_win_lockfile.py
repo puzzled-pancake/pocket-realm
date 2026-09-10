@@ -88,6 +88,9 @@ def test_artifacts_pin_pe_import_tables() -> None:
     for artifact in artifacts:
         assert re.fullmatch(r"[0-9a-f]{64}", artifact["sha256"]), artifact["path"]
         assert artifact["size"] > 0, artifact["path"]
+        # The wrong-arch guard is pinned, not just enforced at write time:
+        # a substituted DLL cannot pass this gate.
+        assert artifact["pe_machine"] == "0x8664", artifact["path"]
         imports = artifact["pe_imports"]
         assert isinstance(imports, list) and imports, \
             f"{artifact['path']}: empty import table pin"

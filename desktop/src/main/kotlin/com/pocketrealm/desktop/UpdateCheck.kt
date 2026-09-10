@@ -24,8 +24,11 @@ object UpdateCheck {
             return@runCatching "No update feed configured (place a feed URL in ${FEED_FILE} " +
                 "under ${roots.settings} to enable the check)."
         }
-        val feedUrl = feedFile.readText(Charsets.UTF_8).trim().takeIf { it.startsWith("http") }
-            ?: return@runCatching "The configured update feed is not an http(s) URL."
+        // https-only: the check is display-only (no self-update, no
+        // credentials), but a cleartext feed would still let a
+        // man-in-the-middle inject a fake "update available" line.
+        val feedUrl = feedFile.readText(Charsets.UTF_8).trim().takeIf { it.startsWith("https://") }
+            ?: return@runCatching "The configured update feed must be an https:// URL."
         val connection = URL(feedUrl).openConnection() as HttpURLConnection
         connection.connectTimeout = 5_000
         connection.readTimeout = 5_000

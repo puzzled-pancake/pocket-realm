@@ -291,6 +291,12 @@ tasks.register("packageApp") {
  * machines without the VC redistributable installed. Returns an empty
  * list when the redist tree cannot be located (the DLLs stay missing and
  * packageApp reports them as missing inputs, never silently unpackaged).
+ *
+ * The pick is deterministic: the NEWEST version directory wins (sorted by
+ * name), so two machines with several side-by-side redists package the
+ * same CRT instead of whichever directory the OS listed first — and an
+ * older-CRT-than-linker substitution is much less likely (the by-name
+ * MSVCP140/VCRUNTIME140 imports still forgive a modest skew).
  */
 fun vcRuntimeDlls(): List<File> {
     val vswhere = File(
@@ -303,9 +309,13 @@ fun vcRuntimeDlls(): List<File> {
     }.standardOutput.asText.get().trim().lineSequence().firstOrNull() ?: return emptyList()
     val redistRoot = File(install, "VC/Redist/MSVC")
     val crt = redistRoot.listFiles()
-        ?.mapNotNull { version -> version.resolve("x64").listFiles()?.firstOrNull { dir -> dir.name.startsWith("Microsoft.VC") } }
-        ?.firstOrNull() ?: return emptyList()
-    return listOf("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll", "concrt140.dll")
+        ?.sortedByDescending { it.name }
+        ?.firstNotNullOfOrNull { version ->
+            version.resolve("x64").listFiles()
+                ?.sortedByDescending { it.name }
+                ?.firstOrNull { dir -> dir.name.startsWith("Microsoft.VC") }
+        } ?: return emptyList()
+    return listOf("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll")
         .map { crt.resolve(it) }
         .filter { it.isFile }
 }
@@ -317,7 +327,15 @@ fun vcRuntimeDlls(): List<File> {
  * native code). jpackage's launcher embeds its own manifest and is created
  * READ-ONLY, so mt.exe -outputresource fails; tools/win_manifest_longpath.py
  * merges the setting through kernel32's UpdateResource and restores the
- * attribute. Honest skip when python/pefile are unavailable.
+ * attribute.
+ *
+ * Failure policy: no python at all (IOException starting the process) is
+ * the documented honest skip; anything else — a python that runs and
+ * fails (pefile missing, unrecognized manifest, resource write denied) —
+ * FAILS the task, because a silently-missed flag would regress the
+ * qualification deliverable while the build stays green. The Store
+ * python.exe alias stub (starts fine, exits nonzero, prints nothing) is
+ * exactly the case that makes the exit code load-bearing.
  */
 fun applyLongPathAwareManifest(exe: File) {
     val helper = rootProject.projectDir.resolve("../tools/win_manifest_longpath.py")
@@ -331,6 +349,16 @@ fun applyLongPathAwareManifest(exe: File) {
         return
     }
     val output = process.inputStream.bufferedReader().readText()
-    process.waitFor()
-    logger.lifecycle("packageApp: ${output.trim()}")
+    val exit = process.waitFor()
+    if (output.isNotBlank()) {
+        logger.lifecycle("packageApp: ${output.trim()}")
+    }
+    if (exit != 0) {
+        throw GradleException(
+            "longPathAware merge FAILED (python exit $exit): ${output.trim().ifEmpty { "no output" }}. " +
+                "The launcher manifest is not pinned without it — install python with the " +
+                "'pefile' package (pip install pefile) and rerun packageApp. If python here is " +
+                "the Microsoft Store alias stub, disable the alias or put a real python on PATH.",
+        )
+    }
 }

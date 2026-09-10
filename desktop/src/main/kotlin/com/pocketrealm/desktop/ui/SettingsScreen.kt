@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import com.pocketrealm.desktop.DesktopAppModel
 
 /**
@@ -34,6 +35,8 @@ fun SettingsScreen(model: DesktopAppModel, onOpenLlm: () -> Unit) {
     val settings by model.settings.collectAsState()
     val storedAccount by model.storedAccount.collectAsState()
     var updateStatus by remember { mutableStateOf<String?>(null) }
+    var checking by remember { mutableStateOf(false) }
+    val checkScope = androidx.compose.runtime.rememberCoroutineScope()
 
     Column(
         modifier = Modifier.verticalScroll(rememberScrollState()),
@@ -104,9 +107,19 @@ fun SettingsScreen(model: DesktopAppModel, onOpenLlm: () -> Unit) {
                         "new packages. The provenance card below identifies the exact build.",
                     style = MaterialTheme.typography.bodySmall,
                 )
-                OutlinedButton(onClick = {
-                    updateStatus = com.pocketrealm.desktop.UpdateCheck.checkOnce(model.roots)
-                }) { Text("Check for updates") }
+                OutlinedButton(enabled = !checking, onClick = {
+                    checking = true
+                    checkScope.launch {
+                        // Network I/O stays off the UI thread: a slow or
+                        // unreachable feed must not freeze the window
+                        // (timeouts are 5s connect + 5s read).
+                        val status = kotlinx.coroutines.withContext(
+                            kotlinx.coroutines.Dispatchers.IO,
+                        ) { com.pocketrealm.desktop.UpdateCheck.checkOnce(model.roots) }
+                        updateStatus = status
+                        checking = false
+                    }
+                }) { Text(if (checking) "Checking…" else "Check for updates") }
                 updateStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             }
         }

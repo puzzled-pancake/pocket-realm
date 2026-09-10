@@ -277,6 +277,7 @@ def write_lockfile() -> None:
             "path": artifact.relative_to(ROOT).as_posix(),
             "size": artifact.stat().st_size,
             "sha256": sha256_file(artifact),
+            "pe_machine": f"{info['machine']:#x}",
             "pe_imports": info["dependents"],
         })
     stamp = WIN_PREFIX / "lib" / "sqlite3.lib.amalgamation-sha256"
@@ -306,6 +307,12 @@ def write_lockfile() -> None:
             "openssl": "vcpkg x64-windows-static-md (static; "
                        "win-static-openssl-only overlay keeps the shipped "
                        "dep/lib import libs off the link line)",
+            "notable_imports": {
+                # Windows-bundled (load-safe everywhere); pinned because a
+                # change here still deserves to be loud.
+                "dbgeng.dll": "WheatyExceptionReport crash reporter in the "
+                              "cmangos Windows platform layer",
+            },
         },
     }
     WIN_LOCKFILE.write_bytes((json.dumps(record, indent=2) + "\n").encode("utf-8"))
@@ -404,7 +411,15 @@ def main() -> int:
         # still hit the finally-restore below, not strand a dirty submodule.
         o09.prepare_cmangos_source()
         if args.force:
-            shutil.rmtree(BUILD, ignore_errors=True)
+            # Wipe THIS lane's outputs but keep sqlite-seam-build/ (built by
+            # tools/build_win_sqlite_seam.py into the same parent): a forced
+            # runtime rebuild must not strand write_lockfile() without
+            # pocket_sqlite.dll after an hours-long DLL build.
+            seam = BUILD / "sqlite-seam-build"
+            if BUILD.is_dir():
+                for entry in BUILD.iterdir():
+                    if entry != seam:
+                        shutil.rmtree(entry, ignore_errors=True)                             if entry.is_dir() else entry.unlink()
         BUILD.mkdir(parents=True, exist_ok=True)
         vcvars = find_vcvars()
         # Quote the cmake path inside the generated batch (Program Files).

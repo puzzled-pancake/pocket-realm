@@ -15,6 +15,11 @@ import org.json.JSONObject
  * runtime conf. The manifest entry records each member's sha256 so a
  * bundle's contents are verifiable; redaction is structured-plus-regex
  * exactly like the Android twin.
+ *
+ * The shared redactor's key-pattern list predates `llmExternalApiKey`, so
+ * the configured external API key is passed as an EXPLICIT canary — the
+ * desktop is the only platform that bundles its settings file, and the
+ * key must never survive into the exported zip.
  */
 class DesktopSupportBundle(private val roots: DesktopStorageRoots) {
 
@@ -23,7 +28,7 @@ class DesktopSupportBundle(private val roots: DesktopStorageRoots) {
     fun export(): String {
         val run = File(roots.runtime, "server/run")
         val members: List<Pair<String, File>> = listOf(
-            "logs/app.log" to File(roots.logs, "app.log"),
+            "logs/pocket-realm.log" to File(roots.logs, APP_LOG_FILE_NAME),
             "logs/world.log" to File(roots.logs, "world.log"),
             "logs/realmd.log" to File(roots.logs, "realmd.log"),
             "supervisor-journal.json" to File(roots.supervisorJournalDir, "journal.json"),
@@ -33,6 +38,9 @@ class DesktopSupportBundle(private val roots: DesktopStorageRoots) {
             "runtime/realmd.conf" to File(run, "realmd.conf"),
         ).filter { (_, file) -> file.isFile }
 
+        val canaries = listOf(
+            DesktopSettingsStore(roots.settingsFile).load().llmExternalApiKey,
+        ).filter { it.isNotBlank() }
         val stamp = SimpleDateFormatStamp.next()
         val out = File(roots.logs, "support-bundle-$stamp.zip")
         val temp = File(out.parentFile, ".${out.name}.${ProcessHandle.current().pid()}.tmp")
@@ -40,7 +48,7 @@ class DesktopSupportBundle(private val roots: DesktopStorageRoots) {
         val manifest = JSONObject().put("schema", 1).put("redaction", "structured-plus-regex-v1")
         ZipOutputStream(FileOutputStream(temp).buffered()).use { zip ->
             for ((name, file) in members) {
-                val redacted = SecretRedactor().redact(file.readText(Charsets.UTF_8))
+                val redacted = SecretRedactor(canaries).redact(file.readText(Charsets.UTF_8))
                 zip.putNextEntry(ZipEntry(name))
                 zip.write(redacted.toByteArray(Charsets.UTF_8))
                 zip.closeEntry()
@@ -67,5 +75,10 @@ class DesktopSupportBundle(private val roots: DesktopStorageRoots) {
     private object SimpleDateFormatStamp {
         private val format = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US)
         fun next(): String = synchronized(this) { format.format(java.util.Date()) }
+    }
+
+    companion object {
+        /** The app log DesktopLog writes (single-sourced with its reader). */
+        const val APP_LOG_FILE_NAME = "pocket-realm.log"
     }
 }

@@ -47,7 +47,14 @@ fun DiagnosticsScreen(model: DesktopAppModel) {
 
     LaunchedEffect(Unit) {
         while (true) {
-            logTail = readLogTail(model)
+            // File I/O stays off the UI thread (the Android twin's ring
+            // buffer became an on-disk file here); the list is assigned
+            // only when the tail actually changed so idle logs do not
+            // recompose the card every poll.
+            val next = kotlinx.coroutines.withContext(Dispatchers.IO) { readLogTail(model) }
+            if (next != logTail) {
+                logTail = next
+            }
             kotlinx.coroutines.delay(2_000)
         }
     }
@@ -143,7 +150,12 @@ fun DiagnosticsScreen(model: DesktopAppModel) {
 
 @Suppress("MagicNumber") // the 120-line tail mirrors the Android diagnostics card
 private fun readLogTail(model: DesktopAppModel): List<String> {
-    val file = java.io.File(model.roots.logs, "app.log")
+    // DesktopLog writes pocket-realm.log; the name is single-sourced with
+    // DesktopSupportBundle.APP_LOG_FILE_NAME.
+    val file = java.io.File(
+        model.roots.logs,
+        com.pocketrealm.desktop.DesktopSupportBundle.APP_LOG_FILE_NAME,
+    )
     if (!file.isFile) return emptyList()
     return runCatching {
         file.readLines(Charsets.UTF_8).takeLast(120)

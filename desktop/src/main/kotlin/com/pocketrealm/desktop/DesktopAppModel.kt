@@ -33,6 +33,13 @@ class DesktopAppModel(
     private val _settings = MutableStateFlow(settingsStore.load())
     val settings: StateFlow<Settings.Snapshot> = _settings.asStateFlow()
 
+    /** Serializes read-transform-write settings updates: the file-picker
+     * worker thread writes from outside the UI thread, and two concurrent
+     * updates must not interleave their read-modify-write (the store's
+     * temp file is unique per call; the lost-update race is what this
+     * lock closes). */
+    private val settingsLock = Any()
+
     val accountStore = UserAccountStore(File(roots.root, "user-account"))
     private val _storedAccount = MutableStateFlow(accountStore.loadOrQuarantine())
     val storedAccount: StateFlow<UserAccountStore.UserAccount?> = _storedAccount.asStateFlow()
@@ -62,9 +69,11 @@ class DesktopAppModel(
     }
 
     fun updateSettings(transform: (Settings.Snapshot) -> Settings.Snapshot) {
-        val next = transform(_settings.value)
-        settingsStore.save(next)
-        _settings.value = next
+        synchronized(settingsLock) {
+            val next = transform(_settings.value)
+            settingsStore.save(next)
+            _settings.value = next
+        }
     }
 
     suspend fun startRealm(includeClient: Boolean): RuntimeOperation =

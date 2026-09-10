@@ -25,7 +25,12 @@ class DesktopSettingsStore(private val file: File) {
 
     fun save(snapshot: Settings.Snapshot) {
         file.parentFile?.mkdirs()
-        val temp = File(file.parentFile, ".${file.name}.${ProcessHandle.current().pid()}.tmp")
+        // nanoTime suffix: two writers in this process (UI thread + the
+        // file-picker worker) must never share one temp path.
+        val temp = File(
+            file.parentFile,
+            ".${file.name}.${ProcessHandle.current().pid()}.${System.nanoTime()}.tmp",
+        )
         // fsync before the move (DataStore's durability posture): a plain
         // writeText can leave an empty/partial file persisted across a
         // power loss even after the rename lands.

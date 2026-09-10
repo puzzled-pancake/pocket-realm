@@ -196,6 +196,13 @@ def stage_host(built: Path) -> dict:
     if info["machine"] != PE_MACHINE_X64:
         raise RuntimeError(
             f"vanilla-tweaks.exe is not x64 (machine {info['machine']:#x})")
+    # In-lane enforcement of the same rule the pytest gate applies: no
+    # unpackaged DLL imports may ride into the artifact.
+    forbidden = [dll for dll in info["dependents"]
+                 if dll.lower().startswith(("libssl", "libcrypto", "libmysql"))]
+    if forbidden:
+        raise RuntimeError(
+            f"vanilla-tweaks.exe imports unpackaged DLLs: {forbidden}")
     record = {
         "schema": 1,
         "built_at_utc": datetime.now(timezone.utc).isoformat(),

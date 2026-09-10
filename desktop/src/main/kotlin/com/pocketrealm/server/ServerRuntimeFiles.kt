@@ -251,10 +251,14 @@ internal class ServerRuntimeFiles(private val roots: DesktopStorageRoots) {
     private fun resolveBundledAsset(subdir: String, name: String): File? {
         val relative = "android/app/src/main/assets/$subdir/$name"
         val javaLibraryPath = System.getProperty("java.library.path") ?: ""
+        // SOURCES ONLY - the run dir is the staging TARGET, never a source:
+        // listing it here would let a previously staged copy verify itself
+        // (size == its own size) and shadow a refreshed repo/app asset.
+        // Packaged runs resolve from $APPDIR via java.library.path; dev
+        // runs walk up to the checkout's android asset tree.
         val candidates = javaLibraryPath.split(File.pathSeparator)
             .filter { it.isNotBlank() }
             .map { File(File(it), name) } +
-            listOf(File(run, name)) +
             generateSequence(File(System.getProperty("user.dir"))) { it.parentFile }
                 .take(MAX_ASSET_WALK_UP)
                 .map { File(it, relative) }

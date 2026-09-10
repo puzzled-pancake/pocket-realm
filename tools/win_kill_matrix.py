@@ -1,26 +1,38 @@
 #!/usr/bin/env python3
 """Windows kill matrix + soak runner (qualification §2.3 and §6).
 
-Three kill scenarios, each ending with `taskkill /F` on the JVM (the
-whole supervisor dies mid-flight, exactly like a crash):
+Three kill scenarios, each ending with `taskkill /F` on the victim JVM
+(the whole host process dies mid-flight, exactly like a crash):
 
-  1. mid-db-init    - kill while the DATABASE component is STARTING
-  2. mid-world-run  - kill once the world is READY (WAL sidecars live)
-  3. mid-save       - kill during the stop/drain sequence
+  1. early-boot     - kill shortly after the victim JVM first appears
+                      (warm cache: the world is usually already starting;
+                      the DB check is instant, so this is an honest
+                      early-boot kill, not a DB-init one)
+  2. mid-world-run  - kill while the world ticks, via the stdin-held
+                      launchClient victim, with the game client live
+  3. mid-save       - kill in the fraction-of-a-second window after the
+                      READY marker (the gate saves immediately)
 
-After every kill the runner asserts the documented recovery contract:
-  - the supervisor journal on disk is DIRTY (clean=false) or absent-yet-
-    recovered on next start (the shared one-attempt recovery owns it),
-  - the next world start either heals in place (dirty-DB heal gate) or
-    fails HONESTLY with the recovery verdict - never a silent success
-    over corrupt state,
-  - WAL sidecars from the killed run are drained/resealed by the healed
-    boot (no live sidecars left behind after the follow-up clean stop),
-  - a save + clean stop after recovery exits 0 (sentinel survival).
+What the follow-up recovery boot actually proves (the honest contract):
+  - SQLite's own WAL recovery replays/resigns the sidecars the killed
+    host left behind; the next boot completes a full clean cycle
+    (world READY, save rc=0, stop with WAL seal, exit 0) - never a
+    silent success over corrupt state;
+  - no live WAL sidecar is left behind afterwards.
 
-The soak leg runs the world for N minutes (default 10), then saves and
-stops; the one-lifetime rule makes multi-lifetime soaks fresh-JVM cycles,
-so the soak is one long world lifetime with periodic world status polls.
+What it deliberately does NOT cover: the supervisor journal's dirty
+recovery. Both victims drive DesktopRuntimeBackend directly and never
+write the supervisor journal (that is the packaged app's path), so the
+journal recovery contract is exercised by the desktop JVM unit suite
+(DurableRuntimeSupervisorTest / OrphanSelfHealPolicyTest /
+DesktopSupervisorJournalTest), not here. The runner prints the journal
+state for visibility only.
+
+HAZARD: this is a dev-box tool. find_victim_pids matches java.exe
+command lines containing the victim main class AND this repo's path,
+and the WoW.exe cleanup kills only game processes that appeared during
+THIS run - but do not run the real game or an unrelated checkout of
+this repo while the matrix is running.
 
 Usage (from the repo root, dev box with the native lanes built):
   python tools/win_kill_matrix.py            # all three kills + verify
@@ -42,20 +54,11 @@ DESKTOP = ROOT / "desktop"
 GRADLEW = DESKTOP / "gradlew.bat"
 
 # The victim main: a fresh JVM per cycle (one world lifetime per process).
-# BootWorld with -DbootCycles=1 boots db->realm->world, saves, stops.
+# BootWorld boots db->realm->world, saves, stops.
 VICTIM_TASK = "bootWorld"
 JAVA_MAIN_MARKER = "com.pocketrealm.desktop.BootWorldKt"
 HOLDING_TASK = "launchClient"
 HOLDING_MAIN_MARKER = "com.pocketrealm.desktop.LaunchClientKt"
-
-
-def taskkill_wow() -> None:
-    """A killed supervisor cannot close its WoW.exe child; clear any
-    survivor so the next victim starts from a clean slate."""
-    result = subprocess.run(
-        ["tasklist", "/FI", "IMAGENAME eq WoW.exe"], capture_output=True, text=True)
-    if "WoW.exe" in (result.stdout or ""):
-        run(["taskkill", "/F", "/IM", "WoW.exe"])
 
 
 def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -65,17 +68,50 @@ def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
 
 def find_victim_pids(marker: str = JAVA_MAIN_MARKER) -> list[int]:
     """Java processes running a victim main (the JavaExec worker, not the
-    daemon)."""
-    query = subprocess.check_output(
+    daemon). The match is scoped to THIS checkout's path so a second
+    clone or an IDE run of the same main class elsewhere is not
+    collateral. Empty output (no java.exe at all) yields []."""
+    query = subprocess.run(
         ["powershell", "-NoProfile", "-Command",
          "Get-CimInstance Win32_Process -Filter \"Name='java.exe'\" | "
          "Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress"],
-        text=True)
-    entries = json.loads(query) if query.strip().startswith("[") else [json.loads(query)]
+        capture_output=True, text=True)
+    text = (query.stdout or "").strip()
+    if not text or text == "null":
+        return []
+    entries = json.loads(text)
+    if not isinstance(entries, list):
+        entries = [entries]
     return [
         int(entry["ProcessId"]) for entry in entries
-        if entry.get("CommandLine") and marker in entry["CommandLine"]
+        if entry.get("CommandLine")
+        and marker in entry["CommandLine"]
+        and str(ROOT) in entry["CommandLine"]
     ]
+
+
+def wow_pids() -> set[int]:
+    """Every running WoW.exe pid (the game the victim spawns)."""
+    result = subprocess.run(
+        ["tasklist", "/FI", "IMAGENAME eq WoW.exe", "/FO", "CSV", "/NH"],
+        capture_output=True, text=True)
+    pids: set[int] = set()
+    for line in (result.stdout or "").splitlines():
+        parts = [p.strip('"') for p in line.split('","')]
+        if len(parts) >= 2 and parts[1].isdigit():
+            pids.add(int(parts[1]))
+    return pids
+
+
+def taskkill_wow(preexisting: set[int]) -> int:
+    """A killed host cannot close its WoW.exe child; kill ONLY the game
+    processes that appeared during THIS run, never ones that already
+    existed (the user's own session). Returns how many were killed."""
+    killed = 0
+    for pid in sorted(wow_pids() - preexisting):
+        run(["taskkill", "/F", "/PID", pid])
+        killed += 1
+    return killed
 
 
 class Victim:
@@ -129,6 +165,9 @@ class Victim:
 
 
 def journal_state() -> dict | None:
+    """Printed for visibility only - see the module docstring: these legs
+    never write the supervisor journal (the victims drive the backend
+    directly)."""
     journal = (Path.home() / "AppData/Local/PocketRealm/realm/runtime-supervisor/journal.json")
     if not journal.is_file():
         return None
@@ -144,18 +183,32 @@ def journal_state() -> dict | None:
 
 
 def live_wal_sidecars() -> list[str]:
+    """Sidecars that would be replayed by the next SQLite open - the
+    backend's liveness semantics: a name whose file cannot be opened
+    (delete-pending) is not a live sidecar."""
     datadir = Path.home() / "AppData/Local/PocketRealm/database/sqlite-datadir"
-    return sorted(p.name for p in datadir.glob("*-wal")) if datadir.is_dir() else []
+    if not datadir.is_dir():
+        return []
+    live: list[str] = []
+    for path in sorted(datadir.glob("*-wal")):
+        try:
+            with open(path, "a+b"):
+                pass
+            live.append(path.name)
+        except OSError:
+            continue
+    return live
 
 
 def verify_recovery(scenario: str) -> list[str]:
-    """Post-kill assertions; returns failure reasons (empty = pass)."""
+    """Post-kill assertions; returns failure reasons (empty = pass). The
+    contract under test is the module docstring's: SQLite's WAL recovery
+    plus one full clean re-cycle, no sidecars left. Any nonzero recovery
+    exit FAILS the scenario - only the heal outcome is accepted."""
     reasons: list[str] = []
-    state = journal_state()
-    print(f"[{scenario}] journal after kill: {state}")
+    print(f"[{scenario}] journal after kill (visibility only, not asserted): "
+          f"{journal_state()}")
     print(f"[{scenario}] WAL sidecars after kill: {live_wal_sidecars() or 'none'}")
-    # The one-attempt recovery boot: the next world start must either heal
-    # or fail honestly; BootWorld exits 0 only on a clean cycle.
     print(f"[{scenario}] recovery boot (next world start)...")
     healed = run(
         [GRADLEW, VICTIM_TASK, "--console=plain"],
@@ -175,26 +228,29 @@ def verify_recovery(scenario: str) -> list[str]:
     return reasons
 
 
-def scenario_mid_db_init() -> list[str]:
-    print("\n=== scenario: mid-db-init ===")
+def scenario_early_boot(wow_before: set[int]) -> list[str]:
+    print("\n=== scenario: early-boot ===")
     victim = Victim()
     try:
-        # The DB start is the first phase; kill as soon as the victim JVM
-        # exists (before the world marker), bounded.
+        # Kill as soon as the victim JVM exists, bounded; with a warm
+        # gradle cache the boot is fast and the kill usually lands during
+        # realm/world start (the DB check itself is an instant file
+        # existence probe - this leg is an honest early-boot kill).
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline and not find_victim_pids():
             time.sleep(1.0)
         time.sleep(3)
         killed = victim.kill_jvm()
         if killed == 0:
-            return ["no victim JVM found to kill (db init leg)"]
-        return verify_recovery("mid-db-init")
+            return ["no victim JVM found to kill (early-boot leg)"]
+        taskkill_wow(wow_before)
+        return verify_recovery("early-boot")
     finally:
         victim.close()
 
 
-def scenario_mid_world_run() -> list[str]:
-    print('\\n=== scenario: mid-world-run ===')
+def scenario_mid_world_run(wow_before: set[int]) -> list[str]:
+    print("\n=== scenario: mid-world-run ===")
     # launchClient boots the stack and HOLDS it up (waiting on stdin), so
     # the kill lands during ordinary world ticking with the client live.
     victim = Victim(task=HOLDING_TASK, stdin_pipe=True)
@@ -206,16 +262,20 @@ def scenario_mid_world_run() -> list[str]:
         killed = victim.kill_jvm(marker=HOLDING_MAIN_MARKER)
         if killed == 0:
             return ["no victim JVM found to kill (world run leg)"]
-        taskkill_wow()
+        taskkill_wow(wow_before)
         return verify_recovery("mid-world-run")
     finally:
         victim.close()
-def scenario_mid_save() -> list[str]:
-    print('\\n=== scenario: mid-save ===')
+
+
+def scenario_mid_save(wow_before: set[int]) -> list[str]:
+    print("\n=== scenario: mid-save ===")
     # The save window is short: BootWorld saves immediately after the
     # READY + listener checks, so the kill fires a fraction of a second
-    # after the marker. Landing just after the clean exit is a weaker
-    # (still passing) outcome - the recovery boot remains the assertion.
+    # after the marker (0.1 s poll + sleep). A timing miss that lets the
+    # victim finish its clean exit FAILS the leg (no JVM left to kill) -
+    # the recovery boot is the real assertion, but a scenario that never
+    # killed anything mid-flight proves nothing and must be re-run.
     victim = Victim()
     try:
         ready = victim.await_marker("world READY", timeout_s=1500, poll_s=0.1)
@@ -225,13 +285,14 @@ def scenario_mid_save() -> list[str]:
         killed = victim.kill_jvm()
         if killed == 0:
             return ["no victim JVM found to kill (save leg)"]
+        taskkill_wow(wow_before)
         return verify_recovery("mid-save")
     finally:
         victim.close()
 
-def soak(minutes: int) -> int:
-    banner = chr(10) + f"=== soak: {minutes} min single world lifetime ==="
-    print(banner)
+
+def soak(minutes: int, wow_before: set[int]) -> int:
+    print(f"\n=== soak: {minutes} min single world lifetime ===")
     started = time.time()
     # The holding victim: launchClient keeps the stack up waiting on its
     # stdin (held open here), so the soak holds ONE world lifetime; the
@@ -255,7 +316,16 @@ def soak(minutes: int) -> int:
                 return 1
         print(f"soak window done ({polls} polls); ending the session with Enter")
         victim.send_stdin(chr(10))
-        rc = victim.process.wait(timeout=600)
+        try:
+            rc = victim.process.wait(timeout=600)
+        except subprocess.TimeoutExpired:
+            # The drain outran its bound: kill the worker JVM (the gradle
+            # wrapper's terminate does not fan out to the forked java
+            # child on Windows) and fail honestly.
+            for pid in find_victim_pids(HOLDING_MAIN_MARKER):
+                run(["taskkill", "/F", "/PID", pid])
+            print("SOAK FAILED: post-Enter drain exceeded 600s")
+            return 1
         elapsed = int(time.time() - started)
         wal = live_wal_sidecars()
         print(f"SOAK {'PASSED' if rc == 0 and not wal else 'FAILED'} "
@@ -263,26 +333,32 @@ def soak(minutes: int) -> int:
         return 0 if rc == 0 and not wal else 1
     finally:
         victim.close()
-        taskkill_wow()
+        for pid in find_victim_pids(HOLDING_MAIN_MARKER):
+            run(["taskkill", "/F", "/PID", pid])
+        taskkill_wow(wow_before)
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--scenario", choices=("mid-db-init", "mid-world-run", "mid-save"))
+    parser.add_argument("--scenario", choices=("early-boot", "mid-world-run", "mid-save"))
     parser.add_argument("--soak-min", type=int, metavar="N",
                         help="run the long-session soak leg for N minutes instead")
     args = parser.parse_args()
 
+    # Snapshot the game processes ONCE per run: the WoW cleanup only ever
+    # kills pids that appear after this point.
+    wow_before = wow_pids()
     if args.soak_min is not None:
-        return soak(args.soak_min)
+        return soak(args.soak_min, wow_before)
     scenarios = {
-        "mid-db-init": scenario_mid_db_init,
+        "early-boot": scenario_early_boot,
         "mid-world-run": scenario_mid_world_run,
         "mid-save": scenario_mid_save,
     }
     selected = [(args.scenario, scenarios[args.scenario])] if args.scenario else list(scenarios.items())
     failures: list[str] = []
     for name, leg in selected:
-        failures += [f"{name}: {reason}" for reason in leg()]
+        failures += [f"{name}: {reason}" for reason in leg(wow_before)]
     if failures:
         print("\nKILL MATRIX FAILED:")
         for reason in failures:
