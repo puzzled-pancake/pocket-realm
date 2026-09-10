@@ -77,16 +77,40 @@ class DesktopAppModel(
     }
 
     suspend fun startRealm(includeClient: Boolean): RuntimeOperation =
-        supervisor.start(DESKTOP_PROFILE, includeClient)
+        supervisor.start(DESKTOP_PROFILE, includeClient).also { operation ->
+            // The supervisor's failure details live only in the journal
+            // (which a later recovery overwrites) - the app log is the
+            // durable record a diagnosis can actually find.
+            if (operation.ok) {
+                DesktopLog.i(TAG, "start ok: " + operation.detail)
+            } else {
+                DesktopLog.w(
+                    TAG,
+                    "start FAILED: " + operation.detail +
+                        " (lastError=" + operation.snapshot.lastError + ")",
+                )
+            }
+        }
 
-    suspend fun relaunchClient(): RuntimeOperation = supervisor.relaunchClient()
+    suspend fun relaunchClient(): RuntimeOperation =
+        supervisor.relaunchClient().also(::logOperation)
 
-    suspend fun saveAndExit(): RuntimeOperation = supervisor.stop(StopMode.GRACEFUL)
+    suspend fun saveAndExit(): RuntimeOperation =
+        supervisor.stop(StopMode.GRACEFUL).also(::logOperation)
 
-    suspend fun recover(): RuntimeOperation = supervisor.recover()
+    suspend fun recover(): RuntimeOperation =
+        supervisor.recover().also(::logOperation)
 
     suspend fun consentedForceStopOrphanStack(): RuntimeOperation =
-        supervisor.consentedForceStopOrphanStack()
+        supervisor.consentedForceStopOrphanStack().also(::logOperation)
+
+    private fun logOperation(operation: RuntimeOperation) {
+        if (operation.ok) {
+            DesktopLog.i(TAG, operation.detail)
+        } else {
+            DesktopLog.w(TAG, "operation FAILED: " + operation.detail)
+        }
+    }
 
     /**
      * Create (or verify) the local account through the supervisor's control
@@ -162,6 +186,7 @@ class DesktopAppModel(
          * selection rides the settings snapshot into world start). */
         const val DESKTOP_PROFILE = "local"
 
+        private const val TAG = "AppModel"
         private const val AUTO_LOGIN_WAIT_MS = 60_000L
         private const val AUTO_LOGIN_POLL_MS = 1_000L
         private const val AUTO_LOGIN_SETTLE_MS = 3_000L

@@ -119,6 +119,73 @@ class DesktopRuntimeBackendTest {
     }
 
     @Test
+    fun recoverDatabaseRestoresADirtyDatadirToAtRest() {
+        assumeNativesStaged()
+        val roots = DesktopStorageRoots(folder.newFolder("roots"))
+        val staging = folder.newFolder("staging")
+        // Build a real WAL database with content, snapshot the db AND its
+        // live -wal/-shm sidecars while the writer connection is still
+        // open (the crash signature: a killed host leaves exactly this),
+        // then close the writer. The snapshot is the dirty datadir.
+        val writerDb = File(staging, "classicrealmd.sqlite3")
+        val writer = DesktopSqliteConnection(writerDb.absolutePath)
+        writer.queryText("PRAGMA journal_mode=WAL;")
+        writer.exec("CREATE TABLE incident_marker(value TEXT);")
+        writer.exec("INSERT INTO incident_marker VALUES('survives');")
+        roots.sqliteDatadir.mkdirs()
+        for (suffix in listOf("", "-wal", "-shm")) {
+            val source = File(staging, "classicrealmd.sqlite3" + suffix)
+            if (source.isFile) {
+                source.copyTo(File(roots.sqliteDatadir, source.name), overwrite = true)
+            }
+        }
+        writer.close()
+        // The other three databases must be present (the seeded gate).
+        DATABASES.filter { it != "classicrealmd" }.forEach { database ->
+            val target = DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, database)
+            val seed = File(staging, database + ".sqlite3")
+            val connection = DesktopSqliteConnection(seed.absolutePath)
+            connection.exec("CREATE TABLE placeholder(id INTEGER);")
+            connection.close()
+            seed.copyTo(target, overwrite = true)
+        }
+        assertTrue(
+            "the snapshot must carry the crash signature (a -wal sidecar)",
+            File(roots.sqliteDatadir, "classicrealmd.sqlite3-wal").isFile,
+        )
+
+        val backend = DesktopRuntimeBackend(roots)
+        try {
+            val result = runBlocking { backend.recoverDatabase() }
+            assertTrue("recovery must succeed: ${result.detail}", result.ok)
+            val sidecars = DatabaseSqliteControlPlane.walSidecars(roots.sqliteDatadir)
+                .filter { it.isFile }
+            assertTrue("sidecars must be drained: $sidecars", sidecars.isEmpty())
+            // The recovered database still carries its committed data.
+            val readBack = DesktopSqliteConnection(
+                DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, "classicrealmd").absolutePath,
+            ).use { connection ->
+                connection.queryText("SELECT value FROM incident_marker;")
+            }
+            assertEquals("survives", readBack)
+        } finally {
+            backend.close()
+        }
+    }
+
+    @Test
+    fun recoverDatabaseRefusesWithoutSeeds() {
+        assumeNativesStaged()
+        val backend = DesktopRuntimeBackend(DesktopStorageRoots(folder.newFolder("empty-roots")))
+        val result = runBlocking { backend.recoverDatabase() }
+        assertFalse("recovery must not silently seed: ${result.detail}", result.ok)
+        assertTrue(
+            "refusal must carry the seeded copy: ${result.detail}",
+            "DB-NOT-SEEDED" in result.detail && "seedRealmData" in result.detail,
+        )
+    }
+
+    @Test
     fun realmStartLaunchesAsynchronouslyAndStopsClean() {
         assumeNativesStaged()
         val roots = DesktopStorageRoots(folder.newFolder("roots"))

@@ -1,5 +1,6 @@
 package com.pocketrealm.desktop
 
+import com.pocketrealm.database.DatabaseSqliteConfigPolicy
 import com.pocketrealm.database.DatabaseSqliteControlPlane
 import com.pocketrealm.database.DesktopSqliteConnection
 import com.pocketrealm.database.DatabaseSqliteControlPlane.DATABASES
@@ -310,13 +311,162 @@ class DesktopRuntimeBackend(
         }
     }
 
+    /**
+     * The desktop engine-twin recovery (the Android
+     * recoverDatabase/prepareDatabaseForStart flow): by the time the
+     * supervisor calls this it has already force-stopped and released
+     * every component, so recovery is the prepare-for-start leg — the
+     * runtime at rest, the datadir seeded, every WAL sidecar drained
+     * through SQLite's own recovery + checkpoint, every database through
+     * the integrity gate (VACUUM INTO rebuild on failure), and an at-rest
+     * proof before success. Never fake success: the supervisor commits
+     * clean=true on ok and the next start skips recovery entirely.
+     */
     override suspend fun recoverDatabase(): RuntimeActionResult =
         withContext(Dispatchers.IO) {
-            // The integrity/rebuild legs ride the seam (control-plane
-            // QUICK_CHECK/INTEGRITY_CHECK/VACUUM INTO) with the Phase-3
-            // engine twin's recovery flow; until then the honest verdict.
-            RuntimeActionResult(ok = false, detail = "DB-RECOVERY arrives with the engine twin's recovery flow")
+            synchronized(transitionLock) { recoverDatabaseLocked() }
         }
+
+    // The honest-failure returns ARE the algorithm; the guards mirror the
+    // Android twin's step order and refusal copy.
+    @Suppress("LongMethod", "CyclomaticComplexMethod", "ReturnCount")
+    private fun recoverDatabaseLocked(): RuntimeActionResult {
+        // Generation-boundary guard (the desktop analog of the Android
+        // "unowned database is still running" refusal): a live runtime or
+        // a held DATABASE claim means a connection survives.
+        val realmState = currentRealmState()
+        val worldState = currentWorldState()
+        if (realmState != ServerRuntimeContract.STOPPED && realmState != ServerRuntimeContract.FAILED) {
+            return RuntimeActionResult(
+                false,
+                "realm is still " + ServerRuntimeContract.stateName(realmState) +
+                    "; recovery requires the runtime at rest",
+            )
+        }
+        if (worldState != ServerRuntimeContract.STOPPED && worldState != ServerRuntimeContract.FAILED) {
+            return RuntimeActionResult(
+                false,
+                "world is still " + ServerRuntimeContract.stateName(worldState) +
+                    "; recovery requires the runtime at rest",
+            )
+        }
+        if (ownership.getValue(RuntimeComponent.DATABASE).current() != null) {
+            return RuntimeActionResult(false, "database is still claimed by a runtime session")
+        }
+        // Seeded gate (the INITIALIZE leg's admission; recovery must not
+        // silently seed — the desktop initialization lane is the explicit
+        // seeder task with its staging + provenance pins).
+        val missing = DATABASES.filterNot { database ->
+            DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, database).isFile
+        }
+        if (missing.isNotEmpty()) {
+            return RuntimeActionResult(
+                false,
+                "DB-NOT-SEEDED: " + missing.joinToString() + " missing under " +
+                    roots.sqliteDatadir + " (run gradlew seedRealmData from desktop/)",
+            )
+        }
+        // WAL recovery + checkpoint drain: opening each database read-write
+        // triggers SQLite's own WAL recovery; checkpoint-on-close deletes
+        // the sidecars. A sidecar that survives means a live connection.
+        val deadline = System.currentTimeMillis() + WAL_DRAIN_TIMEOUT_MS
+        var sidecars = DatabaseSqliteControlPlane.walSidecars(roots.sqliteDatadir).filter { it.isFile }
+        while (sidecars.isNotEmpty()) {
+            if (System.currentTimeMillis() >= deadline) {
+                return RuntimeActionResult(
+                    false,
+                    "DB-SQLITE: WAL sidecars survived " + WAL_DRAIN_TIMEOUT_MS + "ms of engine " +
+                        "checkpoints - a realm/world connection is still open: " +
+                        sidecars.joinToString(" ") { it.name },
+                )
+            }
+            for (database in DATABASES) {
+                val file = DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, database)
+                if (!file.isFile) continue
+                runCatching {
+                    DesktopSqliteConnection(file.absolutePath).use { connection ->
+                        DatabaseSqliteConfigPolicy.renderConnectionPragmas()
+                            .forEach(connection::queryText)
+                        connection.queryText("PRAGMA wal_checkpoint(TRUNCATE);")
+                    }
+                }
+            }
+            Thread.sleep(WAL_DRAIN_POLL_MS)
+            sidecars = DatabaseSqliteControlPlane.walSidecars(roots.sqliteDatadir).filter { it.isFile }
+        }
+        // Integrity gate + VACUUM INTO rebuild (the sqliteRecover core).
+        val gate = DATABASES.associateWith { database ->
+            verifyOrRebuildSqlite(DatabaseSqliteControlPlane.databaseFile(roots.sqliteDatadir, database))
+        }
+        // At-rest proof: no sidecar survives recovery (the desktop's
+        // clean-stop seal — existence is ours, walSidecars lists candidates).
+        val survivors = DatabaseSqliteControlPlane.walSidecars(roots.sqliteDatadir).filter { it.isFile }
+        if (survivors.isNotEmpty()) {
+            return RuntimeActionResult(
+                false,
+                "DB-SQLITE: WAL sidecars survived recovery: " +
+                    survivors.joinToString(" ") { it.name },
+            )
+        }
+        val rebuiltAny = gate.values.any { it == "rebuilt" }
+        val revisionNote = if (rebuiltAny) "; revision re-proof arrives with the engine twin" else ""
+        return RuntimeActionResult(
+            ok = true,
+            detail = "database transactions recovered and stopped generation prepared " +
+                "(integrityGate: " + gate.entries.joinToString { (key, value) -> "$key=$value" } + ")" +
+                revisionNote,
+        )
+    }
+
+    /** quick_check then integrity_check; both verdicts must be exactly "ok". */
+    @Suppress("ReturnCount") // the two early verdicts are the gate's shape
+    private fun integrityOk(file: File): Boolean {
+        if (!file.isFile) return false
+        DesktopSqliteConnection(file.absolutePath).use { connection ->
+            DatabaseSqliteConfigPolicy.renderConnectionPragmas().forEach(connection::queryText)
+            val quick = connection.queryText(DatabaseSqliteControlPlane.QUICK_CHECK)
+            if (quick != DatabaseSqliteControlPlane.INTEGRITY_OK) return false
+            val full = connection.queryText(DatabaseSqliteControlPlane.INTEGRITY_CHECK)
+            return full == DatabaseSqliteControlPlane.INTEGRITY_OK
+        }
+    }
+
+    /** The Android verifyOrRebuildSqlite twin: integrity-verifies, and on
+     * failure salvages through VACUUM INTO into a WAL-mode replacement. */
+    private fun verifyOrRebuildSqlite(file: File): String {
+        if (integrityOk(file)) return "ok"
+        val rebuilt = File(file.parentFile, file.name + ".rebuilt")
+        rebuilt.delete()
+        val target = rebuilt.absolutePath.replace("'", "''")
+        DesktopSqliteConnection(file.absolutePath).use { connection ->
+            DatabaseSqliteConfigPolicy.renderConnectionPragmas().forEach(connection::queryText)
+            connection.exec("VACUUM INTO '$target';")
+        }
+        if (!integrityOk(rebuilt)) {
+            rebuilt.delete()
+            error(
+                "DB-SQLITE: " + file.name + " failed integrity_check and the " +
+                    "VACUUM INTO rebuild is also not clean",
+            )
+        }
+        // VACUUM INTO output carries a DELETE journal, not WAL - restore
+        // WAL before publishing.
+        DesktopSqliteConnection(rebuilt.absolutePath).use { connection ->
+            check(connection.queryText("PRAGMA journal_mode=WAL;") == "wal") {
+                "DB-SQLITE: " + rebuilt.name + " did not restore journal_mode=WAL"
+            }
+        }
+        check(!File(rebuilt.parentFile, rebuilt.name + "-wal").isFile &&
+            !File(rebuilt.parentFile, rebuilt.name + "-shm").isFile) {
+            "DB-SQLITE: " + rebuilt.name + " left WAL sidecars behind"
+        }
+        check(rebuilt.renameTo(file) || (file.delete() && rebuilt.renameTo(file))) {
+            "DB-SQLITE: cannot replace " + file.name + " with the rebuilt copy"
+        }
+        // No directory fsync: Windows cannot open a directory through
+        // FileChannel and NTFS journals the rename (the seeder's posture).
+        return "rebuilt"
+    }
 
     override fun close() {
         // Supervisor stop order: client first while the world is still up,
