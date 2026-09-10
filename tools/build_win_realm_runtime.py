@@ -25,6 +25,7 @@ Outputs land in native/.build-win-x86_64/.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -35,10 +36,28 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import build_o09_realm_runtime as o09  # noqa: E402
+from common import pe_info, sha256_file  # noqa: E402
 
 BUILD = ROOT / "native" / ".build-win-x86_64"
 VCPKG_INSTALLED = ROOT / "native" / "win-deps" / "vcpkg_installed" / "x64-windows-static-md"
 WIN_PREFIX = ROOT / "native" / ".deps" / "prefix-win-x86_64"
+SEAM_BUILD = ROOT / "native" / ".build-win-x86_64" / "sqlite-seam-build"
+
+WIN_LOCKFILE = ROOT / "schemas" / "realm-runtime-lockfile-sqlite-win.json"
+SIBLING_SQLITE_LOCKFILE = ROOT / "schemas" / "realm-runtime-lockfile-sqlite.json"
+
+# Every runtime-loaded PE native the app image carries (the two realm DLLs
+# plus the SQLite seam). Build tools (extractors) stay unpinned here: they
+# never ride into the image.
+LOCKFILE_ARTIFACTS = [
+    BUILD / "pocket-runtime-build" / "pocket_realmd_runtime.dll",
+    BUILD / "pocket-runtime-build" / "pocket_world_runtime.dll",
+    SEAM_BUILD / "pocket_sqlite.dll",
+]
+
+# Expected machine type (AMD64) for every lane artifact — a wrong-arch DLL
+# must fail the lockfile write, not a far-off loadLibrary.
+PE_MACHINE_X64 = 0x8664
 
 EXTRACTOR_TARGETS = ["ad", "vmap_extractor", "vmap_assembler", "MoveMapGen"]
 
@@ -113,6 +132,12 @@ def configure_command(extractors: bool = False) -> list[str]:
         # Fail-loud backend selection: SQLITE is the real switch (same
         # contract as the o09 sqlite lane).
         "-DSQLITE=ON",
+        # win-static-openssl-only overlay: route cmangos's OpenSSL linkage at
+        # the pinned vcpkg STATIC libs. Without this the submodule's shipped
+        # dep/lib prebuilt IMPORT libs ride the link line and late playerbots
+        # references silently import dynamic libssl-3-x64.dll — a DLL the app
+        # image does not carry.
+        f"-DPOCKET_REALM_WIN_DEPS={deps}",
         f"-DOPENSSL_ROOT_DIR={deps}",
         f"-DOPENSSL_INCLUDE_DIR={deps / 'include'}",
         f"-DOPENSSL_SSL_LIBRARY={deps / 'lib' / 'libssl.lib'}",
@@ -206,6 +231,115 @@ def verify_jni_exports(vcvars: Path, dll: Path, symbols: list[str]) -> None:
     assert not missing, f"{dll.name} missing JNI exports: {missing}"
 
 
+def write_lockfile() -> None:
+    """Record the Windows lane's reviewed state into
+    schemas/realm-runtime-lockfile-sqlite-win.json.
+
+    The Windows twin of the android lanes' lockfile: source pins (commits,
+    overlay registries, patches_content) mirror the o09 sqlite lane exactly
+    (same engine-fix set on both platforms), the artifact pins carry the
+    freshly built PE bytes with their IMPORT TABLES where the android
+    lockfiles pin ELF DT_NEEDED — the table that exposed the shipped
+    dynamic-OpenSSL import libs. Seed transcript pins are copied from the
+    android x86_64 sqlite lockfile and cross-checked against the
+    append-only seed baseline; the transcripts are ABI-independent bytes.
+
+    Byte pins describe THIS machine's build outputs (untracked, like every
+    lane's staging). CI runs the pins-only pytest coherence gate
+    (tests/test_win_lockfile.py) — the android lanes' documented
+    pins-only-CI posture — while a lane rebuild on the dev box rewrites
+    this file and refreshes desktop BuildConfig's runtime telltale.
+    """
+    sibling = json.loads(SIBLING_SQLITE_LOCKFILE.read_text(encoding="utf-8"))
+    seed_pins = sibling.get("seed_transcripts")
+    baseline = json.loads((ROOT / "schemas" / "sqlite-seed-baseline.json")
+                          .read_text(encoding="utf-8"))
+    digests = baseline.get("transcript_digests") or {}
+    for name, pin in (seed_pins or {}).items():
+        expected = digests.get(name)
+        if not expected or pin.get("sha256") != expected:
+            raise RuntimeError(
+                f"seed pin mismatch for {name}: sqlite sibling lockfile "
+                f"{pin.get('sha256')} != baseline {expected}; refusing to "
+                "record incoherent seed pins in the win lockfile")
+    artifacts = []
+    for artifact in LOCKFILE_ARTIFACTS:
+        if not artifact.is_file():
+            raise RuntimeError(
+                f"cannot write the win lockfile: {artifact} is missing - "
+                "run the lane build (and the seam build) first")
+        info = pe_info(artifact)
+        if info["machine"] != PE_MACHINE_X64:
+            raise RuntimeError(
+                f"{artifact.name}: expected x64 PE (machine "
+                f"{PE_MACHINE_X64:#x}), found {info['machine']:#x}")
+        artifacts.append({
+            "path": artifact.relative_to(ROOT).as_posix(),
+            "size": artifact.stat().st_size,
+            "sha256": sha256_file(artifact),
+            "pe_imports": info["dependents"],
+        })
+    stamp = WIN_PREFIX / "lib" / "sqlite3.lib.amalgamation-sha256"
+    record = {
+        "schema": 1,
+        "abi": "windows-x86_64",
+        "database_backend": "sqlite",
+        "cmangos_commit": o09.CMANGOS_COMMIT,
+        "playerbots_commit": o09.PLAYERBOTS_COMMIT,
+        "cmangos_source_overlays": [
+            dict(entry) for entry in o09.CMANGOS_OVERLAYS
+            if "sqlite" in entry.get("backends", ("mysql", "sqlite"))],
+        "playerbots_source_overlays": o09.PLAYERBOTS_OVERLAYS,
+        "patches_content": o09.patches_content_digests(),
+        "sqlite_amalgamation": {
+            "version": _sqlite_version(),
+            # The reviewed sources.json pin is authoritative; the optional
+            # local build stamp is the cross-check when present.
+            "sqlite3_c_sha256": _amalgamation_pin(),
+            "staged_lib_sha256": stamp.read_text(encoding="ascii").strip()
+            if stamp.is_file() else None,
+        },
+        "artifacts": artifacts,
+        "seed_transcripts": seed_pins,
+        "toolchain": {
+            "generator": "Ninja",
+            "openssl": "vcpkg x64-windows-static-md (static; "
+                       "win-static-openssl-only overlay keeps the shipped "
+                       "dep/lib import libs off the link line)",
+        },
+    }
+    WIN_LOCKFILE.write_bytes((json.dumps(record, indent=2) + "\n").encode("utf-8"))
+    world = next(a for a in artifacts if a["path"].endswith("pocket_world_runtime.dll"))
+    print(f"wrote {WIN_LOCKFILE.relative_to(ROOT)}")
+    print(
+        "desktop BuildConfig telltale (keep BuildConfig.kt in sync):\n"
+        f"  NATIVE_RUNTIME_BUILD_ID = \"win-x86_64-sqlite-cmangos-"
+        f"{o09.CMANGOS_COMMIT[:8]}-playerbots-{o09.PLAYERBOTS_COMMIT[:8]}-"
+        f"{world['sha256'][:12]}\"")
+
+
+def _sqlite_version() -> str:
+    script = ROOT / "scripts" / "build_win_deps.py"
+    match = re.search(r'SQLITE_VERSION\s*=\s*"([^"]+)"', script.read_text(encoding="utf-8"))
+    if not match:
+        raise RuntimeError("cannot read SQLITE_VERSION from scripts/build_win_deps.py")
+    return match.group(1)
+
+
+def _amalgamation_pin() -> str:
+    """The reviewed sqlite3.c sha256 from schemas/sources.json (the pin the
+    amalgamation tripwire test already enforces)."""
+    sources = json.loads((ROOT / "schemas" / "sources.json").read_text(encoding="utf-8"))
+    for source in sources.get("sources", []):
+        if "sqlite-amalgamation" in str(source.get("id", "")):
+            content = source.get("content_sha256")
+            if isinstance(content, dict) and content.get("sqlite3.c"):
+                return content["sqlite3.c"]
+            if isinstance(content, str) and content:
+                return content
+    raise RuntimeError("schemas/sources.json has no sqlite-amalgamation content pin")
+
+
 def verify_backend_selection(configure_stdout: str) -> None:
     """Same two-leg evidence contract as o09.verify_backend_selection, read
     from THIS lane's build graph (the o09 helper is hardwired to the Android
@@ -239,9 +373,17 @@ def main() -> int:
     parser.add_argument("--extractors", action="store_true",
                         help="build the four data extractors (ad, vmap_extractor, "
                              "vmap_assembler, MoveMapGen) instead of the runtimes")
+    parser.add_argument("--write-lockfile", action="store_true",
+                        help="record the freshly built PE artifacts (with import "
+                             "tables) and the current source pins into "
+                             "schemas/realm-runtime-lockfile-sqlite-win.json")
     parser.add_argument("--force", action="store_true",
                         help="wipe the build directory before configuring")
     args = parser.parse_args()
+
+    if args.write_lockfile:
+        write_lockfile()
+        return 0
 
     dependency_preflight()
 
@@ -305,6 +447,10 @@ def main() -> int:
         verify_jni_exports(vcvars, world_dll, jni_symbols_from_shim(
             ROOT / "android/app/src/main/java/com/pocketrealm/server/WorldNative.kt"))
         print(f"windows realm runtimes built:\n  {realmd_dll}\n  {world_dll}")
+        # A successful lane build is exactly when the lockfile should be
+        # refreshed — the recorded bytes and the staged bytes can then never
+        # disagree on the dev box.
+        write_lockfile()
         return 0
     finally:
         o09.restore_cmangos_source()

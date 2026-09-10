@@ -87,6 +87,10 @@ dependencies {
     // Android app's importer uses).
     implementation("org.tukaani:xz:1.10")
     implementation("org.apache.commons:commons-compress:1.28.0")
+    // Win32 auto-login (SendInput into the launched WoW.exe): the JVM has
+    // no FFI at 17, and JNA keeps the credentials in-process (no helper
+    // exe command line). JDK 22+ would allow the FFM API instead.
+    implementation("net.java.dev.jna:jna-platform:5.14.0")
     testImplementation(kotlin("test"))
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
@@ -222,13 +226,21 @@ tasks.register("packageApp") {
         val jarFile = appJar.get().outputs.files.singleFile
         val seeds = listOf("classicrealmd", "classiccharacters", "classiclogs", "classicmangos")
             .map { stagingRoot.resolve("assets/seed/$it.sqlz") }
+        // LLM-lane assets the conf resolves from the app dir at runtime
+        // (ServerRuntimeFiles.resolveBundledAsset searches java.library.path
+        // first — the jpackage $APPDIR): the Mozilla CA bundle for the
+        // native HTTPS client's TLS verification and the lore card index.
+        val llmAssets = listOf(
+            "llm/cacert.pem",
+            "lore/lore_cards_v112.jsonl",
+        ).map { rootProject.projectDir.resolve("../android/app/src/main/assets/$it").normalize() }
         val allInputs = listOf(
             jarFile,
             runtimeDir.resolve("pocket_realmd_runtime.dll"),
             runtimeDir.resolve("pocket_world_runtime.dll"),
             seamDir.resolve("pocket_sqlite.dll"),
             stagingRoot.resolve("BUILD_PROVENANCE.json"),
-        ) + seeds
+        ) + seeds + llmAssets + vcRuntimeDlls()
         val missing = allInputs.filter { !it.isFile }
         if (missing.isNotEmpty()) {
             val listing = missing.joinToString(System.lineSeparator()) { "  $it" }
@@ -267,9 +279,58 @@ tasks.register("packageApp") {
                 "--win-console",
             )
         }
+        applyLongPathAwareManifest(image.resolve("PocketRealm.exe"))
         logger.lifecycle("app image: $image")
     }
 }
 
 
+/**
+ * The VC runtime DLLs the realm DLLs import (MSVCP140/VCRUNTIME140[_1]) —
+ * app-local deployment from the VS redist tree, so the image runs on
+ * machines without the VC redistributable installed. Returns an empty
+ * list when the redist tree cannot be located (the DLLs stay missing and
+ * packageApp reports them as missing inputs, never silently unpackaged).
+ */
+fun vcRuntimeDlls(): List<File> {
+    val vswhere = File(
+        System.getenv("ProgramFiles(x86)") ?: return emptyList(),
+        "Microsoft Visual Studio/Installer/vswhere.exe",
+    )
+    if (!vswhere.isFile) return emptyList()
+    val install = providers.exec {
+        commandLine(vswhere.absolutePath, "-latest", "-products", "*", "-property", "installationPath")
+    }.standardOutput.asText.get().trim().lineSequence().firstOrNull() ?: return emptyList()
+    val redistRoot = File(install, "VC/Redist/MSVC")
+    val crt = redistRoot.listFiles()
+        ?.mapNotNull { version -> version.resolve("x64").listFiles()?.firstOrNull { dir -> dir.name.startsWith("Microsoft.VC") } }
+        ?.firstOrNull() ?: return emptyList()
+    return listOf("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll", "concrt140.dll")
+        .map { crt.resolve(it) }
+        .filter { it.isFile }
+}
 
+
+/**
+ * longPathAware for the launcher exe (data preparation and storage live
+ * under %LOCALAPPDATA%; deep generation trees can exceed MAX_PATH for
+ * native code). jpackage's launcher embeds its own manifest and is created
+ * READ-ONLY, so mt.exe -outputresource fails; tools/win_manifest_longpath.py
+ * merges the setting through kernel32's UpdateResource and restores the
+ * attribute. Honest skip when python/pefile are unavailable.
+ */
+fun applyLongPathAwareManifest(exe: File) {
+    val helper = rootProject.projectDir.resolve("../tools/win_manifest_longpath.py")
+    val result = runCatching {
+        ProcessBuilder("python", helper.absolutePath, exe.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+    }
+    val process = result.getOrElse { failure ->
+        logger.lifecycle("packageApp: longPathAware skipped (no python: ${failure.message})")
+        return
+    }
+    val output = process.inputStream.bufferedReader().readText()
+    process.waitFor()
+    logger.lifecycle("packageApp: ${output.trim()}")
+}

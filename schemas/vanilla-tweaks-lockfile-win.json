@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "host": "windows-x86_64",
+  "component": "vanilla-tweaks",
+  "version": "1.6.0",
+  "upstream": "https://github.com/brndd/vanilla-tweaks",
+  "upstream_commit": "fbbe31add71b23602d981d70f1a58520fc349b47",
+  "license": "MIT",
+  "purpose": "Host-side producer of WoW.exe.patched from a pristine managed WoW.exe",
+  "artifacts": [
+    {
+      "path": "native/.build-vanilla-tweaks-win/staging/bin/vanilla-tweaks.exe",
+      "size": 799232,
+      "sha256": "fcc28305526109533ba9fcb617f6a839309f69baa1b7a0e1b5b94f92df6fed5e",
+      "pe_machine": "0x8664",
+      "pe_subsystem": 3,
+      "pe_imports": [
+        "KERNEL32.dll",
+        "VCRUNTIME140.dll",
+        "api-ms-win-core-synch-l1-2-0.dll",
+        "api-ms-win-crt-heap-l1-1-0.dll",
+        "api-ms-win-crt-locale-l1-1-0.dll",
+        "api-ms-win-crt-math-l1-1-0.dll",
+        "api-ms-win-crt-runtime-l1-1-0.dll",
+        "api-ms-win-crt-stdio-l1-1-0.dll",
+        "bcryptprimitives.dll",
+        "ntdll.dll"
+      ]
+    }
+  ]
+}

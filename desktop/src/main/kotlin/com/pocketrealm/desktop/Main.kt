@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
@@ -19,6 +20,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
+import com.pocketrealm.desktop.ui.BotsScreen
+import com.pocketrealm.desktop.ui.DiagnosticsScreen
+import com.pocketrealm.desktop.ui.HomeScreen
+import com.pocketrealm.desktop.ui.LlmScreen
+import com.pocketrealm.desktop.ui.SettingsScreen
 
 fun main() = application {
     // Packaged-image smoke lane: -Dpocketrealm.nativeSmoke=1 makes the
@@ -32,16 +38,23 @@ fun main() = application {
         runNativeSmoke()
         return@application
     }
-    val roots = DesktopStorageRoots()
-    roots.ensureDirectories()
-    DesktopLog.attachFile(roots.logs)
-    val settings = DesktopSettingsStore(roots.settingsFile).load()
-    DesktopLog.i("Main", "Pocket Realm for Windows starting (${settings.runtimeMode})")
+    val clientDirOverride = System.getProperty("clientDir")?.let { path -> java.io.File(path) }
+    val model = DesktopAppModel(clientDirOverride = clientDirOverride)
+    DesktopLog.attachFile(model.roots.logs)
+    DesktopLog.i("Main", "Pocket Realm for Windows starting (${model.settings.value.runtimeMode})")
     Window(
-        onCloseRequest = ::exitApplication,
+        onCloseRequest = {
+            // Closing the window ends the session: drain the stack through
+            // the supervisor (client -> world -> realm -> database) so a
+            // running realm saves instead of orphaning WoW.exe and WAL
+            // sidecars. Bounded by the native stop timeouts.
+            kotlinx.coroutines.runBlocking { runCatching { model.saveAndExit() } }
+            model.close()
+            ::exitApplication
+        },
         title = "Pocket Realm (Windows)",
     ) {
-        PocketRealmDesktopApp()
+        PocketRealmDesktopApp(model)
     }
 }
 
@@ -60,7 +73,7 @@ private fun runNativeSmoke(): Nothing {
 }
 
 @Composable
-private fun PocketRealmDesktopApp() {
+private fun PocketRealmDesktopApp(model: DesktopAppModel) {
     val router = remember { DesktopRouter() }
     var current by remember { mutableStateOf(router.current) }
 
@@ -68,7 +81,7 @@ private fun PocketRealmDesktopApp() {
         Row(modifier = Modifier.fillMaxSize().padding(padding)) {
             NavigationRail(
                 modifier = Modifier.fillMaxHeight(),
-                containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant,
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
             ) {
                 DESKTOP_ROUTES.forEach { route ->
                     NavigationRailItem(
@@ -87,39 +100,17 @@ private fun PocketRealmDesktopApp() {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 when (current) {
-                    Route.Home -> HomeSkeleton()
-                    Route.Bots -> ScreenSkeleton("Bots")
-                    Route.Llm -> ScreenSkeleton("LLM")
-                    Route.Settings -> ScreenSkeleton("Settings")
-                    Route.Diagnostics -> ScreenSkeleton("Diagnostics")
+                    Route.Home -> HomeScreen(
+                        model = model,
+                        onOpenBots = { current = Route.Bots },
+                        onOpenSettings = { current = Route.Settings },
+                    )
+                    Route.Bots -> BotsScreen(model)
+                    Route.Llm -> LlmScreen(model)
+                    Route.Settings -> SettingsScreen(model, onOpenLlm = { current = Route.Llm })
+                    Route.Diagnostics -> DiagnosticsScreen(model)
                 }
             }
         }
     }
-}
-
-@Composable
-private fun HomeSkeleton() {
-    Text(
-        text = "Pocket Realm for Windows",
-        style = androidx.compose.material3.MaterialTheme.typography.headlineMedium,
-    )
-    Text(
-        text = "Phase 0 skeleton — the shared supervisor/database/server domain " +
-            "sources compile in this build; runtime bring-up arrives with the " +
-            "native realm lane.",
-        style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-    )
-}
-
-@Composable
-private fun ScreenSkeleton(name: String) {
-    Text(
-        text = name,
-        style = androidx.compose.material3.MaterialTheme.typography.headlineMedium,
-    )
-    Text(
-        text = "Not yet ported.",
-        style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-    )
 }

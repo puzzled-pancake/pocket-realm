@@ -126,6 +126,15 @@
       "reason": "Refuse the no-op -DDO_MYSQL/-DDO_SQLITE cache defines, refuse PostgreSQL, and print the selected backend at configure time; the real switch is the SQLITE cache variable with MySQL as the else-default."
     },
     {
+      "id": "win-static-openssl-only",
+      "backends": [
+        "mysql",
+        "sqlite"
+      ],
+      "path": "CMakeLists.txt",
+      "reason": "Windows MSVC lane only (POCKET_REALM_WIN_DEPS): route OPENSSL_LIBRARIES/OPENSSL_DEBUG_LIBRARIES and the include dir at the pinned vcpkg STATIC OpenSSL instead of the shipped dep/lib prebuilt IMPORT libs, which silently add a dynamic libssl-3-x64.dll dependency the app image does not carry (MSVC link order lets late playerbots references resolve from whichever OpenSSL library appears later on the link line). No effect on non-WIN32 lanes."
+    },
+    {
       "id": "runtime-dialect-truncate",
       "backends": [
         "mysql",

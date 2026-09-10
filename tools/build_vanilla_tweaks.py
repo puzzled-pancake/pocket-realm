@@ -6,6 +6,10 @@ DT_NEEDED allowlist, 16 KiB LOAD-alignment check, BUILD_PROVENANCE.json +
 lockfile) but builds with cargo instead of CMake. Introduces the repo's first
 Rust toolchain: requires `rustup target add aarch64-linux-android
 x86_64-linux-android` and the NDK clang wrappers as linkers.
+
+--host adds the Windows sibling lane (Phase-4 Windows port): the same crate
+built for x86_64-pc-windows-msvc as vanilla-tweaks.exe, with the PE import
+table pinned where the android lockfiles pin DT_NEEDED. No NDK required.
 """
 from __future__ import annotations
 
@@ -35,6 +39,13 @@ MAX_PAGE = 0x4000
 # Rust android binaries link bionic dynamically; rust std is statically linked.
 ALLOWED_NEEDED = {"libc.so", "libdl.so", "libm.so"}
 OUTPUT_NAME = "libpocket_vanilla_tweaks.so"
+
+HOST_TRIPLE = "x86_64-pc-windows-msvc"
+HOST_ROOT = ROOT / "native" / ".build-vanilla-tweaks-win"
+HOST_STAGE = HOST_ROOT / "staging" / "bin"
+HOST_PROVENANCE = HOST_ROOT / "BUILD_PROVENANCE.json"
+HOST_LOCKFILE = ROOT / "schemas" / "vanilla-tweaks-lockfile-win.json"
+PE_MACHINE_X64 = 0x8664
 
 
 def select_abi(abi: str) -> None:
@@ -163,12 +174,70 @@ def stage(built: Path, llvm: Path) -> dict:
     return record
 
 
+def build_host(force: bool) -> Path:
+    if not SOURCE.is_dir():
+        raise RuntimeError(f"vendored vanilla-tweaks missing at {SOURCE}")
+    target_dir = SOURCE / "target"
+    if force:
+        shutil.rmtree(target_dir / HOST_TRIPLE, ignore_errors=True)
+    run(["cargo", "build", "--locked", "--release", "--target", HOST_TRIPLE],
+        cwd=SOURCE)
+    built = target_dir / HOST_TRIPLE / "release" / "vanilla-tweaks.exe"
+    if not built.is_file():
+        raise RuntimeError(f"cargo did not produce the expected binary: {built}")
+    return built
+
+
+def stage_host(built: Path) -> dict:
+    HOST_STAGE.mkdir(parents=True, exist_ok=True)
+    target = HOST_STAGE / "vanilla-tweaks.exe"
+    shutil.copy2(built, target)
+    info = common.pe_info(target)
+    if info["machine"] != PE_MACHINE_X64:
+        raise RuntimeError(
+            f"vanilla-tweaks.exe is not x64 (machine {info['machine']:#x})")
+    record = {
+        "schema": 1,
+        "built_at_utc": datetime.now(timezone.utc).isoformat(),
+        "host": "windows-x86_64",
+        "component": "vanilla-tweaks",
+        "version": "1.6.0",
+        "upstream": "https://github.com/brndd/vanilla-tweaks",
+        "upstream_commit": "fbbe31add71b23602d981d70f1a58520fc349b47",
+        "license": "MIT",
+        "purpose": "Host-side producer of WoW.exe.patched from a pristine managed WoW.exe",
+        "artifacts": [{
+            "path": target.relative_to(ROOT).as_posix(),
+            "size": target.stat().st_size,
+            "sha256": sha256(target),
+            "pe_machine": f"{info['machine']:#x}",
+            "pe_subsystem": info["subsystem"],
+            "pe_imports": info["dependents"],
+        }],
+    }
+    HOST_PROVENANCE.parent.mkdir(parents=True, exist_ok=True)
+    HOST_PROVENANCE.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    HOST_LOCKFILE.write_text(
+        json.dumps({k: v for k, v in record.items() if k != "built_at_utc"},
+                   indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return record
+
+
 def main() -> int:
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--abi", choices=("x86_64", "arm64-v8a"), default="x86_64")
+    parser.add_argument("--host", action="store_true",
+                        help="build the Windows host lane (x86_64-pc-windows-msvc, "
+                             "vanilla-tweaks.exe with PE verification) instead of "
+                             "an android target")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
+    if args.host:
+        print(json.dumps(stage_host(build_host(args.force)), indent=2))
+        return 0
     select_abi(args.abi)
     o09.select_abi(args.abi)
     built, llvm = build(args.force)

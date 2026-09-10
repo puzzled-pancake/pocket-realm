@@ -270,7 +270,8 @@ def test_lockfiles_pin_patches_content() -> None:
     assert expected, "no patch files found under native/patches/"
     names = ("realm-runtime-lockfile.json",
              "realm-runtime-lockfile-arm64-v8a.json",
-             "realm-runtime-lockfile-arm64-v8a-sqlite.json")
+             "realm-runtime-lockfile-arm64-v8a-sqlite.json",
+             "realm-runtime-lockfile-sqlite-win.json")
     for name in names:
         path = ROOT / "schemas" / name
         assert path.is_file(), f"{name} missing (rebuild that lane)"
@@ -295,7 +296,8 @@ def test_write_lockfiles_mode_is_idempotent_and_content_only() -> None:
     names = ("realm-runtime-lockfile.json",
              "realm-runtime-lockfile-sqlite.json",
              "realm-runtime-lockfile-arm64-v8a.json",
-             "realm-runtime-lockfile-arm64-v8a-sqlite.json")
+             "realm-runtime-lockfile-arm64-v8a-sqlite.json",
+             "realm-runtime-lockfile-sqlite-win.json")
     before = {n: (ROOT / "schemas" / n).read_bytes() for n in names
               if (ROOT / "schemas" / n).is_file()}
     updated = driver.write_lockfiles()

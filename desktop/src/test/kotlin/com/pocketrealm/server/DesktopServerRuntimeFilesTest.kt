@@ -143,6 +143,94 @@ class DesktopServerRuntimeFilesTest {
     }
 
     @Test
+    fun worldConfigWithBotProfileStagesTheProfileConf() {
+        val (roots, files) = files()
+        stageActiveGeneration(roots)
+        val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
+        val conf = files.worldConfig(botProfile = profile).readText()
+        assertTrue(
+            "BotTarget must carry the profile's initial target: $conf",
+            "PocketRealm.BotTarget = ${profile.initialTarget}" in conf,
+        )
+        val botConf = File(File(roots.runtime, "server/run"), "aiplayerbot-${profile.id}.conf")
+        assertTrue("the profile conf must be staged: ${botConf.absolutePath}", botConf.isFile)
+        val body = botConf.readText()
+        assertTrue(
+            "the profile conf starts with the profile's population emission",
+            body.startsWith(profile.playerbotConfig()),
+        )
+        assertTrue(
+            "no LLM block without the LLM lane enabled",
+            "AiPlayerbot.LLMEnabled = 2" !in body,
+        )
+        assertTrue(
+            "mangosd.conf points at the profile conf",
+            "PocketRealm.PlayerbotConfig = \"${botConf.absolutePath}\"" in conf,
+        )
+    }
+
+    @Test
+    fun llmExternalBlockFailsClosedWithoutEndpoint() {
+        val (roots, files) = files()
+        stageActiveGeneration(roots)
+        roots.settingsFile.parentFile?.mkdirs()
+        roots.settingsFile.writeText(
+            Settings.Snapshot(llmEnabled = true, llmExternalUrl = "not-a-url").toJson(),
+        )
+        val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
+        files.worldConfig(botProfile = profile)
+        val botConf = File(File(roots.runtime, "server/run"), "aiplayerbot-${profile.id}.conf")
+        val body = botConf.readText()
+        assertTrue(
+            "an invalid endpoint must fail closed to no LLM block: $body",
+            "AiPlayerbot.LLMEnabled = 2" !in body,
+        )
+    }
+
+    @Test
+    fun llmExternalBlockEmitsTheExternalLane() {
+        val (roots, files) = files()
+        stageActiveGeneration(roots)
+        roots.settingsFile.parentFile?.mkdirs()
+        roots.settingsFile.writeText(
+            Settings.Snapshot(
+                llmEnabled = true,
+                llmExternalUrl = "https://api.openai.com",
+                llmExternalModel = "gpt-test",
+                llmExternalApiKey = "sk-test",
+                llmBanter = true,
+                llmAmbience = true,
+                llmCloudChatter = true,
+            ).toJson(),
+        )
+        val profile = com.pocketrealm.bots.BotProfiles.defaultProfile
+        files.worldConfig(botProfile = profile)
+        val botConf = File(File(roots.runtime, "server/run"), "aiplayerbot-${profile.id}.conf")
+        val body = botConf.readText()
+        // The external-lane emission, pinned against the Android confLines twin.
+        listOf(
+            "AiPlayerbot.LLMEnabled = 2",
+            "AiPlayerbot.LLMBackend = 0",
+            "AiPlayerbot.LLMApiEndpoint = https://api.openai.com/v1/chat/completions",
+            "AiPlayerbot.LLMApiKey = sk-test",
+            "AiPlayerbot.LLMApiModel = gpt-test",
+            "AiPlayerbot.LLMPromptFormat = 1",
+            "AiPlayerbot.LLMProviderSafe = 1",
+            "AiPlayerbot.LLMBanterEnabled = 1",
+            "AiPlayerbot.LLMChatterEnabled = 1",
+            "AiPlayerbot.LLMCloudChatter = 1",
+        ).forEach { line ->
+            assertTrue("external block must carry: $line in body", line in body)
+        }
+        // The chatter power file is staged enabled with the NORMAL rung.
+        val power = File(File(roots.runtime, "server/run"), "chatter-power.conf")
+        assertTrue("chatter power file staged", power.isFile)
+        val powerBody = power.readText()
+        assertTrue("enabled=1: $powerBody", "enabled=1" in powerBody)
+        assertTrue("rung=4 (NORMAL): $powerBody", "rung=4" in powerBody)
+    }
+
+    @Test
     fun worldConfigDebugToggleFlipsTheLogFileLevel() {
         val (roots, files) = files()
         stageActiveGeneration(roots)

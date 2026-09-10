@@ -4105,3 +4105,108 @@ Gates re-run green: desktop test+detekt (300 tests), bootRealmd,
 authGate (server-persisted os/platform verified), bootWorld single +
 bootCycles=2 (refusal pinned), whisperGate, packageApp x2 + packaged
 nativeSmoke exit 0, pytest + check_repo.
+
+## Windows port completion: every deferred lane closed (lockfile, UI port, auto-login, kill matrix, packaging)
+
+The port's remaining deferred list (qualification doc section 3) is now
+empty except the documented long-tails (cmangos re-init audit, code
+signing, prompt-pack editor). Landed in one sweep:
+
+1. Windows lane lockfile + pinned telltale.
+   schemas/realm-runtime-lockfile-sqlite-win.json mirrors the android
+   sqlite lane's source pins exactly (same overlay set both platforms -
+   pinned by test) and records the PE IMPORT TABLES where the android
+   lockfiles pin DT_NEEDED. tools/build_win_realm_runtime.py gained
+   --write-lockfile (auto-run after every lane build);
+   BuildConfig.NATIVE_RUNTIME_BUILD_ID is pinned to the derivable value
+   (win-x86_64-sqlite-cmangos-...-<world dll sha12>) and
+   tests/test_win_lockfile.py recomputes it with the Android formula.
+   tools/common.py gained a pure-python PE parser (machine/subsystem/
+   dependents) shared by the lockfile and pytest lanes.
+
+   The import table pin caught a REAL packaging defect on its first use:
+   pocket_world_runtime.dll imported dynamic libssl-3-x64.dll because the
+   cmangos root CMakeLists unconditionally points OPENSSL_LIBRARIES at
+   the submodule's shipped dep/lib prebuilt IMPORT libs, and MSVC link
+   order lets playerbots' late references resolve from them (the vcpkg
+   static libssl was scanned first and could not satisfy them). The gates
+   had only passed because Git-for-Windows ships that DLL on PATH - the
+   packaged app would not have started the world on a clean machine.
+   Fixed with the win-static-openssl-only overlay (POCKET_REALM_WIN_DEPS
+   routes the linkage at the pinned static OpenSSL; the submodule stays
+   byte-pristine, android lanes behavior-neutral). Both DLLs now import
+   only system DLLs; whisperGate re-run green on the relinked world.
+
+2. vanilla-tweaks host lane. tools/build_vanilla_tweaks.py --host builds
+   the vendored patcher for x86_64-pc-windows-msvc (vanilla-tweaks.exe,
+   console subsystem, PE-verified) with
+   schemas/vanilla-tweaks-lockfile-win.json; smoke-run confirms the CLI.
+
+3. The app became the real product. The skeleton screens are gone:
+   - DesktopAppModel holds the shared DurableRuntimeSupervisor over
+     DesktopRuntimeBackend + DesktopSupervisorJournal (the Android
+     RealmService/IPC layer collapses into direct calls), the settings
+     store, the stored account, and the bot preset store.
+   - HomeScreen (de-cliented): realm control per phase, active setup with
+     the game-folder picker, the local-account card (create-and-remember
+     with GM toggle through the supervisor's provision channel), the
+     consented force-stop flow.
+   - BotsScreen: the full preset rail (recommended/built-in/my presets
+     with rename/duplicate/export/import/delete/favorite via the shared
+     BotPresetStore) and the four-tab editor (basics/population incl.
+     adaptive admission, behaviour incl. leveling + accounts, per-preset
+     AI speech) with the Android Apply semantics.
+   - LlmScreen: external-only (cloud is the only lane on x86_64) -
+     runtime card with the spend-disclosure copy, connection card with
+     the normalizer feedback, generation overrides.
+   - SettingsScreen (LLM pointer, world debug logs, auto-login, update
+     check, provenance) and DiagnosticsScreen (storage health, journal
+     state, redacted support bundle via DesktopSupportBundle over the
+     shared SecretRedactor, log tail).
+   - The conf lane beneath it: desktop ServerRuntimeFiles.worldConfig
+     takes a BotProfile (aiplayerbot-<id>.conf = profile emission + the
+     external-LLM append; chatter power file, empty default-prompts, CA
+     bundle + lore cards staged from the app dir with fail-open posture),
+     the desktop LlmRuntimePolicy twin emits the Android confLines
+     byte-shape (pinned by three new conf tests incl. fail-closed), and
+     DesktopRuntimeBackend resolves the launch profile through the shared
+     BotSelection rule. Desktop suite: 303 tests, 0 failures, detekt 0.
+
+4. Auto-login (Win32 SendInput). JNA-based Win32AutoLogin finds the
+   launched WoW.exe's window by pid, focuses it, and types account TAB
+   password ENTER; DesktopAppModel.autoLoginIfEnabled runs it after a
+   client launch when enabled + a stored account exists. The JVM has no
+   FFI at 17, and JNA keeps credentials in-process (no helper-exe command
+   line).
+
+5. Kill matrix + soak. tools/win_kill_matrix.py runs three taskkill /F
+   legs (mid-db-init, mid-world-run via the stdin-held launchClient
+   victim incl. orphaned-WoW cleanup, mid-save on a 100ms poll) and
+   verifies each with a full recovery boot (heal or honest refusal, no
+   WAL sidecars left) plus a --soak-min N single-lifetime soak. All three
+   legs + a 5-minute soak PASSED live on the dev box.
+
+6. Packaging hardening. packageApp now stages the VC runtime app-local
+   (any Microsoft.VC*.CRT from the redist tree), the LLM assets
+   (cacert.pem for native TLS verification, lore cards), and merges a
+   longPathAware setting into the launcher manifest. mt.exe
+   -outputresource proved unusable (the jpackage launcher is created
+   READ-ONLY; mt fails with access denied or silently no-ops), so
+   tools/win_manifest_longpath.py does it through kernel32's
+   UpdateResourceW via ctypes+pefile (closes pefile's handle first,
+   clears/restores the read-only bit, verifies by re-reading, idempotent;
+   substring-safe manifest closers - a naive </windowsSettings> match
+   splits </asmv3:windowsSettings> and bricks SxS). Packaged smoke:
+   PocketRealm.exe nativeSmoke exit 0, manifest valid.
+
+Docs: README gained the "Pocket Realm for Windows" section;
+WINDOWS_QUALIFICATION.md reflects the new gates (303 tests, lockfile row,
+kill matrix row, vanilla-tweaks row, packaged-launch row) and the trimmed
+deferred list. Update-available check: opt-in feed URL
+(settings/update-feed.url), honest without infra.
+
+Gates re-run green on the dev box: desktop test+detekt (303/0/0), full
+pytest incl. the new lockfile battery, android :app:testDebugUnitTest +
+:app:detekt (-PpocketAbi=x86_64, untouched-by-contract verified),
+whisperGate on the relinked DLLs, kill matrix x3 + soak, packageApp x2 +
+packaged nativeSmoke, check_repo OK.

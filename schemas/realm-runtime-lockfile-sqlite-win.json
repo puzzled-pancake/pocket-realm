@@ -1,13 +1,9 @@
 {
   "schema": 1,
-  "abi": "arm64-v8a",
-  "min_api": 26,
-  "elf_max_page_size": "0x4000",
-  "playerbots": true,
-  "auction_house_bot": false,
+  "abi": "windows-x86_64",
+  "database_backend": "sqlite",
   "cmangos_commit": "ce83805d48f9c98b2af617096be5347acb8a1f17",
   "playerbots_commit": "7e2cd2fbbbb4eaa3e1696ee80e9bf8e170b6256d",
-  "database_backend": "sqlite",
   "cmangos_source_overlays": [
     {
       "id": "authenticated-nearby-use-open",
@@ -288,135 +284,83 @@
     "native/patches/playerbots/PlayerbotLlmToolsCore.h": "73561d8ef177daa3469e01b0fb1af37c5ccc38a0d5c43d287788f8f256892beb",
     "native/patches/playerbots/PlayerbotLlmTruthCore.h": "5285de22d55bf738febb23164e560fd36a0b621e38d180dd3b1c8154fd4ef22d"
   },
-  "mariadb_connector_c": null,
+  "sqlite_amalgamation": {
+    "version": "3.46.1",
+    "sqlite3_c_sha256": "6c35bc5f7f85eac9c49928bacbb02bb694b547aabf69197e058cca245ad80e83",
+    "staged_lib_sha256": null
+  },
   "artifacts": [
     {
-      "path": "native/.build-o09-arm64-v8a/realm-staging-sqlite/jniLibs/arm64-v8a/libpocket_realmd_runtime.so",
-      "size": 5882304,
-      "sha256": "e3d432595069f656116195cf97df16584f8d47fd7054699849e71b204b5dd961",
-      "needed": [
-        "libc.so",
-        "libdl.so",
-        "libm.so",
-        "libz.so"
-      ],
-      "load_alignments": [
-        16384,
-        16384,
-        16384
+      "path": "native/.build-win-x86_64/pocket-runtime-build/pocket_realmd_runtime.dll",
+      "size": 5734912,
+      "sha256": "2d296a5c7082b5077c35b2d084a7fa48fdc5237ae45d57d8d81bfa1e2d74b09f",
+      "pe_imports": [
+        "ADVAPI32.dll",
+        "CRYPT32.dll",
+        "KERNEL32.dll",
+        "MSVCP140.dll",
+        "MSWSOCK.dll",
+        "USER32.dll",
+        "VCRUNTIME140.dll",
+        "VCRUNTIME140_1.dll",
+        "WS2_32.dll",
+        "api-ms-win-crt-convert-l1-1-0.dll",
+        "api-ms-win-crt-environment-l1-1-0.dll",
+        "api-ms-win-crt-filesystem-l1-1-0.dll",
+        "api-ms-win-crt-heap-l1-1-0.dll",
+        "api-ms-win-crt-math-l1-1-0.dll",
+        "api-ms-win-crt-runtime-l1-1-0.dll",
+        "api-ms-win-crt-stdio-l1-1-0.dll",
+        "api-ms-win-crt-string-l1-1-0.dll",
+        "api-ms-win-crt-time-l1-1-0.dll",
+        "api-ms-win-crt-utility-l1-1-0.dll"
       ]
     },
     {
-      "path": "native/.build-o09-arm64-v8a/realm-staging-sqlite/jniLibs/arm64-v8a/libpocket_world_runtime.so",
-      "size": 34535120,
-      "sha256": "2009dfb02638fe085a3ffcc0b1f4857ed895059cd8b64508ac34513757735fdf",
-      "needed": [
-        "libc.so",
-        "libdl.so",
-        "libggml-base.so",
-        "libggml-cpu.so",
-        "libggml.so",
-        "libllama-common.so",
-        "libllama.so",
-        "libm.so",
-        "libz.so"
-      ],
-      "load_alignments": [
-        16384,
-        16384,
-        16384
+      "path": "native/.build-win-x86_64/pocket-runtime-build/pocket_world_runtime.dll",
+      "size": 23684608,
+      "sha256": "dc7451fd0199f0155357c9d63c792897c191056087a50191ed01a475ca2f441b",
+      "pe_imports": [
+        "ADVAPI32.dll",
+        "CRYPT32.dll",
+        "KERNEL32.dll",
+        "MSVCP140.dll",
+        "MSWSOCK.dll",
+        "USER32.dll",
+        "VCRUNTIME140.dll",
+        "VCRUNTIME140_1.dll",
+        "WS2_32.dll",
+        "api-ms-win-crt-conio-l1-1-0.dll",
+        "api-ms-win-crt-convert-l1-1-0.dll",
+        "api-ms-win-crt-environment-l1-1-0.dll",
+        "api-ms-win-crt-filesystem-l1-1-0.dll",
+        "api-ms-win-crt-heap-l1-1-0.dll",
+        "api-ms-win-crt-locale-l1-1-0.dll",
+        "api-ms-win-crt-math-l1-1-0.dll",
+        "api-ms-win-crt-runtime-l1-1-0.dll",
+        "api-ms-win-crt-stdio-l1-1-0.dll",
+        "api-ms-win-crt-string-l1-1-0.dll",
+        "api-ms-win-crt-time-l1-1-0.dll",
+        "api-ms-win-crt-utility-l1-1-0.dll",
+        "dbgeng.dll"
       ]
     },
     {
-      "path": "native/.build-o09-arm64-v8a/realm-staging-sqlite/jniLibs/arm64-v8a/libggml-base.so",
-      "size": 1140464,
-      "sha256": "6d901cacc60873a0218cae5b407ac30aa7b618f2889a0be3b391e6d33f757496",
-      "needed": [
-        "libc.so",
-        "libdl.so",
-        "libm.so"
-      ],
-      "load_alignments": [
-        16384,
-        16384,
-        16384
-      ]
-    },
-    {
-      "path": "native/.build-o09-arm64-v8a/realm-staging-sqlite/jniLibs/arm64-v8a/libggml-cpu.so",
-      "size": 1601152,
-      "sha256": "eab6c71e0cba93e1da745b2a3201fcb9789d3f2ad9b90ade85f5d15e301d02a6",
-      "needed": [
-        "libc.so",
-        "libdl.so",
-        "libggml-base.so",
-        "libm.so"
-      ],
-      "load_alignments": [
-        16384,
-        16384,
-        16384
-      ]
-    },
-    {
-      "path": "native/.build-o09-arm64-v8a/realm-staging-sqlite/jniLibs/arm64-v8a/libggml.so",
-      "size": 121848,
-      "sha256": "63d25ad462e30b506e533a558523197d76b4102638742786ecb6bda450b09454",
-      "needed": [
-        "libc.so",
-        "libdl.so",
-        "libggml-base.so",
-        "libggml-cpu.so",
-        "libm.so"
-      ],
-      "load_alignments": [
-        16384,
-        16384,
-        16384
-      ]
-    },
-    {
-      "path": "native/.build-o09-arm64-v8a/realm-staging-sqlite/jniLibs/arm64-v8a/libllama-common.so",
-      "size": 4648120,
-      "sha256": "488edb5155235f7055b212a407bff59dfd2769cceeb62a3496c24a6a934ed485",
-      "needed": [
-        "libc.so",
-        "libdl.so",
-        "libggml-base.so",
-        "libggml-cpu.so",
-        "libggml.so",
-        "libllama.so",
-        "libm.so"
-      ],
-      "load_alignments": [
-        16384,
-        16384,
-        16384
-      ]
-    },
-    {
-      "path": "native/.build-o09-arm64-v8a/realm-staging-sqlite/jniLibs/arm64-v8a/libllama.so",
-      "size": 3084736,
-      "sha256": "ebdddbf08658c81d7a6866a7d5f4bbf516d1cb78ba1ff2143eaa39a4d3dc24f9",
-      "needed": [
-        "libc.so",
-        "libdl.so",
-        "libggml-base.so",
-        "libggml-cpu.so",
-        "libggml.so",
-        "libm.so"
-      ],
-      "load_alignments": [
-        16384,
-        16384,
-        16384
+      "path": "native/.build-win-x86_64/sqlite-seam-build/pocket_sqlite.dll",
+      "size": 1362944,
+      "sha256": "9d9cd73331e28221a4e39f0c1beb8c619ac66bcd38f98243365a15c91ba2abf7",
+      "pe_imports": [
+        "KERNEL32.dll",
+        "VCRUNTIME140.dll",
+        "api-ms-win-crt-heap-l1-1-0.dll",
+        "api-ms-win-crt-math-l1-1-0.dll",
+        "api-ms-win-crt-runtime-l1-1-0.dll",
+        "api-ms-win-crt-stdio-l1-1-0.dll",
+        "api-ms-win-crt-string-l1-1-0.dll",
+        "api-ms-win-crt-time-l1-1-0.dll"
       ]
     }
   ],
-  "llama_cpp": {
-    "commit": "6d05498314db1b57f81c271080018aa2d0b89be9",
-    "vendored": "native/llm/prebuilt/arm64-v8a"
-  },
   "seed_transcripts": {
     "classiccharacters": {
       "sha256": "6792fdb1eef2e0d80f7048a457a417484b97608212c29b2715ddf4cab7a5e829",
@@ -442,5 +386,9 @@
       "gzip_sha256": "84cc1ce01dd093bb8c3aa16de908a0c62a874a891e60b1b7eb15d3c8d754a67e",
       "gzip_size": 3320
     }
+  },
+  "toolchain": {
+    "generator": "Ninja",
+    "openssl": "vcpkg x64-windows-static-md (static; win-static-openssl-only overlay keeps the shipped dep/lib import libs off the link line)"
   }
 }

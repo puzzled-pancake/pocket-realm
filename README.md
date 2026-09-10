@@ -96,6 +96,39 @@ this only happens once, on the first launch.
 The [Getting started](docs/wiki/Getting-Started.md) page walks through the
 whole path with more detail.
 
+## Pocket Realm for Windows
+
+The same repo builds a **Windows desktop sibling** of the Android app
+(`desktop/`): one JVM running the shared supervisor, the realm as two
+in-process MSVC DLLs (realmd + mangosd+Playerbots, SQLite provider), and
+your installed WoW 1.12.1 client launched **natively** — no Wine, no X
+server, no GPU stack. The Android app remains a fully-supported product;
+shared domain sources compile into both builds from one tree (see
+`desktop/shared-sources.json`).
+
+What ships on Windows today:
+
+- Full realm bring-up in one process (seed → realmd on 3724 → world on
+  8085), clean save/stop with WAL sealing, one world lifetime per process
+  (an in-process restart is honestly refused; restart the app instead).
+- The ported app screens: Home (realm control, local account, game-folder
+  picker), Bots (population profiles, custom presets, admission tuning,
+  per-preset AI speech), LLM (external OpenAI-compatible endpoint + cloud
+  conversation lane), Settings, Diagnostics (support bundles).
+- Data preparation from your installed client via
+  `python tools/win_prepare_data.py` (dbc/maps/vmaps/mmaps), the packaged
+  app image via `gradlew packageApp` (jpackage; app-local VC runtime,
+  longPathAware launcher), auto-login through Win32 SendInput, and the
+  Windows lane's own provenance lockfile
+  (`schemas/realm-runtime-lockfile-sqlite-win.json`, PE import tables).
+- Qualification record and run book: [docs/WINDOWS_QUALIFICATION.md](docs/WINDOWS_QUALIFICATION.md).
+
+Building it needs the MSVC toolchain, vcpkg deps
+(`scripts/build_win_deps.py`), the realm DLLs and extractors
+(`tools/build_win_realm_runtime.py --extractors`), and the seeds
+(`gradlew seedRealmData`). The WoW client itself is never committed and
+stays byte-clean on your machine.
+
 ## Documentation
 
 The [project wiki](docs/wiki/README.md) is the human-facing guide: getting

@@ -3,18 +3,23 @@ package com.pocketrealm
 /**
  * Desktop twin of the AGP-generated Android BuildConfig fields consumed by
  * the shared server contract. On Android these are baked from the reviewed
- * realm-runtime lane lockfile at build time; the Windows lane does not have a
- * lockfile yet (Phase 2 of the Windows port creates
- * schemas/realm-runtime-lockfile-sqlite-win.json and wires real values in).
+ * realm-runtime lane lockfile at build time; here they are pinned to
+ * schemas/realm-runtime-lockfile-sqlite-win.json (written by
+ * `python tools/build_win_realm_runtime.py --write-lockfile` after a lane
+ * rebuild).
  *
- * The values are deliberately, loudly unpinned: ServerRuntimeContract's
- * staleness telltale compares this id against the derivable-current one, and
- * an unpinned id must fail that check rather than silently pass.
+ * tests/test_win_lockfile.py recomputes the id from the lockfile with the
+ * SAME formula the Android build uses (prefix + backend + commit prefixes
+ * + the world DLL digest prefix) and fails on drift — an unpinned id must
+ * fail the shared staleness telltale rather than silently pass.
  */
 object BuildConfig {
-    const val NATIVE_RUNTIME_BUILD_ID: String = "windows-lane-unpinned"
+    const val NATIVE_RUNTIME_BUILD_ID: String =
+        "win-x86_64-sqlite-cmangos-ce83805d-playerbots-7e2cd2fb-dc7451fd0199"
 
-    const val NATIVE_CMANGOS_COMMIT: String = "unpinned"
+    const val NATIVE_CMANGOS_COMMIT: String =
+        "ce83805d48f9c98b2af617096be5347acb8a1f17"
 
-    const val NATIVE_PLAYERBOTS_COMMIT: String = "unpinned"
+    const val NATIVE_PLAYERBOTS_COMMIT: String =
+        "7e2cd2fbbbb4eaa3e1696ee80e9bf8e170b6256d"
 }

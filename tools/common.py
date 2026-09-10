@@ -206,6 +206,72 @@ def atomic_output(target: Path):
     return temporary, commit
 
 
+def pe_info(path: Path | str) -> dict:
+    """PE image facts for the Windows lanes: machine, subsystem and the
+    import-table DLL names (the DT_NEEDED analog the lockfile pins).
+
+    Pure-python parse (struct only): lockfile writing, staging gates and
+    pytest verification all read the same bytes without needing a dumpbin
+    environment.
+    """
+    import struct
+
+    data = Path(path).read_bytes()
+    if len(data) < 0x40 or data[:2] != b"MZ":
+        raise RuntimeError(f"not a PE image (no MZ header): {path}")
+    pe_offset = struct.unpack_from("<I", data, 0x3C)[0]
+    if data[pe_offset:pe_offset + 4] != b"PE\x00\x00":
+        raise RuntimeError(f"not a PE image (no PE signature): {path}")
+    machine, section_count, _, _, _, optional_size, _ = struct.unpack_from(
+        "<HHIIIHH", data, pe_offset + 4)
+    optional = pe_offset + 24
+    (magic,) = struct.unpack_from("<H", data, optional)
+    if magic == 0x20B:  # PE32+
+        directories = optional + 112
+    elif magic == 0x10B:  # PE32
+        directories = optional + 96
+    else:
+        raise RuntimeError(f"unknown PE optional-header magic {magic:#x}: {path}")
+    (subsystem,) = struct.unpack_from("<H", data, optional + 68)
+    (import_rva, _) = struct.unpack_from("<II", data, directories + 8)
+
+    sections = []
+    for index in range(section_count):
+        base = optional + optional_size + index * 40
+        _, virtual_size, virtual_address, _, raw_pointer = struct.unpack_from(
+            "<8sIIII", data, base)
+        sections.append((virtual_address, virtual_size, raw_pointer))
+
+    def rva_to_offset(rva: int) -> int:
+        for virtual_address, virtual_size, raw_pointer in sections:
+            span = max(virtual_size, 1)
+            if virtual_address <= rva < virtual_address + span:
+                return raw_pointer + (rva - virtual_address)
+        raise RuntimeError(f"RVA {rva:#x} outside any section: {path}")
+
+    dependents = []
+    if import_rva:
+        descriptor = rva_to_offset(import_rva)
+        while True:
+            fields = struct.unpack_from("<IIIII", data, descriptor)
+            if not any(fields):
+                break
+            name_offset = rva_to_offset(fields[3])
+            end = data.index(b"\x00", name_offset)
+            dependents.append(data[name_offset:end].decode("ascii"))
+            descriptor += 20
+    return {
+        "machine": machine,
+        "subsystem": subsystem,
+        "dependents": sorted(dependents),
+    }
+
+
+def pe_dependents(path: Path | str) -> list[str]:
+    """Sorted DLL names from a PE image's import table."""
+    return pe_info(path)["dependents"]
+
+
 def wait_for_boot(adb: Path, serial: str, *, timeout_seconds: float = 300.0) -> None:
     """Block until `sys.boot_completed` is 1 on the given device."""
     import time

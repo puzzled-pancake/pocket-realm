@@ -65,6 +65,34 @@ class DesktopRuntimeBackend(
     @Volatile
     private var worldDataLease: AutoCloseable? = null
 
+    init {
+        // The shared BotSelection resolution reads saved presets through
+        // the process-wide BotCustomPresets store; install it over the
+        // desktop storage root once per process (idempotent), mirroring
+        // the Android app's filesDir/bots install.
+        com.pocketrealm.bots.BotCustomPresets.install(java.io.File(roots.root, "bots"))
+    }
+
+    /**
+     * The launch bot profile from the settings snapshot — the Android
+     * WorldRuntimeService.startBotProfile contract: a selected built-in or
+     * saved preset resolves through the shared BotSelection rule; no
+     * selection at all keeps the reviewed bots-disabled conf.
+     */
+    private fun resolveBotProfile(): com.pocketrealm.bots.BotProfile? {
+        val snapshot = DesktopSettingsStore(roots.settingsFile).load()
+        if (snapshot.botProfileId.isEmpty() && snapshot.botSavedPresetId == null) return null
+        val selection = com.pocketrealm.bots.BotSelection.resolve(
+            savedPresetId = snapshot.botSavedPresetId,
+            advancedEnabled = false,
+            advancedTarget = snapshot.botPopulationTarget,
+            advanced = com.pocketrealm.bots.BotAdvancedSettings.fromProfile(
+                com.pocketrealm.bots.BotProfiles.defaultProfile),
+            profileId = snapshot.botProfileId,
+        )
+        return selection.profile
+    }
+
     override suspend fun preflight(spec: RuntimeLaunchSpec): RuntimeActionResult =
         withContext(Dispatchers.IO) {
             val missing = DATABASES.filterNot { database ->
@@ -308,10 +336,13 @@ class DesktopRuntimeBackend(
 
     /** Launch WoW.exe natively: the realmlist is re-projected on every
      * launch (stale topology never survives), then the client spawns in
-     * its own directory. No synthetic input — the login is the user's. */
+     * its own directory. The directory resolves per launch: constructor
+     * override (LaunchClient's -DclientDir) → the stored client folder
+     * (the Home screen's picker) → the conventional default. */
     @Suppress("TooGenericExceptionCaught") // any launch failure surfaces as an honest throw
     private fun startClient(endpoint: RealmEndpoint): ComponentObservation = synchronized(transitionLock) {
-        val dir = clientDir ?: error("client directory not configured (set it via the launcher)")
+        val dir = clientDir ?: resolveConfiguredClientDir()
+            ?: error("client directory not configured (choose the game folder on Home)")
         val exe = File(dir, "WoW.exe")
         check(exe.isFile) { "WoW.exe not found under $dir" }
         // Refuse BEFORE projecting the realmlist: a refused launch must
@@ -330,6 +361,16 @@ class DesktopRuntimeBackend(
             pid = spawned.pid().toInt(),
             detail = "WoW.exe launched at ${endpoint.address} (realmlist projected)",
         )
+    }
+
+    /** The stored-or-default client folder; null when neither holds a
+     * WoW.exe (an honest refusal beats launching from a wrong path). */
+    private fun resolveConfiguredClientDir(): File? {
+        val stored = DesktopSettingsStore(roots.settingsFile).load().clientDir
+        (stored.takeIf { it.isNotBlank() }?.let(::File) ?: File(DEFAULT_CLIENT_DIR))
+            .takeIf { File(it, "WoW.exe").isFile }
+            ?.let { return it }
+        return null
     }
 
     /** Graceful destroy with a bounded destroyForcibly escalation. The
@@ -483,7 +524,7 @@ class DesktopRuntimeBackend(
         // with the prepared-data copy (the DATA_MISSING posture).
         val config = try {
             files.prepareWorldLogsForStart(currentWorldState())
-            files.worldConfig(endpoint.address)
+            files.worldConfig(endpoint.address, botProfile = resolveBotProfile())
         } catch (failure: Throwable) {
             files.writeLifecycle("world", false, "start-failed-data", failure.message ?: "config failure")
             error("world start refused: ${failure.message}")
@@ -579,6 +620,10 @@ class DesktopRuntimeBackend(
         const val WAL_DRAIN_TIMEOUT_MS = 15_000L
         const val WAL_DRAIN_POLL_MS = 250L
         const val ACCOUNT_INFO_WIDTH = 2
+
+        /** Conventional first-run client location (the dev-box install);
+         * overridden by the stored client folder from the Home picker. */
+        const val DEFAULT_CLIENT_DIR = "C:/Vanilla wow 1.12.1"
 
         /** The desktop seam's exec carries no bind parameters (it mirrors
          * the framework's execSQL), so the realmlist UPDATE interpolates.

@@ -135,6 +135,12 @@ CMANGOS_OVERLAYS = [
         "reason": "Refuse the no-op -DDO_MYSQL/-DDO_SQLITE cache defines, refuse PostgreSQL, and print the selected backend at configure time; the real switch is the SQLITE cache variable with MySQL as the else-default.",
     },
     {
+        "id": "win-static-openssl-only",
+        "backends": ["mysql", "sqlite"],
+        "path": "CMakeLists.txt",
+        "reason": "Windows MSVC lane only (POCKET_REALM_WIN_DEPS): route OPENSSL_LIBRARIES/OPENSSL_DEBUG_LIBRARIES and the include dir at the pinned vcpkg STATIC OpenSSL instead of the shipped dep/lib prebuilt IMPORT libs, which silently add a dynamic libssl-3-x64.dll dependency the app image does not carry (MSVC link order lets late playerbots references resolve from whichever OpenSSL library appears later on the link line). No effect on non-WIN32 lanes.",
+    },
+    {
         "id": "runtime-dialect-truncate",
         "backends": ["mysql", "sqlite"],
         "path": "src/game/Globals/ObjectMgr.cpp",
@@ -497,6 +503,46 @@ void World::StopQueueThreads()
     if (m_bgQueueThread.joinable())
         m_bgQueueThread.join();
 }
+"""
+WIN_STATIC_OPENSSL_UPSTREAM = """  set(OPENSSL_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/dep/lib/include")
+  set(OPENSSL_LIBRARIES
+     "${CMAKE_SOURCE_DIR}/dep/lib/${DEP_ARCH}_release/libcrypto.lib"
+     "${CMAKE_SOURCE_DIR}/dep/lib/${DEP_ARCH}_release/libssl.lib"
+     "${CMAKE_SOURCE_DIR}/dep/lib/${DEP_ARCH}_release/legacy.lib"
+  )
+  set(OPENSSL_DEBUG_LIBRARIES
+     "${CMAKE_SOURCE_DIR}/dep/lib/${DEP_ARCH}_debug/libcrypto.lib"
+     "${CMAKE_SOURCE_DIR}/dep/lib/${DEP_ARCH}_debug/libssl.lib"
+     "${CMAKE_SOURCE_DIR}/dep/lib/${DEP_ARCH}_debug/legacy.lib"
+  )
+"""
+WIN_STATIC_OPENSSL_ANDROID = """  if(POCKET_REALM_WIN_DEPS)
+    # Pocket Realm Windows lane (tools/build_win_realm_runtime.py passes
+    # -DPOCKET_REALM_WIN_DEPS=<vcpkg installed tree>): the pinned STATIC
+    # OpenSSL supplies every symbol. The shipped prebuilt IMPORT libs would
+    # otherwise silently add a dynamic libssl-3-x64.dll dependency the app
+    # image does not carry - MSVC link order lets late playerbots
+    # references resolve from whichever OpenSSL library appears later on
+    # the link line.
+    set(OPENSSL_INCLUDE_DIR "${POCKET_REALM_WIN_DEPS}/include")
+    set(OPENSSL_LIBRARIES
+       "${POCKET_REALM_WIN_DEPS}/lib/libcrypto.lib"
+       "${POCKET_REALM_WIN_DEPS}/lib/libssl.lib"
+    )
+    set(OPENSSL_DEBUG_LIBRARIES "${OPENSSL_LIBRARIES}")
+  else()
+    set(OPENSSL_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/dep/lib/include")
+    set(OPENSSL_LIBRARIES
+       "${CMAKE_SOURCE_DIR}/dep/lib/${DEP_ARCH}_release/libcrypto.lib"
+       "${CMAKE_SOURCE_DIR}/dep/lib/${DEP_ARCH}_release/libssl.lib"
+       "${CMAKE_SOURCE_DIR}/dep/lib/${DEP_ARCH}_release/legacy.lib"
+    )
+    set(OPENSSL_DEBUG_LIBRARIES
+       "${CMAKE_SOURCE_DIR}/dep/lib/${DEP_ARCH}_debug/libcrypto.lib"
+       "${CMAKE_SOURCE_DIR}/dep/lib/${DEP_ARCH}_debug/libssl.lib"
+       "${CMAKE_SOURCE_DIR}/dep/lib/${DEP_ARCH}_debug/legacy.lib"
+    )
+  endif()
 """
 RESULT_QUEUE_UPSTREAM = """void SqlResultQueue::Update()
 {
@@ -5510,6 +5556,8 @@ def prepare_cmangos_source() -> None:
     # DB async null-guard + fail-loud backend selection overlays
     apply_db_null_guard_overlays(cmangos / "src" / "shared" / "Database")
     replace_anchor(cmangos / "CMakeLists.txt", BACKEND_SELECT_UPSTREAM, BACKEND_SELECT_ANDROID)
+    # Windows MSVC lane: keep the pinned static OpenSSL the only linked copy
+    replace_anchor(cmangos / "CMakeLists.txt", WIN_STATIC_OPENSSL_UPSTREAM, WIN_STATIC_OPENSSL_ANDROID)
     # The sqlite lane swaps in the hardened connection-layer
     # replacement files; mysql builds never touch them.
     if BACKEND == "sqlite":
@@ -5670,6 +5718,11 @@ def restore_cmangos_source() -> None:
         NATIVE / "cmangos" / "CMakeLists.txt",
         BACKEND_SELECT_ANDROID,
         BACKEND_SELECT_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "CMakeLists.txt",
+        WIN_STATIC_OPENSSL_ANDROID,
+        WIN_STATIC_OPENSSL_UPSTREAM,
     )
     if BACKEND == "sqlite":
         restore_sqlite_hardening(NATIVE / "cmangos")
@@ -6199,6 +6252,23 @@ def write_lockfiles() -> list[str]:
                      "BUILD_PROVENANCE.json")
             if asset.is_file() and asset.read_bytes() != lock_bytes:
                 asset.write_bytes(lock_bytes)
+    # The Windows sibling lane's lockfile carries the SAME source-side pins
+    # (same engine-fix set on both platforms); refresh them in lockstep so
+    # an overlay edit never leaves the win lane describing old sources.
+    win_path = ROOT / "schemas" / "realm-runtime-lockfile-sqlite-win.json"
+    if win_path.is_file():
+        record = json.loads(win_path.read_text(encoding="utf-8"))
+        record["cmangos_commit"] = CMANGOS_COMMIT
+        record["playerbots_commit"] = PLAYERBOTS_COMMIT
+        record["cmangos_source_overlays"] = [
+            dict(entry) for entry in CMANGOS_OVERLAYS
+            if "sqlite" in entry.get("backends", ("mysql", "sqlite"))]
+        record["playerbots_source_overlays"] = PLAYERBOTS_OVERLAYS
+        record["patches_content"] = patches_content_digests()
+        win_bytes = (json.dumps(record, indent=2) + "\n").encode("utf-8")
+        if win_path.read_bytes() != win_bytes:
+            win_path.write_bytes(win_bytes)
+            updated.append("schemas/realm-runtime-lockfile-sqlite-win.json")
     if not updated:
         print("lockfiles already current (no source-side pins changed)")
     else:
