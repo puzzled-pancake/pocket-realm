@@ -69,6 +69,16 @@ scheduled weekly.
   `rememberSaveable` + configuration savers): switching routes on the
   desktop discards an unsaved editor draft and in-progress LLM edits.
   Known parity gap, deliberate until a state-saver pass.
+- Hardening from the 4-agent start-failure investigation (the desktop
+  fixes shipped: real recoverDatabase, bot-aware world budget via the
+  resolved profile id in the launch spec, resilient READY wait). The
+  remaining prescribed items are shared-supervisor/native changes:
+  `forceOwned` needs a stop timeout so a wedged native stop cannot park
+  the start-failure rollback mid-stack; `recoverLocked` should journal
+  its recovery stops (stale READY records after recovery); the native
+  world publishes READY only after `StartNetworkEmbedded` returns, so a
+  boot can tick while STARTING; the native settle-wait returns OK on
+  STARTING instead of surfacing "still starting".
 - Win32 SendInput auto-login is shipped with fixed timing; the Android
   app's tunable timing knobs were not ported (no IME/pointer pacing on
   a desktop).

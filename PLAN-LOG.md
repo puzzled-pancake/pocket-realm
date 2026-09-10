@@ -4272,3 +4272,38 @@ Gates re-run green: desktop test+detekt, pytest (lockfile battery +
 tripwires incl. regenerated win lockfile), packageApp + packaged
 nativeSmoke with the new failure policy, kill matrix live re-run
 (all three legs), check_repo, android :app:testDebugUnitTest + detekt.
+
+## 4-agent start-failure investigation + fixes (app could not start with a bot profile)
+
+The packaged app's Start-realm failed with a bot profile selected.
+Findings from four parallel investigation lanes, all evidence-based:
+
+- DEFECT A (deterministic wedge): any failed start leaves the journal
+  dirty; the next start routes through recoverLocked -> recoverDatabase,
+  which was a STUB ("DB-RECOVERY arrives with the engine twin's recovery
+  flow") - reproduced in ~1s, wedging the app permanently. FIXED: real
+  desktop recoverDatabase per the engine-twin contract (at-rest guards,
+  seeded gate, WAL checkpoint drain, integrity gate with VACUUM INTO
+  salvage, at-rest proof) - proven live against the user's ACTUAL wedged
+  journal (recovery drained the incident sidecars, verified all four
+  databases, clean start to READY).
+- DEFECT B (intermittent world-stage failure, 0/3 live repro with the
+  user's settings): the world native returns OK while still STARTING and
+  the old backend start returned immediately; the first-click fix made
+  the backend wait for READY, and the investigation added the bot-aware
+  pieces: the launch spec now carries the RESOLVED bot profile id so the
+  supervisor's 600s bot budget engages, the backend's world wait scales
+  to 590s for bot boots, and the READY wait tolerates transient bad
+  statusNative polls instead of aborting a 15s boot.
+- Observability: the app model now logs every supervisor operation to
+  pocket-realm.log - the incident's world-stage detail was unrecoverable
+  because the journal is overwritten by the recovery attempt.
+
+Remaining prescribed hardenings (shared supervisor / native overlays)
+are documented in WINDOWS_QUALIFICATION section 3.
+
+Gates: desktop 306/0/0 + detekt 0 (two new recovery tests); supervisor
+gate PASSED with the bot profile genuinely active (staged
+aiplayerbot-preset-alive-realm-b320-v1.conf + BotTarget); packageApp +
+nativeSmoke; supervisorStartGate previously healed the user's real
+wedged journal end-to-end.

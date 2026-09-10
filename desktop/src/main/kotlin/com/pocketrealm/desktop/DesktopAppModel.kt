@@ -77,7 +77,11 @@ class DesktopAppModel(
     }
 
     suspend fun startRealm(includeClient: Boolean): RuntimeOperation =
-        supervisor.start(DESKTOP_PROFILE, includeClient).also { operation ->
+        // The launch spec carries the RESOLVED bot profile id (not the
+        // constant "local") when a profile is selected: the supervisor's
+        // bot-aware world budget keys off spec.profileId, and a bots-
+        // enabled boot provisions the population's accounts before READY.
+        supervisor.start(backend.activeBotProfileId() ?: DESKTOP_PROFILE, includeClient).also { operation ->
             // The supervisor's failure details live only in the journal
             // (which a later recovery overwrites) - the app log is the
             // durable record a diagnosis can actually find.

@@ -74,6 +74,11 @@ class DesktopRuntimeBackend(
         com.pocketrealm.bots.BotCustomPresets.install(java.io.File(roots.root, "bots"))
     }
 
+    /** The resolved launch bot profile id, or null when the realm would
+     * start bots-disabled. Exposed so the launch spec can carry it - the
+     * supervisor's bot-aware world budget keys off spec.profileId. */
+    fun activeBotProfileId(): String? = resolveBotProfile()?.id
+
     /**
      * The launch bot profile from the settings snapshot — the Android
      * WorldRuntimeService.startBotProfile contract: a selected built-in or
@@ -719,19 +724,27 @@ class DesktopRuntimeBackend(
         observe: () -> ComponentObservation,
     ): ComponentObservation {
         val deadline = System.currentTimeMillis() + timeoutMs
-        var observation = observe()
-        while (observation.state != ComponentLifecycle.READY) {
-            if (observation.state == ComponentLifecycle.FAILED) {
-                error("$component start failed: ${observation.detail}")
-            }
-            if (System.currentTimeMillis() >= deadline) {
-                error("$component never reached READY within ${timeoutMs}ms: " +
-                    "${observation.state} (${observation.detail})")
+        while (true) {
+            // A transient bad statusNative poll (a JNI hiccup during heavy
+            // bot provisioning) must not abort a long boot; only a settled
+            // FAILED verdict or the deadline ends the wait.
+            runCatching { observe() }.onSuccess { observation ->
+                if (observation.state == ComponentLifecycle.READY) return observation
+                if (observation.state == ComponentLifecycle.FAILED) {
+                    error("$component start failed: ${observation.detail}")
+                }
+                if (System.currentTimeMillis() >= deadline) {
+                    error("$component never reached READY within ${timeoutMs}ms: " +
+                        "${observation.state} (${observation.detail})")
+                }
+            }.onFailure { failure ->
+                if (System.currentTimeMillis() >= deadline) {
+                    error("$component never reached READY within ${timeoutMs}ms: " +
+                        "${failure.javaClass.simpleName}: ${failure.message}")
+                }
             }
             Thread.sleep(POLL_INTERVAL_MS)
-            observation = observe()
         }
-        return observation
     }
 
     private fun stopWorld(): RuntimeActionResult = synchronized(transitionLock) {
