@@ -515,7 +515,7 @@ class DesktopRuntimeBackend(
             files.writeLifecycle("realm", false, "start-failed", ServerRuntimeContract.errorName(rc.toLong()))
             error("realm start failed: ${ServerRuntimeContract.errorName(rc.toLong())} (rc=$rc)")
         }
-        observeRealm()
+        awaitComponentReady("realm", REALM_READY_WAIT_MS) { observeRealm() }
     }
 
     @Suppress("TooGenericExceptionCaught") // config/data failures surface as the honest DATA_MISSING posture
@@ -541,7 +541,47 @@ class DesktopRuntimeBackend(
             files.writeLifecycle("world", false, "start-failed", ServerRuntimeContract.errorName(rc.toLong()))
             error("world start failed: ${ServerRuntimeContract.errorName(rc.toLong())} (rc=$rc)")
         }
-        observeWorld()
+        try {
+            awaitComponentReady("world", WORLD_READY_WAIT_MS) { observeWorld() }
+        } catch (failure: Throwable) {
+            // The wait failed (native died mid-boot or never reached READY):
+            // release the generation lease this start pinned.
+            runCatching { worldDataLease?.close() }
+            worldDataLease = null
+            throw failure
+        }
+    }
+
+    /**
+     * The shared supervisor's start contract is the Android services':
+     * `backend.start` returns the component READY. The desktop natives
+     * surface STARTING at first and flip to READY on their own threads
+     * (the bring-up gates poll the port; the supervisor demands the READY
+     * observation immediately - the app's first Start-realm click failed
+     * exactly there). The backend owns the wait so every consumer sees
+     * the Android contract. FAILED fails fast with the native's detail;
+     * the deadline must stay inside the supervisor's stage timeout
+     * (realmStartMs 30s / worldStartMs 120s).
+     */
+    private fun awaitComponentReady(
+        component: String,
+        timeoutMs: Long,
+        observe: () -> ComponentObservation,
+    ): ComponentObservation {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        var observation = observe()
+        while (observation.state != ComponentLifecycle.READY) {
+            if (observation.state == ComponentLifecycle.FAILED) {
+                error("$component start failed: ${observation.detail}")
+            }
+            if (System.currentTimeMillis() >= deadline) {
+                error("$component never reached READY within ${timeoutMs}ms: " +
+                    "${observation.state} (${observation.detail})")
+            }
+            Thread.sleep(POLL_INTERVAL_MS)
+            observation = observe()
+        }
+        return observation
     }
 
     private fun stopWorld(): RuntimeActionResult = synchronized(transitionLock) {
@@ -624,6 +664,13 @@ class DesktopRuntimeBackend(
         /** Conventional first-run client location (the dev-box install);
          * overridden by the stored client folder from the Home picker. */
         const val DEFAULT_CLIENT_DIR = "C:/Vanilla wow 1.12.1"
+
+        /** Ready-wait bounds, deliberately INSIDE the supervisor's stage
+         * timeouts (realm 30s / world 120s) so the backend wait can never
+         * be the withTimeout that fires first. */
+        const val REALM_READY_WAIT_MS = 25_000L
+        const val WORLD_READY_WAIT_MS = 110_000L
+        const val POLL_INTERVAL_MS = 200L
 
         /** The desktop seam's exec carries no bind parameters (it mirrors
          * the framework's execSQL), so the realmlist UPDATE interpolates.

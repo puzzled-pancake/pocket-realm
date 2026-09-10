@@ -111,6 +111,20 @@ tasks.named<Test>("test") {
     }
 }
 
+
+// Supervisor-path gate: the bring-up gates drive the backend directly and
+// poll; only the app drives the shared DurableRuntimeSupervisor, whose
+// start contract (backend.start returns READY) once regressed unseen. This
+// gate drives model.startRealm through the supervisor and fails on any
+// non-clean cycle.
+tasks.register<JavaExec>("supervisorStartGate") {
+    group = "bring-up"
+    description = "Boot db+realm+world through the supervisor; verify READY + clean save/stop."
+    classpath = sourceSets.named("main").get().runtimeClasspath
+    mainClass.set("com.pocketrealm.desktop.SupervisorStartGateKt")
+    jvmArgs("-Djava.library.path=$nativeLibraryPath")
+}
+
 // Phase-3 bring-up: seed the four realm databases from the pinned
 // transcripts into %LOCALAPPDATA% (see SeedRealmData.kt).
 tasks.register<JavaExec>("seedRealmData") {

@@ -125,15 +125,21 @@ class DesktopRuntimeBackendTest {
         materializeDatadir(roots) // files exist but carry no schema
         val backend = DesktopRuntimeBackend(roots)
         try {
-            // rc=0 means the runtime ACCEPTED the launch; database-level
-            // failures surface asynchronously through the state machine
-            // (the same model the Android services expose).
-            val observation = runBlocking { backend.start(RuntimeComponent.REALM, owner, spec()) }
+            // The backend owns the STARTING->READY wait (the supervisor's
+            // contract is backend.start returns READY), so a database-level
+            // failure that surfaces asynchronously MUST come back through
+            // backend.start as an honest throw carrying the native detail -
+            // not as an accepted STARTING launch that hides it.
+            val failure = runCatching {
+                runBlocking { backend.start(RuntimeComponent.REALM, owner, spec()) }
+            }.exceptionOrNull()
+            check(failure != null) {
+                "the schema-less datadir must fail the start through the READY wait"
+            }
             assertTrue(
-                "launch must be accepted: ${observation.state}",
-                observation.state == ComponentLifecycle.STARTING ||
-                    observation.state == ComponentLifecycle.READY ||
-                    observation.state == ComponentLifecycle.FAILED,
+                "the failure must carry the native detail: ${failure.message}",
+                "realm start failed" in (failure.message ?: "") &&
+                    "DB_REVISION" in (failure.message ?: ""),
             )
             val stop = runBlocking { backend.stop(RuntimeComponent.REALM, owner) }
             val settled = runBlocking { backend.observe(RuntimeComponent.REALM) }
