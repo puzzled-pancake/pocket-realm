@@ -4307,3 +4307,17 @@ gate PASSED with the bot profile genuinely active (staged
 aiplayerbot-preset-alive-realm-b320-v1.conf + BotTarget); packageApp +
 nativeSmoke; supervisorStartGate previously healed the user's real
 wedged journal end-to-end.
+
+## User-verified end-to-end (the human-in-the-loop campaign step, passed)
+
+After the recovery/budget/verb fixes shipped in the packaged app, the
+user ran the full loop on the dev box: Start realm with the Alive Realm
+320 bot profile selected -> world READY (realmd 3724, world 8085) ->
+game launched against the loopback realm -> played -> session ended
+cleanly ("session drained; exiting" in the app log). One residual bug
+surfaced and was fixed in the same session (d7f447b): the Start game
+button re-ran the realm-start verb onto the running world (WRONG_STATE
+rc=2) instead of the client relaunch verb - captured verbatim by the new
+operation logging. The user confirmed: "cool that works now". This
+closes qualification section 2 (human-in-the-loop) steps 2, 3 and 5 for
+the LOCAL lane.
