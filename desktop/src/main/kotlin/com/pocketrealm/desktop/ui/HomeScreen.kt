@@ -74,6 +74,18 @@ fun HomeScreen(model: DesktopAppModel, onOpenBots: () -> Unit, onOpenSettings: (
                     busy = false
                 }
             },
+            onStartGame = {
+                busy = true
+                scope.launch {
+                    // The world is already up: launching the game is the
+                    // supervisor's client relaunch verb (start() would
+                    // refuse with "runtime is already active" and a world
+                    // WRONG_STATE - one world lifetime per process).
+                    model.relaunchClient()
+                    model.autoLoginIfEnabled()
+                    busy = false
+                }
+            },
             onSaveAndExit = {
                 busy = true
                 scope.launch {
@@ -140,6 +152,7 @@ private fun RealmControlCard(
     detail: String,
     busy: Boolean,
     onStartRealm: (includeClient: Boolean) -> Unit,
+    onStartGame: () -> Unit,
     onSaveAndExit: () -> Unit,
     onForceStop: () -> Unit,
 ) {
@@ -185,7 +198,7 @@ private fun RealmControlCard(
                 }
                 RuntimePhase.WORLD_READY -> {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(enabled = !busy, onClick = { onStartRealm(true) }) {
+                        Button(enabled = !busy, onClick = onStartGame) {
                             Text(if (busy) "Starting game…" else "Start game")
                         }
                         OutlinedButton(enabled = !busy, onClick = onSaveAndExit) {
@@ -195,7 +208,7 @@ private fun RealmControlCard(
                 }
                 RuntimePhase.CLIENT_FAILED -> {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(enabled = !busy, onClick = { onStartRealm(true) }) {
+                        Button(enabled = !busy, onClick = onStartGame) {
                             Text(if (busy) "Retrying game…" else "Retry game")
                         }
                         OutlinedButton(enabled = !busy, onClick = onSaveAndExit) {
