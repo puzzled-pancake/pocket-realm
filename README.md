@@ -16,6 +16,11 @@ computer-controlled companions comes up and shuts down safely.
 **Community:** join the [Discord server](https://discord.gg/zaWt96MrMY) for
 release announcements, troubleshooting help, and feature discussion.
 
+**Support:** Pocket Realm is free and open source (GPL-3.0) and always will
+be. If you want to chip in, [GitHub Sponsors](https://github.com/sponsors/puzzled-pancake)
+helps fund test hardware and development — device reports and code
+contributions help just as much (see [Contributing](#contributing)).
+
 ## Devices
 
 Pocket Realm is developed and tested on the Retroid Pocket 6 (Adreno 740
