@@ -179,6 +179,33 @@ std::string PlayerbotLlmTools::ExtractAndQueue(std::string const& raw, uint32 bo
     if (calls.empty())
         return cleaned;
 
+    // Phase 3 tool-funnel observability: one Basic line per emitted call
+    // at its loss stage (emitted -> known -> licensed -> queued). Tool
+    // markers are rare - that scarcity is exactly what this measures -
+    // and the log lane is the ground-truth channel the harness counts,
+    // so "model did not emit" and "executor dropped" stop looking alike.
+    auto const funnel = [](char const* stage, pocketllm::ToolCall const& call,
+                           uint32 botGuid, uint32 speakerGuid, uint64_t stamp)
+    {
+        sLog.outBasic("BotLLM: toolfunnel bot=%u speaker=%u stamp=%llu tool=%s stage=%s",
+            botGuid, speakerGuid, (unsigned long long)stamp, call.name.c_str(), stage);
+    };
+    for (pocketllm::ToolCall const& call : calls)
+        funnel("emitted", call, botGuid, speakerGuid, licenseStamp);
+
+    // the conf gate is a real kill switch for tool EXECUTION: with
+    // LLMToolsEnabled = 0 the prose still voices but nothing ever queues
+    // (previously the executor still ran licensed calls, so the flag read
+    // like a kill switch and was not one). The trained lane still ships
+    // the TOOLS_NOTE text in the system prompt - the model may emit
+    // markers, they are stripped and dropped, costing tokens only.
+    if (!sPlayerbotAIConfig.llmToolsEnabled)
+    {
+        for (pocketllm::ToolCall const& call : calls)
+            funnel("tools-disabled", call, botGuid, speakerGuid, licenseStamp);
+        return cleaned;
+    }
+
     // Admission, at queue time: a call must be a KNOWN tool (the
     // banklib vocabulary - anything else is protocol leakage) and must
     // be licensed by the note THAT DROVE THIS GENERATION - the stamp is
@@ -187,20 +214,34 @@ std::string PlayerbotLlmTools::ExtractAndQueue(std::string const& raw, uint32 bo
     // note can never cover for this generation and a note-less
     // generation (autonomous RPG/debug, stamp 0) queues nothing at all.
     if (licenseStamp == 0)
+    {
+        for (pocketllm::ToolCall const& call : calls)
+            funnel("no-note", call, botGuid, speakerGuid, licenseStamp);
         return cleaned; // this generation built no note: nothing licensed
+    }
     PlayerbotLlmBridge::ToolLicense const license =
         PlayerbotLlmBridge::CurrentLicense(botGuid);
     if (license.stamp != licenseStamp)
+    {
+        for (pocketllm::ToolCall const& call : calls)
+            funnel("stale-license", call, botGuid, speakerGuid, licenseStamp);
         return cleaned; // a newer note superseded this generation's: drop
+    }
 
     std::lock_guard<std::mutex> lock(g_queueMutex);
     std::deque<QueuedCall>& queue = PendingQueue()[botGuid];
     for (pocketllm::ToolCall const& call : calls)
     {
         if (!pocketllm::IsKnownTool(call.name))
+        {
+            funnel("unknown-tool", call, botGuid, speakerGuid, licenseStamp);
             continue;
+        }
         if (!license.tools.count(call.name))
+        {
+            funnel("unlicensed", call, botGuid, speakerGuid, licenseStamp);
             continue; // this note never licensed the tool
+        }
         QueuedCall queued;
         queued.name = call.name;
         queued.fields = call.fields;
@@ -208,7 +249,14 @@ std::string PlayerbotLlmTools::ExtractAndQueue(std::string const& raw, uint32 bo
         queued.speakerGuid = speakerGuid;
         queued.licenseStamp = licenseStamp;
         if (queue.size() < 8)
+        {
             queue.push_back(queued);
+            funnel("queued", call, botGuid, speakerGuid, licenseStamp);
+        }
+        else
+        {
+            funnel("queue-full", call, botGuid, speakerGuid, licenseStamp);
+        }
     }
     return cleaned;
 }
@@ -242,7 +290,8 @@ void PlayerbotLlmTools::PlayTextEmote(Player* bot, Player* target, std::string c
 
 void PlayerbotLlmTools::ExecutePending(Player* bot)
 {
-    if (!bot || !bot->GetPlayerbotAI() || !sPlayerbotAIConfig.llmEnabled)
+    if (!bot || !bot->GetPlayerbotAI() || !sPlayerbotAIConfig.llmEnabled ||
+        !sPlayerbotAIConfig.llmToolsEnabled)
         return;
 
     std::deque<QueuedCall> calls;

@@ -73,7 +73,31 @@ public:
             return POCKET_SERVER_WRONG_STATE;
         }
         if (config.empty()) return POCKET_SERVER_INVALID_ARGUMENT;
-        if (m_worker.joinable()) m_worker.join();
+        if (m_worker.joinable())
+        {
+            // Bounded settle-or-detach (same law as stop()'s FAILED
+            // branches): the previous worker may be hung INSIDE cleanup()
+            // (its world thread wedged mid-Update and StopEmbedded's join
+            // never returns), and joining it here unbounded would hold
+            // m_lifecycle forever and seize every later JNI call. Wait for
+            // the worker's own STOPPED record; on timeout detach loudly -
+            // start() then reuses the thread slot, which is safe exactly
+            // because a detached std::thread no longer has one.
+            const uint64_t settle_deadline =
+                pocket_server::monotonic_ms() + START_VERDICT_TIMEOUT_MS;
+            while (m_state.state() == POCKET_SERVER_FAILED &&
+                   pocket_server::monotonic_ms() < settle_deadline)
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            if (m_state.state() == POCKET_SERVER_STOPPED)
+            {
+                m_worker.join();
+            }
+            else
+            {
+                m_worker.detach();
+                sLog.outError("PocketRealm: previous worker did not settle; detached before restart");
+            }
+        }
         m_stop.store(false, std::memory_order_release);
         m_ticks.store(0, std::memory_order_release);
         m_last_tick.store(0, std::memory_order_release);
@@ -81,6 +105,7 @@ public:
         m_hard_stall_total.store(0, std::memory_order_release);
         m_consecutive_hard_stalls.store(0, std::memory_order_release);
         m_last_hard_stall_elapsed_ms.store(0, std::memory_order_release);
+        m_first_tick_done.store(false, std::memory_order_release);
         {
             std::lock_guard<std::mutex> tick_guard(m_tick_window_mutex);
             m_tick_window_count = 0;
@@ -223,6 +248,24 @@ public:
         // from the atomic mirror only - the playerbots map itself lives on
         // the world thread.
         values[9] = static_cast<jlong>(m_db_probe_delay_ms.load(std::memory_order_acquire));
+    }
+
+    // Bounded wait for the world loop's first completed tick. The
+    // authoritative consumer is Master::StartNetworkEmbedded (via the
+    // exported wrapper below): no realmlist ONLINE row and no listening
+    // socket until this returns true - so even a client that never looks
+    // at READY cannot put a session into the boot's fragile first-tick
+    // window. run() waits again before publishing READY so the state
+    // stays honest even if the listener gate is ever bypassed.
+    bool first_tick_wait(uint64_t timeout_ms)
+    {
+        const uint64_t deadline = pocket_server::monotonic_ms() + timeout_ms;
+        while (!m_first_tick_done.load(std::memory_order_acquire) &&
+               !m_stop.load(std::memory_order_acquire) &&
+               m_state.state() == POCKET_SERVER_STARTING &&
+               pocket_server::monotonic_ms() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        return m_first_tick_done.load(std::memory_order_acquire);
     }
 
     int create_account(const std::string& username, const std::string& password, uint64_t timeout_ms)
@@ -700,9 +743,28 @@ public:
             if (state == POCKET_SERVER_STOPPED) return POCKET_SERVER_OK;
             if (state == POCKET_SERVER_FAILED)
             {
-                if (m_worker.joinable()) m_worker.join();
-                m_state.transition(POCKET_SERVER_STOPPED);
-                return POCKET_SERVER_OK;
+                // Bounded: the worker may be inside cleanup()'s world-thread
+                // join (a world wedged in its first Update never returns), so
+                // an unbounded join here would hold m_lifecycle forever and
+                // seize every later JNI call. Wait for the worker's own
+                // STOPPED record, then detach loudly instead.
+                const uint64_t settle_deadline = pocket_server::monotonic_ms() + timeout_ms;
+                while (m_state.state() == POCKET_SERVER_FAILED &&
+                       pocket_server::monotonic_ms() < settle_deadline)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                if (m_state.state() == POCKET_SERVER_STOPPED)
+                {
+                    if (m_worker.joinable()) m_worker.join();
+                    m_state.transition(POCKET_SERVER_STOPPED);
+                    return POCKET_SERVER_OK;
+                }
+                if (m_worker.joinable())
+                {
+                    m_worker.detach();
+                    sLog.outError("PocketRealm: failed worker did not settle within %llums; detached",
+                                  static_cast<unsigned long long>(timeout_ms));
+                }
+                return POCKET_SERVER_TIMEOUT;
             }
             m_state.transition(POCKET_SERVER_STOPPING);
             m_stop.store(true, std::memory_order_release);
@@ -717,10 +779,26 @@ public:
         {
             // A FAILED worker completed on its own (this used to be
             // conflated with a wedge TIMEOUT): join it and finish the stop.
+            // Same bound as the entry branch - FAILED means fail() ran but
+            // the worker can still be inside cleanup()'s world-thread join.
             std::lock_guard<std::mutex> guard(m_lifecycle);
-            if (m_worker.joinable()) m_worker.join();
-            m_state.transition(POCKET_SERVER_STOPPED);
-            return POCKET_SERVER_OK;
+            const uint64_t settle_deadline = pocket_server::monotonic_ms() + timeout_ms;
+            while (m_state.state() == POCKET_SERVER_FAILED &&
+                   pocket_server::monotonic_ms() < settle_deadline)
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            if (m_state.state() == POCKET_SERVER_STOPPED)
+            {
+                if (m_worker.joinable()) m_worker.join();
+                m_state.transition(POCKET_SERVER_STOPPED);
+                return POCKET_SERVER_OK;
+            }
+            if (m_worker.joinable())
+            {
+                m_worker.detach();
+                sLog.outError("PocketRealm: failed worker did not settle within %llums; detached",
+                              static_cast<unsigned long long>(timeout_ms));
+            }
+            return POCKET_SERVER_TIMEOUT;
         }
         if (m_state.state() != POCKET_SERVER_STOPPED)
         {
@@ -768,6 +846,10 @@ public:
 
     void record_tick(uint32_t duration)
     {
+        // the world-thread tick hook: one completed World::Update. Fires
+        // first of all so the boot's READY gate (run()) sees the loop is
+        // alive even if a later step in this function fails the state.
+        m_first_tick_done.store(true, std::memory_order_release);
         // the world-chat injection drains here (world thread) before any
         // tick accounting - see drain_chat_injection for the path
         drain_chat_injection();
@@ -971,12 +1053,52 @@ private:
             m_started = true;
             if (!sMaster.StartNetworkEmbedded(1))
             {
-                fail(POCKET_SERVER_PORT_IN_USE, "world listener failed");
+                // The listener leg failed, the loop never ticked, OR a
+                // user stop() landed during the first-tick gate - name the
+                // real leg and never label a deliberate stop as a failure.
+                if (m_stop.load(std::memory_order_acquire) ||
+                    m_state.state() != POCKET_SERVER_STARTING)
+                {
+                    cleanup();
+                    m_state.transition(POCKET_SERVER_STOPPED);
+                    return;
+                }
+                if (m_first_tick_done.load(std::memory_order_acquire))
+                    fail(POCKET_SERVER_PORT_IN_USE, "world listener failed");
+                else
+                    fail(POCKET_SERVER_INTERNAL,
+                         "world loop produced no tick before the first-tick deadline");
                 cleanup();  // early fails skipped teardown
                 return;
             }
-            m_state.transition(POCKET_SERVER_READY);
-            m_ever_ready = true;
+            // HONEST READY (boot-race crash): the listener accepting a
+            // socket is not the world being live, and READY used to fire
+            // before the loop's first World::Update completed - every
+            // consumer that obeys READY (the app play flow, the harness)
+            // could put a session into the fragile boot window. The
+            // authoritative gate lives inside StartNetworkEmbedded (no
+            // listener until the first tick survived); this second wait
+            // keeps READY honest on its own: record_tick - the world
+            // thread's own tick hook - set m_first_tick_done by now, and
+            // stop() or the watchdog's FAILED breaks out cleanly.
+            if (!first_tick_wait(FIRST_TICK_TIMEOUT_MS))
+            {
+                if (!m_stop.load(std::memory_order_acquire) &&
+                    m_state.state() == POCKET_SERVER_STARTING)
+                    fail(POCKET_SERVER_INTERNAL,
+                         "world loop produced no tick before the first-tick deadline");
+                cleanup();
+                m_state.transition(POCKET_SERVER_STOPPED);
+                return;
+            }
+            // Re-check, never assume: stop() may have landed between the
+            // wait's last predicate and here - never publish READY over a
+            // STOPPING world (StateRecord::transition validates nothing).
+            if (m_state.state() == POCKET_SERVER_STARTING)
+            {
+                m_state.transition(POCKET_SERVER_READY);
+                m_ever_ready = true;
+            }
             // Also exit on FAILED : the hard-stall watchdog fails the
             // state from the world thread; the loop must not outlive it or
             // stop()'s join hangs forever.
@@ -1131,7 +1253,7 @@ private:
         // Android lane reaped these connections implicitly when the world
         // service process died; the Windows lane runs this runtime
         // in-process inside the app JVM, where a lingering connection keeps
-        // the sqlite WAL sidecars alive past the stop — the clean-stop seal
+        // the sqlite WAL sidecars alive past the stop - the clean-stop seal
         // requires them gone.
         CharacterDatabase.StopServerEmbedded();
         WorldDatabase.StopServerEmbedded();
@@ -1151,8 +1273,12 @@ private:
     std::atomic<uint32_t> m_last_tick{0};
     std::atomic<uint32_t> m_max_tick{0};
     std::atomic<uint64_t> m_hard_stall_total{0};
-    std::atomic<uint64_t> m_last_hard_stall_elapsed_ms{0};
+    std::atomic<uint32_t> m_last_hard_stall_elapsed_ms{0};
     std::atomic<uint32_t> m_consecutive_hard_stalls{0};
+    // Set by record_tick (world thread) on the first completed World::Update;
+    // the boot's READY transition waits for it - see run() for the race it
+    // closes.
+    std::atomic<bool> m_first_tick_done{false};
     // CharacterDatabase probe RTT mirror (ms); 0 = never sampled,
     // UINT32_MAX = login gate closed / probe expired. Written on the world
     // thread in record_tick, read by performance_status from poll threads.
@@ -1160,9 +1286,17 @@ private:
     // >=60 consecutive ticks over 1s each (world loop wedged for a minute+).
     static constexpr uint32_t HARD_STALL_FAIL_STREAK = 60;
     // start()'s settle wait (see start): long enough to cover the boot's
-    // early fail legs (config / DB / bot-lane arming), short of the Kotlin
-    // control timeout so slow boots keep the async OK + status polling.
+    // early fail legs (config / DB / bot-lane arming). EQUALS the Kotlin
+    // CONTROL_TIMEOUT_MS - a boot still STARTING at the deadline keeps the
+    // async OK + status-polling contract, so no caller-side timeout can
+    // fire while startNative is still blocked on equal budgets.
     static constexpr uint64_t START_VERDICT_TIMEOUT_MS = 30'000;
+    // The honest-READY wait (see run): the first tick carries the deferred
+    // boot legs and ran tens of seconds in desktop harness boots, so the
+    // deadline only exists to convert a wedged boot (world thread dead
+    // before its first tick) into an honest FAILED instead of STARTING
+    // forever - it must stay far clear of any legitimate first tick.
+    static constexpr uint64_t FIRST_TICK_TIMEOUT_MS = 300'000;
     std::atomic<bool> m_bot_enabled{false};
     std::atomic<uint32_t> m_bots_available{0};
     std::atomic<uint32_t> m_bots_online{0};
@@ -1201,6 +1335,14 @@ std::string from_jstring(JNIEnv* env, jstring value)
 } // namespace
 
 extern "C" void pocket_world_record_tick(uint32_t duration_ms) { g_runtime.record_tick(duration_ms); }
+
+extern "C" int pocket_world_first_tick_wait(unsigned int timeout_ms)
+{
+    // Master::StartNetworkEmbedded's honest-listener gate: block until the
+    // world loop's first tick survived (or stop/timeout). Returns nonzero
+    // when the first tick is done.
+    return g_runtime.first_tick_wait(timeout_ms) ? 1 : 0;
+}
 
 extern "C" JNIEXPORT jint JNICALL
 Java_com_pocketrealm_server_WorldNative_startNative(JNIEnv* env, jclass, jstring config)

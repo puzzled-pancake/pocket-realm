@@ -73,6 +73,69 @@ std::string TruncUtf8(std::string const& text, size_t maxBytes)
         s.pop_back(); // drop a lead byte whose sequence was cut
     return s;
 }
+
+// Truncate for a varchar(N) column THROUGH the escape: EscapeSql doubles
+// quotes (' -> ''), so a 240-byte line of quotes escapes to 480 characters
+// and strict-mode MariaDB rejects the INSERT outright - the history row
+// was silently lost. Shrinks the pre-escape text until the escaped form
+// provably fits the column.
+std::string TruncForColumn(std::string const& text, size_t columnBytes)
+{
+    size_t n = std::min<size_t>(text.size(), columnBytes);
+    while (n > 0 && EscapeSql(TruncUtf8(text, n)).size() > columnBytes)
+        n = n * 3 / 4;
+    return TruncUtf8(text, n);
+}
+
+// The prompt fact window with PINNED classes: player-identity rows (the
+// first-meeting facts, the told secret) and debt rows survive the cap -
+// a long friendship must not age its load-bearing early facts out of the
+// prompt while recent trivia fills the window. One newest-(cap+12) fetch,
+// classified with the pure core (debts are cue-classified, never a stored
+// category); at most 4 pinned rows, the remaining slots take the newest
+// ordinary rows (the NEWEST ordinary rows, never stale filler). Returns
+// the render-ready list OLDEST-FIRST (pinned first, then the ordinary
+// block) - both prompt lanes render this order directly and the
+// [Memories] tail reads its newest entries off the end.
+std::vector<std::string> SelectPromptFacts(uint32 botGuid, uint32 playerGuid, uint32 cap)
+{
+    std::vector<std::string> out;
+    uint32 const fetch = cap + 12;
+    auto result = CharacterDatabase.PQuery(
+        "SELECT `fact_text`, `category` FROM `bot_player_facts` WHERE `bot` = '%u' AND `player` = '%u' "
+        "ORDER BY `id` DESC LIMIT %u",
+        botGuid, playerGuid, fetch);
+    if (!result)
+        return out;
+    std::vector<std::string> pinned, ordinary; // newest-first while scanning
+    do
+    {
+        Field* fields = result->Fetch();
+        std::string const text = fields[0].GetString();
+        bool const pinnedRow =
+            fields[1].GetString() == "player-identity" ||
+            text.rfind("secret told:", 0) == 0 ||
+            pocketllm::FactClassOf(text, fields[1].GetString()) == pocketllm::FACT_DEBT;
+        if (pinnedRow)
+        {
+            if (pinned.size() < 4)
+                pinned.push_back(text);
+        }
+        else if (ordinary.size() < cap)
+            ordinary.push_back(text);
+    } while (result->NextRow());
+
+    size_t const ordinaryKeep =
+        pinned.size() < cap ? cap - pinned.size() : 0;
+    if (ordinary.size() > ordinaryKeep)
+        ordinary.erase(ordinary.begin() + ordinaryKeep, ordinary.end());
+    for (auto itr = pinned.rbegin(); itr != pinned.rend(); ++itr)
+        out.push_back(*itr);
+    for (auto itr = ordinary.rbegin(); itr != ordinary.rend(); ++itr)
+        out.push_back(*itr);
+    return out;
+}
+
 // Phase-1 prompt pack: read the staged pack file ONCE per process (the
 // path is fixed at world start; the file is staged at realm start) and
 // cache the rendered seasoning overlay. Empty/missing/unreadable =
@@ -331,7 +394,7 @@ void AppendHistoryTurn(uint32 bot, uint32 playerOrChannel,
     HydrateHistoryIfNeeded(history, bot, playerOrChannel, turns);
     // bounded per turn as well: unbounded lines could crowd out the
     // stable segments in the prompt budget below
-    turns.push_back(HistoryLine(speaker, TruncUtf8(line, 240)));
+    turns.push_back(HistoryLine(speaker, TruncForColumn(line, 240)));
     // C8: the persistent tail rides the same choke point (LLMHistoryPersist,
     // default on; 0 keeps history process-local exactly as before). The
     // fire-and-forget INSERT never blocks the conversation; the seq is
@@ -352,8 +415,8 @@ void AppendHistoryTurn(uint32 bot, uint32 playerOrChannel,
             "VALUES ('%u', '%u', '%u', '%s', '%s', UNIX_TIMESTAMP())",
 #endif
             bot, playerOrChannel, seq,
-            EscapeSql(TruncUtf8(speaker, 12)).c_str(),
-            EscapeSql(TruncUtf8(line, 240)).c_str());
+            EscapeSql(TruncForColumn(speaker, 12)).c_str(),
+            EscapeSql(TruncForColumn(line, 240)).c_str());
         // trim beyond the store cap + slack so the table stays bounded
         if (seq > 40)
             CharacterDatabase.PExecute(
@@ -479,13 +542,16 @@ std::map<uint32, uint32>& MoodNudges()
     return instance;
 }
 
-// plan v5 F6 (generic mint-once marker): per-pairing last-mint stamps so
-// "watched X fall in Duskwood" or "traveled with X to Westfall for the
-// first time" mints at most once per window (deaths and zone crossings
-// are frequent; the LEDGER must not drown in them)
-std::map<uint64, time_t>& MintOnceAt()
+// plan v5 F6 (generic mint-once marker): per-(pairing, tag) last-mint
+// stamps so "watched X fall in Duskwood" or "traveled with X to Westfall
+// for the first time" mints at most once per window (deaths and zone
+// crossings are frequent; the LEDGER must not drown in them). The key is
+// a (pairing, tag) PAIR - the old single uint64 forced callers to fold
+// bot/player/tag with XOR, which is structurally lossy ((a<<40)^(b<<20)
+// collides across guid pairs) and suppressed a mint on every collision.
+std::map<std::pair<uint64, uint64>, time_t>& MintOnceAt()
 {
-    static std::map<uint64, time_t> instance;
+    static std::map<std::pair<uint64, uint64>, time_t> instance;
     return instance;
 }
 
@@ -618,12 +684,26 @@ std::string PlayerbotLlmMemory::GetOrCreateBackstory(Player* bot)
 {
     uint32 const botGuid = bot->GetGUIDLow();
 
-    auto result = CharacterDatabase.PQuery(
-        "SELECT `text` FROM `bot_backstory` WHERE `bot` = '%u'", botGuid);
-    if (result)
+    // process-local cache: the backstory is write-once (INSERT IGNORE of a
+    // guid-derived constant), so the row can never change under us - the
+    // SELECT-per-prompt-build ran on every 30 s prewarm rebuild of every
+    // bot for no information. One entry per bot guid, bounded by the roster.
+    static std::mutex cacheMutex;
+    static std::map<uint32, std::string> cache;
     {
-        std::string text = result->Fetch()[0].GetString();
-        return text;
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        auto itr = cache.find(botGuid);
+        if (itr != cache.end())
+            return itr->second;
+
+        auto result = CharacterDatabase.PQuery(
+            "SELECT `text` FROM `bot_backstory` WHERE `bot` = '%u'", botGuid);
+        if (result)
+        {
+            std::string text = result->Fetch()[0].GetString();
+            cache[botGuid] = text;
+            return text;
+        }
     }
 
     // varied per bot (guid-seeded, still deterministic) and deliberately
@@ -648,6 +728,10 @@ std::string PlayerbotLlmMemory::GetOrCreateBackstory(Player* bot)
         "INSERT IGNORE INTO `bot_backstory` (`bot`, `text`) VALUES ('%u', '%s')",
 #endif
         botGuid, EscapeSql(text).c_str());
+    {
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        cache[botGuid] = text;
+    }
     return text;
 }
 
@@ -725,24 +809,18 @@ std::string PlayerbotLlmMemory::BuildPromptContext(Player* bot, Player* player, 
     // order - TRAINED dialect: inline, "; "-joined, oldest-first
     if (player)
     {
-        auto result = CharacterDatabase.PQuery(
-            "SELECT `fact_text` FROM `bot_player_facts` WHERE `bot` = '%u' AND `player` = '%u' "
-            "ORDER BY `id` DESC LIMIT 8",
-            bot->GetGUIDLow(), player->GetGUIDLow());
-        if (result)
+        // pinned-class window (identity/debt/secret rows survive the cap);
+        // render-ready oldest-first - under window pressure the NEWEST
+        // ordinary rows stay, and the pinned head always stays
+        std::vector<std::string> facts =
+            SelectPromptFacts(bot->GetGUIDLow(), player->GetGUIDLow(), 8);
         {
-            std::vector<std::string> facts;
-            do
-            {
-                facts.push_back(result->Fetch()[0].GetString());
-            } while (result->NextRow());
-
             if (!facts.empty())
             {
                 std::string const header = std::string("Facts you remember about ")
                     + player->GetName() + ": ";
-                // inline join; under window pressure the OLDEST facts drop
-                // (resize keeps the head of the newest-first fetch)
+                // inline join; under window pressure the NEWEST facts stay
+                // (resize keeps the head - the pinned rows render first)
                 if (window)
                 {
                     size_t factsUsed = 0;
@@ -760,11 +838,11 @@ std::string PlayerbotLlmMemory::BuildPromptContext(Player* bot, Player* player, 
                 if (!facts.empty())
                 {
                     std::string seg = header;
-                    for (auto itr = facts.rbegin(); itr != facts.rend(); ++itr)
+                    for (size_t i = 0; i < facts.size(); ++i)
                     {
-                        if (itr != facts.rbegin())
+                        if (i)
                             seg += "; ";
-                        seg += *itr;
+                        seg += facts[i];
                     }
                     seg += "\n";
                     if (fits(seg.size()))
@@ -796,11 +874,14 @@ std::string PlayerbotLlmMemory::BuildPromptContext(Player* bot, Player* player, 
     // and only the OLDEST turns drop, so the upstream LimitContext (which
     // cuts from the front) can never bite into the stable segments above.
     // channel keys carry the high bit so they can never collide with a
-    // player GUID low in the (bot, playerOrChannel) key space
+    // player GUID low in the (bot, playerOrChannel) key space. Whisper AND
+    // say key per player: one conversation, one transcript, any channel
+    // (party/raid stay per channel).
     size_t const rollingCap = window
         ? std::min<size_t>(3000, used + reserve < window ? window - used - reserve : 0)
         : 3000;
-    uint32 playerOrChannel = (chatChannelSource == (int)ChatChannelSource::SRC_WHISPER && player)
+    uint32 playerOrChannel = ((chatChannelSource == (int)ChatChannelSource::SRC_WHISPER ||
+        chatChannelSource == (int)ChatChannelSource::SRC_SAY) && player)
         ? player->GetGUIDLow()
         : (0x80000000u | static_cast<uint32>(chatChannelSource));
     RollingHistory& history = History();
@@ -869,32 +950,28 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
     std::vector<std::string> facts;
     {
         uint32 const factsCap = std::max<uint32>(1, sPlayerbotAIConfig.llmFactsCap);
-        auto result = CharacterDatabase.PQuery(
-            "SELECT `fact_text` FROM `bot_player_facts` WHERE `bot` = '%u' AND `player` = '%u' "
-            "ORDER BY `id` DESC LIMIT %u",
-            botGuid, player->GetGUIDLow(), factsCap);
-        if (result)
+        // pinned-class window: identity/debt/secret rows survive the cap,
+        // render-ready oldest-first (the [Memories] tail still reads the
+        // newest entries off the end)
+        facts = SelectPromptFacts(botGuid, player->GetGUIDLow(), factsCap);
+        uint32 rewordSeed = 0;
+        bool const pastFirstMeeting = tier >= 2; // acquaintance+
+        for (std::string& factRef : facts)
         {
-            uint32 rewordSeed = 0;
-            bool const pastFirstMeeting = tier >= 2; // acquaintance+
-            do
-            {
-                std::string text = result->Fetch()[0].GetString();
-                // tone rows render WITHOUT the machine prefix (a
-                // "(tone -)" prefix in the system facts segment is an
-                // echoable non-word); the journal strip, generalized
-                size_t const toneEnd = text.find(") ");
-                if (text.rfind("(tone", 0) == 0 && toneEnd != std::string::npos)
-                    text = text.substr(toneEnd + 2);
-                // C1: render-time first-meeting rewording - a pairing
-                // past acquaintance never reads "met X for the first
-                // time" again (tier-gated so the ledger never
-                // contradicts Standing:; the write stays untouched)
-                if (pastFirstMeeting)
-                    text = pocketllm::RewordFirstMeetingRow(text, rewordSeed++);
-                facts.push_back(text);
-            } while (result->NextRow());
-            std::reverse(facts.begin(), facts.end());
+            std::string text = factRef;
+            // tone rows render WITHOUT the machine prefix (a
+            // "(tone -)" prefix in the system facts segment is an
+            // echoable non-word); the journal strip, generalized
+            size_t const toneEnd = text.find(") ");
+            if (text.rfind("(tone", 0) == 0 && toneEnd != std::string::npos)
+                text = text.substr(toneEnd + 2);
+            // C1: render-time first-meeting rewording - a pairing
+            // past acquaintance never reads "met X for the first
+            // time" again (tier-gated so the ledger never
+            // contradicts Standing:; the write stays untouched)
+            if (pastFirstMeeting)
+                text = pocketllm::RewordFirstMeetingRow(text, rewordSeed++);
+            factRef = text;
         }
     }
     std::vector<std::string> mems;
@@ -931,6 +1008,10 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
                       turns[n - 1].speaker == "(event)"))
                 --n;
             bool const apiTier = ExternalApiTierActive();
+            // the shallow window now applies only to the CHANNEL-keyed say
+            // windows (street/event chatter - a town scene, not a
+            // transcript); per-player say conversations key by guid and
+            // carry the full conversational depth like whispers
             size_t const cap =
                 (playerOrChannel == (0x80000000u | static_cast<uint32>(ChatChannelSource::SRC_SAY)))
                     ? (apiTier ? 16 : 5) : (apiTier ? 32 : 8);
@@ -979,9 +1060,12 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
         ? std::string("a first meeting") : preStompAbsence;
     // Phase-3: the bot's current weather rides the system prompt alongside
     // the pack seasoning (same instruction span, never a new segment).
+    // LLMMoodSeasoning (default on) is the kill switch - before it existed
+    // the mood line was unconditional despite the header claiming a gate.
     std::string const sysm = pocketllm::SysmForCard(persona, promptPlayer, tier,
         AbsenceLineFor(player->GetName(), absenceBucket), facts,
-        LoadPackSeasoning(), MoodLineFor(botGuid));
+        LoadPackSeasoning(),
+        sPlayerbotAIConfig.llmMoodSeasoning ? MoodLineFor(botGuid) : std::string());
 
     // The bridge owns the turn. Event reactions render through the
     // trained [EVENT] head + speak-first directive (no player words this
@@ -1207,6 +1291,23 @@ bool PlayerbotLlmMemory::AddBoundedSentimentInput(uint32 bot, uint32 player, int
     return true;
 }
 
+// THE absence-threshold ladder (300/3600/21600/86400): one authority.
+// GetAbsenceBucket and GetPreStompState used to inline two copies of this
+// ladder that would silently diverge on the next edit (the pre-stomp read
+// and the live read disagreeing is a prompt-contract bug, not a style one).
+char const* AbsenceBucketFor(time_t elapsed)
+{
+    if (elapsed < 300)
+        return "a few moments";
+    if (elapsed < 3600)
+        return "a short while";
+    if (elapsed < 21600)
+        return "a few hours";
+    if (elapsed < 86400)
+        return "most of a day";
+    return "many days";
+}
+
 std::string PlayerbotLlmMemory::GetAbsenceBucket(Player* bot, Player* player)
 {
     auto result = CharacterDatabase.PQuery(
@@ -1231,15 +1332,7 @@ std::string PlayerbotLlmMemory::GetAbsenceBucket(Player* bot, Player* player)
         return "a first meeting";
 
     time_t const elapsed = time(nullptr) - last;
-    if (elapsed < 300)
-        return "a few moments";
-    if (elapsed < 3600)
-        return "a short while";
-    if (elapsed < 21600)
-        return "a few hours";
-    if (elapsed < 86400)
-        return "most of a day";
-    return "many days";
+    return AbsenceBucketFor(elapsed);
 }
 
 PlayerbotLlmMemory::PreStompState PlayerbotLlmMemory::GetPreStompState(Player* bot, Player* player)
@@ -1268,19 +1361,7 @@ PlayerbotLlmMemory::PreStompState PlayerbotLlmMemory::GetPreStompState(Player* b
     if (isNull || last == 0)
         out.absence = "a first meeting";
     else
-    {
-        time_t const elapsed = time(nullptr) - last;
-        if (elapsed < 300)
-            out.absence = "a few moments";
-        else if (elapsed < 3600)
-            out.absence = "a short while";
-        else if (elapsed < 21600)
-            out.absence = "a few hours";
-        else if (elapsed < 86400)
-            out.absence = "most of a day";
-        else
-            out.absence = "many days";
-    }
+        out.absence = AbsenceBucketFor(time(nullptr) - last);
     std::string const tier = fields[1].GetString();
     int32 const points = fields[2].GetInt32();
     out.tier = points >= 120 ? 5 : pocketllm::TierFromStorage(tier);
@@ -1302,9 +1383,9 @@ void PlayerbotLlmMemory::LogFact(uint32 bot, uint32 player, std::string const& t
     // and the <initial message> placeholder enforce for turn text).
     CharacterDatabase.PExecute(
         "INSERT INTO `bot_player_facts` (`bot`, `player`, `fact_text`, `category`) VALUES ('%u', '%u', '%s', '%s')",
-        bot, player, EscapeSql(TruncUtf8(
+        bot, player, EscapeSql(TruncForColumn(
             pocketllm::NeuterMarkersCopy(ScrubControlTokens(
-                StripAstral(text)).c_str()), 256)).c_str(), safeCategory.c_str());
+                StripAstral(text)).c_str()), 512)).c_str(), safeCategory.c_str());
 }
 
 std::string PlayerbotLlmMemory::GetNewestRecallFact(uint32 bot, uint32 player, int classMask)
@@ -1403,6 +1484,10 @@ std::vector<std::string> PlayerbotLlmMemory::GetJournal(Player* bot, Player* pla
         bot->GetGUIDLow(), player->GetGUIDLow());
     if (!result)
         return lines;
+    // ONE tier read for the whole render: the reword gate used to call
+    // GetTrainedTier per row (up to 41 synchronous relationship queries
+    // per journal open on the world thread)
+    int const journalTier = GetTrainedTier(bot, player);
     do
     {
         Field* fields = result->Fetch();
@@ -1422,7 +1507,7 @@ std::vector<std::string> PlayerbotLlmMemory::GetJournal(Player* bot, Player* pla
         // C1: the journal renders the same reworded shape the prompt
         // sees (tier-gated: a stranger's journal still reads the first
         // meeting for what it was)
-        if (GetTrainedTier(bot, player) >= 2)
+        if (journalTier >= 2)
             text = pocketllm::RewordFirstMeetingRow(text, (uint32)lines.size());
         std::ostringstream line;
         line << label << ": " << text;
@@ -1441,8 +1526,9 @@ std::vector<std::string> PlayerbotLlmMemory::GetJournalLines(Player* bot, Player
     std::string const backstory = GetOrCreateBackstory(bot);
     if (!backstory.empty())
         lines.push_back(backstory);
+    int const standingTier = GetTrainedTier(bot, player);
     lines.push_back(std::string("Standing: ")
-        + TierProse(pocketllm::TierStorageName(GetTrainedTier(bot, player))) + ".");
+        + TierProse(pocketllm::TierStorageName(standingTier)) + ".");
     for (std::string const& line : GetJournal(bot, player))
         lines.push_back(line);
     // Phase-4: anniversaries + tier beats are journal-visible. The
@@ -1457,14 +1543,13 @@ std::vector<std::string> PlayerbotLlmMemory::GetJournalLines(Player* bot, Player
             pocketllm::AnniversaryBucket(days));
         if (ann && *ann)
             lines.push_back(std::string("Milestone: ") + ann);
-        int const tier = GetTrainedTier(bot, player);
         // journal prose, not cargo: the player reads these lines, so the
         // beat observes the relationship third-person (the second-person
         // frames are bot instructions and stay in the prompt path only)
-        if (tier >= 5)
+        if (standingTier >= 5)
             lines.push_back(std::string("Bond: ") +
                 pocketllm::TierBeatJournalLine(2));
-        else if (tier >= 3)
+        else if (standingTier >= 3)
             lines.push_back(std::string("Bond: ") +
                 pocketllm::TierBeatJournalLine(0));
     }
@@ -1797,17 +1882,21 @@ bool HasSharedFactPrefix(uint32 bot, uint32 player, std::string const& prefix)
 }
 
 // plan v5 F6: the generic mint-once marker - LogFact at most once per
-// (bot, player, key, window). Returns true when the fact minted
-bool MintOnceFact(uint32 bot, uint32 player, uint64 key, time_t windowSec,
+// (bot, player, tag, window). The pairing packs injectively into the
+// first word (bot high, player low); the tag (a caller-chosen small id,
+// optionally offset by a window index) occupies the second word whole.
+// Returns true when the fact minted.
+bool MintOnceFact(uint32 bot, uint32 player, uint64 tag, time_t windowSec,
     std::string const& text, std::string const& category)
 {
+    uint64 const pairing = (static_cast<uint64>(bot) << 32) | static_cast<uint32>(player);
     time_t const now = time(nullptr);
     {
         std::lock_guard<std::mutex> lock(StateMutex());
-        auto itr = MintOnceAt().find(key);
+        auto itr = MintOnceAt().find(std::make_pair(pairing, tag));
         if (itr != MintOnceAt().end() && now - itr->second < windowSec)
             return false;
-        MintOnceAt()[key] = now;
+        MintOnceAt()[std::make_pair(pairing, tag)] = now;
     }
     PlayerbotLlmMemory::LogFact(bot, player, text, category);
     return true;
@@ -1945,8 +2034,8 @@ void PlayerbotLlmMemory::OnPlayerDied(Player* victim)
         for (Player* bot : aftermath)
         {
             uint32 const botGuid = bot->GetGUIDLow();
-            uint64 const key = ((uint64)botGuid << 40) ^ ((uint64)victim->GetGUIDLow() << 20) ^ 0x77697065ull;
-            MintOnceFact(botGuid, victim->GetGUIDLow(), key, 6 * 3600,
+            // tag 0x77697065 = "wipe"
+            MintOnceFact(botGuid, victim->GetGUIDLow(), 0x77697065ull, 6 * 3600,
                 "the whole party fell in " + zone, "shared-event");
             NudgeMood(botGuid, pocketllm::MOOD_GRIEF);
             std::lock_guard<std::mutex> lock(StateMutex());
@@ -1976,8 +2065,8 @@ void PlayerbotLlmMemory::OnPlayerDied(Player* victim)
     if (line.empty())
         return; // the mint and the nudge wait for a confirmed voice
     NudgeMood(speakerGuid, pocketllm::MOOD_GRIEF);
-    uint64 const key = ((uint64)speakerGuid << 40) ^ ((uint64)victim->GetGUIDLow() << 20) ^ 0x6465617468ull;
-    MintOnceFact(speakerGuid, victim->GetGUIDLow(), key, 6 * 3600,
+    // tag 0x6465617468 = "death"
+    MintOnceFact(speakerGuid, victim->GetGUIDLow(), 0x6465617468ull, 6 * 3600,
         std::string("stood over ") + victim->GetName() + "'s body in " + zone,
         "shared-event");
     EventReaction reaction;
@@ -2264,6 +2353,33 @@ uint64 InitiativeKey(uint32 bot, uint32 player)
 } // namespace
 
 std::string PlayerbotLlmMemory::AuthoredArrivalGreeting(Player* bot, Player* player,
+    std::string const& absenceBucket)
+{
+    if (!bot || !player)
+        return "";
+    // Fail-soft containment (the SendDelayedPacket law): an authored
+    // flavor line runs on the map-worker thread (TickInitiative), where
+    // an uncaught throw std::terminates the whole process. This leg
+    // produced exactly that crash (SIGABRT, SelectLine frame) when the
+    // player arrival-storms across many bots; catch, name, and answer
+    // with silence instead.
+    try
+    {
+        return AuthoredArrivalGreetingInner(bot, player, absenceBucket);
+    }
+    catch (std::exception const& e)
+    {
+        sLog.outError("BotLLM: authored arrival greeting threw: %s", e.what());
+        return "";
+    }
+    catch (...)
+    {
+        sLog.outError("BotLLM: authored arrival greeting threw (unknown)");
+        return "";
+    }
+}
+
+std::string PlayerbotLlmMemory::AuthoredArrivalGreetingInner(Player* bot, Player* player,
     std::string const& absenceBucket)
 {
     if (!bot || !player)
@@ -2645,7 +2761,7 @@ void PlayerbotLlmMemory::NoteGreetingVoiced(Player* bot, Player* player,
     CharacterDatabase.PExecute(
         "UPDATE `bot_player_relationship` SET `last_greeted_at` = CURRENT_TIMESTAMP, "
         "`last_greet_line` = '%s' WHERE `bot` = '%u' AND `player` = '%u'",
-        EscapeSql(TruncUtf8(line, 250)).c_str(), bot->GetGUIDLow(), player->GetGUIDLow());
+        EscapeSql(TruncForColumn(line, 255)).c_str(), bot->GetGUIDLow(), player->GetGUIDLow());
 }
 
 void PlayerbotLlmMemory::NoteTierVoiced(uint32 bot, uint32 player, int tier)
@@ -2848,8 +2964,10 @@ void PlayerbotLlmMemory::MaybeMintPartyDigest(uint32 masterGuid, uint32 groupId)
     digest << "party talk: " << kDigest[windowIndex % 3] << topic;
     // MintOnceFact keyed (bot, windowIndex): a closed window mints at
     // most once ever, even across process restarts within the day
+    // tag 0xD16E57 ("digest") + the window index: a closed window mints at
+    // most once ever, even across process restarts within the day
     MintOnceFact(writer, masterGuid,
-        (static_cast<uint64>(writer) << 32) ^ (0xD16E57u * (windowIndex + 1)),
+        0xD16E57ull + static_cast<uint64>(windowIndex),
         86400, digest.str(), "shared-event");
 }
 

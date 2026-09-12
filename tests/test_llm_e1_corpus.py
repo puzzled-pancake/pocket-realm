@@ -204,8 +204,16 @@ def test_greeting_seasoning_is_additive_with_race_in_the_lane():
     # phrase state clear of every pool lane
     assert "0x400" in body
     greet = re.search(r"std::string PlayerbotLlmPersona::GreetingLine\(.*?\n\}", text, re.S).group(0)
-    assert greet.count("SeasonGreeting(bot, player, Rendered(") == 2, \
+    # the lock-scope restructure seasons through named draws
+    # (drawn / redrawn) - still exactly TWO season points: the draw and
+    # the C7 redraw-past-persisted
+    assert greet.count("SeasonGreeting(bot, player, ") == 2, \
         "both the draw and the C7 redraw season the line"
+    # and the state lock must NOT be held across a season call
+    # (SeasonGreeting re-enters StateFor: EDEADLK on the non-recursive
+    # state mutex - the arrival-storm crash)
+    assert greet.count("StateRef stateRef = StateFor(") == 3, \
+        "draw, redraw and ApplyTic each take their own tight lock scope"
 
 
 def test_cheer_pool_and_the_event_drain_delivery():

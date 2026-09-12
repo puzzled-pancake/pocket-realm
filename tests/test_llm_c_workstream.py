@@ -57,7 +57,10 @@ class TestC1RenderReword:
     def test_journal_rewords(self):
         body = impl(MEMORY_CPP, "std::vector<std::string> PlayerbotLlmMemory::GetJournal(")
         assert "RewordFirstMeetingRow" in body
-        assert "GetTrainedTier(bot, player) >= 2" in body
+        # the tier read is hoisted OUT of the row loop (one query for the
+        # whole render, not one relationship query per journal row)
+        assert "int const journalTier = GetTrainedTier(bot, player);" in body
+        assert "journalTier >= 2" in body
 
     def test_pure_reworder_is_prefix_stable(self):
         core = BANTER_CORE.read_text(encoding="utf-8")
@@ -221,7 +224,9 @@ class TestC7GreetMemory:
         assert "sPlayerbotAIConfig.llmGreetMemory" in body
 
     def test_greeting_persist_rides_the_composer(self):
-        body = impl(MEMORY_CPP, "std::string PlayerbotLlmMemory::AuthoredArrivalGreeting(")
+        # the composer leg moved behind the fail-soft containment
+        # (AuthoredArrivalGreetingInner) - the persist must ride THERE
+        body = impl(MEMORY_CPP, "std::string PlayerbotLlmMemory::AuthoredArrivalGreetingInner(")
         assert "NoteGreetingVoiced(bot, player, line)" in body
         stamp = impl(MEMORY_CPP, "void PlayerbotLlmMemory::NoteGreetingVoiced(")
         assert "last_greeted_at" in stamp and "last_greet_line" in stamp

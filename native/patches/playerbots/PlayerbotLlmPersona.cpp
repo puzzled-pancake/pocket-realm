@@ -819,31 +819,51 @@ std::string PlayerbotLlmPersona::GreetingLine(Player* bot, Player* player)
     else if (tier == "trusted")
         pool = pocketllm::POOL_GREET_TRUSTED;
     uint64_t const stateKey = ((uint64_t)bot->GetGUIDLow() << 24) | (uint64_t)(pool + 1);
-    StateRef stateRef = StateFor(stateKey, bot->GetGUIDLow());
     size_t count = 0;
     char const* const* lines = pocketllm::Pool(pool, count);
-    pocketllm::BanterResult r =
-        pocketllm::SelectLine(stateRef.state, lines, count, nullptr, 0, 0, 0);
-    if (!r.line)
-        return "";
+    // LOCK SCOPE (the .appear arrival-storm crash): the state mutex is
+    // NON-RECURSIVE - SeasonGreeting re-enters StateFor with its own
+    // lane key, so it must run with the outer lock RELEASED. The old
+    // shape held stateRef across the SeasonGreeting call and the
+    // same-thread re-lock threw resource_deadlock_would_occur on the
+    // map-worker thread, terminating the process.
+    std::string drawn;
+    {
+        StateRef stateRef = StateFor(stateKey, bot->GetGUIDLow());
+        pocketllm::BanterResult r =
+            pocketllm::SelectLine(stateRef.state, lines, count, nullptr, 0, 0, 0);
+        if (!r.line)
+            return "";
+        drawn = Rendered(r.line, player, bot);
+    }
     // C7: cross-restart greet-repeat guard - the pairing's PERSISTED
     // last greeting never re-voices verbatim (the in-process ring
     // cannot see the previous boot's draw). One redraw past the
     // persisted line; the ring still guarantees novelty inside the
     // process.
-    std::string line = SeasonGreeting(bot, player, Rendered(r.line, player, bot));
+    std::string line = SeasonGreeting(bot, player, drawn);
     if (sPlayerbotAIConfig.llmGreetMemory)
     {
         std::string const lastVoiced =
             PlayerbotLlmMemory::LastGreetLine(bot, player);
         if (line == lastVoiced)
         {
-            r = pocketllm::SelectLine(stateRef.state, lines, count, nullptr, 0, 0, 0);
-            if (r.line)
-                line = SeasonGreeting(bot, player, Rendered(r.line, player, bot));
+            std::string redrawn;
+            {
+                StateRef stateRef = StateFor(stateKey, bot->GetGUIDLow());
+                pocketllm::BanterResult r =
+                    pocketllm::SelectLine(stateRef.state, lines, count, nullptr, 0, 0, 0);
+                if (r.line)
+                    redrawn = Rendered(r.line, player, bot);
+            }
+            if (!redrawn.empty())
+                line = SeasonGreeting(bot, player, redrawn);
         }
     }
-    ApplyTic(stateRef.state, bot->GetGUIDLow(), line);
+    {
+        StateRef stateRef = StateFor(stateKey, bot->GetGUIDLow());
+        ApplyTic(stateRef.state, bot->GetGUIDLow(), line);
+    }
     return line;
 }
 

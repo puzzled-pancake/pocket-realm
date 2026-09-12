@@ -89,7 +89,8 @@ public:
     // for the system prompt. MoodNow derives from (botGuid, hourly
     // bucket, nudges) — GUID-stable, no DB. NudgeMood records an event
     // nudge (grudge/smitten/grief direction); MoodLineFor renders the
-    // seasoning line, empty when mood seasoning is off.
+    // seasoning line (the LLMMoodSeasoning conf key gates the call
+    // site; the renderer itself stays pure)
     static int MoodNow(uint32 botGuid);
     static void NudgeMood(uint32 botGuid, int mood);
     static std::string MoodLineFor(uint32 botGuid);
@@ -557,8 +558,12 @@ public:
 
     // The authored arrival packet - tier greeting + absence
     // magnitude + what the town says about the player. Empty when
-    // nothing applies.
+    // nothing applies. (Fail-soft: catches and logs any throw from the
+    // persona layer - this runs on the map-worker thread, where an
+    // escaping exception terminates the whole process.)
     static std::string AuthoredArrivalGreeting(Player* bot, Player* player,
+        std::string const& absenceBucket);
+    static std::string AuthoredArrivalGreetingInner(Player* bot, Player* player,
         std::string const& absenceBucket);
 
     // The deterministic crowd tier on a non-trigger ambient /say

@@ -445,6 +445,47 @@ EMBEDDED_IO_CONTEXT_RESTART_ANDROID = """bool Master::StartNetworkEmbedded(uint3
     // the listener stays unserviced.
     m_context.restart();
 """
+# HONEST LISTENER (boot-race root cause): the world thread runs but its
+# first World::Update has not completed when the launch line returns - a
+# session processed inside the first ticks raced the boot's deferred
+# world-thread legs and fail-fasted the process (0xC0000409, three harness
+# reproductions). READY-obeying consumers already wait (world_runtime.cpp
+# gates READY on the same first-tick flag); this closes the residual
+# window for anything that does NOT obey READY: no realmlist ONLINE row,
+# no LFG/BG queue threads, and no listening socket until the loop has
+# ticked once and survived.
+MASTER_LISTENER_GATE_UPSTREAM = """    m_worldThread->setPriority(MaNGOS::Priority_Highest);
+
+    // Mark the realm online (realmlist row).
+    {
+"""
+MASTER_LISTENER_GATE_ANDROID = """    m_worldThread->setPriority(MaNGOS::Priority_Highest);
+
+    {
+        static constexpr unsigned int FIRST_TICK_WAIT_MS = 300'000u;
+        if (!pocket_world_first_tick_wait(FIRST_TICK_WAIT_MS))
+        {
+            sLog.outError("PocketRealm: world loop produced no first tick in %ums; listener not opened",
+                          FIRST_TICK_WAIT_MS);
+            return false;
+        }
+    }
+
+    // Mark the realm online (realmlist row).
+    {
+"""
+MASTER_GATE_DECL_UPSTREAM = """#define sMaster MaNGOS::Singleton<Master>::Instance()
+#endif
+"""
+MASTER_GATE_DECL_ANDROID = """#define sMaster MaNGOS::Singleton<Master>::Instance()
+
+// The honest-listener first-tick gate (see StartNetworkEmbedded in
+// Master.cpp). Implemented in the pocket world runtime; returns nonzero
+// once the world loop's first World::Update has completed and survived.
+// Namespace scope - outside the class, where extern "C" is legal.
+extern "C" int pocket_world_first_tick_wait(unsigned int timeout_ms);
+#endif
+"""
 EMBEDDED_QUEUE_THREAD_JOIN_UPSTREAM = """    // Mirror the tail of Run() but without signals/CLI. The facade has already
     // set World::StopNow before calling this.
     if (m_worldThread)
@@ -1506,6 +1547,11 @@ PB_LLM_CONFIG_HEADER_ANDROID = """    ParsedUrl llmEndPointUrl;
     uint32 llmRoundtablePerDay, llmDossierEnabled, llmDossierPerDay;
     // C4 drama set-piece switch + the W5 curiosity switch (plan 5.4 keys)
     uint32 llmDramaEnabled, llmCuriosityEnabled;
+    // the trained-lane mood/weather line (LLMMoodSeasoning, default on)
+    uint32 llmMoodSeasoning;
+    // harness lane: 1 writes every final player-facing spoken line to the
+    // world log ("BotLLM: line ..."); default 0 keeps chat text out
+    uint32 llmLogLines;
     // G3 TLS lane: peer-verification switch (default ON; 0 restores the
     // pre-G3 unverified handshake for self-signed LAN endpoints) and the
     // app-staged CA bundle path (empty = the Android system store
@@ -1668,6 +1714,12 @@ PB_LLM_CONFIG_CPP_ANDROID = """    //LLM START
     llmDossierPerDay = (uint32)config.GetIntDefault("AiPlayerbot.LLMDossierPerDay", 1);
     llmDramaEnabled = (uint32)config.GetIntDefault("AiPlayerbot.LLMDramaEnabled", 1);
     llmCuriosityEnabled = (uint32)config.GetIntDefault("AiPlayerbot.LLMCuriosityEnabled", 1);
+    // the mood/weather line rides every trained-lane system prompt; 0
+    // silences it (the pack seasoning blocks stay pack-controlled)
+    llmMoodSeasoning = (uint32)config.GetIntDefault("AiPlayerbot.LLMMoodSeasoning", 1);
+    // harness lane: the reply-line log (default off - text in logs is a
+    // debugging posture, never the shipping default)
+    llmLogLines = (uint32)config.GetIntDefault("AiPlayerbot.LLMLogLines", 0);
     // G3: TLS verification for the external HTTPS endpoint. Default 1
     // (verify + TLS 1.2 floor + hostname pin); 0 is the documented
     // kill-switch restoring the unverified handshake for self-signed
@@ -1831,8 +1883,8 @@ std::string PlayerbotLLMInterface::PocketLlmVoiceFilter(std::string const& raw, 
     // returns cleaned text without queueing).
     std::string content = raw;
     bool truncated = firstTruncated;
-    for (int attempt = 0; attempt < 2 &&
-         PlayerbotLlmFilters::LeakFailureRaw(content, body); ++attempt)
+    for (int attempt = 0; attempt < 2 && PlayerbotLlmFilters::LeakFailureRaw(content, body) &&
+         GovernorAdmit(botGuid); ++attempt)
     {
         if (!debugLines.empty())
             debugLines.push_back("leak/era filter hit - regenerating");
@@ -1876,12 +1928,20 @@ std::string PlayerbotLLMInterface::PocketLlmVoiceFilter(std::string const& raw, 
     // rate-capped (one exempted generation per bot per minute - a
     // same-cargo spam turn falls back to the reroll, which rephrases
     // while keeping the cargo).
-    if (!PlayerbotLlmBridge::NoteMandatesContent(botGuid, licenseStamp) &&
-        PlayerbotLlmFilters::DuplicateOfRecent(botGuid, cleanedPreview))
+    // duplicate check FIRST, exemption SECOND: the mandate exemption is a
+    // per-bot one-per-minute budget CLAIMED ON READ - evaluating it before
+    // the duplicate test burned the budget on every clean mandated draw,
+    // leaving a real duplicate later in the same minute unexempted. The
+    // truth table is unchanged (reroll = duplicate AND not exempt); only
+    // the claim ordering is fixed. The resample also pays its own
+    // GovernorAdmit so the request budget stays honest.
+    if (PlayerbotLlmFilters::DuplicateOfRecent(botGuid, cleanedPreview) &&
+        !PlayerbotLlmBridge::NoteMandatesContent(botGuid, licenseStamp))
     {
         std::string retryBody = body;
         if (pocketllm::AppendInstructionToLastUserMessage(retryBody,
-                " Do not repeat your last reply; say something new."))
+                " Do not repeat your last reply; say something new.") &&
+            GovernorAdmit(botGuid))
         {
             if (!debugLines.empty())
                 debugLines.push_back("duplicate reply - one do-not-repeat resample");
@@ -2059,13 +2119,34 @@ std::string PlayerbotLLMInterface::Generate(const std::string& prompt, uint32 bo
         if (raw.empty() || raw == "error")
             return raw;
 
+        // The device lane gets the SAME pre-extraction voice backstops the
+        // HTTP lane's A12 chain applies: era scan on the RAW content and
+        // marker terms on the CLEANED preview, both BEFORE anything queues
+        // (a rejected reply must not leave queued tool calls behind), with
+        // the canned deflection as the failure voice. The pre-prompt guard
+        // and the invention filter were the only backstops here before.
+        {
+            std::string cleanedPreview;
+            pocketllm::ExtractToolCalls(raw, &cleanedPreview);
+            if (!pocketllm::EraScan(raw).empty() ||
+                pocketllm::ContainsMarkerTerms(cleanedPreview))
+            {
+                if (!debugLines.empty())
+                    debugLines.push_back("era/marker backstop hit - canned deflection");
+                std::string const deflection = PlayerbotLlmFilters::Deflection(botGuid);
+                PlayerbotLlmFilters::RememberReply(botGuid, deflection);
+                return deflection;
+            }
+        }
+
         // M4: tool blocks are stripped from the raw output here, before
         // ParseResponse's regexes can corrupt them, and queued for the
         // world-thread executor (tagged with this generation's source and
         // speaker so the executor can refuse persistence tools from
         // autonomous turns and attribute the rest to the interlocutor).
         // A12 deterministic hygiene applies (the debug backend regenerates
-        // nothing - the leak/era class is HTTP-path machinery).
+        // nothing - the leak/era retry loop is HTTP-path machinery; the
+        // era/marker REJECTION above is the shared backstop).
         return PlayerbotLlmFilters::HygienePass(
             PlayerbotLlmTools::ExtractAndQueue(raw, botGuid, speakerGuid, source, licenseStamp),
             botGuid);
@@ -2142,7 +2223,8 @@ std::string PlayerbotLLMInterface::Generate(const std::string& prompt, uint32 bo
     // it, so failing quiet immediately beats doubling the player's wait.
     // The retry stays armed for the recoverable class: the model finished
     // thinking (stop) but still produced no content.
-    if (envelope.reasoningPresent && !envelope.finishLength)
+    if (envelope.reasoningPresent && !envelope.finishLength &&
+        GovernorAdmit(botGuid))
     {
         std::string retryBody = promptBody;
         if (pocketllm::AppendInstructionToLastUserMessage(retryBody, " Answer directly."))
@@ -2254,6 +2336,39 @@ PB_SAY_GEN_DEF_ANDROID = """delayedPackets ChatReplyAction::GenerateResponsePack
         // a hard backend failure never reaches the player as a literal
         // "error" - the bot stays silent rather than break character
         response = "";
+    }
+
+    // A4b outage honesty: a transport-class failure (dead endpoint, HTTP
+    // error, timeout) used to be indistinguishable from "the bot had
+    // nothing to say". After the second consecutive hard failure, tell the
+    // speaker ONCE per outage - a system-styled whisper, never in the
+    // bot's voice - and re-arm the notice when a generation succeeds
+    // again. Model emptiness ("empty") is NOT an outage and never trips it.
+    bool deliverOutageNotice = false;
+    // conversational turns only: GenerateResponsePackets also serves the
+    // autonomous RPG workers, and a system-styled settings notice must
+    // never be spoken into world dialog - nor may an RPG worker's failures
+    // spend or arm the player-facing latch
+    if (source == PlayerbotLlamaRuntime::LLM_SRC_CHAT_REPLY)
+    {
+        static std::atomic<uint32> sConsecutiveOutages(0);
+        static std::atomic<bool> sOutageNoticeLatched(false);
+        if (turnClass == std::string("error"))
+        {
+            if (sConsecutiveOutages.load() + 1 >= 2 &&
+                !sOutageNoticeLatched.exchange(true))
+                deliverOutageNotice = true;
+            sConsecutiveOutages.fetch_add(1);
+        }
+        else if (turnClass == std::string("ok"))
+        {
+            // the endpoint answered again - re-arm the notice for the NEXT
+            // outage (an ok class implies a usable response body by
+            // construction; a body that later parses to nothing is the
+            // "empty" class, never this branch)
+            sConsecutiveOutages.store(0);
+            sOutageNoticeLatched.store(false);
+        }
     }
 """
 PB_SAY_GATE_UPSTREAM = """    if (bot->GetPlayerbotAI() && sPlayerbotAIConfig.llmEnabled > 0 && (bot->GetPlayerbotAI()->HasStrategy("ai chat", BotState::BOT_STATE_NON_COMBAT) || sPlayerbotAIConfig.llmEnabled == 3) && chatChannelSource != ChatChannelSource::SRC_UNDEFINED && sPlayerbotAIConfig.llmBlockedReplyChannels.find(chatChannelSource) == sPlayerbotAIConfig.llmBlockedReplyChannels.end()
@@ -2565,6 +2680,19 @@ PB_SAY_RECORDER_ANDROID = """    std::vector<std::string> lines = PlayerbotLLMIn
         }
     }
 
+    // harness lane (LLMLogLines): one world-log line per final spoken
+    // line of a player-facing genuine turn - the desktop RP harness
+    // asserts on reply text without a client transport. Default 0.
+    if (sPlayerbotAIConfig.llmLogLines && !botName.empty() && !busyReply)
+    {
+        for (std::string const& line : lines)
+        {
+            if (!line.empty())
+                sLog.outBasic("BotLLM: line req=%llu bot=%u chan=%u text=%s",
+                    reqId, botGuid, playerOrChannel, line.c_str());
+        }
+    }
+
     // the bot's own reply joins the shared rolling history so the next prompt
     // is never a one-sided transcript (mutex-guarded; async thread safe).
     // Only genuine generations are recorded - never the busy placeholder
@@ -2626,8 +2754,25 @@ PB_SAY_PACE_CALL_ANDROID = """    delayedPackets packets, debugPackets;
     // of this pipeline and is untouched). The busy placeholder is an
     // admission-control acknowledgment, not prose: it lands instantly -
     // the E1 busy-within-1s law.
+    // E1b: the credit is CAPPED - the old unbounded credit let a long
+    // generation cancel the typing pace entirely, so the whole reply
+    // dumped in one frame (the "typist" illusion only ever held for fast
+    // replies). A slow generation now leaves the 35 ms/char pace standing
+    // up to a 2.5 s credit, and LinesToPackets adds the reaction beat
+    // (0.4-1.2 s) plus a 400 ms per-line floor on the conversational path.
+    uint32 const pacingCredit = busyReply ? 0 : std::min<uint32>(timeDiff, 2500);
     packets = LinesToPackets(lines, chatTemplate, false,
-        busyReply ? 0 : 35, emoteTemplate, busyReply ? 0 : timeDiff);
+        busyReply ? 0 : 35, emoteTemplate, pacingCredit,
+        busyReply ? 0 : urand(400, 1200), busyReply ? 0 : 400, !busyReply);
+
+    // the one-time outage notice rides the whisper system template (a
+    // system-styled note, never the bot's voice); the debug echo, when
+    // armed, is inserted ahead of it afterwards
+    if (deliverOutageNotice)
+        LineToPacket(packets, systemTemplate,
+            "(The realm's bot voices are not responding - bots will stay "
+            "quiet until the AI speech service recovers. Check Settings > "
+            "AI bot LLM.)", 50);
 """
 
 # The timeDiff credit becomes a running budget consumed across all
@@ -2666,6 +2811,7 @@ PB_SAY_TIMEDIFF_HEAD_ANDROID = """                auto sentenceSplit = sentence.
                         timeDiff = 0;
                     }
                 }
+                delay = finishDelay(delay);
 """
 PB_SAY_TIMEDIFF_TAIL_UPSTREAM = """            auto delay = sentence.size() * MsPerChar;
             if (timeDiff)
@@ -2704,6 +2850,7 @@ PB_SAY_TIMEDIFF_TAIL_ANDROID = """            auto delay = sentence.size() * MsP
                     sLog.outDebug("delay packet reduced to %lu", delay);
                 }
             }
+            delay = finishDelay(delay);
 """
 PB_SAY_SPLITTER_UPSTREAM = """        std::string sentence = line;
         while (sentence.length() > 200) {
@@ -2712,6 +2859,176 @@ PB_SAY_SPLITTER_UPSTREAM = """        std::string sentence = line;
                 splitPos = 200;
             }
 """
+# E1b/reply-guard: the definition head of LinesToPackets is pristine fork
+# text - the signature gains the reaction/floor/fromModel knobs and the
+# body head gains the model-line bracket guard + the pacing fixup lambda.
+PB_SAY_LTP_DEF_UPSTREAM = """delayedPackets ChatReplyAction::LinesToPackets(const std::vector<std::string>& lines, WorldPacket packetTemplate, bool debug, uint32 MsPerChar, WorldPacket emoteTemplate, uint32 timeDiff)
+{
+    delayedPackets delayedPackets;
+
+    WorldPacket packet;
+    for (auto& line : lines)
+    {
+"""
+PB_SAY_LTP_DEF_ANDROID = """delayedPackets ChatReplyAction::LinesToPackets(const std::vector<std::string>& lines, WorldPacket packetTemplate, bool debug, uint32 MsPerChar, WorldPacket emoteTemplate, uint32 timeDiff, uint32 reactionDelayMs, uint32 minLineDelayMs, bool fromModel)
+{
+    delayedPackets delayedPackets;
+
+    // Model-output /me-lane guard: a model line opening with a bracketed
+    // token ("[laughs] aye") is stage direction, and NO_NARRATE means it is
+    // furniture the model should not have produced. Strip a leading
+    // bracketed token (through the first ']' inside the head of the line)
+    // and voice the remainder; a line that is all bracket or never closes
+    // drops entirely. Authored lines (journal, gossip surfaces, persona
+    // beats) pass fromModel=false and keep byte-identical behavior.
+    std::vector<std::string> scopedLines;
+    if (fromModel)
+    {
+        scopedLines.reserve(lines.size());
+        for (std::string const& line : lines)
+        {
+            if (line.size() > 1 && line[0] == '[')
+            {
+                size_t const close = line.find(']', 1);
+                if (close == std::string::npos || close > 64)
+                    continue; // unclosed or oversized bracket: drop the line
+                size_t const rest = line.find_first_not_of(" \\t", close + 1);
+                if (rest == std::string::npos)
+                    continue; // nothing spoken behind the bracket
+                scopedLines.push_back(line.substr(rest));
+            }
+            else
+                scopedLines.push_back(line);
+        }
+    }
+    std::vector<std::string> const& routable = fromModel ? scopedLines : lines;
+
+    WorldPacket packet;
+    // E1 fix-up: the first packet carries the reaction beat (a person does
+    // not start answering in the same frame as your line), and every
+    // conversational line keeps a floor pace even when the generation
+    // credit swallowed the whole typing time - a 14 s generation must not
+    // collapse a two-line reply into an instant dump. Journal and debug
+    // callers pass 0/0 and keep byte-identical pacing.
+    bool firstPacket = true;
+    auto finishDelay = [&](uint32 delay)
+    {
+        if (firstPacket)
+        {
+            delay += reactionDelayMs;
+            firstPacket = false;
+        }
+        if (delay < minLineDelayMs)
+            delay = minLineDelayMs;
+        return delay;
+    };
+    for (auto& line : routable)
+    {
+"""
+PB_SAY_LTP_H_UPSTREAM = """        static delayedPackets LinesToPackets(const std::vector<std::string>& lines, WorldPacket packetTemplate, bool debug = false, uint32 MsPerChar = 0, WorldPacket emoteTemplate = WorldPacket(), uint32 timeDiff = 0);"""
+PB_SAY_LTP_H_ANDROID = """        static delayedPackets LinesToPackets(const std::vector<std::string>& lines, WorldPacket packetTemplate, bool debug = false, uint32 MsPerChar = 0, WorldPacket emoteTemplate = WorldPacket(), uint32 timeDiff = 0, uint32 reactionDelayMs = 0, uint32 minLineDelayMs = 0, bool fromModel = false);"""
+
+# crash-class fix (consumer side): the autonomous-RPG path drains the same
+# generation future with bare get()/wait() on the strategy thread - any
+# escaping worker exception (bad_alloc, a parse-time regex compile) would
+# terminate the process. Mirror SendDelayedPacket's containment.
+PB_RPG_FUT_GET_UPSTREAM = """    for (auto delayedReply : futPackets.get())
+        packets.push(delayedReply);"""
+PB_RPG_FUT_GET_ANDROID = """    try
+    {
+        for (auto delayedReply : futPackets.get())
+            packets.push(delayedReply);
+    }
+    catch (std::exception const& e)
+    {
+        sLog.outError("BotLLM: RPG chat delivery failed: %s", e.what());
+    }
+    catch (...)
+    {
+        sLog.outError("BotLLM: RPG chat delivery failed (unknown exception)");
+    }"""
+PB_RPG_FUT_WAIT_UPSTREAM = """    futPackets.wait();
+
+    WaitForLines();"""
+PB_RPG_FUT_WAIT_ANDROID = """    try
+    {
+        futPackets.wait();
+        WaitForLines();
+    }
+    catch (std::exception const& e)
+    {
+        sLog.outError("BotLLM: RPG chat delivery failed: %s", e.what());
+    }
+    catch (...)
+    {
+        sLog.outError("BotLLM: RPG chat delivery failed (unknown exception)");
+    }"""
+
+# crash-class fix: the conf loader only LOGGED an invalid response regex,
+# leaving it armed for ParseResponse - where it throws inside the async
+# generation worker (previously a process-abort class via the detached
+# packet thread's future.get). Fail open: the broken pattern is cleared
+# (an empty pattern is pass-through in every ParseResponse leg).
+PB_CONFIG_REGEX_UPSTREAM = """    try {
+        std::regex pattern(llmResponseStartPattern);
+    }
+    catch (const std::regex_error& e) {        
+        sLog.outError("Regex error in %s: %s", llmResponseStartPattern.c_str(), e.what());
+    }
+
+    try {
+        std::regex pattern(llmResponseEndPattern);
+    }
+    catch (const std::regex_error& e) {
+        sLog.outError("Regex error in %s: %s", llmResponseEndPattern.c_str(), e.what());
+    }
+
+    try {
+        std::regex pattern(llmResponseDeletePattern);
+    }
+    catch (const std::regex_error& e) {
+        sLog.outError("Regex error in %s: %s", llmResponseDeletePattern.c_str(), e.what());
+    }
+
+    try {
+        std::regex pattern(llmResponseSplitPattern);
+    }
+    catch (const std::regex_error& e) {
+        sLog.outError("Regex error in %s: %s", llmResponseSplitPattern.c_str(), e.what());
+    }"""
+PB_CONFIG_REGEX_ANDROID = """    try {
+        std::regex pattern(llmResponseStartPattern);
+    }
+    catch (const std::regex_error& e) {
+        sLog.outError("Regex error in %s: %s - pattern DISABLED (pass-through)", llmResponseStartPattern.c_str(), e.what());
+        // fail open: an empty start pattern is pass-through, never a crash
+        llmResponseStartPattern.clear();
+    }
+
+    try {
+        std::regex pattern(llmResponseEndPattern);
+    }
+    catch (const std::regex_error& e) {
+        sLog.outError("Regex error in %s: %s - pattern DISABLED (pass-through)", llmResponseEndPattern.c_str(), e.what());
+        llmResponseEndPattern.clear();
+    }
+
+    try {
+        std::regex pattern(llmResponseDeletePattern);
+    }
+    catch (const std::regex_error& e) {
+        sLog.outError("Regex error in %s: %s - pattern DISABLED (pass-through)", llmResponseDeletePattern.c_str(), e.what());
+        llmResponseDeletePattern.clear();
+    }
+
+    try {
+        std::regex pattern(llmResponseSplitPattern);
+    }
+    catch (const std::regex_error& e) {
+        sLog.outError("Regex error in %s: %s - pattern DISABLED (pass-through)", llmResponseSplitPattern.c_str(), e.what());
+        llmResponseSplitPattern.clear();
+    }"""
+
 PB_SAY_SPLITTER_ANDROID = """        std::string sentence = line;
         // A12: the /say client cap is 255 bytes - ONE documented number
         // (the old constant split at 200 while the client cut at 255).
@@ -2760,7 +3077,10 @@ PB_SAY_JSON_DUP_ANDROID = """                splitPattern = PlayerbotTextMgr::Ge
 """
 PB_SAY_ASYNC_UPSTREAM = """                futurePackets futPackets = std::async(std::launch::async, ChatReplyAction::GenerateResponsePackets, json, chatTemplate, emoteTemplate, systemTemplate, startPattern, endPattern, deletePattern, splitPattern, debug);
 """
-PB_SAY_ASYNC_ANDROID = """                uint32 llmHistoryKey = (chatChannelSource == ChatChannelSource::SRC_WHISPER && player)
+PB_SAY_ASYNC_ANDROID = """                // same key law as llmTurnKey above: whisper + say per player,
+                // party/raid per channel
+                uint32 llmHistoryKey = (chatChannelSource == ChatChannelSource::SRC_WHISPER ||
+                    chatChannelSource == ChatChannelSource::SRC_SAY)
                     ? player->GetGUIDLow()
                     : (0x80000000u | static_cast<uint32>(chatChannelSource));
                 // A0 interlocutor fix: persistence tools attribute to the
@@ -2984,6 +3304,25 @@ PB_DEBUG_INCLUDE_UPSTREAM = """#include "playerbot/PlayerbotLLMInterface.h"
 PB_DEBUG_INCLUDE_ANDROID = """#include "playerbot/PlayerbotLLMInterface.h"
 #include "playerbot/PlayerbotLlmFilters.h"
 """
+# Phase 2 Tier 1 delivery observability: the player-facing chat reply
+# threads its req id into the delayed-packet hand-off, so the world log
+# carries one "BotLLM: deliver" line per turn at the earliest possible
+# wire instant (packets handed to the bot session's queue; the bot's own
+# update cadence drains them). Default args keep the four bot-owned call
+# sites (journal/gossip/scene/story) byte-compatible and silent.
+PB_SDP_DECL_UPSTREAM = """    static void SendDelayedPacket(WorldSession* session, std::future<std::vector<std::pair<WorldPacket, uint32>>> futurePacket);
+"""
+PB_SDP_DECL_ANDROID = """    static void SendDelayedPacket(WorldSession* session, std::future<std::vector<std::pair<WorldPacket, uint32>>> futurePacket, uint64_t deliveryReqId = 0, uint32 deliveryBotGuid = 0);
+"""
+# the chat-reply call site is the only one that passes the session local
+# (the four bot-owned sites pass bot->GetSession() with their own futures)
+PB_SAY_DELIVER_UPSTREAM = """                ai->SendDelayedPacket(session, std::move(futPackets));
+"""
+PB_SAY_DELIVER_ANDROID = """                // Tier 1 delivery observability: thread the turn's req
+                // id and bot guid into the delayed-packet hand-off - the
+                // BotLLM: deliver line marks the hand-off instant
+                ai->SendDelayedPacket(session, std::move(futPackets), llmReqId, bot->GetGUIDLow());
+"""
 PB_SESSION_LIFETIME_UPSTREAM = """void PlayerbotAI::SendDelayedPacket(WorldSession* session, futurePackets futPackets)
 {
     std::thread t([session, futPacket = std::move(futPackets)]() mutable {
@@ -3014,22 +3353,68 @@ void PlayerbotAI::ReceiveDelayedPacket(futurePackets futPackets)
 
     t.detach();
 }"""
-PB_SESSION_LIFETIME_ANDROID = """void PlayerbotAI::SendDelayedPacket(WorldSession* session, futurePackets futPackets)
+PB_SESSION_LIFETIME_ANDROID = """void PlayerbotAI::SendDelayedPacket(WorldSession* session, futurePackets futPackets, uint64_t const deliveryReqId, uint32 const deliveryBotGuid)
 {
-    uint32 accountId = session->GetAccountId();
-    std::thread t([session, accountId, futPacket = std::move(futPackets)]() mutable {
-        for (auto& delayedPacket : futPacket.get())
+    std::thread t([session, futPacket = std::move(futPackets), deliveryReqId, deliveryBotGuid]() mutable {
+        // a detached thread must never let an exception escape: any throw
+        // from the generation future (a bad conf regex compiled in
+        // ParseResponse, bad_alloc in the string pipeline) would otherwise
+        // std::terminate the whole world process mid-session
+        try
         {
-            // a multi-second LLM generation can outlive the session: re-validate
-            // against the session registry before every packet we queue
-            if (sWorld.FindSession(accountId) != session)
-                return;
+            uint32 deliveredPackets = 0;
+            uint32 paceBudgetMs = 0;
+            for (auto& delayedPacket : futPacket.get())
+            {
+                if (delayedPacket.second)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(delayedPacket.second));
 
-            if (delayedPacket.second)
-                std::this_thread::sleep_for(std::chrono::milliseconds(delayedPacket.second));
+                // a multi-second paced reply can outlive the session: re-validate
+                // the BOT's liveness immediately before we queue - AFTER the
+                // pacing sleep, which is seconds for a multi-line reply, and
+                // the bot session is deleted on logout. The oracle is
+                // FindPlayer + session identity - NOT sWorld.FindSession: bot
+                // sessions are deliberately never registered in the world
+                // session map (constructed in PlayerbotMgr, never
+                // AddSession'ed), so the earlier registry lookup returned null
+                // for every bot and the guard silently dropped 100% of delayed
+                // deliveries - the "generated replies never reach the client"
+                // root cause the Tier 1 deliver line exposed. inWorld=false:
+                // a bot mid-map-transfer still owns a live session.
+                Player* deliveryBot = deliveryBotGuid
+                    ? sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, deliveryBotGuid), false)
+                    : nullptr;
+                if (!deliveryBot || deliveryBot->GetSession() != session)
+                {
+                    // a delivery that outlives the session must not
+                    // vanish silently - logged for every caller, the
+                    // reqId-0 journal family included
+                    sLog.outBasic("BotLLM: deliver req=%llu bot=%u packets=%u dropped=session-gone",
+                        (unsigned long long)deliveryReqId, deliveryBotGuid, deliveredPackets);
+                    return;
+                }
 
-            std::unique_ptr<WorldPacket> packetPtr(new WorldPacket(delayedPacket.first));
-            session->QueuePacket(std::move(packetPtr));
+                std::unique_ptr<WorldPacket> packetPtr(new WorldPacket(delayedPacket.first));
+                session->QueuePacket(std::move(packetPtr));
+                ++deliveredPackets;
+                paceBudgetMs += delayedPacket.second;
+            }
+            // Tier 1 delivery observability: the hand-off stamp. The
+            // packets are now in the bot session's queue - the bot's own
+            // update cadence drains them onto the wire - so this instant
+            // is the EARLIEST possible wire arrival; the client capture
+            // remains the arrival truth.
+            if (deliveryReqId)
+                sLog.outBasic("BotLLM: deliver req=%llu bot=%u packets=%u paceMs=%u",
+                    (unsigned long long)deliveryReqId, deliveryBotGuid, deliveredPackets, paceBudgetMs);
+        }
+        catch (std::exception const& e)
+        {
+            sLog.outError("BotLLM: delayed packet delivery failed: %s", e.what());
+        }
+        catch (...)
+        {
+            sLog.outError("BotLLM: delayed packet delivery failed (unknown exception)");
         }
     });
 
@@ -3041,17 +3426,29 @@ void PlayerbotAI::ReceiveDelayedPacket(futurePackets futPackets)
     PacketHandlingHelper* handler = &botOutgoingPacketHandlers;
     ObjectGuid botGuid = bot->GetObjectGuid();
     std::thread t([handler, botGuid, futPackets = std::move(futPackets)]() mutable {
-        for (auto& delayedPacket : futPackets.get())
+        // same law: an escaping exception here terminates the process
+        try
         {
-            // the bot (and with it this PlayerbotAI and its packet handlers)
-            // may be gone by the time the generation finishes
-            Player* player = sObjectAccessor.FindPlayer(botGuid);
-            if (!player || !player->GetPlayerbotAI() || &player->GetPlayerbotAI()->botOutgoingPacketHandlers != handler)
-                return;
+            for (auto& delayedPacket : futPackets.get())
+            {
+                // the bot (and with it this PlayerbotAI and its packet handlers)
+                // may be gone by the time the generation finishes
+                Player* player = sObjectAccessor.FindPlayer(botGuid);
+                if (!player || !player->GetPlayerbotAI() || &player->GetPlayerbotAI()->botOutgoingPacketHandlers != handler)
+                    return;
 
-            handler->AddPacket(delayedPacket.first);
-            if(delayedPacket.second)
-                std::this_thread::sleep_for(std::chrono::milliseconds(delayedPacket.second));
+                handler->AddPacket(delayedPacket.first);
+                if(delayedPacket.second)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(delayedPacket.second));
+            }
+        }
+        catch (std::exception const& e)
+        {
+            sLog.outError("BotLLM: delayed packet receive failed: %s", e.what());
+        }
+        catch (...)
+        {
+            sLog.outError("BotLLM: delayed packet receive failed (unknown exception)");
         }
         });
 
@@ -3399,8 +3796,8 @@ PB_SAY_CONTEXT_ANDROID = """        std::string llmContext = AI_VALUE(std::strin
                 WorldPacket journalTemplate = GetPacketTemplate(CMSG_MESSAGECHAT, CHAT_MSG_WHISPER, bot, player);
                 futurePackets futJournal = std::async(std::launch::async,
                     ChatReplyAction::LinesToPackets, PlayerbotLlmMemory::GetJournalLines(bot, player),
-                    journalTemplate, false, 4, WorldPacket(), 0);
-                ai->SendDelayedPacket(bot->GetSession(), std::move(futJournal));
+                    journalTemplate, false, 4, WorldPacket(), 0, 0, 0, false);
+                ai->SendDelayedPacket(bot->GetSession(), std::move(futJournal), 0u, bot->GetGUIDLow());
                 return;
             }
 
@@ -3431,8 +3828,8 @@ PB_SAY_CONTEXT_ANDROID = """        std::string llmContext = AI_VALUE(std::strin
                         WorldPacket gossipTemplate = GetPacketTemplate(CMSG_MESSAGECHAT, CHAT_MSG_WHISPER, bot, player);
                         futurePackets futGossip = std::async(std::launch::async,
                             ChatReplyAction::LinesToPackets, gossipLines,
-                            gossipTemplate, false, 4, WorldPacket(), 0);
-                        ai->SendDelayedPacket(bot->GetSession(), std::move(futGossip));
+                            gossipTemplate, false, 4, WorldPacket(), 0, 0, 0, false);
+                        ai->SendDelayedPacket(bot->GetSession(), std::move(futGossip), 0u, bot->GetGUIDLow());
                         return;
                     }
                     // nothing on the street: fall through and let the reply
@@ -3453,8 +3850,8 @@ PB_SAY_CONTEXT_ANDROID = """        std::string llmContext = AI_VALUE(std::strin
                         WorldPacket sceneTemplate = GetPacketTemplate(CMSG_MESSAGECHAT, CHAT_MSG_WHISPER, bot, player);
                         futurePackets futScene = std::async(std::launch::async,
                             ChatReplyAction::LinesToPackets, sceneLines,
-                            sceneTemplate, false, 4, WorldPacket(), 0);
-                        ai->SendDelayedPacket(bot->GetSession(), std::move(futScene));
+                            sceneTemplate, false, 4, WorldPacket(), 0, 0, 0, false);
+                        ai->SendDelayedPacket(bot->GetSession(), std::move(futScene), 0u, bot->GetGUIDLow());
                         return;
                     }
                 }
@@ -3470,8 +3867,8 @@ PB_SAY_CONTEXT_ANDROID = """        std::string llmContext = AI_VALUE(std::strin
                         WorldPacket storyTemplate = GetPacketTemplate(CMSG_MESSAGECHAT, CHAT_MSG_WHISPER, bot, player);
                         futurePackets futStory = std::async(std::launch::async,
                             ChatReplyAction::LinesToPackets, storyLines,
-                            storyTemplate, false, 4, WorldPacket(), 0);
-                        ai->SendDelayedPacket(bot->GetSession(), std::move(futStory));
+                            storyTemplate, false, 4, WorldPacket(), 0, 0, 0, false);
+                        ai->SendDelayedPacket(bot->GetSession(), std::move(futStory), 0u, bot->GetGUIDLow());
                         return;
                     }
                 }
@@ -3510,7 +3907,10 @@ PB_SAY_CONTEXT_ANDROID = """        std::string llmContext = AI_VALUE(std::strin
                 }
                 else
                 {
-                uint32 llmPersonaKey = chatChannelSource == ChatChannelSource::SRC_WHISPER
+                // same key law as llmTurnKey above: whisper + say per player,
+                // party/raid per channel
+                uint32 llmPersonaKey = (chatChannelSource == ChatChannelSource::SRC_WHISPER ||
+                    chatChannelSource == ChatChannelSource::SRC_SAY)
                     ? player->GetGUIDLow()
                     : (0x80000000u | static_cast<uint32>(chatChannelSource));
                 PlayerbotLlmMemory::AppendTurn(bot->GetGUIDLow(), llmPersonaKey,
@@ -3552,10 +3952,14 @@ PB_SAY_CONTEXT_ANDROID = """        std::string llmContext = AI_VALUE(std::strin
             // absence -> facts -> gossip -> rolling turns)
             // the absence bucket reads last_interaction_at, so the
             // relationship touch that stomps it happens only AFTER the
-            // context is built. Whisper history is per (bot, player);
-            // party/raid history is shared per (bot, channel) - including
-            // the bot's own reply lines (recorded post-generation).
-            uint32 llmTurnKey = chatChannelSource == ChatChannelSource::SRC_WHISPER
+            // context is built. Whisper AND say history are per (bot, player) - a
+            // conversation carried across channels keeps its transcript
+            // (the bot remembers what was said out loud when the player
+            // switches to a whisper); party/raid history stays shared per
+            // (bot, channel) - including the bot's own reply lines
+            // (recorded post-generation).
+            uint32 llmTurnKey = (chatChannelSource == ChatChannelSource::SRC_WHISPER ||
+                chatChannelSource == ChatChannelSource::SRC_SAY)
                 ? player->GetGUIDLow()
                 : (0x80000000u | static_cast<uint32>(chatChannelSource));
             // synthetic event prompts are recorded under an "(event)" pseudo
@@ -3615,7 +4019,11 @@ PB_SAY_PROMPT_V2_ANDROID = """                std::string json;
                 // configured servers) or the llama debug backend.
                 if (sPlayerbotAIConfig.llmPromptFormat && !useLlamaBackend && player && player->isRealPlayer())
                 {
-                    uint32 const llmTrainedKey = (chatChannelSource == ChatChannelSource::SRC_WHISPER && player)
+                    // history keys per PLAYER on the direct-address channels
+                    // (whisper + say): one conversation, one transcript, any
+                    // channel. Party/raid keep the channel key.
+                    uint32 const llmTrainedKey = (chatChannelSource == ChatChannelSource::SRC_WHISPER ||
+                        chatChannelSource == ChatChannelSource::SRC_SAY)
                         ? player->GetGUIDLow()
                         : (0x80000000u | static_cast<uint32>(chatChannelSource));
                     json = PlayerbotLlmMemory::BuildTrainedChatRequest(bot, player, msg, llmTrainedKey, llmAbsencePre, llmTierPre, llmEventTurn, llmEventKind, &llmLicenseStamp);
@@ -3797,6 +4205,41 @@ PB_AI_QUEUE_DEF_ANDROID = """void PlayerbotAI::QueueChatResponse(uint32 msgType,
     chatReplies.push(ChatQueuedReply(msgType, guid1.GetCounter(), guid2.GetCounter(), message, chanName, name, time(0) + (noDelay ? 0 : (delaySecs >= 0 ? delaySecs : urand(inCombat ? 15 : 10, inCombat ? 30 : 20)))));
 }
 """
+# Phase 0 trace cleanup: the ReceiveDelayedPacket-adjacent packet hook's
+# SMSG_MESSAGECHAT case head keeps ONLY the drop-path diagnostic (renamed
+# from the temporary "trace pkt-enter/drop-inactive" pair): every chat
+# packet entered here, so the per-packet enter line was 25-320-bot log
+# spam; the interesting event is the drop.
+# Round-2 finding (live battery: the second bot never answered): a
+# whisper to a bot that is still inactive (player just walked up /
+# harness .appear) was dropped at THIS gate before the trigger
+# evaluation could run - contradicting the A3 law that a whisper is
+# direct address. Whispers now peek past the gate; ambient channels
+# keep it.
+PB_AI_CHATCASE_UPSTREAM = """    case SMSG_MESSAGECHAT: // do not react to self or if not ready to reply
+    {
+        if (!AllowActivity())
+            return;
+"""
+PB_AI_CHATCASE_ANDROID = """    case SMSG_MESSAGECHAT: // do not react to self or if not ready to reply
+    {
+        // A3 law, activity-gate leg: a whisper is direct address - the
+        // player named this bot as the recipient - so it always reaches
+        // the trigger evaluation even when the bot is inactive (the
+        // gate exists to keep AMBIENT say/party/channel chatter cheap,
+        // not to refuse a player who walked up and whispered). Peek the
+        // type byte before gating; non-whisper traffic keeps the gate
+        // and its drop diagnostic.
+        WorldPacket llmPeek(packet);
+        bool const llmWhisperDirect = !llmPeek.empty() &&
+            llmPeek.contents()[0] == CHAT_MSG_WHISPER;
+        if (!llmWhisperDirect && !AllowActivity())
+        {
+            sLog.outBasic("BotLLM: activity gate drop bot=%u", bot->GetGUIDLow());
+            return;
+        }
+"""
+
 # Round-7 R1 (claim-window class closure): the drain-side TTL. The
 # claim window bounds the claim MAP, but the drain stagger is additive
 # (IncreaseAIInternalUpdateDelay accumulates: a master's repeated
@@ -4201,6 +4644,11 @@ PB_LLM_CONF_ANDROID = """# Time in seconds the server will wait for the generati
 # LLMSagaEnabled=1/LLMSagaPerDay=3 (campfire saga, cloud tier),
 # LLMRoundtablePerDay=30 (party-line composer rows),
 # LLMDossierEnabled=1/LLMDossierPerDay=1 (weekly dossier).
+# LLMMoodSeasoning=1 - the per-bot mood/weather line in the system prompt
+# ("You feel ..."). 0 silences it (the ceremony mood nudges stay).
+# LLMLogLines=0 - the harness lane: 1 also writes each final spoken reply
+# line to the world log ("BotLLM: line ..."). Text in logs is a debugging
+# posture; leave 0 unless a harness or support bundle needs it.
 # S8: the authored INITIATIVE layer rides the same switch - greet-first on
 # a remembered player's return, debt reminders, tier-gated ask-afters, the
 # rare bot2bot exchange when a player walks up, and the crowd tier's
@@ -4466,7 +4914,8 @@ PB_SAY_CHATREPLY_DECL_ANDROID = """        static void ChatReplyDo(Player* bot, 
 PB_SAY_CHATREPLY_DEF_UPSTREAM = """void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32 guid2, std::string msg, std::string chanName, std::string name)
 {"""
 PB_SAY_CHATREPLY_DEF_ANDROID = """void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32 guid2, std::string msg, std::string chanName, std::string name, bool isEventTurn, uint32 eventKind)
-{"""
+{
+"""
 CORE_PLAYER_INCLUDE_UPSTREAM = """#ifdef ENABLE_PLAYERBOTS
 #include "playerbot/playerbot.h"
 #include "playerbot/PlayerbotAIConfig.h"
@@ -5320,6 +5769,19 @@ def prepare_cmangos_source() -> None:
         WORLD_THREAD_UPSTREAM,
         WORLD_THREAD_ANDROID,
     )
+    # honest-listener first-tick gate: Master.h declaration + the
+    # wait-between-launch-and-listen span in Master.cpp (must run AFTER the
+    # WORLD_THREAD anchor, whose ANDROID text shares the launch lines)
+    replace_anchor(
+        cmangos / "src" / "mangosd" / "Master.h",
+        MASTER_GATE_DECL_UPSTREAM,
+        MASTER_GATE_DECL_ANDROID,
+    )
+    replace_anchor(
+        cmangos / "src" / "mangosd" / "Master.cpp",
+        MASTER_LISTENER_GATE_UPSTREAM,
+        MASTER_LISTENER_GATE_ANDROID,
+    )
     replace_anchor(
         cmangos / "src" / "mangosd" / "Master.cpp",
         EMBEDDED_IO_CONTEXT_RESTART_UPSTREAM,
@@ -5373,6 +5835,7 @@ def prepare_cmangos_source() -> None:
     interaction.write_bytes(POCKET_INTERACT_SOURCE.read_bytes())
     bot_root = mirror / "playerbot"
     replace_anchor(bot_root / "PlayerbotAIConfig.h", PB_CONFIG_HEADER_UPSTREAM, PB_CONFIG_HEADER_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAIConfig.cpp", PB_CONFIG_REGEX_UPSTREAM, PB_CONFIG_REGEX_ANDROID)
     replace_anchor(bot_root / "PlayerbotAIConfig.h", PB_CONFIG_SOURCE_DECL_UPSTREAM, PB_CONFIG_SOURCE_DECL_ANDROID)
     replace_anchor(bot_root / "PlayerbotAIConfig.h", PB_CONFIG_SOURCE_FIELD_UPSTREAM, PB_CONFIG_SOURCE_FIELD_ANDROID)
     replace_anchor(bot_root / "PlayerbotAIConfig.cpp", PB_CONFIG_CPP_UPSTREAM, PB_CONFIG_CPP_ANDROID)
@@ -5454,6 +5917,10 @@ def prepare_cmangos_source() -> None:
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_PROMPT_UPSTREAM, PB_SAY_PROMPT_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_JSON_DUP_UPSTREAM, PB_SAY_JSON_DUP_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_ASYNC_UPSTREAM, PB_SAY_ASYNC_ANDROID)
+    # Phase 2 Tier 1: delivery observability - the chat-reply hand-off
+    # carries the turn's req id (header decl + def + the unique call site)
+    replace_anchor(bot_root / "PlayerbotAI.h", PB_SDP_DECL_UPSTREAM, PB_SDP_DECL_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_DELIVER_UPSTREAM, PB_SAY_DELIVER_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "RpgSubActions.cpp", PB_RPG_ASYNC_UPSTREAM, PB_RPG_ASYNC_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "RpgSubActions.cpp", PB_RPG_INCLUDE_UPSTREAM, PB_RPG_INCLUDE_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "RpgSubActions.cpp", PB_RPG_QUOTA_UPSTREAM, PB_RPG_QUOTA_ANDROID)
@@ -5478,6 +5945,10 @@ def prepare_cmangos_source() -> None:
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_PROMPT_V2_UPSTREAM, PB_SAY_PROMPT_V2_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_RECORDER_UPSTREAM, PB_SAY_RECORDER_ANDROID)
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_SPLITTER_UPSTREAM, PB_SAY_SPLITTER_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_LTP_DEF_UPSTREAM, PB_SAY_LTP_DEF_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "SayAction.h", PB_SAY_LTP_H_UPSTREAM, PB_SAY_LTP_H_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "RpgSubActions.cpp", PB_RPG_FUT_GET_UPSTREAM, PB_RPG_FUT_GET_ANDROID)
+    replace_anchor(bot_root / "strategy" / "actions" / "RpgSubActions.cpp", PB_RPG_FUT_WAIT_UPSTREAM, PB_RPG_FUT_WAIT_ANDROID)
     # Pacing law (running timeDiff credit, 35 ms/char, instant busy)
     # and the per-class voice-budget call threading
     replace_anchor(bot_root / "strategy" / "actions" / "SayAction.cpp", PB_SAY_TIMEDIFF_HEAD_UPSTREAM, PB_SAY_TIMEDIFF_HEAD_ANDROID)
@@ -5493,6 +5964,7 @@ def prepare_cmangos_source() -> None:
     replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_WHISPER_MENTION_UPSTREAM, PB_AI_WHISPER_MENTION_ANDROID)
     replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_CMD_GATE1_UPSTREAM, PB_AI_CMD_GATE1_ANDROID)
     replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_CMD_GATE2_UPSTREAM, PB_AI_CMD_GATE2_ANDROID)
+    replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_CHATCASE_UPSTREAM, PB_AI_CHATCASE_ANDROID)
     replace_anchor(bot_root / "PlayerbotAI.cpp", PB_AI_DRAIN_STALE_UPSTREAM, PB_AI_DRAIN_STALE_ANDROID)
     # A2 fast-lane (rp-depth v2.3): enum + recheck helper in the header,
     # the priority early-return + bracket entry in the class
@@ -5608,6 +6080,16 @@ def restore_cmangos_source() -> None:
         NATIVE / "cmangos" / "src" / "mangosd" / "Master.cpp",
         EMBEDDED_IO_CONTEXT_RESTART_ANDROID,
         EMBEDDED_IO_CONTEXT_RESTART_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "mangosd" / "Master.cpp",
+        MASTER_LISTENER_GATE_ANDROID,
+        MASTER_LISTENER_GATE_UPSTREAM,
+    )
+    restore_anchor(
+        NATIVE / "cmangos" / "src" / "mangosd" / "Master.h",
+        MASTER_GATE_DECL_ANDROID,
+        MASTER_GATE_DECL_UPSTREAM,
     )
     restore_anchor(
         NATIVE / "cmangos" / "src" / "game" / "World" / "World.cpp",
@@ -5917,7 +6399,8 @@ def configure_and_build(force: bool, backend: str = "mysql", configure_only: boo
         print(f"configure-only: backend={backend} verified in {CMANGOS_BUILD}")
         return llvm, cmake
     run([cmake, "--build", CMANGOS_BUILD, "--target", "pocket_realmd_runtime",
-         "pocket_world_runtime", "-j", str(os.cpu_count() or 4)])
+         "pocket_world_runtime", "-j",
+         str(os.environ.get("POCKET_BUILD_JOBS") or (os.cpu_count() or 4))])
     if backend == "sqlite":
         # A SQLITE=ON build must carry zero mariadbclient
         # references anywhere in the link. No staging

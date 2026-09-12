@@ -66,6 +66,17 @@ foreach(target pocket_realmd_runtime pocket_world_runtime)
         # without /EHsc these TUs compile in the exception-disabled mode that
         # emits out-of-line boost::throw_exception calls (unresolved at link).
         target_compile_options(${target} PRIVATE /EHsc /utf-8 /bigobj /permissive-)
+        # Crash triage: the fail-fast tracer (win_exception_shim.cpp) prints
+        # module!offset frames - symbols need PDBs beside the DLLs. /Zi on
+        # the embedded TUs multiplies cl.exe's commit footprint (the asio
+        # PCH TUs need several GB each), so a memory-tight host can opt out
+        # with POCKET_BUILD_SYMBOLS=0 - the tracer then falls back to
+        # module!offset frames, resolvable offline whenever a symbolled
+        # build is available (tools/symbolize_crash_trace.py).
+        if(NOT DEFINED ENV{POCKET_BUILD_SYMBOLS} OR NOT "$ENV{POCKET_BUILD_SYMBOLS}" STREQUAL "0")
+            target_compile_options(${target} PRIVATE /Zi)
+            target_link_options(${target} PRIVATE /DEBUG /OPT:REF /OPT:ICF)
+        endif()
     endif()
     if(NOT WIN32)
         # ELF staging gates: 16 KiB max-page-size for Android 15+ and symbol
