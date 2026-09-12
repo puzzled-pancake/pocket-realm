@@ -71,9 +71,25 @@ pocketllm::LoreIndex const* LoadedLore()
         {
             pocketllm::LoreIndex* fresh = new pocketllm::LoreIndex();
             if (fresh->Load(sPlayerbotAIConfig.llmLoreFile))
+            {
+                // the load-time era lint drops contaminated cards (they are
+                // [RESULT] truth and bypass every other filter); the count
+                // is the operator's signal to re-author the file
+                if (fresh->EraLintDropped())
+                    sLog.outError("BotLLM: era lint dropped %u lore card(s) from %s - re-author the file",
+                        (uint32)fresh->EraLintDropped(), sPlayerbotAIConfig.llmLoreFile.c_str());
                 index = fresh;
+            }
             else
+            {
+                // distinguish a missing/unreadable file from one the era
+                // lint emptied entirely - the latter is an authoring bug,
+                // not a quiet configuration
+                if (fresh->EraLintDropped())
+                    sLog.outError("BotLLM: era lint dropped ALL %u lore card(s) from %s - re-author the file",
+                        (uint32)fresh->EraLintDropped(), sPlayerbotAIConfig.llmLoreFile.c_str());
                 delete fresh; // unusable file: the loop stays quiet
+            }
         }
     }
     return index;
