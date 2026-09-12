@@ -580,6 +580,9 @@ struct LoreCard
 // plain file read so the host test suite exercises the real parser over
 // fixture files; an empty/failed load degrades to "no cards" (the guard
 // still works - the lore loop is the only thing that goes quiet).
+// declared here, defined below: Load() lints every parsed card set
+inline std::vector<std::string> EraLintCards(std::vector<LoreCard> const& cards);
+
 class LoreIndex
 {
 public:
@@ -590,6 +593,7 @@ public:
             return false;
         cards_.clear();
         keyToCards_.clear();
+        lintDropped_ = 0; // a re-Load of a clean file must not report the stale count
         std::string line;
         while (std::getline(in, line))
         {
@@ -628,11 +632,43 @@ public:
             }
             cards_.push_back(card);
         }
+        // era lint at LOAD time: a contaminated card would otherwise ship
+        // silently - cards are injected as [RESULT] truth and bypass every
+        // other filter by construction (EraLintCards only ever ran in the
+        // host battery; no runtime caller existed)
+        if (!cards_.empty())
+        {
+            std::vector<std::string> const bad = EraLintCards(cards_);
+            if (!bad.empty())
+            {
+                lintDropped_ = bad.size();
+                std::set<std::string> const badSet(bad.begin(), bad.end());
+                std::vector<LoreCard> kept;
+                kept.reserve(cards_.size());
+                for (LoreCard const& card : cards_)
+                    if (!badSet.count(card.title))
+                        kept.push_back(card);
+                cards_.swap(kept);
+                keyToCards_.clear();
+                for (size_t i = 0; i < cards_.size(); ++i)
+                {
+                    for (std::string const& k : cards_[i].keys)
+                    {
+                        keyToCards_[k].push_back(i);
+                        std::string const folded = FoldPhrase(k);
+                        if (folded != k)
+                            keyToCards_[folded].push_back(i);
+                    }
+                }
+            }
+        }
         return !cards_.empty();
     }
 
     size_t Size() const { return cards_.size(); }
     std::vector<LoreCard> const& Cards() const { return cards_; }
+    // cards dropped by the load-time era lint (0 = clean file)
+    size_t EraLintDropped() const { return lintDropped_; }
 
     // True when the term is one of the index's keywords (title/alias
     // granularity, not full-text): the guard's known-name test.
@@ -775,6 +811,7 @@ public:
     }
 
 private:
+    size_t lintDropped_ = 0;
     std::vector<LoreCard> cards_;
     std::map<std::string, std::vector<size_t>> keyToCards_;
 };
@@ -1076,7 +1113,9 @@ inline std::string StripMarkdown(std::string const& text)
 
 // ASCII clamp for the 1.12 client: whole multibyte sequences drop (a
 // partial strip would emit raw UTF-8 lead/continuation bytes as
-// mojibake). Newlines and tabs survive.
+// mojibake), and C0 control bytes drop except the whitespace trio:
+// NL, CR and TAB survive (line splitting, the composer); a stray
+// 0x01-0x1F or DEL byte no longer rides into the chat packet.
 inline std::string ClampAscii(std::string const& text)
 {
     std::string out;
@@ -1086,6 +1125,16 @@ inline std::string ClampAscii(std::string const& text)
         unsigned char const c = (unsigned char)text[i];
         if (c < 0x80)
         {
+            if (c < 0x20 && c != '\n' && c != '\r' && c != '\t')
+            {
+                ++i;
+                continue;
+            }
+            if (c == 0x7F)
+            {
+                ++i;
+                continue;
+            }
             out.push_back((char)c);
             ++i;
             continue;

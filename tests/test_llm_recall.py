@@ -256,8 +256,21 @@ def test_license_carries_the_mandate_flag():
 
 def test_dedupe_reroll_exemption_is_wired():
     driver = DRIVER.read_text(encoding="utf-8")
-    assert "!PlayerbotLlmBridge::NoteMandatesContent(botGuid, licenseStamp) &&" in driver, \
-        "the A12 dedupe reroll exempts content-mandating notes (A13)"
+    # the exemption is CLAIMED ON READ (a per-bot one-per-minute budget), so
+    # the duplicate test must run FIRST - consulting the exemption before the
+    # duplicate check burned the budget on every clean mandated draw
+    assert "DuplicateOfRecent(botGuid, cleanedPreview) &&" in driver and \
+        "!PlayerbotLlmBridge::NoteMandatesContent(botGuid, licenseStamp)" in driver, \
+        "the A12 dedupe reroll exempts content-mandating notes (A13), " \
+        "claimed only after an actual duplicate is detected"
+    order = driver.split("DuplicateOfRecent(botGuid, cleanedPreview)")[1]
+    assert order.index("NoteMandatesContent") < order.index("AppendInstructionToLastUserMessage"), \
+        "the duplicate detection precedes the exemption claim"
+    # strict adjacency: the resample body itself must pay admission\
+    # (a whole-driver fallback here made the pin tautological)\
+    resample = driver.split('say something new.") &&')[1]
+    assert resample.lstrip().startswith("GovernorAdmit(botGuid)"), \
+        "the dedupe resample pays its own duty-cycle admission"
 
 
 def test_pre_stomp_state_and_threading():
@@ -342,8 +355,10 @@ def test_trained_builder_gains_tier_note_and_say_cap():
     # the load-bearing wiring: the shipped sysm actually receives the
     # staged pack seasoning AND the mood weather line (deleting either
     # argument would otherwise pass every pure-function test)
-    assert "LoadPackSeasoning(), MoodLineFor(botGuid));" in trained, \
+    assert "LoadPackSeasoning()," in trained and "MoodLineFor(botGuid)" in trained, \
         "the trained builder passes the pack seasoning and mood line into SysmForCard"
+    assert "sPlayerbotAIConfig.llmMoodSeasoning ? MoodLineFor(botGuid) : std::string()" in trained, \
+        "the mood line is conf-gated (LLMMoodSeasoning, default on)"
 
 
 def test_history_storage_cap_clears_the_read_window():

@@ -262,27 +262,27 @@
     "native/patches/cmangos/QueryResultSqlite.h": "122ecdabfafd5492df2ed313e2b6eaf6eb82c25c84930d3c4b7bcf2f9976d810",
     "native/patches/o11-cmangos-safe-mpq-listfile.patch": "54963ecc0e0c319cc65d3ea5daa9887eed5f23d648d73e4ca7ebdc3bce86d4cb",
     "native/patches/playerbots/llm_banter_core.h": "3dad1615c88b73d5b1752965f8c08f0ccb99e15f7b04c088a0a15bfa81b7fe41",
-    "native/patches/playerbots/PlayerbotLlamaRuntime.cpp": "787dfe60e8de21da31d34ddfd4f3d4fb1d0bb8d81ec9106f7889588744f324b4",
+    "native/patches/playerbots/PlayerbotLlamaRuntime.cpp": "2e9618fc56e5c839cb434e630db6236b2fa347f077e3aec122b463bea14406ed",
     "native/patches/playerbots/PlayerbotLlamaRuntime.h": "9689f9bc57b27d5b1983c9050e2bd7324ffb02204eeba5dbf6189fc5317e72ab",
-    "native/patches/playerbots/PlayerbotLlmBridge.cpp": "cd75e57a45f8d7c814dc774ec146f3b44883c485c0c55e25d8e4882058215035",
+    "native/patches/playerbots/PlayerbotLlmBridge.cpp": "2cf5852e612011552e39823f48ba43ffcc6bbf2f76df108e46e4648d10810f3a",
     "native/patches/playerbots/PlayerbotLlmBridge.h": "cfb0b035ebbff93f8c95034d61ab57453895e4fe224bc06f4f4676aceb9451c2",
     "native/patches/playerbots/PlayerbotLlmChatter.cpp": "3b7e56eb4872eac2d34b2db80ce41b10b0aa843447c95a45afc8e4397c2e2ab8",
     "native/patches/playerbots/PlayerbotLlmChatter.h": "3db6b4857bf968519e89638d777160b391f011350e95185fce62a20c0dc4d409",
-    "native/patches/playerbots/PlayerbotLlmChatterCore.h": "3669a48da8114553f891ba5aecf824adc9c5454442c526da41768c597ebbbb16",
+    "native/patches/playerbots/PlayerbotLlmChatterCore.h": "f44c847f9feb47eaf4198efabd6883361015102e58816dc559f709ea6315bcda",
     "native/patches/playerbots/PlayerbotLlmFilters.cpp": "9f7ef6e59cbe5bbed9d99403e73b65ae032a7039e02762aab9c7f7f5a96ca9a3",
     "native/patches/playerbots/PlayerbotLlmFilters.h": "4368bc4f226cbbf7ac7ed79ef089d5d4852206c45fd10f2e5eb95e9e0054807d",
     "native/patches/playerbots/PlayerbotLlmGates.h": "d5b0e4bb90fe24e38423f5365e2d2e1d26e7d58d1e4ece5b2099fcb14aebcaf7",
     "native/patches/playerbots/PlayerbotLlmJson.h": "f33aca69e42a01f9134577d5f77b39f5200116d12243f0fb40b1c52d425db6c8",
-    "native/patches/playerbots/PlayerbotLlmMemory.cpp": "1c24b1a86bb3078733d67ffaf00955a80d6ed521183281a5c3747d020a063fd2",
-    "native/patches/playerbots/PlayerbotLlmMemory.h": "443d63a010166ed6674c518afcb2d05d01e87392b0d205d96a4cdb8f9cddae9a",
-    "native/patches/playerbots/PlayerbotLlmPersona.cpp": "196cfc9b20c9ce09d4974915e3286c691ada7901bfd7c063b605b8f9363be6d8",
+    "native/patches/playerbots/PlayerbotLlmMemory.cpp": "5eb9f18fbcf962f15039cb1a0532fc27ef8e07db5eadbe703461f90d1edbf598",
+    "native/patches/playerbots/PlayerbotLlmMemory.h": "d02ab78ab49726af603ebc9614ded384e5f77208f51efa9ad3c8e44b744260e9",
+    "native/patches/playerbots/PlayerbotLlmPersona.cpp": "a6b078a36c70fca947801e8fe469e19c15759e607131ebefcaa8cf440330ab29",
     "native/patches/playerbots/PlayerbotLlmPersona.h": "c5ca382d33473b4372989b8ef242c703cc2a10aec8485fcbcb1de4324df27409",
     "native/patches/playerbots/PlayerbotLlmPrompt.h": "a254b0fd202fd58fb4d1946f08a8d1bfecc37d329575d846edf27fe72ed83f36",
     "native/patches/playerbots/PlayerbotLlmRecallCore.h": "06298ff126e6266d0b552f357854dc98f4c8abf087f2b2d95996a3ce7771b07f",
-    "native/patches/playerbots/PlayerbotLlmTools.cpp": "09440c3edeedb4735f0cb7b6f3bc307d71fe0bc5e93606f46b31506e5a9bff5e",
+    "native/patches/playerbots/PlayerbotLlmTools.cpp": "ee08522478480ad4be2ba5fc27bf12f5d9ebf2452d3e6f278dd2508b2b86e1ea",
     "native/patches/playerbots/PlayerbotLlmTools.h": "9898b16015b044b74aced21c6ba757dd2ce3ce8bb870651ac70375656aceaa28",
     "native/patches/playerbots/PlayerbotLlmToolsCore.h": "73561d8ef177daa3469e01b0fb1af37c5ccc38a0d5c43d287788f8f256892beb",
-    "native/patches/playerbots/PlayerbotLlmTruthCore.h": "5285de22d55bf738febb23164e560fd36a0b621e38d180dd3b1c8154fd4ef22d"
+    "native/patches/playerbots/PlayerbotLlmTruthCore.h": "cc3d31ccc576a8c6e818065f5eeeb4456bee9072448d9138fd4a00bcab56c803"
   },
   "sqlite_amalgamation": {
     "version": "3.46.1",
@@ -292,8 +292,8 @@
   "artifacts": [
     {
       "path": "native/.build-win-x86_64/pocket-runtime-build/pocket_realmd_runtime.dll",
-      "size": 5734912,
-      "sha256": "2d296a5c7082b5077c35b2d084a7fa48fdc5237ae45d57d8d81bfa1e2d74b09f",
+      "size": 5737472,
+      "sha256": "f10f21adbbc3bdf31a4f5d2f41f254ef626b3a71b3295c39af3455161d5e4b5d",
       "pe_machine": "0x8664",
       "pe_imports": [
         "ADVAPI32.dll",
@@ -319,8 +319,8 @@
     },
     {
       "path": "native/.build-win-x86_64/pocket-runtime-build/pocket_world_runtime.dll",
-      "size": 23684608,
-      "sha256": "dc7451fd0199f0155357c9d63c792897c191056087a50191ed01a475ca2f441b",
+      "size": 23701504,
+      "sha256": "633d89dfb70da3564784b614fe5039f578d0e81ce41071b00fffe3f568afcc3d",
       "pe_machine": "0x8664",
       "pe_imports": [
         "ADVAPI32.dll",
@@ -350,7 +350,7 @@
     {
       "path": "native/.build-win-x86_64/sqlite-seam-build/pocket_sqlite.dll",
       "size": 1362944,
-      "sha256": "9d9cd73331e28221a4e39f0c1beb8c619ac66bcd38f98243365a15c91ba2abf7",
+      "sha256": "0bba337354be28bf3465c28278261c9e626dfc7f62ba7fa6d63bccf1b8ce8e28",
       "pe_machine": "0x8664",
       "pe_imports": [
         "KERNEL32.dll",

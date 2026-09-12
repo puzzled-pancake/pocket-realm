@@ -62,8 +62,8 @@ CONF_INTERNAL_KEYS = frozenset({
     # authored-layer + engine-health switches (A5/A8/A9/E3 kin)
     "LLMAuthoredLinesPerHour", "LLMBusyReply", "LLMCuriosityEnabled",
     "LLMDramaEnabled", "LLMEraBias", "LLMEventReactionsEnabled",
-    "LLMGrudgeRefusalEnabled", "LLMPromptDumpFile", "LLMSceneReadEnabled",
-    "LLMToolsEnabled",
+    "LLMGrudgeRefusalEnabled", "LLMMoodSeasoning", "LLMPromptDumpFile",
+    "LLMSceneReadEnabled", "LLMToolsEnabled",
     # G3's TLS kill-switch - operator conf (conf.dist documents it; the
     # app stages the CA bundle, never the switch)
     "LLMTLSVerify",

@@ -253,6 +253,7 @@ internal object LlmRuntimePolicy {
         defaultPromptsFile: String? = null,
         tlsCaFile: String? = null,
         cloudLane: CloudLaneConf = CloudLaneConf(),
+        logLines: Boolean = false,
     ): String? {
         if (endpoint == null || model == null || apiKey == null) return null
         return confLines(
@@ -275,6 +276,7 @@ internal object LlmRuntimePolicy {
             defaultPromptsFile = defaultPromptsFile,
             tlsCaFile = tlsCaFile,
             cloudLane = cloudLane,
+            logLines = logLines,
         )
     }
 
@@ -363,6 +365,7 @@ internal object LlmRuntimePolicy {
         defaultPromptsFile: String? = null,
         tlsCaFile: String? = null,
         cloudLane: CloudLaneConf = CloudLaneConf(),
+        logLines: Boolean = false,
     ): String {
         // Advanced-tier overrides folded onto the measured profiles (0 keeps
         // the model/tier value); one effective profile feeds both the conf
@@ -403,6 +406,8 @@ internal object LlmRuntimePolicy {
             if (providerSafe) "\n            AiPlayerbot.LLMProviderSafe = 1" else ""
         val botToBotLine =
             if (botToBotChance > 0) "\n            AiPlayerbot.LLMBotToBotChatChance = $botToBotChance" else ""
+        val logLinesLine =
+            if (logLines) "\n            AiPlayerbot.LLMLogLines = 1" else ""
         // The staged lore card index: question turns get [RESULT]
         // cards and move_to resolves POI places; blank/absent keeps the
         // native loop off
@@ -468,7 +473,7 @@ internal object LlmRuntimePolicy {
             AiPlayerbot.LLMContextLength = ${tier.contextLength}
             AiPlayerbot.LLMFactsCap = $factsCap
             AiPlayerbot.LLMMemoriesTail = $memoriesTail$botToBotLine$thinkingLine$providerSafeLine
-            AiPlayerbot.LLMBanterEnabled = ${if (banterEnabled) 1 else 0}$loreLine$chatterLine$promptPackLine$defaultPromptsLine$tlsCaLine${if (providerSafe) cloudLane.confLines() else ""}$packDeltaLines$rpDialLines
+            AiPlayerbot.LLMBanterEnabled = ${if (banterEnabled) 1 else 0}$loreLine$chatterLine$promptPackLine$defaultPromptsLine$tlsCaLine${if (providerSafe) cloudLane.confLines() else ""}$packDeltaLines$rpDialLines$logLinesLine
         """.trimIndent() + "\n"
     }
 

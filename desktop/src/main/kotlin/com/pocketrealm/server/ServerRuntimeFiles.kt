@@ -199,6 +199,7 @@ internal class ServerRuntimeFiles(private val roots: DesktopStorageRoots) {
             defaultPromptsFile = defaultPrompts,
             tlsCaFile = tlsCa,
             cloudLane = CloudLaneConf(cloudChatter = snapshot.llmCloudChatter),
+            logLines = snapshot.worldDebugLogs,
         )
     }
 

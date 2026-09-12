@@ -809,8 +809,15 @@ private fun PromptPackCard(
     update: ((Settings.Snapshot) -> Settings.Snapshot) -> Unit,
 ) {
     val pack = remember(packJson) { LlmPromptPack.resolve(packJson) }
-    val total = pack.enabledTokenEstimate()
-    val replyRoom = contextLength - total - replyTokens - 8
+    // the meter reads the SEASONING tail only: the trained blocks are
+    // rendered natively (their editor copies are placeholders), so counting
+    // them measured fiction. The native context window is a CHARACTER
+    // window (LLMContextLength is compared against prompt chars), so the
+    // token room uses the same chars/4 heuristic as the meter itself.
+    val seasoningTok = pack.seasoningTokenEstimate()
+    val seasoningBytes = pack.seasoningByteEstimate()
+    val contextTokens = contextLength / LlmPromptBlock.CHARS_PER_TOKEN
+    val replyRoom = contextTokens - seasoningTok - replyTokens - 8
     // trained blocks render natively in a frozen order (the wording lock);
     // only the seasoning tail is player-reorderable
     val firstSeasoning = pack.blocks.indexOfFirst { it.id in LlmPromptPack.SEASONING_IDS }
@@ -819,6 +826,7 @@ private fun PromptPackCard(
     var editText by rememberSaveable { mutableStateOf("") }
     var editError by rememberSaveable { mutableStateOf<String?>(null) }
     var importText by rememberSaveable { mutableStateOf<String?>(null) }
+    var importNote by rememberSaveable { mutableStateOf<String?>(null) }
 
     fun commit(next: LlmPromptPack) {
         update { it.copy(llmPromptPackJson = next.serialize()) }
@@ -829,21 +837,35 @@ private fun PromptPackCard(
             "Every block below feeds the bot's system prompt, in order. " +
                 "Toggle seasoning rules on to deepen roleplay; edit wording " +
                 "to taste. Trained blocks (identity, tools, voice bible) " +
-                "render natively in a frozen order — their copies here feed " +
-                "the meter only, and only the seasoning tail reorders. " +
+                "render natively in a frozen order — their rows here are " +
+                "read-only, and only the seasoning tail reorders. " +
                 "Applies at the next realm start.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            "Pack ~$total tokens enabled · reply cap $replyTokens · " +
-                if (replyRoom >= 0) "reply room +$replyRoom tokens OK"
-                else "reply room $replyRoom tokens OVER — disable blocks or shorten replies",
+            "Seasoning ~$seasoningTok tok enabled · $seasoningBytes / " +
+                "${LlmPromptPack.NATIVE_SEASONING_MAX_BYTES} B native cap · " +
+                "reply cap $replyTokens · " +
+                if (replyRoom >= 0) "reply room +$replyRoom tok OK (context ≈ $contextTokens tok)"
+                else "reply room $replyRoom tok OVER — disable blocks or shorten replies",
             style = MaterialTheme.typography.labelMedium,
-            color = if (replyRoom >= 0) MaterialTheme.colorScheme.onSurfaceVariant
-            else MaterialTheme.colorScheme.error,
+            color = when {
+                replyRoom < 0 -> MaterialTheme.colorScheme.error
+                seasoningBytes > LlmPromptPack.NATIVE_SEASONING_MAX_BYTES -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            },
             modifier = Modifier.testTag("llm-pack-meter"),
         )
+        if (seasoningBytes >= LlmPromptPack.NATIVE_SEASONING_MAX_BYTES) {
+            Text(
+                "Over the native ${LlmPromptPack.NATIVE_SEASONING_MAX_BYTES}-byte cap the " +
+                    "renderer silently cuts the TAIL of the joined seasoning " +
+                    "(blocks ordered last go first). Reorder or shorten.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
         pack.blocks.forEachIndexed { index, block ->
             Column(
                 Modifier.fillMaxWidth().testTag("llm-pack-block-${block.id}"),
@@ -855,12 +877,20 @@ private fun PromptPackCard(
                 ) {
                     Switch(
                         checked = block.enabledByDefault,
-                        onCheckedChange = { on ->
-                            val next = pack.blocks.map {
-                                if (it.id == block.id) it.copy(enabledByDefault = on) else it
+                        // trained blocks render natively regardless of this
+                        // flag (the native renderer skips their ids), so the
+                        // switch is presented read-only instead of lying
+                        onCheckedChange = if (block.id in LlmPromptPack.TRAINED_IDS) {
+                            null
+                        } else {
+                            { on ->
+                                val next = pack.blocks.map {
+                                    if (it.id == block.id) it.copy(enabledByDefault = on) else it
+                                }
+                                commit(pack.copy(blocks = next))
                             }
-                            commit(pack.copy(blocks = next))
                         },
+                        enabled = block.id !in LlmPromptPack.TRAINED_IDS,
                         modifier = Modifier.testTag("llm-pack-toggle-${block.id}"),
                     )
                     Column(Modifier.weight(1f)) {
@@ -932,6 +962,15 @@ private fun PromptPackCard(
                             modifier = Modifier.testTag("llm-pack-cancel-${block.id}"),
                         ) { Text("Cancel") }
                     } else {
+                        val trained = block.id in LlmPromptPack.TRAINED_IDS
+                        if (trained) {
+                            Text(
+                                "Rendered natively — read-only",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        } else {
                         TextButton(
                             onClick = { editingId = block.id; editText = block.body; editError = null },
                             modifier = Modifier.testTag("llm-pack-show-${block.id}"),
@@ -947,6 +986,7 @@ private fun PromptPackCard(
                             },
                             modifier = Modifier.testTag("llm-pack-reset-${block.id}"),
                         ) { Text("Reset") }
+                        }
                     }
                 }
             }
@@ -984,7 +1024,15 @@ private fun PromptPackCard(
                     onClick = {
                         val parsed = importText?.let { LlmPromptPack.parse(it) }
                         if (parsed != null) {
-                            commit(LlmPromptPack.resolve(importText!!))
+                            val resolved = LlmPromptPack.resolve(importText!!)
+                            val reverted = resolved.countBodiesRevertedFrom(parsed)
+                            commit(resolved)
+                            importNote = if (reverted > 0) {
+                                "$reverted edited bod${if (reverted == 1) "y fell" else "ies fell"} " +
+                                    "back to the default at resolve (over-length or invalid)."
+                            } else {
+                                null
+                            }
                             importText = null
                         }
                     },
@@ -992,10 +1040,18 @@ private fun PromptPackCard(
                     modifier = Modifier.testTag("llm-pack-import-apply"),
                 ) { Text("Apply") }
                 TextButton(
-                    onClick = { importText = null },
+                    onClick = { importText = null; importNote = null },
                     modifier = Modifier.testTag("llm-pack-import-cancel"),
                 ) { Text("Close") }
             }
+        }
+        if (importNote != null) {
+            Text(
+                importNote!!,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.testTag("llm-pack-import-note"),
+            )
         }
         Text(
             "Edits save immediately and apply at the next realm start. " +

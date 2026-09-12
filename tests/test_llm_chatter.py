@@ -277,6 +277,15 @@ def test_kotlin_emission_surface():
     assert "thermalStatus" in monitor  # signature compat only, ignored
 
 
+def test_composer_rejects_prompt_furniture_terms():
+    # the composer char law bans <>"{}| and lead [/*, but a mid-line
+    # protocol term used to pass - the parse law must name the furniture
+    core = (PATCHES / "PlayerbotLlmChatterCore.h").read_text(encoding="utf-8")
+    for term in ("[BRIDGE", "[RESULT]", "[EVENT]", "[State]",
+                 "[Memories]", "Write in place of", "Speak your reply"):
+        assert term in core, f"composer furniture term missing: {term}"
+
+
 def test_p52_wording_lock_module_is_fresh():
     """Binding condition: the wording bank trains the FROZEN shipped
     wording byte-exactly. banklib-adjacent bridge_wording.py is

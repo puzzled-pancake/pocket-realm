@@ -382,8 +382,24 @@ private:
                 m_queue.erase(best);
             }
 
-            std::string result = RunGeneration(request);
-            request.result.set_value(result);
+            try
+            {
+                std::string result = RunGeneration(request);
+                request.result.set_value(result);
+            }
+            catch (std::exception const& e)
+            {
+                // a throw escaping the worker thread function would
+                // std::terminate the process; surface it as the same
+                // transport-error sentinel the consumer side expects
+                sLog.outError("BotLLM: llama worker generation failed: %s", e.what());
+                request.result.set_value(std::string("error"));
+            }
+            catch (...)
+            {
+                sLog.outError("BotLLM: llama worker generation failed (unknown exception)");
+                request.result.set_value(std::string("error"));
+            }
         }
     }
 
@@ -763,7 +779,26 @@ std::string PlayerbotLlamaRuntime::Generate(const std::string& prompt, uint32 bo
         return "error";
     }
 
-    return future.get();
+    // the worker's exception would rethrow here on the generation thread;
+    // that thread is always detached-adjacent (SendDelayedPacket's waiter),
+    // so it must surface as the transport-error sentinel, never escape
+    try
+    {
+        return future.get();
+    }
+    catch (std::exception const& e)
+    {
+        if (!debugLines.empty())
+            debugLines.push_back(std::string("llama: generation failed: ") + e.what());
+        sLog.outError("BotLLM: llama generation failed: %s", e.what());
+    }
+    catch (...)
+    {
+        if (!debugLines.empty())
+            debugLines.push_back("llama: generation failed (unknown exception)");
+        sLog.outError("BotLLM: llama generation failed (unknown exception)");
+    }
+    return "error";
 }
 
 void PlayerbotLlamaRuntime::SetCompanionMode(bool companion)

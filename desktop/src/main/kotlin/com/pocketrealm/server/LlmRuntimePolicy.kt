@@ -125,6 +125,7 @@ internal object LlmRuntimePolicy {
         defaultPromptsFile: String? = null,
         tlsCaFile: String? = null,
         cloudLane: CloudLaneConf = CloudLaneConf(),
+        logLines: Boolean = false,
     ): String? {
         if (endpoint == null || model == null || apiKey == null) return null
         return confLines(
@@ -147,6 +148,7 @@ internal object LlmRuntimePolicy {
             defaultPromptsFile = defaultPromptsFile,
             tlsCaFile = tlsCaFile,
             cloudLane = cloudLane,
+            logLines = logLines,
         )
     }
 
@@ -214,6 +216,7 @@ internal object LlmRuntimePolicy {
         defaultPromptsFile: String? = null,
         tlsCaFile: String? = null,
         cloudLane: CloudLaneConf = CloudLaneConf(),
+        logLines: Boolean = false,
     ): String {
         val replyTokensOverride =
             if (speech.replyTokens > 0) speech.replyTokens else maxNewTokensOverride
@@ -238,6 +241,8 @@ internal object LlmRuntimePolicy {
             } else ""
         val botToBotLine =
             if (botToBotChance > 0) "\n            AiPlayerbot.LLMBotToBotChatChance = $botToBotChance" else ""
+        val logLinesLine =
+            if (logLines) "\n            AiPlayerbot.LLMLogLines = 1" else ""
         val providerSafeLine =
             if (providerSafe) "\n            AiPlayerbot.LLMProviderSafe = 1" else ""
         val loreLine =
@@ -288,7 +293,7 @@ internal object LlmRuntimePolicy {
             AiPlayerbot.LLMContextLength = ${tier.contextLength}
             AiPlayerbot.LLMFactsCap = $factsCap
             AiPlayerbot.LLMMemoriesTail = $memoriesTail$botToBotLine$providerSafeLine
-            AiPlayerbot.LLMBanterEnabled = ${if (banterEnabled) 1 else 0}$loreLine$chatterLine$promptPackLine$defaultPromptsLine$tlsCaLine${if (providerSafe) cloudLane.confLines() else ""}$packDeltaLines$rpDialLines
+            AiPlayerbot.LLMBanterEnabled = ${if (banterEnabled) 1 else 0}$loreLine$chatterLine$promptPackLine$defaultPromptsLine$tlsCaLine${if (providerSafe) cloudLane.confLines() else ""}$packDeltaLines$rpDialLines$logLinesLine
         """.trimIndent() + "\n"
     }
 

@@ -1593,9 +1593,10 @@ private fun AiRpDialsControls(
         SectionHeader("ROLEPLAY DIALS — THIS PRESET")
         Text(
             "How this preset's bots carry themselves. Default (50) follows " +
-                "the global behavior; 0 mutes the trait, 100 maximizes it. " +
-                "Dials render as native seasoning weights in Phase 3 — this " +
-                "version persists them and carries them into the conf.",
+                "the global behavior; 0 minimizes the trait, 100 maximizes " +
+                "it. These dials are live: each rides this preset's conf " +
+                "block (the LLMRp dial keys) and changes bot behavior at " +
+                "the next realm start.",
             style = MaterialTheme.typography.bodySmall,
         )
         AiRpDialRow("Initiative — opens conversation", working.llmSpeech.initiative, "bots-rp-initiative") { value ->

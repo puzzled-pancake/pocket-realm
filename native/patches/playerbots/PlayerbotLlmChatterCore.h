@@ -747,6 +747,18 @@ inline std::vector<ScriptLine> ParseComposerScript(std::string const& raw,
                     text[k] == '{' || text[k] == '}' || text[k] == '|')
                     safe = false;
             }
+            // prompt furniture never voices through the composer: the char
+            // law above blocks <<>{}| but a mid-line protocol term passed it
+            // (the same gap ContainsMarkerTerms closes on the reply paths)
+            static char const* const kFurniture[] = {
+                "[BRIDGE", "[RESULT]", "[EVENT]", "[State]",
+                "[Memories]", "Write in place of", "Speak your reply",
+            };
+            for (char const* term : kFurniture)
+            {
+                if (safe && text.find(term) != std::string::npos)
+                    safe = false;
+            }
             if (!safe) { matched = true; break; }
             ScriptLine accepted;
             accepted.speakerIdx = i;

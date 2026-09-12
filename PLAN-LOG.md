@@ -4321,3 +4321,95 @@ rc=2) instead of the client relaunch verb - captured verbatim by the new
 operation logging. The user confirmed: "cool that works now". This
 closes qualification section 2 (human-in-the-loop) steps 2, 3 and 5 for
 the LOCAL lane.
+
+## Boot-race + delivery + crash-trio fix campaign (2026-09-12, desktop lane, MiniMax M3)
+
+Three live crashes/gaps found by the harness, root-caused, fixed, and
+live-verified on Windows (final build 7f69160f05bc + the round-3 tracer
+hardening that follows it).
+
+- BOOT-RACE (0xC0000409 x3, player login during the boot's first ticks):
+  the world now has an HONEST-LISTENER gate - Master::StartNetworkEmbedded
+  (driver payload MASTER_LISTENER_GATE) waits for the loop's first
+  completed World::Update (record_tick raises m_first_tick_done) BEFORE the
+  realmlist ONLINE flip, the LFG/BG queue threads, and the listener bind;
+  run() re-waits and re-checks STARTING before publishing READY; a boot
+  whose loop never ticks fails INTERNAL at a 300s deadline; stop()'s two
+  FAILED branches and start()'s worker reclaim join BOUNDED
+  (settle-or-detach) so a worker hung inside cleanup() can no longer seize
+  m_lifecycle. Regression: tools/rp_harness/desktop_boots.py - 5 bot + 2
+  plain boots (the bots=0 shape creates map 0 by the player's own login,
+  the original crash shape), login driven the moment READY flips: 7/7
+  in-world, zero crashes, clean stops. Pins: tests/test_world_runtime_honest_ready.py
+  (12, including an artifact-level pin - the shipped DLL must contain the
+  gate's failure literal).
+- DELIVERY (the "generated replies never reach the client" gap): the
+  delayed-packet guard's liveness oracle was sWorld.FindSession(accountId)
+  - bot sessions are NEVER registered in the world session map, so the
+  guard dropped 100% of delayed deliveries. Oracle is now
+  FindPlayer(botGuid)+session identity, re-checked after the pacing sleep
+  and immediately before QueuePacket; the drop is logged for every caller.
+  Tier-1 deliver lines (req/bot/packets/paceMs) made this visible: before
+  the fix 3/3 live turns showed packets=0 dropped=session-gone; after,
+  every turn hands off packets=2 and the client capture reads them.
+  Evidence binding (honest framing): the 17/17-exchanges-0-issues battery
+  ran on the pre-lock-fix DLL; on the FINAL DLL the battery is 7/7
+  exchanges 0 issues plus the 40-minute soak's 14/14 delivered addressed
+  turns across 14 bots (all packets=2, zero drops) - that is the
+  final-build delivery proof. A8 clean throughout (6 req, 0 violations,
+  ok p50 3.2s).
+- TOOLPROBE CRASH (SIGABRT killing the host JVM ~5 min into the
+  .appear-rotation probe): the win_exception_shim crash tracer
+  (SIGABRT/SEH/terminate/invalid-parameter handlers -> %LOCALAPPDATA%
+  PocketRealm crash-trace.txt, dbghelp symbolized, atomic try-claim init,
+  thread-local re-entry guard) named the stack:
+  pocketllm::SelectLine <- SceneNudgeLine <- GreetingLine <-
+  AuthoredArrivalGreeting <- TickInitiative on a map-worker thread.
+  Root cause: GreetingLine held the s_stateMutex StateRef ACROSS the
+  SeasonGreeting call, and SeasonGreeting re-entered StateFor with its own
+  lane key - a same-thread re-lock of the NON-RECURSIVE state mutex; MSVC
+  throws system_error(EDEADLK, "resource deadlock would occur") and the
+  uncaught throw terminated the process. Fixed twice over: the lock-scope
+  restructure (draw under the lock, release, then season; redraw and
+  ApplyTic take fresh scopes; pinned by tests/test_llm_persona_lock_scope.py)
+  and the fail-soft containment at AuthoredArrivalGreeting (catch, log
+  "authored arrival greeting threw", answer with silence). Pre-fix the
+  contained throw fired once live (EDEADLK); post-fix zero throws across
+  two full 20/20 probes, boots 7/7, battery, and the soak.
+- WHISPER ACTIVITY GATE (battery asymmetry: the second bot never
+  answered): the SMSG_MESSAGECHAT activity gate dropped whispers to
+  inactive bots BEFORE the trigger evaluation - a whisper is direct
+  address (the A3 law) so it now peeks past the gate; ambient channels
+  keep the gate and the drop diagnostic.
+- TOOL FUNNEL (Phase 3): per-call loss-stage lines
+  (emitted/tools-disabled/no-note/stale-license/unknown-tool/unlicensed/
+  queued/queue-full) in ExtractAndQueue; the 20-probe verification suite
+  (tools/rp_harness/desktop_toolprobe.py) ran 20/20 clean twice. Verdict,
+  stated plainly: 0/20 markers emitted on plain conversational turns and
+  the plan's >=80% acceptance bar is UNMET - 0 emissions is the trained
+  note-driven contract working (no BRIDGE note on those turns, no markers
+  legal), and the funnel shows zero protocol leakage. Fix B shipped as the
+  opt-in "tool-exemplar" seasoning block (FIRST in the seasoning order -
+  the 1200-byte native cut drops trailing blocks - body sized to fit,
+  external-endpoint scoped, cannot license anything; it shapes replies
+  only on turns that already carry a note). Fix B has NOT been validated
+  by an enabled probe yet; the licensed lane itself demonstrably works
+  (log_fact emitted->queued->executed during the play battery).
+- PHASE 4 SOAK: 40-minute living-world run (tools/rp_harness/desktop_soak.py)
+  - 15 rotation rounds, 20 bots online, 14/14 cloud dispatches delivered,
+  28 spoken bot lines client-captured, 11 crowd text-emotes observed. The
+  dedicated LLM chatter composer (bot2bot banter / rumours) stayed silent:
+  per the gap analysis that lane needs bots in quest/RPG strategies near
+  POIs - a profile/strategy arming question, documented, not a code defect.
+- Phase 5 harness assets: RpWowClient structured 1.12 chat parse (sender
+  guid per BuildChatPacket layout) + SMSG_TEXT_EMOTE capture + correct
+  SMSG_NEW_WORLD -> MSG_MOVE_WORLDPORT_ACK completion (the old
+  ack-after-command fired while "still in world" and left far teleports in
+  limbo); desktop_boots/desktop_toolprobe/desktop_soak suites; offline
+  symbolizer tools/symbolize_crash_trace.py.
+- Known debt carried: the persona lanes outside the arrival-greeting
+  containment run uncontained on map/async threads (the structural lock
+  fix is the real guard); SendDelayedPacket's validate-then-QueuePacket
+  window is narrowed, not closed; MaybeAmbientLine still holds the state
+  lock across a say broadcast (pre-existing, serialization only); journal-
+  family success deliveries stay silent (reqId 0; drops are logged).

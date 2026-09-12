@@ -44,7 +44,14 @@ def test_pace_call_drops_to_35ms_and_busy_lands_instantly():
     anchor = android_anchor("PB_SAY_PACE_CALL_ANDROID")
     assert anchor.count("busyReply ? 0 : 35") == 1, \
         "MsPerChar drops 200 -> 35 on the reply path"
-    assert "busyReply ? 0 : timeDiff" in anchor, \
+    # E1b: the credit is capped and the reaction/floor knobs ride the
+    # conversational call only - every pacing argument is busy-gated, so
+    # the busy placeholder still lands instantly (no pacing, no credit)
+    assert "busyReply ? 0 : std::min<uint32>(timeDiff, 2500)" in anchor, \
+        "the generation credit is capped (a long generation never cancels the typing pace)"
+    assert "busyReply ? 0 : urand(400, 1200), busyReply ? 0 : 400" in anchor, \
+        "the reaction beat and per-line floor are conversational-only"
+    assert anchor.count("busyReply ? 0 :") == 4, \
         "the busy placeholder lands instantly (no pacing, no credit)"
     assert "false, 200, emoteTemplate" not in anchor
 

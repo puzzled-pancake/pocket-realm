@@ -217,6 +217,9 @@ static void TestLoreIndex()
         {
             std::vector<std::string> lint = EraLintCards(shipped.Cards());
             CHECK(lint.empty());
+            // the load-time lint must agree: clean file = zero dropped,
+            // so a silent in-Load prune can never mask contamination
+            CHECK(shipped.EraLintDropped() == 0);
             if (!lint.empty())
                 std::cout << "  era lint violations: " << lint.size()
                           << " first: " << lint[0] << "\n";
