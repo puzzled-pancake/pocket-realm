@@ -58,9 +58,10 @@ data class LlmPromptBlock(
         const val MAX_BODY_CHARS = 2000
 
         /**
-         * Validate an edited body: only what breaks the conf/JSON transport
-         * is rejected (quotes/backslash/control rules, the same discipline
-         * as the external-endpoint normalizers, fail-closed with a reason).
+         * Validate an edited body: only what breaks the transport is
+         * rejected (control characters other than \n/\t; the pack travels
+         * as a JSON file and the native parser handles quotes and
+         * backslashes with full string semantics, so they are allowed).
          * No content policing — the weights carry their own safety; the
          * token meter is the soft guide on length.
          */
@@ -69,15 +70,14 @@ data class LlmPromptBlock(
                 return "Block is too long (${body.length} chars, max $MAX_BODY_CHARS)"
             }
             return if (hasTransportBreakingChar(body)) {
-                "No quotes, backslashes, or control characters " +
-                    "(they break the conf/JSON transport)"
+                "No control characters (line breaks and tabs are fine)"
             } else {
                 null
             }
         }
 
         private fun hasTransportBreakingChar(body: String): Boolean =
-            body.any { it == '"' || it == '\\' || it.isTransportControl() }
+            body.any { it.isTransportControl() }
 
         private fun Char.isTransportControl(): Boolean =
             isISOControl() && this != '\n' && this != '\t'
@@ -113,6 +113,45 @@ data class LlmPromptPack(
     fun enabledTokenEstimate(): Int =
         blocks.filter { it.enabledByDefault }.sumOf { it.estimatedTokens() }
 
+    /**
+     * Token estimate over the SEASONING tail only. The trained blocks are
+     * rendered natively from the frozen contract - the copies here are
+     * placeholders for the editor preview - so counting them made the meter
+     * measure fiction. This is the number the player's edits actually move.
+     */
+    fun seasoningTokenEstimate(): Int =
+        blocks.filter { it.enabledByDefault && it.id in SEASONING_IDS }
+            .sumOf { it.estimatedTokens() }
+
+    /**
+     * The native renderer joins the enabled seasoning bodies with single
+     * spaces inside the identity instruction span and hard-caps the joined
+     * text at [NATIVE_SEASONING_MAX_BYTES] bytes (UTF-8, cut at the last
+     * newline - by POSITION, not by priority). This estimate reports the
+     * joined size so the editor can warn before the silent native cut.
+     */
+    fun seasoningByteEstimate(): Int =
+        blocks.filter { it.enabledByDefault && it.id in SEASONING_IDS }
+            .map { it.body }
+            .filter { it.isNotEmpty() }
+            .joinToString(" ")
+            .toByteArray(Charsets.UTF_8)
+            .size
+
+    /**
+     * Import honesty: how many edited bodies fell back to the default at
+     * resolve (over-length or invalid) - bodies whose default text now
+     * differs from the submitted pack. Zero means the import landed whole.
+     */
+    fun countBodiesRevertedFrom(submitted: LlmPromptPack): Int =
+        blocks.count { resolved ->
+            val sent = submitted.blocks.firstOrNull { it.id == resolved.id }
+            sent != null && sent.body != resolved.body && resolved.body == defaultBodyOf(resolved.id)
+        }
+
+    private fun defaultBodyOf(id: String): String? =
+        defaultBlocks().firstOrNull { it.id == id }?.body
+
     fun toJson(): JSONObject = JSONObject()
         .put("version", version)
         .put("blocks", JSONArray(blocks.map { it.toJson() }))
@@ -121,6 +160,9 @@ data class LlmPromptPack(
 
     companion object {
         const val CURRENT_VERSION = 1
+
+        /** The native seasoning cap (PlayerbotLlmMemory.cpp LoadPackSeasoning). */
+        const val NATIVE_SEASONING_MAX_BYTES = 1200
 
         fun parse(raw: String): LlmPromptPack? = runCatching {
             val root = JSONObject(raw)
@@ -169,13 +211,14 @@ data class LlmPromptPack(
         }
 
         /**
-         * The default pack. Order mirrors the trained renderer; the nine
+         * The default pack. Order mirrors the trained renderer; the
          * `seasoning` blocks (voice-lock, the 4-rule core, ban-list,
-         * scene-close, initiative-opener, mood-weather) ride
+         * scene-close, initiative-opener, mood-weather, tool-exemplar,
+         * player-persona) ride
          * inside the existing instruction span. Bodies marked TRAINED must
          * stay byte-identical to the native constants — they are rendered
          * natively, never from this text; the copies here feed the editor
-         * preview and the token meter only.
+         * preview only (the token meter reads the seasoning tail).
          */
         // LongMethod: the default pack is one literal per block by design —
         // splitting it further would scatter the trained-order contract
@@ -200,7 +243,8 @@ data class LlmPromptPack(
                 body = "TRAINED: per-card TOOLS_NOTE variant (crc32(card_id)%4), " +
                     "rendered natively. Shown here for the token meter only.",
                 help = "The bracketed-note tool contract with trained examples. " +
-                    "Never disable: tools stop working without it.",
+                    "Rendered natively per card — toggles and edits here are " +
+                    "inert (shown for reference).",
             ),
             LlmPromptBlock(
                 id = "bible",
@@ -271,14 +315,57 @@ data class LlmPromptPack(
             "voice-lock", "rule-autonomy", "rule-anti-omniscient",
             "rule-boldness", "rule-salience", "ban-list", "scene-close",
             "initiative-opener", "mood-weather",
+            // Phase-3 Fix B: the few-shot marked-line exemplar for external
+            // endpoints - ships OFF so the trained lane's prompt stays
+            // byte-identical
+            "tool-exemplar",
             // plan v5 S.2: the player persona card - an empty body renders
             // nothing (silence doctrine), so the trained default stays
             // byte-identical until the player writes their card
             "player-persona",
         )
 
+        /**
+         * The trained-contract block ids (mirrors the native renderer's
+         * kTrainedIds skip list): their bodies are rendered natively from
+         * the frozen constants, so editor toggles and edits on them are
+         * inert - the UI presents them read-only.
+         */
+        val TRAINED_IDS: Set<String> = setOf(
+            "identity", "tools-note", "bible", "no-narrate", "backstory",
+            "relationship", "absence", "facts", "memories-tail", "state",
+            "bridge-note",
+        )
+
         @Suppress("LongMethod")
         private fun seasoningBlocks(): List<LlmPromptBlock> = listOf(
+            LlmPromptBlock(
+                id = "tool-exemplar",
+                title = "Tool exemplar (seasoning, external models)",
+                // FIRST in the seasoning order on purpose: the native
+                // budget drops whole trailing blocks past 1200 joined
+                // bytes, so the last block is the first one silenced
+                // when the tail overflows
+                body = "When a [BRIDGE AI] note asks for a marked line, the marked line " +
+                    "names game truth - never invented detail. Shape of a look-up:\n" +
+                    "Player: what do you see around you?\n" +
+                    "[BRIDGE AI] You may look at your surroundings. End your reply with " +
+                    "exactly this line:\n" +
+                    "<<get_scene fields=\"place,time,weather\">>\n" +
+                    "Your reply: Frost on the pines and the light going gray. Snow before " +
+                    "the hour is out.\n" +
+                    "<<get_scene fields=\"place,time,weather\">>\n" +
+                    "No note: plain spoken words only - never a marked line.",
+                enabledByDefault = false,
+                help = "Phase-3 Fix B: few-shot exemplar for EXTERNAL endpoints " +
+                    "(MiniMax and friends zero-shot the trained marked-line contract " +
+                    "unreliably; the trained GGUF lane must keep its prompt byte-identical, " +
+                    "so this ships OFF). Marked lines still fire only when the turn's " +
+                    "[BRIDGE AI] note licenses them - the block shapes the reply, it " +
+                    "cannot license anything. The 1200-byte seasoning budget covers the " +
+                    "WHOLE enabled tail joined: if other seasoning blocks are on, this " +
+                    "one (or they) must be turned off to fit - the byte meter warns.",
+            ),
             LlmPromptBlock(
                 id = "voice-lock",
                 title = "Voice lock (seasoning)",
@@ -381,7 +468,9 @@ data class LlmPromptPack(
                     "look, history, how bots should read you. Empty (default) " +
                     "renders nothing; the trained prompt is untouched until " +
                     "you write your card. Keep it under ~120 tokens - the " +
-                    "seasoning budget drops the lowest-priority blocks first.",
+                    "native renderer cuts the joined seasoning at 1200 bytes " +
+                    "by position, so blocks ordered LAST go first; watch the " +
+                    "byte meter above.",
             ),
         )
     }

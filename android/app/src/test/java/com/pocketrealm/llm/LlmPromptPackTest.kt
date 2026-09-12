@@ -27,9 +27,10 @@ class LlmPromptPackTest {
         )
         assertEquals(trainedOrder, ids.take(trainedOrder.size))
         val seasoning = listOf(
-            "voice-lock", "rule-autonomy", "rule-anti-omniscient",
-            "rule-boldness", "rule-salience", "ban-list", "scene-close",
-            "initiative-opener", "mood-weather", "player-persona",
+            "tool-exemplar", "voice-lock", "rule-autonomy",
+            "rule-anti-omniscient", "rule-boldness", "rule-salience",
+            "ban-list", "scene-close", "initiative-opener", "mood-weather",
+            "player-persona",
         )
         assertEquals(seasoning, ids.takeLast(seasoning.size))
         // plan v5 S.2: the persona card ships disabled with an EMPTY body -
@@ -183,7 +184,7 @@ class LlmPromptPackTest {
             listOf(
                 "player-persona", "initiative-opener", "scene-close", "ban-list",
                 "rule-salience", "rule-boldness", "rule-anti-omniscient",
-                "rule-autonomy", "voice-lock", "mood-weather",
+                "rule-autonomy", "voice-lock", "tool-exemplar", "mood-weather",
             ),
             ids2.drop(11),
         )
@@ -192,9 +193,13 @@ class LlmPromptPackTest {
     @Test
     fun resolveKeepsInvalidBodiesFailingOpenToDefaultBody() {
         // a body edit that breaks transport keeps the player's enabled
-        // flag but falls back to the default body (never silence)
+        // flag but falls back to the default body (never silence). Quotes
+        // and backslashes travel fine (the pack is a JSON file and the
+        // native parser has full string semantics); control characters
+        // other than \n/\t are the remaining transport breaker.
+        val ctrl = "bad" + '\u0001' + "control"
         val withBad = LlmPromptPack().blocks.map {
-            if (it.id == "voice-lock") it.copy(body = "bad \" quote", enabledByDefault = true) else it
+            if (it.id == "voice-lock") it.copy(body = ctrl, enabledByDefault = true) else it
         }
         val resolved = LlmPromptPack.resolve(LlmPromptPack(blocks = withBad).serialize())
         val voice = resolved.blocks.first { it.id == "voice-lock" }
@@ -206,6 +211,40 @@ class LlmPromptPackTest {
             "the player's enabled flag survives the body fallback",
             voice.enabledByDefault,
         )
+    }
+
+    @Test
+    fun quotesAndBackslashesAreValidBodyText() {
+        // players can write quoted phrases: the transport is a JSON file
+        assertNull(LlmPromptBlock.validateBody("say \"aye\" loud \\d daily"))
+    }
+
+    @Test
+    fun seasoningMeterReadsTheSeasoningTailOnly() {
+        val pack = LlmPromptPack()
+        // the trained head ships enabled but is rendered natively - its
+        // placeholder copies must never move the meter; the seasoning tail
+        // ships disabled, so the meter starts at zero
+        assertEquals(0, pack.seasoningTokenEstimate())
+        assertEquals(0, pack.seasoningByteEstimate())
+        val enabled = LlmPromptPack(blocks = pack.blocks.map {
+            if (it.id in LlmPromptPack.SEASONING_IDS) it.copy(enabledByDefault = true) else it
+        })
+        assertTrue(enabled.seasoningTokenEstimate() > 0)
+        assertTrue(enabled.seasoningByteEstimate() > 0)
+    }
+
+    @Test
+    fun importRevertCountReportsBodiesThatFellBackToDefault() {
+        val pack = LlmPromptPack()
+        val ctrl = "bad" + '\u0001' + "body"
+        val withBad = pack.blocks.map {
+            if (it.id == "voice-lock") it.copy(body = ctrl) else it
+        }
+        val resolved = LlmPromptPack.resolve(LlmPromptPack(blocks = withBad).serialize())
+        assertEquals(1, resolved.countBodiesRevertedFrom(LlmPromptPack(blocks = withBad)))
+        val clean = LlmPromptPack.resolve(pack.serialize())
+        assertEquals(0, clean.countBodiesRevertedFrom(pack))
     }
 
     @Test
