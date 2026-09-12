@@ -79,6 +79,13 @@ class DesktopRuntimeBackend(
      * supervisor's bot-aware world budget keys off spec.profileId. */
     fun activeBotProfileId(): String? = resolveBotProfile()?.id
 
+    /** Bot-aware world READY budget (the supervisor's stageTimeoutMs
+     * shape): bot boots get the 600s-class budget because honest-READY
+     * waits for the world loop's first tick and bot admission starts
+     * inside it; bots-disabled boots keep the plain 120s-class budget. */
+    private fun worldReadyWaitMs(): Long =
+        if (activeBotProfileId() != null) BOT_WORLD_READY_WAIT_MS else WORLD_READY_WAIT_MS
+
     /**
      * The launch bot profile from the settings snapshot — the Android
      * WorldRuntimeService.startBotProfile contract: a selected built-in or
@@ -504,8 +511,13 @@ class DesktopRuntimeBackend(
         // have no side effects on the client directory.
         client?.let { if (it.isAlive) error("client already running (pid ${it.pid()})") }
         ClientRealmEndpointProjection.project(File(dir, "realmlist.wtf"), endpoint)
+        // The no-manifest 1.12 client trips Windows' installer-detection
+        // heuristic and would come up ELEVATED: UIPI then eats every
+        // synthetic input (the app's own auto-login included). RUNASINVOKER
+        // disables the heuristic for this launch only.
         val spawned = ProcessBuilder(exe.absolutePath)
             .directory(dir)
+            .apply { environment()["__COMPAT_LAYER"] = "RUNASINVOKER" }
             .start()
         client = spawned
         ComponentObservation(
@@ -697,7 +709,7 @@ class DesktopRuntimeBackend(
             error("world start failed: ${ServerRuntimeContract.errorName(rc.toLong())} (rc=$rc)")
         }
         try {
-            awaitComponentReady("world", WORLD_READY_WAIT_MS) { observeWorld() }
+            awaitComponentReady("world", worldReadyWaitMs()) { observeWorld() }
         } catch (failure: Throwable) {
             // The wait failed (native died mid-boot or never reached READY):
             // release the generation lease this start pinned.
@@ -828,11 +840,15 @@ class DesktopRuntimeBackend(
          * overridden by the stored client folder from the Home picker. */
         const val DEFAULT_CLIENT_DIR = "C:/Vanilla wow 1.12.1"
 
-        /** Ready-wait bounds, deliberately INSIDE the supervisor's stage
-         * timeouts (realm 30s / world 120s) so the backend wait can never
-         * be the withTimeout that fires first. */
+        /** Ready-wait bounds, mirroring the supervisor's bot-aware stage
+         * contract (RuntimeContracts.stageTimeoutMs: world 120s plain,
+         * 600s with a bot profile - the first world tick carries the
+         * boot's deferred legs and honest-READY now waits for it). The
+         * backend OWNS this wait (no outer stage enforces it here), so
+         * the budget is the contract. */
         const val REALM_READY_WAIT_MS = 25_000L
         const val WORLD_READY_WAIT_MS = 110_000L
+        const val BOT_WORLD_READY_WAIT_MS = 590_000L
         const val POLL_INTERVAL_MS = 200L
 
         /** The desktop seam's exec carries no bind parameters (it mirrors

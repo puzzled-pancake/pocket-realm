@@ -199,6 +199,34 @@ tasks.register<JavaExec>("whisperGate") {
     jvmArgs("-Djava.library.path=$nativeLibraryPath")
 }
 
+// Harness lane: the stdio JSON-line RP host (see RpHost.kt). One JSON op
+// per stdin line -> one JSON response per stdout line; EOF drains with a
+// save. -PrpClient=1 also launches WoW.exe (needs -PclientDir=...);
+// -PrpAccount/-PrpPassword auto-type the login after the client is up.
+tasks.register<JavaExec>("rpHost") {
+    group = "bring-up"
+    description = "Boot the stack and serve the world console ops over stdio JSON lines."
+    classpath = sourceSets.named("main").get().runtimeClasspath
+    mainClass.set("com.pocketrealm.desktop.RpHostKt")
+    jvmArgs("-Djava.library.path=$nativeLibraryPath")
+    standardInput = System.`in`
+    if (project.hasProperty("clientDir")) {
+        jvmArgs("-DclientDir=${project.property("clientDir")}")
+    }
+    if (project.hasProperty("rpClient")) {
+        jvmArgs("-DrpClient=${project.property("rpClient")}")
+    }
+    if (project.hasProperty("rpAccount")) {
+        jvmArgs("-DrpAccount=${project.property("rpAccount")}")
+    }
+    if (project.hasProperty("rpPassword")) {
+        jvmArgs("-DrpPassword=${project.property("rpPassword")}")
+    }
+    if (project.hasProperty("rpBots")) {
+        jvmArgs("-DrpBots=${project.property("rpBots")}")
+    }
+}
+
 // Phase-6 packaging: jpackage app image carrying the native lanes
 // (realm DLLs + sqlite seam), the pinned seed transcripts, and the
 // build provenance. Inputs are machine-local build outputs — the task
