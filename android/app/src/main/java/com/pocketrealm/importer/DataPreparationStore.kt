@@ -108,7 +108,7 @@ class DataPreparationStore(
         importId: String, stage: DataStage, root: File, onTick: () -> Unit, body: suspend () -> Unit,
     ) {
         if (journal.dataStage(importId, stage)?.state == DataStageState.VERIFIED) return
-        // F8 C: total 0 = unknown-length work; the UI renders an honest
+        // Total 0 = unknown-length work; the UI renders an honest
         // indeterminate bar instead of a frozen "0/1" checkpoint for the
         // minutes these single-shot tools run. Completion records 1/1.
         journal.startDataStage(importId, stage, 0)
@@ -243,8 +243,9 @@ class DataPreparationStore(
 
     private fun publish(importId: String, stageRoot: File, onTick: () -> Unit): PublishedData {
         recover(importId, onTick)?.let { return it }
-        // Round-2 fix: unknown-length like the other finite stages — the full
-        // data hash walk left a frozen "0/1" bar for its entire duration.
+        // Unknown-length like the other finite stages — the full
+        // data hash walk would otherwise leave a frozen "0/1" bar for its
+        // entire duration.
         journal.startDataStage(importId, DataStage.MANIFEST, 0)
         onTick()
         val required = listOf("dbc", "maps", "vmaps", "mmaps")
@@ -280,10 +281,10 @@ class DataPreparationStore(
     }
 
     /**
-     * Round-2 fixes: the recover re-hash is minutes of silent work, so it now
-     * ticks the notification path, and a crash between the generation rename
-     * and the MANIFEST checkpoint no longer leaves a stale RUNNING row that
-     * pins the "Current work" pane and the completion notification.
+     * The recover re-hash is minutes of work, so it ticks the notification
+     * path, and a crash between the generation rename and the MANIFEST
+     * checkpoint is cleaned up here instead of leaving a stale RUNNING row
+     * that pins the "Current work" pane and the completion notification.
      */
     private fun recover(importId: String, onTick: () -> Unit = {}): PublishedData? {
         val final = generation(importId)

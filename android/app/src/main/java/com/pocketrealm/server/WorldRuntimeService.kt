@@ -39,7 +39,7 @@ class WorldRuntimeService : Service() {
     /** Desired native target awaiting acknowledgement; retained across a timeout. */
     @Volatile private var pendingAdmissionTarget: Int? = null
     @Volatile private var activeBindAddress = RealmEndpoint.LOOPBACK_ADDRESS
-    // B5 supervisor-driven FGS promotion state; guarded by transitionGate.
+    // Supervisor-driven FGS promotion state; guarded by transitionGate.
     @Volatile private var foregroundActive = false
     @Volatile private var stopAccepted = false
     private var normalDataLease: PreparedDataStore.GenerationLease? = null
@@ -64,7 +64,7 @@ class WorldRuntimeService : Service() {
     }
 
     /**
-     * B5: the supervisor promotes :world to a specialUse FGS while a real
+     * The supervisor promotes :world to a specialUse FGS while a real
      * player is present and demotes it when the realm is playerless. Every
      * verb (including these intents) is serialized by the
      * [AdmissionTransitionGate]; the promote-then-demote fence makes an
@@ -230,7 +230,7 @@ class WorldRuntimeService : Service() {
             JSONObject(WorldNative.characterPersistenceNative(username, characterName))
                 .put("schema", 1).put("ok", true).put("component", "world")
         }
-        // H2 relay-min smoke rail: the native side owns validation and
+        // Test-support smoke rail: the native side owns validation and
         // answers with its own ok verdict (character names/channel/text are
         // op-specific shapes, not the account/character contract tokens).
         override fun worldChat(characterName: String, channel: String, target: String, text: String) =
@@ -678,7 +678,7 @@ class WorldRuntimeService : Service() {
         private const val ADMISSION_JOIN_TIMEOUT_MS = 6_000L
         private const val BOT_STATUS_SIZE = 19
         private const val PERFORMANCE_STATUS_SIZE = 10
-        /** B5: supervisor-driven specialUse FGS promotion intents. */
+        /** Supervisor-driven specialUse FGS promotion intents. */
         const val ACTION_PROMOTE_FOREGROUND = "com.pocketrealm.action.WORLD_FOREGROUND_PROMOTE"
         const val ACTION_DEMOTE_FOREGROUND = "com.pocketrealm.action.WORLD_FOREGROUND_DEMOTE"
         const val WORLD_NOTIF_ID = 3

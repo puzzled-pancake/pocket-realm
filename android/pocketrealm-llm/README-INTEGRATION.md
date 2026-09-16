@@ -14,7 +14,7 @@ full design; this file documents the module itself.
 | `LlmRuntimeService.kt` | Foreground service (`:llm` process): compute-mode resolution, start/health/restart/backoff, PSI pressure guard, NPU crash-block |
 | `NpuDeathAttribution.kt` | Pure death-attribution table for never-healthy NPU children (waitpid status + log-tail markers + grace window; unit-tested) |
 | `LlmRuntime.kt` | Public API (`start`/`stop`/`resetNpuBlock`/`endpoint`) + `LlmRuntimeConfig` with `ComputeMode{AUTO,CPU,NPU}` |
-| `LlmRuntimeService.kt` warm-up probe | §4.4: one tiny chat completion once `/health` passes (pays the measured first-request penalty) and, when the model's own template burns the budget on a thinking preamble, restarts the child once with `--chat-template <staged file's CONTENT>` (the vendored 6d05498 binary predates `--chat-template-file` — verified by string extraction; the desktop b10520 accepts both and the inline form was live-verified to fix the §1.4 failure shape; a post-healthy kill is never attributed as an NPU load death — attribution is pre-healthy only) |
+| `LlmRuntimeService.kt` warm-up probe | one tiny chat completion once `/health` passes (pays the measured first-request penalty) and, when the model's own template burns the budget on a thinking preamble, restarts the child once with `--chat-template <staged file's CONTENT>` (the vendored 6d05498 binary predates `--chat-template-file`; a post-healthy kill is never attributed as an NPU load death — attribution is pre-healthy only) |
 | `HexagonProbe.kt` | NPU pre-flight: FastRPC/remoteproc/skel detection + MemAvailable load gate (kernel-panic protection) |
 | `build.gradle.kts` staging tasks | Stage the prebuilt runtime into jniLibs (`libllamaserver.so`) + Hexagon backend (`libggmlhex.so`) + DSP skels as assets |
 | `prebuilt/` | Vendored llama-server runtime (see `prebuilt/README.md` for provenance, the SIGTERM-during-load patch, and the revision coupling) |
@@ -45,7 +45,7 @@ val config = LlmRuntimeConfig.Builder(model.absolutePath).apply {
     threads = 3
     cpuMaskHex = 0x38L
     extraArgs = listOf("--jinja", "--load-mode", "none")
-    // §4.4: staged non-thinking template (gemma dialect). When non-null AND
+    // Staged non-thinking template (gemma dialect). When non-null AND
     // the warm-up probe detects a thinking template, the service restarts
     // once with --chat-template <the staged file's content> (the vendored
     // 6d05498 binary has no --chat-template-file). The app stages the
@@ -74,11 +74,11 @@ AiPlayerbot.LLMContextLength = 12288
 AiPlayerbot.LLMBanterEnabled = 1
 ```
 
-The response pattern keys are emitted EMPTY (A9): the native client parses
+The response pattern keys are emitted EMPTY: the native client parses
 the chat-completions envelope as JSON and decodes
 `choices[0].message.content` directly — the old regex patterns are dead on
 every endpoint this block configures, and the keys must be written empty so
-the reviewed native defaults (which never match decoded prose) do not
+the native defaults (which never match decoded prose) do not
 re-arm. See docs/llm-runtime-submenu.md for the current sample and the
 per-profile sampling fields.
 
@@ -103,7 +103,7 @@ top: the server signal handler installs before model load (see
 `prebuilt/README.md`). Rebuild: `ninja -C build-droid-kai llama-server`, then
 llvm-strip the two artifacts.
 
-## M6 addendum: external endpoints + authored banter
+## External endpoints + authored banter
 
 - The submenu's Source choice can point the realm conf at ANY
   OpenAI-compatible `/v1/chat/completions` endpoint (settings: URL, optional

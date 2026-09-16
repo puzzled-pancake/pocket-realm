@@ -281,7 +281,7 @@ static int RunBodyDump(char const* path)
         std::string extNoThink = BuildChatRequestBody("gpt-test", sysm, history, user, s, true);
         CHECK(extNoThink.find("\"reasoning_effort\":\"none\"") != std::string::npos,
               "reasoning_effort:none lands when requested");
-        // plan-v5 strict-endpoint hardening: the Anthropic/llama-only
+        // Strict-endpoint hardening: the Anthropic/llama-only
         // thinking fields and cache_prompt NEVER ride a providerSafe body
         // (strict schema validators - Google's OpenAI-compat layer,
         // measured - 400 on unknown names)
@@ -329,7 +329,7 @@ static int RunBodyDump(char const* path)
 
 static int RunPackOverlays(char const* path)
 {
-    // Phase-3 pack overlays: default args preserve the frozen default
+    // Pack overlays: default args preserve the frozen default
     // (byte-exact vs vectors), seasoning appends inside the span, mood
     // rides after seasoning, and per-preset overrides beat the file.
     std::vector<Row> rows;

@@ -22,9 +22,10 @@ import org.json.JSONObject
  *  - the world always starts from the NORMAL prepared-data lane
  *    (PreparedDataStore, shared) — mmaps are mandatory on the desktop,
  *    so the o09 baseline shortcut lane does not exist;
- *  - the playerbot LLM conf append arrives with the Phase-5
- *    LlmRuntimePolicy twin; until then world starts with the bots-
- *    disabled block, which is exactly what the shared conf pins;
+ *  - the playerbot LLM conf append rides the
+ *    LlmRuntimePolicy twin; world starts with the bots-
+ *    disabled block when no LLM lane is enabled, which is exactly what
+ *    the shared conf pins;
  *  - secureWrite has no chmod leg (POSIX-only); the run dir lives under
  *    %LOCALAPPDATA%, private to the user by NTFS profile ACLs.
  */
@@ -71,8 +72,8 @@ internal class ServerRuntimeFiles(private val roots: DesktopStorageRoots) {
     }
 
     /** Production entry point; refuses world start unless every import
-     * artifact verifies (Phase 4 prepares it; until then this fails
-     * honestly with the prepared-data copy). [botProfile] null keeps the
+     * artifact verifies (win_prepare_data.py prepares it; until then this
+     * fails honestly with the prepared-data copy). [botProfile] null keeps the
      * bots-disabled block (the reviewed default); a profile stages
      * aiplayerbot-<id>.conf with the profile's population conf plus the
      * external-LLM append when the LLM lane is enabled — the Android

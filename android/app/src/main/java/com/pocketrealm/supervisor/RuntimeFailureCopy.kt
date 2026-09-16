@@ -1,7 +1,7 @@
 package com.pocketrealm.supervisor
 
 /**
- * Human-readable mapping for raw supervisor failure details (plan F1).
+ * Human-readable mapping for raw supervisor failure details.
  *
  * Applied at the UI decode boundary (`RuntimeSupervisorClient.decodeRealmState`)
  * so journal details like `UNVERIFIED_ORPHAN` or a start timeout never reach

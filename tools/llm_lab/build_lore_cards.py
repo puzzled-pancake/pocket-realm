@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""A11 lore card builder: era-scrub the corpus, emit the shipped jsonl.
+"""Lore card builder: era-scrub the corpus, emit the shipped jsonl.
 
-Reads the wiki harvest at G:\\Wow llm stuff\\lore (592 pages, fetched
-2026-08-19 from warcraft.wiki.gg), scrubs it to the Vanilla 1.12 frame
+Reads the local wiki-harvest corpus (warcraft.wiki.gg pages), scrubs it
+to the Vanilla 1.12 frame
 (Year 24), and writes one JSON line per surviving page:
 
     {"title": ..., "text": <~140-word era-scrubbed lead>, "keys": [...],
@@ -28,7 +28,13 @@ import re
 import sys
 from collections import Counter
 
-CORPUS = r"G:\Wow llm stuff\lore"
+# The wiki harvest is an external local corpus; point
+# LLM_LAB_LORE_CORPUS at a local copy of the harvested pages.
+CORPUS = os.environ.get("LLM_LAB_LORE_CORPUS")
+if not CORPUS:
+    print("LLM_LAB_LORE_CORPUS is not set - point it at a harvested "
+          "wiki-pages directory", file=sys.stderr)
+    raise SystemExit(2)
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
 DEFAULT_OUT = os.path.join(

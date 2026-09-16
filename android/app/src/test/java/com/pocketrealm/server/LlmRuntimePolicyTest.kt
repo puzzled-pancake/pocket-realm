@@ -36,7 +36,7 @@ class LlmRuntimePolicyTest {
     }
 
     @Test
-    fun disabledRuntimeEmitsNothingSoTheReviewedBaseContractHolds() {
+    fun disabledRuntimeEmitsNothingSoTheDefaultOffContractHolds() {
         assertNull(LlmRuntimePolicy.confBlock(llmEnabled = false))
     }
 
@@ -51,10 +51,10 @@ class LlmRuntimePolicyTest {
         listOf("<pre prompt>", "<context>", "<prompt>", "<post prompt>").forEach { key ->
             assertTrue("missing fill key $key", block.contains(key))
         }
-        // A9: the response patterns are emitted EMPTY - the native client
+        // The response patterns are emitted EMPTY - the native client
         // parses the chat-completions envelope as JSON, so the regexes are
         // dead here, but the keys must still be written to override the
-        // reviewed JSON-era native defaults (whose end pattern truncates at
+        // native JSON-era defaults (whose end pattern truncates at
         // the first escaped quote). The lines end at the '=' so a regression
         // to any non-empty value cannot pass.
         assertTrue(block.contains("AiPlayerbot.LLMResponseStartPattern =\n"))
@@ -68,8 +68,8 @@ class LlmRuntimePolicyTest {
         // working sampling knobs on the legacy template path (the trained
         // format's native builder reads the same values from the conf keys
         // below), and the repeat_penalty 1.0 pin is load-bearing for Gemma
-        // (llama-server's 1.1 default degrades it). Default = TUNED_E2B
-        // since the S4 default flip. Each assertion ends at the JSON
+        // (llama-server's 1.1 default degrades it). Default = TUNED_E2B.
+        // Each assertion ends at the JSON
         // delimiter so a value regression to a longer number with the same
         // prefix cannot pass (1 vs 1.5, 120 vs 1200)
         val block = LlmRuntimePolicy.confBlock(llmEnabled = true)!!
@@ -80,8 +80,8 @@ class LlmRuntimePolicyTest {
             assertTrue("missing sampling field $field", block.contains(field))
         }
         // Tier emission: the conf-side knobs the native consumes, with
-        // the T1 tuned-model values (a silent regression of any of these is
-        // exactly the bug class these pins exist to close)
+        // the tuned E2B tier values (a silent regression of any of these is
+        // exactly the bug class these pins exist for)
         listOf(
             "AiPlayerbot.LLMPromptFormat = 1",
             "AiPlayerbot.LLMApiModel = local",
@@ -105,7 +105,8 @@ class LlmRuntimePolicyTest {
         ).forEach { key ->
             assertTrue("missing tier line $key", block.contains(key + "\n"))
         }
-        // T1 is gemma: no thinking kwargs line; minP is off on the profile
+        // The default tuned tier is gemma: no thinking kwargs line; minP is
+        // off on the profile
         assertFalse(block.contains("LLMThinkingKwargs"))
         assertFalse(block.contains("LLMMinP"))
         // tuned E2B profile: cooled arm + presence penalty, same rep pin
@@ -126,8 +127,8 @@ class LlmRuntimePolicyTest {
         assertTrue(q08.contains("\"temperature\":0.5,"))
         assertTrue(q08.contains("\"max_tokens\":210,"))
         assertFalse(q08.contains("presence_penalty"))
-        // S11: the base tier's raise has its own exact pin (a silent
-        // regression to the pre-S11 120 passes the loose 80..300 range)
+        // the base tier's max tokens carries its own exact pin (a silent
+        // regression to 120 passes the loose 80..300 range)
         val base = LlmRuntimePolicy.confBlock(
             llmEnabled = true, profile = LlmModelRegistry.BASE_E2B.profile,
         )!!
@@ -198,7 +199,7 @@ class LlmRuntimePolicyTest {
         assertTrue(config.bindLoopbackOnly)
         assertEquals("", config.apiKey)
         assertEquals(10, config.nice)
-        // rev-4 (Phase 1, plan v4): E2B tier 12288 — the measured worst-case
+        // E2B tier 12288 — the measured worst-case
         // trained request is ~2.2k tokens; the extra headroom carries the
         // prompt-pack seasoning + reply caps with 2 concurrent slots.
         // runtimeConfig follows the SELECTED tier (Qwen stays 6144); the
@@ -294,7 +295,7 @@ class LlmRuntimePolicyTest {
 
     @Test
     fun promptPackLineEmitsOnlyWhenStaged() {
-        // Phase 1: the staged pack path rides both conf blocks; absent keeps
+        // The staged pack path rides both conf blocks; absent keeps
         // the native renderer on the trained default (byte-identical output).
         val with = LlmRuntimePolicy.confBlock(
             llmEnabled = true, promptPackFile = "/srv/run/llm_prompt_pack.json",
@@ -315,7 +316,7 @@ class LlmRuntimePolicyTest {
 
     @Test
     fun defaultPromptsLineEmitsOnlyWhenStaged() {
-        // B8: the staged EMPTY default-prompts file rides both conf blocks
+        // The staged EMPTY default-prompts file rides both conf blocks
         // BY ABSOLUTE PATH - the native loader resolves the bare relative
         // default (llm_character_card) against CWD, never the run dir, so a
         // relative value here would regress to the "not found or unreadable"
@@ -339,7 +340,7 @@ class LlmRuntimePolicyTest {
 
     @Test
     fun tlsCaLineEmitsOnlyWhenStaged() {
-        // G3: the staged Mozilla CA bundle rides every appended conf block
+        // The staged Mozilla CA bundle rides every appended conf block
         // by absolute path (the native client loads it for SSL_VERIFY_PEER;
         // absent = the Android system-store fallback, never a boot failure)
         val with = LlmRuntimePolicy.confBlock(llmEnabled = true, tlsCaFile = "/srv/run/cacert.pem")!!
@@ -355,12 +356,12 @@ class LlmRuntimePolicyTest {
 
     @Test
     fun cloudLaneEmitsTheToggleAndItsEconomicsOnlyWhenOn() {
-        // A0.a/A7: the Cloud conversation toggle rides the external block.
-        // OFF (the shipped default - the upgrade cohort): the explicit 0
+        // The Cloud conversation toggle rides the external block.
+        // OFF (the shipped default): the explicit 0
         // line and NOTHING else, so every native default governs and the
         // widening stays conjunction-keyed OFF. ON: the toggle plus the
         // lane's economics, so a staged conf is self-describing.
-        // Round-4 R5: the OFF absence is the WHOLE economics family
+        // The OFF absence pins the WHOLE economics family
         // (all 8 non-toggle keys, not a 2-key sample).
         val off = LlmRuntimePolicy.confBlockExternal(
             "https://api.example.com/v1/chat/completions", "m", "k",
@@ -392,9 +393,9 @@ class LlmRuntimePolicyTest {
             cloudLane = CloudLaneConf(cloudChatter = true),
         )!!
         assertTrue(on.contains("AiPlayerbot.LLMCloudChatter = 1\n"))
-        // round-5 R5: the staged-0 ninth key is value-asserted too (the
+        // the staged-0 ninth key is value-asserted too (the
         // whole family is present-and-self-describing on the ON lane);
-        // round-10 R5 MINOR: every value assert ends at the line
+        // every value assert ends at the line
         // delimiter so a regression to a longer same-prefix number
         // (25 -> 250, 1 -> 10) cannot pass - the file's own convention
         assertTrue(on.contains("AiPlayerbot.LLMPartyReplyEnabled = 0\n"))
@@ -409,7 +410,7 @@ class LlmRuntimePolicyTest {
 
     @Test
     fun cloudLaneRaisesBotToBotChanceOnlyWhenToggledOn() {
-        // A7.3: 25 on the cloud lane, the tier default otherwise; an
+        // 25 on the cloud lane, the tier default otherwise; an
         // explicit preset override wins over both
         val on = LlmRuntimePolicy.confBlockExternal(
             "https://api.example.com/v1/chat/completions", "m", "k",
@@ -420,7 +421,7 @@ class LlmRuntimePolicyTest {
             "https://api.example.com/v1/chat/completions", "m", "k",
         )!!
         assertFalse(off.contains("AiPlayerbot.LLMBotToBotChatChance = 25\n"))
-        // round-11 R5 MINOR: the OFF lane carries the tier default 10 -
+        // the OFF lane carries the tier default 10 -
         // pin it positively (delimiter-anchored) so a cloud-OFF regression
         // to inverted-priority economics cannot pass silently
         assertTrue(off.contains("AiPlayerbot.LLMBotToBotChatChance = 10\n"))
@@ -434,10 +435,10 @@ class LlmRuntimePolicyTest {
 
     @Test
     fun deviceLaneNeverCarriesCloudKeys() {
-        // 0.13's mirror case: the device-lane block (confBlock) never
+        // Mirror case: the device-lane block (confBlock) never
         // emits any cloud key - LLMCloudChatter included - so key-on +
-        // tier-off is byte-identical to today's device behavior.
-        // Round-3 R5#1: the enumeration is the WHOLE CloudLaneConf
+        // tier-off is byte-identical to plain device behavior.
+        // The enumeration is the WHOLE CloudLaneConf
         // family - all 9 keys (LLMPartyReplyEnabled included).
         val block = LlmRuntimePolicy.confBlock(llmEnabled = true)!!
         for (key in listOf("LLMCloudChatter", "LLMPartyReplyEnabled",
@@ -451,7 +452,7 @@ class LlmRuntimePolicyTest {
 
     @Test
     fun cloudTierGroundCannotLeakOntoTheDeviceLane() {
-        // A7.6's leak-proof pins: ExternalApiTierActive() (the 0.13
+        // Leak-proof pins: ExternalApiTierActive() (the 0.13
         // conjunction ground) requires LLMProviderSafe AND ctx >= 65536.
         // Every device tier stays under the cloud ctx floor, the device
         // and debug blocks never emit the key, and the external block
@@ -482,7 +483,7 @@ class LlmRuntimePolicyTest {
 
     @Test
     fun noEmissionSurfaceEverWiresThePromptDumpFile() {
-        // 0.c.5: LLMPromptDumpFile writes full prompts (facts + verbatim
+        // LLMPromptDumpFile writes full prompts (facts + verbatim
         // history) to a plaintext file - the app must never emit it on
         // any lane (device, debug in-process, or external).
         assertFalse(
@@ -503,11 +504,11 @@ class LlmRuntimePolicyTest {
 
     @Test
     fun externalEndpointPortMustBeARealPort() {
-        // G3/0.c.3: a huge or non-numeric port literal is rejected here
+        // A huge or non-numeric port literal is rejected here
         // (out of the UI entirely). The native parseUrl's std::stoi throws
-        // out_of_range on such literals - the world used to abort boot at
-        // config load; the widened native catch now fails the endpoint
-        // closed, and this bound keeps the value from being typed at all.
+        // out_of_range on such literals; the native catch fails the endpoint
+        // closed instead of failing the boot, and this bound keeps the
+        // value from being typed at all.
         assertNull(LlmRuntimePolicy.normalizeExternalEndpoint("http://127.0.0.1:99999999999999/api"))
         assertNull(LlmRuntimePolicy.normalizeExternalEndpoint("http://127.0.0.1:0/v1"))
         assertNull(LlmRuntimePolicy.normalizeExternalEndpoint("http://127.0.0.1:-1/v1"))
@@ -637,7 +638,7 @@ class LlmRuntimePolicyTest {
         assertFalse(block.contains("repeat_penalty"))
         assertFalse(block.contains("presence_penalty"))
         assertFalse(block.contains("min_p"))
-        // dedicated T4 budget: not a recycled device profile (API-class
+        // Dedicated external budget: not a recycled device profile (API-class
         // models get room to use their context: 600-token replies, 128k
         // ctx, deeper memory — no on-device KV constraint off-device)
         assertTrue(block.contains("\"temperature\":0.7,"))
@@ -647,16 +648,16 @@ class LlmRuntimePolicyTest {
         assertTrue(block.contains("AiPlayerbot.LLMFactsCap = 48\n"))
         assertTrue(block.contains("AiPlayerbot.LLMMemoriesTail = 16\n"))
         assertTrue(block.contains("AiPlayerbot.LLMGenerationTimeout = 60\n"))
-        // Round-9 R7 MAJOR#1 (plan §10 T2): the external-block governor
+        // The external-block governor
         // trio, value-pinned like the embedded one - a silent regression
-        // of EXTERNAL_TIER's governor knobs passed the whole suite (the
-        // same class the round-1 R5 MAJOR#2 convicted). The legacy
+        // of EXTERNAL_TIER's governor knobs would otherwise pass a looser
+        // assert. The legacy
         // "Simultanious" spelling IS the conf key the native reads.
         listOf(
             "AiPlayerbot.LLMMaxSimultaniousGenerations = 4",
             "AiPlayerbot.LLMGovernorBotMax = 16",
             "AiPlayerbot.LLMGovernorGlobalMax = 48",
-            // round-10 R5 MINOR: the window joins the trio (the whole
+            // the window joins the trio (the whole
             // EXTERNAL_TIER governor block, one forEach)
             "AiPlayerbot.LLMGovernorWindow = 60",
         ).forEach { key ->

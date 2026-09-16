@@ -179,7 +179,7 @@ std::string PlayerbotLlmTools::ExtractAndQueue(std::string const& raw, uint32 bo
     if (calls.empty())
         return cleaned;
 
-    // Phase 3 tool-funnel observability: one Basic line per emitted call
+    // Tool-funnel observability: one Basic line per emitted call
     // at its loss stage (emitted -> known -> licensed -> queued). Tool
     // markers are rare - that scarcity is exactly what this measures -
     // and the log lane is the ground-truth channel the harness counts,
@@ -446,7 +446,7 @@ void PlayerbotLlmTools::ExecutePending(Player* bot)
                 continue;
             if (LicensedField(licensedLine, "name") != player->GetName())
                 continue;
-            // plan v5 W4: a standing grudge refuses the group action -
+            // A standing grudge refuses the group action -
             // ALWAYS declined, voiced only when the volatility dial is
             // above the steady rung (a kindness or a paid debt clears it
             // through the tone ledger)
@@ -476,7 +476,7 @@ void PlayerbotLlmTools::ExecutePending(Player* bot)
                 continue;
             if (bot->GetGroup() && bot->GetGroup()->IsMember(player->GetObjectGuid()))
                 continue; // already grouped together
-            // plan v5 W4: same grudge refusal as follow (see above)
+            // Same grudge refusal as follow (see above)
             if (sPlayerbotAIConfig.llmGrudgeRefusalEnabled)
             {
                 std::string const grudge = PlayerbotLlmMemory::GetUnresolvedGrudge(

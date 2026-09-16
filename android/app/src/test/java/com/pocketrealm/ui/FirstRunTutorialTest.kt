@@ -82,9 +82,9 @@ class FirstRunTutorialTest {
         // optional, honest about skipping
         assertTrue("optional" in step.title.lowercase())
         assertTrue("skip it" in text)
-        // F3 lane honesty: the realm and game are always local; the bot
-        // chat is on-device BY DEFAULT and can be pointed at a cloud
-        // provider. The old unqualified claim must not come back.
+        // Accuracy guard: the realm and game are always local; bot
+        // chat is on-device by default and can be pointed at a cloud
+        // provider, so the copy must not claim everything is local.
         assertTrue("offline" in text)
         assertTrue("on this device" in text)
         assertTrue("by default" in text)

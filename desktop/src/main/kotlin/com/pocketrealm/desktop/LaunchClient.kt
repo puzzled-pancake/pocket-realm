@@ -11,7 +11,7 @@ import java.io.File
 import kotlin.system.exitProcess
 
 /**
- * Phase-4d bring-up: boot the full realm stack in-process, then launch
+ * Bring-up: boot the full realm stack in-process, then launch
  * the user's WoW.exe against it (realmlist re-projected every launch).
  * The client stays up — press Enter in this console to save + stop the
  * realm cleanly (the client can also be closed first; Ctrl+C drains the

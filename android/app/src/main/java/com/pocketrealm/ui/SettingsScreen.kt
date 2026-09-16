@@ -95,7 +95,7 @@ private const val BACKUP_AWAIT_TIMEOUT_MS = BACKUP_AWAIT_TIMEOUT_MINUTES * 60_00
 private const val MIB = 1024L * 1024
 
 @Composable
-// onLlm joins the reviewed sibling navigation params; the list is one
+// onLlm joins the sibling navigation params; the list is one
 // longer than the default cap by design.
 @Suppress("LongParameterList")
 fun SettingsScreen(
@@ -140,8 +140,9 @@ fun SettingsScreen(
     var pendingImport by remember { mutableStateOf<Pair<Uri, RealmDataArchive.ArchiveInfo>?>(null) }
 
     suspend fun awaitBackupCompletion(): Boolean {
-        // Bounded: a backup whose phase never settles used to
-        // spin this coroutine forever with a busy status line.
+        // Bounded: the deadline below stops a backup whose phase never
+        // settles from spinning this coroutine forever with a busy status
+        // line.
         val deadline = System.currentTimeMillis() + BACKUP_AWAIT_TIMEOUT_MS
         while (true) {
             val status = runCatching { supervisor.backupStatus() }.getOrNull() ?: return false
@@ -490,8 +491,8 @@ fun SettingsScreen(
                 ) { uri ->
                     if (uri != null) {
                         // enabled only takes effect after recomposition; guard
-                        // the frame gap synchronously (community-download
-                        // pattern) so a double tap cannot stage two imports.
+                        // the frame gap synchronously so a double tap cannot
+                        // stage two imports.
                         userImportInProgress = true
                         userVulkanStatus =
                             UserVulkanDriverPresentation.IMPORT_IN_PROGRESS_NOTICE
@@ -1002,30 +1003,53 @@ fun SettingsScreen(
             }
         }
 
-        SettingCard("AI bot LLM") {
+        SettingCard("AI bot chat (experimental)") {
+            var showExperimentalLlm by rememberSaveable { mutableStateOf(false) }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(
-                    checked = snap.llmEnabled,
-                    onCheckedChange = { enabled ->
-                        scope.launch { settings.update { it.copy(llmEnabled = enabled) } }
+                    checked = showExperimentalLlm || snap.llmEnabled,
+                    onCheckedChange = { reveal ->
+                        showExperimentalLlm = reveal
+                        if (!reveal) {
+                            scope.launch { settings.update { it.copy(llmEnabled = false) } }
+                        }
                     },
-                    modifier = Modifier.testTag("llm-simple-enabled"),
+                    modifier = Modifier.testTag("experimental-llm"),
                 )
-                Text("  Let bots talk with an AI",
-                    style = MaterialTheme.typography.bodyMedium)
+                Text("  Experimental AI bot chat",
+                    style = MaterialTheme.typography.titleSmall)
             }
             Text(
-                "Playerbots speak through the on-device language model (or your own " +
-                    "OpenAI-compatible server; configured in the LLM submenu). Off keeps " +
-                    "bots silent. The switch applies at the next realm start; authored " +
-                    "banter and ambient chatter have their own switches in the submenu.",
+                "Letting bots speak through a language model is an experimental, " +
+                    "power-hungry feature and stays off unless you turn it on here. " +
+                    "Turning this switch off also silences bot chat.",
                 style = MaterialTheme.typography.bodySmall,
             )
-            onLlm?.let { action ->
-                OutlinedButton(
-                    onClick = action,
-                    modifier = Modifier.fillMaxWidth().testTag("settings-open-llm"),
-                ) { Text("Configure AI bot LLM →") }
+            if (showExperimentalLlm || snap.llmEnabled) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = snap.llmEnabled,
+                        onCheckedChange = { enabled ->
+                            scope.launch { settings.update { it.copy(llmEnabled = enabled) } }
+                        },
+                        modifier = Modifier.testTag("llm-simple-enabled"),
+                    )
+                    Text("  Let bots talk with an AI",
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+                Text(
+                    "Playerbots speak through the on-device language model (or your own " +
+                        "OpenAI-compatible server; configured in the LLM submenu). Off keeps " +
+                        "bots silent. The switch applies at the next realm start; authored " +
+                        "banter and ambient chatter have their own switches in the submenu.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                onLlm?.let { action ->
+                    OutlinedButton(
+                        onClick = action,
+                        modifier = Modifier.fillMaxWidth().testTag("settings-open-llm"),
+                    ) { Text("Configure AI bot LLM →") }
+                }
             }
         }
 

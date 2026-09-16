@@ -8,7 +8,7 @@ import java.io.File
 import java.util.UUID
 
 /**
- * Phase-3 bring-up entry point: seed the four realm databases from the
+ * Bring-up entry point: seed the four realm databases from the
  * pinned transcripts into the desktop storage roots, with every pin and
  * integrity gate the Android first boot applies. Run from desktop/:
  *

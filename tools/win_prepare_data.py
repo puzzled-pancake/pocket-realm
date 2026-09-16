@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Windows data-preparation bring-up (Phase 4b): client -> prepared world data.
+"""Windows data-preparation bring-up: client -> prepared world data.
 
 Runs the four Windows extractors (built by tools/build_win_realm_runtime.py
 --extractors) against a genuine 1.12.1 client, then assembles the

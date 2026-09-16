@@ -8,14 +8,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * F2/F3 UI contract tests: the Home account form's pure presentation
+ * UI contract tests: the Home account form's pure presentation
  * logic (field validation, Create gating, control-failure copy) and the
- * pinned LLM-screen copy (the lane-neutral speech hint and the §0.c.4
+ * pinned LLM-screen copy (the lane-neutral speech hint and the
  * cloud-conversation spend disclosure).
  */
 class AccountFormAndLlmCopyTest {
 
-    // ---- F2: per-keystroke field validation (reuses the realm rule) ----
+    // ---- per-keystroke field validation (reuses the realm rule) ----
 
     @Test
     fun fieldValidationLeavesEmptyDraftsAloneAndFlagsMalformedOnes() {
@@ -39,8 +39,8 @@ class AccountFormAndLlmCopyTest {
         assertNotNull(copy)
         assertTrue(copy!!.contains("1–16"))
         assertTrue(copy.contains("letters or numbers"))
-        // No exception class names, no internal codes — the F2 leak fix
-        // applies to validation copy too.
+        // No exception class names, no internal codes — validation copy
+        // keeps them out too.
         assertFalse(copy.contains("simpleName"))
         assertFalse(copy.contains("isValidCredential"))
     }
@@ -78,15 +78,15 @@ class AccountFormAndLlmCopyTest {
 
     @Test
     fun controlChannelFailuresUseTheFriendlyCopyNotTheExceptionClass() {
-        // F2: HomeScreen's onFailure previously leaked
-        // `it.javaClass.simpleName`; it must use the stable copy instead.
+        // The failure copy must use the stable message, never the exception
+        // class name.
         val copy = accountProvisionFailureMessage("ACCOUNT_CONTROL_FAILED", null)
         assertTrue(copy.contains("realm account service"))
         assertFalse(copy.contains("simpleName"))
         assertFalse(copy.contains("Exception"))
     }
 
-    // ---- F3: the population chip admits the ramp only when there is one ----
+    // ---- the population chip admits the ramp only when there is one ----
 
     @Test
     fun populationChipAddsTheRampOnlyWhileGrowing() {
@@ -95,7 +95,7 @@ class AccountFormAndLlmCopyTest {
         assertEquals("80 bots", botCountChipLabel(initialTarget = 80, selectedTarget = 80))
     }
 
-    // ---- F3: LLM-screen copy pins ----
+    // ---- LLM-screen copy pins ----
 
     @Test
     fun speechHintCoversNameAddressingTierPoolsAndTheAdmissionRamp() {
@@ -113,7 +113,7 @@ class AccountFormAndLlmCopyTest {
     @Test
     fun cloudChatterDisclosureCarriesTheSpendAndRestartFacts() {
         val text = LLM_CLOUD_CHATTER_SUPPORT.lowercase()
-        // §0.c.4 disclosure clause, verbatim:
+        // spend-disclosure clause, verbatim:
         assertTrue("bot chat, including your messages, is sent to your configured external provider" in text)
         // Token-scale hint, prompt-dominated:
         assertTrue("1–1.5m tokens" in text)

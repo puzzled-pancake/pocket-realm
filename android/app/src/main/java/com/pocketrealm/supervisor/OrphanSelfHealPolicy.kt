@@ -1,7 +1,7 @@
 package com.pocketrealm.supervisor
 
 /**
- * Pure decision object for the supervisor's orphan self-heal lane (plan F1).
+ * Pure decision object for the supervisor's orphan self-heal lane.
  *
  * The real orphan is a RUNNING component whose OBSERVED owner is null: the
  * binder-death path cleared the claim while the component-side teardown

@@ -1,6 +1,6 @@
-// realm_so.cpp — PKG-02/06: load the real realm shared object BY SONAME and
-// record the APK-backed path actually resolved by the dynamic linker; plus the
-// PKG-06 per-lib probe used to prove every APK-packaged .so loads.
+// realm_so.cpp — load the real realm shared object BY SONAME and
+// record the APK-backed path actually resolved by the dynamic linker; plus a
+// per-lib probe used to prove every APK-packaged .so loads.
 //
 // Under the production packaging variant
 // (useLegacyPackaging=false) the .so may be loaded directly from the APK with
@@ -45,8 +45,8 @@ int32_t pkg_load_realm_so_by_soname(pkg_realm_so_info* info)
     }
     info->loaded = 1;
     info->err = 0;
-    /* Intentionally keep the handle open: PKG-06 needs the realm .so to remain
-     * resident for the 30-minute smoke. The :pkg child process exits when done,
+    /* Intentionally keep the handle open: the smoke probe needs the realm .so to remain
+     * resident for the 30-minute smoke. The packaging process exits when done,
      * which closes it. */
     return 0;
 }
@@ -89,7 +89,7 @@ int32_t pkg_probe_so_by_soname(const char* soname, pkg_realm_so_info* info)
      * already pulled in. */
     void* handle = dlopen(soname, RTLD_NOLOAD | RTLD_LOCAL);
     if (!handle) {
-        /* Not currently resident; do a real load so PKG-06 proves every lib can
+        /* Not currently resident; do a real load so the probe proves every lib can
          * load, not just the ones another lib already pulled in. */
         handle = dlopen(soname, RTLD_NOW | RTLD_LOCAL);
         if (!handle) {
@@ -110,6 +110,6 @@ int32_t pkg_probe_so_by_soname(const char* soname, pkg_realm_so_info* info)
     }
     info->loaded = 1;
     info->err = 0;
-    /* Leave resident for the PKG-06 smoke; the :pkg child exits at the end. */
+    /* Leave resident for the smoke run; the packaging process exits at the end. */
     return 0;
 }

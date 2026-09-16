@@ -361,7 +361,7 @@ struct PromptPlayer
  * blocks appended INSIDE the existing instruction span (after the
  * ledger-avoid note), never a new top-level segment. Empty seasoning =
  * trained default, byte-identical (the frozen-output test pins this).
- * `moodLine` is the Phase-3 mood seasoning: one short third-person line
+ * `moodLine` is the mood seasoning: one short third-person line
  * naming the bot's current weather ("You feel ..."), empty = no mood.
  * It rides the same instruction span, after the seasoning. */
 inline std::string SysmForCard(PromptPersona const& c, PromptPlayer const& p,
@@ -496,7 +496,7 @@ struct HistoryTurn
 };
 
 /**
- * Phase-1 prompt-pack overlay (host-testable, C++11, no file IO here).
+ * Prompt-pack overlay (host-testable, C++11, no file IO here).
  *
  * The app stages the pack as JSON: {"version":1,"blocks":[
  * {"id","title","body","enabled","tiers",...}, ...]}. The renderer joins
@@ -510,7 +510,7 @@ struct HistoryTurn
  * truncated, never a failure (a hostile pack must degrade to quiet
  * seasoning, not break a reply).
  *
- * Phase-2 overload below adds per-preset block overrides (preset > global
+ * The overload below adds per-preset block overrides (preset > global
  * pack > trained default): `overrides` maps seasoning block id → 0/1,
  * absent = follow the pack file's enabled flag. Unknown ids are ignored
  * (same discipline as the Kotlin normalize).
@@ -545,7 +545,7 @@ inline std::string SeasoningFromPackJson(std::string const& packJson,
         if (!id || id->type != detail::JSON_STRING ||
             !body || body->type != detail::JSON_STRING)
             continue;
-        // Phase-2 precedence: an explicit per-preset override wins over
+        // Override precedence: an explicit per-preset override wins over
         // the pack file's enabled flag; absent follows the file.
         std::map<std::string, int>::const_iterator ov = overrides.find(id->str);
         bool on;
@@ -612,7 +612,7 @@ inline std::string JsonNumber(double value)
  * OpenAI-style reasoning_effort:none (plus the Anthropic/llama-only
  * thinking/cache_prompt fields on NON-providerSafe tiers - strict
  * schema-validating endpoints 400 on unknown names, measured against
- * Google's OpenAI-compat layer in plan v5). The response-side
+ * Google's OpenAI-compat layer). The response-side
  * StripThinking in HygienePass stays as the backstop either way. */
 inline std::string BuildChatRequestBody(std::string const& model,
     std::string const& system, std::vector<HistoryTurn> const& history,
@@ -654,7 +654,7 @@ inline std::string BuildChatRequestBody(std::string const& model,
     if (reasoningEffortNone)
     {
         out += ",\"reasoning_effort\":\"none\"";
-        // plan-v5 external-endpoint hardening (validated against Google's
+        // External-endpoint hardening (validated against Google's
         // OpenAI-compat layer, 2026-09): "thinking"/"thinking_budget" and
         // llama.cpp's "cache_prompt" are REJECTED with HTTP 400 by strict
         // schema-validating endpoints - exactly the endpoints providerSafe

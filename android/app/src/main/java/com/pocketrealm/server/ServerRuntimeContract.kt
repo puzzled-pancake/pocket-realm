@@ -8,16 +8,14 @@ internal object ServerRuntimeContract {
 
     /**
      * Runtime telltale for the staged native realm runtime. Generated at
-     * build time from the reviewed lane lockfile (schemas/realm-runtime-
+     * build time from the lane lockfile (schemas/realm-runtime-
      * lockfile*.json, see validateNativeRuntimeFreshness in
      * android/app/build.gradle.kts) and baked into BuildConfig, so it changes
      * whenever the pinned .so bytes or the cmangos/playerbots source pins
      * change. A harness session compares this id (relay ping, realm-status,
      * world-status) against the id derivable from the CURRENT lockfile and
      * refuses to continue on mismatch, catching a stale APK at attach time
-     * instead of discovering missing JNI ops mid-run. The hand-written
-     * constant this replaces ("o13-cmangos-c096bada-playerbots-v1") could
-     * not detect anything: it never moved with the native lane.
+     * instead of discovering missing JNI ops mid-run.
      */
     val RUNTIME_BUILD_ID: String = BuildConfig.NATIVE_RUNTIME_BUILD_ID
 

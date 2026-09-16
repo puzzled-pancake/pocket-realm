@@ -94,10 +94,10 @@ static const char *rewrite_path(const char *path)
             suffix = path + n;
         }
     }
-    /* Prebuilt providers retain their build-machine DATADIR (the pinned
-     * Kron4ek binary uses /home/runner/.../share/wine). Relocate any absolute
-     * Wine share directory by its unambiguous suffix instead of baking one
-     * provider's build host into this replaceable runtime adapter. */
+    /* Prebuilt providers retain the DATADIR of whatever machine built them
+     * (the pinned Kron4ek binary bakes in its CI build prefix). Relocate any
+     * absolute Wine share directory by its unambiguous suffix instead of
+     * baking one provider's build host into this replaceable runtime adapter. */
     if (!replacement && data) {
         const char *share = strstr(path, "/share/wine");
         if (share && (share[11] == '/' || share[11] == '\0')) {

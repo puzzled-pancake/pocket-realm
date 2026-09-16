@@ -1,7 +1,7 @@
 {
   "$comment": [
-    "Pocket Realm Windows native dependency manifest (Phase 2c of the",
-    "Windows port). Consumed by scripts/build_win_deps.py with the vcpkg",
+    "Pocket Realm Windows native dependency manifest. Consumed by",
+    "scripts/build_win_deps.py with the vcpkg",
     "toolchain pinned at VCPKG_COMMIT below; versions mirror the Android",
     "lane pins (schemas/sources.json: openssl 3.4.x; realm-runtime CMake:",
     "Boost 1.86.0) so both platforms compile against the same dependency",

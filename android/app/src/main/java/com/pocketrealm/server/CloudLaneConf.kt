@@ -1,25 +1,24 @@
 package com.pocketrealm.server
 
 /**
- * A0.a/A7: the WS-A cloud-lane conf group, one parameter object (the
- * emission surface's detekt law). Values are the plan v2.3 §0.a rows;
- * the native side carries the same defaults, so this emission is
+ * The cloud-lane conf group, one parameter object (the
+ * emission surface's detekt law). The native side carries the same
+ * defaults, so this emission is
  * self-describing conf (an operator reading the staged aiplayerbot.conf
  * sees the lane's economics) rather than a behavior override - EXCEPT
  * [cloudChatter], the app's Cloud conversation toggle, which masters
  * every cloud widening natively as CloudLaneOpen() = key AND external
  * tier (never the bare key; a device-lane emission can never widen).
  *
- * The toggle ships OFF for the upgrade cohort (every existing external
- * user): cloud conversation is opt-in with its spend disclosure
- * (F3), and `0` restores today's external behavior exactly.
+ * The toggle ships OFF: cloud conversation is opt-in with its spend
+ * disclosure, and `0` keeps external behavior exactly as it is without
+ * the lane.
  */
 internal data class CloudLaneConf(
     /** AiPlayerbot.LLMCloudChatter - the Cloud conversation toggle. */
     val cloudChatter: Boolean = false,
-    /** Unaddressed party replies (A3) - 0 until the T3 party step is
-     * green, then 1 (the plan's staged default; native default is 0,
-     * so this emission is self-describing, not an override). */
+    /** Unaddressed party replies - 0 matches the native default, so
+     * this emission stays self-describing, not an override. */
     val partyReplyEnabled: Int = 0,
     /** % of admitted crowd reactions that may speak (rest emote only). */
     val streetSayPct: Int = 25,
@@ -33,7 +32,7 @@ internal data class CloudLaneConf(
     val lineBudgetPerHour: Int = 90,
     /** Interactive replies per real player per hour (tier I). */
     val interactivePerPlayerHour: Int = 240,
-    /** The A2 dialogue fast-lane arming switch. */
+    /** The dialogue fast-lane arming switch. */
     val dialogueFastLane: Int = 1,
 ) {
     /** The appended-block lines (empty when the toggle is off: the native

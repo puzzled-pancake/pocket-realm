@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""S7 truth gates (A10 entity guard / A11 lore+era / composition).
+"""Truth gates (entity guard / lore+era / composition).
 
 Runs the SHIPPED mechanisms against e2b-tuned, n=3 majority per case,
 exactly as production would apply them:
 
   GUARD     six invented-entity probes; the bridge question-path injects
-            the FROZEN A10 directive (compose extra=). Clean denial =
+            the FROZEN guard directive (compose extra=). Clean denial =
             denies + no invented replacement entity + voice. Gate: >=4/6.
   COMPOSED  the merge-not-defer rule: the same directive MERGED with a
             first-meeting log_fact line+fill. Gate: tool fire >=4/6
@@ -16,7 +16,7 @@ exactly as production would apply them:
             title-exact boost), scored on NON-ECHO keys. Gate: >=10/12.
   ERA       the corrected eight-trap set with the production era
             machinery (logit_bias on the always-ban terms via
-            /tokenize + the A10 guard where the question path would
+            /tokenize + the guard where the question path would
             fire it). Gate: 0/8 affirmed. Plus the era-TRUE control
             (patch-1.11 Naxxramas - deflection must NOT deny it) and
             the over-hedge controls (known-entity turns answer
@@ -24,14 +24,14 @@ exactly as production would apply them:
 
 The guard probes use INVENTED places where arm-D used real ones
 ("Emerald Chalice of Lakeshire" -> "...of Marlowe", "Northvale Tower"
--> "Corivn Tower", "Goldshire" -> "Harlowe"): the S7 lore loop now
+-> "Corivn Tower", "Goldshire" -> "Harlowe"): the lore loop now
 retrieves real-place cards and preempts the guard, so the guard arm must
 probe names the index cannot ground - the production order (card first,
 guard only when no card) is preserved and measured in the LORE arm's
 collision rows and the four card-grounded era traps.
 
 Usage: python tools/llm_lab/s7_truth_gates.py --model e2b-tuned [--n 3]
-Output: C:/llm-lab/results/s7_truth_<model>_<ts>.json (versioned names).
+Output: RESULTS_DIR/s7_truth_<model>_<ts>.json (versioned names).
 """
 import argparse
 import json

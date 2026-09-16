@@ -1,4 +1,4 @@
-"""Pin the desktop SQLite execution seam contract (Windows port Phase 3).
+"""Pin the desktop SQLite execution seam contract (Windows port).
 
 pocket_sqlite.dll is the desktop twin of android.database.sqlite for the
 DatabaseSqliteControlPlane legs. The pins that must never drift:

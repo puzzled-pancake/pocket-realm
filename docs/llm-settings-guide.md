@@ -22,7 +22,7 @@ submenu's **Advanced engine settings** disclosure.
 
 | Setting | What it does |
 |---|---|
-| **Let bots talk with an AI** (Settings card; the submenu's own switch is "AI bot LLM speech") (`llmEnabled`) | The master switch. When ON, the app appends the LLM conf block to the bot profile at world start (`AiPlayerbot.LLMEnabled = 2`) and the supervisor starts the `:llm` process before the world claims RAM. When OFF the base conf's `LLMEnabled = 0` wins and bots stay scripted. Nothing applies mid-session — flip, then (re)start the realm, or use *Start now* for the runtime. |
+| **Let bots talk with an AI** (Settings card, behind the **Experimental AI bot chat** gate switch; the submenu's own switch is "AI bot LLM speech") (`llmEnabled`) | The master switch. It only appears after the card's experimental gate is on. When ON, the app appends the LLM conf block to the bot profile at world start (`AiPlayerbot.LLMEnabled = 2`) and the supervisor starts the `:llm` process before the world claims RAM. When OFF the base conf's `LLMEnabled = 0` wins and bots stay scripted. Nothing applies mid-session — flip, then (re)start the realm, or use *Start now* for the runtime. |
 | **Source: on-device / external** (`llmExternalMode`) | On-device serves OpenAI-style requests from llama-server in a fault-isolated `:llm` process on `127.0.0.1:8080` (`LLMBackend = 0`). External points the same request path at any OpenAI-compatible HTTP(S) endpoint. Switching sources stops/starts the `:llm` process to match. |
 | **Cloud conversation** (`llmCloudChatter`, external only) | Widens the conversation lanes on a provider-safe external endpoint with ≥65,536 ctx: street `/say` reactions and the shared world-chatter budget pool open. Unaddressed party replies have a separate arm that ships OFF today (`LLMPartyReplyEnabled = 0`); addressed party lines always trigger on both lanes. Gated by the conjunction law — the tier must be active, so this can never widen the on-device lane. Quotas below bound it. |
 
@@ -130,7 +130,7 @@ fallback where it does not. A few keys in the runtime group ARE app-written
 - `LLMTurnAwardDailyCap` (20), `LLMTurnAwardWeighting` (1), `LLMDeedPoints*` (trade 3 / quest 4 / kill 2 / first visit 5) — relationship-point economics; a deed of 0 disables only the award, never the fact.
 - `LLMCloudChatter` (1), `LLMPartyReplyEnabled` (0), `LLMCloudStreetSayPct` (25), `LLMStreetSayPerDay` (200), `LLMRpgChatPerDay` (300), `LLMBotToBotPerDay` (300), `LLMCloudLineBudgetPerHour` (90), `LLMCloudInteractivePerPlayerHour` (240) — the cloud-lane widenings and their quotas.
 - `LLMRecap*`, `LLMSaga*`, `LLMRoundtablePerDay`, `LLMDossier*`, `LLMDramaEnabled`, `LLMCuriosityEnabled`, `LLMSceneReadEnabled`, `LLMGrudgeRefusalEnabled`, `LLMEventReactionsEnabled`, `LLMAuthoredLinesPerHour` (8) — the authored engagement layer (all default-on, fail-open, conf-internal by design).
-- `LLMWorldTruthAmbient` (1), `LLMWorldTruthFurniture` (0) — scene/homeland prompt furniture (off pending the bake-off).
+- `LLMWorldTruthAmbient` (1), `LLMWorldTruthFurniture` (0) — scene/homeland prompt furniture (furniture defaults off).
 - `LLMChatter*` (Url/Model/Key/Enabled/PowerFile) — the composer/street endpoints; smuggled from the external fields on the external lane.
 - `LLMModelPath`, `LLMCtxSize`, `LLMSlots`, `LLMCpuFirstCore` — runtime placement (the app writes these; the debug in-process lane pins its own).
 

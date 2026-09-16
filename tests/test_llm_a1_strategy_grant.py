@@ -1,5 +1,5 @@
 """A1 source-contract pins: the AiFactory strategy grant + the gate
-refusal stamp (round-3 R7#1 / R1#2).
+refusal stamp.
 
 The grant lives in the PRISTINE playerbots submodule (lane 3 per plan
 0.b: 'add the NEW host source-contract pin reading the pristine tree'),
@@ -42,7 +42,7 @@ def _gate_payload() -> str:
 
 
 def test_grant_include_follows_the_module_convention():
-    # the plan's 'SayAction.cpp:5 precedent' include form
+    # the module's usual include form (same as SayAction.cpp)
     assert '#include "playerbot/PlayerbotLlmMemory.h"' in _norm(AI_FACTORY)
 
 
@@ -58,7 +58,7 @@ def test_the_grant_is_exactly_the_conjunction_widening():
     assert text.count(GRANT) == 1
 
 
-# ---- the A1 refusal stamp (round-3 R1#2) ------------------------------------
+# ---- the refusal stamp ------------------------------------------------------
 
 def test_refusal_stamp_is_once_per_bot_under_the_mutex():
     src = _norm(MEMORY_CPP)

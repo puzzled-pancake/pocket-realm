@@ -1,16 +1,16 @@
-"""E2 register pins (plan RP workstream E2, v2.3 s6): the texts.sql
+"""Register pins for the texts.sql
 register audit.
 
-The drift the plan names lives in the legacy surfaces: texts.sql's
+The drift lives in the legacy surfaces: texts.sql's
 hello/goodbye/hello_follow pools (modern chat-speak, office-speak, and
 the dangling-initiative family that asserts an unproposed action) plus a
 handful of inline BOT_TEXT2 sentence literals (GuildManagementActions
 worst offenders). The audit rides the 0414 append-only tail migration -
 idempotent row-content UPDATEs only - because the shipped 0394 entry is
-sha-pinned by the manifest AND the on-device ledger (the s0.11 law;
+sha-pinned by the manifest AND the on-device ledger (the append-only law;
 editing it fail-closes the world). This battery pins:
 
-- the byte-identity of the shipped 0394 texts.sql entry (s0.11, made
+- the byte-identity of the shipped 0394 texts.sql entry (made
   mechanical: the manifest sha must equal the pristine file sha),
 - the 0414 shape law (row-content UPDATEs only, WHERE-keyed, no DDL, no
   INSERT/DELETE, and it is the manifest tail),
@@ -137,7 +137,7 @@ def statements() -> list[tuple[str, str, str]]:
     return _migration_statements()
 
 
-# ------------------------------------------------- the s0.11 pivot law ----
+# ------------------------------------------------- the append-only law ----
 def test_shipped_texts_entry_stays_byte_identical(manifest_entries):
     # The audit must not touch the shipped 0394 entry: the manifest sha
     # has to keep matching the pristine submodule file byte-for-byte
@@ -201,8 +201,8 @@ def test_every_where_key_resolves_to_a_real_texts_row(statements):
 
 def test_the_plan_named_dangling_initiative_rows_are_covered(statements):
     # The six hello_follow rows assert an unproposed action at master
-    # acquisition (consumed @ PlayerbotAI.cpp:2185); the plan names the
-    # "Hi, lead the way!" line explicitly.
+    # acquisition (consumed @ PlayerbotAI.cpp:2185); the register update
+    # covers the "Hi, lead the way!" line explicitly.
     follow_olds = {old for family, _, old in statements
                    if family == "hello_follow"}
     assert follow_olds == {

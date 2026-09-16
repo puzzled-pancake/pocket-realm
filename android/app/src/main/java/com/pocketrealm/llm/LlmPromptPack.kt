@@ -5,23 +5,23 @@ import org.json.JSONObject
 
 /**
  * Versioned prompt-pack model: the ordered list of prompt blocks that make up
- * a bot's system prompt, player-visible and player-editable (Phase 1/2).
+ * a bot's system prompt, player-visible and player-editable.
  *
  * The DEFAULT pack mirrors the trained contract order in
  * `native/patches/playerbots/PlayerbotLlmPrompt.h` (SysmForCard identity →
  * tools-note → bible + no-narrate → backstory → tier → absence → facts;
  * ComposeUserTurn head → memories tail → state → bridge note) with the
- * Phase-1 RP seasoning appended INSIDE the existing instruction span —
+ * RP seasoning appended INSIDE the existing instruction span —
  * no new top-level segment names, so trained weights see familiar shape.
  * The default pack ships seasoning DISABLED (native renders byte-identical
- * trained output until the player enables seasoning in Advanced settings or
- * a bake-off winner lands); block on/off + reorder only take effect when
+ * trained output until the player enables seasoning in Advanced settings);
+ * block on/off + reorder only take effect when
  * the player edits the pack in Advanced settings.
  *
  * Token estimates are a chars/4 heuristic (measured ~1.5 tok/word English
  * prose ≈ 3.75 chars/token on the corpus; 4 is the conservative side).
- * The pack editor shows them as estimates; the bake-off harness
- * (tools/llm_lab) records measured llama-tokenizer counts per variant.
+ * The pack editor shows them as estimates; the tools/llm_lab harness
+ * records measured llama-tokenizer counts per variant.
  */
 data class LlmPromptBlock(
     /** Stable id, used for per-preset deltas and JSON round-trip. */
@@ -310,16 +310,15 @@ data class LlmPromptPack(
             ),
         )
 
-        /** The Phase-1 seasoning blocks (all ship disabled — opt-in depth). */
+        /** The seasoning blocks (all ship disabled — opt-in depth). */
         val SEASONING_IDS: Set<String> = setOf(
             "voice-lock", "rule-autonomy", "rule-anti-omniscient",
             "rule-boldness", "rule-salience", "ban-list", "scene-close",
             "initiative-opener", "mood-weather",
-            // Phase-3 Fix B: the few-shot marked-line exemplar for external
-            // endpoints - ships OFF so the trained lane's prompt stays
-            // byte-identical
+            // the few-shot marked-line exemplar for external endpoints —
+            // ships OFF so the trained lane's prompt stays byte-identical
             "tool-exemplar",
-            // plan v5 S.2: the player persona card - an empty body renders
+            // the player persona card - an empty body renders
             // nothing (silence doctrine), so the trained default stays
             // byte-identical until the player writes their card
             "player-persona",
@@ -357,7 +356,7 @@ data class LlmPromptPack(
                     "<<get_scene fields=\"place,time,weather\">>\n" +
                     "No note: plain spoken words only - never a marked line.",
                 enabledByDefault = false,
-                help = "Phase-3 Fix B: few-shot exemplar for EXTERNAL endpoints " +
+                help = "Few-shot exemplar for EXTERNAL endpoints " +
                     "(MiniMax and friends zero-shot the trained marked-line contract " +
                     "unreliably; the trained GGUF lane must keep its prompt byte-identical, " +
                     "so this ships OFF). Marked lines still fire only when the turn's " +
@@ -373,8 +372,7 @@ data class LlmPromptPack(
                     "above is how you sound even when the topic changes. " +
                     "Never open two replies the same way.",
                 enabledByDefault = false,
-                help = "Anti-flanderization: one voice, fresh openings. " +
-                    "Bake-off variant: terse / standard / verbose+example.",
+                help = "Anti-flanderization: one voice, fresh openings.",
             ),
             LlmPromptBlock(
                 id = "rule-autonomy",
@@ -394,7 +392,7 @@ data class LlmPromptPack(
                     "say you do not know, in your own words.",
                 enabledByDefault = false,
                 help = "Anti-omniscience scope. May need the full scope spelled " +
-                    "out on small tiers — bake-off decides.",
+                    "out on small tiers.",
             ),
             LlmPromptBlock(
                 id = "rule-boldness",
@@ -442,7 +440,7 @@ data class LlmPromptPack(
                     "One line, in your voice, never a tool-bearing line. " +
                     "Each memory opens a conversation once — then it is spent.",
                 enabledByDefault = false,
-                help = "Phase-3: guides bot-initiated openers. The engine " +
+                help = "Guides bot-initiated openers. The engine " +
                     "unchanged: arrival greetings, debt/goal ask-afters, " +
                     "each fact once, 10-minute floor scaled by the " +
                     "initiative dial.",
@@ -455,7 +453,7 @@ data class LlmPromptPack(
                     "A grudge shows, never announced; grief quiets; being smitten " +
                     "brightens. Volatility sets how fast the weather turns.",
                 enabledByDefault = false,
-                help = "Phase-3: mood seasoning companion to the native weather " +
+                help = "Mood seasoning companion to the native weather " +
                     "line. The engine picks weather GUID-stably; this block " +
                     "tells the model how to wear it.",
             ),
@@ -464,7 +462,7 @@ data class LlmPromptPack(
                 title = "Player persona card (seasoning)",
                 body = "",
                 enabledByDefault = false,
-                help = "Plan v5 S.2: who YOU are, in your own words - habits, " +
+                help = "Who YOU are, in your own words - habits, " +
                     "look, history, how bots should read you. Empty (default) " +
                     "renders nothing; the trained prompt is untouched until " +
                     "you write your card. Keep it under ~120 tokens - the " +

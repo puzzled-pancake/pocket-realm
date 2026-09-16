@@ -1,12 +1,12 @@
-"""Host pins for the read-only Weather accessors (plan v5 W7a/F5).
+"""Host pins for the read-only Weather accessors.
 
 The PlayerBots LLM persona/memory weather context reads live weather
 through Weather::GetWeatherType()/GetWeatherGrade() and
-WeatherSystem::FindWeather(zoneId) (fail-on-miss, never creates). At this
-HEAD those accessors are NOT in the pinned pristine cmangos submodule:
+WeatherSystem::FindWeather(zoneId) (fail-on-miss, never creates). Those
+accessors are NOT in the pinned pristine cmangos submodule:
 they are injected at build time by the CORE_WEATHER/CORE_WEATHERSYS
-anchor pairs in tools/build_o09_realm_runtime.py (the s0.b lane-2
-delivery vehicle for cmangos core files). These pins hold that contract:
+anchor pairs in tools/build_o09_realm_runtime.py (the delivery vehicle
+for cmangos core files). These pins hold that contract:
 the anchor payloads stay verbatim, the find-only lookup stays find-only,
 both anchors stay registered for apply AND byte-pristine restore, the
 pristine Weather.h keeps carrying the anchor UPSTREAM regions (a

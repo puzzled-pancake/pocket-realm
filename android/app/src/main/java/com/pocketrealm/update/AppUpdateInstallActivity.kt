@@ -9,7 +9,7 @@ import androidx.core.content.IntentCompat
 import com.pocketrealm.log.AppLog
 
 /**
- * F6: PackageInstaller status sink. The session commit's PendingIntent
+ * PackageInstaller status sink. The session commit's PendingIntent
  * targets this activity, so the system itself launches it when a status
  * arrives (reviving the process if Android killed the app mid-flow); the
  * confirmation UI is then started from this foreground activity. A

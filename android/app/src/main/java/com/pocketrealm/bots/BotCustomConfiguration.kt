@@ -1,9 +1,9 @@
 package com.pocketrealm.bots
 
 /**
- * Complete user-editable bot configuration for named custom presets
- * (landscape UI brief, sections 20-32). Every field maps to a knob the
- * reviewed playerbot configuration generator actually emits — no pretend
+ * Complete user-editable bot configuration for named custom presets.
+ * Every field maps to a knob the
+ * playerbot configuration generator actually emits — no pretend
  * settings. Values are validated by [BotProfile] construction rules plus
  * [BotPopulationPolicy] for custom population shapes beyond the built-in
  * window.

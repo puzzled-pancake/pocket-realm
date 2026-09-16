@@ -2,7 +2,7 @@
 #define _PlayerbotLlmGates_h
 
 /*
- * WS-A conversation gates (plan v2.3, T1): the PURE decision predicates
+ * Conversation gates: the PURE decision predicates
  * behind every cloud-lane widening. Scope fence: no I/O, no clock, no
  * config reads, no state - every input arrives as a value so the whole
  * surface compiles and runs in the host harness
@@ -14,7 +14,7 @@
  *
  * The one live wrapper - CloudLaneOpen() - reads the config and is
  * compiled only inside the server (ENABLE_PLAYERBOTS); the harness
- * exercises the pure three-value form. The conjunction law (0.13):
+ * exercises the pure three-value form. The conjunction law:
  * no cloud-lane behavior may key on LLMCloudChatter alone - the tier
  * must be active too, so a device-lane emission can never widen.
  */
@@ -53,14 +53,14 @@ namespace PlayerbotLlmGates
         return cloudChatterKey && providerSafe != 0 && ctxLength >= CLOUD_TIER_MIN_CTX;
     }
 
-    // The hard trigger (A3): which incoming lines may start a generation
+    // The hard trigger: which incoming lines may start a generation
     // at all.
     //   whisper: always (the intimate channel, both lanes)
-    //   party/raid: addressed lines when a REAL player spoke (A3's
+    //   party/raid: addressed lines when a REAL player spoke (the
     //     bot-authored hole: a bot naming a bot never spends a turn);
     //     UNADDRESSED party/raid lines only on the cloud lane with the
     //     party reply arm enabled (default 0 - addressed-only until the
-    //     T3 party step is green)
+    //     party reply arm is turned on)
     //   say: name-addressed + real player, both lanes
     //   trade/general/yell (and anything else): never a trigger
     inline bool HardTriggerAllowed(std::uint32_t src, bool addressedToBot, bool realPlayer,
@@ -105,7 +105,7 @@ namespace PlayerbotLlmGates
     // word-bound match of the bot's name, case-insensitive, no substring
     // hits ("Varl" must not match "Varleigh") - the name must be the
     // WHOLE word (a possessive "'s" tail is still the name being
-    // addressed, and so is a QUOTED name - round-4 R1#2: the
+    // addressed, and so is a QUOTED name: the
     // opening/closing apostrophes of 'Varleigh' are boundaries).
     inline bool ContainsNameIgnoreCase(std::string const& msg, std::string const& name)
     {
@@ -188,18 +188,18 @@ namespace PlayerbotLlmGates
         std::uint64_t lastWonMs; // rotation anti-monopolization (bigger = spoke more recently)
     };
 
-    // A3's exactly-one responder, pure form: the claim (first writer
+    // Exactly-one responder, pure form: the claim (first writer
     // wins) is runtime state in PlayerbotLlmMemory; WHICH claimant wins
     // is this deterministic pick - highest tier, longest-since-last-win
     // breaks ties, guid as the final stable tiebreak (0 = nobody; the
     // 0-responder case claims nothing and is pinned host-side).
-    // Round-4 R1: on an ADDRESSED line the pick resolves to the named
-    // bot (addressedGuid, the plan's own A3.2 sketch parameter) so the
+    // On an ADDRESSED line the pick resolves to the named
+    // bot (addressedGuid) so the
     // unaddressed fan-out loses the claim everywhere and the addressed
     // bot's bypass is the ONE generation - the 2-responder case is the
     // pinned failure. Every bot computes the same addressedGuid from
     // the same msg + group, so the preference is fan-out-stable.
-    // Round-5 R1: an addressedGuid that resolves to NO candidate means
+    // An addressedGuid that resolves to NO candidate means
     // the addressee cannot answer through the claim (dead or absent) -
     // the pick returns 0 and bystanders STAND DOWN rather than falling
     // through to the ordering: the line is addressed, and the widened
@@ -251,7 +251,7 @@ namespace PlayerbotLlmGates
         std::uint64_t expiresAtMs;
     };
 
-    // A2's per-map zone cap, admission half: prune expired markers (the
+    // Per-map zone cap, admission half: prune expired markers (the
     // self-healing TTL - a logout mid-dialogue leaks at most one ghost
     // for <= TTL, no decrement path needed), then a non-interlocutor
     // admits only below the cap. The interlocutor's own admission is
@@ -278,7 +278,7 @@ namespace PlayerbotLlmGates
         return occupants.size() < cap;
     }
 
-    // A6's street admission ladder - the ORDER is the contract (pin it):
+    // Street admission ladder - the ORDER is the contract (pin it):
     // world/zone window claim -> per-bot slot -> pct roll -> quota ->
     // dispatch; the emote fires on any rejection. Each stage's verdict
     // arrives resolved; this fold names the stage that rejected so the
@@ -293,7 +293,7 @@ namespace PlayerbotLlmGates
         return "dispatch";
     }
 
-    // A4's failure decision as a pure fold: busy keeps the persona
+    // The failure decision as a pure fold: busy keeps the persona
     // placeholder (both lanes, unchanged - duty-cycle denial is pacing,
     // not a dead endpoint); every OTHER hard failure (cap, timeout,
     // http_%d, error) and post-parse emptiness wants the authored
@@ -304,7 +304,7 @@ namespace PlayerbotLlmGates
         return !busy && linesEmpty;
     }
 
-    // A4's interceptor-demotion plan. World-thread sites fill it with
+    // The interceptor-demotion plan. World-thread sites fill it with
     // IDS ONLY (kind, channel, category, flags) - never pre-drawn text:
     // pre-drawing would advance shared recency rings and mint belief
     // facts for lines that may never deliver. The async worker draws

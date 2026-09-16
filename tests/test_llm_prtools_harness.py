@@ -16,23 +16,29 @@ scanner. These pins hold the conversion in place:
   greet skeleton are keyed; no bare-form teaching remains in any of them
 - prtools2's v2 arm uses the mirror; its v1 arm stays the frozen control
 
-Skips (with reason) on a machine without the G: harness tree.
+Skips (with reason) on a machine with LLM_LAB_AUTHORING_ROOT unset - the
+harness tree lives in the external authoring checkout.
 """
 import importlib.util
+import os
 import re
 from pathlib import Path
 
 import pytest
 
-HARNESS = Path(r"G:\NPU LLM\scripts\bench-harness")
-BANKLIB_DIR = Path(r"G:\NPU LLM\scripts\finetune")
+AUTHORING_ROOT = os.environ.get("LLM_LAB_AUTHORING_ROOT")
+HARNESS = (Path(AUTHORING_ROOT) / "scripts" / "bench-harness"
+           if AUTHORING_ROOT else None)
+BANKLIB_DIR = (Path(AUTHORING_ROOT) / "scripts" / "finetune"
+               if AUTHORING_ROOT else None)
 CONVERTED = ("prtools2.py", "prtools3.py", "prtools4.py", "ambition.py",
              "rp-web.py", "tricks.py", "final.py")
 
 
 def _load(name):
-    if not HARNESS.is_dir():
-        pytest.skip("bench harness tree (G:\\NPU LLM) not present")
+    if HARNESS is None or not HARNESS.is_dir():
+        pytest.skip("LLM_LAB_AUTHORING_ROOT is not set - bench harness "
+                    "tree not present")
     spec = importlib.util.spec_from_file_location(
         name, HARNESS / (name + ".py"))
     mod = importlib.util.module_from_spec(spec)
@@ -70,8 +76,9 @@ def calls_of(p3, raw):
 
 
 def test_tools_note_is_frozen_against_banklib(p3):
-    if not BANKLIB_DIR.is_dir():
-        pytest.skip("authoring tree (G:\\NPU LLM) not present")
+    if BANKLIB_DIR is None or not BANKLIB_DIR.is_dir():
+        pytest.skip("LLM_LAB_AUTHORING_ROOT is not set - authoring tree "
+                    "not present")
     import sys
     sys.path.insert(0, str(BANKLIB_DIR))
     import banklib as B
@@ -300,8 +307,9 @@ def test_continuation_grammar_separator_is_not_a_literal_plus(p3):
 
 
 def test_no_bare_form_teaching_remains():
-    if not HARNESS.is_dir():
-        pytest.skip("bench harness tree (G:\\NPU LLM) not present")
+    if HARNESS is None or not HARNESS.is_dir():
+        pytest.skip("LLM_LAB_AUTHORING_ROOT is not set - bench harness "
+                    "tree not present")
     bare = re.compile(r"<<\s*perform_emote\s+[a-z_]+>>")
     for fn in CONVERTED:
         assert not bare.search(

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The S6 ACT-chain battery (A2/A14 gate instrument): the duelworld-10
+"""The ACT-chain battery: the duelworld-10
 chain plus the bridge-elicited follow/party_invite legs and the
 event+note untrained-combo measurement.
 
@@ -14,7 +14,7 @@ Chain legs per scenario (the shipped flow, end to end):
   1. challenge  a duel-request turn (bridge duel trigger phrasing) with
                 the ready <<duel_challenge name="Brannoc">> note ->
                 expect duel_challenge fire + consent voice + hygiene.
-  2. outcome    the A14 [EVENT] reaction turn with the S6 housekeeping
+  2. outcome    the [EVENT] reaction turn with the housekeeping
                 log_fact nudge (the UNTRAINED compose combination:
                 event head + note lines + speak-first) -> log_fact fire
                 AND voice measured; event-only control runs alongside so
@@ -28,7 +28,7 @@ Zero executions from unlicensed turns is the NATIVE gate (license
 cross-check) - pinned host-side by tests/test_llm_act_tools.py.
 
 Usage:  python tools/llm_lab/s6_act_chain.py [--model e2b-tuned] [--n 3]
-Output: C:/llm-lab/results/s6_duelworld_<model>_<ts>.json (+ table).
+Output: RESULTS_DIR/s6_duelworld_<model>_<ts>.json (+ table).
 """
 from __future__ import annotations
 
@@ -44,7 +44,11 @@ import sanity_battery as SB  # noqa: E402
 sys.path.insert(0, SB.BANKLIB_DIR)
 import banklib as BK  # noqa: E402
 
-RESULTS_DIR = r"C:\llm-lab\results"
+RESULTS_DIR = os.environ.get("LLM_LAB_RESULTS_DIR")
+if not RESULTS_DIR:
+    sys.stderr.write("LLM_LAB_RESULTS_DIR is not set - point it at the "
+                     "local results directory\n")
+    raise SystemExit(2)
 
 # ten duel-request phrasings, every one carrying a bridge duel trigger
 # (duel me / care for a duel / i challenge you / want to duel / let's

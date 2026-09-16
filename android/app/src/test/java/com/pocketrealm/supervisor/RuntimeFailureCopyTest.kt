@@ -5,7 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Host-JVM test for the F1 human-copy mapping at the UI decode boundary. */
+/** Host-JVM test for the human-copy mapping at the UI decode boundary. */
 class RuntimeFailureCopyTest {
 
     @Test fun `unverified orphan detail maps to human copy`() {

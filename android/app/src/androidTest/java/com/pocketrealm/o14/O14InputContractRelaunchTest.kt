@@ -43,17 +43,16 @@ import java.util.concurrent.atomic.AtomicReference
  * and left-click delivery, held-input release, and stale-generation rejection
  * across two genuinely fresh [ClientDisplayHost] / [InputContract] lifecycles.
  *
- * This closes the test-infrastructure gap documented at commit f9e50a4: no
- * existing checked-in test combined multi-generation host replacement with
- * input delivery + stale rejection. It uses only public APIs present at
- * 40bdcb3 and changes no production code.
+ * Combines multi-generation host replacement with input delivery and
+ * stale-generation rejection in a single checked-in test; it uses only
+ * public client APIs.
  *
  * Each generation launches a **separate** Wine self-test process, so the probe
  * stdout is naturally per-session — generation-N observations cannot satisfy
  * generation-N+1 assertions because they come from different sessionIds with
  * independent captured stdout.
  *
- * Lane: AVD-Large-x86_64-v1 (physical AVD O11-Large-x86_64, emulator-5556).
+ * Lane: AVD-Large-x86_64-v1 (physical AVD O11-Large-x86_64).
  */
 @RunWith(AndroidJUnit4::class)
 class O14InputContractRelaunchTest {

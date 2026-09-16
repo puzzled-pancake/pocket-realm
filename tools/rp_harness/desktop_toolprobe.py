@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tool-lane funnel verification probe (Phase 3 Fix A).
+"""Tool-lane funnel verification probe.
 
 Question-only measurement of the tool lane on an external model
 (MiniMax M3 zero-shots the trained <<tool>> contract). For each tool-bait
@@ -9,9 +9,9 @@ the call was lost:
 
     emitted -> known -> licensed -> queued   (the executor's funnel)
 
-Loss at `emitted` (no funnel row at all) is a PROMPT problem -> the
-few-shot exemplar block (Fix B). Loss at `unlicensed`/`stale-license` is
-a licensing-coverage gap (Fix C). A `queued` row with a state-correct
+Loss at `emitted` (no funnel row at all) is a PROMPT problem -> widen
+the few-shot exemplar block. Loss at `unlicensed`/`stale-license` is
+a licensing-coverage gap. A `queued` row with a state-correct
 reply is the end-to-end pass bar.
 
 Usage: python tools/rp_harness/desktop_toolprobe.py [--probes 20]

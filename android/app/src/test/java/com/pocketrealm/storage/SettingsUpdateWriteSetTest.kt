@@ -154,7 +154,7 @@ class SettingsUpdateWriteSetTest {
 
     @Test
     fun worldDebugLogsEncodesUnderTheReviewedZeroOneToggleNames() {
-        // B2: verbose world logging is an advanced opt-in; default OFF keeps
+        // verbose world logging is an advanced opt-in; default OFF keeps
         // the world.conf LogFileLevel at errors-only (1). The conf is
         // written at world start, so the toggle applies on the next realm
         // start by construction - nothing else may key off this field.

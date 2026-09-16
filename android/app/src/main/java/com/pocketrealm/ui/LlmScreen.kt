@@ -149,7 +149,7 @@ internal fun LlmScreen(contentPadding: PaddingValues = PaddingValues()) {
                 checked = snap.llmEnabled,
                 tag = "llm-enabled",
                 support = "Playerbots speak through a language model (written into the " +
-                    "bot conf at realm start). Off keeps the reviewed LLMEnabled = 0 conf.",
+                    "bot conf at realm start). Off keeps the LLMEnabled = 0 conf.",
                 onChange = { enabled -> update { it.copy(llmEnabled = enabled) } },
             )
             HorizontalDivider()
@@ -202,7 +202,7 @@ internal fun LlmScreen(contentPadding: PaddingValues = PaddingValues()) {
                     "cloud-composer setup for richer party banter.",
                 onChange = { enabled -> update { it.copy(llmAmbience = enabled) } },
             )
-            // F3: the lane-neutral "how to talk" hint. Every claim is
+            // The lane-neutral "how to talk" hint. Every claim is
             // code-supported on BOTH lanes: name-addressing is the hard
             // trigger for /say (a whisper always works), greeting lines
             // come from tier pools (strangers draw the short lines), and
@@ -222,7 +222,7 @@ internal fun LlmScreen(contentPadding: PaddingValues = PaddingValues()) {
                     modifier = Modifier.testTag("llm-external-note"),
                 )
                 HorizontalDivider()
-                // §0.a UI row: the Cloud conversation toggle (AiPlayerbot.
+                // The Cloud conversation toggle (AiPlayerbot.
                 // LLMCloudChatter). Visible only when an external provider
                 // is configured — the key masters cloud-lane widenings and
                 // means nothing on the embedded lane.
@@ -281,9 +281,9 @@ internal fun LlmScreen(contentPadding: PaddingValues = PaddingValues()) {
                 val selected = LlmModelRegistry.byId(snap.llmModelId)
                 val model = LlmModelCoordinator.modelPathFor(context, snap.llmModelId)
                 // Small-first ordering with trade-off copy — the 501 MB
-                // efficiency model is the "try it first" download, the 3.36 GB
-                // E2B is the upgrade. All three stay selectable; local-only
-                // entries stage by hand (no download distribution yet).
+                // efficiency model is the "try it first" download, the 2B
+                // tuned model is the upgrade. All three stay selectable;
+                // local-only entries stage by hand (no download source).
                 // selectedId passes the raw persisted id through: byId()
                 // falls back to a known descriptor for unknown ids, and the
                 // picker must show the actual stored value, not the fallback.
@@ -635,7 +635,7 @@ internal fun LlmScreen(contentPadding: PaddingValues = PaddingValues()) {
 private const val MODEL_POLL_MS = 2_000L
 
 /**
- * F3: the lane-neutral "how to talk to bots" hint shown in the Runtime
+ * The lane-neutral "how to talk to bots" hint shown in the Runtime
  * card. Pinned by the UI copy contract test — every clause must stay
  * code-supported on both lanes: name-addressing is the both-lane hard
  * trigger for /say (whispers always work); greeting length follows the
@@ -649,7 +649,7 @@ internal const val LLM_SPEECH_HINT: String =
         "from the first few bots to the full target over the first minutes."
 
 /**
- * §0.c.4 spend disclosure for the Cloud conversation toggle: what leaves
+ * Spend disclosure for the Cloud conversation toggle: what leaves
  * the device, what it roughly costs (prompt-dominated), and when it
  * applies. Pinned by the UI copy contract test.
  */
@@ -662,7 +662,7 @@ internal const val LLM_CLOUD_CHATTER_SUPPORT: String =
         "replies). Applies on the next realm start; daily quotas are " +
         "per-session and reset when the realm restarts."
 
-/** E5: the picker's per-model trade-off line (small-first ordering). */
+/** The picker's per-model trade-off line (small-first ordering). */
 private fun modelPickerLabel(desc: LlmModelDescriptor): String {
     val gb = "%.2f".format(java.util.Locale.US, desc.size / 1e9)
     return when (desc.id) {
@@ -673,7 +673,7 @@ private fun modelPickerLabel(desc: LlmModelDescriptor): String {
     }
 }
 
-/** E5: the support line under the picker, describing the SELECTED model. */
+/** The support line under the picker, describing the SELECTED model. */
 private fun modelPickerSupport(desc: LlmModelDescriptor): String = when (desc.id) {
     LlmModelRegistry.TUNED_Q08.id ->
         "Smallest and fastest. Shorter memory, simpler speech, no bot-to-bot " +
@@ -707,7 +707,7 @@ private data class LlmModelState(
     val npuBlocked: Boolean = false,
 )
 
-/** Measured decode-core profiles (findings: ppgrid2, q4bfinal3, 2026-08-26 (c)). */
+/** Measured decode-core profiles for the device's Hexagon cores. */
 private val CORE_PROFILES = listOf(
     "0x38" to "Balanced · mids 3-5",
     "0x30" to "Low draw · mids 4-5",
@@ -789,7 +789,7 @@ private fun LlmCard(title: String, content: @Composable () -> Unit) {
 }
 
 /**
- * Phase-2 Advanced prompt manager (SillyTavern-style): the ordered prompt
+ * Advanced prompt manager (SillyTavern-style): the ordered prompt
  * blocks with enable toggles, tap-to-edit bodies, reset-to-default per
  * block, reorder (up/down), per-block token estimates + pack total +
  * reply-room meter, and import/export of the pack JSON.

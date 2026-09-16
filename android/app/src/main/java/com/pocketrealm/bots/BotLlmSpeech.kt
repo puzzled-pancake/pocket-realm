@@ -13,10 +13,10 @@ package com.pocketrealm.bots
  * Engine, model and the global speech switches live in Settings →
  * AI bot LLM; these knobs only shape how THIS preset's bots speak.
  *
- * Phase 2 adds the RP layer: per-block pack deltas (block id → enabled,
+ * The RP layer: per-block pack deltas (block id → enabled,
  * null = follow the global pack) plus RP dials (initiative, volatility,
  * reactivity, long-form license). The dials reach the native layer as
- * LLMRp* conf values consumed by the Phase-3 mood/initiative/long-form
+ * LLMRp* conf values consumed by the native mood/initiative/long-form
  * machinery (llm_banter_core.h and PlayerbotLlmMemory.cpp).
  */
 data class BotLlmSpeech(
@@ -53,7 +53,7 @@ data class BotLlmSpeech(
     val reactivity: Int = -1,
     val longForm: Int = -1,
     /**
-     * D3 (plan v2.3 §5): per-preset cap on the staged chatter-power rung
+     * Per-preset cap on the staged chatter-power rung
      * (`AiPlayerbot.LLMChatterPowerFile` in the appended LLM conf names the
      * staged file; the RUNG line inside it is what the native scheduler
      * re-reads every tick). -1 = follow the computed ambience state (the
@@ -96,7 +96,7 @@ data class BotLlmSpeech(
         const val RP_FOLLOW_SENTINEL = -1
 
         /**
-         * D3: chatter-power rung values — must move with the native
+         * Chatter-power rung values — must move with the native
          * pocketllm::ChatterRung enum (and ChatterPowerMonitor's copy).
          * The sentinel follows the computed ambience state; 0..4 mirror
          * the rungs the staged power file carries.

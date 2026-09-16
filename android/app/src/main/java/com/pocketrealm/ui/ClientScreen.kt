@@ -54,7 +54,7 @@ import kotlinx.coroutines.delay
 // observed an active run (ImportProgressPresentation terminals).
 private val TERMINAL_IMPORT_PHASES = setOf("COMPLETE", "FAILED", "CANCELLED")
 
-// F2a watchdog tuning: a busy journal phase whose worker process has been
+// Watchdog tuning: a busy journal phase whose worker process has been
 // gone this long was LMK-killed, not merely quiet between operations.
 private const val WORKER_STALLED_AFTER_SECONDS = 25L
 private const val MAX_WATCHDOG_RESTARTS = 4
@@ -145,7 +145,7 @@ fun ClientScreen(contentPadding: androidx.compose.foundation.layout.PaddingValue
         // A freshly (re)started import's journal row appears only seconds
         // after start; the first polls still observe the PREVIOUS run's
         // terminal phase. Stop only for a terminal phase seen AFTER this
-        // epoch observed an active one (verification round 2).
+        // epoch observed an active one.
         while (true) {
             runCatching { ImportWorkerService.readStatus(context) }.onSuccess { value ->
                 if (ui.applyStatus(value)) return@LaunchedEffect
@@ -206,7 +206,7 @@ private class ImportUiState(context: android.content.Context) {
         context.contentResolver.persistedUriPermissions
             .firstOrNull { it.isReadPermission }?.uri)
     var importEpoch by mutableStateOf(0)
-    // F2d: the pick is staged behind a confirmation dialog; the persistable
+    // The pick is staged behind a confirmation dialog; the persistable
     // permission is only taken on confirm so a cancel leaves no grant behind.
     var pendingImport by mutableStateOf<PendingImportPick?>(null)
 
@@ -219,7 +219,7 @@ private class ImportUiState(context: android.content.Context) {
 
     // Poller/watchdog bookkeeping (not composable state).
     private var observedActiveRun = false
-    // F2a watchdog: restart a busy-but-dead worker using the journal's own
+    // Watchdog: restart a busy-but-dead worker using the journal's own
     // source URI. ActivityManager's service-restart backoff after an LMK kill
     // runs 32-290 s; without this the only escape is the manual Resume button.
     // The >=60 s rate limit bounds this counter (which resets if the UI
@@ -231,9 +231,8 @@ private class ImportUiState(context: android.content.Context) {
      * Starts a fresh poller epoch: the effect relaunches AND the per-epoch
      * guards reset. Without the observedActiveRun reset, the relaunched
      * poller's first polls still observe the PREVIOUS run's terminal phase
-     * and would exit immediately, freezing the card for the new run (the
-     * exact bug the verification round fixed for the old local
-     * variable). The watchdog budget also resets: this is a new run, and the
+     * and would exit immediately, freezing the card for the new run. The
+     * watchdog budget also resets: this is a new run, and the
      * >=60 s in-process rate limit plus the 25 s stall requirement bound the
      * reset behavior.
      */
@@ -311,12 +310,13 @@ private class ImportUiState(context: android.content.Context) {
         dataPreparationEnabled = value.optBoolean("dataPreparationEnabled", true)
         if (importPhaseBusy(importProgress.phase)) {
             observedActiveRun = true
-            // Round-2 fix: keep a fresh notice on screen long enough to read
-            // (the 1 s poll previously wiped the restart wording within ~1 s).
+            // Keep a fresh notice on screen long enough to read; without
+            // this gate the 1 s poll would wipe the restart wording within
+            // ~1 s of it appearing.
             if (System.currentTimeMillis() - importNoticeSetAtMs >= NOTICE_STICKY_MS) importNotice = null
         }
         if (!importPhaseBusy(importProgress.phase)) importBusyNotice = null
-        // Round-2 fix: only watchdog-originated busy notices clear when the
+        // Only watchdog-originated busy notices clear when the
         // worker returns — the "already running" notice must persist while a
         // healthy import works (workerPresent is true throughout).
         if (importProgress.workerPresent && stoppedNoticeActive) {
@@ -329,7 +329,7 @@ private class ImportUiState(context: android.content.Context) {
         return observedActiveRun && importProgress.phase in TERMINAL_IMPORT_PHASES
     }
 
-    /** Notices survive the poller's busy-phase wipe for this long (round 2). */
+    /** Notices survive the poller's busy-phase wipe for this long. */
     fun postImportNotice(text: String) {
         importNotice = text
         importNoticeSetAtMs = System.currentTimeMillis()
@@ -728,7 +728,7 @@ private fun ImportStageRow(stage: ImportStageProgress) {
 internal enum class ImportWatchdogAction { RESTART, SHOW_MANUAL_RESUME, NONE }
 
 /**
- * Pure decision for the F2a auto-continue watchdog so the restart policy is
+ * Pure decision for the auto-continue watchdog so the restart policy is
  * unit-testable independent of Compose: a busy journal phase whose worker
  * process has been gone for a while was LMK-killed (ActivityManager's
  * service-restart backoff runs 32-290 s), and the UI restarts it itself —

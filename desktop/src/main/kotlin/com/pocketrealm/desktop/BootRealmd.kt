@@ -12,7 +12,7 @@ import java.net.Socket
 import kotlin.system.exitProcess
 
 /**
- * Phase-3 gate entry point: boot realmd IN-PROCESS through the real
+ * Gate entry point: boot realmd IN-PROCESS through the real
  * DesktopRuntimeBackend against the seeded datadir, prove the listener
  * accepts a TCP connection on 127.0.0.1:3724, then stop cleanly and
  * verify the stop was graceful. Run from desktop/:
@@ -25,7 +25,7 @@ fun main() {
     val roots = DesktopStorageRoots()
     roots.ensureDirectories()
     DesktopLog.attachFile(roots.logs)
-    DesktopLog.i("BootRealmd", "phase-3 realmd gate starting")
+    DesktopLog.i("BootRealmd", "realmd gate starting")
 
     val backend = DesktopRuntimeBackend(roots)
     val spec = RuntimeLaunchSpec(
@@ -80,8 +80,8 @@ fun main() {
         System.err.println("CLEAN STOP FAILED")
         exitProcess(EXIT_STOP)
     }
-    DesktopLog.i("BootRealmd", "phase-3 realmd gate passed")
-    println("PHASE-3 REALMD GATE PASSED")
+    DesktopLog.i("BootRealmd", "realmd gate passed")
+    println("REALMD GATE PASSED")
 }
 
 private const val EXIT_PREFLIGHT = 2

@@ -36,7 +36,7 @@ class DatabaseService : Service() {
     }
 
     /**
-     * B5: the supervisor promotes :database to a specialUse FGS while a real
+     * The supervisor promotes :database to a specialUse FGS while a real
      * player is present and demotes it when the realm is playerless. This
      * service has no transition gate; the demote side also runs at engine
      * stop and owner loss so the promotion never outlives the engine.
@@ -169,7 +169,7 @@ class DatabaseService : Service() {
 
     companion object {
         private const val TAG = "DatabaseService"
-        /** B5: supervisor-driven specialUse FGS promotion intents. */
+        /** Supervisor-driven specialUse FGS promotion intents. */
         const val ACTION_PROMOTE_FOREGROUND = "com.pocketrealm.action.DATABASE_FOREGROUND_PROMOTE"
         const val ACTION_DEMOTE_FOREGROUND = "com.pocketrealm.action.DATABASE_FOREGROUND_DEMOTE"
         const val DATABASE_NOTIF_ID = 4

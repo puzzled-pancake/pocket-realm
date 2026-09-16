@@ -15,8 +15,7 @@ import java.nio.charset.Charset
  * Synthetic client-archive fixtures shared by the JVM suite and the debug
  * instrumented suite. Everything here is synthetic: the PE stub is ported
  * verbatim from ImportFixtureProvider.syntheticPe and the MPQ stubs carry
- * only the `MPQ\x1a` header — no Blizzard bytes are ever committed (repo
- * rule, plan invariant 5).
+ * only the `MPQ\x1a` header — no Blizzard bytes are ever committed.
  */
 object SyntheticClientArchives {
 

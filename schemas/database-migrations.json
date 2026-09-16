@@ -4553,9 +4553,9 @@
       "source_path": "sql/migrations/ai_playerbot_llm_memory_v2.sql",
       "asset": "database/migrations/0413.sqlz",
       "compression": "gzip",
-      "sql_size": 2105,
-      "sql_sha256": "8abb104813cfdc4643731288cc41a092ce2172ae520a359d09c5bdef92e7850d",
-      "asset_sha256": "6bd27836c297cd287aeda988de127de24316d1dc934a937359d48a9c7e6dafa0"
+      "sql_size": 2045,
+      "sql_sha256": "3367304e525593e2819fb07300baae60e58240dd61ebe6d2ed47e38e3b49a150",
+      "asset_sha256": "2df94dc96cbc1d950984d8af70b073b47fe595880c25b4101bbd0ff0bfccb9d8"
     },
     {
       "migration_id": "0414-playerbot-world-playerbot-texts-e2-register",
@@ -4564,9 +4564,9 @@
       "source_path": "sql/migrations/playerbot-texts-e2-register.sql",
       "asset": "database/migrations/0414.sqlz",
       "compression": "gzip",
-      "sql_size": 5288,
-      "sql_sha256": "24e20c7476b23d443642d30d6f84567a5a83bd8b6b4c56236e34ab0963eb53ae",
-      "asset_sha256": "a2fccadea3030181375693e8abddb514c0c483194faf53e3ca02e35320638fbe"
+      "sql_size": 5261,
+      "sql_sha256": "fcf5eb9131f31ada585d4751c2e5224b6b34bdabfd912e3269ffeca5023be11e",
+      "asset_sha256": "d075ea723f33c76d4b67c2d106d7062cab3beaff3fe247a03c722db4a42dc642"
     }
   ]
 }

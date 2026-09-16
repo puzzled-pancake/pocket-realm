@@ -46,7 +46,7 @@ object ManagedConfigPolicy {
             add(ConfigWtfCodec.EnforcedLine("gxWindowedResolution", conditions.resolution))
             add(ConfigWtfCodec.EnforcedLine("gxWindow", "1"))
             add(ConfigWtfCodec.EnforcedLine("gxMaximize", if (conditions.gameMaximized) "1" else "0"))
-            // F4: gxVSync/gxMultisample/gxMultisampleQuality are user-owned.
+            // gxVSync/gxMultisample/gxMultisampleQuality are user-owned.
             // No cleanup entry is needed for their previously enforced lines:
             // the 1.12 client itself drops gxVSync/gxMultisample lines at
             // clean exit (ground truth capture), and the editor can change
@@ -80,7 +80,7 @@ object ManagedConfigPolicy {
                 ),
             )
             add(ConfigWtfCodec.EnforcedLine("M2UseShaders", if (conditions.renderer == "opengl") "0" else null))
-            // F4: ffxGlow/ffxDeath are user-owned under the DXVK lane (the
+            // ffxGlow/ffxDeath are user-owned under the DXVK lane (the
             // Legacy GL lanes keep the rows fixed in the editor).
             add(
                 ConfigWtfCodec.EnforcedLine(

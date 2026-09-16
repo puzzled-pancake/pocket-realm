@@ -148,7 +148,7 @@ internal fun InGameBindingsScreen() {
     }
 
     /**
-     * Category reset (plan SS7): restore capture defaults, but skip reserved
+     * Category reset: restore capture defaults, but skip reserved
      * keys outright - commands whose stock default is a reserved key keep
      * their current binding. No conflict prompts; displaced assignments
      * resolve silently, exactly like the in-game reset.

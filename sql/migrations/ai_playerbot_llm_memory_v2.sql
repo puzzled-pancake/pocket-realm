@@ -1,5 +1,5 @@
--- Pocket Realm: playerbot LLM memory v2 (characters DB) - the C2 voiced-fact
--- persistence + C8 conversation-memory tail (migration 0413).
+-- Pocket Realm: playerbot LLM memory v2 (characters DB) - the voiced-fact
+-- persistence + conversation-memory tail (migration 0413).
 -- Placed in sql/migrations/ (never globbed by tools/stage_database_migrations.py)
 -- and appended at the manifest tail via an explicit select_inputs() entry after
 -- the 0411/0412 LLM seeds, so no existing migration index or hash changes on
@@ -10,15 +10,15 @@
 -- upgraded database converge on the identical schema (pinned by the
 -- fresh-vs-truncated table_info parity test in tests/test_sqlite_seeding.py).
 --
--- NO BACKFILL, by law: NULL voiced_at / last_voiced_tier / last_greeted_at /
+-- NO BACKFILL: NULL voiced_at / last_voiced_tier / last_greeted_at /
 -- last_greet_line means "never voiced" - existing rows keep exactly today's
 -- per-process behavior; backfilling would permanently silence historical
 -- debt/goal initiations and re-voice stale greeting lines.
 --
--- DOWNGRADE LAW: after this entry an APK downgrade fails closed - the ledger
--- check ('DB-REVISION: ledger drift', DatabaseEngine.kt) refuses a revision
--- set it cannot account for. The only paths are stay-on-new or a clean
--- reinstall (data loss). Documented and accepted per plan rp-depth-fix v2.3 C2.
+-- DOWNGRADES FAIL CLOSED: after this entry an APK downgrade fails closed -
+-- the ledger check ('DB-REVISION: ledger drift', DatabaseEngine.kt) refuses
+-- a revision set it cannot account for. The only paths are stay-on-new or a
+-- clean reinstall (data loss).
 
 ALTER TABLE `bot_player_facts` ADD COLUMN `voiced_at` bigint(20) unsigned NULL DEFAULT NULL;
 ALTER TABLE `bot_player_relationship` ADD COLUMN `last_voiced_tier` tinyint(3) unsigned NULL DEFAULT NULL;

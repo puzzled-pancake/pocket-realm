@@ -4,7 +4,7 @@
  * This is a real PIE executable, output as libpocket_pkg_launcher.so so AGP
  * ships it under lib/<abi>/. Under the experiment variant
  * (useLegacyPackaging=true) it is extracted into nativeLibraryDir with the
- * executable bit; PKG-01 runs it there via its absolute path.
+ * executable bit; the packaging smoke driver runs it there via its absolute path.
  *
  * It is NOT a shared library — it has a main(). stdout/stderr/exit-status are
  * captured by the host driver. Behavior:

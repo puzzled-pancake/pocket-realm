@@ -173,7 +173,7 @@ inline char const* TicPrefix(int t)
 }
 
 // ------------------------------------------------------------ mood state ----
-// Phase-3 moods: the five existing mood pools plus smitten / grudge /
+// Moods: the five existing mood pools plus smitten / grudge /
 // grief, as prompt seasoning (one line in the system prompt's instruction
 // span) with pool-weight shifts on the ambient draw. Moods are
 // GUID-stable per bot with slow rotation + event nudges; volatility
@@ -192,29 +192,29 @@ enum PoolId {
     POOL_SILENCE, POOL_DARE, POOL_BET_OPEN, POOL_BET_WIN, POOL_BET_LOSE,
     POOL_SUPERSTITION, POOL_NAMING, POOL_MOOD_BORED, POOL_MOOD_BLOODDRUNK,
     POOL_MOOD_HOMESICK, POOL_MOOD_COINHEAVY, POOL_MOOD_NIGHTWEARY,
-    // plan v5 H1/W1/W4/W8: the three aliased moods get their own pools (the
+    // The three aliased moods get their own pools (the
     // prompt said smitten while the fallback line sounded homesick), plus
-    // the authored grudge act-refusal bank (W4) and the /notice nudge bank
-    // (W8) - all 12/8-deep like the rest
+    // the authored grudge act-refusal bank and the /notice nudge bank
+    // - all 12/8-deep like the rest
     POOL_MOOD_SMITTEN, POOL_MOOD_GRUDGE, POOL_MOOD_GRIEF,
     POOL_GRUDGE_REFUSE,
     POOL_SCENE_NUDGE,
     POOL_WILDCARD,
-    // plan RP E0: two 4x12 archetype banks, appended AFTER POOL_WILDCARD so
+    // Two 4x12 archetype banks, appended AFTER POOL_WILDCARD so
     // every pre-existing pool keeps its number. Street short-reactions are
-    // the A6 fallback for a player's unaddressed /say landing near a street
-    // bot (data now - the interim street behavior stays emote-only; A6
-    // wires it). The security refusals voice the .whisper invite-family
+    // the fallback for a player's unaddressed /say landing near a street
+    // bot (data now - the interim street behavior stays emote-only until
+    // the street lane consumes it). The security refusals voice the .whisper invite-family
     // gates (invite/leader/full-group denials - never the beg refusals,
     // which are the persona refuseLine cells' ground) and are drawn by
-    // PlayerbotLlmPersona::SecurityRefusalLine (E3 wires the call site).
+    // PlayerbotLlmPersona::SecurityRefusalLine (no call site wired yet).
     // Pool() serves the flattened 48 for the content invariants; the game
     // draws 12-line per-archetype cells (StreetShortCell/SecurityRefuseCell).
     // Neither bank joins the seeded path: InitBanterState and the existing
     // pools are untouched, and their state keys live on the
     // guid<<24 | (pool+1) lane (the guid<<8 persona lane is full).
     POOL_STREET_SHORT, POOL_SECURITY_REFUSE,
-    // plan RP E1: the level-up cheer pool (the authored leg of the
+    // The level-up cheer pool (the authored leg of the
     // beat; appended so every pre-existing pool keeps its number)
     POOL_CHEER,
     POOL_COUNT
@@ -1294,7 +1294,7 @@ static char const* const kMoodNightweary[] = {
     "Bed's a memory and the ground's a promise, {P}.",
     "One eye open. That's the whole plan. It's worked so far.",
 };
-// plan v5 H1: dedicated pools for the three moods that previously aliased
+// Dedicated pools for the three moods that previously aliased
 // homesick/blooddrunk/nightweary - the deterministic layer must agree with
 // the MoodSeasoningLine the prompt carries, not contradict it
 static char const* const kMoodSmitten[] = {
@@ -1339,7 +1339,7 @@ static char const* const kMoodGrief[] = {
     "I said I'd tell the stories so they'd stay loud. Working on it. Some of them still catch in the throat.",
     "Grief's just love with nowhere to go. Somebody told me that once. I understand it on Tuesdays.",
 };
-// plan v5 W4: the authored act-refusal bank - while an unresolved grudge
+// The authored act-refusal bank - while an unresolved grudge
 // stands, follow/party_invite execute an authored refusal instead (the
 // tone ledger clears it; a paid debt settles it outright)
 static char const* const kGrudgeRefuse[] = {
@@ -1356,7 +1356,7 @@ static char const* const kGrudgeRefuse[] = {
     "Clear the air with me first, {P}. Then we'll see about following you anywhere.",
     "No. Ask the others if you like - but between us two, the count isn't settled.",
 };
-// plan v5 W8: the /notice in-character nudge bank - one hint rides the
+// The /notice in-character nudge bank - one hint rides the
 // scene read, pointing the player at the moment (never at a mechanic)
 static char const* const kSceneNudge[] = {
     "{B} keeps watching the road behind you. Maybe ask what they have seen.",
@@ -1368,7 +1368,7 @@ static char const* const kSceneNudge[] = {
     "{B} counted the party twice just now. Counting is a habit of the worried.",
     "{B} smiled at nothing in particular. Those are usually the good stories.",
 };
-// plan v5 C4: the authored drama set pieces - one exchange (opener,
+// The authored drama set pieces - one exchange (opener,
 // reply) per variant, three kinds: reunion (an old bond surfaces),
 // rivalry (a sharp working argument), debt-collection (an old favor
 // called in). Delivered as a staggered two-voice exchange on the party
@@ -1435,10 +1435,10 @@ static char const* const kWildcard[] = {
     "If the wind had a face I'd punch it. It knows what it did.",
     "Quiet now. The trees are listening and they gossip worse than townsfolk.",
 };
-// plan RP E0: street short-reactions - what a bot nearby mutters when a
-// player's unaddressed /say lands on a street (A6's fallback when the
-// cloud street lane is off or its quota is spent; the interim street
-// behavior stays emote-only, so this bank is data now and A6 wires it).
+// Street short-reactions - what a bot nearby mutters when a
+// player's unaddressed /say lands on a street (the street lane's fallback
+// when the cloud street lane is off or its quota is spent; the interim street
+// behavior stays emote-only until the street lane consumes this bank).
 // Four speaker archetypes x 12 short reactive lines, all placeholder-free.
 static char const* const kStreetShort[4][12] = {
     // speaker 0: the street guard - gruff, watchful, mildly threatening
@@ -1494,7 +1494,7 @@ static char const* const kStreetShort[4][12] = {
      "Somewhere east of here, that would be a compliment.",
      "Travel light, talk light. That's the trick."},
 };
-// plan RP E0: gate security refusals - the .whisper "invite me" family
+// Gate security refusals - the .whisper "invite me" family
 // (invite/leader/full-group denials), voiced as diegetic distrust of
 // strangers. Never the beg-refusal triggers (those are the persona
 // refuseLine cells' ground) and never an actionable number - the
@@ -1557,10 +1557,10 @@ static char const* const kSecurityRefuse[4][12] = {
      "You seem trustworthy. That's exactly what worries me."},
 };
 
-// plan RP E1: the authored cheer pool - the level-up beat's authored leg.
+// The authored cheer pool - the level-up beat's authored leg.
 // The generated event note keeps its cadence (generation + emote marker);
 // ONE grouped bot also voices a cheer from this ring-deduped pool at the
-// event drain (the E0 condolence delivery pattern - QueueAuthoredReaction,
+// event drain (the condolence delivery pattern - QueueAuthoredReaction,
 // 2-5 s notBefore). 24 lines: small enough to stay punchy, deep enough that
 // a season of level-ups never repeats verbatim at one fire.
 static char const* const kCheer[] = {
@@ -1590,10 +1590,10 @@ static char const* const kCheer[] = {
     "Raise the waters, {P} - the strongest toast we'll pour all season.",
 };
 
-// plan RP E1: the archetype seasoning bank - one spoken phrase composed
+// The archetype seasoning bank - one spoken phrase composed
 // onto the drawn greet tier line (GreetingLine draws the tier pool, then
 // seasons it here; the phrase draw is seeded per (bot, archetype lane)
-// with RACE mixed in per the plan, so same-class bots of different races
+// with RACE mixed in, so same-class bots of different races
 // vary their phrase - the additive layer, never a replacement draw, which
 // would strand half the population in SHY since ArchetypeFor is class-only).
 static char const* const kArchetypePhrase[4][12] = {
@@ -1660,7 +1660,7 @@ static char const* const kArchetypePhrase[4][12] = {
 };
 } // namespace detail
 
-// plan RP E1: the archetype seasoning rows (4 archetypes x 12 spoken
+// The archetype seasoning rows (4 archetypes x 12 spoken
 // phrases; row order = the persona Archetype enum, GRUFF..ROGUEISH).
 // Served separately from Pool(): the seasoning is COMPOSED onto a tier
 // draw, never drawn as a greeting of its own.
@@ -1673,7 +1673,7 @@ inline char const* const* ArchetypePhraseRow(int archetype, size_t& count)
 }
 
 
-// plan v5 C4: the drama exchange accessor - kind 0 reunion, 1 rivalry,
+// The drama exchange accessor - kind 0 reunion, 1 rivalry,
 // 2 debt-collection; six variants each; the pair is (opener, reply) and
 // {P} renders as the OTHER bot's name
 inline char const* const* DramaPairTable(int kind, size_t variant)
@@ -1730,8 +1730,9 @@ inline char const* const* Pool(PoolId p, size_t& count)
     }
 }
 
-// plan RP E0: the 4x12 archetype cell accessors. The caller picks the row
-// (the persona's Archetype enum orders the security bank's rows; A6 picks
+// The 4x12 archetype cell accessors. The caller picks the row
+// (the persona's Archetype enum orders the security bank's rows; the
+// street fallback picks
 // the street speaker group) and the recency ring picks the line. An
 // out-of-range group folds to row 0 - the caller never gets a short cell.
 inline char const* const* StreetShortCell(size_t group, size_t& count)
@@ -1748,7 +1749,7 @@ inline char const* const* SecurityRefuseCell(size_t group, size_t& count)
 
 // ------------------------------------------------------------ mood state ----
 // (the mood model is documented at the first mood-state block above the
-// pools; MoodPoolOf maps mood -> pool, including the plan-v5 dedicated
+// pools; MoodPoolOf maps mood -> pool, including the dedicated
 // smitten/grudge/grief pools)
 inline int MoodIndexOf(uint32_t botGuid, uint32_t tickBucket, uint32_t nudges)
 {
@@ -1778,7 +1779,7 @@ inline char const* MoodSeasoningLine(int mood)
 
 inline PoolId MoodPoolOf(int mood)
 {
-    // plan v5 H1: smitten/grudge/grief carry their OWN pools - the alias
+    // Smitten/grudge/grief carry their OWN pools - the alias
     // table made the deterministic layer contradict its prompt seasoning
     static PoolId const v[MOOD_COUNT] = {
         POOL_MOOD_BORED, POOL_MOOD_BLOODDRUNK, POOL_MOOD_HOMESICK,
@@ -1813,12 +1814,12 @@ struct BanterState
     uint32_t draws;
 };
 
-// C7 (plan v2.3): the boot nonce - ONE store per process (the world's
+// The boot nonce - ONE store per process (the world's
 // StateFor chokepoint sets it from wall time before the first draw;
 // the host harness never sets it, so the golden fingerprint stays the
 // deterministic baseline). A nonzero nonce mixes into every
 // InitBanterState seed so two boots never replay the identical draw
-// sequence per (bot, pool) - R6's greet verbatim replay across
+// sequence per (bot, pool) - that would greet verbatim across
 // restarts. LLMGreetMemory = 0 leaves the zero nonce: the
 // kill-switch's verbatim-replay promise.
 namespace detail
@@ -1852,9 +1853,9 @@ inline void InitBanterState(BanterState& s, uint32_t botGuid, uint32_t audienceK
     SplitMix32(s.rng); SplitMix32(s.rng);
 }
 
-// C1 (plan v2.3): render-time first-meeting rewording. A pairing past
+// Render-time first-meeting rewording. A pairing past
 // its first meeting must not read "met <name> for the first time"
-// forever (R5's stale-first-meeting prose). This rewrites
+// forever (stale first-meeting prose). This rewrites
 // first-meeting-shaped rows at RENDER time - no schema write,
 // idempotent, reversible, reaches model-authored rows too, and keeps
 // created_at (tenure) intact. Replacements are corpus-shaped
@@ -1882,10 +1883,10 @@ inline std::string RewordFirstMeetingRow(std::string const& fact, uint32_t seed)
     return "met " + who + kTails[seed % 3];
 }
 
-// C3 (plan v2.3): the town-talk clause shaper. The dossier row is minted
+// The town-talk clause shaper. The dossier row is minted
 // DE-FRAMED (a bare clause - the greeting rider and the murmur {E}
-// templates own the single frame; the old "The word on X: <fact>" row
-// double-framed at both consumers). The per-category template supplies
+// templates own the single frame; a "The word on X: <fact>" row
+// would double-frame at both consumers). The per-category template supplies
 // the grammatical SUBJECT (the player's name) so noun-phrase facts read
 // whole in any frame, and the name keeps GossipAbout's word-boundary
 // match working. Categories are the LogFact whitelist set; anything
@@ -1997,7 +1998,7 @@ inline BanterResult SelectLine(BanterState& s, char const* const* pool, size_t p
 }
 
 // ----------------------------------------------------------- arbitration ----
-// plan v5 F7: pure budget primitive for the authored-line hourly ceiling.
+// Pure budget primitive for the authored-line hourly ceiling.
 // The caller owns the timestamp deque (seconds) and the mutex; this only
 // prunes entries older than the window. Check-then-stamp stays with the
 // caller so one lock can cover the global + per-category pair atomically

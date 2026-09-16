@@ -5,8 +5,8 @@ import java.io.FileInputStream
 import java.security.MessageDigest
 
 /**
- * The one SHA-256 implementation for file content (19 files
- * previously hand-rolled their own MessageDigest loops). String digests keep
+ * The one SHA-256 implementation for file content; every caller shares this
+ * instead of hand-rolling its own MessageDigest loop. String digests keep
  * using their local one-liners only where they delegate here.
  */
 object FileDigests {

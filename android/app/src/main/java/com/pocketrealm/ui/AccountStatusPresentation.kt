@@ -30,7 +30,7 @@ internal fun canLaunchGameWithAccount(
 ): Boolean = !accountOperationPending && (!autoLoginOnLaunch || storedAccount != null)
 
 /**
- * F2: per-keystroke validation for one Home account-form field. Reuses the
+ * Per-keystroke validation for one Home account-form field. Reuses the
  * realm's own rule ([UserAccountStore.isValidCredential] — the rule already
  * exists end-to-end; this is presentation, not a fifth validator) so the
  * form can never disagree with the provision path. Mirrors the BotsScreen
@@ -49,12 +49,12 @@ internal fun accountCredentialsSubmittable(username: String, password: String): 
     UserAccountStore.isValidCredential(username) && UserAccountStore.isValidCredential(password)
 
 /**
- * F2: realm-readiness gates ONLY the Create action — the fields stay
+ * Realm-readiness gates ONLY the Create action — the fields stay
  * editable while the realm is idle because the backend accepts account
- * creation in the WORLD_READY and CLIENT_FAILED phases (the UI used to be
- * stricter than the backend and hid/disabled the whole form). The
- * [accountOperationPending] disable is load-bearing (no double submit, no
- * edits mid-flight) and stays.
+ * creation in the WORLD_READY and CLIENT_FAILED phases, so the UI must
+ * not be stricter than the backend by hiding or disabling the whole
+ * form. The [accountOperationPending] disable is load-bearing (no double
+ * submit, no edits mid-flight).
  */
 internal fun accountCreateEnabled(
     realmReady: Boolean,
@@ -65,7 +65,7 @@ internal fun accountCreateEnabled(
     accountCredentialsSubmittable(username, password)
 
 /**
- * F3: the Home Active-setup population chip. The "(grows from M)" suffix —
+ * The Home Active-setup population chip. The "(grows from M)" suffix —
  * the admission ramp — renders only when `initialTarget < selectedTarget`;
  * profiles that start at their full target have no ramp to advertise.
  */

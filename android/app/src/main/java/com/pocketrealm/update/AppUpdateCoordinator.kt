@@ -344,7 +344,7 @@ private fun followRedirects(url: String): String {
 }
 
 /**
- * Resumable APK download with sha256 verification (F6 Track 2). The body is
+ * Resumable APK download with sha256 verification (Track 2 of the updater). The body is
  * STREAMED to the .part file through a fixed buffer (the artifact is
  * hundreds of MB — never buffered in heap); a 206 response APPENDS to the
  * existing partial, any other code restarts from zero. Resume state

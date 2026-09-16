@@ -10,11 +10,11 @@ package com.pocketrealm.server
  * build script task in the same change).
  *
  * The fence answers one question: do the staged realm-runtime .so bytes and
- * their recorded provenance match the reviewed lane pins, and do those pins
- * still agree with schemas/sources.json? A QA session once shipped an APK
- * whose packaged libpocket_world_runtime.so was two days stale (missing
- * world-chat/reset-state/llm-memory-state JNI ops) with an exit-0 BUILD
- * SUCCESSFUL - every check below exists to make that mismatch loud.
+ * their recorded provenance match the lockfile lane pins, and do those pins
+ * still agree with schemas/sources.json? A stale packaged .so would
+ * otherwise ship silently with an exit-0 BUILD SUCCESSFUL (for example a
+ * libpocket_world_runtime.so missing world-chat/reset-state/llm-memory-state
+ * JNI ops) - every check below exists to make that mismatch loud.
  */
 internal object NativeRuntimeFreshness {
 
@@ -29,7 +29,7 @@ internal object NativeRuntimeFreshness {
     /** Lockfile/provenance field carrying the playerbots source pin. */
     const val PLAYERBOTS_COMMIT_FIELD = "playerbots_commit"
 
-    /** One reviewed artifact row: staged file name, pinned size and SHA-256. */
+    /** One pinned artifact row: staged file name, pinned size and SHA-256. */
     data class ArtifactPin(val name: String, val size: Long, val sha256: String)
 
     /**
@@ -186,12 +186,12 @@ internal object NativeRuntimeFreshness {
             if (observed.size != pin.size) {
                 reasons += "staged ${pin.name} size ${observed.size} != lockfile pin " +
                     "${pin.size} ($stagingLabel): the staged .so is STALE relative to " +
-                    "the reviewed lane pins"
+                    "the lockfile lane pins"
             }
             if (!pin.sha256.equals(observed.sha256, true)) {
                 reasons += "staged ${pin.name} sha256 ${observed.sha256} != lockfile pin " +
                     "${pin.sha256} ($stagingLabel): the staged .so is STALE relative to " +
-                    "the reviewed lane pins"
+                    "the lockfile lane pins"
             }
         }
         return reasons

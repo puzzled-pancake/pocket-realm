@@ -46,16 +46,16 @@ data class BotProfile(
     val wanderWhenIdle: Boolean = true,
     val enableOffSpecStrategies: Boolean = true,
     /**
-     * B3 (plan v2.3): passive-wake delay in ms, emitted as
-     * AiPlayerbot.PassiveDelay. DEFAULT 10_000 keeps every legacy
+     * Passive-wake delay in ms, emitted as
+     * AiPlayerbot.PassiveDelay. The 10_000 default keeps every legacy
      * preset's conf emission (and thus the adv/usr5 identity-digest
      * inputs) byte-identical; experience presets override to 3_000 so a
-     * greeted bot answers inside the T3 <= 5 s bound. The native
+     * greeted bot answers within a 5-second bound. The native
      * fallback default stays 4_000 (documented, unchanged).
      */
     val passiveDelayMs: Int = 10_000,
     /**
-     * D1 companion (plan v2.3 §5): enable the existing "range"/"map" login
+     * Enable the "range"/"map" login
      * criteria on this preset — login candidates near real players (and on
      * their map) are kept preferentially, concentrating bot logins where
      * the players are. Default false emits nothing, keeping every legacy
@@ -64,11 +64,11 @@ data class BotProfile(
      */
     val loginPreferNearPlayer: Boolean = false,
     /**
-     * D4 (plan v2.3 §5): per-spawn-point village ring. 0 = off — the
+     * Per-spawn-point village ring. 0 = off — the
      * shipped state on EVERY preset (the machinery ships dark; the native
      * [AiPlayerbot.VillageRingCount] carries the same 0 default). When a
      * preset sets 3-5, up to that many same-race level 1-4 bots per spawn
-     * point become "settlers": exempt from the D1 relocation and the
+     * point become "settlers": exempt from the near-player relocation and the
      * randomize event, placed on a ring between the yd bounds (inside say
      * range — the native ListenRange.Say is 25 yd, hence the 25 cap).
      */
@@ -94,7 +94,7 @@ data class BotProfile(
         require(startupRampIntervalMs in 0..30 * 60_000L)
         require(activationBatchSize in 1..64)
         // The ceiling is the documented device bound from the pinned engine
-        // study, not a historical UI number: upstream parses these counts as
+        // study: upstream parses these counts as
         // uint32 with no explicit maximum (see BotPopulationPolicy).
         require(maximumOnline <= BotPopulationPolicy.MAX_SUPPORTED_TARGET)
         require(maximumAltBots in 0..8)
@@ -111,7 +111,7 @@ data class BotProfile(
         require(nearPlayerTeleportRadius in 0..1_000)
         require((nearPlayerTeleportMaxAmount == 0) == (nearPlayerTeleportRadius == 0))
         require(passiveDelayMs in 1_000..60_000)
-        // D4: count is off (0) or a village of 3-5; the yd band stays inside
+        // Village ring: count is off (0) or a village of 3-5; the yd band stays inside
         // say range (ListenRange.Say = 25 yd) with a sane minimum.
         require(villageRingCount == 0 || villageRingCount in VILLAGE_RING_MIN_COUNT..VILLAGE_RING_MAX_COUNT)
         require(villageRingMinYd in 1..VILLAGE_RING_DEFAULT_MAX_YD)
@@ -126,8 +126,8 @@ data class BotProfile(
     }
 
     /**
-     * Emit only reviewed keys. In particular, network command/LLM egress and
-     * battleground/arena/guild growth are disabled for the first mobile tier.
+     * Emit only the keys below. Network command/LLM egress and
+     * battleground/arena/guild growth stay disabled by design.
      * Auction-house automation remains disabled; the core BUILD_AHBOT target is excluded.
      */
     fun playerbotConfig(): String = """
@@ -209,15 +209,15 @@ data class BotProfile(
     """.trimIndent() + "\n"
 }
 
-/** D1 companion (plan v2.3 §5): the "range"/"map" login-criteria line,
+/** The "range"/"map" login-criteria line,
  * emitted only when the preset opts in — the default (absent line) keeps
  * every legacy preset's base emission byte-identical. */
 private fun BotProfile.loginCriteriaLine(): String =
     if (!loginPreferNearPlayer) ""
     else "\n        AiPlayerbot.DefaultLoginCriteria = maxbots,spareroom,offline,range,map"
 
-/** D4 (plan v2.3 §5): the village-ring staging keys; empty while DARK
- * (count = 0, the shipped state of every preset). */
+/** The village-ring conf keys; empty while the ring is off
+ * (count = 0, every preset's default). */
 private fun BotProfile.villageRingLines(): String =
     if (villageRingCount == 0) ""
     else "\n        AiPlayerbot.VillageRingCount = $villageRingCount" +
@@ -230,15 +230,15 @@ private fun BotProfile.villageRingLines(): String =
  * processes and crash journal resolve exactly the same configuration without
  * accepting raw configuration text.
  */
-/** D2 (plan v2.3): the widened teleport-interval law - 5-minute
- * granularity from a 10-minute floor (the experience presets' 600 s
+/** The teleport-interval law - 5-minute
+ * granularity with a 10-minute floor (the experience presets' 600 s
  * minimum must parse). */
 private const val TELEPORT_MIN_BOUND_MINUTES = 10
 private const val TELEPORT_MINUTE_GRANULARITY = 5
 
-/** D4 (plan v2.3 §5): the village-ring law — count is off (0) or a
+/** The village-ring law — count is off (0) or a
  * village of 3-5 settlers per spawn point, and the ring band sits inside
- * say range (the native ListenRange.Say = 25 yd; 10/25 are the plan's
+ * say range (the native ListenRange.Say = 25 yd; 10/25 yd are the
  * defaults). */
 private const val VILLAGE_RING_MIN_COUNT = 3
 private const val VILLAGE_RING_MAX_COUNT = 5
@@ -271,11 +271,10 @@ data class BotAdvancedSettings(
         require(loginBatchSize in 1..10)
         require(maintenanceBatchSize in 1..32)
         require(updateIntervalMs in 1_000..5_000 && updateIntervalMs % 250 == 0)
-        // D2 (plan v2.3): 5-minute granularity - the experience presets'
-        // 600 s minimum (10 min) must parse; the old 30/% 30 law threw
-        // at settings load for it (fromProfile runs outside
+        // 5-minute granularity - the experience presets'
+        // 600 s minimum (10 min) must parse (fromProfile runs outside
         // runCatching). adv4 persisted identities encode >= 30-min
-        // values which remain valid under the widened rule.
+        // values which remain valid under this rule.
         require(teleportMinMinutes in TELEPORT_MIN_BOUND_MINUTES..2_880 &&
             teleportMinMinutes % TELEPORT_MINUTE_GRANULARITY == 0)
         require(teleportMaxMinutes in teleportMinMinutes..2_880 &&
@@ -792,7 +791,7 @@ object BotProfiles {
     )
 
     // ------------------------------------------------------------------
-    // Experience presets (UI-landscape brief, sections 7-9). Built-ins are
+    // Experience presets. Built-ins are
     // curated combinations of population, AI responsiveness, activity share,
     // locality and behavior; the built-in range peaks at 600 by design while
     // custom populations are validated by BotPopulationPolicy instead.
@@ -839,11 +838,11 @@ object BotProfiles {
         llmSpeech = BotLlmSpeech(chatterRung = BotLlmSpeech.CHATTER_RUNG_NORMAL),)
 
     /**
-     * B4 (plan v2.3) benchmark twin: the proposed LOW_POWER_80 retune
+     * Benchmark twin: the LOW_POWER_80 retune candidate
      * (1250 ms / 16 iter / 8% active). NOT user-selectable and NOT the
-     * default - the values commit only with the T4 soak artifact
-     * attached (measured-first law); this twin is the lane the benchmark
-     * runs against today's v1 tuple.
+     * default - the values become the shipped default only when a soak
+     * run backs them (measured-first law); this twin is the lane the
+     * benchmark runs against the shipped v1 tuple.
      */
     val BENCH_LOW_POWER_80_V2 = BotProfile(
         id = "bench-low-power-b80-v2",
@@ -1010,11 +1009,11 @@ object BotProfiles {
         llmSpeech = BotLlmSpeech(chatterRung = BotLlmSpeech.CHATTER_RUNG_NORMAL),)
 
     /**
-     * B4 (plan v2.3) benchmark twin: the proposed ALIVE_REALM_320 retune
+     * Benchmark twin: the ALIVE_REALM_320 retune candidate
      * (1500 ms / 18 iter / 15% active). NOT user-selectable and NOT the
-     * default - the values commit only with the T4 soak artifact
-     * attached (measured-first law); this twin is the lane the benchmark
-     * runs against today's v1 tuple.
+     * default - the values become the shipped default only when a soak
+     * run backs them (measured-first law); this twin is the lane the
+     * benchmark runs against the shipped v1 tuple.
      */
     val BENCH_ALIVE_320_V2 = BotProfile(
         id = "bench-alive-realm-b320-v2",
@@ -1057,7 +1056,7 @@ object BotProfiles {
 
     /**
      * Larger persistent population; nearby fast, remote background.
-     * Memory floor 2_048 keeps the experience ladder monotonic (B7): every
+     * Memory floor 2_048 keeps the experience ladder monotonic: every
      * step up the curated ladder must demand at least the free memory of the
      * step below - a dip would let a "bigger" preset admit on devices the
      * smaller one already rejects. Matches ALIVE_REALM_320/FULL/MASSIVE and
@@ -1413,7 +1412,7 @@ object BotProfiles {
         BENCH_AUTOLOGIN_50, BENCH_AUTOLOGIN_100, BENCH_AUTOLOGIN_160,
         BENCH_ACTIVE_600,
         BENCH_FORCED_1000,
-        // B4 twins: resolvable for the T4 benchmark lanes, never in the
+        // Benchmark twins: resolvable for benchmark runs, never in the
         // experience ladder or any legacy catalog
         BENCH_LOW_POWER_80_V2, BENCH_ALIVE_320_V2,
     )
@@ -1439,7 +1438,7 @@ object BotProfiles {
     /** Retained legacy built-ins that remain launchable but are no longer featured. */
     val legacySelectablePresets = listOf(LAUNCH_DAY_700)
 
-    /** Fresh-install default per the landscape UI brief: a genuinely populated realm. */
+    /** Fresh-install default: a genuinely populated realm. */
     val defaultProfile: BotProfile get() = ALIVE_REALM_320
 
     fun find(id: String): BotProfile? = profiles[id]

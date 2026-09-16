@@ -1,4 +1,4 @@
-"""PlayerbotLlmGates.h - the WS-A gate battery (plan v2.3 T1).
+"""PlayerbotLlmGates.h - the pure gate battery.
 
 Compiles the shipped pure header on the host (-std=c++11, the repo's
 core convention) and runs the full decision matrix; then pins the world-
@@ -102,7 +102,7 @@ def test_key_defaults_match_the_plan_rows():
         assert needle in driver_text, needle
 
 
-# ---- round-1 fix pins: the A7.1 tier-I interactive budget ---------------
+# ---- interactive-budget pins ---------------------------------------------
 def _driver_module():
     spec = importlib.util.spec_from_file_location("driver_gates_t1", DRIVER)
     module = importlib.util.module_from_spec(spec)
@@ -112,7 +112,7 @@ def _driver_module():
 
 
 def test_interactive_budget_bounds_tier_one_at_the_generate_chokepoint():
-    # round-1 R1#1/R7#1: the per-player hourly tier-I budget is WIRED -
+    # The per-player hourly interactive budget is WIRED -
     # interactive cloud turns (a real player's whisper / addressed say /
     # party-responder reply) pass through InteractiveBudgetAdmits inside
     # Generate; autonomous CHAT_REPLY turns pass speakerGuid 0 and stay
@@ -153,7 +153,7 @@ def test_interactive_budget_semantics_kill_switch_and_device_lane():
 
 
 def test_ambient_budget_zero_blocks_only_non_exempt_lines():
-    # T1's budget-0 law (round-1 R7#2): llmCloudLineBudgetPerHour = 0
+    # The budget-0 law: llmCloudLineBudgetPerHour = 0
     # means the arbiter refuses to admit NON-exempt lines but never
     # blocks an exempt one (the !globalCap => return exempt arm)
     src = (PATCHES / "PlayerbotLlmMemory.cpp").read_text(encoding="utf-8")
@@ -161,7 +161,7 @@ def test_ambient_budget_zero_blocks_only_non_exempt_lines():
 
 
 def test_bot2bot_containment_is_wired_at_every_chance_site():
-    # round-1 R1#2: the bot2bot daily quota + autonomous-exchange depth
+    # The bot2bot daily quota + autonomous-exchange depth
     # cap ride the autonomous arm of ALL FOUR chance sites
     # (SayToGuild/Yell/Say/SayToParty) - likePlayer sends stay un-gated.
     driver = _driver_module()
@@ -181,7 +181,7 @@ def test_bot2bot_containment_semantics():
     # the helper's own law (overlay source contract): cloud-lane-only
     # (device byte-identity), the daily quota via CloudQuotaAdmits
     # (0 = surface off), and the per-bot consecutive depth cap reset by
-    # a real-player trigger. Depth is checked BEFORE the quota (round-2
+    # a real-player trigger. Depth is checked BEFORE the quota (the
     # R1#1/R8#1): a later stage's rejection must not spend an earlier
     # stage's quota - the street-ladder law.
     src = (PATCHES / "PlayerbotLlmMemory.cpp").read_text(encoding="utf-8")
@@ -202,7 +202,7 @@ def test_bot2bot_containment_semantics():
 
 
 def test_every_declared_gate_helper_is_consumed_not_copied():
-    # round-1 R1#3: the consume-not-copy law - each pure helper has a
+    # The consume-not-copy law - each pure helper has a
     # real runtime call site; no site keeps an inlined equivalent.
     driver = _driver_module()
     gate_say = driver.PB_SAY_GATE_ANDROID
@@ -224,8 +224,8 @@ def test_every_declared_gate_helper_is_consumed_not_copied():
 
 
 def test_rpgchat_quota_spends_after_the_cheap_guards():
-    """Round-4 R7#1: the street-ladder cheap-before-expensive law holds
-    on the rpgchat arm too (the round-3 R1#3 fix, now pinned) - a
+    """The street-ladder cheap-before-expensive law holds
+    on the rpgchat arm too (pinned) - a
     reset-but-unrearmed chatLine or a pending packet burst burns no
     realm-global admission."""
     driver = _driver_module()

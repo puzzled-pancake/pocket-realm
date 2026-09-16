@@ -1,11 +1,11 @@
 # Pocket Realm for Windows — Qualification
 
 The Windows sibling of the Android app (same repo, shared sources; see
-`desktop/shared-sources.json` and the Windows-port PLAN-LOG entries).
-This document is the test campaign record: what is machine-gated, what is
-human-in-the-loop, and what is deliberately deferred.
+`desktop/shared-sources.json`).
+This document records how the Windows port is qualified: what is
+machine-gated, what is human-in-the-loop, and what is deliberately deferred.
 
-## 1. Automated gates (all green on the dev box, 2026-09-10)
+## 1. Automated gates (last verified 2026-09-10)
 
 | Gate | How to run | Evidence |
 | --- | --- | --- |
@@ -31,11 +31,11 @@ CI: `hygiene` (ubuntu, check_repo + pytest) and `android-unit` +
 (deps → DLLs → seam → `gradlew test detekt -PrequireNatives`) is
 scheduled weekly.
 
-## 2. Human-in-the-loop campaign (needs the user at the keyboard)
+## 2. Human-in-the-loop checks (needs the user at the keyboard)
 
-1. One-time data preparation (already done on the dev box):
+1. One-time data preparation:
    `python tools/win_prepare_data.py` — extracts dbc/maps/vmaps/mmaps
-   from the client (`C:\Vanilla wow 1.12.1`), assembles the verified
+   from a local WoW 1.12.1 client installation, assembles the verified
    PreparedDataStore generation (10,673 files).
 2. `cd desktop && gradlew launchClient` — boots database + realm +
    world (with the bot profile and LLM endpoint selected in the app),
@@ -44,8 +44,8 @@ scheduled weekly.
 3. Log in with the gate's account (`AUTHGATE` / `AuthGate-Password-1`)
    or create one in the app (Home → Local account); auto-login types it
    into the client when enabled.
-4. Whisper a bot. Expected (mirrors the Android whisper-lane fix,
-   commit 864e94a): the whisper dispatches to the bot's LLM lane, the
+4. Whisper a bot. Expected: the whisper dispatches to the bot's LLM lane,
+   the
    relationship is minted, and the N4 counters move. Configure the
    external endpoint in the LLM destination for live replies (the
    spend disclosure there is the real one).
@@ -69,10 +69,10 @@ scheduled weekly.
   `rememberSaveable` + configuration savers): switching routes on the
   desktop discards an unsaved editor draft and in-progress LLM edits.
   Known parity gap, deliberate until a state-saver pass.
-- Hardening from the 4-agent start-failure investigation (the desktop
-  fixes shipped: real recoverDatabase, bot-aware world budget via the
+- Start-failure hardening already shipped on the desktop (real
+  recoverDatabase, bot-aware world budget via the
   resolved profile id in the launch spec, resilient READY wait). The
-  remaining prescribed items are shared-supervisor/native changes:
+  remaining items are shared-supervisor/native changes:
   `forceOwned` needs a stop timeout so a wedged native stop cannot park
   the start-failure rollback mid-stack; `recoverLocked` should journal
   its recovery stops (stale READY records after recovery); the native

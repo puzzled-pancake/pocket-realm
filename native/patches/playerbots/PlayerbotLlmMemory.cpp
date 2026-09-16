@@ -136,7 +136,7 @@ std::vector<std::string> SelectPromptFacts(uint32 botGuid, uint32 playerGuid, ui
     return out;
 }
 
-// Phase-1 prompt pack: read the staged pack file ONCE per process (the
+// Prompt pack: read the staged pack file ONCE per process (the
 // path is fixed at world start; the file is staged at realm start) and
 // cache the rendered seasoning overlay. Empty/missing/unreadable =
 // trained default (empty seasoning, byte-identical). Reloads are NOT
@@ -171,7 +171,7 @@ std::string LoadPackSeasoning()
             }
             seasoning = pocketllm::SeasoningFromPackJson(
                 json, sPlayerbotAIConfig.llmPromptBlockOverride);
-            // plan v5 5.1: the hard seasoning budget - whole trailing
+            // The hard seasoning budget - whole trailing
             // lines drop past ~1200 bytes (the 300-token cap at ~4
             // chars/token). The pack editor's soft meter warns; this is
             // the enforced ceiling that keeps every local generation's
@@ -303,7 +303,7 @@ std::string ZoneNameOf(Player* bot)
         if (AreaTableEntry const* zone = bot->GetPlayerbotAI()->GetCurrentZone())
             return bot->GetPlayerbotAI()->GetLocalizedAreaName(zone);
     // real players carry no PlayerbotAI: resolve their own zone through the
-    // area table in the session's locale (plan v5 W1/W3 pass real players
+    // area table in the session's locale (event hooks pass real players
     // here - the victim, the tapper)
     if (AreaTableEntry const* zone = GetAreaEntryByAreaID(bot->GetZoneId()))
         if (bot->GetSession())
@@ -440,7 +440,7 @@ void AppendHistoryTurn(uint32 bot, uint32 playerOrChannel,
 
 // verified-event window gating share_gossip. Writers include map-thread
 // core hooks (GiveLevel), so every access is guarded.
-// LOCK-ORDER CONTRACT (round-6 R1#3, now stated): StateMutex is a leaf
+// LOCK-ORDER CONTRACT: StateMutex is a leaf
 // - it is taken while the caller may hold the chat-drain
 // chatRepliesMutex (SayAction's claim leg), but StateMutex scopes must
 // never acquire chatRepliesMutex (or queue a chat reply) in return;
@@ -530,7 +530,7 @@ std::atomic<uint64_t>& ConversationCounter()
     return instance;
 }
 
-// Phase-3 mood weather: per-bot nudge counters (bounded by bot
+// Mood weather: per-bot nudge counters (bounded by bot
 // population, the accepted statics class). The hourly bucket comes
 // from time()/3600 so weather drifts slowly; event nudges fold in
 // immediately - grudge (a wronging: negative bounded sentiment, a duel
@@ -542,7 +542,7 @@ std::map<uint32, uint32>& MoodNudges()
     return instance;
 }
 
-// plan v5 F6 (generic mint-once marker): per-(pairing, tag) last-mint
+// Generic mint-once marker: per-(pairing, tag) last-mint
 // stamps so "watched X fall in Duskwood" or "traveled with X to Westfall
 // for the first time" mints at most once per window (deaths and zone
 // crossings are frequent; the LEDGER must not drown in them). The key is
@@ -555,7 +555,7 @@ std::map<std::pair<uint64, uint64>, time_t>& MintOnceAt()
     return instance;
 }
 
-// plan v5 W1: the pending post-wipe shaken line - bot -> (player, expiry).
+// The pending post-wipe shaken line - bot -> (player, expiry).
 // Armed at the wipe (when every bot is dead and cannot speak), consumed by
 // TickInitiative when the bot is alive and the player is back in range
 std::map<uint32, std::pair<uint32, time_t>>& PendingAftermath()
@@ -564,7 +564,7 @@ std::map<uint32, std::pair<uint32, time_t>>& PendingAftermath()
     return instance;
 }
 
-// plan v5 W5: the curiosity state - per-pair asked-question bitmask (the
+// The curiosity state - per-pair asked-question bitmask (the
 // question bank is 16 wide; the mask is GUID-stable-ordered, one ask per
 // question per pairing per process), the 30-minute ask floor, and the
 // armed pending answer (player -> (bot, expiry); consumed by the bridge
@@ -587,7 +587,7 @@ std::map<uint64, std::pair<uint32, time_t>>& PendingAnswer()
     return instance;
 }
 
-// plan v5 F2: the dyad ledger - ordered pair key -> (affinity, newest
+// The dyad ledger - ordered pair key -> (affinity, newest
 // event, voiced flag). Process-lifetime by design
 struct DyadEntry
 {
@@ -601,7 +601,7 @@ std::map<uint64, DyadEntry>& Dyads()
     return instance;
 }
 
-// plan v5 F7: the authored-line hourly ledger - one global deque plus one
+// The authored-line hourly ledger - one global deque plus one
 // per category, caller-guarded by StateMutex (check-then-stamp for the
 // global+category pair happens under the one lock so a stamp can never
 // land without its line)
@@ -1058,10 +1058,9 @@ std::string PlayerbotLlmMemory::BuildTrainedChatRequest(Player* bot, Player* pla
     // never to a racing read.
     std::string const absenceBucket = preStompAbsence.empty()
         ? std::string("a first meeting") : preStompAbsence;
-    // Phase-3: the bot's current weather rides the system prompt alongside
+    // The bot's current weather rides the system prompt alongside
     // the pack seasoning (same instruction span, never a new segment).
-    // LLMMoodSeasoning (default on) is the kill switch - before it existed
-    // the mood line was unconditional despite the header claiming a gate.
+    // LLMMoodSeasoning (default on) is the kill switch.
     std::string const sysm = pocketllm::SysmForCard(persona, promptPlayer, tier,
         AbsenceLineFor(player->GetName(), absenceBucket), facts,
         LoadPackSeasoning(),
@@ -1531,7 +1530,7 @@ std::vector<std::string> PlayerbotLlmMemory::GetJournalLines(Player* bot, Player
         + TierProse(pocketllm::TierStorageName(standingTier)) + ".");
     for (std::string const& line : GetJournal(bot, player))
         lines.push_back(line);
-    // Phase-4: anniversaries + tier beats are journal-visible. The
+    // Anniversaries + tier beats are journal-visible. The
     // anniversary derives from the OLDEST fact id distance (each pairing's
     // first fact is its first meeting — "met <name> for the first time");
     // without rows there is no tenure to celebrate. Tier beats ride the
@@ -1681,7 +1680,7 @@ void PlayerbotLlmMemory::OnPlayerLevelUp(Player* player, uint32 newLevel)
 {
     if (!player || !sPlayerbotAIConfig.llmEnabled)
         return;
-    // Phase-3 reactivity: dial 0 skips every other level-up note (quiet
+    // Reactivity dial: dial 0 skips every other level-up note (quiet
     // bots celebrate less), 100 always notes. Default 50 = base behavior.
     if (sPlayerbotAIConfig.llmRpReactivity <= 25 && (newLevel & 1))
         return;
@@ -1695,7 +1694,7 @@ void PlayerbotLlmMemory::OnPlayerLevelUp(Player* player, uint32 newLevel)
         << " while fighting at our side.";
     QueueForPartyBots(player, out.str(), 2, PlayerbotLlmBridge::EVENT_LEVEL_UP);
 
-    // plan RP E1: the authored cheer leg - the small delivery decision at
+    // The authored cheer leg - the small delivery decision at
     // the event drain. ONE grouped bot (the condolence pattern's bounded
     // speaker pick) also voices a pool cheer 2-5 s after the event via the
     // authored reaction queue; the generated note above keeps its own
@@ -1867,7 +1866,7 @@ bool HasPairingRow(uint32 bot, uint32 player)
     return bool(result);
 }
 
-// plan v5 W3: DB-side once-only check for authored fact shapes - the
+// DB-side once-only check for authored fact shapes - the
 // in-process mint-once map dies with the process, but "for the first
 // time" must never mint twice, so the prefix is checked against the
 // ledger itself (shared-event only: the player-identity category is
@@ -1881,7 +1880,7 @@ bool HasSharedFactPrefix(uint32 bot, uint32 player, std::string const& prefix)
     return bool(result);
 }
 
-// plan v5 F6: the generic mint-once marker - LogFact at most once per
+// The generic mint-once marker - LogFact at most once per
 // (bot, player, tag, window). The pairing packs injectively into the
 // first word (bot high, player low); the tag (a caller-chosen small id,
 // optionally offset by a window index) occupies the second word whole.
@@ -1902,7 +1901,7 @@ bool MintOnceFact(uint32 bot, uint32 player, uint64 tag, time_t windowSec,
     return true;
 }
 
-// the F7 budget math under a HELD StateMutex (the public wrappers and
+// the authored-line budget math under a HELD StateMutex (the public wrappers and
 // TryClaimAmbientSlot already own the lock - a recursive acquisition
 // would deadlock). roomOnly peeks; otherwise the check-then-stamp pair
 // lands atomically (a stamp can never land without its line)
@@ -1910,7 +1909,7 @@ bool AuthoredLineAdmitsLocked(uint32 category, bool exempt, bool roomOnly)
 {
     if (category >= PlayerbotLlmMemory::ARB_COUNT)
         category = PlayerbotLlmMemory::ARB_AMBIENT;
-    // A7.2 two-tier budgets: the lane is evaluated INSIDE the locked
+    // Two-tier budgets: the lane is evaluated INSIDE the locked
     // helper (conf-static; no lane argument threads through the call
     // sites). Device branch: exactly today's caps of the authored
     // ceiling (8/hr). Cloud branch: the ambient cloud budget with
@@ -2041,7 +2040,7 @@ void PlayerbotLlmMemory::OnPlayerDied(Player* victim)
             std::lock_guard<std::mutex> lock(StateMutex());
             PendingAftermath()[botGuid] = std::make_pair(victim->GetGUIDLow(), now + 3600);
         }
-        // plan v5 F2: shared suffering bonds - every wiped pair gains
+        // Shared suffering bonds - every wiped pair gains
         // affinity and carries the event as a later party topic
         for (size_t i = 0; i < aftermath.size(); ++i)
             for (size_t j = i + 1; j < aftermath.size(); ++j)
@@ -2109,10 +2108,10 @@ void PlayerbotLlmMemory::OnTradeCompleted(Player* accepter, Player* initiator)
 
     // a real->bot trade is a bounded kindness: the +1 tone row also
     // resolves any standing grudge (the newest opinion row turns
-    // positive) - the W4 refusal lifts with it
+    // positive) - the grudge refusal lifts with it
     bool const sentimentAdmitted = AddBoundedSentimentInput(bot->GetGUIDLow(),
         real->GetGUIDLow(), 1, std::string("traded fairly with ") + bot->GetName());
-    // C6 (round-1 R7#3): the trade deed rides the SAME 60 s
+    // The trade deed rides the SAME 60 s
     // SentimentRate admission as the tone row - N completed trades in a
     // minute award exactly ONE deed (the farm law). The deed delta
     // itself stays EXEMPT from the +-2 clamp by living here, outside
@@ -2284,7 +2283,7 @@ bool PlayerbotLlmMemory::TryClaimAmbientSlot(uint32 botGuid, uint32 minIntervalS
     auto itr = spokenAt.find(botGuid);
     if (itr != spokenAt.end() && now - itr->second < time_t(minIntervalSeconds))
         return false;
-    // F7: the hourly authored-line budget. A rejection must NOT burn the
+    // The hourly authored-line budget. A rejection must NOT burn the
     // per-bot interval (the kill-banter law: silence never opens windows)
     if (!AuthoredLineAdmitsLocked(arbCategory, /*exempt=*/false, /*roomOnly=*/false))
         return false;
@@ -2302,7 +2301,7 @@ time_t const INITIATIVE_RETURN_GAP = 900;
 // the crowd tier: staggered emote delay bounds (seconds)
 uint32 const CROWD_DELAY_MIN = 2, CROWD_DELAY_MAX = 5;
 
-// Phase-3 RP dial scaling (llmRp* conf values, 0-100, 50 = default).
+// RP dial scaling (llmRp* conf values, 0-100, 50 = default).
 // Initiative dial scales the 10-minute zero-spam floor: 0 doubles the
 // quiet (1200 s), 100 halves it (300 s). Reactivity scales event-shortcut
 // eagerness inline at the call sites (level-up parity at <= 25, kill-roll
@@ -2666,7 +2665,7 @@ bool PlayerbotLlmMemory::QueueStreetReaction(Player* bot, Player* speaker,
 {
     // cloud lane only (the conjunction, never the bare key); every
     // other lane no-ops here and the caller falls to the crowd emote,
-    // byte-identical to the pre-A6 crowd branch
+    // byte-identical to the crowd branch
     if (!CloudLaneOpen() || !sPlayerbotAIConfig.llmBanterEnabled)
         return false;
     if (!bot || !speaker || heard.empty())
@@ -2678,7 +2677,7 @@ bool PlayerbotLlmMemory::QueueStreetReaction(Player* bot, Player* speaker,
     // the ladder, in the pinned order: world/zone window claim ->
     // per-bot slot -> pct roll -> daily quota -> dispatch. Any rejection
     // falls to the emote; quota exhaustion is emote-only, symmetric
-    // with pct = 0. A6 consume (round-1 R1#3): the stages resolve lazily
+    // with pct = 0. The stages resolve lazily
     // IN ORDER (a rejected claim must not burn the later stages - the
     // quota only spends on a live dispatch), and the pure
     // StreetAdmissionOrder fold names the verdict so the runtime order
@@ -3075,7 +3074,7 @@ void PlayerbotLlmMemory::TickInitiative(Player* bot)
         std::string const absence = GetAbsenceBucket(bot, player);
         if (absence == "a first meeting")
             continue; // never met: no greeting memory to draw on
-        // plan v5 W3: the pairing-tenure milestone mints as a living fact
+        // The pairing-tenure milestone mints as a living fact
         // ("have known you a full month") the first time each bucket is
         // crossed - the journal already renders the anniversary; this way
         // the greeting/ask-after surfaces can voice it too
@@ -3175,7 +3174,7 @@ void PlayerbotLlmMemory::TickInitiative(Player* bot)
             rows.push_back(FactRow{fields[0].GetUInt32(), fields[1].GetString(),
                 fields[2].GetString(), !fields[3].IsNULL()});
         } while (result->NextRow());
-        // C2 (round-1 R4#1): the lazy per-pair seed - a row whose
+        // The lazy per-pair seed - a row whose
         // voiced_at is set already had its one initiation in a previous
         // process (NULL = never voiced; no backfill: historical rows
         // keep today's per-process behavior). No boot-time scan.
@@ -3238,7 +3237,7 @@ void PlayerbotLlmMemory::TickInitiative(Player* bot)
         return; // one initiative per scan at most
     }
 
-    // plan v5 W5: the bot-curiosity class - a GUID-stable-ordered question
+    // The bot-curiosity class - a GUID-stable-ordered question
     // from the 16-wide bank, tier >= 2, one ask per question per pairing,
     // a 30-minute floor per pairing, and the ambient slot's zero-spam cap.
     // The ask arms the pending answer; the player's next conversational
@@ -3301,7 +3300,7 @@ void PlayerbotLlmMemory::OnPlayerGroupKill(Player* tapper, Unit* victim)
     if (!tapper->isRealPlayer() || victim->GetTypeId() == TYPEID_PLAYER)
         return;
 
-    // plan v5 W3: an ELITE kill is a moment the game itself verifies - it
+    // An ELITE kill is a moment the game itself verifies - it
     // skips the quip roll entirely and mints memory instead: every grouped
     // bot records watching the player fell the elite (prefix-checked, so
     // farming the same elite mints once per pairing), and one town row
@@ -3331,7 +3330,7 @@ void PlayerbotLlmMemory::OnPlayerGroupKill(Player* tapper, Unit* victim)
                     if (!HasSharedFactPrefix(member->GetGUIDLow(), tapper->GetGUIDLow(), prefix))
                         LogFact(member->GetGUIDLow(), tapper->GetGUIDLow(),
                             prefix + " in " + zone, "shared-event");
-                    // C6: the shared-kill deed CONSUMES the per-pairing
+                    // The shared-kill deed CONSUMES the per-pairing
                     // daily cap (an elite-grind loop is the same farm
                     // surface as a whisper farm); 0 disables the award,
                     // the witnessed fact and the town row continue
@@ -3346,9 +3345,9 @@ void PlayerbotLlmMemory::OnPlayerGroupKill(Player* tapper, Unit* victim)
                         townRowMinted = true;
                     }
                 }
-                // plan v5 F2: every pair of bots that shared the elite
+                // Every pair of bots that shared the elite
                 // kill earns dyad affinity and a witnessed event the
-                // party topic (W6) can voice later
+                // party topic can voice later
                 for (size_t i = 0; i < groupedBots.size(); ++i)
                     for (size_t j = i + 1; j < groupedBots.size(); ++j)
                         NoteDyadEvent(groupedBots[i]->GetGUIDLow(),
@@ -3358,7 +3357,7 @@ void PlayerbotLlmMemory::OnPlayerGroupKill(Player* tapper, Unit* victim)
         }
     }
 
-    // Phase-3 reactivity: the 1-in-24 kill roll halves at dial 0
+    // Reactivity: the 1-in-24 kill roll halves at dial 0
     // (1-in-48) and doubles at dial 100 (1-in-12). Default 50 = base.
     uint32 killSides = KILL_BANTER_ROLL_N;
     if (sPlayerbotAIConfig.llmRpReactivity <= 25)
@@ -3462,7 +3461,7 @@ bool PlayerbotLlmMemory::PrewarmDue(uint32 botGuid)
     return true;
 }
 
-// plan v5 C1.3: the cloud quota ledger - surface -> (day, count). The
+// The cloud quota ledger - surface -> (day, count). The
 // day bucket is UTC-days so a long session rolls at a stable boundary
 namespace {
 std::map<std::string, std::pair<int64_t, uint32>>& CloudQuotaUsed()
@@ -3471,7 +3470,7 @@ std::map<std::string, std::pair<int64_t, uint32>>& CloudQuotaUsed()
     return instance;
 }
 
-// A7.1: the interactive tier's keyed map (player guid -> hour,used),
+// The interactive tier's keyed map (player guid -> hour,used),
 // the CloudQuotaUsed pattern
 static std::map<uint32, std::pair<int64_t, uint32>>& InteractiveBudgetUsed()
 {
@@ -3479,7 +3478,7 @@ static std::map<uint32, std::pair<int64_t, uint32>>& InteractiveBudgetUsed()
     return instance;
 }
 
-// A7.3 (round-1 R1#2): the bot2bot depth ledger - bot guid ->
+// The bot2bot depth ledger - bot guid ->
 // consecutive autonomous lines since the last real-player
 // conversational trigger reached that bot
 static std::map<uint32, uint32>& BotToBotConsecutive()
@@ -3492,7 +3491,7 @@ static std::map<uint32, uint32>& BotToBotConsecutive()
 // bot2bot lines per bot between real-player interactions
 uint32 const BOT2BOT_MAX_CONSECUTIVE = 3;
 
-// plan v5 C5: the dossier's 7-day gate, per player (a per-day quota
+// The dossier's 7-day gate, per player (a per-day quota
 // cannot express weekly; a process-local stamp is honest about what a
 // restart resets)
 std::map<uint32, time_t>& LastDossierAt()
@@ -3508,7 +3507,7 @@ bool PlayerbotLlmMemory::ExternalApiTierActive()
         sPlayerbotAIConfig.llmContextLength >= 65536;
 }
 
-// ---- plan v5 F2: the dyad ledger ------------------------------------------
+// ---- The dyad ledger -------------------------------------------------------
 
 namespace {
 uint64 DyadKey(uint32 a, uint32 b)
@@ -3568,8 +3567,8 @@ bool PlayerbotLlmMemory::PeekNewestDyadEvent(uint32 botA, uint32 botB, std::stri
     return true;
 }
 
-// A7.1 tier I - interactive: whisper, addressed say, the one party
-// responder and A2 continuations are EXEMPT from the ambient arbiter and
+// The interactive tier: whisper, addressed say, the one party
+// responder and dialogue continuations are EXEMPT from the ambient arbiter and
 // ride their own per-player hourly budget instead (the SentimentRate
 // keyed-map pattern; the addressed interlocutor is always admitted - the
 // budget bounds the sustained rate, not the first reply). Keyed by real
@@ -3594,7 +3593,7 @@ bool PlayerbotLlmMemory::InteractiveBudgetAdmits(uint32 playerGuid)
     return true;
 }
 
-// A7.3 (round-1 R1#2 wiring): bot2bot containment - the tier-II daily
+// Bot2bot containment - the tier-II daily
 // quota (CloudQuotaAdmits surface, realm-global, process-local,
 // 0 = surface off) AND the autonomous-exchange depth cap. The chance
 // sites broadcast (no single peer guid is threaded through them), so
@@ -3602,12 +3601,12 @@ bool PlayerbotLlmMemory::InteractiveBudgetAdmits(uint32 playerGuid)
 // between real-player interactions - for the dominant two-bot reply
 // loop this bounds the exchange and kills the only self-amplifying
 // lane. Device lane: unchanged (the authored-lines ceiling stays its
-// only bound; the 0.13 mirror-case byte-identity law).
+    // only bound; the mirror-case byte-identity law).
 bool PlayerbotLlmMemory::BotToBotAdmits(uint32 botGuid)
 {
     if (!ExternalApiTierActive())
         return true;
-    // depth first, in its own lock scope (round-2 R1#1/R8#1): a later
+    // depth first, in its own lock scope: a later
     // stage's rejection must not spend an earlier stage's quota - the
     // street-ladder law. A depth-saturated bot's attempts stop burning
     // the realm-global daily budget.
@@ -3658,14 +3657,13 @@ struct PartyResponderClaim
     PartyResponderClaim() : botGuid(0), expiresAt(0) {}
 };
 
-// the claim window bounds every reachable chat-drain stagger (round-6
-// R1: the engine's UpdateAIInternal delays run 3-7 s on teleport/cast
+// the claim window bounds every reachable chat-drain stagger: the
+// engine's UpdateAIInternal delays run 3-7 s on teleport/cast
 // chains, so the fan-out does NOT resolve within one tick; a marker or
 // claim younger than this owns the line outright)
 int64_t const PARTY_CLAIM_WINDOW_SECONDS = 30;
 
-// Round-9 R1 (the per-entry straddle; premise corrected round-10 R1
-// MINOR): the group receive handlers run sequentially on the world
+// The per-entry straddle margin: the group receive handlers run sequentially on the world
 // thread and one fan-out USUALLY crosses at most a single wall-clock
 // tick, so a later member's queue entry can carry m_time = T+1 beside
 // a marker/claim stamped at T - the drain TTL subtracts this margin
@@ -3675,8 +3673,8 @@ int64_t const PARTY_CLAIM_WINDOW_SECONDS = 30;
 // draining member holds across its entire ChatReplyDo (pre-existing
 // upstream scope, the synchronous tier queries included), so a
 // mid-drain member can widen the straddle past this margin. The
-// exactly-one law therefore does NOT rest on this constant anymore:
-// the round-10 first-heard registry (NotePartyLineHeard) anchors the
+// exactly-one law therefore does NOT rest on this constant:
+// the first-heard registry (NotePartyLineHeard) anchors the
 // claim grant to the LINE's earliest receive - straddle-free and
 // divergence-free. The margin now governs only drop TIMING (each
 // second of it is one more second of live lines the drain drops: a
@@ -3687,10 +3685,11 @@ int64_t const PARTY_CLAIM_FANOUT_STRADDLE_SECONDS = 1;
 
 // one key per (speaker, line): every bot hearing the same party line
 // computes the identical key, so the claim is per-LINE, not per-bot.
-// Round-8 R1: the group id is deliberately NOT in the key. The drain
-// can only key by the draining bot's CURRENT group - a listener kicked
-// and re-invited to another group inside the window computed a FRESH
-// key, claimed beside the original winner, and delivered a second
+// The group id is deliberately NOT in the key: the drain
+// can only key by the draining bot's CURRENT group - a group-scoped key
+// would let a listener kicked
+// and re-invited to another group inside the window claim a FRESH
+// key beside the original winner and deliver a second
 // generation to a group that never heard the line. A speaker stands in
 // at most one group, so (speaker, hash) cannot collide across two live
 // groups; the one cross-group shape (the speaker moves groups and
@@ -3725,7 +3724,7 @@ std::map<uint32, time_t>& PartyFloodLastAt()
     return instance;
 }
 
-// A1's once-per-bot-per-session gate-refusal stamp (the dead-gate
+// The once-per-bot-per-session gate-refusal stamp (the dead-gate
 // diagnostic): process-local by design - it dies with the world
 // process, matching the quota-restart semantics
 std::set<uint32>& GateRefusalNoted()
@@ -3734,7 +3733,7 @@ std::set<uint32>& GateRefusalNoted()
     return instance;
 }
 
-// Round-10 R1 (the first-heard registry): the LINE's earliest receive
+// The first-heard registry: the LINE's earliest receive
 // instant, min-stamped by every group member's receive handler (the
 // handlers run sequentially on the world thread inside one broadcast,
 // so the first writer IS the earliest receive; min() keeps the
@@ -3746,34 +3745,35 @@ std::set<uint32>& GateRefusalNoted()
 // grant therefore can never meet an expired prior token, whatever
 // the drain's mid-work clock divergence, and for any fan-out
 // straddle inside the window (beyond it the line re-registers as
-// fresh - the header's stated premise; round-11 R1 closed the one
-// ungated stamper that could stamp BELOW firstHeard).
+// fresh - the header's stated premise; every stamper is gated so
+// nothing stamps BELOW firstHeard).
 std::map<uint64, int64_t>& PartyLineHeardMap()
 {
     static std::map<uint64, int64_t> instance;
     return instance;
 }
 
-// Round-12 R1 (the cross-line residue): true when the key's existing
+// The cross-line residue discriminator: true when the key's existing
 // token belongs to the CURRENT registry generation (it owns the line);
 // false when absent - or when it is residue of a PRIOR identical-text
 // line whose registry entry was pruned and re-registered fresh, in
 // which case the stale token is erased here (erase-and-replace). The
 // discriminator is exact: the gates' >= refusal admits now-firstHeard
 // only up to window-margin-1, so every accepted stamp sits in
-// [firstHeard, firstHeard+window-margin-1] of its OWN generation
-// (round-13 R8's wording note), so a current-
+// [firstHeard, firstHeard+window-margin-1] of its OWN generation,
+// so a current-
 // generation token expires at >= firstHeard+window; the registry
 // prunes only past the window and re-inserts fresh, so the new
 // firstHeard strictly exceeds the prior generation's last possible
 // stamp (+2) - a token expiring strictly before firstHeard+window was
-// stamped before this generation began. R1's demonstrated attack (a
+// stamped before this generation began. The attack this closes (a
 // verbatim repeat >=31 s later, its addressee-marker refused by the
 // dead line's residue token, the residue dying inside the repeat's
 // grant window beside the addressee's own dispatch) dies on this
-// erase: the repeat's marker owns its own line. Round-13 R1: the
-// scoping itself re-opened the OLD line for its own straggled
-// drainers (the entry-side mirror of this check) - closed at the
+// erase: the repeat's marker owns its own line. A re-scoped line can
+// re-open the OLD entry for its own straggled
+// drainers (the entry-side mirror of this check) - that path is
+// closed at the
 // drain's TTL gate by PartyClaimGenerationMovedPast, which drops
 // entries predating the current generation before any claim can
 // consult this discriminator.
@@ -3811,13 +3811,13 @@ uint64_t PlayerbotLlmMemory::PartyMsgHash(std::string const& msg)
 void PlayerbotLlmMemory::NotePartyLineHeard(uint32 speakerGuid,
     uint64_t msgHash)
 {
-    // Round-10 R1 (the mid-drain clock divergence): the drain reads
+    // The mid-drain clock divergence guard: the drain reads
     // the clock at its TTL gate and AGAIN inside the claim/stand-down
     // helpers, with real work between (ChatReplyDo's scans and
     // CollectPartyCandidates' synchronous tier queries) - an entry
     // admitted at the gate's second could hit a claim prune one second
     // later where the line's marker/claim just died. The exactly-one
-    // law is now anchored to the LINE, not any entry's m_time: every
+    // law is anchored to the LINE, not any entry's m_time: every
     // member's receive min-stamps the line's earliest heard instant
     // here, and TryClaimPartyResponder grants only inside window-margin
     // of it - no marker/claim for the line can expire that early, so a
@@ -3829,13 +3829,13 @@ void PlayerbotLlmMemory::NotePartyLineHeard(uint32 speakerGuid,
     uint64 const key = PartyClaimKey(speakerGuid, msgHash);
     std::lock_guard<std::mutex> lock(StateMutex());
     std::map<uint64, int64_t>& heard = PartyLineHeardMap();
-    // Round-12 R1 (prune-before-insert): a receive PAST the window
+    // Prune-before-insert: a receive PAST the window
     // must re-register its line deterministically - with the insert
-    // first, the receive found the old entry (min-law: no update),
-    // then the prune erased it and the receive's own instant was
-    // LOST, leaving a lone-member repeat line with no registry (all
+    // first, the receive would find the old entry (min-law: no update),
+    // then the prune would erase it and the receive's own instant would
+    // be LOST, leaving a lone-member repeat line with no registry (all
     // its claims fail-closed: a missed reply where a fresh
-    // generation was owed). Prune first, then insert/min-stamp.
+    // generation is owed). Prune first, then insert/min-stamp.
     for (auto pruneItr = heard.begin(); pruneItr != heard.end();)
     {
         if (now - pruneItr->second > PARTY_CLAIM_WINDOW_SECONDS)
@@ -3853,17 +3853,16 @@ void PlayerbotLlmMemory::NotePartyLineHeard(uint32 speakerGuid,
 bool PlayerbotLlmMemory::PartyClaimGenerationMovedPast(uint32 speakerGuid,
     uint64_t msgHash, time_t lineTime)
 {
-    // Round-13 R1 (the old-line straggler re-open): the round-12
-    // generation scoping made BOTH freshness gates and the residue
+    // The old-line straggler guard: freshness gates and the residue
     // discriminator read the CURRENT registry generation - so a
     // TTL-live straggled entry of a PRIOR identical-text line (the
     // registry re-registered fresh at a verbatim repeat past the
-    // window) passed them all: the gates measured its age against
-    // the NEW firstHeard, and TokenOwnsCurrentLine erased the old
+    // window) would pass them all: the gates would measure its age against
+    // the NEW firstHeard, and TokenOwnsCurrentLine would erase the old
     // line's still-live winner token as residue - the straggler
-    // claimed and dispatched a second generation for the OLD line
-    // while the repeat's own responder was refused beside its token
-    // (R1's probe: 84,825/84,825 combos). This is the drop side of
+    // could claim and dispatch a second generation for the OLD line
+    // while the repeat's own responder was refused beside its token.
+    // This is the drop side of
     // the same law: an entry whose m_time predates the CURRENT
     // generation's firstHeard cannot belong to it. firstHeard is
     // the MIN receive of the current generation and each member's
@@ -3881,7 +3880,7 @@ bool PlayerbotLlmMemory::PartyClaimGenerationMovedPast(uint32 speakerGuid,
     // armed-lane party/raid real-speaker lines, so every other lane
     // misses the lookup and stays byte-identical; the one
     // present-key cross-lane shape (the same speaker repeating
-    // identical text on another channel - the round-8 shared-key
+    // identical text on another channel - the shared-key
     // class) drops conservatively, the same direction as the
     // claim's own refusal there. Caller: the chat drain, which
     // holds chatRepliesMutex and already nests StateMutex through
@@ -3906,13 +3905,13 @@ bool PlayerbotLlmMemory::TryClaimPartyResponder(uint32 botGuid, uint32 speakerGu
     uint64 const key = PartyClaimKey(speakerGuid, msgHash);
     std::lock_guard<std::mutex> lock(StateMutex());
     // prune expired claims first: the state stays bounded and a stale
-    // claim can never block a later line. Round-6 R1: the window must
+    // claim can never block a later line. The window must
     // exceed every reachable chat-drain stagger - each bot drains its
     // chatReplies inside UpdateAIInternal, whose delay the engine
     // routinely sets to seconds (near/far teleport chains 3-7 s, cast
     // time + react + avg, the reactDelay*10 floor), so a 5 s window
-    // expired BEFORE late bystanders evaluated the line and the
-    // rotation stamp armed the next tie-order bot to re-claim it. 30 s
+    // would expire BEFORE late bystanders evaluated the line and the
+    // rotation stamp would arm the next tie-order bot to re-claim it. 30 s
     // bounds every realistic drain while the lazy prune keeps the map
     // bounded.
     std::map<uint64, PartyResponderClaim>& claims = PartyClaims();
@@ -3923,7 +3922,7 @@ bool PlayerbotLlmMemory::TryClaimPartyResponder(uint32 botGuid, uint32 speakerGu
         else
             ++itr;
     }
-    // Round-10 R1 (the claim-side freshness gate): grant only if the
+    // The claim-side freshness gate: grant only if the
     // LINE (not any entry's m_time) is young at the claim's own
     // clock. Every current-generation token is stamped at >= its
     // writer's receive >= firstHeard, so it expires at >=
@@ -3932,7 +3931,7 @@ bool PlayerbotLlmMemory::TryClaimPartyResponder(uint32 botGuid, uint32 speakerGu
     // fan-out straddle or the drain's mid-work clock divergence that
     // admit this drainer. Absent firstHeard = unprovable freshness =
     // refuse (a missed reply, never a second generation). The gate
-    // runs BEFORE the ownership check: the round-12 residue
+    // runs BEFORE the ownership check: the residue
     // discriminator needs a live registry entry.
     std::map<uint64, int64_t> const& heard = PartyLineHeardMap();
     auto heardItr = heard.find(key);
@@ -3940,7 +3939,7 @@ bool PlayerbotLlmMemory::TryClaimPartyResponder(uint32 botGuid, uint32 speakerGu
         now - heardItr->second >=
             PARTY_CLAIM_WINDOW_SECONDS - PARTY_CLAIM_FANOUT_STRADDLE_SECONDS)
         return false;
-    // Round-12 R1: first-writer-wins over the CURRENT generation only
+    // First-writer-wins over the CURRENT generation only
     // (a claim OR a stand-down marker); residue of a prior
     // identical-text line is erased (TokenOwnsCurrentLine).
     if (TokenOwnsCurrentLine(key, heardItr->second))
@@ -3957,14 +3956,14 @@ bool PlayerbotLlmMemory::TryClaimPartyResponder(uint32 botGuid, uint32 speakerGu
 bool PlayerbotLlmMemory::TryStandDownPartyLine(uint32 speakerGuid,
     uint64_t msgHash)
 {
-    // round-6 R1 (the addressed-line sibling): an ADDRESSED line stands
+    // The addressed-line sibling: an ADDRESSED line stands
     // down with a MARKER, not just silence - a staggered late drain
     // re-evaluates the line after the addressee left the group
     // mid-fan-out (its own queued turn already dispatched), finds no
     // named member, and would otherwise take a fresh ordering pick
     // beside the addressee's turn. The marker (winner 0 = the
     // addressee's own arm owns the line) rides the same claim map,
-    // window and lazy prune; first writer wins. Round-8 R1: the key is
+    // window and lazy prune; first writer wins. The key is
     // GROUP-FREE (see PartyClaimKey) so a listener that switches groups
     // between receive and drain still finds the line owned.
     if (!speakerGuid)
@@ -3980,23 +3979,23 @@ bool PlayerbotLlmMemory::TryStandDownPartyLine(uint32 speakerGuid,
         else
             ++itr;
     }
-    // Round-11 R1 (the ungated drain-side marker): this helper's
+    // The drain-side marker caller: this helper's
     // SECOND caller - the drain-side stand-down branch - runs under
     // NO isAiChat/strategy armament, so a strategy-less member (its
     // receive never wrote the first-heard registry) could stamp the
     // line's FIRST token at a clock read BELOW firstHeard while the
     // fan-out was still stalled behind mid-drain members: that
-    // early-expiring marker then died INSIDE the claim grant range
-    // and a fresh claim re-opened the line beside the original
-    // winner. The marker now carries the SAME freshness gate as the
+    // early-expiring marker would die INSIDE the claim grant range
+    // and a fresh claim would re-open the line beside the original
+    // winner. The marker therefore carries the SAME freshness gate as the
     // claim: absent registry = unprovable freshness = refuse (the
     // receive-path caller is never refused as absent or backward -
     // its own registry write precedes it in the same handler, so
-    // firstHeard <= now; round-12 R8 wording: a STALE refusal there,
+    // firstHeard <= now; a STALE refusal there,
     // inside the stated straddle envelope, is conservative - a
     // missed marker never dispatches), and with the gate every
     // ACCEPTED token stamp >= firstHeard, the grant proof's premise
-    // for both legs. Round-12 R1: the ownership check below is
+    // for both legs. The ownership check below is
     // generation-scoped (prior-line residue is erased).
     std::map<uint64, int64_t> const& heard = PartyLineHeardMap();
     auto heardItr = heard.find(key);
@@ -4014,7 +4013,7 @@ bool PlayerbotLlmMemory::TryStandDownPartyLine(uint32 speakerGuid,
 
 bool PlayerbotLlmMemory::PartyClaimWindowElapsed(time_t lineTime)
 {
-    // Round-7 R1 (claim-window class closure): the drain staggers are
+    // Claim-window class closure: the drain staggers are
     // ADDITIVE (IncreaseAIInternalUpdateDelay accumulates: a master's
     // repeated "wait" adds up to 20 s per invocation, teleport and cast
     // chains stack on top), so NO fixed claim window can exceed every
@@ -4025,25 +4024,25 @@ bool PlayerbotLlmMemory::PartyClaimWindowElapsed(time_t lineTime)
     // window at its drain has no live claim or marker left - the caller
     // drops it rather than let a deferred bot re-open the line beside
     // its original winner. Pure time compare: no state, no mutex.
-    // Round-8 R1: the >= (not >) is LOAD-BEARING. The prune kills a
+    // The >= (not >) is LOAD-BEARING. The prune kills a
     // claim/marker at expiresAt <= now (it dies AT stamp+30), so a
-    // strict-> oracle left one live-line/dead-claim SECOND (the
-    // boundary second re-opened both legs). Round-9 R1: that invariant
-    // was per-ENTRY, not per-LINE - a fan-out crossing a second
+    // strict-> oracle would leave one live-line/dead-claim SECOND (the
+    // boundary second would re-open both legs). The invariant is
+    // per-ENTRY, not per-LINE - a fan-out crossing a second
     // boundary gives a later member's entry its own later m_time
-    // (T+1 beside a marker stamped at T), and that entry reached age
-    // 29 - processed - exactly when the marker pruned; with the
-    // winner gone a fresh ordering pick claimed beside the original
-    // generation. The margin closes the demonstrated class (straddle
+    // (T+1 beside a marker stamped at T), and that entry reaches age
+    // 29 - processed - exactly when the marker prunes; with the
+    // winner gone a fresh ordering pick could claim beside the original
+    // generation. The margin closes that class (straddle
     // <= margin): a processed drainer then has now <= m_time +
     // window - margin - 1, and with m_time <= T + margin (T the
     // fan-out's earliest push) that is <= T + window - 1 < T + window
     // <= every claim/marker expiry (each stamps at >= T). Wider
-    // straddles are possible (round-10 R1 MINOR: the fan-out's queue
+    // straddles are possible (the fan-out's queue
     // push blocks on a mid-drain member's chatRepliesMutex, held
     // across its whole ChatReplyDo), and this entry-side envelope
     // then misses the drainer - a MISSED REPLY at worst, because the
-    // round-10 first-heard registry gates the CLAIM itself to the
+    // first-heard registry gates the CLAIM itself to the
     // line's earliest receive (see NotePartyLineHeard): a second
     // generation stays unreachable at any straddle or drain clock
     // divergence.
@@ -4102,10 +4101,10 @@ bool PlayerbotLlmMemory::PartyFloodAdmits(uint32 speakerGuid)
 
 void PlayerbotLlmMemory::PartyFloodRefund(uint32 speakerGuid, time_t stampedAt)
 {
-    // Round-7 R1 MINOR: a claim the caller LOST consumed the speaker's
+    // A claim the caller LOST consumed the speaker's
     // flood slot for nothing (identical-text re-send within the window,
     // or the adjudicated party/raid shared key) - without this refund
-    // the speaker's next DISTINCT line inside 2 s was denied beside a
+    // the speaker's next DISTINCT line inside 2 s would be denied beside a
     // generation that never happened. CAS-shaped erase: only the
     // attempt that stamped the slot lifts it, so a concurrent winner's
     // stamp (set between this attempt's admit and its claim loss)
@@ -4121,7 +4120,7 @@ void PlayerbotLlmMemory::PartyFloodRefund(uint32 speakerGuid, time_t stampedAt)
 
 bool PlayerbotLlmMemory::NoteGateRefusalOnce(uint32 botGuid)
 {
-    // A1 (round-3 R1#2): the reply gate refused a hard trigger - the
+    // The reply gate refused a hard trigger - the
     // dead-gate signature. Once per bot per session: the first refusal
     // logs, every later one stays quiet (a 320-bot realm never floods).
     if (!botGuid)
@@ -4555,12 +4554,12 @@ void PlayerbotLlmMemory::OnPlayerLogin(Player* player)
     // it forever). ASCII hyphen: the sys-line channel predates the clamp.
     if (PlayerHasAnyPairing(player->GetGUIDLow()))
     {
-        // plan v5 C2: the returning player with pairings gets the session
+        // The returning player with pairings gets the session
         // recap instead - "the realm remembers between sessions" (digest
         // first, cloud prose when the tier + quota admit; both silence
         // below three rows by the doctrine)
         DeliverSessionRecap(player);
-        // plan v5 C5: the weekly dossier mints alongside the recap (the
+        // The weekly dossier mints alongside the recap (the
         // login is the natural weekly moment; both halves fail closed)
         MintWeeklyDossier(player);
         return;
@@ -4569,7 +4568,7 @@ void PlayerbotLlmMemory::OnPlayerLogin(Player* player)
         "The people of this realm will talk back - walk up and greet them by name.");
 }
 
-// plan v5 C2: the session recap delivery. The deterministic digest always
+// The session recap delivery. The deterministic digest always
 // renders (zero calls, works offline); the prose variant replaces it when
 // the external tier is active, the prose toggle is on and the daily quota
 // admits - one capped call, fail-closed to silence on any failure

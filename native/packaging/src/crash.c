@@ -1,5 +1,5 @@
-/* crash.c — the deterministic PKG-02 native fault. Runs in the isolated :pkg
- * child process, never in :main. kind 0 (abort) is the named deterministic trigger. */
+/* crash.c — the deterministic native fault probe. Runs in the isolated
+ * packaging process, never in :main. kind 0 (abort) is the named deterministic trigger. */
 #include "pocket_pkg.h"
 #include <stdlib.h>
 #include <string.h>

@@ -1,7 +1,7 @@
 package com.pocketrealm.supervisor
 
 /**
- * Pure foreground-promotion predicate for :world and :database (plan B5).
+ * Pure foreground-promotion predicate for :world and :database.
  *
  * Both services sit at bound-service priority while idle; the supervisor
  * promotes them to specialUse FGS the moment a real player is present and

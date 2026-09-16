@@ -740,8 +740,9 @@ private fun OverlayButton(
             .background(Color(0xFF101720).copy(alpha = opacity), RoundedCornerShape(14.dp))
             .testTag(tag)
             // clickable keeps the latest callback across camera/profile
-            // recompositions. The old pointerInput(tag) captured the first
-            // expanded=false lambda, so later More/Close taps could be stale.
+            // recompositions; a pointerInput keyed only on the tag would
+            // capture the first expanded=false lambda, so later More/Close
+            // taps could be stale.
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { Text(label, color = Color.White, modifier = Modifier.padding(horizontal = 12.dp)) }

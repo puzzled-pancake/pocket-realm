@@ -33,7 +33,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         // Saved bot presets must resolve in this process (UI selection).
         BotCustomPresets.install(java.io.File(filesDir, "bots"))
-        // F5a: construct the addon repository once at app start so the
+        // Construct the addon repository once at app start so the
         // fresh-install seed (built-in Android Port) runs even if the
         // Add-ons tab is never opened; the projector reads registry.json at
         // client launch. Off the main thread — init does registry I/O.

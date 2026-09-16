@@ -150,7 +150,7 @@ def test_the_built_dll_carries_the_listener_gate():
         "pocket_world_runtime.dll"
     if not dll.is_file():
         return  # source-only checkout; the lane lockfile pins artifacts
-    # artifact-level pin (round-2 review: textual pins alone cannot catch
+    # artifact-level pin (textual pins alone cannot catch
     # evidence produced by a stale binary): the gate's loud failure literal
     # must exist in the SHIPPED dll, not just in driver anchor text (the
     # extern call itself is same-DLL internal and leaves no name string)
@@ -197,7 +197,7 @@ def test_desktop_battery_carries_no_stale_workaround_gates():
 
 def test_a_whisper_to_an_inactive_bot_reaches_the_trigger_evaluation():
     driver = (ROOT / "tools" / "build_o09_realm_runtime.py").read_text(encoding="utf-8")
-    # round-2 live-battery finding: the second bot never answered because
+    # live-battery pin: the second bot never answers when
     # the SMSG_MESSAGECHAT activity gate dropped whispers from inactive
     # bots BEFORE the trigger evaluation - contradicting the A3 law that
     # a whisper is direct address. The gate must exempt whispers.

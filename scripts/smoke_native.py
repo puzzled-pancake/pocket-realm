@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Smoke-test the native realm binaries for an ABI.
 
-This is the runtime verification the arm64-only build never had: it both inspects
-the produced ELF (architecture, 16 KB page-size alignment, no unresolved
-symbols, expected dynamic deps) AND, when a device/emulator is connected, pushes
-the stripped binaries plus libc++_shared.so to the device and runs
-`mangosd --version` / `realmd --version` to prove they actually execute.
+It inspects the produced ELF (architecture, 16 KB page-size alignment, no
+unresolved symbols, expected dynamic deps) and, when a device/emulator is
+connected, pushes the stripped binaries plus libc++_shared.so to the device
+and runs `mangosd --version` / `realmd --version` to prove they actually
+execute.
 
 The product ABI is arm64-v8a; x86_64 is an emulator-only test target. This
 script never claims x86_64 is a product target.

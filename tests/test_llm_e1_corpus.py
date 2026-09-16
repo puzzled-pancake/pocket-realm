@@ -1,7 +1,7 @@
-"""E1 pool pins (plan RP workstream E1, v2.3 s6): the authored corpus
+"""Pool pins for the authored corpus
 targets.
 
-E1 grows the seven speech families to the reconciled ~1,100-line corpus:
+The corpus grows the seven speech families to the reconciled ~1,100-line corpus:
 greet tiers 40 -> 330, busy 12 -> 132, silence 12 -> 104, idle 18 -> 190,
 kill 14 -> 142 (the kill change re-pins the FNV golden in
 test_llm_banter.py in the SAME commit), floor 10 -> 120 (the murmur
@@ -196,7 +196,7 @@ def test_greeting_seasoning_is_additive_with_race_in_the_lane():
     assert "ArchetypePhraseRow" in body
     assert 'tierLine + " " + phrase' in body
     assert "seasoned.size() > 195" in body, "the chat byte budget gates the compose"
-    # RACE mixed into the phrase-draw lane key (the plan's fix for the
+    # RACE mixed into the phrase-draw lane key (the fix for the
     # class-only ArchetypeFor)
     assert "bot->getRace() & 0xF" in body
     # the season draws BEFORE RandomTeleport... (no - it draws through the

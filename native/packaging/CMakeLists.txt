@@ -4,9 +4,10 @@
 # against the pinned NDK; outputs are staged into the Android APK by the Gradle
 # stageNativeLibs task.
 #
-#   libpocketpkgtest.so       JNI shim library (PKG-02/06 from :pkg child)
+#   libpocketpkgtest.so       JNI shim library (drives the smoke probes from
+#                             the isolated packaging process)
 #   libpocket_pkg_launcher.so PIE executable renamed to .so so AGP extracts it
-#                             into nativeLibraryDir (PKG-01 experiment variant)
+#                             into nativeLibraryDir (experiment variant)
 #
 # Both link only libc/libdl/liblog (platform libs supplied by Android). No
 # platform .so is ever staged. 16 KB page-size alignment matches mangosd.
@@ -33,7 +34,7 @@ set_target_properties(pocketpkgtest PROPERTIES
     LINK_FLAGS "-Wl,-z,max-page-size=0x4000"
 )
 
-# ---- libpocket_pkg_launcher.so: a PIE executable (PKG-01) -------------------
+# ---- libpocket_pkg_launcher.so: a PIE executable ----------------------------
 # Output name is a .so so AGP ships it under lib/<abi>/ and, under the
 # experiment variant (useLegacyPackaging=true), extracts it with the +x bit
 # into nativeLibraryDir. It is a real ELF executable (has a main), not a dlopen

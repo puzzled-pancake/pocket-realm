@@ -1,9 +1,9 @@
-"""The memory-USE battery (A13/A16/A17/A18/A19 host gate).
+"""The memory-USE battery (recall/ceremony/initiative/crowd/curiosity host gate).
 
 Compiles the SHIPPED pure core (native/patches/playerbots/
 PlayerbotLlmRecallCore.h) on the host with -std=c++11 and pins the fact
-classifier, the recall question shapes, the beat-cargo wording (the
-recallfix measured table), the ceremony/nickname/secret picks and the
+classifier, the recall question shapes, the beat-cargo wording, the
+ceremony/nickname/secret picks and the
 gossip distortion. The world-side glue (the bridge ladder's recall
 beats, the tier ceremony, the driver anchors, the memory recall
 surfaces) is pinned by source-contract assertions below, following
@@ -190,8 +190,8 @@ def test_longform_cue_injection_is_tier_and_content_gated():
     assert inner.count("kLongFormCue") == 3, \
         f"three injection sites exactly (found {inner.count('kLongFormCue')})"
     # exact-call regex (a substring count would survive an argument-scaling
-    # mutant like (sPlayerbotAIConfig.llmMaxNewTokens * 2)); Phase-3 adds
-    # the longForm dial as the second argument at every site
+    # mutant like (sPlayerbotAIConfig.llmMaxNewTokens * 2)); the
+    # longForm dial is the second argument at every site
     gates = re.findall(
         r"LongFormLicensed\(sPlayerbotAIConfig\.llmMaxNewTokens, sPlayerbotAIConfig\.llmRpLongForm\)",
         inner)
@@ -210,7 +210,7 @@ def test_longform_cue_injection_is_tier_and_content_gated():
     bonded = next(r for r in rungs if "WantsOpenConfidence(normalizedMsg)" in r)
     assert "state.tier >= 5" in bonded, "open-confidence is a Bonded-only shape"
     assert "IsSecondPerson" in bonded, \
-        "open-confidence is second-person-gated (round-1 R1 P2: 'what do " \
+        "open-confidence is second-person-gated ('what do " \
         "you make of' had a third-person use - the trigger was dropped, " \
         "the gate added)"
     assert "FACT_MASK_GOAL" in bonded, "the bonded beat anchors to the goal cargo"
@@ -687,7 +687,7 @@ def test_plan_v5_slice2_explore_hook_and_place_memory():
     assert "for the first time" in explore_fn
 
     kill = memory.split("OnPlayerGroupKill(Player* tapper, Unit* victim)")[1]
-    elite = kill.split("Phase-3 reactivity: the 1-in-24 kill roll")[0]
+    elite = kill.split("Reactivity: the 1-in-24 kill roll")[0]
     assert "CREATURE_ELITE_ELITE" in elite, "elite detection rides the creature rank"
     assert elite.index("CREATURE_ELITE_ELITE") < kill.index("urand(1, killSides)"), \
         "the elite mint happens BEFORE the quip roll (elites skip it)"
@@ -785,7 +785,7 @@ def test_plan_v5_slice4_notice_and_furniture():
     assert "SceneNudgeLine" in scene, "the authored nudge"
 
     bridge = BRIDGE_CPP.read_text(encoding="utf-8")
-    furn = bridge.split("plan v5 W7b: the scene/homeland furniture")[1].split("return note;")[0]
+    furn = bridge.split("Scene/homeland furniture")[1].split("return note;")[0]
     assert "HasStealthAura()" in furn, "stealth precedence"
     assert "HomeZoneOfRace" in furn and "IsEnemyCapitalZone" in furn, "homeland helpers"
     assert "llmWorldTruthFurniture" in furn, "key-gated (default OFF)"
@@ -807,7 +807,7 @@ def test_plan_v5_slice7_persona_block_and_keyword_lore():
     assert 'body = "",' in pack, "empty default body (renders nothing)"
 
     bridge = BRIDGE_CPP.read_text(encoding="utf-8")
-    h3 = bridge.split("plan v5 H3: keyword-triggered lore")[1].split("conversational ACT beats")[0]
+    h3 = bridge.split("Keyword-triggered lore")[1].split("conversational ACT beats")[0]
     assert "BestCard(normalizedMsg)" in h3, "the card resolves by title"
     assert "ClaimLoreCardOnce" in h3, "once per session per pairing"
 
@@ -846,7 +846,7 @@ def test_plan_v5_wave1_fixes_and_pin_gaps():
     chatter = (PATCHES / "PlayerbotLlmChatter.cpp").read_text(encoding="utf-8")
     saga = chatter.split("bool PlayerbotLlmChatter::TryBeginCampfireSaga(Player* master)")[1]
     assert "job.facts.size() < 2" in saga, "a saga needs at least two truths to weave"
-    drama = chatter.split("the rare authored drama set piece")[1].split("time_t duelNote = 0;")[0]
+    drama = chatter.split("The rare authored drama set piece")[1].split("time_t duelNote = 0;")[0]
     assert "now - s.lastDramaAt >= 2700" in drama, "the drama cooldown is pinned"
     assert "s.lastDramaAt = now; // claim confirmed" in drama, \
         "the drama window burns only on a confirmed claim"
@@ -892,14 +892,14 @@ def test_plan_v5_wave1_fixes_and_pin_gaps():
         "the scene read lives inside the notice branch"
     assert "ConsumePendingAnswer(bot->GetGUIDLow()," in driver, \
         "an armed ask consumes spoken answers on the say path"
-    # W5 fix (wave 3): the party-line consume sits OUTSIDE hardTriggerAllowed
+    # the party-line consume sits OUTSIDE hardTriggerAllowed
     # (hardTrigger == addressedToBot on SRC_PARTY, so an unaddressed-answer
     # leg behind that gate is dead code)
-    party_block = driver.split("plan v5 C3: the roundtable row")[1].split(
+    party_block = driver.split("The roundtable row + the exactly-one responder")[1].split(
         "if (bot->GetPlayerbotAI()")[0]
     assert "if (gateSpeaker && gateSpeaker->isRealPlayer() &&" in party_block, \
         "the party block gates on speaker + channel"
-    # round-3 R1#1 nested the recording legs under the SRC_PARTY guard
+    # the recording legs sit under the SRC_PARTY guard
     # (raid joins the claim only) - the consume keeps its shape at the
     # deeper indent
     assert "else\n                PlayerbotLlmMemory::ConsumePendingAnswer" in party_block, \
@@ -912,7 +912,7 @@ def test_plan_v5_wave1_fixes_and_pin_gaps():
 
 
 def test_plan_v23_c_workstream_conf_keys():
-    """C4/C6/C7/C8 (plan v2.3): every new key is parsed with its 0.a
+    """Every new key is parsed with its shipped
     default AND declared in the config header overlay; the conf.dist
     block carries the operator documentation for each."""
     driver = DRIVER.read_text(encoding="utf-8")

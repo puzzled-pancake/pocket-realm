@@ -1,5 +1,5 @@
 """E0 pool pins: the street short-reaction bank and the gate security
-refusal bank (plan RP workstream E0).
+refusal bank.
 
 Both banks live in native/patches/playerbots/llm_banter_core.h as 4x12
 archetype tables (48 authored lines each). This battery pins: pool
@@ -44,7 +44,7 @@ DIGIT_RE = re.compile(r"\d")
 LINE_RE = re.compile(r'"((?:[^"\\]|\\.)*)"')
 
 # Word-count laws: street short-reactions run 5-24 words, gate refusals
-# 3-14 (the plan's corpus bounds for the two banks).
+# 3-14 (the corpus bounds for the two banks).
 STREET_WORDS = (5, 24)
 SECURITY_WORDS = (3, 14)
 

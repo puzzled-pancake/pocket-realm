@@ -58,7 +58,7 @@ def main() -> int:
         client_line = next(line for line in output.splitlines() if "client-fixture.zip" in line)
         installer_line = next(line for line in output.splitlines() if "installer-fixture.zip" in line)
         assert "OK" in client_line, client_line
-        # Installer payloads now rank OK: the app unpacks them on device.
+        # Installer payloads rank OK: the app unpacks them on device.
         assert "OK" in installer_line and "installer" in installer_line.lower(), installer_line
         print("smoke OK: client zip ranks OK, installer zip routes to the in-app installer lane")
     return 0

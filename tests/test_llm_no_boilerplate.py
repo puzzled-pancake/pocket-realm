@@ -1,4 +1,4 @@
-"""T0.5's banned-token CI grep (plan §10 T0.5, round-5 R8): no
+"""The banned-token CI grep: no
 content-policy/safety-boilerplate phrasing anywhere in prompt-adjacent
 text - the authored corpus, the prompt/composer surfaces, and the
 driver payloads that build bodies.
@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # chatter composer surfaces, the prompt headers (emitter-spliced, so
 # ANY hit here also trips the byte-freeze lockfile pin), the compose
 # furniture/trained-cue surfaces whose prose rides into prompts
-# (round-6 R7: the five files beyond the original six), and the whole
+# (the five files beyond the original six), and the whole
 # driver (payload bodies + conf docs)
 SURFACES = [
     ROOT / "native" / "patches" / "playerbots" / "llm_banter_core.h",
@@ -37,20 +37,20 @@ SURFACES = [
     ROOT / "tools" / "build_o09_realm_runtime.py",
 ]
 
-_APOS = "'’"  # straight + curly apostrophes (round-8 R3/R7)
+_APOS = "'’"  # straight + curly apostrophes
 
 BANNED = [
     r"as an ai\b",
     r"i(?:'| a)m (?:just )?an ai\b",
     r"content policy",
     r"safety guidelines",
-    # round-6 R7: the contraction forms slip a naive grep - cover both;
-    # round-7 R3: the adjacent soft-refusal variants join ("could not",
-    # "won't", "would not", "will not", "unable to"); round-8 R3/R7: the
+    # The contraction forms slip a naive grep - cover both;
+    # The adjacent soft-refusal variants join ("could not",
+    # "won't", "would not", "will not", "unable to"); the
     # "i'm" prefix gets its own row (an "i "+space prefix can never
     # match it) and the apostrophe classes admit the curly U+2019 (the
     # corpus is ASCII-only, so no authored line can false-positive);
-    # round-9 R3: the verb tails widen (fulfill/provide/complete) and
+    # The verb tails widen (fulfill/provide/complete) and
     # the negation arms join (spaced "can not", "am not able to"); the
     # sorry-row takes the apostrophe class too (it was the last
     # straight-only row)

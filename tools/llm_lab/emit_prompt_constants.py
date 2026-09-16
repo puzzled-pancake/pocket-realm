@@ -4,7 +4,7 @@
 The byte-diff gate requires the shipped renderer to reproduce the
 training text EXACTLY. Hand-transcription of ~6 KB of prompt text is a
 typo factory, so this script imports the training source of truth
-(G:\\NPU LLM\\scripts\\finetune\\banklib.py) and writes the C++ string
+(banklib.py in the bank-authoring tree) and writes the C++ string
 constants for the header. Run it once when regenerating
 native/patches/playerbots/PlayerbotLlmPrompt.h constants; the generated
 block is delimited by markers so it can be re-emitted in place.
@@ -13,10 +13,18 @@ Usage: python tools/llm_lab/emit_prompt_constants.py
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
-BANKLIB_DIR = r"G:\NPU LLM\scripts\finetune"
+# The bank-authoring tree is external to the repo (it holds the training
+# source of truth); point LLM_LAB_BANKLIB_DIR at a local checkout. There
+# is no default: an unset variable exits with a message naming it.
+BANKLIB_DIR = os.environ.get("LLM_LAB_BANKLIB_DIR")
+if not BANKLIB_DIR:
+    sys.stderr.write("LLM_LAB_BANKLIB_DIR is not set - point it at the "
+                     "bank-authoring tree checkout\n")
+    raise SystemExit(2)
 sys.path.insert(0, BANKLIB_DIR)
 import banklib as B  # noqa: E402
 

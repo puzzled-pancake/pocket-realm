@@ -88,7 +88,7 @@ class TestLadderOrder:
 
     def test_pct_zero_is_emote_only(self):
         body = street_impl()
-        # round-1 R1#3 consume: the pct stage folds into pctRollHit - a
+        # The consume folds the pct stage into pctRollHit - a
         # falsy pct (0) can never hit, so the fold names reject:pct-roll
         # and the street say never dispatches (emote-only, symmetric
         # with quota exhaustion)

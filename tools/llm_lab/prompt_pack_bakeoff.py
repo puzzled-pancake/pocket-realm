@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase-1 density bake-off (plan v4, Phase 1c) - model-free leg.
+"""Prompt-pack density bake-off - model-free leg.
 
 For each contested seasoning block (voice-lock, anti-omniscience,
 boldness, salience, scene-close, ban-list, autonomy, initiative-opener,
@@ -165,7 +165,7 @@ VARIANTS = {
     },
 }
 
-# RP-depth probes for the model-backed S8 leg (prompts only here; the
+# RP-depth probes for the model-backed beat leg (prompts only here; the
 # battery runs them across its arms and scores adherence).
 S8_PROBES = [
     {"id": "initiative-fit",

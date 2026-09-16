@@ -12,9 +12,9 @@ import org.json.JSONObject
 import kotlin.system.exitProcess
 
 /**
- * Phase-5 bridge gate: the world-chat injection surface, proven against
+ * Bridge gate: the world-chat injection surface, proven against
  * the LIVE world without a client (the conversational LLM gates need a
- * real player session — that half is the interactive campaign):
+ * real player session — that half is interactive by design):
  *
  *  - onlinePlayers is honest (0 without a client),
  *  - a whisper from an offline sender fails with sender-not-online
@@ -29,7 +29,7 @@ fun main() {
     val roots = DesktopStorageRoots()
     roots.ensureDirectories()
     DesktopLog.attachFile(roots.logs)
-    DesktopLog.i("WhisperGate", "phase-5 bridge gate starting")
+    DesktopLog.i("WhisperGate", "bridge gate starting")
 
     val backend = DesktopRuntimeBackend(roots)
     val spec = RuntimeLaunchSpec(
@@ -84,8 +84,8 @@ fun main() {
         System.err.println("CLEAN STOP FAILED: ${worldStop.detail} / ${realmStop.detail} / ${dbStop.detail}")
         exitProcess(EXIT_STOP)
     }
-    DesktopLog.i("WhisperGate", "phase-5 bridge gate passed")
-    println("PHASE-5 BRIDGE GATE PASSED")
+    DesktopLog.i("WhisperGate", "bridge gate passed")
+    println("BRIDGE GATE PASSED")
 }
 
 /** The bridge surface assertions. */

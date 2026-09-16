@@ -69,8 +69,8 @@ lifecycle_result start_world_machinery(world_session** out,
 void stop_world_machinery(world_session* s);
 
 // Reset the process-global state that CMaNGOS leaves behind after a stop, so a
-// second start cycle can re-initialize the singletons. This is the Strategy A
-// re-entrancy path: it resets World::m_stopEvent/m_ExitCode, the four Database
+// second start cycle can re-initialize the singletons. This re-entrancy
+// path resets World::m_stopEvent/m_ExitCode, the four Database
 // globals' delay-thread flags, and re-arms the singleton "not yet created"
 // state. Returns false (with detail) if reset is not safely possible — in which
 // case the caller reports REALM_E_BUSY. Safe to call after a

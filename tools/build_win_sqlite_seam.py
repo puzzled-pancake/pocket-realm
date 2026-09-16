@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the desktop SQLite execution seam DLL (Windows port Phase 3).
+"""Build the desktop SQLite execution seam DLL (Windows port).
 
 pocket_sqlite.dll = the JNI surface in native/desktop-sqlite over the
 repo-pinned SQLite 3.46.1 amalgamation, compiled with the same

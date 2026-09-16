@@ -16,8 +16,8 @@ import org.junit.Test
  * (android/app/build.gradle.kts) mirror this contract against the real
  * staging bytes and lockfiles; these tests are the executable specification
  * both sides must keep honoring (fixture values below are the real x86_64
- * lane hashes from the QA incident: STALE_WORLD_SHA is the Sep 5 .so the
- * broken APK silently packaged, WORLD_SHA is the reviewed rebuild).
+ * lane hashes: STALE_WORLD_SHA is a stale staged .so that must be rejected,
+ * WORLD_SHA is the matching current build).
  */
 class NativeRuntimeFreshnessTest {
     private val laneLabel = "x86_64/full staged bytes"
@@ -69,7 +69,7 @@ class NativeRuntimeFreshnessTest {
         assertTrue("expected no failures, got ${verdict.failures}", verdict.ok)
     }
 
-    @Test fun staleStagedSha256IsTheQaIncidentFailure() {
+    @Test fun staleStagedSha256FailsTheFreshnessCheck() {
         val verdict = NativeRuntimeFreshness.evaluate(
             passingCheck().copy(
                 staged = listOf(

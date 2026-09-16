@@ -12,10 +12,10 @@ truth):
   itself: any drift in the verbatim constants fails here.)
 * bodydump: the native request-body builder round-trips through the
   shipped JSON client, keeps system/history/current-turn order, lands the
-  per-tier sampling and SS4.4 thinking-kwargs fields, strips
+  per-tier sampling and the thinking-kwargs fields, strips
   llama.cpp-only fields in providerSafe mode, and stays compatible with
   the retry splice.
-* packoverlays: Phase-2/3 overlay invariants — default args render the
+* packoverlays: overlay invariants — default args render the
   frozen default byte-exact, seasoning appends inside the instruction
   span, mood rides after seasoning, and per-preset overrides beat the
   staged pack file (corrupt packs stay quiet).
@@ -23,6 +23,7 @@ truth):
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -121,14 +122,19 @@ def test_emitted_wording_is_fresh_against_banklib():
     constants AND the beat-cargo frames in memory and diffs them against
     the headers, so a banklib edit that did not re-run the emitter (or a
     hand edit between the markers) fails loud. Skips with reason on a
-    machine without the G: authoring tree, matching the suite's standing
-    hermeticity treatment of banklib-dependent legs."""
+    machine with LLM_LAB_AUTHORING_ROOT unset, matching the suite's
+    standing hermeticity treatment of banklib-dependent legs."""
     if not (ROOT / "tools" / "llm_lab" / "emit_prompt_constants.py").is_file():
         pytest.skip("emitter not staged")
-    if not Path(r"G:\NPU LLM\scripts\finetune").is_dir():
-        pytest.skip("authoring tree (G:\\NPU LLM) not present on this machine")
+    authoring_root = os.environ.get("LLM_LAB_AUTHORING_ROOT")
+    if not authoring_root:
+        pytest.skip("LLM_LAB_AUTHORING_ROOT is not set - authoring tree "
+                    "not present on this machine")
+    banklib_dir = str(Path(authoring_root) / "scripts" / "finetune")
     emitter = ROOT / "tools" / "llm_lab" / "emit_prompt_constants.py"
     r = subprocess.run([sys.executable, str(emitter), "--check"],
-                       capture_output=True, text=True, timeout=120)
+                       capture_output=True, text=True, timeout=120,
+                       env={**os.environ,
+                            "LLM_LAB_BANKLIB_DIR": banklib_dir})
     assert r.returncode == 0, \
         f"emitter drift:\n{r.stdout}\n{r.stderr}"

@@ -1,11 +1,11 @@
 /*
  * native/wine-spike/src/trampoline_launcher.c
  *
- * S-5(a): APK-packaged Bionic trampoline launch path.
+ * APK-packaged Bionic trampoline launch path.
  *
  * wine_spike_launch_wine (wine_launcher.c) fork+execve's the glibc loader
  * directly from libwine_spike.so's own child. This file provides the
- * ALTERNATIVE path required by the S-5 fallback ordering: fork+execve a
+ * ALTERNATIVE launch path: fork+execve a
  * SEPARATE APK-managed Bionic PIE (libwine_trampoline.so), which in turn
  * execs the glibc loader.
  *
@@ -24,8 +24,8 @@
  * the APK-managed libld_linux_x86_64.so. The trampoline is just a launch shim;
  * it never links glibc and never runs in the glibc namespace.
  *
- * Evidence from this path is recorded SEPARATELY from the packaging
- * control that does not exec Wine) and from the direct S-1 path.
+ * Evidence from this path is recorded separately from the packaging
+ * control (which does not exec Wine) and from the direct launch path.
  */
 #include "wine_spike.h"
 
@@ -128,7 +128,7 @@ int wine_spike_launch_wine_via_trampoline_ex(const char *native_dir,
         snprintf(env_display, sizeof(env_display), "DISPLAY=%s", display);
         envp[ei++] = env_display;
     }
-    /* Optional extra env (S-5: GLIBC_TUNABLES for rseq/clone3). Copied into a
+    /* Optional extra env (GLIBC_TUNABLES for rseq/clone3). Copied into a
      * stable buffer so the pointers survive fork+execve. */
     char extra_slots[1024];
     if (extra_env && *extra_env) {

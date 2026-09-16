@@ -4,8 +4,8 @@
  * Synchronous proot run with logical argv[0] preservation, recursive descendant
  * enumeration + /proc/<pid>/maps snapshotting, and recursive tree kill.
  *
- * This is the corrected S-1/S-2 launcher. The earlier launch_wine_via_proot()
- * (in proot_launcher.c) returned a bare PID and lost the logical Wine command
+ * Unlike launch_wine_via_proot() (in proot_launcher.c), which returns a bare
+ * PID and loses the logical Wine command
  * name: bin/wineboot resolved to libwine_preloader.so, so argv[0] was the
  * preloader and Wine could not dispatch wineboot vs wine. The run path here:
  *
@@ -14,7 +14,7 @@
  *     loader's --argv0=<logical> so Wine's argv[0] is "wineboot"/"wine"/...
  *   - runs proot to completion (or timeout), capturing stdout + stderr via pipes
  *   - snapshots every descendant PID/PPID/cmdline/comm + /proc/<pid>/maps proof
- *     while the tree is alive (full S-1 acceptance: wine + wineserver + every
+ *     while the tree is alive (wine + wineserver + every
  *     native child must map the APK-managed loader)
  *   - on timeout, recursively SIGTERM/SIGKILL + reap the entire tree (proot +
  *     wine + wineserver), not just the top proot PID
@@ -715,7 +715,8 @@ int wine_spike_run_wine_via_proot(const char *native_dir,
     argv[ai++] = proot_path;
     /* -v 0: keep routine PRoot translations out of the bounded stderr capture
      * so Wine's own diagnostics are retained. The full syscall evidence is
-     * captured separately by S-5(0); this synchronous runner is for guest
+     * captured separately by the SIGSYS diagnostic; this synchronous runner is
+     * for guest
      * completion/output. POCKET_PROOT_VERBOSE can still raise verbosity for a
      * focused diagnostic build. */
     const char *pverb = getenv("POCKET_PROOT_VERBOSE");
@@ -818,8 +819,8 @@ int wine_spike_run_wine_via_proot(const char *native_dir,
         if (strncmp(extra_ptrs[i], "WINEDEBUG=", 10) == 0) { caller_has_winedebug = 1; break; }
     }
     if (!caller_has_winedebug) envp[ei++] = "WINEDEBUG=-all";
-    /* LD_DEBUG=libs is the S-1 loader-chain proof. Allow the caller to override
-     * (e.g. to disable it for S-2 so wineboot's own stderr isn't crowded out). */
+    /* LD_DEBUG=libs is the loader-chain proof. Allow the caller to override
+     * (e.g. to disable it so wineboot's own stderr isn't crowded out). */
     int caller_has_lddebug = 0;
     for (int i = 0; i < n_extra; i++) {
         if (strncmp(extra_ptrs[i], "LD_DEBUG=", 9) == 0) { caller_has_lddebug = 1; break; }

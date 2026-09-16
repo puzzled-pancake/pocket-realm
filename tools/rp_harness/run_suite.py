@@ -36,7 +36,7 @@ except ImportError:  # script import (python tools/rp_harness/run_suite.py)
     from rp_harness.session import RelayError, RelaySession
     from rp_harness.suites import smoke
 
-# A8 log shapes (docs/plans/rp-depth-fix-plan-v2.3.md §A8): tolerant of the
+# BotLLM log shapes: tolerant of the
 # optional "gen " prefix so both the planned and the shipped spellings scan.
 RE_BOTLLM = re.compile(r"BotLLM:")
 RE_DISPATCH = re.compile(r"BotLLM:\s*dispatch\b.*?\breq=(\d+)")

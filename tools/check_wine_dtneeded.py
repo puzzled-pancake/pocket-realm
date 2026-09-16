@@ -178,7 +178,8 @@ def collect_hard_needed(wine_root: Path) -> dict[str, list[str]]:
 # Wine .so modules that are OPTIONAL drivers/backends. Their hard DT_NEEDED
 # deps (gstreamer, pulse, alsa, gphoto, usb, wayland, xkbcommon, sane, capi,
 # opencl, pcap, pcsclite, avcodec, etc.) are NOT required for the WineD3D-safe
-# audio-off spike: Wine loads these lazily and degrades if the module or its
+# audio-off configuration (the default): Wine loads these lazily and degrades
+# if the module or its
 # deps are absent. Either omit the module from the APK or accept the load
 # failure; either way the core (ntdll/winex11/loader) is unaffected.
 OPTIONAL_WINE_MODULES = {
@@ -211,7 +212,7 @@ def main() -> int:
     # Split hard deps by whether their owning module is a core Wine module or
     # an optional driver/backend. A dep is MANDATORY if any CORE module needs
     # it; it is CONDITIONAL if only optional modules need it (Wine loads those
-    # lazily and degrades if absent — fine for the WineD3D-safe audio-off spike).
+    # lazily and degrades if absent — fine for the audio-off configuration (the default)).
     core_hard: set[str] = set()
     optional_module_hard: set[str] = set()
     for elf_path, needed in hard.items():
@@ -281,7 +282,7 @@ def main() -> int:
         print(f"\n  UNMET core hard deps: {sorted(hard_unmet)}")
 
     print(f"\nHard DT_NEEDED — OPTIONAL feature modules ({len(external_optional_mod)}):")
-    print("  (Wine loads these lazily; absent is fine for the WineD3D-safe audio-off spike.")
+    print("  (Wine loads these lazily; absent is fine for the audio-off configuration (the default).")
     print("   Either omit the module from the APK or accept the load failure.)")
     for s in sorted(external_optional_mod):
         present = "OK   " if s in provided else "absent"
@@ -296,7 +297,7 @@ def main() -> int:
     print(f"\nRuntime (dlopen) OPTIONAL present in lockfile ({len(runtime_optional_present)}):")
     for s in sorted(runtime_optional_present):
         print(f"  {s}")
-    print(f"Runtime OPTIONAL absent (fine for WineD3D-safe audio-off spike) ({len(runtime_optional_absent)}):")
+    print(f"Runtime OPTIONAL absent (fine for audio-off (the default)) ({len(runtime_optional_absent)}):")
     for s in sorted(runtime_optional_absent):
         print(f"  {s}")
 

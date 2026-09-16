@@ -8,7 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * Phase-2e co-load gate: the desktop architecture loads BOTH realm runtime
+ * Co-load gate: the desktop architecture loads BOTH realm runtime
  * DLLs into the SAME JVM. On Android these live in separate processes; PE
  * semantics (no symbol interposition between DLLs) are the argument this
  * works — this test is the proof. Loading exercises every static

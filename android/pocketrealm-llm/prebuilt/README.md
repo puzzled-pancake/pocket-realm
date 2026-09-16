@@ -20,8 +20,8 @@ Contents (arm64-v8a):
 - hexagon/dsp/*.so           HTP DSP skels v73/75/79/81, shipped as assets and
                              extracted to filesDir/dsp for ADSP_LIBRARY_PATH
 - build-info/                staged as assets/runtime-build-info.properties
-                             (variant/rev provenance; read by the llm-bench
-                             harness UI, staged here for parity)
+                             (variant/rev provenance of the vendored binaries,
+                             staged here for parity)
 
 ONE LOCAL PATCH on top of llama.cpp 6d05498: the server's SIGTERM/SIGINT
 handler is installed BEFORE load_model, and a stop requested during the
@@ -35,8 +35,7 @@ from tools/llama-cpp (build-droid-kai); impl lib sha256
 006f463dbc8198d9b2e94871ab3519e1d73af3ac0267837b2b03fc9889265332.
 
 COUPLING: llama-server/libllama-server-impl/libmtmd are from llama.cpp master
-6d05498 (accelerated build, G:/NPU LLM/tools/llama-droid-kai-deploy at time of
-vendoring) — the same revision as the app's vendored closure. If
+6d05498 (accelerated build) — the same revision as the app's vendored closure. If
 native/llm/lockfile-arm64-v8a.json ever changes revision, re-vendor these
 files from a matching build (or the server may load a mismatched
 libllama at runtime).

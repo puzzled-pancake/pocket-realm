@@ -227,7 +227,7 @@ void stop_world_machinery(world_session* s)
 lifecycle_result reset_for_reinit(std::string* detail)
 {
     lifecycle_result r;
-    // Strategy A: fully stop the four mangosd databases so a second _StartDB ->
+    // Fully stop the four mangosd databases so a second _StartDB ->
     // Initialize sees a fresh DatabaseType object. Database::Initialize is NOT
     // re-entrant (it appends to m_pQueryConnections and overwrites m_pAsyncConn/
     // m_pResultQueue without clearing), so we must call StopServer() (which

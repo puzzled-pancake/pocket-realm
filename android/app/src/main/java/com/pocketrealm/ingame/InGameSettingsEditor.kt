@@ -123,7 +123,7 @@ internal class InGameSettingsEditor(private val context: Context) {
     /**
      * Apply file edits while the client is stopped. The stopped state is
      * re-checked *inside* the edit lock; only then is the queued entry for
-     * the same setting dropped (newest explicit edit wins, plan 5.1) and the
+     * the same setting dropped (newest explicit edit wins) and the
      * files written atomically - a failed re-check aborts with the queue
      * untouched instead of silently discarding the user's edit. Each applied
      * edit is then journaled so the master-sound transition rule stays sound.

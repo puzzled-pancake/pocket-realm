@@ -189,7 +189,7 @@ static int RunInvariants()
         std::printf("golden_fnv1a64=%016llx\n", (unsigned long long)h);
     }
 
-    // C7 (plan v2.3): the boot nonce. The ZERO nonce is the host's
+    // The boot nonce. The ZERO nonce is the host's
     // deterministic baseline - the golden above must be unchanged with it
     // (the world never sets 0 unless the LLMGreetMemory kill-switch is
     // on, and then verbatim replay is the PROMISE). A nonzero nonce must
@@ -215,7 +215,7 @@ static int RunInvariants()
         CHECK(BanterBootNonce() == 0, "nonce restore");
     }
 
-    // C1 (plan v2.3): render-time first-meeting rewording.
+    // Render-time first-meeting rewording.
     {
         CHECK(IsFirstMeetingRow("met Varleigh for the first time"),
             "first-meeting shape detected");
@@ -251,7 +251,7 @@ static int RunInvariants()
             == "knows the old songs", "pass-through");
     }
 
-    // ---- Phase-3 mood weather: stability, bounds, determinism
+    // ---- Mood weather: stability, bounds, determinism
     {
         for (uint32_t g = 0; g < 64; ++g)
         {
@@ -269,7 +269,7 @@ static int RunInvariants()
             size_t mc = 0; char const* const* ml = Pool(mp, mc);
             CHECK(ml && mc >= (size_t)kMinPoolLines, "mood pool meets the min-lines law");
         }
-        // plan v5 H1: the three event moods carry their OWN pools - the
+        // The three event moods carry their OWN pools - the
         // alias table made the deterministic layer contradict its prompt
         // seasoning (prompt said smitten, the fallback line sounded
         // homesick)
@@ -294,7 +294,7 @@ static int RunInvariants()
         CHECK(MoodWeightPermille(999) == 1000, "wild dial follows default");
     }
 
-    // plan v5 F7: ArbiterPrune drops exactly the expired stamps and keeps
+    // ArbiterPrune drops exactly the expired stamps and keeps
     // the fresh ones (the check-then-stamp pair stays with the caller)
     {
         std::deque<int64_t> stamps;

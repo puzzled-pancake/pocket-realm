@@ -19,7 +19,7 @@ import kotlin.experimental.xor
 import kotlin.system.exitProcess
 
 /**
- * Phase-3 protocol-auth gate: boot realmd, then prove AUTHENTICATION at
+ * Protocol-auth gate: boot realmd, then prove AUTHENTICATION at
  * protocol level with a minimal WoW 1.12.1 (build 5875) SRP6 logon
  * client — challenge, proof, and the server's M2 verified — against an
  * SRP verifier row seeded directly into classicrealmd.sqlite (the
@@ -41,7 +41,7 @@ fun main() {
     val roots = DesktopStorageRoots()
     roots.ensureDirectories()
     DesktopLog.attachFile(roots.logs)
-    DesktopLog.i("AuthGate", "phase-3 protocol-auth gate starting")
+    DesktopLog.i("AuthGate", "protocol-auth gate starting")
 
     val backend = DesktopRuntimeBackend(roots)
     val spec = RuntimeLaunchSpec(
@@ -130,8 +130,8 @@ fun main() {
         System.err.println("CLEAN STOP FAILED: ${stop.detail} / ${dbStop.detail}")
         exitProcess(EXIT_STOP)
     }
-    DesktopLog.i("AuthGate", "phase-3 protocol-auth gate passed")
-    println("PHASE-3 PROTOCOL-AUTH GATE PASSED")
+    DesktopLog.i("AuthGate", "protocol-auth gate passed")
+    println("PROTOCOL-AUTH GATE PASSED")
 }
 
 private const val EXIT_PREFLIGHT = 2

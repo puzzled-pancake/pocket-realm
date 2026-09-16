@@ -14,7 +14,7 @@
 // Re-entrancy contract (create/start/.../destroy twice in one process):
 // the singletons are reset for reinit at stop time (see lifecycle_mangosd.cpp
 // ResetForReinit). If that proves infeasible, the second realm_start returns
-// REALM_E_BUSY per the recorded Strategy B decision — but the C ABI is identical.
+// REALM_E_BUSY — but the C ABI is identical.
 #pragma once
 
 #include "pocket_realm.h"
@@ -92,7 +92,7 @@ private:
     std::atomic<bool> m_stop_requested{false};
 
     // Tracks whether this Realm has already run one cycle (for the second-cycle
-    // Strategy A evidence gate and Strategy B fallback signaling).
+    // re-entrancy gate and BUSY fallback signaling).
     std::atomic<bool> m_cycle_started{false};
 };
 

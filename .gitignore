@@ -41,7 +41,7 @@ native/.glibc-build/
 runtime/wine-x86_64-wow64/selftest/*.exe
 runtime/wine-x86_64-wow64/selftest/*.exe.sha256
 
-# Local editor/agent session scratch
+# Local editor/assistant session scratch
 .zcode/
 
 # Kotlin / Java
@@ -98,9 +98,10 @@ generations/realm/
 *.sqlite3
 
 # ===== Local scratch / investigation dir =====
-# tmp/ holds ephemeral screenshots, MPQ-extracted Lua/XML, and on-device pulls
-# produced while investigating a gate. None of it is source; much of it is
-# proprietary client data. Keep it strictly local.
+# tmp/ holds ephemeral screenshots, MPQ-extracted Lua/XML, and on-device
+# pulls produced while investigating test failures or on-device behavior.
+# None of it is source; much of it is proprietary client data. Keep it
+# strictly local.
 tmp/
 
 # ===== Diagnostics / logs =====

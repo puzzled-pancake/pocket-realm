@@ -130,7 +130,7 @@ class ImportProgressPresentationTest {
         assertNull(presentation.error)
     }
 
-    // F8 B: the watchdog words its notices from the OS-recorded death reason,
+    // The watchdog words its notices from the OS-recorded death reason,
     // so the parsed model must carry it through (and stay null when absent).
     @Test fun parsesWorkerExitReasonForWatchdogWording() {
         fun progress(exitReason: Any?) = ImportProgressPresentation.fromJson(
@@ -144,7 +144,7 @@ class ImportProgressPresentationTest {
         assertNull(progress(JSONObject.NULL).workerExitReason)
     }
 
-    // F8 C: during data preparation lastRelativePath holds the raw stage
+    // During data preparation lastRelativePath holds the raw stage
     // checkpoint ("MMAPS:map 169 (20/43) …"); the stage pane already renders
     // it, so the copy card must not show it as a file path.
     @Test fun dataPreparationCheckpointIsNotShownAsCurrentFilePath() {
@@ -161,7 +161,7 @@ class ImportProgressPresentationTest {
         assertEquals("map 169 (20/43) tiles 50 gen-cpu 0s", progress.activeStage?.checkpoint)
     }
 
-    // F8 C: verify/publish ticks write "(n/total) path" into lastRelativePath;
+    // Verify/publish ticks write "(n/total) path" into lastRelativePath;
     // that phase has no active copy file, so the text must surface as the
     // current path.
     @Test fun verifyingTickSurfacesAsCurrentPath() {
@@ -171,7 +171,7 @@ class ImportProgressPresentationTest {
         assertEquals("(87/150) Data/terrain.MPQ", progress.currentPath)
     }
 
-    // F8 C: finite data stages now journal total 0 (unknown length) while
+    // Finite data stages journal total 0 (unknown length) while
     // running; the parsed model keeps that so the UI shows an indeterminate
     // bar instead of a frozen "0/1" checkpoint.
     @Test fun runningFiniteStageKeepsUnknownTotal() {
@@ -186,7 +186,7 @@ class ImportProgressPresentationTest {
         assertEquals(DataStage.VMAP_EXTRACT.name, progress.activeStage?.id)
     }
 
-    // F8 C round 2: a FAILED data stage leaves the raw stage checkpoint in
+    // A FAILED data stage leaves the raw stage checkpoint in
     // lastRelativePath; it must not render as a file path, while a FAILED copy
     // keeps showing the real file that failed.
     @Test fun failedStageResidueIsSuppressedButFailedCopyPathShows() {

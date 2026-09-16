@@ -839,8 +839,9 @@ class ClientDisplayHost(
 
     /**
      * Reconcile Android dismissing the soft keyboard through a gesture or the
-     * system IME control. Those paths do not reliably call View.onKeyPreIme and
-     * previously left movement suppressed behind an invisible editor.
+     * system IME control. Those paths do not reliably call View.onKeyPreIme,
+     * which would otherwise leave movement suppressed behind an invisible
+     * editor.
      */
     fun onSoftImeDismissed() {
         if (closed || !contract.isImeActive ||

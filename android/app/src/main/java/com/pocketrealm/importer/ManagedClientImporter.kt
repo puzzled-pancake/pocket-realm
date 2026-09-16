@@ -25,7 +25,7 @@ class ManagedClientImporter(
     private val prepareData: Boolean = true,
     private val dataStore: DataPreparationStore = DataPreparationStore(context, journal),
 ) : AutoCloseable {
-    /** Shared per-run copy state (F8 E: one buffer for the whole copy loop). */
+    /** Shared per-run copy state: one buffer for the whole copy loop. */
     private class CopyContext(val importId: String, val buffer: ByteArray)
 
     suspend fun run(
@@ -369,10 +369,10 @@ class ManagedClientImporter(
 
     /** What the journal says to do with one source entry. */
     private sealed interface EntryDecision {
-        /** F8 A1: VERIFIED row + fsync marker + unchanged source + full target. */
+        /** VERIFIED row + fsync marker + unchanged source + full target. */
         object Skipped : EntryDecision
 
-        /** Round-2 NIT: kill between rename and journal commit — just close the row. */
+        /** Kill between rename and journal commit — just close the row. */
         data class RenamedNotJournaled(val target: File) : EntryDecision
 
         data class Transfer(val target: File, val partial: File, val resume: Boolean) : EntryDecision
@@ -385,7 +385,7 @@ class ManagedClientImporter(
         File(target.parentFile, ".${target.name}.partial.$importId")
 
     /**
-     * F8 A3: an interrupted partial (its prefix bytes are page-cache durable
+     * An interrupted partial (its prefix bytes are page-cache durable
      * across a process kill) can be appended to instead of paying a full
      * re-copy of the largest file after every death. A partial that already
      * reached full size covers a kill between the last write and the rename.
@@ -401,7 +401,7 @@ class ManagedClientImporter(
         return sourceUnchanged && prior?.state == ImportFileState.COPYING && partialMatches
     }
 
-    /** Round-2 NIT: kill between rename and journal commit. */
+    /** Kill between rename and journal commit. */
     private fun renamedWithoutJournal(
         prior: ImportJournal.JournalFile?,
         sourceUnchanged: Boolean,
@@ -521,9 +521,9 @@ class ManagedClientImporter(
             val count = input.read(copy.buffer)
             if (count < 0) return copied
             output.write(copy.buffer, 0, count); copied += count; sinceProgressTick += count
-            // F8 D: keep the journal fresh during a multi-minute MPQ so
+            // Keep the journal fresh during a multi-minute MPQ so
             // watchdog staleness and post-mortem progress stay truthful. The
-            // sync bounds power-loss damage to the tick interval (round 2).
+            // sync bounds power-loss damage to the tick interval.
             if (sinceProgressTick >= COPY_PROGRESS_TICK_BYTES) {
                 sinceProgressTick = 0
                 output.fd.sync()
@@ -534,7 +534,7 @@ class ManagedClientImporter(
 
     /**
      * Re-hash every managed file against the journal before publish (the one
-     * full verification pass; F8 A1 removed the per-restart duplicate).
+     * full verification pass).
      */
     private fun verifyManagedCopy(importId: String, staging: File) {
         journal.update(importId, ImportPhase.VERIFYING)
@@ -542,9 +542,9 @@ class ManagedClientImporter(
         check(entries.all { it.state in setOf(ImportFileState.VERIFIED, ImportFileState.SKIPPED) && it.fsyncMarker }) {
             "import journal contains incomplete files"
         }
-        // F8 C: time-throttled journal ticks so this multi-minute pass shows
-        // which file is being verified instead of a silent card (round 2:
-        // per-file ticks made the WAL commit cost quadratic under
+        // Time-throttled journal ticks so this multi-minute pass shows
+        // which file is being verified instead of a silent card (per-file
+        // ticks would make the WAL commit cost quadratic under
         // synchronous=FULL for large file counts).
         val toVerify = entries.filter { it.state == ImportFileState.VERIFIED }
         var lastTickMs = 0L
@@ -576,7 +576,7 @@ class ManagedClientImporter(
         val importId = inputs.importId
         journal.update(importId, ImportPhase.PUBLISHING)
         beforePublish()
-        // Round 2: throttle the publish manifest ticks like VERIFYING's.
+        // Throttle the publish manifest ticks like VERIFYING's.
         var lastTickMs = 0L
         val wow = inputs.inventory.entries.single { !it.directory && it.relativePath.equals("WoW.exe", true) }
         val identity = JSONObject().put("machine", 0x14c).put("optionalMagic", 0x10b)
@@ -592,8 +592,8 @@ class ManagedClientImporter(
             ),
             ClientGenerationStore.PublishCallbacks(
                 afterRenameBeforeActivate = afterRenameBeforeActivate,
-                // F8 C: throttled per-file ticks so the publish manifest hash
-                // shows life (round 2: quadratic-commit fix as in VERIFYING).
+                // Throttled per-file ticks so the publish manifest hash
+                // shows life (quadratic-commit avoidance as in VERIFYING).
                 onManifestFile = { relative ->
                     val now = System.currentTimeMillis()
                     if (now - lastTickMs >= JOURNAL_TICK_INTERVAL_MS) {
@@ -689,7 +689,7 @@ class ManagedClientImporter(
     private fun sha256(file: File): String = com.pocketrealm.fs.FileDigests.sha256(file)
 
     /**
-     * F8 A3: position a SAF stream at [bytes]. Document streams are usually
+     * Position a SAF stream at [bytes]. Document streams are usually
      * seek-backed so skip() is cheap; when it is not, read-and-discard through
      * the shared copy buffer. False means the source is shorter than the
      * recorded partial and the caller must restart the file from zero.

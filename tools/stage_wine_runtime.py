@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Stage the runtime closure (glibc rootfs + Wine ELFs + PE modules) into the
-APK packaging layout for the Phase-1 feasibility spike.
+APK packaging layout for the Windows-on-Android feasibility spike.
 
 Outputs two trees under native/.build-x86_64/wine-staging/:
   jniLibs/   — ELFs renamed to lib*.so (AGP extracts lib/<abi>/lib*.so into
@@ -397,18 +397,21 @@ def patch_wine_preloader_open_for_android(path: Path) -> None:
 
 
 def patch_wine_datadir_to_app_alias(path: Path, with_nls_suffix: bool = False) -> None:
-    """Relocate the provider's build-machine DATADIR to an app-private alias.
+    """Relocate Wine's build-machine DATADIR to an app-private alias.
 
-    Kron4ek's prebuilt NTDLL embeds /home/runner/.../share/wine and uses it via
-    glibc-private pathname calls, which an LD_PRELOAD wrapper cannot reliably
-    interpose. The owner-user AVD resolves /data/data/com.pocketrealm to the
-    package data directory; WineSpikeRunner creates the final `wine` symlink to
-    the verified cache before launch. This path is spike-only (the production
-    provider contract must supply a user-aware DATADIR), app-private, and never
-    turns data into executable bytes.
+    Wine embeds its build-time DATADIR (the configure install prefix shared
+    with tools/build_wine_16k_ntdll.py via WINE_16K_INSTALL_PREFIX) and uses
+    it via glibc-private pathname calls, which an LD_PRELOAD wrapper cannot
+    reliably interpose. The owner-user AVD resolves /data/data/com.pocketrealm
+    to the package data directory; WineSpikeRunner creates the final `wine`
+    symlink to the verified cache before launch. This path is spike-only (the
+    production provider contract must supply a user-aware DATADIR),
+    app-private, and never turns data into executable bytes.
     """
     data = bytearray(path.read_bytes())
-    root = b"/home/runner/build_wine/wine-11.14-amd64/share/wine"
+    root = (os.environ.get(
+        "WINE_16K_INSTALL_PREFIX", "/home/runner/build_wine/wine-11.14-amd64")
+        + "/share/wine").encode("utf-8")
     original = root + (b"/nls\0" if with_nls_suffix else b"\0")
     replacement = b"/data/data/com.pocketrealm/wine" + (b"/nls\0" if with_nls_suffix else b"\0")
     offset = data.find(original)

@@ -67,9 +67,9 @@ lifecycle_result start_realmd(realmd_state** out)
     lifecycle_result r;
     // Raw state ownership stays with the facade (stop_realmd deletes it);
     // only the io_context is shared (the listener threads
-    // previously captured this stack-local pointer BY REFERENCE, dangling the
-    // moment start_realmd returned on every successful start; the throw path
-    // additionally destroyed a joinable std::thread at `delete st`,
+    // must not capture this stack-local pointer BY REFERENCE, which would dangle
+    // the moment start_realmd returned on every successful start; the throw path
+    // would additionally destroy a joinable std::thread at `delete st`,
     // i.e. std::terminate).
     realmd_state* st = new realmd_state;
     st->io.reset(new boost::asio::io_context);

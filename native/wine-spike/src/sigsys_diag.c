@@ -1,10 +1,9 @@
 /*
  * native/wine-spike/src/sigsys_diag.c
  *
- * S-5(0) corrected SIGSYS diagnostic.
+ * SIGSYS diagnostic.
  *
- * An earlier revision recorded the S-1 failure as "SELinux blocks execve" based
- * solely on exit code 159 (128 + SIGSYS). That conflates termination *by*
+ * Exit code 159 (128 + SIGSYS) alone conflates termination *by*
  * SIGSYS with the cause of the signal. Exit 159 only proves the child was
  * killed by signal 31 (SIGSYS); it says nothing about WHICH mechanism raised
  * it (a seccomp SECCOMP_RET_KILL_PROCESS trap, an explicit tkill, or a bad
@@ -15,13 +14,13 @@
  *   - siginfo.si_signo  (31 = SIGSYS)
  *   - the syscall number (orig_rax via GETREGSET) and arch (AUDIT_ARCH_X86_64)
  *
- * ON-DEVICE FINDING (Modern lane, API 35, 4KB):
+ * OBSERVED ON DEVICE (API 35, 4 KB pages):
  *   The diagnostic captured: si_signo=31, si_code=1 (SYS_SECCOMP), syscall=21
  *   (access), arch=0xc000003e (AUDIT_ARCH_X86_64). The glibc loader's very
  *   first probing call — access() on an LD_LIBRARY_PATH entry — is blocked by
  *   Android's untrusted_app seccomp filter. This is NOT an SELinux execve
  *   denial; it is a syscall-filter kill on a glibc startup syscall that Bionic
- *   policy forbids. The trampoline path (S-5a) hits the identical trap once it
+ *   policy forbids. The trampoline path hits the identical trap once it
  *   execs the glibc loader, confirming the block is on the glibc loader's
  *   syscalls, not on how we arrive at it. There is no GLIBC_TUNABLES to
  *   suppress the loader's access() calls, so the narrow fallback does not

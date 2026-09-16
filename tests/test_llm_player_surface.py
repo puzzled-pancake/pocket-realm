@@ -228,13 +228,13 @@ def test_first_contact_welcome_is_scripted_only_for_the_first_pairing():
 
 def test_say_anchor_intercepts_the_welcome_and_keywords():
     context = android_anchor("PB_SAY_CONTEXT_ANDROID")
-    welcome = context.split("E2 first-contact onboarding")[1].split("// M5 journal")[0]
+    welcome = context.split("First-contact onboarding")[1].split("// Journal interception")[0]
     assert 'llmAbsencePre == "a first meeting"' in welcome, \
         "only a genuine first meeting can take the scripted path"
     assert "AuthoredFirstContactWelcome(bot, player)" in welcome
     assert "AddRelationshipPoints(bot, player, 1);" in welcome, \
         "the scripted welcome keeps the relationship touch (a real conversation)"
-    keywords = context.split("E4 keyword surfaces")[1].split("// M5 persona fallback")[0]
+    keywords = context.split("Keyword surfaces")[1].split("// Persona fallback")[0]
     assert 'lowerMsg == "standing"' in keywords
     assert 'lowerMsg == "gossip"' in keywords
     assert "chatChannelSource == ChatChannelSource::SRC_WHISPER && !llmEventTurn" in keywords

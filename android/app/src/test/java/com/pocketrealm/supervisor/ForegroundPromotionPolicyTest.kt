@@ -5,7 +5,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Host-JVM truth table for the B5 foreground-promotion predicate, including
+ * Host-JVM truth table for the foreground-promotion predicate, including
  * the "naive readings never fire or never demote" cases: onlinePlayers
  * counts bots, realPlayers is bot-profile-gated, and demotion carries
  * asymmetric hysteresis (promote immediate, demote after three empty

@@ -4,12 +4,11 @@ This document records the Wine 16 KB adaptation plus the source correspondence,
 license obligation, trim list, and GLX/Gladio adaptations for the in-app X
 server and WineD3D bridge.
 
-**Status as of this revision:** the Java X11 wire-protocol sources are vendored
+**Status:** the Java X11 wire-protocol sources are vendored
 and compile (159 `.java` files; see the refreshed inventory below). The native transport `libwinlator.so` is
 vendored, built, and packaged. The client-graphics work additionally vendors and packages the
 source-matched `libgladiorenderer.so` GLX/OpenGL bridge. Both are NDK-built and
-16 KB aligned. The end-to-end window proof passes on the Modern 4 KB and 16 KB lanes. No Java
-reimplementation of the native epoll/SCM_RIGHTS layer was written.
+16 KB aligned. The end-to-end window proof passes on the Modern 4 KB and 16 KB lanes.
 
 ## Wine 11.14 paired 16 KB adaptation
 
@@ -51,9 +50,6 @@ checks the Unix ELF for 16 KB page compatibility. This closes the source-
 reproduction and mixed-runtime risks rather than treating a manually edited
 binary as a distributable fix.
 
-Final paired-runtime qualification logs are retained in the pre-release
-verification archive (they are no longer checked into the repository).
-
 ## Source pin
 
 - **Upstream:** https://github.com/brunodev85/winlator-app
@@ -80,8 +76,7 @@ verification archive (they are no longer checked into the repository).
 
 ## Vendored Java layer
 
-159 `.java` files under `runtime/xserver-winlator/com/winlator/` (refreshed
-2026-08-16; earlier revisions said 143):
+159 `.java` files under `runtime/xserver-winlator/com/winlator/`:
 
 | Package | Files | Role |
 |---|---|---|
@@ -101,7 +96,7 @@ verification archive (they are no longer checked into the repository).
 | `com.winlator.contentdialog` | 1 | stub (`DebugDialog`) |
 | `com.winlator.winhandler` | 2 | stub (`WinHandler`, `MouseEventFlags`) |
 | `com.winlator.inputcontrols` | 1 | stub (`ExternalController`) |
-| `com.winlator.sysvshm` | 4 | implemented: source-matched JNI shared-memory bridge used by DRI3 dma-buf transport (was a 1-file stub at vendoring time) |
+| `com.winlator.sysvshm` | 4 | implemented: source-matched JNI shared-memory bridge used by DRI3 dma-buf transport |
 | `com.winlator.alsaserver` | 5 | Pocket Realm addition: ALSA audio bridge (not upstream) |
 | `com.winlator.xenvironment.components` | 5 | Pocket Realm addition: Vortek/VirGL renderer components, context registry, window authority (not upstream) |
 
@@ -114,7 +109,7 @@ verification archive (they are no longer checked into the repository).
    callbacks. The JNI method names match the vendored Java classes' package paths
    exactly (`Java_com_winlator_xconnector_{XConnectorEpoll,XInputStream,
    XOutputStream}_*` + `Java_com_winlator_xserver_Drawable_*`), so it is a
-   drop-in for `System.loadLibrary("winlator")`. NO Java rewrite was written.
+   drop-in for `System.loadLibrary("winlator")`.
    Build: `tools/build_xserver_winlator.py` (NDK, 16 KB-aligned). A force-include
    compatibility header (`include/pocket_ndk_compat.h`) supplies
    `<stdlib.h>`/`<string.h>`/`<time.h>` the upstream Android Studio build
@@ -141,11 +136,10 @@ verification archive (they are no longer checked into the repository).
    classification, while unsupported modern instancing/base-vertex, sampler,
    UBO, compute, and tessellation paths are withheld.
 
-   The pbuffer adaptation does not close the real-client renderer
-   regression. On the strict visual gate, context 7 is created and made
-   current successfully, but the guest emits no `SWAP_DISPLAY_BUFFERS` request
-   and the captured display remains unchanged. This is an unresolved FAIL, not
-   new acceptance evidence; the historical qualification remains as recorded.
+   Known limitation: the pbuffer adaptation does not close the real-client
+   renderer regression. On the strict visual gate, context 7 is created and
+   made current successfully, but the guest emits no `SWAP_DISPLAY_BUFFERS`
+   request and the captured display remains unchanged.
 4. **Window-proof harness** — `WineSpikeRunner.runS3`: creates `<appTmp>/.X11-unix/X0`,
    starts the X-server (XConnectorEpoll + XClientConnectionHandler +
    XClientRequestHandler, headless for the spike), launches the project-owned
@@ -197,9 +191,9 @@ Compilation and closure checks alone are not claims of broad device support.
    Wine's window management. Stubbed; pass `null` for the spike.
 4. **`com.winlator.inputcontrols.ExternalController`** — input fully stubbed for
    the window proof (create+map+paint does not require input events).
-5. **`com.winlator.sysvshm.SysVSharedMemory`** — System V shared memory. Stubbed
-   at vendoring time; since implemented as a 4-file source-matched JNI bridge
-   used by the DRI3 dma-buf transport (see the package inventory above).
+5. **`com.winlator.sysvshm.SysVSharedMemory`** — System V shared memory.
+   Implemented as a 4-file source-matched JNI bridge used by the DRI3
+   dma-buf transport (see the package inventory above).
 6. **`com.winlator.R`** — resource references. No XML resources are required by
    the X-server core; GLSL shaders are inline strings in the material classes.
    `GLRenderer.createRootCursorDrawable` uses a resource-name lookup with a 1x1
@@ -224,8 +218,7 @@ client twice through this exact client/server pair. `ClientBuild5875LoginTest`
 requires a mapped 800x600 `wow.exe` window, samples the `XServerView` framebuffer
 on its owning GLES thread, rejects a more-than-99%-black surface, and then repeats
 the proof after a clean stop. The accepted samples contain 319,606 and 321,732
-non-black pixels. The evidence screenshots and paired JSON record are retained
-in the pre-release verification archive (no longer checked into the repository).
+non-black pixels.
 
 ## Source-offer obligation (LGPL-2.1)
 

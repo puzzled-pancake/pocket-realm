@@ -33,12 +33,12 @@ data class LlmRuntimeConfig(
     val threads: Int = 3,
     val cpuMaskHex: Long = 0x38L,          // cores 3-5 (mids). 0 = no affinity.
     val nice: Int = 10,
-    // Default server ctx: Phase 1 (plan v4) bumped E2B 8192 → 12288 —
-    // the measured worst-case trained request is ~2.2k tokens; the extra
-    // headroom carries prompt-pack seasoning + reply caps at 2 concurrent
-    // slots. runtimeConfig() always overwrites this with the SELECTED
+    // Default server context (12288 tokens): the measured worst-case
+    // trained request is ~2.2k tokens; the extra headroom carries
+    // prompt-pack seasoning + reply caps at 2 concurrent slots.
+    // runtimeConfig() always overwrites this with the SELECTED
     // model's tier value, so this default only matters for direct Builder
-    // users. KV cache RAM at 12288 still needs checking on lower-RAM
+    // users. KV cache RAM at 12288 is unvalidated on lower-RAM
     // devices; --cache-type q8_0 is the fallback lever if pressure shows.
     val contextSize: Int = 12288,
     val computeMode: ComputeMode = ComputeMode.AUTO,
@@ -51,8 +51,8 @@ data class LlmRuntimeConfig(
     // sees the model's own template burn the budget on a thinking preamble
     // (reasoning_content / empty content), the service restarts the child
     // once with --chat-template <this file's CONTENT> - the vendored
-    // 6d05498 binary predates the --chat-template-file flag (string-extract
-    // verified; the desktop b10520 has both). Null = no override armed; the
+    // 6d05498 binary predates the --chat-template-file flag.
+    // Null = no override armed; the
     // probe still runs (it also pays the measured first-request penalty).
     val chatTemplateFile: String? = null,
 ) : java.io.Serializable {

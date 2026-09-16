@@ -203,7 +203,7 @@ class ClientGenerationStore(context: Context) {
 
     data class PublishedGeneration(val id: String, val root: File, val manifestSha256: String)
 
-    /** Publish-time callbacks (F8 C: onManifestFile drives PUBLISHING ticks). */
+    /** Publish-time callbacks (onManifestFile drives PUBLISHING ticks). */
     data class PublishCallbacks(
         val afterRenameBeforeActivate: () -> Unit = {},
         val onManifestFile: (String) -> Unit = {},
@@ -222,12 +222,11 @@ class ClientGenerationStore(context: Context) {
         /**
          * App-written Config.wtf for a fresh generation (this file is
          * app-owned and replaces any WTF/Config.wtf that arrived inside the
-         * imported tree). The F3e interface-default keys sit outside
+         * imported tree). The interface-default keys sit outside
          * ManagedConfigPolicy's enforced set, so the client owns them after
          * the first launch and rewrites them with the player's own values at
-         * exit (round-trip proven on device).
-         * MasterSoundEffects "1" = all sounds on (the previous "0" started
-         * every fresh import silent).
+         * exit.
+         * MasterSoundEffects "1" = all sounds on.
          */
         private const val SAFE_CONFIG = """SET readTOS "1"\r
 SET readEULA "1"\r

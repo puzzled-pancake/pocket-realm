@@ -4,7 +4,7 @@ import kotlin.math.ceil
 
 /**
  * Bot population bounds derived from the pinned CMaNGOS/Playerbots sources
- * (native/playerbots @ 1abeac6), not from historical Android UI numbers.
+ * (native/playerbots @ 1abeac6).
  *
  * Verified upstream facts:
  *  - `AiPlayerbot.MinRandomBots`, `AiPlayerbot.MaxRandomBots`, and
@@ -20,9 +20,7 @@ import kotlin.math.ceil
  *
  * [MAX_SUPPORTED_TARGET] is therefore a documented PocketRealm device bound
  * (~1,340 auto-provisioned accounts, ~10k character records), orders of
- * magnitude above any realistic handheld population. It deliberately replaces
- * the former arbitrary application caps (25..700 advanced slider window and
- * the 1,500 profile ceiling), which were UI policy, not engine limits.
+ * magnitude above any realistic handheld population.
  */
 object BotPopulationPolicy {
     /** Classic characters per bot account, per the pinned RandomPlayerbotFactory. */

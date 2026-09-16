@@ -67,7 +67,7 @@ class ClientScreenWatchdogTest {
         )
     }
 
-    // F8 B: the OS-recorded death reason drives the user-visible wording. A
+    // The OS-recorded death reason drives the user-visible wording. A
     // lowmemorykiller storm must tell the user to close other apps instead of
     // implying a resume tap is all it takes.
     @Test fun restartNoticeNamesMemoryPressureWhenOsRecordsIt() {

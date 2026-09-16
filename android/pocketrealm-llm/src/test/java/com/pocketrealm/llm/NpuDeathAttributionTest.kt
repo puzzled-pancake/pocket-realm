@@ -85,7 +85,7 @@ class NpuDeathAttributionTest {
     }
 
     @Test
-    fun markerListsAreTheReviewedErrorSignaturesOnly() {
+    fun markerListsAreTheErrorSignaturesOnly() {
         assertEquals(
             listOf(
                 "failed to open session",
@@ -132,7 +132,7 @@ class NpuDeathAttributionTest {
     }
 
     @Test
-    fun graceWindowConstantStaysAtTheReviewedValue() {
+    fun graceWindowConstantStaysAtTheShippedValue() {
         assertEquals(15_000L, NpuDeathAttribution.LOAD_DEATH_GRACE_MS)
     }
 }

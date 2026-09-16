@@ -438,8 +438,6 @@ data class ClientTweaksConfig(
          * Locale guard (pure, host-testable): returns the first offset in
          * [expected] whose byte in [bytes] differs from the known enUS-5875
          * original (or is out of range), or null when every offset matches.
-         * Behavior-identical to the inline check previously in
-         * `WineRuntimeStore.applyTweaks`, minus its dead elvis-on-non-null.
          */
         fun firstLocaleMismatch(bytes: ByteArray, expected: Map<Int, Byte>): Int? =
             expected.entries.firstOrNull { (off, exp) ->

@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
-"""llm_lab sanity battery (2026-08-29).
+"""llm_lab sanity battery.
 
-Capability sanity-check of the candidate bot-brain models against the
-integration plan, run on the desktop RTX 5060 Ti with the same CUDA
-llama-server (b10520) the screening used. Prompts are built with the
+Capability sanity-check of the candidate bot-brain models, run locally
+against a CUDA llama-server build. Prompts are built with the
 EXACT training contract (banklib.sysm_for_card / banklib.compose) so the
 tuned checkpoints are tested the way production will talk to them.
 
-Models under test (all on G:):
-  e2b-tuned   G:/NPU LLM/models/gemma4-E2B-TUNED-q4_0.gguf        (epoch-3 arm2)
-  q08-tuned   G:/NPU LLM/models/qwen35-08b-CLEAN-tuned-q4_0.gguf   (epoch-3 arm1b)
-  e2b-base    G:/NPU LLM/models-download/gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf (app pin)
-  q4b-base    G:/NPU LLM/models-download/qwen35-npu/Qwen3.5-4B-Q4_0.gguf
+Model paths default to a local model cache; point the LLM_LAB_*
+environment variables below at a local layout.
 
 Sections:
   S1 tool dispatch (keyed <<tool field="value">> via [BRIDGE AI] notes)
@@ -24,7 +20,7 @@ Sections:
 Speed: server-side timings per request are captured for every generation.
 
 Usage:  python tools/llm_lab/sanity_battery.py [--models e2b-tuned,q08-tuned]
-Output: C:/llm-lab/results/<model>.json (+ prints a summary table).
+Output: RESULTS_DIR/<model>.json (+ prints a summary table).
 """
 import json
 import os
@@ -35,59 +31,74 @@ import time
 import urllib.request
 import urllib.error
 
-BANKLIB_DIR = r"G:\NPU LLM\scripts\finetune"
+# External local layout (the bank-authoring tree, the CUDA llama-server
+# build, and the model cache live outside the repo). Every path comes from
+# the environment - there is no personal-path default, so an unset
+# variable exits with a message naming it.
+def _require_env(name: str) -> str:
+    value = os.environ.get(name)
+    if not value:
+        sys.stderr.write(f"{name} is not set - point it at the local "
+                         "llm-lab layout\n")
+        raise SystemExit(2)
+    return value
+
+
+BANKLIB_DIR = _require_env("LLM_LAB_BANKLIB_DIR")
 sys.path.insert(0, BANKLIB_DIR)
 import banklib as B  # noqa: E402
 
-SERVER = r"G:\NPU LLM\tools\llama-cuda-b10520\llama-server.exe"
+SERVER = _require_env("LLM_LAB_LLAMA_SERVER")
 PORT = 28090
 BASE = f"http://127.0.0.1:{PORT}"
-RESULTS_DIR = r"C:\llm-lab\results"
+RESULTS_DIR = _require_env("LLM_LAB_RESULTS_DIR")
+MODEL_CACHE_ROOT = _require_env("LLM_LAB_MODELS_ROOT")
+LAB_CACHE_ROOT = _require_env("LLM_LAB_CACHE_ROOT")
 
 MODELS = {
     "ling-tiny-q8": {
-        "path": "C:/llm-lab/models/Ling-3.0-tiny-Q8_0.gguf",
+        "path": LAB_CACHE_ROOT + "/models/Ling-3.0-tiny-Q8_0.gguf",
         "sampling": dict(temperature=0.7, top_p=0.8, top_k=20,
                          repeat_penalty=1.0),
         "qwen": False,
     },
     "ling-tiny-q4": {
-        "path": "C:/llm-lab/models/Ling-3.0-tiny-Q4_0.gguf",
+        "path": LAB_CACHE_ROOT + "/models/Ling-3.0-tiny-Q4_0.gguf",
         "sampling": dict(temperature=0.7, top_p=0.8, top_k=20,
                          repeat_penalty=1.0),
         "qwen": False,
     },
     "qw35-2b-s11r5": {
-        "path": "G:/NPU LLM/models/qwen35-2B-S11R5-q4_0.gguf",
+        "path": MODEL_CACHE_ROOT + "/models/qwen35-2B-S11R5-q4_0.gguf",
         "sampling": dict(temperature=0.5, top_p=0.8, top_k=20,
                          repeat_penalty=1.0),
         "qwen": True,
     },
     "e2b-s11r5": {
-        "path": r"G:\NPU LLM\models\gemma4-E2B-S11R5-q4_0.gguf",
+        "path": MODEL_CACHE_ROOT + "/models/gemma4-E2B-S11R5-q4_0.gguf",
         "sampling": dict(temperature=0.7, top_p=0.8, top_k=20,
                          repeat_penalty=1.0, presence_penalty=1.0),
         "qwen": False,
     },
     "e2b-tuned": {
-        "path": r"G:\NPU LLM\models\gemma4-E2B-TUNED-q4_0.gguf",
+        "path": MODEL_CACHE_ROOT + "/models/gemma4-E2B-TUNED-q4_0.gguf",
         "sampling": dict(temperature=0.7, top_p=0.8, top_k=20,
                          repeat_penalty=1.0, presence_penalty=1.0),
         "qwen": False,
     },
     "q08-tuned": {
-        "path": r"G:\NPU LLM\models\qwen35-08b-CLEAN-tuned-q4_0.gguf",
+        "path": MODEL_CACHE_ROOT + "/models/qwen35-08b-CLEAN-tuned-q4_0.gguf",
         "sampling": dict(temperature=0.5, top_p=0.8, top_k=20, repeat_penalty=1.0),
         "qwen": True,
     },
     "e2b-base": {
-        "path": r"G:\NPU LLM\models-download\gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
+        "path": MODEL_CACHE_ROOT + "/models-download/gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
         "sampling": dict(temperature=0.7, top_p=0.8, top_k=20,
                          repeat_penalty=1.0, presence_penalty=1.0),
         "qwen": False,
     },
     "q4b-base": {
-        "path": r"G:\NPU LLM\models-download\qwen35-npu\Qwen3.5-4B-Q4_0.gguf",
+        "path": MODEL_CACHE_ROOT + "/models-download/qwen35-npu/Qwen3.5-4B-Q4_0.gguf",
         "sampling": dict(temperature=0.7, top_p=0.8, top_k=20,
                          repeat_penalty=1.0, presence_penalty=1.0),
         "qwen": True,

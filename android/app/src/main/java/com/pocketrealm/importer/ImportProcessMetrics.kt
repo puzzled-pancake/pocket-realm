@@ -20,7 +20,7 @@ internal data class ImportProcessMetrics(
     val threadCount: Int = 0,
     val processCount: Int = 0,
     val state: String = "absent",
-    /** F8 B: most recent OS-recorded death reason of the :import process. */
+    /** Most recent OS-recorded death reason of the :import process. */
     val lastExit: WorkerExit? = null,
 ) {
     data class WorkerExit(val reason: String, val ageMs: Long)
@@ -180,10 +180,10 @@ internal object ImportProcessMetricsSampler {
     }
 
     /**
-     * F8 B: ask the OS why the worker died instead of guessing. The watchdog
-     * previously inferred every disappearance as "stopped by the system",
-     * which during a lowmemorykiller storm told the user to press Resume when
-     * the truthful advice was "close other apps". ApplicationExitInfo needs
+     * Ask the OS why the worker died instead of guessing: inferring every
+     * disappearance as "stopped by the system" would tell the user to press
+     * Resume during a lowmemorykiller storm, when the truthful advice is
+     * "close other apps". ApplicationExitInfo needs
      * API 30+; older devices keep the generic wording. Only exits recent
      * enough to belong to this import are trusted.
      */
@@ -194,7 +194,7 @@ internal object ImportProcessMetricsSampler {
             .firstOrNull() ?: return null
         // ApplicationExitInfo.getTimestamp() is epoch/wall-clock based (it must
         // survive reboots), NOT elapsedRealtime — comparing clocks here makes
-        // every age negative and silently disables the reason (round-1 blocker).
+        // every age negative and silently disables the reason.
         val ageMs = System.currentTimeMillis() - info.timestamp
         if (ageMs < 0L || ageMs > EXIT_FRESHNESS_MS) return null
         val reason = when (info.reason) {

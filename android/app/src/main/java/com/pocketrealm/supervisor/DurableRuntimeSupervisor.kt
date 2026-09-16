@@ -19,7 +19,7 @@ class DurableRuntimeSupervisor(
 ) : AutoCloseable {
     private val operationLock = Mutex()
     private val orphanHeal = OrphanSelfHealPolicy(tokens)
-    /** Consecutive ownerless-orphan sightings per component (monitor lane, plan F1). */
+    /** Consecutive ownerless-orphan sightings per component (monitor lane). */
     private val orphanGraceTicks = mutableMapOf<RuntimeComponent, Int>()
     /**
      * Session ids minted by THIS supervisor instance. A DATABASE claim whose
@@ -31,7 +31,7 @@ class DurableRuntimeSupervisor(
      * empty and can prove nothing; that case stays with the consented verb.
      */
     private val mintedSessions = mutableSetOf<String>()
-    // Foreground-promotion driver state (plan B5); guarded by operationLock.
+    // Foreground-promotion driver state; guarded by operationLock.
     private var foregroundPromoted = false
     private var foregroundEmptySamples = 0
     private var foregroundSessionId: String? = null
@@ -244,8 +244,8 @@ class DurableRuntimeSupervisor(
      *
      * Each running component is stopped under the owner the component
      * itself currently reports - the service-side requireOwner gate still
-     * verifies every kill - adopting first when the component is ownerless
-     * (the plan-F1 heal). :database is never killed while a generation is
+     * verifies every kill - adopting first when the component is ownerless.
+     * :database is never killed while a generation is
      * live (killing it without engine.close() orphans mariadbd): the next
      * start's recovery lane owns its engine-ordered shutdown and the
      * DB-RECOVERY prepare heal, which is why the verb commits a dirty
@@ -337,7 +337,7 @@ class DurableRuntimeSupervisor(
     }
 
     /**
-     * One health-monitor tick of the orphan self-heal lane (plan F1) for one
+     * One health-monitor tick of the orphan self-heal lane for one
      * component the monitor observed as ownerless-but-running. Consecutive
      * sightings accumulate grace ticks (the component's own owner-loss
      * teardown may be mid-save); after the bounded grace the orphan is
@@ -383,7 +383,7 @@ class DurableRuntimeSupervisor(
     }
 
     /**
-     * One health-monitor tick of the foreground-promotion policy (plan B5):
+     * One health-monitor tick of the foreground-promotion policy:
      * :world and :database are promoted to specialUse FGS the moment a real
      * player is present (immediate edge) and demoted only after three
      * consecutive playerless samples (asymmetric hysteresis).
@@ -427,7 +427,7 @@ class DurableRuntimeSupervisor(
         }
     }
 
-    /** Drops any supervisor-driven FGS promotion of :world/:database (plan B5). */
+    /** Drops any supervisor-driven FGS promotion of :world/:database. */
     private suspend fun demoteForegroundStack() {
         foregroundEmptySamples = 0
         if (!foregroundPromoted) return
@@ -752,7 +752,7 @@ class DurableRuntimeSupervisor(
                 return false
             }
             if (observation.state == ComponentLifecycle.STOPPED) continue
-            // Null-owner orphan (plan F1): binder death cleared the claim and
+            // Null-owner orphan: binder death cleared the claim and
             // the component-side owner-loss teardown may still be mid-flight.
             // resolveRecoveryOrphan applies the bounded grace and the
             // adopt-then-forceStop heal; a non-null owner falls through to
@@ -809,7 +809,7 @@ class DurableRuntimeSupervisor(
     }
 
     /**
-     * Recovery-lane orphan resolution (plan F1): bounded re-observe grace
+     * Recovery-lane orphan resolution: bounded re-observe grace
      * first (the component-side owner-loss teardown may be mid-save), then
      * adopt-then-forceStop under the adopted owner. DATABASE never adopts or
      * kills - the existing database recovery lane owns it (killing
@@ -1051,7 +1051,7 @@ class DurableRuntimeSupervisor(
     }
 
     companion object {
-        // Re-observe cadence inside the recovery-lane orphan grace (plan F1);
+        // Re-observe cadence inside the recovery-lane orphan grace;
         // mirrors the 1s health-monitor tick.
         private const val ORPHAN_REOBSERVE_INTERVAL_MS = 1_000L
         // A stale DATABASE ownership claim may be released (automatically or

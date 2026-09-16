@@ -491,7 +491,7 @@ inline std::string NicknameAdoptionCargo(std::string const& playerName, uint32_t
         ". Use it in this reply - and when it suits you after.";
 }
 
-// ---- Phase-4 legends + rumor mill (pure, host-testable). Engine-first:
+// ---- Legends + rumor mill (pure, host-testable). Engine-first:
 // no new tables, no new segments — counters, anniversaries, tier beats,
 // and POI-biased rumor drift all ride existing fact/gossip rows +
 // the in-memory fatigue ledger (tellings/hops/heard, capped 5/3).
@@ -505,7 +505,7 @@ inline std::string NicknameAdoptionCargo(std::string const& playerName, uint32_t
 // JOURNAL faces are live (vouch at tier >= 3, bonded bickering at
 // tier 5, via TierBeatJournalLine); the second-person CARGO faces
 // (TierBeatCargo) are the prompt-side bank - debt-forgiven (kind 1)
-// now fires from the plan-v5 trade hook (EVENT_DEBT_SETTLED). Rumor drift
+// fires from the trade hook (EVENT_DEBT_SETTLED). Rumor drift
 // stays deterministic: DistortGossipHop per hop, cap 3, originator
 // verbatim.
 inline int AnniversaryBucket(int daysSinceFirst)
@@ -604,7 +604,7 @@ inline bool RumorNamesPlace(std::string const& rowText,
     return false;
 }
 
-// ---- plan v5 W7b: the world-truth furniture helpers (pure). Homeland is
+// ---- The world-truth furniture helpers (pure). Homeland is
 // race-stable; the enemy-ground test is deliberately the OPPOSING FACTION'S
 // CAPITAL zones only (city names in zone text, lowercase substring) - a
 // broader faction table would need AreaTable flags the 1.12 tree does not
@@ -656,7 +656,7 @@ inline std::string AbsenceMagnitudeLine(std::string const& bucket)
     return "";
 }
 
-// plan v5 W5: the bot-curiosity question bank - the third initiative
+// The bot-curiosity question bank - the third initiative
 // class. GUID-stable order per pairing, one ask per question per pairing,
 // 30-minute floor between asks; the player's next conversational reply is
 // minted as a fact deterministically (the 0.8B answer-capture law: a

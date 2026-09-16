@@ -37,7 +37,7 @@ class O10RuntimeSupervisorTest {
         timeline.put(event("server-ready").put("sessionId", ready.getString("sessionId")))
 
         // The supervisor deliberately keeps the qualified realm alive if client launch is
-        // unavailable/fails; the integration stage attaches the production display session.
+        // unavailable/fails; relaunchClient() attaches the production display session.
         assertAccepted(supervisor.api.relaunchClient())
         val clientFailed = waitPhase(supervisor.api, 30_000, RuntimePhase.CLIENT_FAILED)
         assertEquals("READY", component(clientFailed, "database").getString("state"))

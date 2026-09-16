@@ -111,7 +111,7 @@ internal class ServerRuntimeFiles(context: Context) {
         nearbyInteractTriggerGuardMs: Int,
     ): File {
         val endpoint = RealmEndpoint.parseStored(bindAddress)
-        // B2: one blocking settings read at world start feeds both the world
+        // One blocking settings read at world start feeds both the world
         // log level and (through llmConfigOverrides) the appended playerbot
         // LLM block - every world.conf toggle therefore applies on the next
         // realm start, never mid-session.
@@ -195,7 +195,7 @@ internal class ServerRuntimeFiles(context: Context) {
             runCatching { stageLoreCards().absolutePath }.getOrNull()
         else
             null
-        // B8: stage the EMPTY default-prompts file under the same gate (the
+        // Stage the EMPTY default-prompts file under the same gate (the
         // debug lane carries the line too, so the gate matches the lore
         // index, not the pack). The native default for
         // AiPlayerbot.LLMDefaultPromptsFile is the bare relative name
@@ -210,7 +210,7 @@ internal class ServerRuntimeFiles(context: Context) {
             runCatching { stageDefaultPromptsFile().absolutePath }.getOrNull()
         else
             null
-        // G3: stage the Mozilla CA bundle under the same gate. The native
+        // Stage the Mozilla CA bundle under the same gate. The native
         // HTTPS client verifies external-endpoint certificates against it
         // (LLMTLSCaFile absolute path; empty falls back to the Android
         // system store, which often has nothing usable for user CAs). A
@@ -229,7 +229,7 @@ internal class ServerRuntimeFiles(context: Context) {
         // (the silence doctrine).
         val chatterPower = if (snapshot.llmEnabled)
             runCatching {
-                // D3: the selected profile's per-preset rung cap rides the
+                // The selected profile's per-preset rung cap rides the
                 // staged power file (-1 follows the computed ambience state)
                 ChatterPowerMonitor.refreshOnce(
                     appContext,
@@ -239,7 +239,7 @@ internal class ServerRuntimeFiles(context: Context) {
             }.getOrNull()
         else
             null
-        // The prompt pack stages the RESOLVED player pack (Phase 2: the
+        // The prompt pack stages the RESOLVED player pack (the
         // edited JSON from Settings, fail-open to default on corrupt edits).
         // The file carries the enabled flags + bodies the Advanced prompt
         // manager edits. Staging failure fails OPEN to trained-default,
@@ -288,7 +288,7 @@ internal class ServerRuntimeFiles(context: Context) {
     }
 
     /**
-     * Phase 1+2: stage the resolved prompt pack next to the conf atomically.
+     * Stage the resolved prompt pack next to the conf atomically.
      * Re-staged when the BYTES change (a same-length body edit or a pure
      * reorder must not keep serving the previous pack). The payload is the
      * RESOLVED player pack (custom edits or default), so one file serves
@@ -311,7 +311,7 @@ internal class ServerRuntimeFiles(context: Context) {
     }
 
     /**
-     * S7/A11: the lore card index ships as an app asset and is staged
+     * The lore card index ships as an app asset and is staged
      * next to the conf atomically (pid-temp + rename, the class's write
      * discipline). A staged copy whose size no longer matches the asset
      * (an app update shipping revised cards, or a partial write from an
@@ -337,7 +337,7 @@ internal class ServerRuntimeFiles(context: Context) {
     }
 
     /**
-     * B8: stage an EMPTY default-prompts file next to the conf atomically
+     * Stage an EMPTY default-prompts file next to the conf atomically
      * (pid-temp + rename, the class's write discipline). An empty file is
      * the deliberate payload: the native loader loads zero prompts from it
      * cleanly - identical to the missing-file fail-open of the bare
@@ -360,7 +360,7 @@ internal class ServerRuntimeFiles(context: Context) {
     }
 
     /**
-     * G3: the Mozilla CA bundle ships as an app asset and stages next to
+     * The Mozilla CA bundle ships as an app asset and stages next to
      * the conf (size-verified, the stageLoreCards discipline) so the
      * native HTTPS client verifies external certificates by absolute
      * path - Android has no /etc/ssl/certs for native code; the system
@@ -391,14 +391,14 @@ internal class ServerRuntimeFiles(context: Context) {
     }
 
     /**
-     * P6: the DatabaseInfo connection string for one database. The SQLite
+     * The DatabaseInfo connection string for one database. The SQLite
      * provider's runtimes open the datadir files IN-PROCESS (the string is
      * the file path the DO_SQLITE backend feeds to sqlite3_open); MariaDB
      * keeps the socket form. The decision reads the engine's durable
      * active-provider marker COMBINED with this APK's own capability: a
      * marker naming the SQLite provider in a non-sqlite APK (the window's
      * APK-level rollback - a default build installed over a window build)
-     * must boot MariaDB, whose datadir is never deleted before P8.
+     * must boot MariaDB, whose datadir this path never deletes.
      */
     private fun databaseInfo(name: String): String {
         val sqliteServing = DatabaseDurableState.parseActiveProviderMarker(
@@ -449,26 +449,26 @@ internal class ServerRuntimeFiles(context: Context) {
         private const val MAX_NORMAL_LOG_BYTES = 4L * 1024L * 1024L
         private const val MAX_ERROR_LOG_BYTES = 8L * 1024L * 1024L
 
-        /** S7/A11: the staged lore card index file (asset: lore/). */
+        /** The staged lore card index file (asset: lore/). */
         private const val LORE_CARDS_FILE_NAME = "lore_cards_v112.jsonl"
 
-        /** Phase 1: the staged default prompt-pack file (run dir). */
+        /** The staged default prompt-pack file (run dir). */
         private const val PROMPT_PACK_FILE_NAME = "llm_prompt_pack.json"
 
-        /** B8: the staged EMPTY default-prompts file (run dir; native default name). */
+        /** The staged EMPTY default-prompts file (run dir; native default name). */
         private const val DEFAULT_PROMPTS_FILE_NAME = "llm_character_card"
 
-        /** G3: the staged Mozilla CA bundle for external-endpoint TLS verification (asset: llm/). */
+        /** The staged Mozilla CA bundle for external-endpoint TLS verification (asset: llm/). */
         private const val TLS_CA_BUNDLE_FILE_NAME = "cacert.pem"
 
-        /** B2: errors-only world log level, matching realmd's LogFileLevel = 1. */
+        /** Errors-only world log level, matching realmd's LogFileLevel = 1. */
         internal const val DEFAULT_WORLD_LOG_FILE_LEVEL = 1
 
-        /** B2: the verbose world log level staged by the World debug logs toggle. */
+        /** The verbose world log level staged by the World debug logs toggle. */
         internal const val DEBUG_WORLD_LOG_FILE_LEVEL = 3
 
         /**
-         * B2: the world.conf LogFileLevel staged at world start. The default
+         * The world.conf LogFileLevel staged at world start. The default
          * drops the vendored level 3 to errors-only: level 3 floods world.log
          * (79.7 MB over a 30-minute soak) with movement and battleground
          * churn that has never diagnosed a field issue, while level 1 still
@@ -491,10 +491,10 @@ internal class ServerRuntimeFiles(context: Context) {
          * HTTP block when the user enabled it AND the model GGUF is staged —
          * the same gate the supervisor applies before starting the :llm
          * process, so the conf and the running server can never disagree; the
-         * base profile conf keeps its reviewed LLMEnabled = 0 and the append
+         * base profile conf keeps its LLMEnabled = 0 and the append
          * wins by Config.cpp's last-wins parse. (2) With the submenu off, the
-         * pre-submenu debug-only in-process llama override (still
-         * model-gated), so the adb-driven native/llm workflow keeps working
+         * debug-only in-process llama override (still
+         * model-gated), so adb-driven native debugging keeps working
          * on debuggable builds. (3) Otherwise nothing — release builds
          * without the submenu opt-in emit nothing.
          */
@@ -564,12 +564,12 @@ internal class ServerRuntimeFiles(context: Context) {
             // the HTTP and in-process paths)
             val debugLore = if (!loreFile.isNullOrBlank())
                 "\n            AiPlayerbot.LLMLoreFile = \"$loreFile\"" else ""
-            // B8: the empty default-prompts file rides the debug block for
+            // the empty default-prompts file rides the debug block for
             // the same reason - the native loader opens it on every LLM
             // path, not only the HTTP ones
             val debugDefaultPrompts = if (!defaultPromptsFile.isNullOrBlank())
                 "\n            AiPlayerbot.LLMDefaultPromptsFile = \"$defaultPromptsFile\"" else ""
-            // G3: the staged CA bundle rides the debug block too - the TLS
+            // the staged CA bundle rides the debug block too - the TLS
             // client is shared by the embedded-server HTTP path
             val debugTlsCa = if (!tlsCaFile.isNullOrBlank())
                 "\n            AiPlayerbot.LLMTLSCaFile = \"$tlsCaFile\"" else ""

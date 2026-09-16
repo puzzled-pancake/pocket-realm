@@ -91,13 +91,13 @@ class ImportJournal(context: Context) : AutoCloseable {
                     throw ImportRejected("SOURCE_CHANGED: a folder import is still active")
                 }
                 // Before staging finishes, the caller's expected size must
-                // match the journaled total: a mismatch once silently
-                // re-staged toward a truncated target (progress bytes passed
-                // as the size) and destroyed the resumable partial. After
+                // match the journaled total: a mismatch would silently
+                // re-stage toward a truncated target (progress bytes passed
+                // as the size) and destroy the resumable partial. After
                 // finishStaging, bytes_total legitimately becomes the
                 // extraction payload total — the staged file (stagedPath)
-                // anchors identity instead — so the size check no longer
-                // applies.
+                // anchors identity instead — so the size check does not
+                // apply.
                 val sizeChanged = staged.second == null && journaledTotal != expectedBytes
                 if (columns[1] != uri.toString() || sizeChanged) {
                     val reason = when {
@@ -212,7 +212,7 @@ class ImportJournal(context: Context) : AutoCloseable {
     }
 
     /**
-     * F8 A3: re-enter a file whose copy was interrupted mid-way. Unlike
+     * Re-enter a file whose copy was interrupted mid-way. Unlike
      * markCopying this keeps bytes_copied and temp_name so the partial file
      * can be appended to instead of restarted from byte zero.
      */
@@ -226,7 +226,7 @@ class ImportJournal(context: Context) : AutoCloseable {
     }
 
     /**
-     * F8 D: periodic in-file progress so a multi-minute MPQ copy keeps the
+     * Periodic in-file progress so a multi-minute MPQ copy keeps the
      * journal fresh (watchdog staleness and post-mortem progress both read it).
      * Rate-limited by the caller.
      */

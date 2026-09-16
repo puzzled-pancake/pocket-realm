@@ -580,8 +580,9 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         component: RuntimeComponent,
         read: suspend () -> JSONObject,
     ): ComponentObservation {
-        // Bounded: a component wedged in STARTING used to spin a
-        // supervisor coroutine forever; surface a FAILED observation instead.
+        // Bounded: without a deadline a component wedged in STARTING
+        // would spin a supervisor coroutine forever; surface a FAILED
+        // observation instead.
         val deadline = System.currentTimeMillis() + WAIT_READY_TIMEOUT_MS
         while (true) {
             val value = read()
@@ -718,8 +719,9 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
                     "optional client tweaks skipped: imported build 5875 has an unqualified byte layout",
                 )
             }
-            // Prefix preparation can be slow. Load and verify the secret only at the
-            // final handoff boundary, after every non-secret preparation step has passed.
+            // Prefix preparation can be slow. Load and verify the secret only
+            // when the prepared prefix is handed to the client, after every
+            // non-secret preparation step has passed.
             val userStore = if (spec.mode == RuntimeMode.LAN_JOIN) null else UserAccountStore(appContext)
             val candidate = userStore?.loadOrQuarantine()
             val autoLogin = AutoLoginPolicy.resolveAutoLogin(
@@ -844,8 +846,8 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
             val launched = json(client.api().launch(launchRequest.toString()))
             val launchedSessionId = launched.getString("sessionId")
             json(display.api().attachSession(owner.instanceToken, launchedSessionId))
-            // Bounded: a client wedged mid-start used to poll
-            // forever while holding the launch path.
+            // Bounded: without a deadline a client wedged mid-start
+            // would poll forever while holding the launch path.
             val clientStartDeadline = System.currentTimeMillis() + CLIENT_START_TIMEOUT_MS
             while (true) {
                 if (renderer == "opengl" || renderer == "virgl") {
@@ -1313,7 +1315,7 @@ private class ServiceHandle<T>(
     }
 
     /**
-     * B5: supervisor-owned runtime promotion for :world/:database. Unlike
+     * Supervisor-owned runtime promotion for :world/:database. Unlike
      * the bind-time client promotion, these components are promoted and
      * demoted at runtime by the supervisor's presence policy. Legal because
      * the supervisor process is itself a foreground service.
@@ -1326,7 +1328,7 @@ private class ServiceHandle<T>(
     }
 
     /**
-     * B5: demotes a runtime-promoted service. Only a connected service can
+     * Demotes a runtime-promoted service. Only a connected service can
      * be foreground — a demote must never resurrect a freshly dead component
      * process just to deliver a no-op.
      */

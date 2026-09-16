@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage the Pocket Realm Windows native dependencies (Phase 2c lane).
+"""Stage the Pocket Realm Windows native dependencies.
 
 Clones/updates vcpkg at a pinned commit under native/.deps/vcpkg, installs
 the native/win-deps/vcpkg.json manifest for the x64-windows-static-md
@@ -11,7 +11,7 @@ same prefix.
 Everything lands in native/.deps/prefix-win-x86_64 (gitignored), laid out
 CMake-consumable: include/ + lib/ + share/. The OpenSSL legacy provider is
 part of the static libcrypto (realmd loads OSSL_PROVIDER "legacy" at
-startup; a smoke verify closes the gate).
+startup; the smoke step below verifies that it loads).
 """
 
 from __future__ import annotations
@@ -29,8 +29,8 @@ PREFIX = ROOT / "native" / ".deps" / "prefix-win-x86_64"
 SQLITE_SRC = ROOT / "native" / ".deps" / "src" / "sqlite" / "sqlite-amalgamation-3460100"
 TRIPLET = "x64-windows-static-md"
 
-# Pinned vcpkg commit: bump deliberately, with a fresh dependency build +
-# lockfile regeneration recorded in the PLAN-LOG.
+# Pinned vcpkg commit. Bump deliberately, then rebuild the dependencies and
+# regenerate the lockfile from scratch.
 VCPKG_COMMIT = "784e1b71001e5dc405af24e860a5c4bc193ea6cf"
 
 VSWHERE = Path(
@@ -38,7 +38,7 @@ VSWHERE = Path(
 ) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
 
 # The pinned amalgamation's reported version; the smoke asserts it so a
-# stale sqlite3.lib (or a wrong pin) fails the gate instead of shipping.
+# stale sqlite3.lib (or a wrong pin) fails here instead of shipping.
 SQLITE_VERSION = "3.46.1"
 
 

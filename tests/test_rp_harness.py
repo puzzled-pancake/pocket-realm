@@ -331,7 +331,7 @@ def test_relay_session_records_op_timeout(tmp_path, monkeypatch):
 
 
 def test_relay_session_normalizes_a_hung_adb_timeout(tmp_path, monkeypatch):
-    # round-8 R7: a HUNG adb makes the runner raise subprocess.
+    # A HUNG adb makes the runner raise subprocess.
     # TimeoutExpired - neither RelayError nor OSError - and it used to
     # escape send() uncaught, bypassing the suite's documented exit-2
     # harness-error contract. send() now normalizes it into the same
@@ -357,8 +357,8 @@ def test_relay_session_normalizes_a_hung_adb_timeout(tmp_path, monkeypatch):
 
 
 def test_relay_session_run_normalizes_a_hung_adb_timeout(tmp_path):
-    # round-9 R7: run() is the adb lane for the connect/pull legs too
-    # (wait-for-device, forward, pull) - the round-8 arm covered only
+    # run() is the adb lane for the connect/pull legs too
+    # (wait-for-device, forward, pull) - beyond the boot-wait leg,
     # send()'s console round trip, so a hung adb escaped those legs as
     # a raw subprocess.TimeoutExpired, bypassing the suite's documented
     # exit-2 RelayError contract. run() now normalizes it itself.
@@ -486,7 +486,7 @@ def test_smoke_suite_fails_fast_when_injection_fails(tmp_path):
 
 
 def test_smoke_suite_fails_on_relay_reconnect_events(tmp_path):
-    # H2 (round-3 R7#4): reconnect/backoff events are first-class
+    # reconnect/backoff events are first-class
     # transcript events and FAIL smoke - a recovered adb hiccup is not
     # a green per-change gate (the battery suite tolerates them; only
     # exhausted retries raise from run_suite)
@@ -529,7 +529,7 @@ def test_a8_scan_balanced_duplicate_and_missing():
 
 
 def test_a8_scan_busy_and_cap_turn_shapes():
-    # the pinned denial shapes (round-2 R2#2/R7#1): a BUSY turn (the
+    # the pinned denial shapes: a BUSY turn (the
     # governor or the interactive budget - both return BEFORE the begin
     # line) logs dispatch + end with NO begin; a CAP turn (the
     # concurrency check inside GenerateHttp, which runs AFTER the begin
@@ -554,8 +554,8 @@ def test_a8_scan_busy_and_cap_turn_shapes():
 
 
 def test_a8_scan_reports_p50_p95_from_durms():
-    # plan A8's "p50/p95 from durMs" (round-4 R2): nearest-rank
-    # percentiles over every end line carrying a durMs; round-5 R7: the
+    # the "p50/p95 from durMs" law: nearest-rank
+    # percentiles over every end line carrying a durMs; the
     # ok-class subset rides beside the aggregate (fast busy/cap denials
     # deflate it); the empty scan reports no latency block at all
     lines = []
@@ -592,7 +592,7 @@ def test_a8_scan_no_op_passes_on_silent_logs():
     assert not required["ok"] and required["violations"]
     missing = run_suite.check_a8_log(tmp_path_placeholder := "no-such.log")
     assert missing["ok"] and missing["noOp"]
-    # round-7 R7: the unreadable-log return still carries the (empty)
+    # The unreadable-log return still carries the (empty)
     # latency block - the report shape is the same on every exit path
     assert missing["latencyMs"] == {}
 

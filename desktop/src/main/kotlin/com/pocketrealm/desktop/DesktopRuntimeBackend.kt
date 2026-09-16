@@ -36,8 +36,8 @@ import kotlinx.coroutines.withContext
  *    shared JNI shims with the Android services' exact transition
  *    discipline (stopped-state gate, log rotation between lifetimes,
  *    lifecycle records, CONTROL_TIMEOUT_MS stop);
- *  - CLIENT (WoW.exe via ProcessBuilder) arrives with Phase 4 — its verbs
- *    fail honestly until then, never fake success.
+ *  - CLIENT (WoW.exe via ProcessBuilder): its foreground-management verbs
+ *    fail honestly (never fake success).
  *
  * Single-transition semantics mirror the services' transitionLock.
  */
@@ -245,10 +245,16 @@ class DesktopRuntimeBackend(
     override suspend fun observeWorldPresence(): WorldPresenceSample = WorldPresenceSample.EMPTY
 
     override suspend fun promoteToForeground(component: RuntimeComponent): RuntimeActionResult =
-        RuntimeActionResult(ok = false, detail = "foreground promotion arrives with the phase-4 WoW.exe launcher")
+        RuntimeActionResult(
+            ok = false,
+            detail = "foreground promotion is not implemented by the desktop WoW.exe launcher",
+        )
 
     override suspend fun demoteToForeground(component: RuntimeComponent): RuntimeActionResult =
-        RuntimeActionResult(ok = false, detail = "foreground demotion arrives with the phase-4 WoW.exe launcher")
+        RuntimeActionResult(
+            ok = false,
+            detail = "foreground demotion is not implemented by the desktop WoW.exe launcher",
+        )
 
     override suspend fun saveWorld(owner: ComponentOwner): RuntimeActionResult =
         withContext(Dispatchers.IO) {

@@ -1,4 +1,4 @@
-// Host battery for PlayerbotLlmGates.h (plan v2.3 T1). The header is
+// Host battery for PlayerbotLlmGates.h. The header is
 // pure - no server includes - so this exercises every predicate over
 // the full decision matrix the world sites consume, including the
 // negative pins: key-on + tier-off must equal device behavior
@@ -103,9 +103,9 @@ static void name_addressing()
     // punctuation boundaries count
     CHECK(ContainsNameIgnoreCase("Varleigh!", "Varleigh"));
     // only the possessive 's tail keeps an apostrophe boundary
-    // (round-2 R1#2: "Varleigh'x" is a different word)
+    // ("Varleigh'x" is a different word)
     CHECK(!ContainsNameIgnoreCase("Varleigh'x happened", "Varleigh"));
-    // a QUOTED name still addresses (round-4 R1#2): the opening and
+    // a QUOTED name still addresses: the opening and
     // closing apostrophes are boundaries; a word-INTERNAL apostrophe is
     // not ("O'Varleigh" never addresses Varleigh)
     CHECK(ContainsNameIgnoreCase("I saw 'Varleigh' nearby", "Varleigh"));
@@ -143,12 +143,12 @@ static void responder_selection()
     CHECK(SelectResponder({{9, 3, 100}, {7, 3, 100}}) == 7);
     // negative tier candidates still participate (stranger tier 0 < acquaintance 1)
     CHECK(SelectResponder({{7, 0, 0}, {9, 1, 900}}) == 9);
-    // round-4 R1: on an ADDRESSED line the pick resolves to the named
+    // on an ADDRESSED line the pick resolves to the named
     // bot regardless of tier/rotation - the unaddressed fan-out loses
     // everywhere and the addressed bot's bypass is the ONE generation
     CHECK(SelectResponder({{7, 1, 0}, {9, 3, 0}, {11, 2, 0}}, 7) == 7);
     CHECK(SelectResponder({{7, 1, 0}, {9, 3, 0}, {11, 2, 0}}, 11) == 11);
-    // round-5 R1: an addressed guid resolving to NO candidate (the
+    // an addressed guid resolving to NO candidate (the
     // addressee is dead or absent) picks NOBODY - bystanders stand
     // down, never the ordering fallthrough: the line is addressed and
     // the widened unaddressed arm must not add a second generation
@@ -223,7 +223,7 @@ static void failure_fallback_fold()
     CHECK(FailureWantsFallback(false, true));
     CHECK(!FailureWantsFallback(false, false));
 
-    // the plan's default is INACTIVE (the autonomous RPG dispatch site
+    // the FallbackPlan default is INACTIVE (the autonomous RPG dispatch site
     // keeps compiling with the defaulted trailing parameter and stays
     // silent; an inactive plan is exactly the device lane)
     PlayerbotLlmGates::FallbackPlan plan;

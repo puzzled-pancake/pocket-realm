@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -46,6 +47,15 @@ BUILDER_IMAGE = (
 )
 OLD_DISPATCH = bytes.fromhex("ff14250010fe7f")
 NEW_DISPATCH = bytes.fromhex("ff14250040fe7f")
+
+# Configure install prefix used inside the build container. Wine bakes the
+# DATADIR (derived from the prefix) into the built ntdll, and
+# tools/stage_wine_runtime.py relocates that exact embedded path to an
+# app-private alias, so the default must match the patch signature there.
+# Override via the environment only when staging a Wine root built with the
+# same prefix.
+WINE_INSTALL_PREFIX = os.environ.get(
+    "WINE_16K_INSTALL_PREFIX", "/home/runner/build_wine/wine-11.14-amd64")
 
 
 sha256 = common.sha256_file
@@ -135,7 +145,7 @@ def build() -> None:
         (
             "LDFLAGS='-Wl,-z,max-page-size=0x4000' "
             "/work/native/.build-x86_64/wine-11.14-source-1012f3d-patched/configure "
-            "--prefix=/home/runner/build_wine/wine-11.14-amd64 "
+            f"--prefix={WINE_INSTALL_PREFIX} "
             "--enable-archs=i386,x86_64 --disable-tests --without-x --without-wayland "
             "--without-freetype --without-gstreamer --without-pulse --without-alsa "
             "--without-oss --without-cups --without-dbus --without-gnutls --without-vulkan "

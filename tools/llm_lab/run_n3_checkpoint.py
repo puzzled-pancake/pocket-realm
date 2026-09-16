@@ -1,28 +1,29 @@
 #!/usr/bin/env python3
-"""The see-saw ladder checkpoint battery (S5+/SS3.0): n=3 majority scoring,
+"""The see-saw ladder checkpoint battery: n=3 majority scoring,
 per tool family, over the model's ACTUAL composite prompt.
 
-SS3.0's law: ONE prompt-text change per checkpoint, each with an n=3
-battery run scored PER TOOL FAMILY (the original see-saw signal was
-emotes 18->0 - invisible in aggregates). Two composite modes:
+The see-saw law: ONE prompt-text change per checkpoint, each with an n=3
+battery run scored PER TOOL FAMILY (signals invisible in aggregates are
+the reason - emotes once moved 18->0 under an aggregate-only view).
+Two composite modes:
 
 * trained (default): the trained contract (banklib sysm + compose) - the
   app's LLMPromptFormat=1 path, byte-identical to the shipped renderer
   (tests/test_llm_prompt_format.py gates that parity).
-* legacy-composite: the pre-A4 app shape with the S5 changes riding it -
-  the legacy pre-prompt identity + the A7 TOOLS_NOTE appended (the exact
-  text ToolInstructions() returns, crc32-variant-matched) + the A1 note
+* legacy-composite: the legacy app shape -
+  the legacy pre-prompt identity + the TOOLS_NOTE appended (the exact
+  text ToolInstructions() returns, crc32-variant-matched) + the note
   block appended to the user turn (the exact compose rendering). This
-  mode makes the instrument SENSITIVE to legacy-path prompt changes (the
-  S3 ruling: the A7 checkpoint must score under BOTH composites).
+  mode makes the instrument SENSITIVE to legacy-path prompt changes
+  (the tool-note checkpoint must score under BOTH composites).
 
 Scoring: per-family fire MAJORITY across n draws (the gate metric); fill
 and hygiene are reported CONDITIONAL on fire (a never-fired family cannot
-pass vacuously); S2 restraint reports the pooled rate and all-clean.
+pass vacuously); restraint reports the pooled rate and all-clean.
 
 Usage:  python tools/llm_lab/run_n3_checkpoint.py [--model e2b-tuned] [--n 3]
                 [--mode trained|legacy-composite] [--tag label]
-Output: C:/llm-lab/results/n3_<mode>_<model>_<tag>_<ts>.json (+ table).
+Output: RESULTS_DIR/n3_<mode>_<model>_<tag>_<ts>.json (+ table).
 """
 from __future__ import annotations
 
@@ -38,11 +39,17 @@ import sanity_battery as SB  # noqa: E402
 sys.path.insert(0, SB.BANKLIB_DIR)
 import banklib as BK  # noqa: E402
 
-RESULTS_DIR = r"C:\llm-lab\results"
+RESULTS_DIR = os.environ.get("LLM_LAB_RESULTS_DIR")
+if not RESULTS_DIR:
+    sys.stderr.write("LLM_LAB_RESULTS_DIR is not set - point it at the "
+                     "local results directory\n")
+    raise SystemExit(2)
 
-# the legacy pre-prompt identity (the app's pre-S4 conf default shape) -
+# the legacy pre-prompt identity (the app's pre-trained-format conf
+# default shape) -
 # the composite the llama/template backends sent before the trained format;
-# A7 appends the TOOLS_NOTE after it (exactly as the legacy paths do)
+# the legacy composite appends the TOOLS_NOTE after it (exactly as the
+# legacy paths do)
 LEGACY_PRE_PROMPT = (
     "You are a roleplaying character in World of Warcraft: Classic. "
     "Your name is Grumph. The player Brannoc is speaking to you in say "

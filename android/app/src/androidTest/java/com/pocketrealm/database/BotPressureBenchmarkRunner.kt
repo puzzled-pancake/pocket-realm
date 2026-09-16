@@ -96,10 +96,10 @@ class BotPressureBenchmarkRunner {
         val status = assertOk(control!!.status())
         evidence.put("providerMode", status.optString("providerMode"))
         // Product-startup parity: the supervisor
-        // recovers an interrupted runtime before booting; the headless
-        // path used to skip this, so an unclean death poisoned every
-        // later run until a full uninstall. recover() reporting not-ok
-        // with "recovery requested for a clean generation" is the
+        // recovers an interrupted runtime before booting, so this headless
+        // path calls recover() first - an unclean death would otherwise
+        // poison every later run until a full uninstall. recover() reporting
+        // not-ok with "recovery requested for a clean generation" is the
         // expected healthy case - record it, never assert it.
         val preRecover = JSONObject(control!!.recover())
         evidence.put("preRecoverOk", preRecover.optBoolean("ok"))

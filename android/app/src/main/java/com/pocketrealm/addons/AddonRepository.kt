@@ -84,7 +84,7 @@ class AddonRepository private constructor(context: Context) {
     }
 
     /**
-     * F5a: a fresh install (registry.json never written — a deliberate full
+     * A fresh install (registry.json never written — a deliberate full
      * removal always leaves the file behind) ships with the built-in Android
      * Port addon installed. Runs after the migrator so legacy 0.5.x installs
      * remap first (they own a registry file and never take this path).

@@ -205,7 +205,7 @@ fun HomeScreen(
         }
     }
 
-    // F3a: the first realm start bootstraps the database and prepares the
+    // The first realm start bootstraps the database and prepares the
     // world — a once-only cost worth warning about. The seal marker is
     // written only after a fully verified bootstrap (DatabaseEngine), so its
     // absence at tap time means "never successfully started".
@@ -378,7 +378,7 @@ fun HomeScreen(
                             )
                         }
                     },
-                    // F2: binder-level failures get the same friendly copy as
+                    // Binder-level failures get the same friendly copy as
                     // the supervisor's ACCOUNT_CONTROL_FAILED path — the
                     // exception class name belongs in diagnostics, not UI.
                     onFailure = { accountProvisionFailureMessage("ACCOUNT_CONTROL_FAILED", null) },
@@ -464,9 +464,9 @@ fun HomeScreen(
                         onCreate = createAccount,
                         onClear = clearAccount,
                         landscape = true,
-                        // F2: realm-readiness gates the Create button only;
+                        // Realm-readiness gates the Create button only;
                         // the fields stay editable (the operation-pending
-                        // disable is handled inside the card and stays).
+                        // disable is handled inside the card).
                         creationEnabled = state is RealmState.Running && !lanJoinActive,
                         operationPending = accountOperationPending,
                         modifier = Modifier.weight(1.18f),
@@ -507,7 +507,7 @@ fun HomeScreen(
                     onOpenSettings = onOpenSettings,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                // F2: the account card renders in portrait at every realm
+                // The account card renders in portrait at every realm
                 // state (not just Running) — the backend accepts account
                 // creation in WORLD_READY/CLIENT_FAILED and the idle card
                 // says to start the realm instead of vanishing.
@@ -557,7 +557,7 @@ private fun RealmControlCard(
 ) {
     val context = LocalContext.current
     val (statusText, detailText) = realmStatus(state)
-    // F1b.2: while a never-initialized realm is starting, say what the wait
+    // While a never-initialized realm is starting, say what the wait
     // is. Derived from the bootstrap seal marker (absent = first start).
     var firstStartHint by remember(state) { mutableStateOf(false) }
     LaunchedEffect(state) {
@@ -804,7 +804,7 @@ private fun CurrentSetupCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                // F3: the chip admits the admission ramp ("grows from M")
+                // The chip admits the admission ramp ("grows from M")
                 // only when there is one — profiles that start complete
                 // must not claim a ramp.
                 AssistChip(
@@ -874,7 +874,7 @@ private fun AccountCard(
                 Switch(
                     checked = gmAccount,
                     onCheckedChange = onGmAccount,
-                    // F2: inputs are realm-state-independent; only an
+                    // Inputs are realm-state-independent; only an
                     // in-flight operation locks the form.
                     enabled = !operationPending,
                     modifier = Modifier.testTag("account-gm"),
@@ -886,8 +886,8 @@ private fun AccountCard(
                 )
                 Button(
                     onClick = onCreate,
-                    // F2: realm-readiness moved here from the field gating;
-                    // malformed drafts are caught per-keystroke above.
+                    // Realm-readiness gates the Create button; malformed
+                    // drafts are caught per-keystroke above.
                     enabled = accountCreateEnabled(
                         realmReady = creationEnabled,
                         accountOperationPending = operationPending,
@@ -927,7 +927,7 @@ private fun AccountFields(
     enabled: Boolean,
     modifier: Modifier,
 ) {
-    // F2: per-keystroke validation reusing the realm's own rule
+    // Per-keystroke validation reusing the realm's own rule
     // (UserAccountStore.isValidCredential) — the BotsScreen name dialog's
     // isError/supportingText pattern; empty drafts are never red.
     val usernameError = accountCredentialFieldError(username)
@@ -986,10 +986,10 @@ private fun realmStatus(state: RealmState): Pair<String, String> = when (state) 
 }
 
 private fun gamePreparationFailureMessage(detail: String?): String {
-    // First-boot guidance: the observed RP6 crash pattern is the WoW client
-    // dying on the first world entry while the freshly started world is
-    // still settling; waiting a minute or two at the login screen made the
-    // next entry succeed (verified 2026-08-17 on device).
+    // First-boot guidance: on the RP6 the WoW client can die on its first
+    // world entry while the freshly started world is still settling;
+    // waiting a minute or two at the login screen before the next entry
+    // avoids that window.
     val firstBootHint = " If this realm was started for the first time, the world may" +
         " still be preparing — wait a minute or two at the login screen before retrying."
     return when {

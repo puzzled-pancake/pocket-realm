@@ -2,8 +2,8 @@
 //
 // Exercises the full C ABI: create -> start -> health -> save -> request_stop
 // -> join -> destroy, then REPEATS the entire cycle a second time in the same
-// process (the "twice in one process" acceptance criterion + Strategy A
-// re-entrancy evidence gate). Also covers the error-path contracts.
+// process (the "twice in one process" requirement, which proves the
+// singleton state fully resets). Also covers the error-path contracts.
 //
 // Exit 0 on PASS, non-zero on FAIL. Run on the x86_64 emulator via
 // smoke_native.py --runtime. Mirrors the repo's OK/FAIL + exit-code convention.
@@ -210,11 +210,10 @@ int main(int argc, char** argv)
         realm_destroy(h2);
     }
 
-    // --- Cycle 2 (the Strategy A re-entrancy gate) ---
-    // This is the acceptance criterion: the same create/start/.../destroy must
-    // succeed a second time in the same process. If singleton teardown cannot
-    // be reset (Strategy B), realm_start returns REALM_E_BUSY here and we
-    // record the decision; the test still passes the single-cycle + ABI proof.
+    // --- Cycle 2 (re-entrancy gate) ---
+    // The same create/start/.../destroy must succeed a second time in the
+    // same process. If singleton teardown cannot be fully reset, realm_start
+    // returns REALM_E_BUSY here; the cycle-2 start still proves the ABI.
     printf("--- Cycle 2 (re-entrancy) ---\n");
     int rc2 = run_one_cycle(world_conf, realmd_conf, data_dir, db_dir, true);
 

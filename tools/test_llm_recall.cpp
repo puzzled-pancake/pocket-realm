@@ -133,7 +133,7 @@ static void TestCargoWording()
     CHECK(GossipCargo("Brannoc", "won a duel against Grumph", 32) ==
           "The town buzzes a little about Brannoc: 'won a duel against Grumph'. "
           "Ask, gently - once only.");
-    // the ceremony wording (plan verbatim shape; never names the mechanic)
+    // the ceremony wording (the frozen verbatim shape; never names the mechanic)
     std::string const up4 = CeremonyUpCargo("Brannoc", 4, 30);
     CHECK(up4 == "You have quietly decided Brannoc is a true friend. "
                  "Show it your own way, briefly - and do not explain yourself.");
@@ -239,7 +239,7 @@ static void TestCargoWording()
     CHECK(LongFormLicensed(300));
     CHECK(!LongFormLicensed(224));
     CHECK(!LongFormLicensed(200));
-    // Phase-3 longForm dial: 0 raises the bar to 300, 100 lowers to 150
+    // longForm dial: 0 raises the bar to 300, 100 lowers to 150
     CHECK(LongFormLicensed(225, 50));
     CHECK(!LongFormLicensed(225, 0));
     CHECK(LongFormLicensed(300, 0));
@@ -338,7 +338,7 @@ static void TestMoneyAndDistortion()
 static void TestCuriosityBank()
 {
     using namespace pocketllm;
-    // plan v5 W5: the 16-wide question bank - ASCII, bounded length,
+    // The 16-wide question bank - ASCII, bounded length,
     // {P} rendered, and the out-of-range guard returns empty
     CHECK(CuriosityQuestionCount() == 16);
     for (size_t i = 0; i < CuriosityQuestionCount(); ++i)

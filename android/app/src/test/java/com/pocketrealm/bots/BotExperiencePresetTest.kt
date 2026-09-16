@@ -26,11 +26,10 @@ class BotExperiencePresetTest {
     }
 
     @Test fun experiencePresetAdmissionMemoryFloorIsMonotonic() {
-        // B7: each step up the curated experience ladder must demand at
+        // each step up the curated experience ladder must demand at
         // least the free memory of the step below - a dip would let a
-        // "bigger" preset admit on devices the smaller one already rejects
-        // (CROWDED_REALM_400 once shipped 1_792 under ALIVE_REALM_320's
-        // 2_048). Scoped to experiencePresets ONLY: a union-catalog pin is
+        // "bigger" preset admit on devices the smaller one already
+        // rejects. Scoped to experiencePresets ONLY: a union-catalog pin is
         // wrong - BENCH_FORCED_1000 legitimately exceeds every experience
         // floor at 3_072, and the frozen legacy adv4 catalog (CROWDED_400
         // at 1_792) is never re-tuned.
@@ -98,7 +97,7 @@ class BotExperiencePresetTest {
         }
         assertEquals(BotProfiles.LAUNCH_DAY_700, BotProfiles.find(BotProfiles.LAUNCH_DAY_700.id))
         assertTrue(BotProfiles.LAUNCH_DAY_700.userSelectable)
-        // Legacy ladder members stay resolvable but are no longer featured.
+        // Legacy ladder members stay resolvable but are not user-selectable.
         assertFalse(BotProfiles.QUIET_25.userSelectable)
         assertFalse(BotProfiles.BALANCED_100.userSelectable)
         // Legacy target migration still lands on the same legacy identities.

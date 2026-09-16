@@ -87,7 +87,7 @@ struct PendingLine
     size_t templateIdx;    // authored floor rows (else kNoTemplate)
     time_t notBefore;
     bool floor;            // authored floor entry (EMERGENCY class)
-    // plan v5 F4b: a staged long-form block line. The block is ONE
+    // A staged long-form block line. The block is ONE
     // performance: it bypasses the per-line F7 charge (charged once at
     // enqueue) and the per-line fatigue vet (the daily quota is the cap)
     bool longForm;
@@ -128,12 +128,12 @@ struct ChatterState
     time_t lastGlobalAt = 0;
     time_t lastGlobalWindowAt = 0;
     time_t lastFloorAt = 0;
-    time_t lastDramaAt = 0;   // plan v5 C4: the authored drama set piece
+    time_t lastDramaAt = 0;   // the authored drama set piece
     std::map<uint32, time_t> partyWindowAt;    // per master guid
     std::map<uint32, time_t> partyDuelNoteAt;  // per master guid (consumed on fire)
-    // plan v5 C3: the master's latest party line (the roundtable row)
+    // The master's latest party line (the roundtable row)
     std::map<uint32, std::pair<time_t, std::string>> partyLineAt;
-    // plan v5 C2: pending narrator sys-lines (player -> lines) marshalled
+    // Pending narrator sys-lines (player -> lines) marshalled
     // by worker threads and delivered on the WORLD thread in Tick - no
     // chat packet is ever sent from a worker (the module's own law)
     std::map<uint32, std::vector<std::string>> pendingSysLines;
@@ -225,7 +225,7 @@ struct ChatterEventRow
     bool valid = false;
 };
 
-// Phase-4 rumor-mill POI set: stable subset of the lore POI titles
+// Rumor-mill POI set: stable subset of the lore POI titles
 // (the staged index carries the full 137; this frozen 40-entry list
 // biases the gossip pick toward place-named rows without a lore
 // dependency here - unique titles, one entry per place).
@@ -261,13 +261,13 @@ bool PickGossipRow(uint32 speakerGuid, bool preferDuelClass, ChatterEventRow& ou
     // player-subject rows (the duel/kill/wipe classes) get delivery
     // priority on every layer; when the preferred query found none, a
     // plain pass picks any fresh row but still prefers the player-subject
-    // classes by ordering. Phase-4:
+    // classes by ordering.
     // POI-named rows travel farther — a row naming a place (Goldshire,
     // Deadmines, Ironforge, ...) sorts ahead of a placeless one within
     // the same class, so the player hears their own legend warped across
     // distance. The place list is the stable POI title set (the staged
     // lore index carries the same titles); matching is pure substring.
-    // plan v5 W3: kill (elite fells) and wipe rows join the duel class -
+    // Kill (elite fells) and wipe rows join the duel class -
     // the player-as-legend classes all outrank generic town talk
     if (preferDuelClass && rows.empty())
         return false;
@@ -314,7 +314,7 @@ bool PickGossipRow(uint32 speakerGuid, bool preferDuelClass, ChatterEventRow& ou
 
 // party topic: the group's newest debt/goal/event fact about the master,
 // else any fresh gossip row. speakerGuid only gates the gossip credence.
-// plan v5 W6: an unvoiced DYAD event between two grouped bots outranks
+// An unvoiced DYAD event between two grouped bots outranks
 // generic gossip - "Kor and Bren felled VanCleef together" is the
 // witnessed-history callback the player overhears
 bool PickPartyTopic(Player* master, uint32 speakerGuid, ChatterEventRow& out)
@@ -403,7 +403,7 @@ bool PickPartyTopic(Player* master, uint32 speakerGuid, ChatterEventRow& out)
 // ---- the legend telling: computed at PICK time (the generation needs
 // the text); the tellings COUNT burns only at delivery, so a dropped
 // batch costs at most one drift of color, never a retirement.
-// Phase-4: the counter escalation rides the telling — the Nth delivery
+// The counter escalation rides the telling — the Nth delivery
 // of the same factKey grows ("again", "still", "legend by now") via
 // LegendCounterLine, then retires at the 5-telling cap.
 std::string TellingTextFor(ChatterEventRow const& row)
@@ -881,11 +881,12 @@ void DispatchComposerJob(ComposerJob job)
     }
 }
 
-// ---- plan v5 F4b: the long-form delivery lane. The murmur queue's laws
+// ---- The long-form delivery lane. The murmur queue's laws
 // (120-byte clamp, the 5-telling fatigue cap per fact key) structurally
 // cannot carry a staged saga - this enqueue gives long-form blocks their
 // own vetting: the 200-byte line law, the ring, the queue cap, a per-line
-// stagger, ONE fatigue telling for the whole block, and F7's global
+// stagger, ONE fatigue telling for the whole block, and the authored-line
+// global
 // ceiling charged once (the block is one performance, not N lines)
 void EnqueueLongFormLines(pocketllm::ChatterLayer layer, uint32 speakerGuid,
     std::vector<std::string> const& lines, std::string const& factKey)
@@ -913,7 +914,8 @@ void EnqueueLongFormLines(pocketllm::ChatterLayer layer, uint32 speakerGuid,
             return;
     }
 
-    // F7 charged ONCE for the whole block, OUTSIDE the chatter lock (the
+    // The authored-line ceiling charged ONCE for the whole block, OUTSIDE
+    // the chatter lock (the
     // memory->chatter lock order must never invert; the drain loop's own
     // arbiter call is outside the lock for the same reason)
     if (!PlayerbotLlmMemory::AuthoredLineAdmits(PlayerbotLlmMemory::ARB_SCENE,
@@ -941,7 +943,7 @@ void EnqueueLongFormLines(pocketllm::ChatterLayer layer, uint32 speakerGuid,
     }
 }
 
-// ---- plan v5 C1: the campfire saga worker (cloud tier only). One call
+// ---- The campfire saga worker (cloud tier only). One call
 // turns the pairing's real fact rows into a staged telling; the first
 // safe line becomes the headline gossip row the town retells
 struct SagaJob
@@ -1120,7 +1122,7 @@ void PlayerbotLlmChatter::NotePartyLine(uint32 playerGuid, std::string const& li
     State().partyLineAt[playerGuid] = std::make_pair(time(nullptr), line);
 }
 
-// plan v5 C2: workers hand narrator lines here; Tick delivers them on the
+// Workers hand narrator lines here; Tick delivers them on the
 // world thread (chat packets never cross threads)
 void PlayerbotLlmChatter::DeliverSysLines(uint32 playerGuid,
     std::vector<std::string> const& lines)
@@ -1155,9 +1157,9 @@ void DrainPendingSysLines()
     }
 }
 
-// plan v5 C3: the roundtable row - the master's fresh PARTY line joins
+// The roundtable row - the master's fresh PARTY line joins
 // the composer exchange as an event row so the group argues about what
-// the PLAYER said (quota-capped; C3's one-call shape rides the composer)
+// the PLAYER said (quota-capped; the one-call shape rides the composer)
 bool TakeRoundtableRow(uint32 masterGuid, std::string const& masterName,
     std::string& rowOut)
 {
@@ -1181,7 +1183,7 @@ bool TakeRoundtableRow(uint32 masterGuid, std::string const& masterName,
 
 void PlayerbotLlmChatter::Tick()
 {
-    // plan v5 C2: narrator sys-lines marshalled by workers deliver HERE,
+    // Narrator sys-lines marshalled by workers deliver HERE,
     // on the world thread - BEFORE the chatter gate, because the recap is
     // not a chatter feature and must deliver with ambience off too
     DrainPendingSysLines();
@@ -1231,7 +1233,7 @@ void PlayerbotLlmChatter::Tick()
         }
         for (PendingLine& entry : due)
         {
-            // plan v5 F7: the authored-line hourly budget bounds the SUM of
+            // The authored-line hourly budget bounds the SUM of
             // lanes (murmur shares the ambient cap; party/global set pieces
             // count toward the global ceiling only, their own cadences
             // govern them). Checked OUTSIDE the chatter lock - the arbiter
@@ -1241,7 +1243,7 @@ void PlayerbotLlmChatter::Tick()
             uint32 const arbCat = entry.layer == pocketllm::LAYER_MURMUR
                 ? PlayerbotLlmMemory::ARB_AMBIENT
                 : PlayerbotLlmMemory::ARB_SCENE;
-            // F4b: a staged long-form block was charged ONCE at enqueue;
+            // A staged long-form block was charged ONCE at enqueue;
             // its lines deliver exempt (a 10-line saga must not eat the
             // hourly ceiling line by line)
             if (!entry.longForm &&
@@ -1502,7 +1504,7 @@ void PlayerbotLlmChatter::Tick()
     {
         for (Player* master : players)
         {
-            // plan v5 C1: the campfire saga outranks the idle bark - a
+            // The campfire saga outranks the idle bark - a
             // seated master with a tier-3 storyteller gets the flagship
             // performance instead (quota-capped, cloud tier only)
             if (policy.composer || sPlayerbotAIConfig.llmSagaEnabled)
@@ -1523,7 +1525,7 @@ void PlayerbotLlmChatter::Tick()
             if (bots.size() < 2)
                 continue;
 
-            // plan v5 C4: the rare authored drama set piece - two grouped
+            // The rare authored drama set piece - two grouped
             // bots trade one exchange the player merely witnesses. Kind
             // follows the dyad ledger (a bonded pair reunions or collects
             // debts; a sour pair argues); variant is dyad-stable. The
@@ -1641,7 +1643,7 @@ void PlayerbotLlmChatter::Tick()
                 }
                 job.eventRows.push_back(telling);
                 job.factKeys.push_back(topic.factKey);
-                // plan v5 C3: the roundtable row - the master's fresh
+                // The roundtable row - the master's fresh
                 // party line joins the exchange so the group argues about
                 // what the PLAYER said (quota-capped inside the take)
                 std::string roundtableRow;

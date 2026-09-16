@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S9 tavern coherence (Phase-6): 4 bots, one scene, shared event rows.
+"""Tavern coherence: 4 bots, one scene, shared event rows.
 
 The multi-voice coherence check the single-bot battery cannot run: four
 personas (distinct bible registers — gruff/wry, loud/boastful,
@@ -11,7 +11,7 @@ content word with the shared happening), zero tool markers, mood-colored
 (grudge-bot shows the edge, smitten-bot brightens — human-read, recorded).
 
 Usage: python tools/llm_lab/s9_tavern_gates.py --model e2b-tuned [--n 3]
-Output: C:/llm-lab/results/s9_tavern_<model>_<ts>.json (versioned names).
+Output: RESULTS_DIR/s9_tavern_<model>_<ts>.json (versioned names).
 """
 import argparse
 import copy

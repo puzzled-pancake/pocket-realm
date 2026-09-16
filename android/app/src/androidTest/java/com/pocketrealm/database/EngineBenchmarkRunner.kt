@@ -64,7 +64,7 @@ class EngineBenchmarkRunner {
         evidence.put("sqliteCapable", sqliteCapable)
         evidence.put("abi", android.os.Build.SUPPORTED_ABIS.first())
 
-        // ---- Phase 1: lifecycle -------------------------------------------------
+        // ---- lifecycle ----------------------------------------------------------
         evidence.put("initializeMs", timed { assertOk(control.initialize()) })
         evidence.put("idempotentMigrationsMs", timed { assertOk(control.applyPinnedMigrations()) })
         val cycles = JSONArray()
@@ -79,19 +79,19 @@ class EngineBenchmarkRunner {
         }
         evidence.put("lifecycleCycles", cycles)
 
-        // ---- Phase 2: Binder health RTT (running) --------------------------------
+        // ---- Binder health RTT (running) ----------------------------------------
         assertOk(control.start())
         val rtt = ArrayList<Long>()
         repeat(20) { rtt.add(timed { assertOk(control.queryHealth()) }) }
         evidence.put("healthBinderRttMs", sortedRttSummary(rtt))
         evidence.put("rssRunningKb", databaseRssKb())
 
-        // ---- Phase 3: backup (STOPPED-state operation) -----------------------------
+        // ---- backup (STOPPED-state operation) --------------------------------------
         assertOk(control.stop())
         evidence.put("createNamedBackupMs", timed { assertOk(control.createNamedBackup("engine-bench")) })
         evidence.put("listBackupsMs", timed { assertOk(control.listBackups()) })
 
-        // ---- Phase 4: the query/write battery ------------------------------------
+        // ---- the query/write battery ----------------------------------------------
         val ids = lookupIds()
         if (sqliteCapable) {
             evidence.put("battery", sqliteBattery(ids))
@@ -102,7 +102,7 @@ class EngineBenchmarkRunner {
             assertOk(control.stop())
         }
 
-        // ---- Phase 5: footprint ---------------------------------------------------
+        // ---- footprint ------------------------------------------------------------
         val roots = StorageRoots.get(context)
         evidence.put("datadirBytes", dirSize(if (sqliteCapable)
             File(roots.databaseRoot, DatabaseSqliteControlPlane.SQLITE_DATADIR_NAME) else roots.databaseDatadir))

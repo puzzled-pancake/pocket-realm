@@ -1,16 +1,17 @@
--- 0414 (rp-depth-fix-plan v2.3 s6 E2): the texts.sql register audit.
+-- 0414: the texts.sql register audit.
 --
 -- Idempotent row-content UPDATEs for the reachable hello / goodbye /
 -- hello_follow rows whose register drifted into modern chat-speak,
 -- office-speak, and the dangling-initiative family (the hello_follow
 -- rows that assert an unproposed action at master-acquisition). The
 -- shipped 0394 texts.sql entry stays byte-identical: editing a shipped
--- entry breaks the on-device ledger hash check (the s0.11 append-only
--- law; the 0413 precedent), so the audit rides this tail entry instead.
--- Fresh provisions replay the manifest in order and land corrected;
--- upgraded databases apply it once through the ledger. No key renames -
--- A9's once-per-name miss-log diagnostic keeps its ground. The 533 dead
--- rows (taunt/loot/aoe pools with no reader) stay excluded.
+-- entry breaks the on-device ledger hash check (the manifest is
+-- append-only; the 0413 precedent), so the audit rides this tail entry
+-- instead. Fresh provisions replay the manifest in order and land
+-- corrected; upgraded databases apply it once through the ledger. No
+-- key renames - the once-per-name miss-log diagnostic keeps its
+-- ground. The 533 dead rows (taunt/loot/aoe pools with no reader) stay
+-- excluded.
 
 UPDATE `ai_playerbot_texts` SET `text` = 'Well met! I will walk with you.' WHERE `name` = 'hello_follow' AND `text` = 'Hello, I follow you!';
 UPDATE `ai_playerbot_texts` SET `text` = 'Well met. I will keep pace with you.' WHERE `name` = 'hello_follow' AND `text` = 'Hello, lead the way!';

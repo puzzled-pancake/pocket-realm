@@ -16,6 +16,7 @@ is pinned instead.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -261,7 +262,7 @@ def test_kotlin_emission_surface():
     runtime_files = (ROOT / "android" / "app" / "src" / "main" / "java" /
                      "com" / "pocketrealm" / "server" / "ServerRuntimeFiles.kt").read_text(encoding="utf-8")
     assert "val chatterPower = if (snapshot.llmEnabled)" in runtime_files
-    # D3 (plan v2.3 s5): the refresh keeps the ambience flag as the master
+    # The refresh keeps the ambience flag as the master
     # and threads the selected profile's rung cap into the staged file
     assert "enabled = snapshot.llmAmbience," in runtime_files
     assert "rungCap = profile.llmSpeech.chatterRung," in runtime_files
@@ -291,18 +292,23 @@ def test_p52_wording_lock_module_is_fresh():
     wording byte-exactly. banklib-adjacent bridge_wording.py is
     GENERATED from the C++ cores; this leg regenerates and diffs so any
     drift between the shipped wording and the authoring tree fails loud.
-    Skips (with reason) on a machine without the G: authoring tree - the
-    same hermeticity the suite gives every other banklib-dependent leg."""
+    Skips (with reason) on a machine with LLM_LAB_AUTHORING_ROOT unset -
+    the same hermeticity the suite gives every other banklib-dependent leg."""
     extractor = ROOT / "tools" / "llm_lab" / "extract_bridge_wording.py"
     if not extractor.is_file():
         pytest.skip("extractor not staged")
-    if not Path(r"G:\NPU LLM\scripts\finetune").is_dir():
-        pytest.skip("authoring tree (G:\\NPU LLM) not present on this machine")
-    out = Path(r"G:\NPU LLM\scripts\finetune\bridge_wording.py")
+    authoring_root = os.environ.get("LLM_LAB_AUTHORING_ROOT")
+    if not authoring_root:
+        pytest.skip("LLM_LAB_AUTHORING_ROOT is not set - authoring tree "
+                    "not present on this machine")
+    banklib_dir = Path(authoring_root) / "scripts" / "finetune"
+    out = banklib_dir / "bridge_wording.py"
     if not out.is_file():
         pytest.fail("bridge_wording.py missing - run the extractor once")
     r = subprocess.run([sys.executable, str(extractor), "--check"],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True,
+                       env={**os.environ,
+                            "LLM_LAB_BANKLIB_DIR": str(banklib_dir)})
     assert r.returncode == 0, f"wording-lock drift:\n{r.stdout}\n{r.stderr}"
 
 
@@ -377,7 +383,7 @@ def test_plan_v5_slice6_dyads_drama_roundtable_dossier():
     memory = (ROOT / "native" / "patches" / "playerbots" / "PlayerbotLlmMemory.cpp").read_text(encoding="utf-8")
     assert "void PlayerbotLlmMemory::NoteDyadEvent(" in memory
     assert "bool PlayerbotLlmMemory::ClaimNewestDyadEvent(" in memory
-    elite = memory.split("OnPlayerGroupKill(Player* tapper, Unit* victim)")[1].split("Phase-3 reactivity")[0]
+    elite = memory.split("OnPlayerGroupKill(Player* tapper, Unit* victim)")[1].split("Reactivity: the 1-in-24 kill roll")[0]
     assert "NoteDyadEvent(" in elite, "an elite co-kill mints dyad affinity"
     wipe = memory.split("OnPlayerDied(Player* victim)")[1].split("OnTradeCompleted")[0]
     assert "NoteDyadEvent(" in wipe, "a shared wipe mints dyad affinity"
@@ -393,7 +399,7 @@ def test_plan_v5_slice6_dyads_drama_roundtable_dossier():
     assert "felled " not in topics and "were wiped" not in topics, \
         "the topic renders the event text, not a hard-coded shape"
 
-    drama = src.split("the rare authored drama set piece")[1].split("time_t duelNote = 0;")[0]
+    drama = src.split("The rare authored drama set piece")[1].split("time_t duelNote = 0;")[0]
     assert "DramaPairTable" in drama, "the exchange draws from the authored tables"
     assert "DyadAffinity" in drama, "the kind follows the ledger"
     assert "TryClaimAmbientSlot" in drama, "the opener claims the ambient slot"

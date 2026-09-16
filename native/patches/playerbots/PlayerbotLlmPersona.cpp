@@ -531,9 +531,9 @@ std::string PlayerbotLlmPersona::KillBanterLine(Player* bot, Player* killer)
     return line;
 }
 
-// plan RP E1: the level-up cheer. The generated event note keeps its
+// The level-up cheer. The generated event note keeps its
 // cadence (generation + emote marker); this is the AUTHORED leg ONE
-// grouped bot voices at the event drain (the E0 condolence delivery
+// grouped bot voices at the event drain (the condolence delivery
 // pattern). Never names the mechanic - the authored voice celebrates
 // the person, not the number.
 std::string PlayerbotLlmPersona::CheerLine(Player* bot, Player* forPlayer)
@@ -553,7 +553,7 @@ std::string PlayerbotLlmPersona::CheerLine(Player* bot, Player* forPlayer)
     return line;
 }
 
-// plan v5 W1: the event-reaction cells. 12 lines x 4 archetypes per kind,
+// The event-reaction cells. 12 lines x 4 archetypes per kind,
 // the FallbackLine corpus law. Condolence speaks over the fallen player's
 // body (party channel); shaken speaks when a wiped party reforms. Both
 // address {P} - the fallen/returning player - and never name the mechanic.
@@ -705,7 +705,7 @@ std::string PlayerbotLlmPersona::GrudgeRefusalLine(Player* bot, Player* player)
     return line;
 }
 
-// plan RP E0: the gate-refusal bank draw. No Classify and no message -
+// The gate-refusal bank draw. No Classify and no message -
 // the CALLER decides this is a gate denial (the invite-family whispers);
 // this only voices it in the bot's archetype. The bank is placeholder-free
 // so the raw line ships verbatim (rendered only by a later, wired caller
@@ -730,10 +730,10 @@ std::string PlayerbotLlmPersona::SecurityRefusalLine(Player* bot)
     return line;
 }
 
-// plan RP A6: the street short-reaction fallback. Guid-keyed (no Player*
+// The street short-reaction fallback. Guid-keyed (no Player*
 // exists on the detached street worker); the speaker cell is guid-stable
 // so a bot keeps one street voice across lines. Empty when banter is off
-// or the draw fails - silence then, the pre-A6 behavior.
+// or the draw fails - silence then.
 std::string PlayerbotLlmPersona::StreetShortLine(uint32 botGuid)
 {
     if (!sPlayerbotAIConfig.llmBanterEnabled)
@@ -771,11 +771,11 @@ std::string PlayerbotLlmPersona::SceneNudgeLine(Player* bot, Player* player)
     return line;
 }
 
-// plan RP E1: additive archetype seasoning - one spoken phrase composed
+// Additive archetype seasoning - one spoken phrase composed
 // onto the drawn tier line. The phrase draw rides its own guid<<24 lane
 // (the 0x400 bit keeps it clear of every pool lane) with RACE mixed into
 // the lane key, so same-class bots of different races vary their phrase -
-// the plan's fix for ArchetypeFor being class-only. The tier draw stays
+// the fix for ArchetypeFor being class-only. The tier draw stays
 // the greeting's backbone (never a replacement draw, which would strand
 // half the population in SHY); the compose respects the chat byte budget -
 // a seasoning that would not fit stays unsaid.
@@ -890,7 +890,7 @@ bool PlayerbotLlmPersona::MaybeAmbientLine(Player* bot)
     // idle chatter is the everyday pool; the five moods split the rest; the
     // wildcard bank rides on every draw at its design 1% (SelectLine's own
     // roll, on its own cooldown, ring-tracked so even chaos does not repeat).
-    // Phase-3: the CURRENT weather biases the draw (the bot's mood pool
+    // The CURRENT weather biases the draw (the bot's mood pool
     // doubles its slots), and volatility scales all mood presence (steady
     // 0 halves it, changeable 100 doubles it). Mood seasoning for the
     // system prompt comes from MoodLineFor (memory layer) so authored
@@ -902,7 +902,7 @@ bool PlayerbotLlmPersona::MaybeAmbientLine(Player* bot)
     };
     pocketllm::PoolId const moodPool = pocketllm::MoodPoolOf(
         PlayerbotLlmMemory::MoodNow(bot->GetGUIDLow()));
-    // plan v5 W7a (default ON): real weather and the hour bias the draw -
+    // World truth (default ON): real weather and the hour bias the draw -
     // rain doubles superstition/homesick, night doubles nightweary. Pure
     // table reweighting of existing pools: zero prompt bytes, zero
     // generations; the conf key (LLMWorldTruthAmbient=0) restores the

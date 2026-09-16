@@ -156,7 +156,7 @@ int main(int argc, char** argv)
     CHECK(pts == 60 && strcmp(tier, "ally") == 0,
           "unfolded control lags: 59+1 -> points 60 but tier ally (WRONG by contract)");
 
-    /* C5 (plan v2.3): tier_since stamps ONLY on a crossing. SQLite's
+    /* tier_since stamps ONLY on a crossing. SQLite's
      * DO UPDATE reads PRE-update columns, so the CASE compares the
      * post-increment tier expression against the row's OLD tier; a
      * same-tier award must leave tier_since byte-identical while a

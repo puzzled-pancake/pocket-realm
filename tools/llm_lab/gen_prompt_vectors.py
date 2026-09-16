@@ -14,10 +14,18 @@ Regenerate deliberately (the training text is versioned with the corpus):
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
-BANKLIB_DIR = r"G:\NPU LLM\scripts\finetune"
+# The bank-authoring tree is external to the repo (it holds the training
+# source of truth); point LLM_LAB_BANKLIB_DIR at a local checkout. There
+# is no default: an unset variable exits with a message naming it.
+BANKLIB_DIR = os.environ.get("LLM_LAB_BANKLIB_DIR")
+if not BANKLIB_DIR:
+    sys.stderr.write("LLM_LAB_BANKLIB_DIR is not set - point it at the "
+                     "bank-authoring tree checkout\n")
+    raise SystemExit(2)
 sys.path.insert(0, BANKLIB_DIR)
 import banklib as B  # noqa: E402
 

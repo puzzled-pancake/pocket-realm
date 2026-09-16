@@ -106,8 +106,7 @@ ARCHES = {
         boost_arch="architecture=x86 binary-format=elf",
     ),
 }
-# Selected in main() from --abi; default kept as the product ABI so the default
-# behavior is byte-for-byte identical to the pre-multi-arch behavior.
+# Selected in main() from --abi; the default is the product ABI (arm64-v8a).
 ARCH: Arch = ARCHES["arm64-v8a"]
 
 
@@ -384,8 +383,7 @@ def cmangos() -> int:
            "-DANDROID_STL=c++_shared", "-G", "Ninja",
            f"-DCMAKE_MAKE_PROGRAM={NINJA}",
            # Point find_package at the cross-compiled prefix and constrain the
-           # search there (so it never picks up a host Boost/OpenSSL). These are
-           # the exact vars the working arm64 configure used.
+           # search there (so it never picks up a host Boost/OpenSSL).
            f"-DCMAKE_PREFIX_PATH={prefix}",
            f"-DCMAKE_FIND_ROOT_PATH={prefix}",
            f"-DOPENSSL_ROOT_DIR={prefix}",

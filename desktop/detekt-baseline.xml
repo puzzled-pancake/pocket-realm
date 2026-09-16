@@ -1,0 +1,23 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues></ManuallySuppressedIssues>
+  <CurrentIssues>
+    <ID>CyclomaticComplexMethod:RpHost.kt$@Suppress("TooGenericExceptionCaught") // host lane: every failure answers as JSON, never dies fun main()</ID>
+    <ID>CyclomaticComplexMethod:RpWowClient.kt$RpWowClient.World$fun chatAndCapture( kind: String, to: String, text: String, drainMs: Long, emotes: MutableList&lt;Map&lt;String, Long&gt;&gt; = mutableListOf(), includeSelf: Boolean = false, ): List&lt;ChatLine&gt;</ID>
+    <ID>LongMethod:RpHost.kt$@Suppress("TooGenericExceptionCaught") // host lane: every failure answers as JSON, never dies fun main()</ID>
+    <ID>LongParameterList:RpWowClient.kt$RpWowClient.World$( kind: String, to: String, text: String, drainMs: Long, emotes: MutableList&lt;Map&lt;String, Long&gt;&gt; = mutableListOf(), includeSelf: Boolean = false, )</ID>
+    <ID>LoopWithTooManyJumpStatements:RpHost.kt$while</ID>
+    <ID>LoopWithTooManyJumpStatements:RpWowClient.kt$RpWowClient.World$while</ID>
+    <ID>MagicNumber:RpHost.kt$10</ID>
+    <ID>MagicNumber:RpHost.kt$3</ID>
+    <ID>MagicNumber:RpHost.kt$4</ID>
+    <ID>MagicNumber:RpHost.kt$5</ID>
+    <ID>MagicNumber:RpHost.kt$6</ID>
+    <ID>MagicNumber:RpHost.kt$8000L</ID>
+    <ID>MagicNumber:RpHost.kt$9</ID>
+    <ID>NestedBlockDepth:RpHost.kt$@Suppress("TooGenericExceptionCaught") // host lane: every failure answers as JSON, never dies fun main()</ID>
+    <ID>ReturnCount:RpWowClient.kt$RpWowClient.World$private fun parseChatLine(p: ByteArray): ChatLine?</ID>
+    <ID>ReturnCount:RpWowClient.kt$RpWowClient.World$private fun readLoop()</ID>
+    <ID>UnusedPrivateProperty:RpWowClient.kt$RpWowClient.World$i</ID>
+  </CurrentIssues>
+</SmellBaseline>

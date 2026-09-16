@@ -527,7 +527,7 @@ class RealmService : Service() {
                             )
                         }
                     }
-                    // B5: drive :world/:database foreground promotion from
+                    // Drive :world/:database foreground promotion from
                     // the pure presence policy (promote immediate, demote
                     // after three empty samples).
                     supervisor.reconcileForegroundPromotion()

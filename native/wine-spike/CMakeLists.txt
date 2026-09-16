@@ -1,6 +1,6 @@
 # native/wine-spike/CMakeLists.txt
 #
-# O06 Phase-1 Wine feasibility spike. Built standalone against the pinned NDK
+# Wine feasibility spike. Built standalone against the pinned NDK
 # (same toolchain as native/packaging). Outputs are staged into the Android APK
 # by the Gradle stageNativeLibs task.
 #
@@ -12,7 +12,7 @@
 # Links only Android/Bionic libs (log, dl). The glibc/Wine ELFs are NOT linked
 # here — they are execve'd at runtime via the APK-managed loader. This library
 # runs in the Android/Bionic namespace; Wine runs in the Linux/glibc namespace.
-# The two namespaces are deliberately separate (per the approved plan).
+# The two namespaces are deliberately separate.
 #
 # 16 KB page-size alignment for the 16K AVD lane.
 cmake_minimum_required(VERSION 3.16)
@@ -28,8 +28,8 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # /tmp redirect for the glibc namespace; it is incomplete (missing chdir() hook,
 # and would need to be built against the glibc toolchain, not the NDK, to be
 # usable as an LD_PRELOAD in the glibc namespace). It is removed from the tree
-# to avoid implying it is wired up. The /tmp blocker is handled by the namespace
-# mechanism selected in Phase 1.6c (S-5), not by a Bionic-compiled shim.
+# to avoid implying it is wired up. The /tmp blocker is handled by proot's
+# bind-mapping of the app's tmp directory over /tmp, not by a Bionic-compiled shim.
 add_library(wine_spike SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/src/jni_shim.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/wine_launcher.c
@@ -50,7 +50,7 @@ set_target_properties(wine_spike PROPERTIES
     LINK_FLAGS "-Wl,-z,max-page-size=0x4000"
 )
 
-# ---- libwine_trampoline.so: S-5(a) Bionic trampoline PIE -------------------
+# ---- libwine_trampoline.so: Bionic trampoline PIE -------------------------
 # A standalone PIE program (not a library). Named lib*.so so AGP extracts it
 # into nativeLibraryDir with the +x bit. The trampoline re-execve's the glibc
 # loader; see trampoline/wine_trampoline.c.

@@ -1153,7 +1153,7 @@ def test_baseline_pins_manifest_hash_and_transcript_sizes(seed_run) -> None:
 
 
 # ---------------------------------------------------------------------------
-# C2 append-only tail parity (plan rp-depth-fix v2.3 §4 C2)
+# Append-only tail parity
 # ---------------------------------------------------------------------------
 
 

@@ -2,7 +2,7 @@
   "schema": 1,
   "reference_document": "docs/wiki/README.md",
   "description": "Pinned upstream source manifest for the Pocket Realm offline build. Every active entry has an exact commit, license, and redistribution verdict. This file governs source selection only.",
-  "updated": "2026-08-22 (sqlite-amalgamation pin for the gated SQLite lane; P1)",
+  "updated": "2026-08-22 (sqlite-amalgamation pin for the gated SQLite lane)",
   "toolchain": {
     "android_sdk_root_env": "ANDROID_SDK_ROOT / ANDROID_HOME (machine-local; not pinned here)",
     "ndk": {
@@ -25,7 +25,7 @@
       "dependencies_built": {
         "openssl": "3.4.3 (libcrypto.a, libssl.a; static, no-asm)",
         "boost": "1.86.0 (program_options, thread, regex, serialization, filesystem, system; static runtime)",
-        "sqlite": "3.46.1 amalgamation, pinned as sources[] entry sqlite-amalgamation-3460100 (the in-tree DO_SQLITE lane; MariaDB stays the production baseline until the P8 cutover)"
+        "sqlite": "3.46.1 amalgamation, pinned as sources[] entry sqlite-amalgamation-3460100 (the in-tree DO_SQLITE lane; MariaDB remains the production database baseline)"
       },
       "playerbots_integration": "BUILD_PLAYERBOTS=ON; cmangos FetchContent (SOURCE_DIR form) reads native/playerbots mirrored into native/cmangos/src/modules/PlayerBots by build_native.py ensure_playerbots()",
       "emulator_test_abi": "x86_64 is the required development and integration ABI via the fixed Android AVD lanes. arm64-v8a remains the physical release ABI; any distributed x86 artifact must be explicitly declared by the release matrix.",
@@ -151,7 +151,7 @@
       "upstream_url": "https://github.com/termux-pacman/glibc-packages",
       "commit": "c9d4de54797bd6652f797217bf9e4c4050f02798",
       "commit_date": "2026-07-31",
-      "role": "The ENTIRE glibc-side runtime closure for the Wine runtime: glibc 2.43-1 (loader ld-linux-x86-64.so.2 + libc/libpthread/libdl/libm/librt) AND libX11 (+ libxcb/libxau/libxdmcp/libXext) AND freetype/fontconfig and their locked transitive libraries. This is the mandatory DT_NEEDED/dlopen set Kron4ek Wine 11.14 requires for wineboot + a windowed PE. The loader and libc come from the same glibc 2.43-1 build (no loader/libc ABI skew), and every distributed ELF is linked with 0x4000 maximum-page-size segments for both Android page-size lanes.\n\nGCC-LIBS RECIPE DIVERGENCE (recorded honestly): the c9d4de5 main pin's gcc-libs 14.2.1 recipe cannot build against the cgct image's gcc 16.1.0 cross-compiler (C++20 char8_t incompatibility in libcody), and its git+sourceware.org clone is persistently HTTP-429 rate-limited. We adopt upstream's open 'upd-gcc' branch (commit 845d0e313f53535de28abba0fb42b07e960cc031, authored 2026-07-14 by Maxython) for the gcc-libs package ONLY: it bumps gcc-libs to 16.1.0 via the official GNU tarball (https://ftp.gnu.org/gnu/gcc/gcc-16.1.0/gcc-16.1.0.tar.xz, SHA-256 50efb4d94c3397aff3b0d61a5abd748b4dd31d9d3f2ab7be05b171d36a510f79), which resolves both issues. Every other package remains on the c9d4de5 pin.",
+      "role": "The ENTIRE glibc-side runtime closure for the Wine runtime: glibc 2.43-1 (loader ld-linux-x86-64.so.2 + libc/libpthread/libdl/libm/librt) AND libX11 (+ libxcb/libxau/libxdmcp/libXext) AND freetype/fontconfig and their locked transitive libraries. This is the mandatory DT_NEEDED/dlopen set Kron4ek Wine 11.14 requires for wineboot + a windowed PE. The loader and libc come from the same glibc 2.43-1 build (no loader/libc ABI skew), and every distributed ELF is linked with 0x4000 maximum-page-size segments for both Android page-size lanes.\n\nGCC-LIBS RECIPE DIVERGENCE: the c9d4de5 main pin's gcc-libs 14.2.1 recipe cannot build against the cgct image's gcc 16.1.0 cross-compiler (C++20 char8_t incompatibility in libcody), and its git+sourceware.org clone is persistently HTTP-429 rate-limited. We adopt upstream's open 'upd-gcc' branch (commit 845d0e313f53535de28abba0fb42b07e960cc031, authored 2026-07-14 by Maxython) for the gcc-libs package ONLY: it bumps gcc-libs to 16.1.0 via the official GNU tarball (https://ftp.gnu.org/gnu/gcc/gcc-16.1.0/gcc-16.1.0.tar.xz, SHA-256 50efb4d94c3397aff3b0d61a5abd748b4dd31d9d3f2ab7be05b171d36a510f79), which resolves both issues. Every other package remains on the c9d4de5 pin.",
       "termux_packages_harness_commit": "d9188dcf2517ec5f2ed82e021b3cd14c402c74ec",
       "glibc_upstream": {
         "source_url": "https://ftp.gnu.org/gnu/libc/glibc-2.43.tar.xz",
@@ -236,7 +236,7 @@
         "sqlite3.c": "6c35bc5f7f85eac9c49928bacbb02bb694b547aabf69197e058cca245ad80e83",
         "sqlite3.h": "89b62c671c5964e137409ce034941b7b05a3af2c9875aba41f47f9483d0c2515"
       },
-      "role": "SQLite 3.46.1 amalgamation compiled by the pinned recipe (native/.deps/src/sqlite/CMakeLists.txt) into static libsqlite3.a per ABI for the in-tree DO_SQLITE backend lane. MariaDB remains the production database baseline until the P8 cutover; this pin is the provenance foundation for the gated SQLite lane.",
+      "role": "SQLite 3.46.1 amalgamation compiled by the pinned recipe (native/.deps/src/sqlite/CMakeLists.txt) into static libsqlite3.a per ABI for the in-tree DO_SQLITE backend lane. MariaDB remains the production database baseline; this pin is the provenance foundation for the gated SQLite lane.",
       "build_script": "tools/stage_sqlite_amalgamation.py",
       "license": "Public Domain",
       "redistribution": {
@@ -332,11 +332,11 @@
       "upstream_url": "https://github.com/termux/proot",
       "tag": "v5.1.107.89",
       "commit": "a89b3732ec6ae1db674510f0843b2f3db54d0a2f",
-      "role": "Fallback ONLY. Built and added to the exec set if the runtime spike proves native-glibc loader invocation fails for some native child. The exact failure that triggered the fallback is recorded. termux/proot publishes no binary releases; this is source-only.",
+      "role": "Fallback ONLY. Built and added to the exec set when direct native-glibc loader invocation fails for some native child; the failure that triggers the fallback is recorded. termux/proot publishes no binary releases; this is source-only.",
       "license": "GPL-2.0-or-later",
       "redistribution": {
         "verdict": "source-redistributable",
-        "notes": "Built from source only if the spike selects the proot path. Not built by default."
+        "notes": "Built from source only when the proot fallback path is selected. Not built by default."
       }
     },
     {

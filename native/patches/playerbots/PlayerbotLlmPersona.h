@@ -59,11 +59,11 @@ public:
     // and tic-seasoned. Empty only if the pool draw failed (never expected).
     static std::string KillBanterLine(Player* bot, Player* killer);
 
-    // plan RP E1: authored level-up cheer from POOL_CHEER (the event
+    // Authored level-up cheer from POOL_CHEER (the event
     // drain's authored leg; the generated note keeps its own cadence)
     static std::string CheerLine(Player* bot, Player* forPlayer);
 
-    // plan v5 W1: authored event-reaction cells (12 lines x 4 archetypes,
+    // Authored event-reaction cells (12 lines x 4 archetypes,
     // the FallbackLine corpus law), rendered {P} and tic-seasoned.
     // REACTION_CONDOLENCE voices a bot standing over the fallen player;
     // REACTION_SHAKEN voices a revived bot meeting the player again after
@@ -75,27 +75,27 @@ public:
     };
     static std::string ReactionLine(Player* bot, ReactionKind kind, Player* forPlayer);
 
-    // plan v5 W4: the authored grudge act-refusal (POOL_GRUDGE_REFUSE
+    // The authored grudge act-refusal (POOL_GRUDGE_REFUSE
     // recency-ring draw), rendered {P} and tic-seasoned
     static std::string GrudgeRefusalLine(Player* bot, Player* player);
 
-    // plan RP E0: authored gate-refusal for the security whisper family
+    // Authored gate-refusal for the security whisper family
     // (the "invite me" gates: invite/leader/full-group denials - never the
     // beg refusals). Draws the bot's archetype cell of POOL_SECURITY_REFUSE
     // through the recency ring; returns the configured busy line only on a
-    // draw failure (never expected). E3 wires the PlayerbotSecurity call
-    // site - no caller yet.
+    // draw failure (never expected). No PlayerbotSecurity call site calls
+    // this yet.
     static std::string SecurityRefusalLine(Player* bot);
 
-    // plan RP A6: the street short-reaction fallback (guid-keyed, no
+    // The street short-reaction fallback (guid-keyed, no
     // Player* - the detached street worker calls it after a failed or
     // unusable street generation). Draws the guid-stable speaker cell
     // of POOL_STREET_SHORT through the recency ring so a bot keeps one
     // street voice across lines. Empty when banter is off or the draw
-    // fails (then silence - the pre-A6 behavior).
+    // fails (then silence).
     static std::string StreetShortLine(uint32 botGuid);
 
-    // plan v5 W8: one authored in-character nudge for the /notice scene
+    // One authored in-character nudge for the /notice scene
     // read (POOL_SCENE_NUDGE recency-ring draw), rendered {P}/{B}
     static std::string SceneNudgeLine(Player* bot, Player* player);
 

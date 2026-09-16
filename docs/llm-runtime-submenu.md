@@ -1,8 +1,7 @@
 # AI bot LLM runtime — design and operations
 
-Status: implemented (2026-08-28; M6 personality wiring + external endpoints
-2026-08-29), pending on-device validation.
-Related: `native/llm/MILESTONES.md`, `android/pocketrealm-llm/prebuilt/README.md`,
+Status: implemented, pending on-device validation.
+Related: `android/pocketrealm-llm/prebuilt/README.md`,
 `android/pocketrealm-llm/README-INTEGRATION.md`.
 
 ## What it is
@@ -34,7 +33,7 @@ UI (LlmScreen) ──Settings(DataStore)──┐
    its RAM — the measured coexistence ordering)       │ (affinity+nice in child)
                                                       ▼
 :world  ServerRuntimeFiles.worldConfig*()  writes  aiplayerbot-<id>.conf
-  = BotProfile.playerbotConfig()  (reviewed, LLMEnabled = 0)
+  = BotProfile.playerbotConfig()  (base conf, LLMEnabled = 0)
   + LlmRuntimePolicy.confBlock()  (appended only when enabled AND model staged)
 ```
 
@@ -73,14 +72,14 @@ AiPlayerbot.LLMLoreFile = "<server run dir>/lore_cards_v112.jsonl"
 AiPlayerbot.LLMChatterEnabled = 0
 ```
 
-The S7 `LLMLoreFile` row stages the era-scrubbed vanilla lore card index
+The `LLMLoreFile` row stages the era-scrubbed vanilla lore card index
 (app asset `lore/lore_cards_v112.jsonl`, built by
 `tools/llm_lab/build_lore_cards.py`): question-shaped turns retrieve a
 `[RESULT]` card at full density for grounded answers, and `move_to`
 places resolve against its POI cards. An absent or unreadable file fails
 closed to "no cards" — the entity guard still works without it.
 
-The S10 `LLMChatterEnabled` row stays `0` until the app stages the
+The `LLMChatterEnabled` row stays `0` until the app stages the
 chatter power file (it does whenever the LLM subsystem is enabled);
 enabled, the block also carries `AiPlayerbot.LLMChatterPowerFile =
 "<server run dir>/chatter-power.txt"` — the FILE's `enabled` flag is the
@@ -95,30 +94,30 @@ External server fields when filled (the cloud script composer for party
 banter and murmur; without it the NORMAL rung runs device single-line
 batches).
 
-The Phase-1 `LLMPromptPackFile` row stages the default prompt pack
+The `LLMPromptPackFile` row stages the default prompt pack
 (`<server run dir>/llm_prompt_pack.json` — the ordered blocks + enabled
 flags from `LlmPromptPack`). The native renderer joins the enabled
 seasoning bodies inside the existing instruction span; the default pack
 ships seasoning disabled, so output is byte-identical to the trained
-contract until the player enables seasoning in Advanced settings (Phase 2)
-or a bake-off winner lands. A missing/unreadable file fails open to the
-trained default — never silence. Token costs per variant live in
-`tools/llm_lab/prompt_pack_bakeoff.py` (model-free gates: shape,
+contract until the player enables seasoning in Advanced settings. A
+missing/unreadable file fails open to the
+trained default — never silence. Token costs per variant can be measured
+with `tools/llm_lab/prompt_pack_bakeoff.py` (model-free gates: shape,
 transport-ASCII, density ordering, id universe; heuristic + optional
-`/tokenize` counts. The model-backed RP-depth leg is `s8_beats_gates.py`
-RP_DEPTH: plain vs seasoned vs seasoned+mood arms; paste a winning
-variant into the seasoning arm to score it).
+`/tokenize` counts) and `tools/llm_lab/s8_beats_gates.py` RP_DEPTH, which
+scores plain vs seasoned vs seasoned+mood arms against a model; paste a
+candidate variant into the seasoning arm to score it.
 
 The sampling fields come from the selected registry model's profile
-(`LlmModelRegistry`; the sample above is the TUNED_E2B default since the
-S4 default flip — the base tier keeps its own maker profile, and
+(`LlmModelRegistry`; the sample above is the TUNED_E2B default — the
+base tier keeps its own maker profile, and
 `repeat_penalty:1` is pinned for every Gemma profile). The tier rows
-(timeout, simultaneity, governor, context, memory depth) follow the §2.1
-tier table. The S9 `LLMConnectTimeout` row bounds the client's TCP
+(timeout, simultaneity, governor, context, memory depth) follow the
+model-tier table in `llm-settings-guide.md` (§4). The `LLMConnectTimeout` row bounds the client's TCP
 connect (a dead external endpoint fails inside 10 s instead of hanging
 for the OS default; loopback connects are instant either way).
 
-### Whisper keywords (S9/E4, zero-generation surfaces)
+### Whisper keywords (zero-generation surfaces)
 
 Whispering the bare word `journal`, `standing`, or `gossip` to a bot reads
 a memory surface instead of generating: `journal` paces out the bot's fact
@@ -130,7 +129,7 @@ whisper-only, never fire on event turns, and award no relationship points
 automatically, system-colored, on the first whisper of a session with each
 bot.
 
-Since S4 the request is built NATIVELY in the trained prompt format
+The request is built NATIVELY in the trained prompt format
 (`LLMPromptFormat = 1`): the system message speaks the exact trained
 contract (identity → TOOLS_NOTE variant → bible → Backstory → tier →
 absence → inline facts — byte-diffed against the training renderer by
@@ -141,17 +140,16 @@ for hand-configured servers (`LLMPromptFormat = 0`) and its sampling
 fields derive from the same profile as the conf keys, so the two paths
 can never disagree. `LLMThinkingKwargs = 1` (emitted for qwen-family
 models only) adds `chat_template_kwargs {"enable_thinking": false}` to
-the request (§4.4; the q08-tuned export template's kwargs-omitted default
-was verified non-thinking — see
-`C:\llm-lab\results\s44_thinking_kwargs_q08-tuned.json`).
+the request (the q08-tuned export template's kwargs-omitted default is
+non-thinking, verified against the exported template).
 
 The C++ client POSTs `LLMApiJson` verbatim after replacing the
 `<pre prompt>/<context>/<prompt>/<post prompt>` fill keys (SayAction.cpp).
-The response is parsed as a real OpenAI chat-completions envelope (A9):
+The response is parsed as a real OpenAI chat-completions envelope:
 the reply is `choices[0].message.content`, decoded with full JSON string
 semantics — escaped quotes, newlines and `\uXXXX` escapes survive intact,
-which the old regex extraction could not do (its end pattern `(")`
-truncated the reply at the first escaped quote). When the content comes
+which a regex extraction of the raw body cannot do (an end pattern like `(")`
+truncates the reply at the first escaped quote). When the content comes
 back empty with the budget burned into `reasoning_content` (the pinned
 base model's thinking-preamble failure mode), the client retries once
 with a direct-answer instruction spliced onto the same user turn and
@@ -170,14 +168,14 @@ generic-code chatter from a hand-configured text endpoint) lose those
 spans. A desktop/dev conf that keeps the NATIVE default patterns while
 pointing at a chat-completions endpoint stays silent: the default start
 pattern targets `"text":` and never matches decoded prose — empty the
-pattern keys there too. Delete/split patterns keep their reviewed defaults
+pattern keys there too. Delete/split patterns keep their defaults
 (the two JSON-era residue transforms are skipped automatically when the
 reply arrived as decoded envelope content). The conf parser strips only leading/trailing quotes and later
 duplicate keys overwrite earlier ones, so the appended block wins over the
-base conf's `LLMEnabled = 0` (the same mechanism the M1 debug override
-used).
+base conf's `LLMEnabled = 0` (the same mechanism the debug fallback
+uses).
 
-## External endpoint mode (M6)
+## External endpoint mode
 
 The submenu's Source choice selects where the model lives. **External
 server** mode never starts the `:llm` process (the supervisor's
@@ -211,7 +209,7 @@ covers both: every history write is neutered in `AppendTurn`, and the raw
 `<initial message>` echo is neutered at its single placeholder fill site
 (`PB_SAY_NEUTER_*`).
 
-## Authored banter layer (M6)
+## Authored banter layer
 
 `AiPlayerbot.LLMBanterEnabled` (default 1; the submenu's "Authored banter"
 toggle rides both conf blocks) gates the free, non-generated speech the
@@ -220,8 +218,8 @@ dormant banter corpora now perform:
 - **Trait seasoning** — `BuildPromptContext` gained two stable per-bot
   segments after the backstory (demeanor + habit from the GUID), so the
   model keeps the same voice the authored layer uses. This inserts a segment
-  → `POCKETREALM_LLAMA_PROMPT_FORMAT_VERSION` bumped 3→4 (warm slots
-  invalidated once).
+  → `POCKETREALM_LLAMA_PROMPT_FORMAT_VERSION` bumped 3→4 (warm prompt
+  slots invalidated).
 - **Kill quips** — a new `Unit::Kill` credit-block hook (`CORE_UNIT_KILL_*`)
   calls `OnPlayerGroupKill` on the world thread: ~4% of real-player group
   kills even roll, one bot speaks at most, the party-wide stagger is 8 min,
@@ -241,8 +239,8 @@ dormant banter corpora now perform:
 - **Busy pool** — the governor-busy placeholder draws from POOL_BUSY via the
   recency ring (`PlayerbotLlmPersona::BusyReply`) instead of the old global
   counter rotation, falling back to the `LLMBusyReply` conf line.
-- **Persona cells 2→12** — all twenty fallback cells grew an order of
-  magnitude; selection was already ring-based, so the cells were the limit.
+- **Persona cells 2→12** — each of the twenty fallback cells holds twelve
+  entries; selection is ring-based, so the cell size is the only cap.
 
 Expected cadence at full throttle: a couple of ambient lines per hour of
 active adventuring, never more than one per bot per 15 min, never more than
@@ -264,7 +262,7 @@ one quip per party per 8 min.
 | Loopback-only cleartext carve-out in the app network security config | the health probe is plain HTTP to 127.0.0.1; without it `healthy` is permanently false and every NPU exit is misattributed |
 | Restart backoff resets only on proven health; PSI protective stops restart only once pressure clears | a 1 s fork/die churn re-extracting DSP skels each cycle, and reloads that worsen the pressure that triggered the kill |
 
-### Death attribution (round 6 discipline)
+### NPU death attribution
 
 An exit of a never-healthy NPU child is classified by three signals in
 order of trust (`NpuDeathAttribution.classify`, the pure table the service's
@@ -319,8 +317,9 @@ reaps, stealing the exit status the attribution needs).
 
 ## Settings → runtime mapping
 
-The submenu has two tiers (2026-09-03): the **simple tier** is always
-visible — the Settings "AI bot LLM" card carries the master switch, and the
+The submenu has two tiers: the **simple tier** is always
+visible — the Settings "AI bot chat (experimental)" card (behind its
+Experimental AI bot chat gate switch) carries the master switch, and the
 submenu's Runtime (speech, source, banter, world chatter) and Model cards
 complete it. The **advanced tier** — Accelerator, Generation, Connection —
 sits behind the "Advanced engine settings" disclosure (`llmAdvanced`),
@@ -361,7 +360,7 @@ generated at world start); "Start now" applies immediately.
    SELinux-denied and the gate degrades (logged once) to probe-only,
    which accepts that a 200-answering local port squatter can flip
    `healthy` (bind-collision classification still keeps such exits
-   uncounted; see the accepted residuals in the continuation plan).
+   uncounted).
 2. Hybrid A/B against the reference numbers on the Qwen 0.8B-t Q4_0:
    decode ≈ 16.5 tok/s at 3×mid (0x38), 8.1 at 1×mid (cpu4); prefill
    ≈ 430-540 tok/s core-invariant. (The 5.0 @ 2×mid cell is a 4B-model
@@ -373,46 +372,3 @@ generated at world start); "Start now" applies immediately.
    re-extraction, and skel removal never reaches the counter at all).
 4. End-to-end: enable the runtime in the submenu, start a realm with a bot
    profile, verify bot speech through the HTTP path (conf block above).
-
-## Review convergence record (2026-08-29)
-
-The capped 10-scope review protocol (continuation-plan-llm-submenu-v2.md
-§2) is converged and closed:
-
-- **Round 12** (first capped dispatch): 9/10 scopes at zero; scope 3
-  confirmed one defect — the bench app's `isHealthy` derived value ignored
-  the 4 s stats-freshness gate, so a SIGKILL'd `:llm` process (which sends
-  no final ACTION_STATS) latched the Start button disabled and Chat/Bench
-  actions enabled against a dead port. Fixed same session
-  (`isHealthy = stats.running && stats.healthy && statsFresh`), plus a
-  zero-risk JMM hardening flagged by three scopes as non-blocking (the
-  ChatHttp deadline watchdog now disconnects through the `@Volatile conn`
-  field instead of the captured local).
-- **Round 13** (same 10 scopes re-dispatched): **all ten report
-  `ISSUE COUNT: 0`** — convergence per the plan's rule. Coverage note for
-  the record: round 13's scope 9 could not read the game-app tree, but
-  every line changed since its round-12 full pass lives in the bench app
-  (which it did review); the game-app surfaces it missed were re-reviewed
-  green by scopes 2, 5, and 6 in the same round.
-
-Rounds 12-13 also landed the four guard tests the plan required before
-convergence could be declared, each behind a small behavior-identical
-extraction: `ProcNetTcp.listenInodes` (pure /proc/net/tcp LISTEN-row
-parser + fixture test, module, mirrored to both copies),
-`ServerRuntimeFiles.llmOverrides` (pure tri-state conf gate + test),
-`LlmRuntimePolicy.runtimeConfig` (single-source Snapshot→runtime-config
-mapping used by BOTH the supervisor's pre-world-start launch and the
-submenu's Start-now button, + tests), and `BoundedInputStream` cap tests
-(new bench unit-test source set).
-
-Final verification state: module unit tests 12/12 in BOTH copies
-(NpuDeathAttributionTest 8 + ProcNetTcpTest 4); bench app 5/5; game app
-970 tests with exactly the 5 known pre-existing addon failures
-(AddonCatalogTest ×1, AndroidPortAssetTest ×4 — in-flight android-port
-work, not this feature); both APKs and all four custom build types
-assemble; lanes/impl-lib sha256/NSC/lane-leakage/config-cache/
-check_repo/mirror-re-simulation verified green twice (10/10 checks,
-rounds 12 and 13); module src byte-identical dev↔vendored.
-
-Next step: Phase 3 device validation (the "Pending on-device validation"
-list above; full runbook in the continuation plan §3) — user-gated.

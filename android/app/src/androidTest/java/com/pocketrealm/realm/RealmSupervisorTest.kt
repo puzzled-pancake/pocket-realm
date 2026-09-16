@@ -12,8 +12,8 @@ import org.junit.runner.RunWith
  * State-machine assertions for [RealmSupervisor]. These pin the legal-transition
  * table that the UI, notification, and (future) native lifecycle all rely on.
  *
- * They directly cover the supervisor contract and the lifecycle fix (that Saving
- * reaches Stopping rather than short-circuiting to Idle). No Android framework
+ * They directly cover the supervisor contract, including that Saving reaches
+ * Stopping rather than short-circuiting to Idle. No Android framework
  * state is touched: this is a pure model test.
  */
 @RunWith(AndroidJUnit4::class)
@@ -103,9 +103,9 @@ class RealmSupervisorTest {
     @Test
     fun full_round_trip_idle_starting_running_saving_stopping_idle() {
         // This is the core lifecycle the service drives, and it specifically
-        // proves the fix that made Saving -> Stopping -> Idle a legal route
-        // (previously saveExit() called markIdle() before stop, so requestStop
-        // rejected as already-Idle and Stopping was never observed).
+        // pins that Saving -> Stopping -> Idle is a legal route (requestStop
+        // from Saving drives Stopping rather than rejecting as already-Idle,
+        // so Stopping is observable on every save-exit).
         val s = RealmSupervisor()
         assertTrue(s.requestStart())
         assertTrue(s.state.value is RealmState.Starting)

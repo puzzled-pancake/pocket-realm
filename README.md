@@ -32,7 +32,10 @@ mainly on the SoC and its GPU, not on RAM:
 - **Qualcomm / Adreno** handhelds are the best bet. The game draws through
   DXVK over the device's Vulkan driver (the normal system route), and a
   packaged Turnip driver is available as an alternative, qualified so far
-  only on the Retroid Pocket 6's Adreno 740.
+  only on the Retroid Pocket 6's Adreno 740. You can also import your own
+  Mesa Turnip build — or pick from a list of known-good community builds —
+  in Settings; see
+  [Choosing a Vulkan driver](docs/wiki/Choosing-a-Vulkan-Driver.md).
 - **Mali GPUs** (MediaTek, Exynos, and similar SoCs) have not been tested.
   The system Vulkan route applies to them too (DXVK needs Vulkan 1.3, or
   1.1 with the compatibility package), but whether a particular Mali
@@ -114,7 +117,8 @@ What ships on Windows today:
 - The ported app screens: Home (realm control, local account, game-folder
   picker), Bots (population profiles, custom presets, admission tuning,
   per-preset AI speech), LLM (external OpenAI-compatible endpoint + cloud
-  conversation lane), Settings, Diagnostics (support bundles).
+  conversation lane; experimental, off by default), Settings, Diagnostics
+  (support bundles).
 - Data preparation from your installed client via
   `python tools/win_prepare_data.py` (dbc/maps/vmaps/mmaps), the packaged
   app image via `gradlew packageApp` (jpackage; app-local VC runtime,

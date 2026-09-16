@@ -50,7 +50,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * arrived once and in sequence. Also verifies Enter, Backspace, unsupported-char
  * rejection, no-duplicate-WM_CHAR, Shift-not-held, and final neutral state.
  *
- * Lane: AVD-Large-x86_64-v1 (physical AVD O11-Large-x86_64, emulator-5556).
+ * Lane: AVD-Large-x86_64-v1 (physical AVD O11-Large-x86_64).
  */
 @RunWith(AndroidJUnit4::class)
 class O14ImeTest {

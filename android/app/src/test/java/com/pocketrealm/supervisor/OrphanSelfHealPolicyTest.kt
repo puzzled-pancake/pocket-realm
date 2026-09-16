@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Host-JVM truth table for the F1 orphan self-heal decisions plus the
+ * Host-JVM truth table for the orphan self-heal decisions plus the
  * adoptOwner fresh-token factory hook. Pure logic: no Android classes.
  */
 class OrphanSelfHealPolicyTest {

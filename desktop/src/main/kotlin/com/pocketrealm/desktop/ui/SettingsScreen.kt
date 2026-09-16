@@ -24,10 +24,10 @@ import kotlinx.coroutines.launch
 import com.pocketrealm.desktop.DesktopAppModel
 
 /**
- * The Settings screen, Windows-relevant subset: the AI LLM pointer card,
+ * The Settings screen, Windows subset: the AI LLM pointer card,
  * the verbose world log toggle, auto-login, the update check, and the
- * provenance/about card (the Android renderer/display/input sections died
- * with the client stack).
+ * provenance/about card (the Android renderer/display/input sections are
+ * not carried over — the Windows client runs natively).
  */
 @Composable
 @Suppress("LongMethod")
@@ -44,15 +44,35 @@ fun SettingsScreen(model: DesktopAppModel, onOpenLlm: () -> Unit) {
     ) {
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("AI bot LLM", style = MaterialTheme.typography.titleMedium)
+                var showExperimentalLlm by remember { mutableStateOf(false) }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Switch(
+                        checked = showExperimentalLlm || settings.llmEnabled,
+                        onCheckedChange = { reveal ->
+                            showExperimentalLlm = reveal
+                            if (!reveal) {
+                                model.updateSettings { it.copy(llmEnabled = false) }
+                            }
+                        },
+                    )
+                    Text("Experimental AI bot chat", style = MaterialTheme.typography.titleMedium)
+                }
                 Text(
-                    "Playerbots speak through an external OpenAI-compatible server " +
-                        "(configured in the LLM destination). Off keeps bots silent. The switch " +
-                        "applies at the next realm start; authored banter and ambient chatter " +
-                        "have their own switches in the LLM destination.",
+                    "Letting bots speak through a language model is an experimental, " +
+                        "power-hungry feature and stays off unless you turn it on here. " +
+                        "Turning this switch off also silences bot chat.",
                     style = MaterialTheme.typography.bodySmall,
                 )
-                OutlinedButton(onClick = onOpenLlm) { Text("Configure AI bot LLM ->") }
+                if (showExperimentalLlm || settings.llmEnabled) {
+                    Text(
+                        "Playerbots speak through an external OpenAI-compatible server " +
+                            "(configured in the LLM destination). Off keeps bots silent. The switch " +
+                            "applies at the next realm start; authored banter and ambient chatter " +
+                            "have their own switches in the LLM destination.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    OutlinedButton(onClick = onOpenLlm) { Text("Configure AI bot LLM ->") }
+                }
             }
         }
         Card(modifier = Modifier.fillMaxWidth()) {

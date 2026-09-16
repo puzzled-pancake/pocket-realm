@@ -53,7 +53,7 @@ Java_com_pocketrealm_wine_WineSpikeNative_launchWineNative(
     return (jlong)pid;
 }
 
-/* S-5 extended launch: accepts an extra_env string for GLIBC_TUNABLES etc. */
+/* Extended launch: accepts an extra_env string for GLIBC_TUNABLES etc. */
 JNIEXPORT jlong JNICALL
 Java_com_pocketrealm_wine_WineSpikeNative_launchWineExNative(
         JNIEnv *env, jobject /*this*/,
@@ -128,7 +128,7 @@ Java_com_pocketrealm_wine_WineSpikeNative_materializePeCacheNative(
     return rc;
 }
 
-/* S-2 tree-aware materialize: also symlinks logical_path entries into the wine
+/* Tree-aware materialize: also symlinks logical_path entries into the wine
  * tree so Wine can find cached PE modules. */
 JNIEXPORT jint JNICALL
 Java_com_pocketrealm_wine_WineSpikeNative_materializePeCacheIntoTreeNative(
@@ -146,7 +146,7 @@ Java_com_pocketrealm_wine_WineSpikeNative_materializePeCacheIntoTreeNative(
     return rc;
 }
 
-/* S-2 mismatch-repair: resolve the cache path for a PE module asset basename. */
+/* Mismatch repair: resolve the cache path for a PE module asset basename. */
 JNIEXPORT jstring JNICALL
 Java_com_pocketrealm_wine_WineSpikeNative_resolveCachePathNative(
         JNIEnv *env, jobject /*this*/,
@@ -181,7 +181,7 @@ Java_com_pocketrealm_wine_WineSpikeNative_errStrNative(
     return env->NewStringUTF(wine_spike_err_str(jCode));
 }
 
-/* S-5(0): SIGSYS diagnostic. Returns a structured string capturing the ptrace
+/* SIGSYS diagnostic. Returns a structured string capturing the ptrace
  * result so the Kotlin runner can classify the cause without assuming SELinux.
  * Format:
  *   "OK|exit=N|sig=N|si_code=N|syscall=M|name=rseq|arch=0xc|cause=C"
@@ -222,7 +222,7 @@ Java_com_pocketrealm_wine_WineSpikeNative_diagSigsysNative(
     return env->NewStringUTF(out);
 }
 
-/* S-5(a): launch Wine via the APK-packaged Bionic trampoline PIE. Returns the
+/* Launch Wine via the APK-packaged Bionic trampoline PIE. Returns the
  * trampoline-launched child PID, or -1 on failure. */
 JNIEXPORT jlong JNICALL
 Java_com_pocketrealm_wine_WineSpikeNative_launchWineViaTrampolineNative(
@@ -246,7 +246,7 @@ Java_com_pocketrealm_wine_WineSpikeNative_launchWineViaTrampolineNative(
     return (jlong)pid;
 }
 
-/* S-5(a) extended: trampoline launch with extra_env (GLIBC_TUNABLES etc.). */
+/* Trampoline launch with extra_env (GLIBC_TUNABLES etc.). */
 JNIEXPORT jlong JNICALL
 Java_com_pocketrealm_wine_WineSpikeNative_launchWineViaTrampolineExNative(
         JNIEnv *env, jobject /*this*/,
@@ -271,7 +271,7 @@ Java_com_pocketrealm_wine_WineSpikeNative_launchWineViaTrampolineExNative(
     return (jlong)pid;
 }
 
-/* S-5(b): launch Wine via proot (syscall interception). Returns the proot
+/* Launch Wine via proot (syscall interception). Returns the proot
  * process PID, or -1 on failure. Wine/wineserver run as proot's traced children. */
 JNIEXPORT jlong JNICALL
 Java_com_pocketrealm_wine_WineSpikeNative_launchWineViaProotNative(
@@ -297,7 +297,7 @@ Java_com_pocketrealm_wine_WineSpikeNative_launchWineViaProotNative(
     return (jlong)pid;
 }
 
-/* S-1/S-2 synchronous proot run with logical argv[0] + recursive descendant
+/* Synchronous proot run with logical argv[0] + recursive descendant
  * /proc maps proof. Returns a structured result the Kotlin runner parses:
  *
  *   "EXIT=<int>|TIMED_OUT=<0|1>|DESCS=<n>\n<desc lines>\n@@@STDOUT@@@\n<stdout>\n@@@STDERR@@@\n<stderr>"
@@ -305,7 +305,7 @@ Java_com_pocketrealm_wine_WineSpikeNative_launchWineViaProotNative(
  * Each desc line (one per descendant):
  *   "  pid=<ll>|ppid=<ll>|comm=<s>|maps=<proof>|cmdline=<s>"
  *
- * This is the corrected launcher: argv[0] is preserved via glibc-loader --argv0,
+ * argv[0] is preserved via glibc-loader --argv0,
  * and the run waits for completion (or timeout_ms) capturing stdout/stderr +
  * every descendant's /proc/<pid>/maps proof. On timeout the whole tree is killed.
  */

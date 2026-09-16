@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Merge <longPathAware>true</longPathAware> into a PE's RT_MANIFEST.
 
-The qualification plan's longPathAware deliverable for the Windows app
-image. mt.exe -outputresource proved unusable on the dev box (silently
+mt.exe -outputresource proved unusable for this (silently
 no-ops or fails with `general error c101008d ... Access is denied` on the
 \\\\?\\-prefixed path it builds), so this helper does the same job through
 kernel32's BeginUpdateResourceW/UpdateResourceW/EndUpdateResourceW via

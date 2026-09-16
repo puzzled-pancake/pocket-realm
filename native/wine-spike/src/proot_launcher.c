@@ -1,11 +1,11 @@
 /*
  * native/wine-spike/src/proot_launcher.c
  *
- * S-5(b): proot fallback launch path.
+ * proot fallback launch path.
  *
- * The S-1 diagnostic PROVED the direct glibc-loader invocation is killed by
+ * The direct glibc-loader invocation is killed by
  * Android's untrusted_app seccomp filter on syscall 21 (access), si_code=1
- * (SYS_SECCOMP). The S-5(a) Bionic trampoline hit the identical trap. No
+ * (SYS_SECCOMP); the Bionic trampoline hits the identical trap. No
  * GLIBC_TUNABLES suppresses the loader's access() probing.
  *
  * proot (termux/proot@a89b3732, built Bionic/PIE) runs in the Android/Bionic
@@ -17,7 +17,7 @@
  * CRITICAL: proot does NOT replace the effective loader. The traced child still
  * execve's the APK-managed glibc loader as its effective loader — proot just
  * intercepts syscalls. So /proc/<pid>/maps still shows libld_linux_x86_64.so
- * from nativeLibraryDir as the loader, satisfying S-1's acceptance criterion.
+ * from nativeLibraryDir as the loader, which is what the loader probe verifies.
  *
  * proot is itself an APK-managed ELF (libproot.so, a PIE program despite the
  * .so name). It depends on libtalloc.so (also APK-managed). We set
@@ -26,8 +26,8 @@
  * The /tmp blocker: wineserver hardcodes /tmp/.wine-<uid> for its socket, which
  * is not writable on Android. proot's -b (bind) flag maps a path inside the
  * traced child's namespace: `-b <app_tmp>:/tmp` makes the child's /tmp resolve
- * to the app's writable filesDir/runtime/tmp. This is the namespace mechanism
- * for the /tmp path (TMPDIR alone does not change wineserver's hardcoded path).
+ * to the app's writable filesDir/runtime/tmp. This is the /tmp fix
+ * (TMPDIR alone does not change wineserver's hardcoded path).
  */
 #include "wine_spike.h"
 
@@ -228,14 +228,14 @@ int wine_spike_launch_wine_via_proot(const char *native_dir,
     envp[ei++] = "WINEDEBUG=-all";
     /* LD_DEBUG=libs inside the traced child: proot passes env through, so the
      * glibc loader's library-resolution output still appears on stderr. This is
-     * the S-1 proof for the proot path. */
+     * the loader proof for the proot path. */
     envp[ei++] = "LD_DEBUG=libs";
     if (display && *display) {
         static char env_display[256];
         snprintf(env_display, sizeof(env_display), "DISPLAY=%s", display);
         envp[ei++] = env_display;
     }
-    /* Optional extra env (S-5 tunables etc.). Copied into a stable buffer. */
+    /* Optional extra env (GLIBC_TUNABLES etc.). Copied into a stable buffer. */
     char extra_slots[1024];
     if (extra_env && *extra_env) {
         size_t len = strlen(extra_env);

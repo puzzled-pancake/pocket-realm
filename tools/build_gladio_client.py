@@ -57,7 +57,8 @@ TARGET_MACHINE = 62  # EM_X86_64
 TARGET_COMPILER = "gcc"
 TARGET_LOADER = "ld-linux-x86-64.so.2"
 TARGET_EXPECTED_SHA256 = "7b60dafa5e071e11187c0936840201920e141160f0897609ce530cb6f69b60b6"
-# Phase-2 client corrections from the external Gladio/WoW research pass:
+# Client corrections from the external Gladio/WoW research pass
+# (carried by gladio-phase2-gl_calls.patch):
 # spec-exact integer color/normal/secondary-color normalization
 # ((2c+1)/(2^b-1) signed, c/(2^b-1) unsigned), client-active-texture fixes for
 # glMultiTexCoordPointerEXT and the (previously stubbed) indexed client-state
@@ -74,8 +75,9 @@ PHASE2_GL_CALLS_SHA256 = "7e1f99d3f1ed98086cd679aba216e8694e197b9502a29d9af89411
 # calls at most once per name.
 PHASE3_PATCH = ROOT / "tools" / "patches" / "gladio-wow-texgen-gl_calls.patch"
 PHASE3_GL_CALLS_SHA256 = "614693d16ae2cc20c5d78c6ed4073172124b3d05580ac934d1ac9c93266296f9"
-# Phase-4 production transport corrections from the external Phase-2
-# engineering pass (validated against the exact deployed v5 sources):
+# Production transport corrections from the external engineering pass
+# (carried by gladio-phase4-transport.patch, validated against the exact
+# deployed v5 sources):
 # atomic three-part client publication (header/payload/trailing bytes) via
 # RingBuffer_writeParts so a request is never partially visible, client ring
 # hardening (RingBuffer_create now stores the sharedData mapping, power-of-two
@@ -509,7 +511,7 @@ static inline int computeTexImageDataSpan(
         raise RuntimeError("pinned Gladio BGRA pointer anchor missing or ambiguous")
     calls.write_text(text.replace(old, new), encoding="utf-8", newline="\n")
 
-    # Phase-2 research corrections (see PHASE2_PATCH): applied after the
+    # Research corrections (see PHASE2_PATCH): applied after the
     # pixel-store/BGRA edits above so the unified diff context matches the
     # generated tree exactly; fail closed on any drift from the expected
     # post-patch content.
@@ -521,7 +523,7 @@ static inline int computeTexImageDataSpan(
         patched_sha256 = sha256(calls)
         if patched_sha256 != PHASE2_GL_CALLS_SHA256:
             raise RuntimeError(
-                "Gladio phase-2 gl_calls.c drift: "
+                "Gladio gl_calls.c drift (phase2 patch): "
                 f"{patched_sha256} != {PHASE2_GL_CALLS_SHA256}"
             )
         subprocess.run(
@@ -531,7 +533,7 @@ static inline int computeTexImageDataSpan(
         patched_sha256 = sha256(calls)
         if patched_sha256 != PHASE3_GL_CALLS_SHA256:
             raise RuntimeError(
-                "Gladio phase-3 gl_calls.c drift: "
+                "Gladio gl_calls.c drift (phase3 patch): "
                 f"{patched_sha256} != {PHASE3_GL_CALLS_SHA256}"
             )
 
@@ -648,7 +650,7 @@ void writeUnboundVertexArrays(GLint first, GLsizei count, const void* indices,
 """
     source.write_text(text[:start] + new + text[end:], encoding="utf-8", newline="\n")
 
-    # Phase-4 production transport corrections (see PHASE4_PATCH): applied
+    # Production transport corrections (see PHASE4_PATCH): applied
     # after every anchored text edit above so the unified diff context matches
     # the generated tree exactly; fail closed on drift in any touched file.
     if TARGET_ABI != "x86_64":
@@ -660,7 +662,7 @@ void writeUnboundVertexArrays(GLint first, GLsizei count, const void* indices,
             got = sha256(SOURCE_TREE / rel)
             if got != expected:
                 raise RuntimeError(
-                    f"Gladio phase-4 drift in {rel}: {got} != {expected}"
+                    f"Gladio drift in {rel} (phase4 transport patch): {got} != {expected}"
                 )
 
 
@@ -839,7 +841,7 @@ def verify() -> dict[str, object]:
             "compressed payload sizes remain explicit and pixel-store independent."
         )
         provenance["adaptations"].append(
-            "Phase-2 WoW 1.12.1 research corrections: OpenGL 2.1 table 2.9 "
+            "WoW 1.12.1 research corrections (phase2 patch): OpenGL 2.1 table 2.9 "
             "signed/unsigned integer color/normal/secondary-color "
             "normalization, client-active-texture unit selection for "
             "glMultiTexCoordPointerEXT and indexed client-state enables, "

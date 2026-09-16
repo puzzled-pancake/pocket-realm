@@ -59,8 +59,8 @@ def test_arm_only_build_and_runtime_have_no_renderer_fallback():
     service = text(
         "android/app/src/main/java/com/pocketrealm/client/ClientRuntimeService.kt"
     )
-    # The session env literals live in ArmSessionEnvironment since the
-    # Phase-0 extraction; the service must keep wiring them into the Box64
+    # The session env literals live in ArmSessionEnvironment; the service
+    # must keep wiring them into the Box64
     # session env with no renderer fallback.
     session_env = text(
         "android/app/src/main/java/com/pocketrealm/client/ArmSessionEnvironment.kt"

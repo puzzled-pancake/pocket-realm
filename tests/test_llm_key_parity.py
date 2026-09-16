@@ -1,19 +1,19 @@
-"""T0.5 key-parity gate (plan v2.3 s10 T0.5; round-1 R5#1 authored it).
+"""Conf key-parity gate.
 
 The law: every ``AiPlayerbot.*`` conf key the driver registers/consumes
 appears in the Kotlin emission surface, or is a DOCUMENTED conf-internal
-key (the s0.12 rationale: engine-health knobs with safe native defaults;
+key (engine-health knobs with safe native defaults;
 the LLM screen exposes only the Cloud conversation toggle) - and every
-Kotlin-emitted key of this run's LLM family has a native consumer
+Kotlin-emitted key of the LLM family has a native consumer
 (driver payload or pristine submodule read), so no emission can orphan.
 
 Three legs:
-  1. the A0.a cloud-lane family (nine keys) is emitted WHOLE by
+  1. the cloud-lane family (nine keys) is emitted WHOLE by
      CloudLaneConf - the group may not silently drop a member;
   2. the conf-internal exception set is FROZEN: a driver key missing
      from the Kotlin surface fails here until its author either emits
      it or documents it in CONF_INTERNAL_KEYS (a deliberate act, with
-     the s0.12 rationale recorded);
+     the rationale recorded);
   3. no orphan LLM-family emission: every Kotlin ``AiPlayerbot.LLM*``
      literal resolves to a driver-registered key, a pristine submodule
      read, or a documented dynamic-prefix family.
@@ -30,7 +30,7 @@ KOTLIN_SRC = ROOT / "android" / "app" / "src" / "main" / "java"
 CLOUD_LANE_CONF = KOTLIN_SRC / "com" / "pocketrealm" / "server" / "CloudLaneConf.kt"
 PRISTINE_PLAYERBOTS = ROOT / "native" / "playerbots" / "playerbot"
 
-# The A0.a WS-A cloud-lane family - the emission group carries all nine.
+# The cloud-lane emission family - the emission group carries all nine.
 CLOUD_LANE_FAMILY = (
     "LLMCloudChatter",
     "LLMPartyReplyEnabled",
@@ -43,12 +43,12 @@ CLOUD_LANE_FAMILY = (
     "LLMDialogueFastLane",
 )
 
-# The frozen conf-internal set (s0.12 rationale per key class): these
+# The frozen conf-internal set (rationale per key class): these
 # driver-registered keys are deliberately NOT app-emitted. Adding a key
 # here is a deliberate act - cite the rationale. Everything else the
 # driver registers must reach the Kotlin surface.
 CONF_INTERNAL_KEYS = frozenset({
-    # WS-C memory knobs (facts/dossier/recap/saga/roundtable/truth) -
+    # Memory knobs (facts/dossier/recap/saga/roundtable/truth) -
     # conf-internal, no UI surface by design (interpretation ii)
     "LLMDossierEnabled", "LLMDossierPerDay", "LLMRecapEnabled",
     "LLMRecapProse", "LLMRecapProsePerDay", "LLMSagaEnabled",

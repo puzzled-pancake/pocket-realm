@@ -1,7 +1,7 @@
 /*
  * native/wine-spike/trampoline/wine_trampoline.c
  *
- * S-5(a) Bionic trampoline PIE.
+ * Bionic trampoline PIE.
  *
  * This is a STANDALONE Android/Bionic executable (not a shared library), built
  * with the NDK as a PIE program. It is packaged into the APK as

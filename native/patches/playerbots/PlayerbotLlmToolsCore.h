@@ -726,7 +726,7 @@ inline ConversationalBeat SelectConversationalBeat(std::string const& msg)
 // max new tokens clears the long bank (150 words ~= 225 tokens at the
 // measured ~1.5 tok/word) may carry cue-bearing tellings; short tiers
 // never see the cue and never earn the wider reply budget below.
-// Phase-3 longForm dial (0-100, 50 = default, >100 = follow): 0 raises
+// The longForm dial (0-100, 50 = default, >100 = follow): 0 raises
 // the bar to 300 tokens (short-model discipline), 100 lowers it to 150
 // (storytelling presets on capable tiers). The token floor is absolute:
 // no dial can license long-form below 150 tokens.

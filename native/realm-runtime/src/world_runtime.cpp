@@ -61,11 +61,11 @@ public:
             // One world lifetime per process: after a successful boot the
             // embedded cmangos lane cannot be re-initialized in place (the
             // second boot freezes inside its first World::Update ticks and
-            // the teardown-while-hung then crashes the host JVM - see the
-            // windows-port review-fix PLAN-LOG entry). Android never rides
-            // this path (a failed FIRST boot may still be retried below);
-            // refuse honestly instead of hanging the process for 30 s and
-            // dying. Restart the app process for another world lifetime.
+            // the teardown-while-hung then crashes the host JVM). Android
+            // never rides this path (a failed FIRST boot may still be
+            // retried below); refuse honestly instead of hanging the
+            // process for 30 s and dying. Restart the app process for
+            // another world lifetime.
             fail(POCKET_SERVER_WRONG_STATE,
                  "in-process world restart is not supported: a world that "
                  "reached READY once needs a fresh process for its next "
@@ -124,16 +124,16 @@ public:
         m_state.transition(POCKET_SERVER_STARTING);
         m_worker = std::thread([this, config] { run(config); });
         guard.unlock();
-        // Honest spawn verdict (the stack-up-bot composite lesson): the
+        // Honest spawn verdict: the
         // boot's early legs - config reject, database connect/revision,
         // the bot-lane arming below - settle or fail within seconds, and
-        // the blanket OK this function used to return let the caller
+        // a blanket OK here would let the caller
         // report success over a world that failed (or came up with the
         // bot lane dark) a moment later. Wait for that verdict with the
         // lifecycle lock released (stop() and a second start() must stay
         // live), then report the real outcome: the worker's error code
         // on FAILED, OK on READY. A boot still STARTING at the deadline
-        // keeps the old async contract - OK plus the caller's status
+        // keeps the async contract - OK plus the caller's status
         // polling - so slow devices see exactly the response they always
         // did; only settled failures change what start() says.
         const uint64_t deadline = pocket_server::monotonic_ms() + START_VERDICT_TIMEOUT_MS;
@@ -777,8 +777,8 @@ public:
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         if (m_state.state() == POCKET_SERVER_FAILED)
         {
-            // A FAILED worker completed on its own (this used to be
-            // conflated with a wedge TIMEOUT): join it and finish the stop.
+            // A FAILED worker completed on its own (distinct from
+            // a wedge TIMEOUT): join it and finish the stop.
             // Same bound as the entry branch - FAILED means fail() ran but
             // the worker can still be inside cleanup()'s world-thread join.
             std::lock_guard<std::mutex> guard(m_lifecycle);
@@ -802,8 +802,8 @@ public:
         }
         if (m_state.state() != POCKET_SERVER_STOPPED)
         {
-            // Wedged teardown: the old code leaked the joinable
-            // worker forever AND reported TIMEOUT identically to a clean
+            // Wedged teardown: leaving the joinable
+            // worker would leak it forever AND report TIMEOUT identically to a clean
             // failure. Detach with a loud record so the caller sees the wedge;
             // the worker thread dies with the :world process at service exit.
             std::lock_guard<std::mutex> guard(m_lifecycle);
@@ -861,8 +861,8 @@ public:
         if (duration > 1000)
         {
             m_hard_stall_total.fetch_add(1, std::memory_order_relaxed);
-            // Store the elapsed duration (this previously stored a
-            // monotonic TIMESTAMP into a field named *_elapsed_ms).
+            // Store the elapsed DURATION (the field is named
+            // *_elapsed_ms and must not carry a monotonic timestamp).
             m_last_hard_stall_elapsed_ms.store(duration, std::memory_order_release);
             if (m_consecutive_hard_stalls.fetch_add(1, std::memory_order_relaxed) + 1 >=
                     HARD_STALL_FAIL_STREAK)
@@ -1028,8 +1028,7 @@ private:
             }
             else if (configured_bot_target > 0)
             {
-                // Only a bot-profile start (world-start-bot / the
-                // stack-up-bot composite) carries a nonzero
+                // Only a bot-profile start (world-start-bot) carries a nonzero
                 // PocketRealm.BotTarget - plain and integrated app boots
                 // write the disabled conf with target 0 and must stay OK
                 // with the lane dark. If a bot-profile conf did not arm
@@ -1071,9 +1070,9 @@ private:
                 cleanup();  // early fails skipped teardown
                 return;
             }
-            // HONEST READY (boot-race crash): the listener accepting a
-            // socket is not the world being live, and READY used to fire
-            // before the loop's first World::Update completed - every
+            // HONEST READY: the listener accepting a
+            // socket is not the world being live, so READY must not fire
+            // before the loop's first World::Update completes - every
             // consumer that obeys READY (the app play flow, the harness)
             // could put a session into the fragile boot window. The
             // authoritative gate lives inside StartNetworkEmbedded (no

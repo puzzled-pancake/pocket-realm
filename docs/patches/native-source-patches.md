@@ -143,7 +143,7 @@ flags so a second realm generation can start in the same process.
 **Why:** the world stop gate is static; after a cooperative stop it stays set
 and a second `WorldRunnable` loop would exit immediately. Resetting it (called
 at the end of `StopEmbedded`) enables the in-process re-entrancy the
-library-lane acceptance criterion requires ("twice in one process").
+library lane requires (two realm generations in one process).
 
 ### cmangos — `src/mangosd/Main.cpp` gate `main()`
 
@@ -212,8 +212,8 @@ exact CMaNGOS commit into an ignored build tree, applies the hash-pinned patch,
 then builds the four Android x86_64 extractor PIEs.
 
 **Why:** upstream allocated exactly the listfile's unpacked size and passed the
-non-NUL-terminated bytes to `strtok`. The real build-5875 VMAP run reached an
-Android page boundary and crashed at `mpq_libmpq04.h:67` with SIGSEGV. The
+non-NUL-terminated bytes to `strtok`. A real build-5875 VMAP extraction reaches
+an Android page boundary and crashes at `mpq_libmpq04.h:67` with SIGSEGV. The
 bounded parser completed the same read-only client extraction and also removes
 the corresponding latent defect from the DBC/map extractor.
 
@@ -231,7 +231,7 @@ the world process; the distinct error strings keep overlay cleanup symmetric.
 **Why:** the fatal precondition is safe only when every enterable map ships a
 navmesh header. A bot entering Uldaman (map 070, WMO-only, no ADT terrain)
 after the import mmap stage skipped it killed `com.pocketrealm:world` with SIGABRT
-at `MoveMap.cpp:202` (tombstone 2026-08-16 15:10). The companion import fix
+at `MoveMap.cpp:202`. The companion import fix
 derives the generation map list from `maps/*.map` union `vmaps/*.vmtree` so
 WMO-only dungeons generate real navmeshes; these guards make any residual gap
 (corrupted or deleted content) degrade instead of kill. The `loadMap` anchor

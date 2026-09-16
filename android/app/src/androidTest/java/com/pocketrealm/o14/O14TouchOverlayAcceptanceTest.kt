@@ -262,8 +262,8 @@ class O14TouchOverlayAcceptanceTest {
             host!!.activeProfile.overlayClusterPositions.containsKey(com.pocketrealm.client.OverlayClusterId.FACE)
         }
         // Drag the drawer itself into the bottom-right corner; the drop clamp
-        // pins it using the COLLAPSED size, which is exactly the state where
-        // expanding used to push the whole menu off screen.
+        // pins it using the COLLAPSED size, and the expanded menu must still
+        // fit on screen at that anchor.
         compose.onNodeWithTag("touch-utility-drawer").performTouchInput {
             swipe(center, center + androidx.compose.ui.geometry.Offset(400f, 800f), 400)
         }

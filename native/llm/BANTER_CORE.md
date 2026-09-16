@@ -3,17 +3,15 @@
 The deterministic voice under the playerbot LLM companion. Lives in
 `native/patches/playerbots/llm_banter_core.h` (pure, header-only, C++11,
 no Player/DB/globals), consumed by `PlayerbotLlmPersona.cpp` and proven on
-the host by the battery below. Spawned from a four-agent creative audit
-(2026-08-22): repetition audit, surprise design, tool architecture, test
-architecture.
+the host by the battery below.
 
 ## Why it exists
 
-Players run 1000+ hours; a veteran must still be surprised. The audit
-found the old persona path rotated TWO variants per cell off a GLOBAL
-atomic — the same bot could repeat the same line on consecutive triggers,
-every bot shared one counter, and nothing differentiated bot #47 from
-bot #12. The core replaces that with:
+Players run 1000+ hours; a veteran must still be surprised. A plain
+rotation of two variants per cell off a single global atomic would let the
+same bot repeat the same line on consecutive triggers, share one counter
+across every bot, and never differentiate bot #47 from bot #12. The core
+instead provides:
 
 - **Selection engine** (`SelectLine`): per-(bot, audience, category)
   novelty-weighted draws over a 16-slot recency ring. A line cannot return
@@ -70,23 +68,21 @@ categories in-game: keep passing `nowMs` from the caller for cooldowns;
 `0` disables them. Any deliberate change to pools or selection updates the
 golden pin in the same commit — the battery fails otherwise, by design.
 
-## Next steps (status 2026-09-03: Phases 3-5 landed)
+## Coverage
 
-1. ~~Grow persona improv cells from 2 to 12+ lines/cell~~ DONE (Phase-5):
-   mood pools 6→12 lines each, busy 6→12, wildcard 10→16. Persona hard
-   cells were already 12/cell; the ambient pools were the limit.
-2. ~~Moods: engine-side entry/exit rules + mood-segment~~ DONE (Phase-3):
-   GUID-stable weather (hourly bucket + event nudges) with 8 moods,
-   volatility-scaled ambient weights, one seasoning line in the system
-   prompt's instruction span (no new segment, no format bump).
-3. ~~Counters + first-meeting/anniversary facts~~ DONE (Phase-4):
-   counter escalation on the Nth telling (retire at 5), anniversaries
-   from oldest-fact created_at (30/100/365, journal-visible), tier beats
-   (vouch/bickering, journal-visible).
-4. ~~Rumor mill with mutation~~ DONE (Phase-4): deterministic
-   DistortGossipHop per hop (cap 3, originator verbatim) with POI-biased
-   sampling (place-named rows travel farther).
-5. Wildcard events roller (dares, campfire stories, bets on loot) —
-   pools exist (DARE/BET/SUPERSTITION/NAMING), still no game-side caller.
-6. Cadence AFTER corpus (Phase-5): murmur 20-40s, party 6min@50%,
-   global 45min — the silence doctrine holds (no fact row, no line).
+- Persona mood pools carry 12 lines each (busy included); the wildcard
+  bank carries 16.
+- Moods: GUID-stable weather (hourly bucket + event nudges) with 8 moods,
+  volatility-scaled ambient weights, one seasoning line in the system
+  prompt's instruction span (no new segment, no format bump).
+- Counters + first-meeting/anniversary facts: counter escalation on the
+  Nth telling (retire at 5), anniversaries from oldest-fact created_at
+  (30/100/365, journal-visible), tier beats (vouch/bickering,
+  journal-visible).
+- Rumor mill with mutation: deterministic DistortGossipHop per hop
+  (cap 3, originator verbatim) with POI-biased sampling (place-named
+  rows travel farther).
+- Open ends: the wildcard events roller pools (DARE/BET/SUPERSTITION/
+  NAMING) exist with no game-side caller yet; cadence stays at murmur
+  20-40s, party 6min@50%, global 45min — the silence doctrine holds
+  (no fact row, no line).

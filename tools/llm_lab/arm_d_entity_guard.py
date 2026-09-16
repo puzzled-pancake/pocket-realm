@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Arm D: bridge-side entity-guard directive vs invented-name confabulation.
+"""Bridge-side entity-guard directive vs invented-name confabulation.
 
 Simulates the production bridge guard: when the player's message names an
 entity the world DB does not know, the bridge injects a directive note
 (compose(extra=...)) telling the character they have never heard of it.
-Scored against the same 6 invented probes as S3.
+Scored against the same 6 invented probes as the hallucination section.
 
 Also re-runs e2b-base with its MAKER sampling (t1.0/p0.95/k64) because the
 main battery tested it at the tuned profile only.

@@ -1,7 +1,7 @@
 package com.pocketrealm.importer
 
 /**
- * F8 B: user-visible watchdog wording keyed on the OS-recorded death reason
+ * User-visible watchdog wording keyed on the OS-recorded death reason
  * (ImportProcessMetricsSampler reason tokens). Pure functions so the copy is
  * unit-testable. During a lowmemorykiller storm the honest advice is "close
  * other apps", never just "tap Resume".

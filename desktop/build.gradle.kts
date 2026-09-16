@@ -1,8 +1,8 @@
 /*
  * Pocket Realm desktop (Windows) build.
  *
- * Coexistence contract with the Android app (see the approved Windows-port
- * plan): shared domain sources are NOT copied or moved — they are compiled
+ * Coexistence contract with the Android app: shared domain sources are NOT
+ * copied or moved — they are compiled
  * straight from the Android app tree, restricted to the pinned file list in
  * shared-sources.json (enforced android-free by
  * tests/test_desktop_shared_manifest.py). Desktop twins for Android-coupled
@@ -71,6 +71,11 @@ tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileTestKotlin"
 detekt {
     buildUponDefaultConfig = true
     config.setFrom("detekt.yml")
+    // Baselines the known RP-harness debt (RpHost/RpWowClient stdio host:
+    // oversized main, magic-number protocol constants). New issues still
+    // fail the build; retire entries by fixing the code, not by growing
+    // this file.
+    baseline = file("detekt-baseline.xml")
     // Desktop-owned main AND test sources. Shared android-tree files are
     // detekt-gated by the Android build (:app:detekt, with its baseline);
     // each file is linted by exactly one build — desktop tests are owned
@@ -125,7 +130,7 @@ tasks.register<JavaExec>("supervisorStartGate") {
     jvmArgs("-Djava.library.path=$nativeLibraryPath")
 }
 
-// Phase-3 bring-up: seed the four realm databases from the pinned
+// Bring-up: seed the four realm databases from the pinned
 // transcripts into %LOCALAPPDATA% (see SeedRealmData.kt).
 tasks.register<JavaExec>("seedRealmData") {
     group = "bring-up"
@@ -138,7 +143,7 @@ tasks.register<JavaExec>("seedRealmData") {
     }
 }
 
-// Phase-3 gate: boot realmd in-process, prove 127.0.0.1:3724 accepts a
+// Gate: boot realmd in-process, prove 127.0.0.1:3724 accepts a
 // connection, stop cleanly (see BootRealmd.kt).
 tasks.register<JavaExec>("bootRealmd") {
     group = "bring-up"
@@ -157,7 +162,7 @@ tasks.register<JavaExec>("realmdHold") {
     jvmArgs("-Djava.library.path=$nativeLibraryPath")
 }
 
-// Phase-3 gate: protocol-level SRP6 authentication against the live
+// Gate: protocol-level SRP6 authentication against the live
 // realmd (verifier row seeded directly into classicrealmd.sqlite).
 tasks.register<JavaExec>("authGate") {
     group = "bring-up"
@@ -166,7 +171,7 @@ tasks.register<JavaExec>("authGate") {
     mainClass.set("com.pocketrealm.desktop.AuthGateKt")
     jvmArgs("-Djava.library.path=$nativeLibraryPath")
 }
-// Phase-4 gate: full world boot against the prepared data (run
+// Gate: full world boot against the prepared data (run
 // tools/win_prepare_data.py first), 8085 listener + clean save/stop.
 tasks.register<JavaExec>("bootWorld") {
     group = "bring-up"
@@ -175,7 +180,7 @@ tasks.register<JavaExec>("bootWorld") {
     mainClass.set("com.pocketrealm.desktop.BootWorldKt")
     jvmArgs("-Djava.library.path=$nativeLibraryPath")
 }
-// Phase-4d bring-up: boot the full stack + launch WoW.exe against it
+// Bring-up: boot the full stack + launch WoW.exe against it
 // (interactive; press Enter in the console to save + stop).
 tasks.register<JavaExec>("launchClient") {
     group = "bring-up"
@@ -189,7 +194,7 @@ tasks.register<JavaExec>("launchClient") {
     }
 }
 
-// Phase-5 gate: the world-chat injection bridge surface (honest
+// Gate: the world-chat injection bridge surface (honest
 // failures without a client; the conversational half is interactive).
 tasks.register<JavaExec>("whisperGate") {
     group = "bring-up"
@@ -227,7 +232,7 @@ tasks.register<JavaExec>("rpHost") {
     }
 }
 
-// Phase-6 packaging: jpackage app image carrying the native lanes
+// Packaging: jpackage app image carrying the native lanes
 // (realm DLLs + sqlite seam), the pinned seed transcripts, and the
 // build provenance. Inputs are machine-local build outputs — the task
 // skips honestly (not fails) when the native lanes have not been built.

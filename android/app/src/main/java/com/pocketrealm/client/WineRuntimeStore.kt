@@ -2092,7 +2092,7 @@ internal class WineRuntimeStore(private val context: Context) {
     }
 
     /**
-     * F3e one-time interface defaults: the first prepare after the account
+     * One-time interface defaults: the first prepare after the account
      * exists but has never logged in (SavedVariables absent) seeds the
      * account-level uvars — instant quest text, target-of-target, enemy
      * nameplates, floating combat text, newbie tooltips off, automatic quest

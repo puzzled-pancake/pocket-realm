@@ -206,7 +206,7 @@ class ImportWorkerService : Service() {
         )
     }
 
-    /** F8 C: data-stage ticks fire once a second; throttle notification work. */
+    /** Data-stage ticks fire once a second; throttle notification work. */
     private fun notifyDataStageTick(importer: ManagedClientImporter) {
         val now = android.os.SystemClock.elapsedRealtime()
         if (now - lastDataNotifyMs < DATA_NOTIFY_INTERVAL_MS) return
@@ -217,9 +217,9 @@ class ImportWorkerService : Service() {
     private var lastDataNotifyMs = 0L
 
     /**
-     * F8 C: the notification previously froze on the last copied MPQ for the
-     * entire (many-minute) server-data phase. Prefer the running data stage;
-     * fall back to the copy-phase file counter.
+     * Without the data-stage preference the notification would freeze on the
+     * last copied MPQ for the entire (many-minute) server-data phase. Prefer
+     * the running data stage; fall back to the copy-phase file counter.
      */
     private fun updateNotification(importer: ManagedClientImporter, failureMessage: String? = null) {
         val status = importer.status()

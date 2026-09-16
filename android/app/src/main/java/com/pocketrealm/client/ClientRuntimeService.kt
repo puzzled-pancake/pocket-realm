@@ -477,7 +477,7 @@ class ClientRuntimeService : Service() {
                         .put("processTreeDrained", true)
                 // A finished session record lingers until the next launch;
                 // the prepared-ticket truth must come from the field, not
-                // the session payload (plan 5.3's stopped-check).
+                // the session payload.
             }.put("preparedTicket", synchronized(lock) { prepared != null })
             value.put("prepareInFlight", prepareInFlight)
             ownership.decorate(value)

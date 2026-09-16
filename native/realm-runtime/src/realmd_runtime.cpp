@@ -89,8 +89,8 @@ public:
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         if (m_state.state() == POCKET_SERVER_FAILED)
         {
-            // The worker failed during shutdown (previously conflated
-            // with a wedge timeout). Join outside the lock, then finish.
+            // The worker failed during shutdown (distinct from
+            // a wedge timeout). Join outside the lock, then finish.
             if (m_worker.joinable()) m_worker.join();
             cleanup();
             std::lock_guard<std::mutex> guard(m_lifecycle);
@@ -156,9 +156,8 @@ private:
                 return fail(POCKET_SERVER_PORT_IN_USE,
                             std::string("realmd listener failed: ") + error.code().message());
             }
-            // G1 keep-alive (rp-depth-fix v2.3 §8): kill-switch
-            // AiPlayerbot.RealmdTimerMs, default 250 ms, 0 = timer off (the
-            // documented workaround; removal condition in §0.a). The key is
+            // Keep-alive kill-switch AiPlayerbot.RealmdTimerMs,
+            // default 250 ms, 0 = timer off. The key is
             // read through this file's existing sConfig path; the app's
             // staged realmd.conf (ServerRuntimeFiles.realmdConfig) carries
             // no AiPlayerbot.* keys today, so the effective value is the
@@ -179,20 +178,20 @@ private:
                         m_io->run();
                     } catch (...) {
                         // An exception escaping io_context::run()
-                        // used to std::terminate the whole :realm process;
+                        // would std::terminate the whole :realm process;
                         // surface it as a FAILED server instead.
                         fail(POCKET_SERVER_INTERNAL, "realmd io thread exception");
                     }
                 });
             LoginDatabase.AllowAsyncTransactions();
             m_state.transition(POCKET_SERVER_READY);
-            // G1 liveness: the keep-alive handler is the io-thread dispatch
+            // Listener liveness: the keep-alive handler is the io-thread dispatch
             // evidence. An UNCHANGED count while !m_stop for a sustained
             // window (>= 3 consecutive timer intervals) means the reactor
             // missed its wakeup - a dead-but-READY listener - so fail()
             // converts the silent mode into a visible FAILED. With the timer
             // off (RealmdTimerMs = 0) there is no dispatch evidence and the
-            // check is skipped (documented workaround mode).
+            // check is skipped.
             const uint32 heartbeat_ms = 100;
             uint64_t last_liveness = m_io_liveness.load(std::memory_order_acquire);
             uint32 stalled_heartbeats = 0;
@@ -244,7 +243,7 @@ private:
         }
     }
 
-    // G1 keep-alive pump: one outstanding steady_timer wait at a time,
+    // Keep-alive pump: one outstanding steady_timer wait at a time,
     // re-armed from its own completion handler. The re-arm is
     // UNCONDITIONAL while the runtime is running - any error code
     // (including the operation_aborted of a spurious cancel) still

@@ -7,7 +7,7 @@ lockfile) but builds with cargo instead of CMake. Introduces the repo's first
 Rust toolchain: requires `rustup target add aarch64-linux-android
 x86_64-linux-android` and the NDK clang wrappers as linkers.
 
---host adds the Windows sibling lane (Phase-4 Windows port): the same crate
+--host adds the Windows sibling lane: the same crate
 built for x86_64-pc-windows-msvc as vanilla-tweaks.exe, with the PE import
 table pinned where the android lockfiles pin DT_NEEDED. No NDK required.
 """

@@ -47,8 +47,7 @@ def find_mingw_gcc() -> tuple[str | None, str | None]:
     Without the bin dir on PATH, gcc spawns, fails to load a DLL, and exits 1
     with NO output (silent spawn death). Returns (gcc_path, bin_dir)."""
     candidates = [
-        # Personal-drive candidates removed (Phase 4 de-hardcoding); the
-        # toolchain is found on PATH or via MSYS2_ROOT discovery.
+        # The toolchain is found on PATH or via MSYS2_ROOT discovery.
         str(common.msys2_root() / "mingw32" / "bin" / common._exe("i686-w64-mingw32-gcc")),
     ]
     found = shutil.which("i686-w64-mingw32-gcc")

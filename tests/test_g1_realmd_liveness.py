@@ -1,7 +1,6 @@
-"""WS-G pins (rp-depth-fix-plan v2.3 §8): realmd keep-alive + liveness (G1)
-and the in-same-change net hygiene (G2).
+"""Realmd keep-alive + liveness pins and the in-same-change net hygiene.
 
-The cmangos edits are §0.b lane-3 submodule single-tree files: they land as
+The cmangos edits are submodule single-tree files: they land as
 one submodule commit and the host pins read the pristine tree (the
 test_db_async_null_guard pristine-read precedent). realmd_runtime.cpp is the
 own-tree runtime; its pins read the working file.
@@ -31,7 +30,7 @@ Pinned contracts:
 Device-gated expectations (documented only; no protocol client on host):
   fd-count  across N logon cycles + idle, the :realm process fd count must
             stay flat (asio accept is RAII-safe; a rising count reopens
-            the §8 G2 fd investigation with evidence).
+            the fd investigation with evidence).
   idle-close a pre-auth TCP peer that connects and sends nothing must be
             closed by the one-shot 30 s AuthSocket timer (AuthSocket.cpp
             OnOpen; the timer is cancelled at the first packet, so this
@@ -199,7 +198,7 @@ def test_b6_worldrunnable_purge_hook_is_android_gated() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Device-gated expectations (§8 G2/G1 follow-ups): documented, no host leg.
+# Device-gated expectations (fd/idle follow-ups): documented, no host leg.
 # These run ONLY against a device named by POCKET_REALM_G1_DEVICE; on the
 # host suite they record the procedure and skip.
 # ---------------------------------------------------------------------------
@@ -207,7 +206,7 @@ def test_b6_worldrunnable_purge_hook_is_android_gated() -> None:
 @pytest.mark.skipif(not os.environ.get(DEVICE_SERIAL_ENV),
                     reason="device-gated expectation: set POCKET_REALM_G1_DEVICE to run")
 def test_device_fd_count_flat_across_logon_cycles() -> None:
-    """fd-count assertion (§8 G1): the only way the fd-coupling claim becomes
+    """fd-count assertion: the only way the fd-coupling claim becomes
     verifiable. Procedure, on the device named by POCKET_REALM_G1_DEVICE:
 
     1. Start the realm, note the :realm pid (adb shell pidof).
@@ -219,16 +218,16 @@ def test_device_fd_count_flat_across_logon_cycles() -> None:
 
     EXPECTATION: the fd count returns to the idle baseline each time (asio
     accept is RAII-safe; the G2 write-completion closes bound the stalled
-    peer). A monotonically rising count across cycles reopens the §8 G2 fd
+    peer). A monotonically rising count across cycles reopens the fd
     investigation with evidence - do not close it on theory.
     """
-    pytest.skip("device expectation not wired to a protocol client by design (WS-G scope)")
+    pytest.skip("device expectation not wired to a protocol client by design (realmd-liveness scope)")
 
 
 @pytest.mark.skipif(not os.environ.get(DEVICE_SERIAL_ENV),
                     reason="device-gated expectation: set POCKET_REALM_G1_DEVICE to run")
 def test_device_pre_auth_idle_peer_closed_by_30s_timer() -> None:
-    """Pre-auth idle-close case (§8 G1): connect to the realmd port and send
+    """Pre-auth idle-close case: connect to the realmd port and send
     nothing; EXPECT the server to close the connection ~30 s later (the
     one-shot pre-auth timer in AuthSocket::OnOpen, cancelled at the first
     packet - post-auth idle is liveness-only and is NOT this case). The
@@ -241,4 +240,4 @@ def test_device_pre_auth_idle_peer_closed_by_30s_timer() -> None:
     25-40 s. An fd that survives past the close (visible in the fd-count
     expectation above) is the failure signature.
     """
-    pytest.skip("device expectation not wired to a protocol client by design (WS-G scope)")
+    pytest.skip("device expectation not wired to a protocol client by design (realmd-liveness scope)")

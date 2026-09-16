@@ -4,16 +4,15 @@ package com.pocketrealm.llm
  * The model registry: every selectable bot-brain
  * GGUF with its identity, integrity pins, the sampling profile the emitted
  * request body carries, and the tier knobs the conf block
- * derives. The tuned checkpoints are the LoRA merges
- * (G:\NPU LLM\finetune-runs, epoch-3 finals); their sha256 pins were
- * verified on disk 2026-08-29.
+ * derives. The tuned checkpoints are LoRA merges (epoch-3 finals),
+ * pinned by sha256.
  *
  * The default selection is the TUNED E2B:
  * the trained contract only speaks usefully to the tuned weights (the base
  * tier's chat usability rides the staged non-thinking template override -
  * the warm-up probe detects the thinking-template failure shape and restarts once
  * with the staged non-thinking template). Tuned models are LOCAL-ONLY
- * (no download distribution yet), so a fresh install ships
+ * (no download distribution), so a fresh install ships
  * with the LLM runtime off until the tuned model is staged by hand
  * (adb push); the model picker (LlmScreen) offers every registry
  * entry small-first, with the hand-staging note on the localOnly ones.
@@ -92,10 +91,10 @@ object LlmModelRegistry {
             repeatPenalty = 1.0, presencePenalty = 1.0, maxTokens = 230,
         ),
         tierProfile = LlmTierProfile(
-            // Phase 1 (plan v4): 8192 → 12288 on the E2B tiers. The measured
-            // worst-case trained request is ~2.2k tokens; the extra headroom
-            // carries the prompt-pack seasoning blocks + reply caps with
-            // 2 concurrent slots. Qwen-0.8B stays 6144 (small-model tier).
+            // 12288 covers the measured worst-case trained request
+            // (~2.2k tokens) plus the prompt-pack seasoning blocks + reply
+            // caps with 2 concurrent slots. Qwen-0.8B stays 6144
+            // (small-model tier).
             contextLength = 12288, generationTimeoutSec = 60,
             maxSimultaneousGenerations = 2,
             // CPU-safe capacity (NPU-E2B ≈10-12, CPU-E2B ≈8): the
@@ -153,10 +152,10 @@ object LlmModelRegistry {
             repeatPenalty = 1.0, maxTokens = 210,
         ),
         tierProfile = LlmTierProfile(
-            // Phase 1 (plan v4): 8192 → 12288 on the E2B tiers. The measured
-            // worst-case trained request is ~2.2k tokens; the extra headroom
-            // carries the prompt-pack seasoning blocks + reply caps with
-            // 2 concurrent slots. Qwen-0.8B stays 6144 (small-model tier).
+            // 12288 covers the measured worst-case trained request
+            // (~2.2k tokens) plus the prompt-pack seasoning blocks + reply
+            // caps with 2 concurrent slots. Qwen-0.8B stays 6144
+            // (small-model tier).
             contextLength = 12288, generationTimeoutSec = 60,
             maxSimultaneousGenerations = 2,
             governorBotMax = 8, governorGlobalMax = 8,

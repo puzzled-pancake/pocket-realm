@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S8 beats gates (A13 recall / A16 ceremony / event kinds / jaccard).
+"""Beat gates (recall / ceremony / event kinds / jaccard).
 
 Runs the SHIPPED beat mechanisms (python mirrors of the pure core's
 cargo builders + the bridge's note shapes) against e2b-tuned, n=3
@@ -7,19 +7,19 @@ majority per case:
 
   ASSOCIATIVE   four memory-USE cases - debt question, memory question,
                 news recall, greeting weave - each with the planted fact
-                in the system facts + [Memories] tail (the S4 baseline
-                shape that scored 0/2 associative) PLUS the bridge's
+                in the system facts + [Memories] tail (the no-note
+                baseline shape) PLUS the bridge's
                 recall cargo as the note's extra leg. Gate: >=3/4
                 majority recall on NON-ECHO keys. A no-note control row
                 per case records the lift.
-  CEREMONY      the A16 tier-transition note (authored wording) + the
+  CEREMONY      the tier-transition note (authored wording) + the
                 Trusted secret, 5 rolls on a plain conversational turn;
                 auto-floor = no mechanic tokens + voiced + differs from
                 the control. The draws land in the artifact for the
                 human-read felt-change panel (gate >=4/5, judged by
                 human reading). A paired tier-3 vs tier-5 (nickname tierNote)
                 comparison rides along.
-  EVENT_KIND    the S8 event notes: level-up licenses cheer + log_fact
+  EVENT_KIND    the event notes: level-up licenses cheer + log_fact
                 under the [EVENT] head; a duel loss licenses
                 adjust_sentiment +1 + log_fact. Gate: >=2/3 fire each.
   JACCARD       the repeat-drift re-checkpoint: beat-mandated turns
@@ -29,7 +29,7 @@ majority per case:
                 the 0.5 dedupe threshold are listed for human reading.
 
 Usage: python tools/llm_lab/s8_beats_gates.py --model e2b-tuned [--n 3]
-Output: C:/llm-lab/results/s8_beats_<model>_<ts>.json (versioned names).
+Output: RESULTS_DIR/s8_beats_<model>_<ts>.json (versioned names).
 """
 import argparse
 import copy
@@ -45,7 +45,7 @@ from sanity_battery import (B, CARD, PLAYER, MODELS, RESULTS_DIR,
                             strip_tools)
 
 
-# ---- Phase-6 pack seasoning: mirrors the native SysmForCard overlay.
+# ---- Pack seasoning: mirrors the native SysmForCard overlay.
 # banklib has no pack concept, so the harness appends the same way the
 # header does: seasoning then mood onto the identity line.
 def seasoned_sysm(base_sysm, seasoning="", mood=""):
@@ -458,7 +458,7 @@ def main():
         print(f"JACCARD same-turn redraw mean {res['JACCARD']['mean']} "
               f"(>0.5: {res['JACCARD']['over_threshold'] or 'none'})")
 
-        # ---- RP-DEPTH (Phase-6 S8 leg): initiative fit, mood consistency
+        # ---- RP-DEPTH: initiative fit, mood consistency
         # 4-turn, rumor fidelity/drift, grudge continuity. Each probe runs
         # under three sysm arms — plain, +seasoning (initiative-opener +
         # mood-weather standard variants), +seasoning+mood — so the bakeoff

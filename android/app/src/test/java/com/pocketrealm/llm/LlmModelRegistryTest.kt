@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Registry contract (LLM-INTEGRATION.md §4.1): ids are stable selection keys,
+ * Registry contract: ids are stable selection keys,
  * tuned checkpoints carry verified 64-hex integrity pins, file names
  * never collide in filesDir/models, and unknown persisted ids resolve to the
  * default rather than crashing a realm start.
@@ -20,7 +20,7 @@ class LlmModelRegistryTest {
             assertEquals(64, m.sha256.length)
             assertTrue(m.sha256.matches(Regex("[0-9a-f]{64}")))
             assertTrue(m.size > 0)
-            // pins verified on disk 2026-08-29 — tamper with these and the
+            // exact pins — tamper with these and the
             // download/verify gates silently change meaning
             if (m.id == "gemma4-E2B-TUNED-q4_0") {
                 assertEquals(3_360_144_672L, m.size)

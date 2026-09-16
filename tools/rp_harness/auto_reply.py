@@ -29,7 +29,7 @@ Relay-min's best-effort channels (both implemented here):
   kind="reply_evidence" so bot_reply's >=3-word text guard correctly
   refuses to call them replies.
 
-The three-way outcome the suites derive (the plan's outcome table):
+The three-way outcome the suites derive (the shared outcome table):
 reply text = pass; memory evidence only = skipped (text unobservable
 without the transport); neither = fail (the chat path is dead).
 """

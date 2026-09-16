@@ -12,7 +12,7 @@ drive the native boot) and pin that the all-legs-success response shape
 is unchanged: the relay still ANDs the same leg booleans, so only a leg
 that actually failed can flip ok to false.
 
-Round-2 QA pins (2026-09-08 live re-run at 77b06e6): every relay-reachable
+Relay-contract pins: every relay-reachable
 native op must guard world readiness (a world-account* op against a
 FAILED/STARTING world used to SIGSEGV :world inside account_info's empty
 LoginDatabase pool - tombstone_02), the relay's binder cache must be

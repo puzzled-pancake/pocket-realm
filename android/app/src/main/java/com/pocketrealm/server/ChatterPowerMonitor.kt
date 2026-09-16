@@ -88,7 +88,7 @@ internal object ChatterPowerMonitor {
      * reads only `enabled` and `rung` — writer and world live and die in
      * the same process, so there is no staleness protocol to keep.
      *
-     * D3 (plan v2.3 §5): `rungCap` is the selected profile's per-preset
+     * `rungCap` is the selected profile's per-preset
      * chatter-rung cap (-1 = follow the computed ambience state). The cap
      * may only LOWER the computed rung — the ambience toggle (enabled=0
      * stays RUNG_OFF) and the low-battery courtesy dim always win.
@@ -122,7 +122,7 @@ internal object ChatterPowerMonitor {
     }
 
     /**
-     * D3: apply the per-preset rung cap. A cap outside the rung band is
+     * Apply the per-preset rung cap. A cap outside the rung band is
      * ignored (follow); inside the band it may only lower the computed
      * rung — min(), never max(), never a resurrection of a disabled or
      * dimmed state.
@@ -135,16 +135,16 @@ internal object ChatterPowerMonitor {
             text.lineSequence()
                 .map { it.trim() }
                 .firstOrNull { it.startsWith("$key=") }
-        // rung participates in the skip-decision (D3: a cap change must
-        // restage the file even when enabled+dim are unchanged)
+        // rung participates in the skip-decision: a cap change must
+        // restage the file even when enabled+dim are unchanged
         return field(current, "enabled") == field(next, "enabled") &&
             field(current, "dim") == field(next, "dim") &&
             field(current, "rung") == field(next, "rung")
     }
 
     /**
-     * The battery-event refresh: no per-minute writer (that thread was the
-     * collapsed design's first deletion). The file is staged at world start
+     * The battery-event refresh: there is no per-minute writer. The file is
+     * staged at world start
      * by [refreshOnce] (via ServerRuntimeFiles) and re-staged only when the
      * battery picture can actually change — low battery, plugged in, or
      * unplugged. Each event recomputes the full state, so the refresh is

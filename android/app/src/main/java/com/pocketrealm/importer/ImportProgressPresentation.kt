@@ -60,7 +60,7 @@ data class ImportProgressPresentation(
     val rssBytes: Long,
     val threadCount: Int,
     val processCount: Int,
-    /** F8 B: OS-recorded death reason (LOW_MEMORY/CRASH/ANR/SIGNALED) or null. */
+    /** OS-recorded death reason (LOW_MEMORY/CRASH/ANR/SIGNALED) or null. */
     val workerExitReason: String? = null,
     val workerExitAgeMs: Long = 0L,
     val sourceUri: String?,
@@ -121,7 +121,7 @@ data class ImportProgressPresentation(
                 bytesCopied = value.optLong("bytesCopied"),
                 bytesTotal = value.optLong("bytesTotal"),
                 currentPath = activeFile?.optionalString("relativePath")
-                    // F8 C: during data preparation lastRelativePath carries the
+                    // During data preparation lastRelativePath carries the
                     // raw stage checkpoint ("MMAPS:map 169 (20/43) …"), which
                     // the stage pane already presents; do not show it as a path.
                     // A FAILED data stage leaves the same residue behind.
@@ -305,7 +305,7 @@ private fun fraction(value: Long, total: Long): Float =
 /** Stage-composite journal residue, e.g. "MMAPS:map 169 (20/43) tiles 50". */
 private val STAGE_CHECKPOINT_RESIDUE = Regex("^[A-Z][A-Z_]+:.*")
 
-/** True when lastRelativePath is a real file path worth showing (round-2 fix). */
+/** True when lastRelativePath is a real file path worth showing. */
 internal fun showsAsFilePath(phase: String, path: String): Boolean = when {
     phase == ImportPhase.PREPARING_DATA.name -> false
     phase == ImportPhase.FAILED.name -> !STAGE_CHECKPOINT_RESIDUE.matches(path)

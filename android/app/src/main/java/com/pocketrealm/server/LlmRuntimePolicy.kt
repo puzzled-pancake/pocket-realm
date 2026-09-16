@@ -13,17 +13,17 @@ import java.io.File
 /**
  * Pure derivation of the playerbot LLM configuration from user settings.
  *
- * The base bot profile conf (BotProfile.playerbotConfig) keeps its reviewed
+ * The base bot profile conf (BotProfile.playerbotConfig) keeps
  * `AiPlayerbot.LLMEnabled = 0`; [confBlock] is APPENDED after it and only when
- * the user enabled the LLM runtime from the LLM submenu, so the reviewed
- * default contract holds until explicit opt-in (native/llm/MILESTONES:
- * everything ships behind AiPlayerbot.LLM*, all defaulting OFF).
+ * the user enabled the LLM runtime from the LLM submenu, so the default stays
+ * off until explicit opt-in (every LLM knob ships behind an
+ * AiPlayerbot.LLM* key, all defaulting OFF).
  *
  * Backend choice: `LLMBackend = 0` (HTTP) against the embedded llama-server in
  * the :llm process. The vendored C++ client POSTs `LLMApiJson` verbatim as the
  * request body with the `<pre prompt>/<context>/<prompt>/<post prompt>` fill
  * keys replaced (SayAction.cpp). llama-server answers `/v1/chat/completions`
- * with an OpenAI envelope, which the client parses as JSON (A9): the reply is
+ * with an OpenAI envelope, which the client parses as JSON: the reply is
  * `choices[0].message.content`, decoded with full string semantics, with one
  * direct-answer retry when the base model burns the budget on a thinking
  * preamble, and a truncation-aware line splitter when `finish_reason` is
@@ -42,7 +42,7 @@ internal object LlmRuntimePolicy {
     /** llama-server inside pocketrealm binds loopback on this fixed port. */
     const val DEFAULT_PORT = 8080
 
-    /** A7.3: bot-to-bot chance on the cloud lane (player-visible life
+    /** Bot-to-bot chance on the cloud lane (player-visible life
      * outweighs background chat the other way). */
     const val CLOUD_LANE_BOT_TO_BOT_CHANCE = 25
 
@@ -120,11 +120,11 @@ internal object LlmRuntimePolicy {
         val rest = trimmed.substringAfter("://")
         val authority = rest.substringBefore('/')
         if (authority.isEmpty()) return null
-        // G3/0.c.3: an explicit port must be a real port (1..65535). The
+        // An explicit port must be a real port (1..65535). The
         // native parseUrl's std::stoi throws out_of_range on huge port
-        // literals, which used to abort world boot at config load (the
-        // widened native catch now fails the endpoint closed instead);
-        // bounding here keeps such a value out of the UI at all.
+        // literals; the native catch fails the endpoint closed instead of
+        // aborting world boot, and bounding here keeps such a value out
+        // of the UI at all.
         if (authority.contains(':')) {
             val port = authority.substringAfterLast(':')
             val asInt = port.toIntOrNull() ?: return null
@@ -171,15 +171,15 @@ internal object LlmRuntimePolicy {
      * Computed at world start: toggles take effect on the next realm start.
      *
      * The response start/end pattern keys are emitted EMPTY: the native
-     * client parses the OpenAI chat-completions envelope as JSON (A9) and
+     * client parses the OpenAI chat-completions envelope as JSON and
      * decodes `choices[0].message.content` with full string semantics, so
      * the regex extraction patterns are dead on every endpoint this block
      * can configure. The keys must still be written (empty) because the
-     * reviewed native defaults would otherwise apply — the default start
+     * native defaults would otherwise apply — the default start
      * pattern (`("text":\s*")`) never matches decoded prose (total
      * silence), and the default end pattern's first alternative `(")`
-     * truncates at the first quote (the same defect the app's pre-A9
-     * emission had with escaped quotes — the motivation A9 cites).
+     * truncates the reply at the first quote (escaped quotes in decoded
+     * prose would truncate it early).
      * Endpoints that return non-OpenAI text shapes keep the regex fallback
      * in native code with whatever patterns a hand-edited conf supplies.
      */
@@ -333,7 +333,7 @@ internal object LlmRuntimePolicy {
      * merge-order contract (append wins over the base conf, patterns
      * trim-proof, `stream:false` tail) holds for embedded and external alike.
      *
-     * [promptPackFile] stages the Phase-1 prompt pack (ordered blocks +
+     * [promptPackFile] stages the prompt pack (ordered blocks +
      * enabled flags) for the native renderer. Empty pack = trained default
      * output, byte-identical (the frozen-output test pins this); the native
      * side appends only the enabled seasoning blocks inside the existing
@@ -343,7 +343,7 @@ internal object LlmRuntimePolicy {
      * absolute path. The native default is the bare relative name
      * `llm_character_card`, which the loader resolves against CWD (never
      * the run dir) and reports as "not found or unreadable" - the absolute
-     * empty file keeps today's fail-open prompts minus that startup line.
+     * empty file keeps the fail-open prompts minus that startup line.
      */
     private fun confLines(
         endpoint: String,
@@ -379,11 +379,10 @@ internal object LlmRuntimePolicy {
             profile, tier, replyTokensOverride, generationTimeoutOverride,
         )
         // -1 = follow the model tier; an explicit preset 0 (off) equals the
-        // native default, so only a positive value emits the line
-        // A7.3: bot-to-bot chat outweighs player-visible life at the old
-        // 500; the cloud lane emits 25 when the Cloud conversation toggle
-        // is on (more life), the device/default lanes keep the tier's
-        // value - an explicit preset override always wins.
+        // native default, so only a positive value emits the line.
+        // Bot-to-bot chat: the cloud lane emits 25 when the Cloud
+        // conversation toggle is on (more life), the device/default lanes
+        // keep the tier's value - an explicit preset override always wins.
         val botToBotChance =
             if (speech.botToBotChatChance >= 0) speech.botToBotChatChance
             else if (cloudLane.cloudChatter) CLOUD_LANE_BOT_TO_BOT_CHANCE
@@ -420,12 +419,12 @@ internal object LlmRuntimePolicy {
         // Per-preset pack deltas (Bots → AI) ride as explicit block
         // switches after the file line — same last-wins parse, so preset >
         // global pack > trained default. RP dials ride as native weights
-        // (Phase 3 consumes them; this version persists + emits them).
+        // (the native layer consumes them; the app persists + emits them).
         val promptPackLine =
             if (!promptPackFile.isNullOrBlank()) {
                 "\n            AiPlayerbot.LLMPromptPackFile = \"$promptPackFile\""
             } else ""
-        // B8: the staged EMPTY default-prompts file, by absolute path (the
+        // The staged EMPTY default-prompts file, by absolute path (the
         // native loader resolves the bare relative default against CWD,
         // never the run dir). Blank/absent keeps the native default's
         // fail-open behavior.
@@ -433,7 +432,7 @@ internal object LlmRuntimePolicy {
             if (!defaultPromptsFile.isNullOrBlank()) {
                 "\n            AiPlayerbot.LLMDefaultPromptsFile = \"$defaultPromptsFile\""
             } else ""
-        // G3: the staged CA bundle for external-endpoint TLS verification.
+        // The staged CA bundle for external-endpoint TLS verification.
         // The native LLMTLSVerify switch defaults ON (hand-editable conf,
         // not an app knob); this path is the staged-file half of the pair -
         // absent falls back to the Android system store, never fails boot.
@@ -550,7 +549,7 @@ internal object LlmRuntimePolicy {
      * The :llm runtime config derived from the LLM submenu snapshot. Both
      * consumers — the supervisor's pre-world-start launch and the submenu's
      * Start-now button — go through this single mapping so their configs can
-     * never drift. Phase 1 (plan v4): the server context follows the
+     * never drift. The server context follows the
      * SELECTED model's tier profile (E2B 12288, Qwen 6144) — the runtime
      * and the conf's LLMContextLength can never disagree. --jinja applies the
      * model's real chat template, and --load-mode none is the measured

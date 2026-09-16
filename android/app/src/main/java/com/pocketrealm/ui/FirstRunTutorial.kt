@@ -76,15 +76,14 @@ internal val FIRST_RUN_TUTORIAL_STEPS: List<TutorialStep> = listOf(
     ),
     TutorialStep(
         title = "Optional: make the people talk back",
-        // F3 lane honesty: the realm and game are always on this device;
+        // Accuracy constraint: the realm and game are always on this device;
         // the bot chat is on-device by default but CAN be pointed at a
-        // cloud provider (an external OpenAI-compatible API). The old
-        // unqualified "Everything runs on this device, offline" was wrong
-        // once the LLM submenu's external mode exists.
+        // cloud provider (an external OpenAI-compatible API), so the copy
+        // below must never claim that everything runs offline.
         body = "The realm's bots can speak through an on-device language " +
             "model. When you want that, open Settings → AI bot LLM and " +
             "pick a model: the small \"try first\" one is the fastest way " +
-            "to hear the realm talk, though until publishing lands the " +
+            "to hear the realm talk, though the " +
             "tuned models are staged from a PC and the in-app download is " +
             "the larger untuned fallback. The choice applies at the next " +
             "realm start. Skip it and the realm still works; bots just " +

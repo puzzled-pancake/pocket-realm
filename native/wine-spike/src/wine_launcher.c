@@ -156,7 +156,7 @@ int wine_spike_launch_wine_ex(const char *native_dir,
         int ei = 0;
         envp[ei++] = env_prefix;
         /* LD_DEBUG=libs: makes the glibc loader print its library resolution to
-         * stderr. This IS the S-1 proof — it shows the effective loader loading
+         * stderr. This IS the loader proof — it shows the effective loader loading
          * the glibc closure from APK-managed files via the symlink tree. More
          * reliable than racing for /proc/<pid>/maps for fast-exiting processes. */
         envp[ei++] = "LD_DEBUG=libs";
@@ -180,7 +180,7 @@ int wine_spike_launch_wine_ex(const char *native_dir,
             envp[ei++] = env_display;
         }
         envp[ei++] = "WINEDLLOVERRIDES=msvcrt,b=n;kernelbase=b";
-        /* Optional extra env (S-5: GLIBC_TUNABLES for rseq/clone3 disable, etc.).
+        /* Optional extra env (GLIBC_TUNABLES for rseq/clone3 disable, etc.).
          * Copied into a stable child-stack buffer so pointers survive execve. */
         char extra_slots[1024];
         push_extra_env(extra_env, extra_slots, sizeof(extra_slots),

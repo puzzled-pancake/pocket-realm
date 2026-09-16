@@ -83,7 +83,7 @@ public:
     // wall-clock-aware greeting bucket: "short"/"medium"/"long" absence
     static std::string GetAbsenceBucket(Player* bot, Player* player);
 
-    // ---- Phase-3 mood weather (world thread, in-memory): the bot's
+    // ---- Mood weather (world thread, in-memory): the bot's
     // current mood index (0-7, see MOOD_* in llm_banter_core.h), a nudge
     // counter for grudge/smitten/grief events, and the seasoning line
     // for the system prompt. MoodNow derives from (botGuid, hourly
@@ -155,7 +155,7 @@ public:
     // quest turn-in reuses the existing "rpg start/end quest" trigger values;
     // level-up and rare-loot are these two new interception points
 
-    // plan v5 W1/F1: the player's own death (Unit::SetDeathState JUST_DIED,
+    // The player's own death (Unit::SetDeathState JUST_DIED,
     // world thread). Wipe classification + reactors live inside: grouped
     // bots (or, for the partyless player, KNOWN bots within say range) get
     // an authored condolence over the body (the one guaranteed beat outside
@@ -165,16 +165,16 @@ public:
     // cannot speak)
     static void OnPlayerDied(Player* victim);
 
-    // plan v5 F1: the ONE player<->bot trade completion hook
+    // The ONE player<->bot trade completion hook
     // (HandleAcceptTradeOpcode, pre-moveItems so both TradeData still
     // carry the offers). A real->bot trade is a bounded kindness (+1 with
     // its tone row, which also resolves a standing grudge); money to the
     // bot retires the newest unresolved debt row, mints the settlement
-    // fact and queues the EVENT_DEBT_SETTLED reaction that finally fires
-    // the shipped-but-unwired TierBeat kind-1 beat
+    // fact and queues the EVENT_DEBT_SETTLED reaction that fires
+    // the TierBeat kind-1 beat
     static void OnTradeCompleted(Player* accepter, Player* initiator);
 
-    // plan v5 W3: first-visit facts. The core's explore-bit setter (the
+    // First-visit facts. The core's explore-bit setter (the
     // game's own verification of "first time here") calls this with the
     // ZONE-level area id; grouped and known-nearby bots each mint their own
     // "traveled with {player} to {zone} for the first time" memory,
@@ -182,19 +182,19 @@ public:
     // first time
     static void OnPlayerExploredArea(Player* player, uint32 zoneOrAreaId);
 
-    // plan v5 W5: the bot-curiosity answer capture. TickInitiative arms a
+    // The bot-curiosity answer capture. TickInitiative arms a
     // pending answer when it asks; the bridge consumes it on the player's
     // next conversational turn, minting the fact deterministically (the
     // 0.8B law - the model's licensed log_fact may or may not fire, the
     // answer must persist either way). Returns true when a fact minted
     static bool ConsumePendingAnswer(uint32 bot, uint32 player, std::string const& reply);
 
-    // plan v5 F4a: the ONE external-API-tier test (was duplicated inline
-    // at the history writer and reader - every cloud surface must gate on
+    // The ONE external-API-tier test (one shared predicate - every cloud
+    // surface must gate on
     // this identical condition)
     static bool ExternalApiTierActive();
 
-    // plan v5 C1.3: the cloud quota meter - one per-day counter per
+    // The cloud quota meter - one per-day counter per
     // surface, in-process day bucket. Returns false when the surface's
     // daily cap is spent (and counts the admission when it returns true)
     static bool CloudQuotaAdmits(char const* surface, uint32 perDay);
@@ -205,7 +205,7 @@ public:
     // lane: unbounded here (the governor is the only limiter).
     static bool InteractiveBudgetAdmits(uint32 playerGuid);
 
-    // A7.3 bot2bot containment (round-1 R1#2 wiring): the tier-II daily
+    // Bot2bot containment: the tier-II daily
     // quota plus the autonomous-exchange depth cap (at most 3
     // consecutive autonomous lines per bot, reset by a real player's
     // conversational trigger reaching that bot). Device lane: admits
@@ -229,14 +229,14 @@ public:
     // First-writer-wins per (speaker, msgHash) under StateMutex: true
     // when THIS bot holds the claim (a fresh claim stamps the rotation
     // map). Expired entries are pruned on every call; the claim window
-    // (PARTY_CLAIM_WINDOW_SECONDS, round-6 R1: 30 s) exceeds every
+    // (PARTY_CLAIM_WINDOW_SECONDS, 30 s) exceeds every
     // reachable chat-drain stagger - the fan-out does NOT resolve
     // within one tick (UpdateAIInternal delays run 3-7 s on
-    // teleport/cast chains). Round-8 R1: the key is GROUP-FREE (a
+    // teleport/cast chains). The key is GROUP-FREE (a
     // speaker stands in at most one group; the drain can only key by
-    // the CURRENT group, and a group-switching listener used that to
-    // claim under a fresh key beside the original winner). Round-10
-    // R1: a grant additionally requires the LINE fresh at the claim's
+    // the CURRENT group, and a group-switching listener would otherwise
+    // claim under a fresh key beside the original winner). A grant
+    // additionally requires the LINE fresh at the claim's
     // own clock - within window-margin of the first-heard registry
     // (NotePartyLineHeard) - so a claim can never post-date every
     // prior token's expiry, whatever the fan-out straddle or the
@@ -244,7 +244,7 @@ public:
     static bool TryClaimPartyResponder(uint32 botGuid, uint32 speakerGuid,
         uint64_t msgHash);
 
-    // Round-10 R1 (the first-heard registry): every group member's
+    // The first-heard registry: every group member's
     // receive handler min-stamps the LINE's earliest receive instant
     // (same group-free key as the claim map, same StateMutex, lazy
     // prune at the window). This is the freshness authority the claim
@@ -252,11 +252,11 @@ public:
     // writer's receive and so expires at >= firstHeard+window, while
     // a grant needs now <= firstHeard+window-margin - a granted claim
     // can never meet an expired prior token, at ANY drain clock
-    // divergence. Round-11 R1: the stand-down marker carries the SAME
+    // divergence. The stand-down marker carries the SAME
     // gate (an ungated drain-side stamper could stamp below
     // firstHeard and expire inside the grant range), so every
     // ACCEPTED token stamp >= firstHeard - both legs read one law.
-    // Round-12 R1 (generation scoping): the key is line-INSTANCE-
+    // Generation scoping: the key is line-INSTANCE-
     // blind (speaker+hash), so a verbatim repeat past the window
     // re-registers fresh while the prior line's token may still be
     // live - the token writers' ownership check is therefore scoped
@@ -267,29 +267,29 @@ public:
     // token owns the line to at least firstHeard+window. (The gates'
     // >= refusal admits now-firstHeard only up to window-margin-1, so
     // every ACCEPTED stamp sits in [firstHeard,
-    // firstHeard+window-margin-1] - round-13 R8's wording note.)
-    // Round-13 R1 (the old-line straggler re-open): the scoping
-    // re-opened a PRIOR line for its own straggled drainers - both
+    // firstHeard+window-margin-1].)
+    // The old-line straggler re-open: this scoping
+    // can re-open a PRIOR line for its own straggled drainers - both
     // freshness gates and the discriminator read the CURRENT
-    // generation, so a TTL-live entry of the OLD line passed them
-    // all and claimed; the drain-side TTL gate now drops such
+    // generation, so a TTL-live entry of the OLD line would pass them
+    // all and claim; the drain-side TTL gate drops such
     // entries first (PartyClaimGenerationMovedPast - see below).
     // Premises, stated honestly: (1) the law assumes non-decreasing
-    // wall-clock reads (round-11 R1 MINOR: a >=2 s backward clock
+    // wall-clock reads (a >=2 s backward clock
     // STEP landing between one receive handler's registry write and
     // its marker stamp could re-open a microscopic shape -
     // environmental, shared by every wall-clock window in the
     // engine); (2) a fan-out straddle beyond the window re-registers
-    // the line as fresh (round-11 R8 MINOR - a >30 s world-thread
+    // the line as fresh (a >30 s world-thread
     // stall inside one broadcast, far outside every adjudicated
     // tier); inside the window, with generation scoping AND the
-    // round-13 entry-side generation drop, the envelope is total.
+    // entry-side generation drop, the envelope is total.
     // Absent at stamp/grant time = unprovable freshness = refuse (a
     // missed reply, never a second generation).
     static void NotePartyLineHeard(uint32 speakerGuid, uint64_t msgHash);
 
-    // Round-13 R1 (the old-line straggler re-open): generation
-    // scoping re-opened a PRIOR line for its own TTL-live
+    // The old-line straggler guard: generation
+    // scoping can re-open a PRIOR line for its own TTL-live
     // stragglers - a drain-side entry whose m_time predates the
     // CURRENT registry generation's firstHeard (a verbatim repeat
     // past the window re-registered the key fresh while this
@@ -297,17 +297,16 @@ public:
     // both freshness gates (they measure against the NEW
     // firstHeard), and TokenOwnsCurrentLine erases the old line's
     // still-live winner token as residue beside it - the straggler
-    // claims and dispatches a second generation for the OLD line
-    // while the repeat's own responder is refused (R1's probe:
-    // 84,825/84,825 combos; both legs, three-line timelines). The
+    // would claim and dispatch a second generation for the OLD line
+    // while the repeat's own responder is refused. The
     // drain's TTL gate drops such entries instead: true when the
     // key's CURRENT firstHeard > lineTime (the entry belongs to a
     // prior generation); false when absent (the registry holds only
     // armed-lane party/raid real-speaker lines, so every other lane
     // misses the lookup and stays byte-identical - the one
     // present-key cross-lane shape, the same speaker verbatim-
-    // repeating identical text on another channel, is the round-8
-    // shared-key class and drops conservatively the same way).
+    // repeating identical text on another channel, is the shared-key
+    // class and drops conservatively the same way).
     // The law is exact in both directions under the stated
     // premises: firstHeard is the MIN receive of the current
     // generation and each member's registry write FOLLOWS its own
@@ -322,27 +321,27 @@ public:
     static bool PartyClaimGenerationMovedPast(uint32 speakerGuid,
         uint64_t msgHash, time_t lineTime);
 
-    // Round-6 R1 (addressed-line sibling): an ADDRESSED line stands
+    // The addressed-line sibling: an ADDRESSED line stands
     // down with a MARKER in the same claim map (winner 0 = the
     // addressee's own arm owns the line; same window, same lazy prune)
     // so a staggered late drain cannot re-open the line after the
     // addressee leaves the group mid-fan-out. First writer wins; false
-    // when a claim or marker already owns the line. Round-8 R1: the
+    // when a claim or marker already owns the line. The
     // group-free key keeps the marker findable across group switches.
     static bool TryStandDownPartyLine(uint32 speakerGuid, uint64_t msgHash);
 
-    // Round-7 R1 (claim-window class closure): the drain-side staleness
+    // The drain-side staleness
     // oracle for a queued party/raid line. On the armed surface the
     // queue path is noDelay (the queued m_time IS the line's fan-out
     // instant) and entries are unprocessable before m_time, so a line
-    // aged >= PARTY_CLAIM_WINDOW_SECONDS minus the round-9 R1 fan-out
+    // aged >= PARTY_CLAIM_WINDOW_SECONDS minus the fan-out
     // straddle margin (PARTY_CLAIM_FANOUT_STRADDLE_SECONDS: a later
     // member's queue entry can carry m_time past the fan-out's
     // earliest push, and the drop fires early so entries that could
     // outlive the line's tokens go first) is dropped: processing it
     // could sit beside a claim/marker expiring that very second. The
     // margin bounds the straddle it covers - wider fan-out spans are
-    // possible (round-10 R1 MINOR: the push blocks on a mid-drain
+    // possible (the push blocks on a mid-drain
     // member's chatRepliesMutex), and at those widths the drop misses
     // a drainer as a MISSED REPLY at worst: the claim grant itself is
     // anchored to the first-heard registry (NotePartyLineHeard), so a
@@ -365,7 +364,7 @@ public:
     // under StateMutex).
     static bool PartyFloodAdmits(uint32 speakerGuid);
 
-    // Round-7 R1 MINOR: a REFUSED claim must not consume the speaker's
+    // A REFUSED claim must not consume the speaker's
     // 2 s flood slot - the coalescing law counts GENERATIONS ("N lines
     // within 2 s = one generation") and a claim loss produced none.
     // CAS-shaped: the erase lands only when the slot still carries THIS
@@ -373,15 +372,15 @@ public:
     // attempt's admit and its claim loss) always survives.
     static void PartyFloodRefund(uint32 speakerGuid, time_t stampedAt);
 
-    // A1: the once-per-bot-per-session stamp behind the SayAction
+    // The once-per-bot-per-session stamp behind the SayAction
     // payload's reply-gate refusal log (the dead-gate signature). True
     // the FIRST time a bot is refused this session, false after - the
     // set is process-local and dies with the world process (the
     // quota-restart semantics).
     static bool NoteGateRefusalOnce(uint32 botGuid);
 
-    // ---- A2: the conversation fast-lane window. Arming is world-thread
-    // at the ChatReplyDo dispatch site (and the A4 fallback delivery
+    // ---- The conversation fast-lane window. Arming is world-thread
+    // at the ChatReplyDo dispatch site (and the failure-fallback delivery
     // leg); occupancy is guid-keyed per map under StateMutex with a TTL
     // (logout mid-dialogue leaks at most one ghost for <= the TTL - no
     // decrement path exists). The interlocutor admits unconditionally
@@ -393,8 +392,8 @@ public:
     static void ArmDialogue(uint32 botGuid, uint32 mapId, bool interlocutor);
     static bool DialogueActive(uint32 botGuid);
 
-    // ---- A4: the authored failure-fallback (cloud lane, conversational
-    // turns only). DrawFailureFallback resolves the plan's ids into a
+    // ---- The authored failure-fallback (cloud lane, conversational
+    // turns only). DrawFailureFallback resolves the fallback plan's ids into a
     // line at FAILURE time on the worker thread (pointers re-resolve by
     // guid - the AddBoundedSentimentInput precedent; a vanished bot or
     // player means nobody is left to speak to: silence). Delivery queues
@@ -411,7 +410,7 @@ public:
     static void AddRelationshipPointsByGuid(uint32 botGuid, uint32 playerGuid,
         int32 points);
 
-    // ---- A6: the street admission ladder (cloud lane). The crowd
+    // ---- The street admission ladder (cloud lane). The crowd
     // branch's entry: world/zone window claim -> per-bot slot ->
     // LLMCloudStreetSayPct roll -> CloudQuotaAdmits("street") ->
     // dispatch, IN THAT ORDER (the pin asserts it); any rejection
@@ -420,14 +419,14 @@ public:
     // defers). Quota-first admission: the street lane is EXEMPT from the
     // authored arbiter (its cap is the daily quota + the per-bot
     // interval). The generation runs on a detached worker (the composer
-    // precedent); the delivered line - generated, or E0's kStreetShort
+    // precedent); the delivered line - generated, or the kStreetShort
     // pool as the failure fallback - rides an authored SAY
     // EventReaction (2-5 s stagger), never the chatter queue, and never
-    // arms A2.
+    // arms the dialogue cap.
     static bool QueueStreetReaction(Player* bot, Player* speaker,
         std::string const& heard);
 
-    // ---- C7: greet-repeat persistence (the 0413 relationship columns).
+    // ---- Greet-repeat persistence (the 0413 relationship columns).
     // LastGreetLine reads the pairing's persisted last greeting (empty
     // when never voiced or the kill-switch LLMGreetMemory = 0);
     // NoteGreetingVoiced stamps both columns at the delivery composer.
@@ -472,18 +471,18 @@ public:
     static void NotePartyDigestLine(uint32 masterGuid, std::string const& line);
     static void MaybeMintPartyDigest(uint32 masterGuid, uint32 groupId);
 
-    // plan v5 W8: the /notice scene read - the player's own half of the
+    // The /notice scene read - the player's own half of the
     // immersion. Renders the live scene (place, stealth/combat, wounded
     // party members, hour/weather, the current rumor) as second-person
     // lines plus one authored in-character nudge. Zero generations
     static std::vector<std::string> SceneReadLines(Player* bot, Player* player);
 
-    // plan v5 S.3: the "story" codex read - the saga rows the town holds
+    // The "story" codex read - the saga rows the town holds
     // about the player (re-readable; the delivered saga is the
     // notification, this is the destination). Zero generations
     static std::vector<std::string> StoryLines(Player* bot, Player* player);
 
-    // plan v5 C2: the session recap. The deterministic digest renders
+    // The session recap. The deterministic digest renders
     // what actually accumulated while the player was away (new ledger
     // rows since their last active moment, town talk naming them, tenure
     // milestones); empty when fewer than three lines warrant it (the
@@ -495,19 +494,19 @@ public:
     // daily quota admit (one capped call, fail-closed to silence)
     static void DeliverSessionRecap(Player* player);
 
-    // plan v5 C5: the weekly dossier - one row about the player the
+    // The weekly dossier - one row about the player the
     // whole town holds (world_gossip category 'dossier'; rides every
     // bot's prompt through the gossip slice). Deterministic locally
     // (the newest remembered truth); cloud wording on the external tier,
     // once per 7 days, fail-closed
     static void MintWeeklyDossier(Player* player);
 
-    // plan v5 F2: the bot<->bot dyad ledger (in-process - the accepted
+    // The bot<->bot dyad ledger (in-process - the accepted
     // statics class, process-lifetime like moods and chatter fatigue; a
     // DB table would buy cross-restart persistence the engagement value
     // does not need). Affinity -3..+5 from shared party history; the
-    // newest dyad event feeds the party topic (W6) and biases the drama
-    // beat kind (C4)
+    // newest dyad event feeds the party topic and biases the drama
+    // beat kind
     static void NoteDyadEvent(uint32 botA, uint32 botB, int points,
         std::string const& eventText);
     static int DyadAffinity(uint32 botA, uint32 botB);
@@ -517,7 +516,7 @@ public:
     // vets fatigue BEFORE claiming - a claimed-but-vetoed event is lost)
     static bool PeekNewestDyadEvent(uint32 botA, uint32 botB, std::string& eventOut);
 
-    // plan v5 F7: the authored-line hourly ceiling. One global deque plus
+    // The authored-line hourly ceiling. One global deque plus
     // one deque per category; exempt beats (the first post-death/wipe
     // line) neither check nor consume. 0 on the conf key disables authored
     // ambient entirely (exempt beats still land)
@@ -606,7 +605,7 @@ public:
     // first-contact welcome)
     static bool PlayerHasAnyPairing(uint32 playerGuid);
 
-    // Phase-4: pairing tenure in days, from the OLDEST fact row's
+    // Pairing tenure in days, from the OLDEST fact row's
     // created_at (both SQL dialects read unix seconds). Returns -1 when
     // the pairing has no facts yet (caller renders nothing).
     static int PairingAgeDays(uint32 bot, uint32 player);
@@ -658,7 +657,7 @@ public:
     // whose notBefore is still ahead is re-queued (front) and skipped
     static bool DrainEventReaction(uint32 botGuid, EventReaction& reaction);
 
-    // plan v5 C4: queue one authored reaction under the cap (the shared
+    // Queue one authored reaction under the cap (the shared
     // two-slot discipline; the drama set piece and every future authored
     // beat queue through here)
     static void QueueAuthoredReaction(Player* bot, EventReaction& reaction);
@@ -667,7 +666,7 @@ public:
     static bool PrewarmDue(uint32 botGuid);
 };
 
-// 0.13 conjunction law: every cloud-lane widening consumes THIS - never
+// Conjunction law: every cloud-lane widening consumes THIS - never
 // the bare LLMCloudChatter key. The tier half is conf-static per process
 // (providerSafe + ctx >= 65536), so a device-lane emission can never
 // widen even with the key on; the pure three-value form lives in

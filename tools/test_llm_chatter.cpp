@@ -46,8 +46,8 @@ void TestPolicyTable()
     CHECK(cr.murmurBatchWindowSec == co.murmurBatchWindowSec);
 
     // NORMAL: composer batches only when configured; 20-40s display
-    // (Phase-5, after the corpus grew: murmur 30-60 → 20-40, party
-    // 12min@50% → 6min@50%, global 90 → 45min)
+    // (murmur 20-40, party 6min@50%, global 45min; the pre-corpus-growth
+    // values were murmur 30-60, party 12min@50%, global 90)
     ChatterPolicy n1 = ChatterPolicyFor(RUNG_NORMAL, true);
     CHECK(n1.generated && n1.composer);
     CHECK(n1.murmurDisplayMinSec == 20 && n1.murmurDisplayMaxSec == 40);
@@ -167,7 +167,7 @@ void TestFatigueAndLegend()
     CHECK(TemplateSpacingAdmits(f, 1, 1, 2, 1000, 120));  // other template
     CHECK(TemplateSpacingAdmits(f, 0, 3, 2, 1000, 120));  // other speaker
 
-    // Phase-4 legends: counter escalation grows then retires at the cap
+    // Legends: counter escalation grows then retires at the cap
     CHECK(std::string(CounterEscalation(0)).empty());
     CHECK(std::string(CounterEscalation(1))[0] != 0);
     CHECK(std::string(CounterEscalation(4)).find("legend") != std::string::npos);
@@ -553,7 +553,7 @@ void TestGovernorMath()
     CHECK(composerLinesPerMinute < 24.0);    // global budget (native default)
 }
 
-// plan v5 C2: the narrator block splitter for the session recap prose -
+// The narrator block splitter for the session recap prose -
 // the chatter line-safety law at the 200-byte sys-line budget, capped at 8
 static void TestNarratorSplit()
 {
@@ -592,7 +592,7 @@ static void TestNarratorSplit()
     CHECK(ascii);
 }
 
-// plan v5 F4b: the 200-byte long-form line law - the murmur law's rules
+// The 200-byte long-form line law - the murmur law's rules
 // at the staged-line budget (boundary, protocol bytes, leads)
 static void TestLongFormLineLaw()
 {
@@ -609,7 +609,7 @@ static void TestLongFormLineLaw()
     CHECK(ChatterLongLineSafe("A plain saga line, warm and true."));
 }
 
-// plan v5 C4: the drama exchange tables - both lines render, are ASCII,
+// The drama exchange tables - both lines render, are ASCII,
 // carry no markers, and the three kinds are distinct banks
 static void TestDramaTables()
 {

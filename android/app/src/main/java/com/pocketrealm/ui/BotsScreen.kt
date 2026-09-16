@@ -98,10 +98,9 @@ private sealed interface EditorTarget {
 }
 
 /**
- * Editor section tabs; the tab replaces the old single Advanced disclosure.
- * The former System tab folded into per-tab "Advanced tuning" disclosures
- * (accounts + adaptation live behind Population's), which made room for
- * the AI tab (per-preset speech overrides for the playerbot LLM).
+ * Editor section tabs. Accounts and adaptation settings live behind
+ * Population's per-tab "Advanced tuning" disclosure, and the AI tab holds
+ * the per-preset speech overrides for the playerbot LLM.
  */
 private enum class EditorSection(val label: String) {
     BASICS("Basics"),
@@ -129,8 +128,8 @@ fun BotsScreen() {
     val snapshotState: Settings.Snapshot? by settings.flow.collectAsState(initial = null)
     val snapshot = snapshotState ?: Settings.Snapshot()
     // Installed from a side effect, not during composition:
-    // install() does a blocking cold load, which used to run on the main
-    // thread inside remember{} on every first composition.
+    // install() does a blocking cold load that must stay off the main
+    // thread and out of remember{}.
     val botsDir = remember(context) { File(context.filesDir, "bots") }
     val store = remember(context) {
         BotCustomPresets.store() ?: BotPresetStore(botsDir)
@@ -1176,8 +1175,8 @@ private fun BasicsContent(
             "one of these behaviours live in the Behaviour tab.",
         style = MaterialTheme.typography.bodySmall,
     )
-    // Exclusive selection (verification: two presets with identical values
-    // previously lit both chips at once).
+    // Exclusive selection: the first matching non-custom preset wins, so
+    // two presets with identical values can never light two chips at once.
     val selectedPlaystyle = BotPlaystylePreset.entries
         .firstOrNull { it != BotPlaystylePreset.CUSTOM && it.matches(working) }
     BotPlaystylePreset.entries.filter { it != BotPlaystylePreset.CUSTOM }.forEach { playstyle ->

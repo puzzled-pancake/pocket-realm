@@ -2,7 +2,7 @@
   "schema": 1,
   "reference_document": "docs/wiki/README.md",
   "flavor": "offline-vanilla-1.12",
-  "description": "The first releasable product flavor: a self-contained, offline-only PvE Vanilla 1.12 realm on Android. This manifest is the contract the build, manifest merger, and release-acceptance checks enforce.",
+  "description": "The offline product flavor: a self-contained, offline-only PvE Vanilla 1.12 realm on Android. This manifest is the contract the build, manifest merger, and release-acceptance checks enforce.",
   "target_device_profile": {
     "primary": "Retroid Pocket 6 12 GB",
     "native_abi": "arm64-v8a",
@@ -49,5 +49,5 @@
     "network_policy": "INTERNET permits app-local TCP sockets and optional explicitly configured update checks; offline play binds realm endpoints to 127.0.0.1 and has no external authority dependency."
   },
   "release_acceptance_link": "docs/wiki/Build-and-Packaging.md",
-  "rule": "The offline flavor is a hard boundary. Connected-realm work starts only after the offline flavor is released and lives in a separate flavor/build type."
+  "rule": "The offline flavor is a hard boundary. Connected-realm functionality is excluded from this flavor and lives in a separate flavor/build type."
 }

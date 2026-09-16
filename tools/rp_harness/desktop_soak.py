@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Living-world composer soak (Phase 4): a long warm session with the
+"""Living-world composer soak: a long warm session with the
 player parked among bots, to exercise the ambient lanes the short
 batteries never reach - the LLM chatter composer (bot2bot banter),
 rumours, crowd emotes, street reactions.
 
-Design (from the Phase-2 gap analysis): unaddressed says are
+Design note: unaddressed says are
 non-triggers by law (HardTriggerAllowed refuses says without a bot
 name); the street ladder answers them with 1-in-10 crowd emotes on a
 12 s world-wide cooldown. The composer needs bots in RPG/wander states

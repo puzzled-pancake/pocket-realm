@@ -59,13 +59,12 @@ object LlmModelCoordinator {
     )
 
     /**
-     * The selectable models live in [LlmModelRegistry]; this alias keeps the
-     * download machinery's historical name. The DOWNLOAD default is
-     * deliberately still the base model (the only
-     * descriptor with a URL); the SELECTED default is the registry's
-     * TUNED_E2B (hand-staged; no download distribution yet). Callers
-     * choosing a model must pass the settings-derived descriptor, not
-     * this default.
+     * The selectable models live in [LlmModelRegistry]; this alias is the
+     * download machinery's default descriptor. The DOWNLOAD default is
+     * the base model (the only descriptor with a URL); the SELECTED
+     * default is the registry's TUNED_E2B (local-only; no download
+     * distribution). Callers choosing a model must pass the
+     * settings-derived descriptor, not this default.
      */
     val primaryModel: ModelDescriptor = LlmModelRegistry.BASE_E2B.let {
         ModelDescriptor(fileName = it.fileName, url = it.url, size = it.size, sha256 = it.sha256)

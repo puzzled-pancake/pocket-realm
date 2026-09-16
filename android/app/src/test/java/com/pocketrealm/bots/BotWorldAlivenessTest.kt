@@ -7,20 +7,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * WS-D (plan v2.3 §5): world aliveness without reducing bots.
+ * World aliveness without reducing bot counts.
  *
- * D1 companion: the seven experience presets enable the existing
- * "range"/"map" login criteria — the emitted line is conditional, so every
- * other preset's playerbotConfig() (and thus its adv identity-digest
- * input, which hashes that text) stays byte-identical.
+ * The seven experience presets enable the existing "range"/"map" login
+ * criteria — the emitted line is conditional, so every other preset's
+ * playerbotConfig() (and thus its adv identity-digest input, which hashes
+ * that text) stays byte-identical.
  *
- * D4: the village-ring preset fields ship DARK — count 0 on every catalog
- * profile and no VillageRing key in any emission until a profile opts in;
- * the field law is 0 = off or a village of 3-5 on a ring inside say range
- * (the native ListenRange.Say = 25 yd).
+ * The village-ring preset fields ship dark: count 0 on every catalog
+ * profile and no VillageRing key in any emission until a profile opts
+ * in; the field is either 0 (off) or a village of 3-5 on a ring inside
+ * say range (the native ListenRange.Say = 25 yd).
  *
- * D3: street life rides the already-quiet-gated Chatter ambient lane as a
- * per-preset rung CAP on the staged power file — never the legacy
+ * Street life rides the already-quiet-gated Chatter ambient lane as a
+ * per-preset rung cap on the staged power file — never the legacy
  * masterless-say capacity (RandomBotSayWithoutMaster stays 0 everywhere).
  */
 class BotWorldAlivenessTest {
@@ -47,14 +47,14 @@ class BotWorldAlivenessTest {
         for (id in nonExperience) {
             val conf = BotProfiles.find(id)!!.playerbotConfig()
             assertFalse("$id must not emit DefaultLoginCriteria", conf.contains("DefaultLoginCriteria"))
-            assertFalse("$id must not emit VillageRing keys (D4 ships DARK)", conf.contains("VillageRing"))
+            assertFalse("$id must not emit VillageRing keys", conf.contains("VillageRing"))
         }
     }
 
     @Test
     fun villageRingShipsDarkOnEveryCatalogProfile() {
         for (id in BotProfiles.ids()) {
-            assertEquals("D4 ships DARK: $id must keep villageRingCount 0", 0, BotProfiles.find(id)!!.villageRingCount)
+            assertEquals("$id must keep villageRingCount 0", 0, BotProfiles.find(id)!!.villageRingCount)
         }
         // and the yd defaults travel with the field everywhere
         for (id in BotProfiles.ids()) {
@@ -89,7 +89,7 @@ class BotWorldAlivenessTest {
 
     @Test
     fun randomBotSayWithoutMasterStaysZeroOnEveryCatalogProfile() {
-        // D3's negative pin: street life rides the Chatter queue, never the
+        // negative pin: street life rides the Chatter queue, never the
         // bare masterless bot->Say path (un-arbitrated mechanic-speak)
         for (id in BotProfiles.ids()) {
             assertTrue(
@@ -135,7 +135,8 @@ class BotWorldAlivenessTest {
 
     @Test
     fun rungCapOnlyLowersTheComputedRung() {
-        // D3: min(), never max() — the master toggle and the courtesy dim win
+        // the cap applies min(), never max() — the master toggle and the
+        // courtesy dim win
         val normal = ChatterPowerMonitor.RUNG_NORMAL
         val constrained = ChatterPowerMonitor.RUNG_CONSTRAINED
         assertEquals(normal, ChatterPowerMonitor.applyRungCap(normal, -1))

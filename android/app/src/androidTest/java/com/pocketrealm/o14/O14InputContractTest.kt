@@ -41,13 +41,13 @@ import java.util.concurrent.atomic.AtomicBoolean
  * rejects stale-generation input. Existing keyboard, absolute-pointer, and
  * left-click behavior is re-asserted as regression coverage.
  *
- * Lane: AVD-Large-x86_64-v1 (physical AVD O11-Large-x86_64, emulator-5556).
+ * Lane: AVD-Large-x86_64-v1 (physical AVD O11-Large-x86_64).
  * Makes no claim for 16 KiB, ARM, physical controllers, or AVD-Modern.
  *
  * The probe runs in interactive mode (waits for the close sentinel), so this
  * test drives all four new inputs then closes. If any input does not reach the
- * Win32 probe, the test fails on its own assertion (per the failure-handling
- * rule: no success claimed from an X-server call alone).
+ * Win32 probe, the test fails on its own assertion — success is never claimed
+ * from an X-server call alone.
  */
 @RunWith(AndroidJUnit4::class)
 class O14InputContractTest {

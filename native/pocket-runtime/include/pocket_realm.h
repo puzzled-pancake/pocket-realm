@@ -2,10 +2,12 @@
  * pocket_realm.h — Pocket Realm embeddable realm lifecycle C ABI.
  *
  * This is the versioned boundary between the Kotlin/Compose Android supervisor
- * (and, later, the connected Rust Realm Kernel) and the native CMaNGOS/Playerbots
- * realm. It is the only crossing point for the historical embedded-library
- * path. The production topology uses separately supervised native components;
- * this library lane is retained as reusable evidence.
+ * and the native CMaNGOS/Playerbots realm. It exposes the in-process
+ * library-lane facade (libpocketrealm.so): an embedded realm created and
+ * supervised by the caller for control and health integration. Long-lived
+ * realm components run as separate library-backed, supervised, fault-isolated
+ * processes; this in-process facade is not the production world-server
+ * crossing.
  *
  * Hard invariants enforced by the implementation:
  *   - Opaque handles (realm_t*). The caller never dereferences realm internals.
@@ -60,8 +62,8 @@ typedef enum {
 /*
  * Caller-provided log sink. The runtime calls it with NUL-terminated text in
  * `msg` (length `len`, which equals strlen(msg)); `len` is passed explicitly so
- * binary-safe sinks are possible. Returning non-zero is ignored today (reserved
- * for future flow-control). Called on arbitrary native worker threads; the sink
+ * binary-safe sinks are possible. Returning non-zero is ignored (reserved
+ * for flow-control). Called on arbitrary native worker threads; the sink
  * must be thread-safe and non-blocking.
  */
 typedef void (*realm_log_fn)(void* user, realm_log_level level,
@@ -71,8 +73,8 @@ typedef void (*realm_log_fn)(void* user, realm_log_level level,
 
 /*
  * Mirrors com.pocketrealm.realm.RealmState. The supervisor on the Kotlin side
- * owns the authoritative state machine; this is the native projection used for
- * health/state queries for the library-lane experiment. Do not renumber.
+ * owns the authoritative state machine; this enum is the native projection the
+ * supervisor reads for library-lane state queries. Do not renumber.
  */
 typedef enum {
     REALM_STATE_CREATED = 0,
@@ -160,8 +162,8 @@ typedef enum {
  *                 what makes the world-loop health conditions report
  *                 BLOCKED_ON_CLIENT_DATA rather than the process exiting.
  *   db_dir        directory for the four SQLite databases used only by the
- *                 exploratory library lane. The production database service (MariaDB)
- *                 outside this ABI unless a superseding ADR says otherwise.
+ *                 exploratory library lane. The production database service
+ *                 (MariaDB) lives outside this ABI.
  *   world_conf    path to a generated mangosd.conf (loopback bind, etc.).
  *   realmd_conf   path to a generated realmd.conf.
  *   playerbot_conf path to a generated aiplayerbot.conf (may be NULL to skip).

@@ -1,23 +1,30 @@
-"""WS-C wiring (plan v2.3 C1/C3/C4/C5/C6/C7/C8) - host pins.
+"""Memory/reward wiring - host pins.
 
 The pure halves (RewordFirstMeetingRow, TownTalkClause) run on the host
 in the banter battery; this file pins the runtime halves that live in
 the overlays and driver payloads:
-  C1  render-time rewording at BOTH fetch surfaces (the trained facts
+  rewording
+      render-time rewording at BOTH fetch surfaces (the trained facts
       segment + the journal), tier-gated at acquaintance+
-  C3  the de-framed dossier mint (no "The word on" double frame), the
+  dossier
+      the de-framed dossier mint (no "The word on" double frame), the
       4-category pick, the party-talk exclusion, the dropped 7-day cloud
       gate, and the clamp+hygiene+name-match acceptance for the reword
-  C4  the per-master digest window at the A3 block, the storyteller pick
+  digest
+      the per-master digest window at the party block, the storyteller pick
       (tier >= 3, SelectResponder), MintOnceFact keying, the quota
-  C5  tier_since stamps only on crossings (ODKU order), the persisted
+  tiers
+      tier_since stamps only on crossings (ODKU order), the persisted
       last_voiced_tier seed with the 48 h freshness gate, the per-player
       ceremony-rider coalescing with the per-crossing sys line
-  C6  the capped turn award (both lanes' sites route through it), the
+  turn award
+      the capped turn award (both lanes' sites route through it), the
       deed values at their hooks, the quest anchor's !IsRepeatable gate
-  C7  the boot nonce (kill-switch keeps the zero nonce), the greet-line
+  greet nonce
+      the boot nonce (kill-switch keeps the zero nonce), the greet-line
       exclusion + persistence columns
-  C8  the history INSERT/trim inside the AppendTurn choke point, the
+  history
+      the history INSERT/trim inside the AppendTurn choke point, the
       lazy hydration, the LLMHistoryPersist gate
 """
 from __future__ import annotations
@@ -175,7 +182,7 @@ class TestC6Economics:
         assert "llmDeedPointsTrade" in trade
 
     def test_trade_deed_rides_the_sentiment_admission(self):
-        # round-1 R7#3: the farm law - N completed trades in 60 s award
+        # The farm law: N completed trades in 60 s award
         # exactly ONE deed. The deed is gated on the same SentimentRate
         # admission as the tone row (AddBoundedSentimentInput now returns
         # its verdict); an unconditional award would farm deeds.
@@ -253,7 +260,7 @@ class TestC8HistoryPersistence:
 
 
 class TestC2VoicedFactPersistence:
-    """Round-1 R4#1: voiced_at has exactly one stamp site (the
+    """voiced_at has exactly one stamp site (the
     TickInitiative delivery block, where the fact id is in hand
     synchronously - never at enqueue on delayed paths) and the
     InitiatedFactIds seed is lazy (the newest-6 PQuery also selects
@@ -290,7 +297,7 @@ class TestC2VoicedFactPersistence:
 
     def test_no_backfill_anywhere(self):
         # NULL = never voiced; backfilling would permanently silence
-        # historical debt/goal initiations (the plan's stated law)
+        # historical debt/goal initiations (the stated law)
         mig = (ROOT / "sql" / "migrations" / "ai_playerbot_llm_memory_v2.sql").read_text(encoding="utf-8")
         low = mig.lower()
         assert "voiced_at" in low

@@ -132,7 +132,7 @@ class RuntimeSupervisorClient(context: Context) {
             val unverifiedOrphan = rawError?.contains("UNVERIFIED_ORPHAN") == true
             val dbOwnedByDeadSession = rawError?.contains("DB_OWNED_BY_DEAD_SESSION") == true
             val lastError = rawError
-                // Plan F1: raw details (UNVERIFIED_ORPHAN, timeout classes)
+                // Raw details (UNVERIFIED_ORPHAN, timeout classes)
                 // go to logs; the UI sees human copy.
                 ?.let(RuntimeFailureCopy::humanize)
             return when (phase) {

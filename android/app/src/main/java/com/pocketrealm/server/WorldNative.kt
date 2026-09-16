@@ -15,7 +15,7 @@ internal object WorldNative {
     external fun accountInfoNative(username: String): LongArray
     external fun characterPersistenceNative(username: String, characterName: String): String
     external fun realmInfoNative(): String
-    // H2 relay-min smoke rail: inject a chat line through the real chat
+    // Test-support smoke rail: inject a chat line through the real chat
     // opcode handler, clear LLM assertion memory, read LLM memory state.
     external fun worldChatNative(
         characterName: String, channel: String, target: String, text: String,

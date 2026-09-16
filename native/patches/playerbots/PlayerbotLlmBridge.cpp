@@ -294,7 +294,7 @@ bool ConsumeGreetingGap(uint32 botGuid, uint32 playerGuid)
     return true;
 }
 
-// plan v5 H3: the once-per-session lore card set, per (bot, player)
+// The once-per-session lore card set, per (bot, player)
 // pairing (a name-drop is grounded once; a repeat is wasted prefill).
 // CHECK-AND-CLAIM in one: the first claim returns false (not yet seen)
 // and marks; later claims return true
@@ -483,7 +483,7 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
     PlayerbotLlmBridge::EventKind const eventKind =
         (PlayerbotLlmBridge::EventKind)state.eventKind;
 
-    // plan v5 W5: an armed curiosity ask consumes the player's next
+    // An armed curiosity ask consumes the player's next
     // conversational reply as a fact (deterministic capture - the 0.8B
     // fallback's licensed log_fact fires unreliably, and a vanished
     // answer is a broken promise). Event turns never consume the arm
@@ -502,7 +502,7 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
     // bare log_fact shape is trained). No guard and no card here: event
     // text is bridge-authored, never a player-acted-on entity. The news
     // cargo is bridge-decided, so the note mandates its content.
-    // Phase-3 reactivity: dial <= 25 strips the licensed EXTRAS (the
+    // Reactivity dial: dial <= 25 strips the licensed EXTRAS (the
     // memory write still lands - quiet bots remember, they just cheer
     // less); default 50+ keeps base behavior.
     if (state.eventTurn)
@@ -534,9 +534,9 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
                          "poorly with you.";
             break;
         case PlayerbotLlmBridge::EVENT_DEBT_SETTLED:
-            // plan v5 F1: the trade hook retired the debt row before this
-            // turn queued - the shipped-but-unwired kind-1 (debt-forgiven)
-            // beat finally has its event source. The cargo rides the
+            // The trade hook retired the debt row before this
+            // turn queued - the kind-1 (debt-forgiven)
+            // beat has its event source. The cargo rides the
             // note's directive leg; the log_fact above still persists the
             // settlement as the bot's own memory
             note.extra = pocketllm::TierBeatCargo(player ? player->GetName() : "",
@@ -562,7 +562,7 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
             if (pocketllm::LoreCard const* card = lore->BestCard(normalizedMsg))
                 note.result = card->text;
     }
-    // plan v5 H3: keyword-triggered lore (world-info lite) - a canonical
+    // Keyword-triggered lore (world-info lite) - a canonical
     // POI/figure TITLE in a QUESTION-OR-STAKES-shaped turn (the widened
     // gate: imperatives like "take me to X" ground their card too; pure
     // declaratives stay ungated - the trained question path above keeps
@@ -971,9 +971,9 @@ PlayerbotLlmBridge::Note BuildNoteInner(Player* bot, Player* player,
     if (!guardExtra.empty())
         note.extra = note.extra.empty() ? guardExtra : note.extra + "\n" + guardExtra;
 
-    // plan v5 W7b: the scene/homeland furniture - ONE line, riding the
+    // Scene/homeland furniture - ONE line, riding the
     // bridge extra leg (never the trained [State] fill, never a new
-    // segment), default OFF pending the bake-off. Precedence: stealth >
+    // segment), default OFF. Precedence: stealth >
     // home ground > enemy capital; conversational turns only
     if (!state.eventTurn && bot && sPlayerbotAIConfig.llmWorldTruthFurniture)
     {

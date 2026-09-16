@@ -1,14 +1,15 @@
-"""WS-D (plan v2.3 s5) source-contract pins: D1 spawn-stack relief, D4
-village ring, D3 chatter-lane staging.
+"""Login spawn-stack relief source-contract pins: spawn-stack relief, the
+village ring, and chatter-lane staging.
 
-D1/D4 native behavior lives in anchor payloads inside the build driver
+The relief/ring native behavior lives in anchor payloads inside the build
+driver
 (RandomPlayerbotMgr/PlayerbotAIConfig/aiplayerbot.conf.dist.in are
-anchor-managed); D3's rung cap and D4's preset fields live on the Kotlin
+anchor-managed); the rung cap and the preset fields live on the Kotlin
 surface. These pins follow test_llm_player_surface.py's content-contract
 pattern: every anchor's UPSTREAM text is asserted byte-present in the
 PRISTINE submodule tree (the drift guard), the ANDROID payloads carry the
-plan's laws, and the Kotlin surface wires the emission. The behavioral
-leg (an actual login wave spreading) is device-gated - the T4 soak
+behavioral laws, and the Kotlin surface wires the emission. The behavioral
+leg (an actual login wave spreading) is device-gated - the device soak
 asserts teleportsLast60s on hardware.
 """
 from __future__ import annotations
@@ -148,7 +149,7 @@ def test_d1_kill_switch_and_d4_native_keys_ship_with_the_plan_defaults():
         "D4 ships DARK: the native default is 0"
     assert 'villageRingMinYd = config.GetIntDefault("AiPlayerbot.VillageRingMinYd", 10);' in cpp
     assert 'villageRingMaxYd = config.GetIntDefault("AiPlayerbot.VillageRingMaxYd", 25);' in cpp, \
-        "the plan's 10/25 defaults (inside ListenRange.Say 25.0)"
+        "the 10/25 yd defaults (inside ListenRange.Say 25.0)"
     header = anchor_text("PB_D1_CONFIG_HEADER_ANDROID")
     for member in ("bool randomBotLoginSpread;", "uint32 villageRingCount;",
                    "uint32 villageRingMinYd;", "uint32 villageRingMaxYd;"):

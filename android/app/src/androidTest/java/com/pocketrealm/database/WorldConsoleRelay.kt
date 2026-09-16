@@ -39,12 +39,12 @@ import java.util.concurrent.TimeUnit
  *   world-gm <user> <level> | world-account-status <user> |
  *   world-persistence <user> <char> | world-pause <0|1> |
  *   world-kill | world-stop
- *   world-chat <char> <channel> [target] <text>   (H2 relay-min: channel
+ *   world-chat <char> <channel> [target] <text>   (relay-minimum: channel
  *       is say|party|whisper|yell; target = receiving bot name, whisper
  *       only; text rides arg4 - see tools/rp_harness)
- *   reset-state [player]     (H2 relay-min: clears bot_player_facts +
+ *   reset-state [player]     (relay-minimum: clears bot_player_facts +
  *       bot_player_relationship for one player or all)
- *   llm-memory-state <player> (H2 relay-min: per-bot relationship rows +
+ *   llm-memory-state <player> (relay-minimum: per-bot relationship rows +
  *       per-(bot,prefix) fact counts; empty player = world summary)
  *   stack-up-bot <profileId>   (supervisor DB-RECOVERY gate when the
  *       journal is dirty + engine clean-marker verify/heal when it is
@@ -111,9 +111,9 @@ class WorldConsoleRelay {
         return response
     }
 
-    // Cached proxies are revalidated per op: a :world death used to wedge the
-    // relay permanently (every later op answered DeadObjectException until
-    // world-kill's unconditional unbind). A dead cache is closed so the
+    // Cached proxies are revalidated per op: a stale proxy to a dead
+    // :world process would wedge the relay permanently (every later op
+    // answering DeadObjectException). A dead cache is closed so the
     // rebind below reconnects to the recreated service process.
     private fun <T> rebind(cached: Bound<T>?, component: String, convert: (IBinder) -> T): Bound<T> {
         if (cached != null && cached.alive()) return cached
@@ -156,14 +156,14 @@ class WorldConsoleRelay {
             "world-gm" -> passthrough(op) { worldApi().setAccountGmLevel(arg1, arg2.toIntOrNull() ?: 0) }
             "world-account-status" -> passthrough(op) { worldApi().accountStatus(arg1) }
             "world-persistence" -> passthrough(op) { worldApi().characterPersistence(arg1, arg2) }
-            // H2 relay-min: arg1 = sending char name, arg2 = channel
+            // arg1 = sending char name, arg2 = channel
             // (say|party|whisper|yell), arg3 = receiving bot name (whisper
             // only), arg4 = the chat text
             "world-chat" -> passthrough(op) {
                 worldApi().worldChat(arg1, arg2, arg3, arg4) }
-            // H2 relay-min: arg1 = player name ("" = every player)
+            // arg1 = player name ("" = every player)
             "reset-state" -> passthrough(op) { worldApi().resetState(arg1) }
-            // H2 relay-min: arg1 = player name ("" = world summary with
+            // arg1 = player name ("" = world summary with
             // online bot names)
             "llm-memory-state" -> passthrough(op) { worldApi().llmMemoryState(arg1) }
             "world-pause" -> passthrough(op) { worldApi().setWorldPaused(arg1.toIntOrNull() ?: 0) }

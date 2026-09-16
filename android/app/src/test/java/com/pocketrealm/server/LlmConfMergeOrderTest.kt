@@ -60,7 +60,7 @@ class LlmConfMergeOrderTest {
     @Test
     fun quoteTrimmingParserLeavesTheJsonTemplateIntactAndPatternsEmpty() {
         val conf = parseConf(LlmRuntimePolicy.confBlock(llmEnabled = true)!!)
-        // A9: the response patterns are emitted as EMPTY values - the native
+        // The response patterns are emitted as EMPTY values - the native
         // client parses the chat-completions envelope as JSON, and empty keys
         // disable the regex path (an unset key would fall back to the
         // JSON-era native defaults, whose end pattern truncates at the first
@@ -93,7 +93,7 @@ class LlmConfMergeOrderTest {
     }
 
     @Test
-    fun disabledRuntimeLeavesTheReviewedBaseContractAtLlmEnabledZero() {
+    fun disabledRuntimeLeavesTheBaseContractAtLlmEnabledZero() {
         assertNull(LlmRuntimePolicy.confBlock(llmEnabled = false))
         launchableProfiles.forEach { profile ->
             val conf = parseConf(profile.playerbotConfig())
@@ -131,7 +131,7 @@ class LlmConfMergeOrderTest {
 
     @Test
     fun defaultPromptsFileRidesTheAppendedBlockAsAnAbsolutePath() {
-        // B8: the line must ride the APPEND, never playerbotConfig() - the
+        // The line must ride the APPEND, never playerbotConfig() - the
         // base profiles are contractually free of LLM keys other than
         // llmenabled (baseProfilesCarryNoOtherLlmKeysThatCouldGoStale...)
         // - and the value must survive the parser's quote trimming as an

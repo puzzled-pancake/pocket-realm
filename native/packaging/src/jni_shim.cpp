@@ -29,7 +29,7 @@ extern "C" {
 JNIEXPORT jstring JNICALL
 Java_com_pocketrealm_pkg_PkgNative_helloNative(JNIEnv* env, jclass)
 {
-    // Marker string PKG-01/02 assert on to prove the shim answered.
+    // Marker string the host smoke tests assert on to prove the shim answered.
     return to_jstring(env, "pocket-realm-pkg-ok");
 }
 

@@ -81,9 +81,7 @@ abstract class ValidateConnectedAndroidTestTargetTask : DefaultTask() {
         // cached configuration can serve stale. Under a Gradle daemon the
         // launcher JVM is the daemon itself, so its command line carries no
         // build arguments and this check cannot verify anything — it stays
-        // useful for no-daemon runs only. The durable fix is a settings
-        // ValueSource feeding a tracked property; tracked as remaining work.
-        // Do not claim coverage the check cannot provide.
+        // useful for no-daemon runs only.
         val launcherCommand = System.getProperty("sun.java.command", "")
         val launcherIsDaemon = launcherCommand.contains("GradleDaemon")
         val launcherSerialOptionPresent = launcherCommand
@@ -424,7 +422,7 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
         if (abi == "arm64-v8a" && selectedLane == "full") {
             val gladioServer = File(nativeBuildRoot,
                 "xserver-winlator-build/libgladiorenderer.so")
-            // Re-pinned 2026-08-17 for the share-group lifetime fix
+            // Pinned build carries the share-group lifetime fix
             // (refcounted GLSharedObjectState in gl_client_state.h).
             check(gladioServer.length() == 1_314_512L && sha256(gladioServer) ==
                 "4e722a89c8871fb59627f36a5a48446e7d7a0e96e4136bf27188f0a041ebc705") {
@@ -443,11 +441,10 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
                 virglServerProvenance["upstream_virgl_source_tree_id"] ==
                     "44f73c34d4a2cf4e21fcdbcfc4fc37a44837e1b9" &&
                 virglServerProvenance["adapted_source_sha256"] ==
-                    // Re-pinned 2026-08-17: the xserver rebuild regenerated
-                    // the provenance with a new adapted_source_sha256 because
-                    // the build script self-hashes into it and a toolbox
-                    // refactor in the tooling changed the script. The
-                    // libvirglrenderer.so binary itself is byte-identical
+                    // adapted_source_sha256 covers the provenance generator
+                    // itself: the build script self-hashes into the
+                    // provenance, so tooling changes regenerate it while the
+                    // libvirglrenderer.so binary stays byte-identical
                     // (sha/size pins above unchanged).
                     "ecde987136d772e99c289e882c19df18796e760fef2a232b963694ee544f1e15" &&
                 virglServerProvenance["ndk_version"] == "30.0.15729638" &&
@@ -693,12 +690,11 @@ abstract class ValidateSelectedNativeClosureTask : DefaultTask() {
 }
 
 /**
- * Build-time staleness fence for the staged realm runtime. A QA session once
- * produced an exit-0/BUILD SUCCESSFUL APK whose packaged
- * libpocket_world_runtime.so was days stale (missing the world-chat,
- * reset-state and llm-memory-state JNI ops) because every existing gate
- * compared the staging bytes only against the lockfile that the same stale
- * lane had written. This fence closes the remaining gaps:
+ * Build-time staleness fence for the staged realm runtime. Guards against
+ * packaging a stale libpocket_world_runtime.so (one missing the world-chat,
+ * reset-state and llm-memory-state JNI ops) that would pass a gate which
+ * compares the staging bytes only against the lockfile the same stale lane
+ * wrote. The fence verifies:
  *
  *  - every staged .so under native/.build-o09-<abi>/realm-staging[-sqlite]
  *    is rehashed and compared against the lane lockfile's artifact pins;
@@ -891,13 +887,13 @@ abstract class ValidateNativeRuntimeFreshnessTask : DefaultTask() {
                 if (staged.length() != size) {
                     reasons += "staged ${staged.name} size ${staged.length()} != lockfile " +
                         "pin $size (${stagingRelativeDir.get()}): the staged .so is STALE " +
-                        "relative to the reviewed lane pins"
+                        "relative to the lockfile lane pins"
                 }
                 val actualSha256 = sha256Hex(staged)
                 if (!actualSha256.equals(sha256, true)) {
                     reasons += "staged ${staged.name} sha256 $actualSha256 != lockfile pin " +
                         "$sha256 (${stagingRelativeDir.get()}): the staged .so is STALE " +
-                        "relative to the reviewed lane pins"
+                        "relative to the lockfile lane pins"
                 }
             }
             val pinnedNames = pins.map { File(it.first).name }.toSet()
@@ -1073,13 +1069,12 @@ val pocketNdkLibraryTriple = when (pocketAbi) {
 // Native runtime freshness: lockfile-derived telltale + staleness fence.
 //
 // The staged realm runtime enters the APK through stageNativeLibs (the
-// realmStage source below). A QA session once built an exit-0 APK whose
-// packaged libpocket_world_runtime.so was days stale; the fences registered
-// here make that impossible to miss: the staged bytes and provenance are
-// verified against the reviewed lane lockfile before anything packages the
-// libs, and the same pins are baked into BuildConfig as a runtime telltale
-// (relay ping / world-status runtimeBuildId) so a harness session detects a
-// stale APK at attach time instead of failing mid-run on missing JNI ops.
+// realmStage source below). The fences registered here verify the staged
+// bytes and provenance against the reviewed lane lockfile before anything
+// packages the libs, and the same pins are baked into BuildConfig as a
+// runtime telltale (relay ping / world-status runtimeBuildId) so a harness
+// session detects a stale APK at attach time instead of failing mid-run on
+// missing JNI ops.
 // ---------------------------------------------------------------------------
 
 // Lockfile selection mirrors validateRealmRuntime exactly: x86_64 has no ABI
@@ -1266,14 +1261,13 @@ android {
         }
     }
 
-    // The packaging experiment requires executing an APK-packaged PIE launcher from
-    // nativeLibraryDir. The experiment proved that AGP must extract native libraries to
-    // disk with executable permissions. The historical pkgExperiment build
-    // type remains for regression qualification; every product build type now
-    // uses the same proven extraction policy below.
+    // Executing an APK-packaged PIE launcher from nativeLibraryDir requires
+    // AGP to extract native libraries to disk with executable permissions
+    // (the packaging policy every build type gets below). The pkgExperiment
+    // build type remains for regression qualification.
     buildTypes {
         getByName("debug") {
-            // production packaging model
+            // Ships with the same extraction policy as release (no overrides).
         }
         getByName("release") {
             isMinifyEnabled = false
@@ -1313,7 +1307,7 @@ android {
             // The pocketrealm-llm library publishes only debug/release; all
             // custom lanes resolve their library dependency against debug.
             matchingFallbacks += listOf("debug")
-            // Historical packaging qualification variant.
+            // Packaging qualification variant.
             isJniDebuggable = true
         }
         create("clientRuntime") {

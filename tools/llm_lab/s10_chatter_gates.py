@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S10 world-chatter voice gates (E6/SS4.6b).
+"""World-chatter voice gates.
 
 The silence-default soak, world-ring zero-repeat, fatigue retirement and
 interruption rules are pinned by the HOST battery (tools/
@@ -9,7 +9,7 @@ the VOICE of the live paths against the pinned weights -
 
   MURMUR    the murmur request shape (the frozen MurmurSystemMessage +
             MurmurNote over real event rows), n draws per event. Floors:
-            voiced rate, register rate (5-24 words, the pre-P52
+            voiced rate, register rate (5-24 words, the
             runtime tolerance the delivery path enforces; out-of-band draws listed for human reading - the
             delivery path drops them in-tree), zero tool markers,
             event-anchored (shares a content word with the row).
@@ -19,13 +19,13 @@ the VOICE of the live paths against the pinned weights -
             n=3 draws; the python mirror of ParseComposerScript scores
             the speaker-tagged parse (>=2 accepted turns, personas
             only, no markers) and the turns land in the artifact for
-            the human-read voice panel (the S8 ceremony precedent).
+            the human-read voice panel (the ceremony precedent).
   RING      pairwise word-Jaccard across every accepted murmur/party
             draw - the live cross-draw repetition signal (auto floor:
             zero pairs over the 0.5 world-ring bar).
 
 Usage: python tools/llm_lab/s10_chatter_gates.py --model e2b-tuned [--n 5]
-Output: C:/llm-lab/results/s10_chatter_<model>_<ts>.json (versioned).
+Output: RESULTS_DIR/s10_chatter_<model>_<ts>.json (versioned).
 """
 import argparse
 import json

@@ -17,8 +17,8 @@ import org.junit.Test
  * is staged — the same gate the supervisor applies before starting the :llm
  * process, so the conf and the running server can never disagree; (2) with
  * the submenu off, the debug-build-only in-process llama override (still
- * model-gated) so the adb-driven native/llm workflow keeps working;
- * (3) otherwise nothing, and the base profile's reviewed LLMEnabled = 0
+ * model-gated) so adb-driven native debugging keeps working;
+ * (3) otherwise nothing, and the base profile's LLMEnabled = 0
  * stands.
  */
 class ServerRuntimeFilesLlmGateTest {
@@ -71,7 +71,7 @@ class ServerRuntimeFilesLlmGateTest {
         )!!
         assertTrue(block.contains("AiPlayerbot.LLMBackend = 1"))
         assertTrue(block.contains("""AiPlayerbot.LLMModelPath = "/data/models/qwen.gguf""""))
-        // S8-ledger (n), S9: the banter toggle gates the in-process debug
+        // The banter toggle gates the in-process debug
         // path too - the native default (1) otherwise runs the authored
         // initiative layer regardless of the toggle
         assertTrue(block.contains("AiPlayerbot.LLMBanterEnabled = 1"))
@@ -217,7 +217,7 @@ class ServerRuntimeFilesLlmGateTest {
 
     @Test
     fun defaultPromptsFileReachesEveryEmittedBlockLane() {
-        // B8: the staged EMPTY default-prompts file must ride every lane the
+        // The staged EMPTY default-prompts file must ride every lane the
         // gate can emit - the native loader opens it on the HTTP and
         // in-process paths alike, so a lane without the line regresses to
         // the "not found or unreadable" startup line. Null (staging failed
@@ -260,7 +260,7 @@ class ServerRuntimeFilesLlmGateTest {
     }
     @Test
     fun stagedTlsCaLineReachesTheDebugLaneToo() {
-        // G3 (round-7 R5): the staged CA-bundle path must ride the DEBUG
+        // The staged CA-bundle path must ride the DEBUG
         // lane exactly as it rides the device and external lanes (the
         // device/external pair is pinned in LlmRuntimePolicyTest's
         // tlsCaLineEmitsOnlyWhenStaged) - the adb-workflow lane is the

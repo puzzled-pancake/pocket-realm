@@ -63,9 +63,9 @@ The app starts with a smaller group and moves towards the selected target in sta
 
 The editor's tabs are Basics, Population, Behaviour, and AI. Deeper tuning (startup pacing, teleport limits, the account pool, adaptive load-shedding floors, login lifecycle, rerandomize cadence) sits behind each tab's **Advanced tuning** switch — every knob stays reachable, none is removed. The **AI** tab holds per-preset speech overrides for the bot LLM: whether bots may start conversations, reply length, bot-to-bot chat frequency, memory depth, per-block prompt-pack deltas (on/off for each seasoning rule; Default follows the global pack in Settings → AI bot LLM → Advanced), and the RP dials — Initiative, Volatility, Reactivity, and Long-form — each 0-100 with Default following the global 50. Values left at their defaults follow the selected model's tuned profile; the engine, model, and global switches live in Settings → AI bot LLM. Safety floors and load shedding stay active.
 
-## AI bot LLM
+## AI bot chat (experimental)
 
-The **AI bot LLM** card configures the optional speech engine for computer-controlled residents. It is off by default; with it off, bots keep their regular scripted behaviour. The card carries the master switch ("Let bots talk with an AI") and links to a dedicated **AI bot LLM** destination on the navigation menu.
+Bot speech through a language model is an **experimental** feature. The Settings card is titled **AI bot chat (experimental)** and stays collapsed until you turn on its **Experimental AI bot chat** switch — off by default, and turning it off also silences bot chat again. With the gate on, the card carries the master switch ("Let bots talk with an AI") and links to a dedicated **AI bot LLM** destination on the navigation menu.
 
 The destination is split into two tiers. The **simple tier** — speech switch, source, authored banter, world chatter, and the model picker — is always visible and is all most players need. Everything else (accelerator details, generation limits, connection fields) sits behind an **Advanced engine settings** switch at the bottom; the defaults behind it are measured for the device class and only change when touched.
 

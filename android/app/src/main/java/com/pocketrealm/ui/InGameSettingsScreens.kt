@@ -516,8 +516,8 @@ private fun SettingDefinitionRow(
     val soundGated = definition.section == WowSettingSection.SOUND &&
         snap.audioMode == Settings.AudioMode.OFF
     val uvarGated = definition.backend == WowSettingBackend.UVAR && state.selectedAccount == null
-    // F4: shader-dependent rows stay locked on the Legacy GL lanes, which is
-    // exactly why they were fixed before; DXVK unlocks them.
+    // Shader-dependent rows stay locked on the Legacy GL lanes;
+    // DXVK unlocks them.
     val selectedRenderer = ArmClientRendererCatalog.find(snap.selectedArmRendererId())
     val legacyRenderer = selectedRenderer == ArmClientRenderer.LEGACY_GLADIO ||
         selectedRenderer == ArmClientRenderer.MESA_VIRGL

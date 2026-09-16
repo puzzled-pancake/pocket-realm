@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Build the Pocket Realm realm runtimes as Windows DLLs with MSVC.
 
-The Windows-port native lane (Phase 2d). Reuses the o09 driver's source
+The Windows-port native lane. Reuses the o09 driver's source
 staging verbatim — pinned submodule commits, the playerbots CMake mirror,
 anchor-verified overlays, sqlite hardening, db null guards — by importing
 tools/build_o09_realm_runtime.py, then configures the SAME tree for
-MSVC/Ninja with the Phase-2c dependency prefix (vcpkg x64-windows-static
+MSVC/Ninja with the vcpkg dependency prefix (x64-windows-static
 OpenSSL/Boost/zlib + the repo-pinned SQLite amalgamation) and builds
 pocket_realmd_runtime.dll + pocket_world_runtime.dll.
 

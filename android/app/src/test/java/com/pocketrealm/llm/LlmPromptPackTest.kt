@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Phase-1 prompt-pack contract (plan v4): the default pack mirrors the
+ * Prompt-pack contract: the default pack mirrors the
  * trained renderer order with seasoning DISABLED (native renders
  * byte-identical trained output until the player opts in); JSON round-trips
  * losslessly; token estimates stay positive and bounded.
@@ -33,7 +33,7 @@ class LlmPromptPackTest {
             "player-persona",
         )
         assertEquals(seasoning, ids.takeLast(seasoning.size))
-        // plan v5 S.2: the persona card ships disabled with an EMPTY body -
+        // the persona card ships disabled with an EMPTY body -
         // its silence-doctrine default (renders nothing until written)
         val persona = LlmPromptPack().blocks.first { it.id == "player-persona" }
         assertFalse("player-persona must ship disabled", persona.enabledByDefault)

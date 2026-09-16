@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""A9 empty-content retry verification against the pinned base model.
+"""Empty-content retry verification against the pinned base model.
 
-The production bug (measured 2026-08-29): the app-pinned
-gemma-4-E2B-it-qat-UD-Q4_K_XL under llama-server --jinja +
+The pinned gemma-4-E2B-it-qat-UD-Q4_K_XL under llama-server --jinja +
 /v1/chat/completions with max_tokens <= 200 returns an EMPTY content with
 the budget burned into reasoning_content ("Thinking Process:" preamble,
 finish_reason "length") - the shipped default model cannot produce bot
-chat at all.
+chat at all. This script pins that failure shape.
 
 This script replays the EXACT production request the C++ client sends (the
 LLMApiJson template LlmRuntimePolicy.apiJsonTemplate emits for the BASE_E2B
@@ -21,7 +20,7 @@ the bug with enable_thinking sent harness-side; the production body sends
 NO such kwarg, so leg 2 records what the default template does.
 
 Usage:  python tools/llm_lab/verify_a9_retry.py [--model e2b-base|q08-tuned]
-Output: C:/llm-lab/results/a9_retry_<model>.json (+ printed verdict).
+Output: RESULTS_DIR/a9_retry_<model>.json (+ printed verdict).
 """
 import argparse
 import json
@@ -31,18 +30,31 @@ import sys
 import time
 import urllib.request
 
-SERVER = r"G:\NPU LLM\tools\llama-cuda-b10520\llama-server.exe"
+# External local layout (CUDA llama-server build + model cache live
+# outside the repo); every path comes from the environment - there is no
+# personal-path default, so an unset variable exits naming it.
+def _require_env(name: str) -> str:
+    value = os.environ.get(name)
+    if not value:
+        sys.stderr.write(f"{name} is not set - point it at the local "
+                         "llm-lab layout\n")
+        raise SystemExit(2)
+    return value
+
+
+SERVER = _require_env("LLM_LAB_LLAMA_SERVER")
 PORT = 28091
 BASE = f"http://127.0.0.1:{PORT}"
-RESULTS_DIR = r"C:\llm-lab\results"
+RESULTS_DIR = _require_env("LLM_LAB_RESULTS_DIR")
+MODEL_CACHE_ROOT = _require_env("LLM_LAB_MODELS_ROOT")
 
 MODELS = {
     "e2b-base": {
-        "path": r"G:\NPU LLM\models-download\gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
+        "path": MODEL_CACHE_ROOT + r"\models-download\gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
         "qwen": False,
     },
     "q08-tuned": {
-        "path": r"G:\NPU LLM\models\qwen35-08b-CLEAN-tuned-q4_0.gguf",
+        "path": MODEL_CACHE_ROOT + r"\models\qwen35-08b-CLEAN-tuned-q4_0.gguf",
         "qwen": True,
     },
 }

@@ -328,7 +328,7 @@
     }
   ],
   "intentionally_absent_optional": {
-    "note": "These are dlopen-disablable or --without-* optional deps. Absent is fine for the WineD3D-safe audio-off spike; Wine degrades silently. Adding any (esp. libGL/libEGL/Mesa for WineD3D, or libvulkan for DXVK) is a deliberate re-planning decision that must extend this lockfile.",
+    "note": "These are dlopen-disablable or --without-* optional deps. Absent is fine for audio-off (the default); Wine degrades silently. Adding any (esp. libGL/libEGL/Mesa for WineD3D, or libvulkan for DXVK) is a deliberate change that must extend this lockfile.",
     "libs": [
       "libgnutls.so.30 (TLS; dlopened)",
       "libvulkan.so.1 (GAP in glibc-packages; --without-vulkan sidesteps this)",
@@ -339,7 +339,7 @@
     ]
   },
   "verification": {
-    "closure_checker": "tools/check_wine_dtneeded.py derives the actual transitive DT_NEEDED + WINE_CHECK_SONAME dlopen set from the pinned Wine archive and cross-checks every mandatory SONAME against this lockfile; the spike does not proceed with an unmet mandatory dep.",
+    "closure_checker": "tools/check_wine_dtneeded.py derives the actual transitive DT_NEEDED + WINE_CHECK_SONAME dlopen set from the pinned Wine archive and cross-checks every mandatory SONAME against this lockfile; the build does not proceed with an unmet mandatory dep.",
     "build_script": "tools/build_glibc_closure.py builds the closure from the pinned commit, applies the shared 0x4000 maximum-page-size linker policy, and hashes every imported package in runtime/glibc-rootfs-x86_64/BUILD_PROVENANCE.json.",
     "page_size_gate": "tools/stage_wine_runtime.py parses every staged ELF64 program header and fails unless every PT_LOAD is 16 KB aligned and offset/address congruent."
   }

@@ -298,11 +298,9 @@ class LlmRuntimeService : Service() {
                     val thinks = warmUpThinks(effectiveConfig)
                     // Read the staged template NOW and pass its CONTENT via
                     // --chat-template: the vendored 6d05498 binary predates
-                    // --chat-template-file (verified by string extraction
-                    // from libllama-server-impl.so; the desktop b10520 has
-                    // both - never trust the desktop build's flag surface).
-                    // The ~1.6 KB template rides argv (no shell involved;
-                    // argv strings allow newlines, NUL-free jinja).
+                    // --chat-template-file, so the flag-name form cannot be
+                    // used. The ~1.6 KB template rides argv (no shell
+                    // involved; argv strings allow newlines, NUL-free jinja).
                     val stagedTemplate: String? = effectiveConfig.chatTemplateFile
                         ?.takeIf { path: String -> File(path).isFile }
                         ?.let { path: String ->
@@ -421,7 +419,7 @@ class LlmRuntimeService : Service() {
     }
 
     /** True when memory pressure is at the level that triggers a protective
-     *  stop. PSI-unreadable (old kernel) keeps the historical unconditional
+     *  stop. PSI-unreadable (old kernel) falls back to an unconditional
      *  restart. */
     private fun psiPressureHigh(): Boolean = try {
         val txt = File("/proc/pressure/memory").readText()

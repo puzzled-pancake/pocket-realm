@@ -239,16 +239,16 @@ int wine_spike_materialize_pe_cache(const char *cache_dir,
 /*
  * Materialize PE modules AND connect them to the logical Wine tree.
  *
- * For each manifest entry we now:
+ * For each manifest entry we:
  *   1. copy/verify the canonical asset to <cache_dir>/<asset_path> (the
  *      hash-verified guest-code cache), exactly as before; AND
  *   2. if tree_dir is non-NULL and the entry has a "logical_path" (e.g.
  *      "lib/wine/x86_64-windows/foo.dll"), create a symlink at
  *      <tree_dir>/<logical_path> -> <cache_dir>/<asset_path>.
  *
- * This fixes the S-2 path bug: the old code ignored logical_path and
- * materialized files under wine-pe/... with nothing connecting them to the
- * logical Wine tree, so Wine could not find a single cached PE module. The
+ * Without the tree pass the materialized files would sit under wine-pe/...
+ * with nothing connecting them to the logical Wine tree, so Wine could not
+ * find a single cached PE module. The
  * symlink-only tree keeps the property that no ELF regular file lives in
  * writable storage — these are PE guest-code files (authorized), never passed
  * to Android execve(), loaded only by Wine's own PE loader.
@@ -343,7 +343,7 @@ int wine_spike_materialize_pe_cache_into_tree(const char *cache_dir,
         }
 
         /* Connect to the logical Wine tree via symlink (if a logical_path is
-         * present and a tree_dir was supplied). This is the S-2 fix. */
+         * present and a tree_dir was supplied). */
         if (tree_dir && logical_path[0]) {
             /* Bare-filename logical paths (e.g. the self-test PE) map under the
              * tree root as-is. Path-bearing logical paths (lib/wine/...) map
@@ -415,7 +415,7 @@ int wine_spike_verify_pe_cache(const char *cache_dir, const char *manifest_json)
  * (e.g. "kernel32.dll" → "wine-pe/x86_64-windows/kernel32.dll"), then formats
  * <cache_dir>/<asset_path> into out. Returns WINE_SPIKE_OK on match.
  *
- * Used by the S-2 mismatch-repair test: it resolves a known module, corrupts
+ * Used by the mismatch-repair flow: it resolves a known module, corrupts
  * that cache file, proves verify_pe_cache detects the mismatch, runs
  * materialize_pe_cache_into_tree to atomically rematerialize it, and re-verifies
  * the canonical SHA-256.

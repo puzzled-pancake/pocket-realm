@@ -13,7 +13,7 @@ import java.net.Socket
 import kotlin.system.exitProcess
 
 /**
- * Phase-4 gate: the FULL world boot. Starts database + realm + world
+ * Full world-boot gate. Starts database + realm + world
  * in-process against the prepared world data (gradlew realmdHold's
  * siblings), waits for the world to reach READY (vmaps/mmaps load,
  * grid preheating), proves 127.0.0.1:8085 accepts a connection, saves,
@@ -22,8 +22,8 @@ import kotlin.system.exitProcess
  * -DbootCycles=2 adds the one-lifetime restart gate: after a successful
  * boot+stop, a SECOND world start in the same process must be REFUSED
  * honestly with the WRONG_STATE in-process-restart error (the pinned v1
- * contract — the embedded cmangos lane cannot re-initialize in place;
- * see the windows-port review-fix PLAN-LOG entry). The gate fails if the
+ * contract — the embedded cmangos lane cannot re-initialize in place).
+ * The gate fails if the
  * second start HANGS, crashes, or is accepted.
  *
  * Run from desktop/: gradlew bootWorld   (after win_prepare_data.py)
@@ -34,7 +34,7 @@ fun main() {
     val roots = DesktopStorageRoots()
     roots.ensureDirectories()
     DesktopLog.attachFile(roots.logs)
-    DesktopLog.i("BootWorld", "phase-4 world boot gate starting (cycles=$cycles)")
+    DesktopLog.i("BootWorld", "world boot gate starting (cycles=$cycles)")
 
     val backend = DesktopRuntimeBackend(roots)
     val spec = RuntimeLaunchSpec(
@@ -73,8 +73,8 @@ fun main() {
         System.err.println("CLEAN STOP OR SAVE FAILED")
         exitProcess(EXIT_STOP)
     }
-    DesktopLog.i("BootWorld", "phase-4 world boot gate passed (cycles=$cycles)")
-    println("PHASE-4 WORLD BOOT GATE PASSED (cycles=$cycles)")
+    DesktopLog.i("BootWorld", "world boot gate passed (cycles=$cycles)")
+    println("WORLD BOOT GATE PASSED (cycles=$cycles)")
 }
 
 /** One world start → READY → 8085 connect → save → clean stop cycle.

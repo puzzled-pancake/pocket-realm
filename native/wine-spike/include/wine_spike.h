@@ -1,7 +1,7 @@
 /*
  * native/wine-spike/include/wine_spike.h
  *
- * Phase-1 Wine feasibility spike — C interface.
+ * Wine feasibility spike — C interface.
  *
  * This library runs in the Android/Bionic namespace. It builds the symlink-only
  * logical Wine tree in filesDir (pointing at APK-managed ELFs in nativeLibraryDir),
@@ -85,8 +85,9 @@ int wine_spike_launch_wine(const char *native_dir,
 
 /*
  * Extended launch with an optional extra_env string ("KEY=VAL;KEY=VAL;...").
- * Used by the S-5 fallback to inject GLIBC_TUNABLES (e.g. to disable rseq or
- * force clone→clone3 fallback) without widening the per-call env. The entries
+ * Used by the trampoline/proot fallback launchers to inject GLIBC_TUNABLES
+ * (e.g. to disable rseq or force clone→clone3 fallback) without widening the
+ * per-call env. The entries
  * are copied into a stable child-stack buffer before execve. May be NULL/empty.
  */
 int wine_spike_launch_wine_ex(const char *native_dir,
@@ -130,8 +131,8 @@ int wine_spike_probe_loader(int64_t pid,
 int wine_spike_count_apk_mappings(int64_t pid, const char *expected_native_dir);
 
 /*
- * Enumerate native child PIDs of a parent (for S-1: wine spawns wineserver).
- * Writes up to <cap> PIDs into <out_pids>. Returns the number written.
+ * Enumerate native child PIDs of a parent (wine spawns wineserver as a native
+ * child). Writes up to <cap> PIDs into <out_pids>. Returns the number written.
  */
 int wine_spike_enum_children(int64_t parent_pid, int64_t *out_pids, int cap);
 
@@ -155,16 +156,14 @@ int wine_spike_materialize_pe_cache(const char *cache_dir,
                                     const char *assets_dir);
 
 /*
- * Materialize + connect to the logical Wine tree (S-2 path fix). Same as
+ * Materialize + connect to the logical Wine tree. Same as
  * wine_spike_materialize_pe_cache, but additionally — for each manifest entry
  * that has a "logical_path" — installs a symlink at
  *   <tree_dir>/<logical_path> -> <cache_dir>/<asset_path>
  * so Wine can resolve builtin PE modules at their expected paths. Pass NULL for
  * tree_dir to get the legacy behavior (cache files only, no tree symlinks).
  *
- * This corrects the earlier bug where pe_cache.c ignored logical_path and
- * materialized files under wine-pe/... with nothing connecting them to the
- * logical Wine tree. The symlink-only tree property is preserved: no ELF
+ * The symlink-only tree property is preserved: no ELF
  * regular file lives in writable storage; these are PE guest-code files.
  */
 int wine_spike_materialize_pe_cache_into_tree(const char *cache_dir,
@@ -180,8 +179,8 @@ int wine_spike_materialize_pe_cache_into_tree(const char *cache_dir,
 int wine_spike_verify_pe_cache(const char *cache_dir, const char *manifest_json);
 
 /*
- * Resolve the cache path for a given PE module asset basename (S-2 mismatch
- * repair test). Fills <out> with "<cache_dir>/<asset_path>" for the first
+ * Resolve the cache path for a given PE module asset basename (mismatch
+ * repair). Fills <out> with "<cache_dir>/<asset_path>" for the first
  * manifest entry whose asset basename matches <asset_name>. Returns
  * WINE_SPIKE_OK on match, WINE_SPIKE_ERR_IO if no match.
  */
@@ -191,7 +190,7 @@ int wine_spike_resolve_cache_path(const char *cache_dir,
                                   char *out, size_t out_cap);
 
 /*
- * S-5(0) SIGSYS classification (see sigsys_diag.c).
+ * SIGSYS cause classification (see sigsys_diag.c).
  *
  * Exit code 159 (128 + SIGSYS) only proves the child was killed by signal 31.
  * It does NOT establish WHICH mechanism raised the signal (a seccomp kill, an
@@ -232,7 +231,7 @@ int wine_spike_diag_sigsys(const char *native_dir,
                            struct wine_spike_sigsys_result *out);
 
 /*
- * S-5(a): APK-packaged Bionic trampoline launch.
+ * APK-packaged Bionic trampoline launch.
  *
  * The direct execve path (wine_spike_launch_wine) execs the glibc loader from a
  * forked child of libwine_spike.so. The trampoline variant execs a SEPARATE
@@ -240,8 +239,8 @@ int wine_spike_diag_sigsys(const char *native_dir,
  * execs the glibc loader. The purpose is to test whether the SIGSYS is specific
  * to exec'ing the glibc ELF directly from the app process (e.g. a W^X / execve
  * target restriction) or whether it fires regardless of how we arrive at the
- * glibc loader. Evidence from this path is kept SEPARATE from the PKG-01
- * control (which does not exec Wine at all).
+ * glibc loader. Evidence from this path stays separate from the control run
+ * (which does not exec Wine at all).
  *
  * Returns the trampoline-launched child PID in *out_pid, or WINE_SPIKE_ERR_*
  * on failure. The trampoline execs:
@@ -264,7 +263,7 @@ int wine_spike_launch_wine_via_trampoline_ex(const char *native_dir,
                                              int64_t *out_pid);
 
 /*
- * S-5(b): proot fallback launch.
+ * proot fallback launch.
  *
  * proot (termux/proot@a89b3732, APK-managed libproot.so, Bionic PIE) runs in
  * the Android/Bionic namespace and ptrace-traces the glibc-namespace child. It
@@ -273,9 +272,10 @@ int wine_spike_launch_wine_via_trampoline_ex(const char *native_dir,
  * (PROVEN: si_code=SYS_SECCOMP, syscall=21/access).
  *
  * proot does NOT replace the effective loader — the traced child still execve's
- * the APK-managed glibc loader as its effective loader, satisfying S-1. The
- * -b <app_tmp>:/tmp bind also handles wineserver's hardcoded /tmp/.wine-<uid>
- * server path (the namespace mechanism; TMPDIR alone does not change it).
+ * the APK-managed glibc loader as its effective loader, which is what the
+ * /proc/<pid>/maps probe verifies. The -b <app_tmp>:/tmp bind also handles
+ * wineserver's hardcoded /tmp/.wine-<uid>
+ * server path (proot's bind mechanism; TMPDIR alone does not change it).
  *
  * Returns the proot-launched child PID in *out_pid (the proot process itself;
  * Wine/wineserver run as proot's traced children).
@@ -328,8 +328,8 @@ struct wine_spike_proot_run_result {
 };
 
 /*
- * S-1/S-2 run path: run Wine synchronously via proot, with logical argv[0]
- * preservation. This is the corrected launcher that:
+ * Synchronous proot run path: run Wine via proot, with logical argv[0]
+ * preservation. This launcher:
  *   - separates the immutable real APK executable path (libwine_preloader.so in
  *     nativeLibraryDir) from the LOGICAL Wine command name (argv[0], e.g.
  *     "wine", "wineboot", "winecfg"). glibc loader --argv0=<logical> preserves
@@ -337,7 +337,7 @@ struct wine_spike_proot_run_result {
  *   - runs proot to completion (or timeout_ms), capturing stdout + stderr.
  *   - snapshots every descendant's PID/PPID/cmdline/comm + /proc/<pid>/maps
  *     proof while alive, so the caller can verify the APK-managed loader for
- *     wine + wineserver + every native child (full S-1 acceptance).
+ *     wine + wineserver + every native child.
  *   - on timeout, recursively kills + reaps the whole tree.
  *
  * Args:

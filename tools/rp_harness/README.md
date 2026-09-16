@@ -126,7 +126,7 @@ tcp:8085`, which `session.py` already owns). In relay-min:
 * `from_log_lines(lines)` - best-effort parsing of observed world.log
   text into reply records.
 
-The smoke's `bot-reply` step uses the plan's three-way outcome table:
+The smoke's `bot-reply` step uses the three-way outcome table:
 observed reply text = **pass**; memory evidence only = **skipped** (text
 unobservable without the transport); neither = **fail** (the chat path
 is dead - exactly the regression this rail exists to catch).

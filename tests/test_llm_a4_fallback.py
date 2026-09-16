@@ -114,7 +114,7 @@ class TestWorkerFailureLeg:
 class TestInterceptorDemotion:
     def test_greet_demotes_only_on_the_cloud_lane(self):
         ctx = android_anchor("PB_SAY_CONTEXT_ANDROID")
-        # the demotion fills the plan with IDS (kind + absence bucket)
+        # the demotion fills the FallbackPlan with IDS (kind + absence bucket)
         assert "llmFallback.kind = PlayerbotLlmGates::FBK_GREET;" in ctx
         assert "llmFallback.absence = llmAbsencePre;" in ctx
         # the device lane keeps the preemptive delivery verbatim in the
@@ -124,7 +124,7 @@ class TestInterceptorDemotion:
     def test_persona_leg_classifies_without_drawing(self):
         ctx = android_anchor("PB_SAY_CONTEXT_ANDROID")
         # cloud leg: Classify only - TryFallback DRAWS (advancing the
-        # shared recency ring); the plan redraws at failure time
+        # shared recency ring); the fallback redraws at failure time
         assert "PlayerbotLlmPersona::Classify(msg)" in ctx
         cloud_leg = re.search(r"llmCloudTurn\s*\?\s*PlayerbotLlmPersona::Classify\(msg\)", ctx)
         assert cloud_leg

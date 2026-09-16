@@ -5,14 +5,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * B3/B4 (plan v2.3 §3): the PassiveDelay per-profile field and the
- * benchmark twins.
+ * The per-profile PassiveDelay field and the benchmark-twin presets.
  *
- * B3's byte-identity law: the DEFAULT 10_000 keeps every non-experience
- * preset's playerbotConfig() emission byte-identical (the adv/usr5
- * identity-digest inputs must not shift); the seven experience presets
- * emit 3_000 so a greeted bot answers inside the T3 <= 5 s bound. A
- * stored usr5 record minted pre-B3 still resolves.
+ * Byte-identity: the DEFAULT 10_000 keeps every non-experience preset's
+ * playerbotConfig() emission byte-identical (the adv/usr5 identity-digest
+ * inputs must not shift); the seven experience presets emit 3_000 so a
+ * greeted bot answers inside the 5 s greet bound.
  */
 class BotPassiveDelayTest {
 
@@ -62,8 +60,8 @@ class BotPassiveDelayTest {
 
     @Test
     fun theFieldIsBounded() {
-        // the init-block law: 1_000..60_000 - the constructor must
-        // reject outside the bounds (spot-check both edges)
+        // the constructor rejects values outside 1_000..60_000
+        // (spot-check both edges)
         assertThrows(IllegalArgumentException::class.java) {
             BotProfiles.experiencePresets.first().copy(passiveDelayMs = 999)
         }
@@ -83,14 +81,14 @@ class BotPassiveDelayTest {
         assertEquals(1_500, alive.randomBotUpdateIntervalMs)
         assertEquals(18, alive.iterationsPerTick)
         assertEquals(15, alive.activeBotPercent)
-        // never in the experience ladder (the values commit only with
-        // the T4 soak artifact - measured-first law)
+        // the retuned bench profiles stay outside the experience ladder
+        // and are not player-selectable
         assertTrue(low !in BotProfiles.experiencePresets)
         assertTrue(alive !in BotProfiles.experiencePresets)
         assertTrue(low !in BotProfiles.legacySelectablePresets)
         assertTrue(alive !in BotProfiles.legacySelectablePresets)
-        // v1 stays resolvable and UNCHANGED (stored selections keep old
-        // behavior until the flip ships)
+        // the v1 presets stay resolvable and UNCHANGED (stored
+        // selections keep their recorded behavior)
         assertEquals(2_500, BotProfiles.LOW_POWER_80.randomBotUpdateIntervalMs)
         assertEquals(8, BotProfiles.LOW_POWER_80.iterationsPerTick)
         assertEquals(3, BotProfiles.LOW_POWER_80.activeBotPercent)

@@ -4,7 +4,7 @@ import com.pocketrealm.supervisor.RuntimeMode
 
 /**
  * Desktop twin of the Android app's storage/Settings. Carries the
- * Windows-relevant subset: the Wine-era display/renderer/Vulkan fields have
+ * Windows subset: the Wine-era display/renderer/Vulkan fields have
  * no meaning here (the WoW client runs natively), and the LLM lane is
  * EXTERNAL-ONLY (no embedded model manager, no NPU/decode-core fields —
  * the desktop conf emission always takes the external-endpoint branch).

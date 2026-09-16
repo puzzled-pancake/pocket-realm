@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Windows MSVC smoke gate for the playerbot LLM pure cores.
 
-Windows-port Phase 2a evidence lane: compiles every shipped pure-core host
-battery with MSVC cl.exe (located via vswhere, wrapped with vcvars64) and
-runs it. The banter battery's golden FNV-1a64 hash is checked against the
-pinned value — the same behavioral pin the g++/NDK lanes carry — proving the
-deterministic cores produce bit-identical output under MSVC.
+Compiles every shipped pure-core host battery with MSVC cl.exe (located via
+vswhere, wrapped with vcvars64) and runs it. The banter battery's golden
+FNV-1a64 hash is checked against the pinned value — the same behavioral pin
+the g++/NDK lanes carry — proving the deterministic cores produce
+bit-identical output under MSVC.
 
 Exit 0 = all batteries compiled and passed; nonzero = failure with detail.
 """
@@ -48,7 +48,7 @@ BATTERIES = {
 def find_vcvars() -> Path:
     # No -requires filter: Build Tools installs often carry cl.exe without
     # registering the workload component metadata vswhere keys on; the
-    # vcvars64.bat existence check below is the honest verification.
+    # vcvars64.bat existence check below is the actual verification.
     found = subprocess.run(
         [str(VSWHERE), "-latest", "-products", "*",
          "-property", "installationPath"],

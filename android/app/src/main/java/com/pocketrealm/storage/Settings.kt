@@ -78,7 +78,7 @@ internal const val POCKET_SETTINGS_FILE_NAME = "$POCKET_SETTINGS_STORE_NAME.pref
 internal const val TWEAKS_SCHEMA_VERSION = 2
 
 /**
- * F3d: enable the recommended tweak set once for never-configured installs
+ * Enable the recommended tweak set once for never-configured installs
  * when the resolved virtual display is widescreen (both adaptive profiles
  * are 16:9; the fixed-aspect Classic 4:3 profile disables the FOV tweak at
  * selection time).
@@ -384,7 +384,7 @@ class Settings(private val context: Context) {
         val audioMode: AudioMode = AudioMode.ON,
         val nearbyInteractTriggerGuardMs: Int = NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
         /**
-         * B2: verbose world-server logging (mangosd LogFileLevel = 3) staged
+         * Verbose world-server logging (mangosd LogFileLevel = 3) staged
          * into world.conf. Default OFF keeps the world log at errors-only
          * (level 1, matching realmd): the vendored level 3 flooded world.log
          * with movement and battleground churn (79.7 MB over a 30-minute
@@ -398,7 +398,7 @@ class Settings(private val context: Context) {
         val allowLanPlayers: Boolean = false,
         /**
          * Playerbot LLM runtime (:llm process, llama-server + optional Hexagon
-         * NPU hybrid). Default OFF — the reviewed base conf keeps
+         * NPU hybrid). Default OFF — the base conf keeps
          * AiPlayerbot.LLMEnabled = 0 until the user opts in from the LLM
          * submenu. Toggles apply on the next realm start (the conf is written
          * at world start).
@@ -421,10 +421,9 @@ class Settings(private val context: Context) {
         val llmExternalApiKey: String = "",
         val llmExternalModel: String = "",
         /**
-         * WS-A Cloud conversation toggle (AiPlayerbot.LLMCloudChatter):
-         * masters every cloud-lane widening natively as the conjunction
-         * key AND external tier — the device lane never widens. Ships
-         * OFF (the upgrade cohort keeps today's external behavior);
+         * Cloud conversation toggle (AiPlayerbot.LLMCloudChatter): gates
+         * cloud-lane chat as a conjunction key with the external endpoint
+         * lane — the on-device lane never widens. Default OFF;
          * turning it on is a spend decision (see the LLM screen
          * disclosure) and applies on the next realm start.
          */
@@ -480,7 +479,7 @@ class Settings(private val context: Context) {
          */
         val llmGenerationTimeout: Int = 0,
         /**
-         * Player-edited prompt pack JSON (Phase 2 Advanced prompt manager):
+         * Player-edited prompt pack JSON for the advanced prompt manager:
          * empty = the trained default pack. Persisted verbatim (never
          * trimmed — a trim would fight the editor mid-typing); resolved via
          * [com.pocketrealm.llm.LlmPromptPack.resolve] at read/stage time,

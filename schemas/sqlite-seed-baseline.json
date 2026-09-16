@@ -1,6 +1,6 @@
 {
   "entries": 414,
-  "manifest_sha256": "4175e8905cbfefb28769c8d84580dde95a71d938a1e05b1a20914c3019593599",
+  "manifest_sha256": "3771fc35b4ceddbadd6f786d76b10902db319d07c7d6372156417e4e3d81dc68",
   "databases": {
     "classicrealmd": {
       "statements": 43,
@@ -36,7 +36,7 @@
     }
   },
   "translation": {
-    "comment_sites": 58791,
+    "comment_sites": 58792,
     "comment_files": 369,
     "escape_rewrites": 121959,
     "escape_files": [

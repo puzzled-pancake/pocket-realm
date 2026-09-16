@@ -32,9 +32,10 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /** Explicit physical-device verifier: start the production-owned bot realm and
- * client and prove readiness while instrumentation remains attached. Persistent
- * human handoff is exercised through Home because Android force-stops an
- * instrumented target package when the runner exits.
+ * client and prove readiness while instrumentation remains attached. A
+ * persistent session for a human to take over is exercised through Home,
+ * because Android force-stops an instrumented target package when the runner
+ * exits.
  */
 @RunWith(AndroidJUnit4::class)
 class O13LiveBootTest {
@@ -63,7 +64,7 @@ class O13LiveBootTest {
         initializeDatabaseIfNeeded()
         // A Binder-created service is destroyed with its last observer. Start
         // the production foreground service first so it retains the owner
-        // lease and all component bindings after this handoff test unbinds.
+        // lease and all component bindings after this test unbinds.
         context.startForegroundService(Intent(context, RealmService::class.java))
 
         val supervisor = bind(RealmService::class.java) {

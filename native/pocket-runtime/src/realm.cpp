@@ -76,7 +76,7 @@ realm_err Realm::start()
     if (!can_restart_from_current())
         return REALM_E_WRONG_STATE;
 
-    // Strategy A evidence gate: the second cycle requires reset_for_reinit to
+    // Re-entrancy gate: the second cycle requires reset_for_reinit to
     // have run after the first. If the previous cycle left process-global state
     // that can't be reset, we fail loud here rather than starting into a
     // half-torn-down world. (See lifecycle.cpp reset_for_reinit.)
@@ -87,7 +87,7 @@ realm_err Realm::start()
         if (rr.err != REALM_E_OK)
         {
             log(REALM_LOG_ERROR, detail.c_str());
-            return rr.err; // typically REALM_E_BUSY (Strategy B)
+            return rr.err; // typically REALM_E_BUSY
         }
     }
 
@@ -137,14 +137,13 @@ void Realm::worker_main()
 
     try
     {
-        // --- Phase 1: world DBs ---
-        // --- Phase 1: world DBs ---
+        // --- Startup step 1: world databases ---
         auto r1 = load_config(m_world_conf.c_str(), "Mangosd_");
         if (r1.err != REALM_E_OK) { final_err = r1.err; fatal_detail = r1.detail; goto terminal; }
         r1 = start_databases(conds);
         if (r1.err != REALM_E_OK) { final_err = r1.err; fatal_detail = r1.detail; goto terminal; }
 
-        // --- Phase 2: realmd (auth) ---
+        // --- Startup step 2: realmd (auth) ---
         auto r2 = load_config(m_realmd_conf.c_str(), "Realmd_");
         if (r2.err == REALM_E_OK)
             r2 = start_realmd(&rs);
@@ -155,7 +154,7 @@ void Realm::worker_main()
             goto terminal;
         }
 
-        // --- Phase 3: world machinery (hits the client-data gate) ---
+        // --- Startup step 3: world machinery (hits the client-data gate) ---
         auto r3 = start_world_machinery(&ws, conds, m_world_threads);
         client_blocked = r3.client_data_gate;
         if (r3.err == REALM_E_BLOCKED_ON_CLIENT_DATA)
@@ -323,7 +322,7 @@ realm_err Realm::save(realm_save_mode mode)
     // are no players to save, so this is a valid no-op that the supervisor can
     // still call on the Save&Exit path.
     m_state.store(REALM_STATE_SAVING, std::memory_order_release);
-    // The production save path will drive the real save; for now we transition back to RUNNING
+    // The production save path drives the real save; here we transition back to RUNNING
     // immediately since there is no durable player state yet.
     m_state.store(REALM_STATE_RUNNING, std::memory_order_release);
     (void)mode;

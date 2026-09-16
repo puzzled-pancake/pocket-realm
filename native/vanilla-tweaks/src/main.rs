@@ -104,8 +104,8 @@ struct Args {
 }
 
 /// Highest byte offset any patch touches (frilldistance float at 0x467958 + 4).
-/// (Verification round 1 caught the old floor missing the nameplate/farclip/
-/// frilldistance offsets; patch_range bounds-checks every write regardless.)
+/// Covers the nameplate/farclip/frilldistance offsets; patch_range
+/// bounds-checks every write regardless.
 const MAX_PATCHED_OFFSET_END: usize = 0x467958 + 4;
 
 /// Validate the input is the expected PE32 i386 executable before any write.

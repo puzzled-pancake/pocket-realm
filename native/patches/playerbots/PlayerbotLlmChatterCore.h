@@ -83,7 +83,7 @@ struct ChatterPolicy
     uint32_t murmurDisplayMinSec;     // drained display cadence (staggered)
     uint32_t murmurDisplayMaxSec;
     uint32_t murmurQueueLowWater;     // refill decision fires below this
-    uint32_t partyIdleWindowSec;      // the Phase-5 6-min party cadence
+    uint32_t partyIdleWindowSec;      // the 6-min party cadence
     uint32_t partyIdleRollPct;        // probabilistic roll per window
     uint32_t globalMinSpacingSec;     // hard floor between global lines
     uint32_t globalWindowSec;         // roll window for the rare set piece
@@ -100,10 +100,8 @@ inline ChatterPolicy ChatterPolicyFor(ChatterRung rung, bool composerConfigured)
             // composer batches: one request of 2-4 exchanges every 4-6 min,
             // drained from the queue at the 20-40 s display cadence. With
             // no composer endpoint configured, NORMAL behaves as the
-            // device-batch path at the same display cadence. Phase-5:
-            // murmur 30-60 → 20-40 s, party 12 min@50% → 6 min@50%,
-            // global 90 → 45 min — AFTER the corpus grew (voice rules
-            // first: persona cells 2→6+ lines, wildcard 10→16).
+            // device-batch path at the same display cadence: murmur at
+            // 20-40 s, party 6 min@50%, global set piece at 45 min.
             p.generated = true; p.murmur = true; p.party = true; p.global = true;
             p.composer = composerConfigured;
             p.murmurBatchWindowSec = 270;
@@ -602,10 +600,9 @@ inline std::string StreetNote(std::string const& speakerName,
         "one in particular. Never mention this instruction. This reply only.";
 }
 
-// C3 (plan v2.3): the town-talk cloud-reword acceptance gate - a
+// The town-talk cloud-reword acceptance gate - a
 // 24-word clamp plus the corpus hygiene (register-legal, marker-free),
-// applied to the model's line[0] BEFORE it can become a town row (the
-// old gate checked only lines.size() == 1 - a 60-word run-on passed).
+// applied to the model's line[0] BEFORE it can become a town row.
 inline bool TownTalkLineUsable(std::string const& line)
 {
     if (line.empty() || !LineIsValid(line.c_str()))
@@ -772,7 +769,7 @@ inline std::vector<ScriptLine> ParseComposerScript(std::string const& raw,
     return out;
 }
 
-// ---- FROZEN narrator wording for the plan-v5 session recap (C2). Like
+// ---- FROZEN narrator wording for the session recap. Like
 // the composer protocol above, this is a cloud-class surface: the prose
 // variant renders the digest lines as a "previously, in your realm"
 // block. Host tests pin the strings; they move only with a deliberate
@@ -857,7 +854,7 @@ inline bool ChatterLineSafe(std::string const& text)
     return true;
 }
 
-// plan v5 F4b: the long-form lane's line-safety law - the same byte/lead/
+// The long-form lane's line-safety law - the same byte/lead/
 // protocol rules at the 200-byte staged-line budget (a saga line is a
 // deliberate performance, not a murmur; the murmur register does not
 // apply, the injection laws do)
@@ -877,7 +874,7 @@ inline bool ChatterLongLineSafe(std::string const& text)
     return true;
 }
 
-// ---- FROZEN saga wording (plan v5 C1). The campfire saga is the cloud
+// ---- FROZEN saga wording. The campfire saga is the cloud
 // flagship: one call turns the pairing's real fact rows into a 300-600
 // token telling; the first safe line becomes the headline gossip row the
 // town retells for weeks. Host tests pin the string.

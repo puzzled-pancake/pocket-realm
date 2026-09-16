@@ -59,8 +59,8 @@ public:
         EVENT_DUEL_WON = 4,         // the bot won
         EVENT_DUEL_PLAYER_FLED = 5, // the player fled the duel
         EVENT_DUEL_BOT_FLED = 6,    // the bot fled
-        // plan v5 F1: a paid debt retires the fact row and fires the
-        // shipped-but-unwired TierBeat kind-1 (debt-forgiven) cargo as
+        // A paid debt retires the fact row and fires the
+        // TierBeat kind-1 (debt-forgiven) cargo as
         // the event turn's licensed extra
         EVENT_DEBT_SETTLED = 7,
     };
