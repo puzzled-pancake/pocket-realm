@@ -28,6 +28,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tarfile
 from pathlib import Path
 
@@ -164,7 +165,12 @@ def checked_rmtree(path: Path) -> None:
         def retry(func, failed, _exc):
             os.chmod(failed, stat.S_IWRITE)
             func(failed)
-        shutil.rmtree(resolved, onexc=retry)
+        # onexc arrived in 3.12; onerror (same effective signature for this
+        # callback, which ignores the exception argument) covers older 3.x.
+        if sys.version_info >= (3, 12):
+            shutil.rmtree(resolved, onexc=retry)
+        else:
+            shutil.rmtree(resolved, onerror=retry)
 
 
 def acquire_source() -> None:
