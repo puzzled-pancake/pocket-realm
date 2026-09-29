@@ -28,7 +28,12 @@ jobs:
   hygiene:
     runs-on: ubuntu-latest
     steps:
+      # The sqlite-seeding suite runs the real seeder over native/cmangos
+      # sql/base/*.sql, so the hygiene job needs the submodule content —
+      # without it every seed_run fixture errors on a missing pinned source.
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
