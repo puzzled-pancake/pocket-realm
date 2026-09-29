@@ -2,12 +2,18 @@ package com.pocketrealm.importer
 
 import android.content.Context
 import android.os.storage.StorageManager
+import com.pocketrealm.client.ClientFlavors
 import com.pocketrealm.storage.StorageRoots
 import kotlin.math.ceil
 
 class ImportStoragePlanner(
     private val context: Context,
-    private val extractedEstimate: Long = 4L * ImportLimits.GIB,
+    // Flavor data: the qualified flavor's measured extraction budget
+    // (schemas/flavor.json storage.extracted_estimate_bytes); the same
+    // flavor block's storage.max_total_bytes is the import-total cap,
+    // routed through ImportLimits.maxTotalBytes' default (ImportModel.kt).
+    private val extractedEstimate: Long = flavorExtractedEstimate(),
+    // wineEstimate and minimumReserve are platform caps, not flavor data.
     private val wineEstimate: Long = 1L * ImportLimits.GIB,
     private val minimumReserve: Long = 2L * ImportLimits.GIB,
 ) {
@@ -56,4 +62,27 @@ class ImportStoragePlanner(
                 Math.addExact(subtotal, margin), allocatable)
         }
     }
+}
+
+/**
+ * The qualified flavor's measured extraction budget
+ * (schemas/flavor.json storage.extracted_estimate_bytes). Exactly one
+ * flavor may be qualified; any other registry state fails loud instead
+ * of silently keeping VANILLA semantics.
+ */
+private fun flavorExtractedEstimate(): Long {
+    val flavor = qualifiedFlavor()
+    return requireNotNull(flavor.extractedEstimateBytes) {
+        "${flavor.flavorId} is qualified without a measured storage budget"
+    }
+}
+
+/** The single qualified flavor; any other registry state fails loud. */
+private fun qualifiedFlavor(): com.pocketrealm.client.ClientFlavor {
+    val qualified = ClientFlavors.qualified()
+    require(qualified.size == 1) {
+        "expected exactly one qualified flavor, found ${qualified.size} — " +
+            "storage budgets resolve the qualified lane"
+    }
+    return qualified.single()
 }

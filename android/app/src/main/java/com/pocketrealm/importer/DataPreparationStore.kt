@@ -12,6 +12,7 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
+import com.pocketrealm.client.ClientFlavors
 import com.pocketrealm.server.PreparedDataStore
 import kotlin.coroutines.coroutineContext
 
@@ -263,8 +264,9 @@ class DataPreparationStore(
             .put("vmapTiles", count(File(stageRoot, "vmaps"), ".vmtile"))
             .put("mmapMaps", count(File(stageRoot, "mmaps"), ".mmap"))
             .put("mmapTiles", count(File(stageRoot, "mmaps"), ".mmtile"))
+        val flavor = ClientFlavors.qualified().single()
         val manifest = JSONObject().put("schema", 1).put("complete", true)
-            .put("mode", "NORMAL").put("clientBuild", 5875).put("cmangosFamily", "classic")
+            .put("mode", "NORMAL").put("clientBuild", flavor.build).put("cmangosFamily", flavor.serverFamily)
             .put("generator", generatorProvenance())
             .put("sourceClientGeneration", importId).put("counts", counts)
             .put("files", JSONArray(files)).put("publishedAtMs", System.currentTimeMillis())
@@ -291,8 +293,19 @@ class DataPreparationStore(
         val manifestFile = File(final, "data-manifest.json")
         if (!final.isDirectory || !manifestFile.isFile) return null
         val manifest = JSONObject(manifestFile.readText())
+        val flavor = ClientFlavors.qualified().single()
         check(manifest.getInt("schema") == 1 && manifest.getBoolean("complete") &&
-            manifest.getString("mode") == "NORMAL" && manifest.getInt("clientBuild") == 5875)
+            manifest.getString("mode") == "NORMAL" &&
+            manifest.getInt("clientBuild") == flavor.build) {
+            "data generation was built for client build ${manifest.optInt("clientBuild")}, " +
+                "but the qualified lane is build ${flavor.build}"
+        }
+        // The write path stamps the qualified flavor's server family; a
+        // generation produced for another family must never reactivate here.
+        check(manifest.getString("cmangosFamily") == flavor.serverFamily) {
+            "data generation was built for the ${manifest.optString("cmangosFamily")} server family, " +
+                "but the qualified lane is ${flavor.serverFamily}"
+        }
         onTick()
         for (index in 0 until manifest.getJSONArray("files").length()) {
             val record = manifest.getJSONArray("files").getJSONObject(index)

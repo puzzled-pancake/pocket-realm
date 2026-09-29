@@ -5,7 +5,7 @@ import android.net.Uri
 import android.system.Os
 import android.system.OsConstants
 import com.pocketrealm.client.ClientGenerationLease
-import com.pocketrealm.client.ClientRuntimeContract
+import com.pocketrealm.client.ClientFlavors
 import com.pocketrealm.client.SafClientScanner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -41,7 +41,7 @@ class ManagedClientImporter(
         )
         try {
         val scanner = SafClientScanner(context.contentResolver).scan(treeUri)
-        if (!scanner.supported || scanner.clientId != ClientRuntimeContract.WOW_5875_ID) {
+        if (!scanner.supported || !ClientFlavors.isManagedClientId(scanner.clientId)) {
             throw ImportRejected(scanner.failures.joinToString("; ").ifBlank { "unsupported client selection" })
         }
         val source = SafTreeSource(context.contentResolver, treeUri, limits)
@@ -219,7 +219,7 @@ class ManagedClientImporter(
                                 else -> throw ImportRejected(ArchiveQuickCheck.VAL13_UNSUPPORTED)
                             }
                             ArchiveClientScanner(limits).scan(rawEntries!!, reader).also { result ->
-                                if (!result.scan.supported || result.scan.clientId != ClientRuntimeContract.WOW_5875_ID) {
+                                if (!result.scan.supported || !ClientFlavors.isManagedClientId(result.scan.clientId)) {
                                     throw ImportRejected(
                                         result.scan.failures.joinToString("; ").ifBlank { "unsupported client archive" },
                                     )
@@ -291,7 +291,7 @@ class ManagedClientImporter(
                         }
                         val scanResult = detection?.scan
                             ?: ArchiveClientScanner(limits).verifyExtracted(stagingDir).also { verified ->
-                                if (!verified.supported || verified.clientId != ClientRuntimeContract.WOW_5875_ID) {
+                                if (!verified.supported || !ClientFlavors.isManagedClientId(verified.clientId)) {
                                     throw ImportRejected(
                                         verified.failures.joinToString("; ").ifBlank { "unsupported client archive" },
                                     )

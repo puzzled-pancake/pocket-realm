@@ -9,6 +9,7 @@ import android.os.Binder
 import android.os.IBinder
 import com.pocketrealm.bots.BotProfiles
 import com.pocketrealm.client.ClientRuntimeContract
+import com.pocketrealm.client.ClientFlavors
 import com.pocketrealm.client.ArmRendererAuto
 import com.pocketrealm.client.ClientTweaksConfig
 import com.pocketrealm.client.ClientTeardownGate
@@ -716,7 +717,8 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
             if (prepared.optBoolean("tweaksFallback")) {
                 AppLog.w(
                     TAG,
-                    "optional client tweaks skipped: imported build 5875 has an unqualified byte layout",
+                    "optional client tweaks skipped: imported build ${ClientFlavors.qualified().single().build} " +
+                        "has an unqualified byte layout",
                 )
             }
             // Prefix preparation can be slow. Load and verify the secret only
@@ -1116,7 +1118,7 @@ class AndroidRuntimeBackend(context: Context) : RuntimeBackend {
         const val DEFAULT_PROFILE = "mobile-low-v1"
         const val INTEGRATED_PROFILE = "mobile-low-v2-normal"
         const val BOT_LOW_25_PROFILE = "mobile-low-b1-25-v1"
-        const val CLIENT_BUILD_ID = ClientRuntimeContract.WOW_5875_ID
+        val CLIENT_BUILD_ID = ClientFlavors.qualified().single().clientId
     }
 }
 

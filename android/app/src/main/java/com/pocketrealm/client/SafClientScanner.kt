@@ -96,8 +96,6 @@ internal class SafClientScanner(private val resolver: ContentResolver) {
         }
     }
 
-    private data class PeIdentity(val version: String?, val build: Int?, val sha256: String)
-
     companion object {
         internal fun scanAccess(access: Access): Result {
             val warnings = mutableListOf<String>()
@@ -110,18 +108,23 @@ internal class SafClientScanner(private val resolver: ContentResolver) {
                 else "VAL-01: direct WoW.exe is absent"
             }
 
-            var identity: PeIdentity? = null
+            var identity: ClientPeIdentity.Identity? = null
+            var flavor: ClientFlavor? = null
             if (wow != null) {
                 if (wow.size > MAX_EXE_BYTES) failures += "VAL-02: selected executable exceeds fast-scan limit"
-                identity = runCatching { parsePe(access.read(wow.id, MAX_EXE_BYTES, rejectTruncation = true)) }
+                identity = runCatching { ClientPeIdentity.parse(access.read(wow.id, MAX_EXE_BYTES, rejectTruncation = true)) }
                     .onFailure { failures += (it.message ?: "VAL-02: invalid WoW.exe") }
                     .getOrNull()
-                if (identity != null && identity.version != EXPECTED_VERSION) {
-                    failures += "VAL-03: expected $EXPECTED_VERSION, detected ${identity.version ?: "no matching version resource"}"
+                flavor = ClientPeIdentity.qualifiedFlavor(identity)
+                if (identity != null && flavor == null) {
+                    failures += "VAL-03: expected $EXPECTED_VERSION, detected ${ClientPeIdentity.detected(identity)}"
                 }
-                if (identity?.version == EXPECTED_VERSION) {
-                    if (identity.sha256 == KNOWN_EXE_SHA256) warnings += "VAL-03: executable hash matches the inspected build-5875 copy"
-                    else warnings += "VAL-03: build confirmed; this WoW.exe is accepted for vanilla launch, but optional executable tweaks require the inspected byte layout"
+                if (flavor != null) {
+                    if (flavor.knownExeSha256 != null && identity?.sha256 == flavor.knownExeSha256) {
+                        warnings += "VAL-03: executable hash matches the inspected build-${flavor.build} copy"
+                    } else {
+                        warnings += "VAL-03: build confirmed; this WoW.exe is accepted for ${flavor.flavorId} launch, but optional executable tweaks require the inspected byte layout"
+                    }
                 }
             }
 
@@ -132,7 +135,9 @@ internal class SafClientScanner(private val resolver: ContentResolver) {
                 val children = access.children(data.id)
                 val mpqs = children.filter { !it.directory && it.name.endsWith(".mpq", true) }
                     .associateBy { it.name.lowercase() }
-                val missing = REQUIRED_MPQS.filterNot(mpqs::containsKey)
+                // A foreign client (no qualified flavor matched) already failed
+                // VAL-03; never compare the qualified MPQ union against it.
+                val missing = flavor?.requiredMpqs.orEmpty().filterNot(mpqs::containsKey)
                 if (missing.isNotEmpty()) failures += "VAL-04: missing base MPQ set: ${missing.joinToString()}"
                 for (entry in mpqs.values) {
                     val header = runCatching { access.read(entry.id, 4) }.getOrDefault(ByteArray(0))
@@ -149,10 +154,10 @@ internal class SafClientScanner(private val resolver: ContentResolver) {
             if (customDlls.isNotEmpty()) warnings += "VAL-10: unrecognized root DLLs: ${customDlls.joinToString()}"
 
             val knownBytes = root.sumOf { if (it.size >= 0) it.size else 0L }
-            val supported = failures.isEmpty() && identity?.version == EXPECTED_VERSION
+            val supported = failures.isEmpty() && flavor != null
             return Result(
                 supported = supported,
-                clientId = if (supported) ClientRuntimeContract.WOW_5875_ID else null,
+                clientId = if (supported) flavor?.clientId else null,
                 version = identity?.version,
                 build = identity?.build,
                 executableSha256 = identity?.sha256,
@@ -162,15 +167,11 @@ internal class SafClientScanner(private val resolver: ContentResolver) {
             )
         }
 
-        private fun parsePe(bytes: ByteArray): PeIdentity {
-            val identity = ClientPeIdentity.parse(bytes)
-            return PeIdentity(identity.version, identity.build, identity.sha256)
-        }
+        /** VAL-03 "expected" text: the qualified flavors' version resources. */
+        private val EXPECTED_VERSION = ClientPeIdentity.expectedVersions
 
-        private const val EXPECTED_VERSION = "1.12.1.5875"
-        private const val KNOWN_EXE_SHA256 = "b4756d38ef207c02ed651f4952bd89a70b4857b73a33413339e1b285b28d2dc7"
+        // Fast-scan read cap (platform budget, not flavor data).
         private const val MAX_EXE_BYTES = 32 * 1024 * 1024
-        private val REQUIRED_MPQS = setOf("base.mpq", "dbc.mpq", "fonts.mpq", "interface.mpq", "misc.mpq", "model.mpq", "sound.mpq", "speech.mpq", "terrain.mpq", "texture.mpq", "wmo.mpq")
         private val STANDARD_ROOT_DLLS = setOf("dbghelp.dll", "divxdecoder.dll", "fmod.dll", "ijl15.dll", "scan.dll", "unicows.dll")
     }
 }

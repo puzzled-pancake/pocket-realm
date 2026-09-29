@@ -1,5 +1,6 @@
 package com.pocketrealm.server
 
+import com.pocketrealm.client.ClientFlavors
 import org.json.JSONObject
 import java.io.File
 import java.io.RandomAccessFile
@@ -35,9 +36,10 @@ internal class PreparedDataStore(private val root: File) {
             "The prepared server world data did not pass its integrity check. Resume preparation from Game files."
         }
         val manifest = JSONObject(manifestFile.readText())
+        val flavor = ClientFlavors.qualified().single()
         check(manifest.getInt("schema") == 1 && manifest.getBoolean("complete") &&
-            manifest.getString("mode") == "NORMAL" && manifest.getInt("clientBuild") == 5875 &&
-            manifest.getString("cmangosFamily") == "classic") {
+            manifest.getString("mode") == "NORMAL" && manifest.getInt("clientBuild") == flavor.build &&
+            manifest.getString("cmangosFamily") == flavor.serverFamily) {
             "The prepared server world data is incomplete or incompatible. Rebuild it from Game files."
         }
         val counts = manifest.getJSONObject("counts")

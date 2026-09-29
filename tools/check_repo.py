@@ -3,8 +3,10 @@
 
 Fails (exit 1) when tracked content regresses into known problem classes:
 forbidden build-output paths, committed oversized blobs outside the allowlist,
-or personal identifiers (loaded from a gitignored local markers file)
-reappearing in tracked text.
+personal identifiers (loaded from a gitignored local markers file)
+reappearing in tracked text, the flavor manifest drifting from its
+multi-flavor contract (tools/check_flavor.py), or banned flavor-identity
+literals leaking outside their owning tables (tools/leak_sweep.py).
 
 Safe in CI or as a pre-commit gate (same contract as tools/check_sources.py).
 Personal-identifier scanning reads tools/pii_markers.local.json when present
@@ -24,6 +26,30 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SUBMODULE_PREFIXES = ("native/cmangos", "native/playerbots", "native/classic-db")
 MARKERS_FILE = ROOT / "tools" / "pii_markers.local.json"
+FLAVOR_MANIFEST = ROOT / "schemas" / "flavor.json"
+
+
+def check_flavor_manifest(errors: list[str]) -> None:
+    """Gate schemas/flavor.json through tools/check_flavor.py (multi-flavor contract)."""
+    import check_flavor
+
+    for error in check_flavor.validate(FLAVOR_MANIFEST):
+        errors.append(f"flavor.json: {error}")
+
+
+def check_leaks(errors: list[str]) -> None:
+    """Gate the §4.6 cross-flavor leak sweep (tools/leak_sweep.py).
+
+    The sweep is the tripwire for banned flavor-identity literals outside
+    their owning tables; any finding it reports outside the allowlist fails
+    the gate here, so the sweep can never drift out of CI again.
+    """
+    import leak_sweep
+
+    findings, _allowlisted, _scanned = leak_sweep.sweep(ROOT)
+    for finding in findings:
+        literals = ", ".join(finding["literals"])  # type: ignore[arg-type]
+        errors.append(f"leak_sweep: {finding['path']}:{finding['line']} {literals}")
 
 FORBIDDEN_PATTERNS = [
     "native/.tmp-*",
@@ -172,6 +198,8 @@ def main() -> int:
     check_pii(
         files, errors, warnings, error_markers, warn_markers, markers_present
     )
+    check_flavor_manifest(errors)
+    check_leaks(errors)
 
     for warning in sorted(set(warnings)):
         print(f"WARN {warning}")

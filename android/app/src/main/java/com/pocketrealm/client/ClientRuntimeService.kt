@@ -157,9 +157,9 @@ class ClientRuntimeService : Service() {
                 else -> false
             }
             var clientFailure: String? = null
-            val clientSupported = when (clientId) {
-                ClientRuntimeContract.SELF_TEST_ID -> true
-                ClientRuntimeContract.WOW_5875_ID -> runCatching {
+            val clientSupported = when {
+                clientId == ClientRuntimeContract.SELF_TEST_ID -> true
+                ClientFlavors.isManagedClientId(clientId) -> runCatching {
                     ManagedClientStore(applicationContext).load(clientId)
                 }.onFailure { clientFailure = it.message ?: it.javaClass.simpleName }.isSuccess
                 else -> false

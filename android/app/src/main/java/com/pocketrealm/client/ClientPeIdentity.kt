@@ -7,11 +7,32 @@ import java.security.MessageDigest
 /**
  * Shared PE32 identity parse for WoW client executables. Extracted verbatim
  * from SafClientScanner so the folder scanner and the archive scanner agree
- * byte-for-byte on what "1.12.1.5875" means. Messages are pinned by the JVM
- * suite (VAL-02 wording).
+ * byte-for-byte on what the client version resource means. A parsed resource
+ * is a client identity only when it resolves to a qualified [ClientFlavor]
+ * (registry gate); messages are pinned by the JVM suite (VAL-02 wording).
  */
 internal object ClientPeIdentity {
-    data class Identity(val version: String?, val build: Int?, val sha256: String)
+    data class Identity(
+        val version: String?,
+        val build: Int?,
+        val sha256: String,
+        /** [ClientFlavor.flavorId] when the version resource resolved; null otherwise. */
+        val flavorId: String? = null,
+    )
+
+    /** Version-resource text the qualified flavors accept (VAL-03 "expected" copy). */
+    internal val expectedVersions: String =
+        ClientFlavors.qualified().joinToString(", ") { it.versionResource }
+
+    /** The qualified flavor an identity resolves to, or null (import rejection). */
+    internal fun qualifiedFlavor(identity: Identity?): ClientFlavor? =
+        identity?.version?.let { ClientFlavors.qualifiedByVersionResource(it) }
+
+    /** VAL-03 "detected" copy: the parsed resource, or why nothing was detected. */
+    internal fun detected(identity: Identity?): String {
+        val version = identity?.version ?: return "no matching version resource"
+        return if (identity?.flavorId == null) "$version; no qualified flavor matches" else version
+    }
 
     fun parse(bytes: ByteArray): Identity {
         fun u16(offset: Int): Int = ByteBuffer.wrap(bytes, offset, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt() and 0xffff
@@ -28,6 +49,7 @@ internal object ClientPeIdentity {
         }
         var version: String? = null
         var build: Int? = null
+        var flavorId: String? = null
         for (offset in 0..bytes.size - 16) {
             if (bytes[offset] != 0xbd.toByte() || bytes[offset + 1] != 0x04.toByte() ||
                 bytes[offset + 2] != 0xef.toByte() || bytes[offset + 3] != 0xfe.toByte()) continue
@@ -35,13 +57,20 @@ internal object ClientPeIdentity {
             val ms = u32(offset + 8)
             val ls = u32(offset + 12)
             val candidate = listOf((ms ushr 16).toInt(), (ms and 0xffff).toInt(), (ls ushr 16).toInt(), (ls and 0xffff).toInt())
-            if (candidate[0] == 1 && candidate[1] == 12 && candidate[2] == 1) {
+            val flavor = ClientFlavors.qualifiedByVersionResource(candidate.joinToString("."))
+            if (flavor != null) {
+                version = flavor.versionResource
+                build = flavor.build
+                flavorId = flavor.flavorId
+                break
+            }
+            if (version == null) {
+                // Keep the first parsed resource so a rejection can name what was detected.
                 version = candidate.joinToString(".")
                 build = candidate[3]
-                break
             }
         }
         val digest = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
-        return Identity(version, build, digest)
+        return Identity(version, build, digest, flavorId)
     }
 }

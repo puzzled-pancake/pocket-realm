@@ -88,12 +88,14 @@ internal class ArchiveClientScanner(
         val exe = java.io.File(root, "WoW.exe")
         val failures = mutableListOf<String>()
         var identity: com.pocketrealm.client.ClientPeIdentity.Identity? = null
+        var flavor: com.pocketrealm.client.ClientFlavor? = null
         if (!exe.isFile) {
             failures += "VAL-01: direct WoW.exe is absent"
         } else {
             identity = com.pocketrealm.client.ClientPeIdentity.parse(exe.readBytes())
-            if (identity.version != EXPECTED_VERSION) {
-                failures += "VAL-03: expected $EXPECTED_VERSION, detected ${identity.version ?: "no matching version resource"}"
+            flavor = com.pocketrealm.client.ClientPeIdentity.qualifiedFlavor(identity)
+            if (identity != null && flavor == null) {
+                failures += "VAL-03: expected $EXPECTED_VERSION, detected ${com.pocketrealm.client.ClientPeIdentity.detected(identity)}"
             }
         }
         val data = java.io.File(root, "Data")
@@ -102,7 +104,9 @@ internal class ArchiveClientScanner(
         } else {
             val mpqs = data.listFiles().orEmpty().filter { it.isFile && it.name.endsWith(".mpq", true) }
                 .associateBy { it.name.lowercase() }
-            val missing = REQUIRED_MPQS.filterNot(mpqs::containsKey)
+            // A foreign client (no qualified flavor matched) already failed
+            // VAL-03; never compare the qualified MPQ union against it.
+            val missing = flavor?.requiredMpqs.orEmpty().filterNot(mpqs::containsKey)
             if (missing.isNotEmpty()) failures += "VAL-04: missing base MPQ set: ${missing.joinToString()}"
             for (file in mpqs.values) {
                 val header = file.inputStream().use { runCatching { it.readNBytes(4) }.getOrDefault(ByteArray(0)) }
@@ -111,10 +115,10 @@ internal class ArchiveClientScanner(
                 }
             }
         }
-        val supported = failures.isEmpty() && identity?.version == EXPECTED_VERSION
+        val supported = failures.isEmpty() && flavor != null
         return SafClientScanner.Result(
             supported = supported,
-            clientId = if (supported) com.pocketrealm.client.ClientRuntimeContract.WOW_5875_ID else null,
+            clientId = if (supported) flavor?.clientId else null,
             version = identity?.version,
             build = identity?.build,
             executableSha256 = identity?.sha256,
@@ -125,11 +129,8 @@ internal class ArchiveClientScanner(
     }
 
     private companion object {
-        private const val EXPECTED_VERSION = "1.12.1.5875"
-        private val REQUIRED_MPQS = setOf(
-            "base.mpq", "dbc.mpq", "fonts.mpq", "interface.mpq", "misc.mpq", "model.mpq",
-            "sound.mpq", "speech.mpq", "terrain.mpq", "texture.mpq", "wmo.mpq",
-        )
+        /** VAL-03 "expected" text: the qualified flavors' version resources. */
+        private val EXPECTED_VERSION = com.pocketrealm.client.ClientPeIdentity.expectedVersions
     }
 
     /**

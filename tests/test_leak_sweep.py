@@ -1,0 +1,468 @@
+"""Contract for tools/leak_sweep.py: the §4.6 cross-flavor leak sweep exits 1
+on banned flavor-identity literals outside the allowlist, suppresses exactly
+the allowlisted paths (and exactly the covered literals on scoped entries),
+decodes hex/binary/octal numeric forms before the banned-number match, and
+reports machine-readable findings under --json. A scoped allowlist entry whose
+target file no longer contains any of its literals is itself a (stale-entry)
+config error."""
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+TOOL = ROOT / "tools" / "leak_sweep.py"
+sys.path.insert(0, str(ROOT / "tools"))
+
+import leak_sweep  # noqa: E402
+
+KOTLIN_SRC = Path("android") / "app" / "src" / "main" / "java" / "com" / "pocketrealm" / "client"
+
+
+def run_sweep(root: Path, *flags: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(TOOL), "--root", str(root), *flags],
+        capture_output=True,
+        text=True,
+    )
+
+
+def make_tree(tmp_path: Path, entries: dict[str, str]) -> Path:
+    for rel, text in entries.items():
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    return tmp_path
+
+
+def test_banned_literal_outside_allowlist_fails(tmp_path):
+    make_tree(tmp_path, {
+        KOTLIN_SRC / "Thing.kt": 'const val MANAGED_ID = "wow-2.4.3-8606"\n',
+    })
+    result = run_sweep(tmp_path, "--json")
+    assert result.returncode == 1
+    report = json.loads(result.stdout)
+    assert report["ok"] is False
+    assert report["files_scanned"] == 1
+    assert len(report["findings"]) == 1
+    finding = report["findings"][0]
+    assert finding["path"] == str(KOTLIN_SRC / "Thing.kt").replace("\\", "/")
+    assert finding["line"] == 1
+    assert finding["literals"] == ["wow-2.4.3-8606"]
+    assert "wow-2.4.3-8606" in finding["text"]
+
+
+def test_standalone_build_number_trips_but_prefix_segment_does_not(tmp_path):
+    make_tree(tmp_path, {
+        KOTLIN_SRC / "Builds.kt": "val build = 12340\nval segment = \"wow12340\"\n",
+    })
+    result = run_sweep(tmp_path, "--json")
+    assert result.returncode == 1
+    finding = json.loads(result.stdout)["findings"][0]
+    assert finding["line"] == 1
+    assert finding["literals"] == ["12340"]
+
+
+def test_whole_file_allowlist_suppresses_the_registry(tmp_path):
+    make_tree(tmp_path, {
+        KOTLIN_SRC / "ClientFlavor.kt": 'val vanilla = "wow-1.12.1-5875"\n',
+    })
+    result = run_sweep(tmp_path, "--json")
+    assert result.returncode == 0
+    report = json.loads(result.stdout)
+    assert report["ok"] is True
+    assert report["findings"] == []
+    assert report["allowlisted_findings"] == 1
+
+
+def test_scoped_allowlist_covers_only_its_literals(tmp_path):
+    # tools/checkpoint_dbs.py is exempt for the vanilla DB names only: the
+    # same file tripping a build number must still fail.
+    make_tree(tmp_path, {
+        "tools/checkpoint_dbs.py": 'DATABASES = ("classicrealmd", "classiclogs")\n',
+        "tools/other_seed_tool.py": 'DATABASES = ("classicmangos",)\n',
+    })
+    result = run_sweep(tmp_path, "--json")
+    assert result.returncode == 1
+    report = json.loads(result.stdout)
+    assert [f["path"] for f in report["findings"]] == ["tools/other_seed_tool.py"]
+
+
+def test_scripts_directory_is_scanned(tmp_path):
+    make_tree(tmp_path, {
+        "scripts/helper.py": 'CLIENT_ID = "wow-3.3.5a-12340"\n',
+    })
+    result = run_sweep(tmp_path, "--json")
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["findings"][0]["path"] == "scripts/helper.py"
+
+
+def test_json_shape_carries_the_allowlist(tmp_path):
+    make_tree(tmp_path, {})
+    result = run_sweep(tmp_path, "--json")
+    assert result.returncode == 0
+    report = json.loads(result.stdout)
+    assert set(report) == {
+        "ok", "files_scanned", "scanned_roots", "binary_skipped",
+        "allowlisted_findings", "findings", "allowlist",
+    }
+    assert isinstance(report["scanned_roots"], list)
+    assert report["scanned_roots"] == sorted(report["scanned_roots"])
+    assert "tools" in report["scanned_roots"]
+    for entry in report["allowlist"]:
+        expected_keys = {"path", "literals", "reason", "retires"}
+        if entry.get("path_prefix"):
+            expected_keys.add("path_prefix")
+        assert set(entry) == expected_keys
+        assert entry["reason"] and entry["retires"]
+
+
+def test_human_output_summarizes_ok_and_failed(tmp_path):
+    clean = make_tree(tmp_path / "clean", {
+        KOTLIN_SRC / "Fine.kt": 'val segment = "wow5875"\n',
+    })
+    result = run_sweep(clean)
+    assert result.returncode == 0
+    assert "leak_sweep: OK (1 files scanned" in result.stdout
+
+    leaking = make_tree(tmp_path / "leaking", {
+        KOTLIN_SRC / "Leak.kt": 'val id = "wow-2.4.3-8606"\n',
+    })
+    result = run_sweep(leaking)
+    assert result.returncode == 1
+    assert "LEAK" in result.stdout
+    assert "leak_sweep: FAILED (1 leaks in 1 files" in result.stdout
+
+
+def test_repo_allowlist_paths_exist():
+    """Every allowlist entry must name a real file in this repository."""
+    spec = json.loads(run_sweep(ROOT, "--json").stdout or "{}")
+    assert spec, "sweep on the real repo must emit JSON"
+    assert spec["allowlist"], "the sweep must ship a justified allowlist"
+    for entry in spec["allowlist"]:
+        if entry.get("path_prefix"):
+            assert (ROOT / entry["path_prefix"].rstrip("/")).is_dir(), entry["path_prefix"]
+        else:
+            assert (ROOT / entry["path"]).is_file(), entry["path"]
+
+
+def test_real_repo_sweeps_clean():
+    """The repository itself must pass its own gate: allowlisted findings are
+    suppressed before they ever reach `findings`, so a clean repo is exactly
+    ok=True with an empty findings list."""
+    spec = json.loads(run_sweep(ROOT, "--json").stdout or "{}")
+    assert spec, "sweep on the real repo must emit JSON"
+    assert spec["ok"] is True, json.dumps(spec["findings"], indent=2)
+    assert spec["findings"] == []
+
+
+def test_normalized_integer_literals_trip(tmp_path):
+    # Digit separators and hex decode to their value before the banned-number
+    # match: 5_875 and 0x16F3 are both 5875.
+    make_tree(tmp_path, {
+        KOTLIN_SRC / "Sep.kt": "val build = 5_875\n",
+        KOTLIN_SRC / "Hex.kt": "val build = 0x16F3\n",
+    })
+    result = run_sweep(tmp_path, "--json")
+    assert result.returncode == 1
+    findings = json.loads(result.stdout)["findings"]
+    assert {f["path"] for f in findings} == {
+        str(KOTLIN_SRC / "Sep.kt").replace("\\", "/"),
+        str(KOTLIN_SRC / "Hex.kt").replace("\\", "/"),
+    }
+    for finding in findings:
+        # The finding reports the canonical value, so scoped allowlist
+        # entries written for the plain decimal keep covering these forms.
+        assert finding["literals"] == ["5875"]
+
+
+def test_unrelated_numeric_forms_still_pass(tmp_path):
+    make_tree(tmp_path, {
+        KOTLIN_SRC / "Fine.kt": (
+            "val glued = wow8606\n"
+            "val wider = 15875\n"
+            "val hex = 0x8664\n"
+            "val float = 1.12340\n"
+        ),
+    })
+    result = run_sweep(tmp_path, "--json")
+    assert result.returncode == 0
+    assert json.loads(result.stdout)["findings"] == []
+
+
+def test_scope_covers_debug_androidtest_test_gradle_and_res(tmp_path):
+    entries = {
+        "android/app/src/debug/java/com/pocketrealm/Fixture.java":
+            'int BUILD = 5875;\n',
+        "android/app/src/androidTest/java/com/pocketrealm/LaneTest.kt":
+            'assertEquals(8606, manifest.getInt("build"))\n',
+        "android/app/src/test/java/com/pocketrealm/UnitTest.kt":
+            'assertEquals(12340, flavor.build)\n',
+        "android/app/build.gradle.kts":
+            'def vanillaBuild = 5875\n',
+        "android/build.gradle.kts":
+            'def other = 12340\n',
+        "android/app/src/main/res/values/strings.xml":
+            '<string name="client_id">wow-1.12.1-5875</string>\n',
+    }
+    make_tree(tmp_path, entries)
+    result = run_sweep(tmp_path, "--json")
+    assert result.returncode == 1
+    report = json.loads(result.stdout)
+    assert {f["path"] for f in report["findings"]} == set(entries)
+
+
+def test_scope_covers_desktop_module(tmp_path):
+    paths = {
+        "desktop/src/main/kotlin/com/pocketrealm/desktop/Unlisted.kt":
+            "const val BUILD_5875 = 5875\n",
+        "desktop/src/main/kotlin/com/pocketrealm/server/UnlistedDb.kt":
+            'val name = "classicmangos"\n',
+        "desktop/src/test/kotlin/com/pocketrealm/desktop/LaneTest.kt":
+            "assertEquals(12340, build)\n",
+    }
+    make_tree(tmp_path, paths)
+    result = run_sweep(tmp_path, "--json")
+    assert result.returncode == 1
+    report = json.loads(result.stdout)
+    assert {f["path"] for f in report["findings"]} == set(paths)
+
+
+def _git_init_commit(tree: Path) -> None:
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(tree), *args], check=True, capture_output=True)
+    git("init", "-q")
+    git("add", "-A")
+    git("-c", "user.email=gate@example.invalid", "-c", "user.name=gate",
+        "commit", "-q", "-m", "scope fixture")
+
+
+def test_git_tracked_mode_sweeps_outside_legacy_roots(tmp_path):
+    """D18's core property: inside a git checkout the sweep covers every
+    tracked file — including paths no legacy SCAN_ROOT would touch."""
+    make_tree(tmp_path, {
+        "misc/notes.kt": "val leaked = 5875\n",
+        # A legacy-root file as control: swept in either mode.
+        "scripts/control.py": 'DB = "classicrealmd"\n',
+    })
+    _git_init_commit(tmp_path)
+    result = run_sweep(tmp_path, "--json")
+    assert result.returncode == 1
+    report = json.loads(result.stdout)
+    assert report["scanned_roots"] == "git-tracked"
+    found = {f["path"] for f in report["findings"]}
+    assert "misc/notes.kt" in found, found
+    assert "scripts/control.py" in found, found
+
+
+def test_git_mode_skips_binary_files_but_counts_them(tmp_path):
+    nul = bytes([0])
+    make_tree(tmp_path, {})
+    (tmp_path / "blob.bin").write_bytes(nul + b"\x01\x02" + b"5875")
+    (tmp_path / "misc").mkdir()
+    (tmp_path / "misc" / "text.kt").write_text("val x = 8606\n", encoding="utf-8")
+    _git_init_commit(tmp_path)
+    result = run_sweep(tmp_path, "--json")
+    report = json.loads(result.stdout)
+    assert report["scanned_roots"] == "git-tracked"
+    assert report["binary_skipped"] >= 1
+    # The NUL-prefixed blob is skipped; the text file next to it is not.
+    assert [f["path"] for f in report["findings"]] == ["misc/text.kt"]
+
+
+def test_docs_prefix_suppresses_prose_tree_only(tmp_path):
+    make_tree(tmp_path, {
+        "docs/prose.md": "Vanilla ships as build 5875.\n",
+        KOTLIN_SRC / "Real.kt": 'val db = "classicmangos"\n',
+    })
+    _git_init_commit(tmp_path)
+    result = run_sweep(tmp_path, "--json")
+    assert result.returncode == 1
+    report = json.loads(result.stdout)
+    found = {f["path"] for f in report["findings"]}
+    assert "docs/prose.md" not in found
+    assert str(KOTLIN_SRC / "Real.kt").replace("\\", "/") in found
+
+
+def test_tools_and_scripts_globs_are_recursive(tmp_path):
+    paths = {
+        "tools/llm_lab/helper.py": 'VANILLA_ID = "wow-1.12.1-5875"\n',
+        "tools/rp_harness/suites/probe.py": 'DB = "classicrealmd"\n',
+        "scripts/sub/dir/deep.py": 'BUILD = 12340\n',
+        # Top-level files must keep scanning too.
+        "tools/toplevel.py": 'OTHER = "classicmangos"\n',
+    }
+    make_tree(tmp_path, paths)
+    result = run_sweep(tmp_path, "--json")
+    assert result.returncode == 1
+    report = json.loads(result.stdout)
+    assert {f["path"] for f in report["findings"]} == set(paths)
+
+
+@pytest.mark.parametrize("literal", ["5875", "8606", "12340"])
+def test_banned_numbers_are_matched_standalone(tmp_path, literal):
+    make_tree(tmp_path, {
+        KOTLIN_SRC / "Num.kt": f"val build = {literal}\n",
+    })
+    result = run_sweep(tmp_path, "--json")
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["findings"][0]["literals"] == [literal]
+
+
+@pytest.mark.parametrize("form", ["5875u", "5875U", "5875uL", "5875UL", "12340uL", "0x16F3UL"])
+def test_kotlin_unsigned_suffixes_decode(tmp_path, form):
+    make_tree(tmp_path, {
+        KOTLIN_SRC / "Unsigned.kt": "val build = " + form + "\n",
+    })
+    result = run_sweep(tmp_path, "--json")
+    assert result.returncode == 1
+    literals = json.loads(result.stdout)["findings"][0]["literals"]
+    assert literals in (["5875"], ["12340"])
+
+
+def test_db_names_match_case_insensitively(tmp_path):
+    make_tree(tmp_path, {
+        KOTLIN_SRC / "Casey.kt": 'val db = "ClassicRealmd"\n',
+    })
+    result = run_sweep(tmp_path, "--json")
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["findings"][0]["literals"] == ["classicrealmd"]
+
+
+def test_binary_and_octal_forms_trip(tmp_path):
+    # 5875 == 0b1011011110011 == 0o13363: the binary and leading-zero octal
+    # forms decode to the banned value exactly like the hex form does.
+    paths = {
+        KOTLIN_SRC / "Bin.kt": "val build = 0b1011011110011\n",
+        KOTLIN_SRC / "Oct.kt": "val build = 013363\n",
+        KOTLIN_SRC / "OctPrefix.kt": "val build = 0o13363\n",
+    }
+    make_tree(tmp_path, paths)
+    result = run_sweep(tmp_path, "--json")
+    assert result.returncode == 1
+    findings = json.loads(result.stdout)["findings"]
+    assert {f["path"] for f in findings} == {str(p).replace("\\", "/") for p in paths}
+    for finding in findings:
+        # The finding reports the canonical value, so scoped allowlist
+        # entries written for the plain decimal keep covering these forms.
+        assert finding["literals"] == ["5875"]
+
+
+def test_plain_zero_and_small_octals_do_not_trip(tmp_path):
+    # Octal is only the leading-zero form (a zero followed by octal digits):
+    # plain decimal lists like the bot maps "0, 1" and permission-style
+    # octals that decode to unbanned values stay clean.
+    make_tree(tmp_path, {
+        KOTLIN_SRC / "Maps.kt": (
+            "val maps = listOf(0, 1)\n"
+            "val pad = 007\n"
+            "val mode = 0o755\n"
+        ),
+    })
+    result = run_sweep(tmp_path, "--json")
+    assert result.returncode == 0
+    assert json.loads(result.stdout)["findings"] == []
+
+
+def test_scope_covers_main_java_and_non_res_xml(tmp_path):
+    # src/main is swept wholesale: .java sources and every non-res XML (the
+    # AndroidManifest, addon assets) are in scope, not just the res tree.
+    paths = {
+        "android/app/src/main/java/com/pocketrealm/legacy/Legacy.java":
+            'int BUILD = 5875;\n',
+        "android/app/src/main/AndroidManifest.xml":
+            '<provider android:authorities="classiclogs" android:exported="false" />\n',
+        "android/app/src/main/assets/addons/android-port/AndroidPort/Bindings.xml":
+            '<Binding id="wow-2.4.3-8606" />\n',
+    }
+    make_tree(tmp_path, paths)
+    result = run_sweep(tmp_path, "--json")
+    assert result.returncode == 1
+    report = json.loads(result.stdout)
+    assert {f["path"] for f in report["findings"]} == {str(p).replace("\\", "/") for p in paths}
+
+
+def test_scope_covers_ps1_values_night_and_llm_module(tmp_path):
+    paths = {
+        "tools/helper.ps1": '$expected = "1.12.1.5875"\n',
+        "android/app/src/main/res/values-night/strings.xml":
+            '<string name="client_id">wow-1.12.1-5875</string>\n',
+        "android/pocketrealm-llm/src/main/java/com/pocketrealm/llm/Lane.kt":
+            "const val BUILD = 5875\n",
+    }
+    make_tree(tmp_path, paths)
+    result = run_sweep(tmp_path, "--json")
+    assert result.returncode == 1
+    report = json.loads(result.stdout)
+    assert {f["path"] for f in report["findings"]} == {str(p).replace("\\", "/") for p in paths}
+
+
+def test_stale_scoped_allowlist_entry_is_a_config_error(tmp_path):
+    # A scoped entry whose target file no longer contains ANY of its covered
+    # literals is dead weight: the sweep reports it (exit 1) so entries
+    # retire with their literals instead of silently accumulating.
+    clean = KOTLIN_SRC / "Clean.kt"
+    entry_path = str(clean).replace("\\", "/")
+    make_tree(tmp_path, {clean: "val plain = 1\n"})
+    allowlist = (
+        {
+            "path": entry_path,
+            "literals": ("5875",),
+            "reason": "fixture entry",
+            "retires": "S5 retires: fixture",
+        },
+    )
+    findings, allowlisted, _scanned = leak_sweep.sweep(tmp_path, allowlist=allowlist)
+    assert len(findings) == 1
+    assert findings[0]["path"] == entry_path
+    assert findings[0]["line"] == 0
+    assert findings[0]["literals"] == ["5875"]
+    assert findings[0]["text"] == (
+        f"stale allowlist entry: {entry_path} (literal '5875' not found)"
+    )
+    assert allowlisted == 0
+
+
+def test_live_scoped_allowlist_entry_is_not_stale(tmp_path):
+    target = KOTLIN_SRC / "Leak.kt"
+    make_tree(tmp_path, {target: "val build = 5875\n"})
+    allowlist = (
+        {
+            "path": str(target).replace("\\", "/"),
+            "literals": ("5875",),
+            "reason": "fixture entry",
+            "retires": "S5 retires: fixture",
+        },
+    )
+    findings, allowlisted, _scanned = leak_sweep.sweep(tmp_path, allowlist=allowlist)
+    assert findings == []
+    assert allowlisted == 1
+
+
+def test_whole_file_allowlist_entry_is_never_stale(tmp_path):
+    # Whole-file exemptions (owning tables) carry no literal list to go stale.
+    target = KOTLIN_SRC / "Registry.kt"
+    make_tree(tmp_path, {target: "val plain = 1\n"})
+    allowlist = (
+        {
+            "path": str(target).replace("\\", "/"),
+            "literals": None,
+            "reason": "owning table",
+            "retires": "never",
+        },
+    )
+    findings, _allowlisted, _scanned = leak_sweep.sweep(tmp_path, allowlist=allowlist)
+    assert findings == []
+
+
+def test_repo_allowlist_has_no_stale_entries():
+    """The real repository must not carry a scoped allowlist entry whose
+    literals have all been fixed elsewhere: the sweep would exit 1 on it."""
+    spec = json.loads(run_sweep(ROOT, "--json").stdout or "{}")
+    assert spec, "sweep on the real repo must emit JSON"
+    stale = [f for f in spec["findings"] if "stale allowlist entry" in str(f.get("text", ""))]
+    assert stale == [], json.dumps(stale, indent=2)

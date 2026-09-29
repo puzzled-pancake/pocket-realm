@@ -56,7 +56,7 @@ internal class ManagedClientStore(context: Context) {
     }
 
     private fun loadUnlocked(clientId: String): ManagedClient {
-        require(clientId == ClientRuntimeContract.WOW_5875_ID) { "unsupported managed client id" }
+        require(ClientFlavors.isManagedClientId(clientId)) { "unsupported managed client id" }
         val pointer = File(clientRoot, "active.json")
         var expectedManifestHash: String? = null
         var generationIdentity = "legacy-active"
@@ -93,8 +93,9 @@ internal class ManagedClientStore(context: Context) {
         check(identity.getInt("machine") == 0x14c && identity.getInt("optionalMagic") == 0x10b) {
             "managed client is not 32-bit x86 PE32"
         }
-        check(identity.getInt("build") == 5875 && identity.getString("version") == "1.12.1.5875") {
-            "managed client is not WoW 1.12.1 build 5875"
+        val flavor = checkNotNull(ClientFlavors.byClientId(clientId)) { "unsupported managed client id" }
+        check(identity.getInt("build") == flavor.build && identity.getString("version") == flavor.versionResource) {
+            "managed client is not WoW ${flavor.versionResource.substringBeforeLast('.')} build ${flavor.build}"
         }
         val relativeExe = manifest.getString("executable")
         check(relativeExe == "WoW.exe") { "direct WoW.exe launch is required" }

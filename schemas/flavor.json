@@ -1,53 +1,243 @@
 {
-  "schema": 1,
-  "reference_document": "docs/wiki/README.md",
-  "flavor": "offline-vanilla-1.12",
-  "description": "The offline product flavor: a self-contained, offline-only PvE Vanilla 1.12 realm on Android. This manifest is the contract the build, manifest merger, and release-acceptance checks enforce.",
-  "target_device_profile": {
-    "primary": "Retroid Pocket 6 12 GB",
-    "native_abi": "arm64-v8a",
-    "min_sdk": 26,
-    "target_sdk": 27,
-    "page_size": "16 KB compatible (no exclusive core-type assumptions)",
-    "development_abi": "x86_64 on the fixed emulator lanes recorded under tests/avd/"
-  },
-  "game": {
-    "expansion": "Vanilla / Classic",
-    "client_version": "1.12.1 build 5875 (user-supplied; PE/build fast scan on first connect and full managed import)",
-    "supported_client_builds": [],
-    "notes": "supported_client_builds is populated once exact client hashes are qualified. Empty means not yet qualified; import must reject until at least one entry exists."
-  },
-  "includes": {
-    "android_app": "Kotlin/Compose launcher, supervisor, wizard, foreground service, controller bridge",
-    "native_realm": "Supervised native MariaDB, realmd, mangosd, and Playerbots components; x86_64 development then arm64-v8a parity",
-    "persistence": "App-private MariaDB datadir/socket, migration ledger, dirty recovery, and database-consistent verified backups",
-    "client_import": "Build-5875 validation plus resumable managed copy and checkpointed DBC/maps/vmaps/mmaps preparation",
-    "runtime_provider": "x86DirectWine first; ARM Box64/Wine WoW64 after integrated x86; alternative runtimes are outside the release critical path",
-    "addons": "Minimal project-owned controller/status/bot UI plus curated reversible profiles"
-  },
-  "excludes_from_release_artifact": {
-    "proprietary_client_files": "WoW.exe, MPQs, DBCs, maps, models, textures — never bundled; user imports them",
-    "connected_code": "No connected transport, Realm Kernel, replication, or membership code in the offline APK",
-    "connected_permissions": "No INTERNET-dependent authority, P2P, or relay permissions",
-    "hidden_online_switch": "No runtime flag re-enables connected behavior"
-  },
-  "android_permissions": {
-    "required": [
-      "INTERNET",
-      "FOREGROUND_SERVICE",
-      "FOREGROUND_SERVICE_SPECIAL_USE",
-      "POST_NOTIFICATIONS",
-      "WAKE_LOCK"
-    ],
-    "foreground_service_type": "specialUse (long-running local realm server; dataSync is capped at 6h on Android 15 and unsuitable for multi-hour play)",
-    "storage": "Scoped storage / SAF for client import and exports only",
-    "prohibited_in_offline_flavor": [
-      "External gameplay authority",
-      "P2P or relay transport",
-      "ACCESS_NETWORK_STATE used for realm decisions"
-    ],
-    "network_policy": "INTERNET permits app-local TCP sockets and optional explicitly configured update checks; offline play binds realm endpoints to 127.0.0.1 and has no external authority dependency."
-  },
-  "release_acceptance_link": "docs/wiki/Build-and-Packaging.md",
-  "rule": "The offline flavor is a hard boundary. Connected-realm functionality is excluded from this flavor and lives in a separate flavor/build type."
+  "schema": 2,
+  "reference_document": "docs/TBC-WOTLK-MULTI-FLAVOR-PORT-PLAN.md",
+  "description": "The multi-flavor product manifest: the contract the build, manifest merger, and release-acceptance checks enforce. Legacy top-level fields below describe the product-wide device/permission policy; the authoritative per-flavor data lives in the flavors array. Only flavors with qualified=true may be imported or launched.",
+  "flavors": [
+    {
+      "id": "vanilla",
+      "qualified": true,
+      "expansion": "Vanilla / Classic",
+      "client_id": "wow-1.12.1-5875",
+      "build": 5875,
+      "version_resource": "1.12.1.5875",
+      "client_version": "1.12.1 build 5875 (user-supplied; PE/build fast scan on first connect and full managed import)",
+      "supported_client_builds": [],
+      "supported_client_builds_note": "Populated once exact client hashes are qualified (port plan S5). The qualified flag above, not this list, currently gates import.",
+      "server_core": {
+        "upstream": "https://github.com/cmangos/mangos-classic.git",
+        "fork": "https://github.com/puzzled-pancake/mangos-classic.git",
+        "branch": "pocket-realm",
+        "commit": "ce83805d48f9c98b2af617096be5347acb8a1f17",
+        "role": "Vanilla 1.12 game server core (mangosd + realmd)"
+      },
+      "db_content": {
+        "upstream": "https://github.com/cmangos/classic-db.git",
+        "commit": "be1a5206bedccc8dc088b7c79dae31fcf3dbbfce",
+        "seed": "Full_DB/ClassicDB_1_12_1_z2815.sql.gz"
+      },
+      "bots": {
+        "upstream": "https://github.com/puzzled-pancake/playerbots.git",
+        "commit": "7e2cd2fbbbb4eaa3e1696ee80e9bf8e170b6256d",
+        "status": "pinned"
+      },
+      "extractors": {
+        "source": "server_core contrib (ad, vmap_extractor, vmap_assembler, MoveMapGen)",
+        "patch": "native/patches/o11-cmangos-safe-mpq-listfile.patch"
+      },
+      "databases": {
+        "realmd": "classicrealmd",
+        "world": "classicmangos",
+        "characters": "classiccharacters",
+        "logs": "classiclogs"
+      },
+      "addon_interfaces": [11200],
+      "bot_policy": {
+        "max_level": 60,
+        "random_maps": [0, 1],
+        "characters_per_account": 9,
+        "characters_per_account_note": "bot-headroom cap (player character occupies one slot); client UI cap is 10 per realm"
+      },
+      "storage": {
+        "extracted_estimate_bytes": 4294967296,
+        "wine_estimate_bytes": 1073741824,
+        "max_total_bytes": 21474836480,
+        "max_file_bytes": 8589934592,
+        "max_files": 100000,
+        "max_entries": 110000
+      },
+      "wine": {
+        "prefix_segment": "wow5875",
+        "graphics_routes": ["dxvk", "opengl", "virgl"],
+        "vanilla_tweaks": true,
+        "known_exe_sha256": "b4756d38ef207c02ed651f4952bd89a70b4857b73a33413339e1b285b28d2dc7"
+      },
+      "mpq_set": {
+        "required": [
+          "base.mpq", "dbc.mpq", "fonts.mpq", "interface.mpq", "misc.mpq",
+          "model.mpq", "sound.mpq", "speech.mpq", "terrain.mpq", "texture.mpq", "wmo.mpq"
+        ],
+        "note": "Vanilla flat Data/ layout. patch-*.mpq optional and accepted by the MPQ magic check when present."
+      },
+      "llm": {
+        "lore_cards": "lore_cards_v112.jsonl",
+        "era": "vanilla"
+      }
+    },
+    {
+      "id": "tbc",
+      "qualified": false,
+      "expansion": "The Burning Crusade",
+      "client_id": "wow-2.4.3-8606",
+      "build": 8606,
+      "version_resource": "2.4.3.8606",
+      "client_version": "2.4.3 build 8606 (user-supplied; qualification pending, port plan stage S5)",
+      "supported_client_builds": [],
+      "supported_client_builds_note": "Empty until the genuine 2.4.3.8606 client is hash-qualified in port plan S5. Import must reject while qualified=false.",
+      "server_core": {
+        "upstream": "https://github.com/cmangos/mangos-tbc.git",
+        "fork": null,
+        "branch": "pocket-realm",
+        "commit": null,
+        "status": "unresolved",
+        "role": "TBC 2.4.3 game server core (mangosd + realmd)"
+      },
+      "db_content": {
+        "upstream": "https://github.com/cmangos/tbc-db.git",
+        "commit": null,
+        "status": "unresolved"
+      },
+      "bots": {
+        "upstream": null,
+        "commit": null,
+        "status": "unresolved"
+      },
+      "extractors": {
+        "source": "server_core contrib (ad, vmap_extractor, vmap_assembler, MoveMapGen)",
+        "patch": "native/patches/o11-cmangos-safe-mpq-listfile.patch"
+      },
+      "databases": {
+        "realmd": "tbcrealmd",
+        "world": "tbcmangos",
+        "characters": "tbccharacters",
+        "logs": "tbclogs"
+      },
+      "addon_interfaces": [20400],
+      "bot_policy": {
+        "max_level": 70,
+        "random_maps": [0, 1, 530],
+        "characters_per_account": 9,
+        "characters_per_account_note": "bot-headroom cap (player character occupies one slot); client UI cap is 10 per realm"
+      },
+      "storage": null,
+      "wine": {
+        "prefix_segment": "wow8606",
+        "graphics_routes": ["dxvk"],
+        "vanilla_tweaks": false,
+        "known_exe_sha256": null
+      },
+      "mpq_set": {
+        "required": [],
+        "note": "Derived from the genuine qualified client in port plan S5; empty until then."
+      },
+      "llm": {
+        "lore_cards": null,
+        "era": "tbc"
+      }
+    },
+    {
+      "id": "wotlk",
+      "qualified": false,
+      "expansion": "Wrath of the Lich King",
+      "client_id": "wow-3.3.5a-12340",
+      "build": 12340,
+      "version_resource": "3.3.5.12340",
+      "client_version": "3.3.5a build 12340 (user-supplied; qualification pending, port plan stage S5)",
+      "supported_client_builds": [],
+      "supported_client_builds_note": "Empty until the genuine 3.3.5a.12340 client is hash-qualified in port plan S5. Import must reject while qualified=false.",
+      "server_core": {
+        "upstream": "https://github.com/cmangos/mangos-wotlk.git",
+        "fork": null,
+        "branch": "pocket-realm",
+        "commit": null,
+        "status": "unresolved",
+        "role": "WotLK 3.3.5 game server core (mangosd + realmd)"
+      },
+      "db_content": {
+        "upstream": "https://github.com/cmangos/wotlk-db.git",
+        "commit": null,
+        "status": "unresolved"
+      },
+      "bots": {
+        "upstream": null,
+        "commit": null,
+        "status": "unresolved"
+      },
+      "extractors": {
+        "source": "server_core contrib (ad, vmap_extractor, vmap_assembler, MoveMapGen)",
+        "patch": "native/patches/o11-cmangos-safe-mpq-listfile.patch"
+      },
+      "databases": {
+        "realmd": "wotlkrealmd",
+        "world": "wotlkmangos",
+        "characters": "wotlkcharacters",
+        "logs": "wotlklogs"
+      },
+      "addon_interfaces": [30300],
+      "bot_policy": {
+        "max_level": 80,
+        "random_maps": [0, 1, 530, 571],
+        "characters_per_account": 9,
+        "characters_per_account_note": "bot-headroom cap (player character occupies one slot); client UI cap is 10 per realm"
+      },
+      "storage": null,
+      "wine": {
+        "prefix_segment": "wow12340",
+        "graphics_routes": ["dxvk"],
+        "vanilla_tweaks": false,
+        "known_exe_sha256": null
+      },
+      "mpq_set": {
+        "required": [],
+        "note": "Derived from the genuine qualified client in port plan S5; empty until then."
+      },
+      "llm": {
+        "lore_cards": null,
+        "era": "wotlk"
+      }
+    }
+  ],
+  "legacy_vanilla_fields": {
+    "flavor": "offline-vanilla-1.12",
+    "target_device_profile": {
+      "primary": "Retroid Pocket 6 12 GB",
+      "native_abi": "arm64-v8a",
+      "min_sdk": 26,
+      "target_sdk": 27,
+      "page_size": "16 KB compatible (no exclusive core-type assumptions)",
+      "development_abi": "x86_64 on the fixed emulator lanes recorded under tests/avd/"
+    },
+    "includes": {
+      "android_app": "Kotlin/Compose launcher, supervisor, wizard, foreground service, controller bridge",
+      "native_realm": "Supervised native MariaDB, realmd, mangosd, and Playerbots components; x86_64 development then arm64-v8a parity",
+      "persistence": "App-private MariaDB datadir/socket, migration ledger, dirty recovery, and database-consistent verified backups",
+      "client_import": "Build-5875 validation plus resumable managed copy and checkpointed DBC/maps/vmaps/mmaps preparation",
+      "runtime_provider": "x86DirectWine first; ARM Box64/Wine WoW64 after integrated x86; alternative runtimes are outside the release critical path",
+      "addons": "Minimal project-owned controller/status/bot UI plus curated reversible profiles"
+    },
+    "excludes_from_release_artifact": {
+      "proprietary_client_files": "WoW.exe, MPQs, DBCs, maps, models, textures — never bundled; user imports them",
+      "connected_code": "No connected transport, Realm Kernel, replication, or membership code in the offline APK",
+      "connected_permissions": "No INTERNET-dependent authority, P2P, or relay permissions",
+      "hidden_online_switch": "No runtime flag re-enables connected behavior"
+    },
+    "android_permissions": {
+      "required": [
+        "INTERNET",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_SPECIAL_USE",
+        "POST_NOTIFICATIONS",
+        "WAKE_LOCK"
+      ],
+      "foreground_service_type": "specialUse (long-running local realm server; dataSync is capped at 6h on Android 15 and unsuitable for multi-hour play)",
+      "storage": "Scoped storage / SAF for client import and exports only",
+      "prohibited_in_offline_flavor": [
+        "External gameplay authority",
+        "P2P or relay transport",
+        "ACCESS_NETWORK_STATE used for realm decisions"
+      ],
+      "network_policy": "INTERNET permits app-local TCP sockets and optional explicitly configured update checks; offline play binds realm endpoints to 127.0.0.1 and has no external authority dependency."
+    },
+    "release_acceptance_link": "docs/wiki/Build-and-Packaging.md",
+    "rule": "Device/permission policy is shared across flavors. Per-flavor qualification is governed solely by the flavors array; connected-realm functionality remains excluded from every flavor."
+  }
 }

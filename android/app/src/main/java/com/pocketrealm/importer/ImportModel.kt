@@ -56,7 +56,9 @@ data class ImportLimits(
     val minTotalBytes: Long = 1L * GIB,
     val maxFiles: Int = 100_000,
     val maxEntries: Int = 110_000,
-    val maxTotalBytes: Long = 20L * GIB,
+    // Flavor data, not a hard-coded cap: the qualified flavor's measured
+    // storage.max_total_bytes (schemas/flavor.json), via [qualifiedMaxTotalBytes].
+    val maxTotalBytes: Long = qualifiedMaxTotalBytes(),
     val maxFileBytes: Long = 8L * GIB,
     val maxDepth: Int = 32,
     val maxComponentChars: Int = 255,
@@ -67,6 +69,28 @@ data class ImportLimits(
         require(minTotalBytes >= 0 && maxTotalBytes >= minTotalBytes)
     }
     companion object { const val GIB = 1024L * 1024L * 1024L }
+}
+
+/** The single qualified flavor; any other registry state fails loud. */
+private fun qualifiedFlavor(): com.pocketrealm.client.ClientFlavor {
+    val qualified = com.pocketrealm.client.ClientFlavors.qualified()
+    require(qualified.size == 1) {
+        "expected exactly one qualified flavor, found ${qualified.size} — " +
+            "import size limits resolve the qualified lane"
+    }
+    return qualified.single()
+}
+
+/**
+ * The qualified flavor's measured import-total cap
+ * (schemas/flavor.json storage.max_total_bytes). There is no fallback:
+ * a qualified flavor without a measured budget fails loud.
+ */
+private fun qualifiedMaxTotalBytes(): Long {
+    val flavor = qualifiedFlavor()
+    return requireNotNull(flavor.maxTotalBytes) {
+        "${flavor.flavorId} is qualified without a measured storage.max_total_bytes"
+    }
 }
 
 data class SourceInventory(

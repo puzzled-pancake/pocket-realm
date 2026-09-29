@@ -253,6 +253,11 @@ object ClientRuntimeContract {
             .rules.getOffset(java.time.Instant.now()).totalSeconds)
 
     const val SELF_TEST_ID = "pocket-selftest-v1"
+    /**
+     * Legacy single-flavor client id. Kept for source compatibility; new code
+     * must resolve flavors through [ClientFlavors] instead of comparing ids.
+     * Guarded against registry drift by ClientFlavorTest.
+     */
     const val WOW_5875_ID = "wow-1.12.1-5875"
     private const val SECONDS_PER_HOUR = 3600
     private const val SECONDS_PER_MINUTE = 60

@@ -4,7 +4,7 @@ import android.content.Context
 import android.system.Os
 import android.system.OsConstants
 import com.pocketrealm.client.ClientGenerationLease
-import com.pocketrealm.client.ClientRuntimeContract
+import com.pocketrealm.client.ClientFlavors
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -40,8 +40,9 @@ class ClientGenerationStore(context: Context) {
         val final = generation(importId)
         val manifest = File(final, "client-manifest.json")
         if (!final.isDirectory || !manifest.isFile) return null
+        val manifestJson = JSONObject(manifest.readText())
         val digest = validateManifest(final, manifest, importId)
-        activateLocked(importId, digest)
+        activateLocked(importId, digest, manifestJson.getString("clientId"))
         return PublishedGeneration(importId, final, digest)
     }
 
@@ -88,9 +89,17 @@ class ClientGenerationStore(context: Context) {
                 val relative = file.relativeTo(staging).invariantSeparatorsPath
                 JSONObject().put("path", relative).put("size", file.length()).put("sha256", sha256(file))
             }.sortedBy { it.getString("path").lowercase() }.toList()
+        // Stamp the scanned identity's clientId, not the registry's current
+        // qualified flavor: the verified PE version resource resolves the
+        // lane this generation belongs to.
+        val clientId = requireNotNull(
+            ClientFlavors.qualifiedByVersionResource(identity.getString("version"))?.clientId,
+        ) {
+            "staged client identity \"${identity.optString("version")}\" does not resolve to a qualified flavor"
+        }
         val manifest = JSONObject()
             .put("schema", 2).put("complete", true)
-            .put("clientId", ClientRuntimeContract.WOW_5875_ID)
+            .put("clientId", clientId)
             .put("identity", identity)
             .put("executable", "WoW.exe").put("directLaunch", true)
             .put("sourceRuntimeDependency", false).put("sourceFingerprint", sourceFingerprint)
@@ -116,14 +125,14 @@ class ClientGenerationStore(context: Context) {
             Os.rename(staging.absolutePath, final.absolutePath)
             fsyncDirectory(generations)
             afterRenameBeforeActivate()
-            activateLocked(importId, digest)
+            activateLocked(importId, digest, clientId)
             PublishedGeneration(importId, final, digest)
         }
     }
 
     fun activeGeneration(): String? = readPointer(activePointer)?.optString("generation")?.takeIf(UUID::matches)
 
-    private fun activateLocked(generation: String, manifestSha256: String) {
+    private fun activateLocked(generation: String, manifestSha256: String, clientId: String) {
         val current = readPointer(activePointer)
         val priorGeneration = current?.getString("generation")
         if (priorGeneration == generation && current?.optString("manifestSha256") == manifestSha256) return
@@ -131,7 +140,7 @@ class ClientGenerationStore(context: Context) {
             atomicWrite(previousPointer, checkNotNull(activePointer.takeIf { it.isFile }).readBytes())
         }
         val pointer = JSONObject().put("schema", 1).put("generation", generation)
-            .put("clientId", ClientRuntimeContract.WOW_5875_ID)
+            .put("clientId", clientId)
             .put("manifestSha256", manifestSha256).put("activatedAtMs", System.currentTimeMillis())
         atomicWrite(activePointer, pointer.toString().toByteArray(Charsets.UTF_8))
         val keep = setOfNotNull(generation, priorGeneration)
@@ -181,7 +190,7 @@ class ClientGenerationStore(context: Context) {
     private fun validateManifest(root: File, manifestFile: File, importId: String): String {
         val manifest = JSONObject(manifestFile.readText())
         check(manifest.getInt("schema") == 2 && manifest.getBoolean("complete"))
-        check(manifest.getString("clientId") == ClientRuntimeContract.WOW_5875_ID)
+        check(ClientFlavors.isManagedClientId(manifest.getString("clientId")))
         check(manifest.getString("managedRoot").endsWith("/$importId"))
         for (index in 0 until manifest.getJSONArray("files").length()) {
             val record = manifest.getJSONArray("files").getJSONObject(index)

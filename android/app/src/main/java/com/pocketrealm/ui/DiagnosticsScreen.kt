@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.pocketrealm.client.ClientFlavors
 import com.pocketrealm.log.AppLog
 import com.pocketrealm.diagnostics.SupportBundleExporter
 import com.pocketrealm.storage.StorageRoots
@@ -246,7 +247,12 @@ fun DiagnosticsScreen(contentPadding: PaddingValues = PaddingValues()) {
                     Text("Provenance", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     Text("Sources: see schemas/sources.json (pinned submodules).",
                         style = MaterialTheme.typography.bodyMedium)
-                    Text("Flavor: offline-vanilla-1.12 (see schemas/flavor.json).",
+                    // The legacy product slug predates the registry; the
+                    // qualified set derives from ClientFlavors so
+                    // qualifying a flavor (port plan S5) updates this
+                    // line from the manifest.
+                    Text("Flavor: offline-vanilla-1.12 (see schemas/flavor.json" +
+                        "; qualified: ${ClientFlavors.qualified().joinToString("/") { it.flavorId }}).",
                         style = MaterialTheme.typography.bodyMedium)
                 }
             }

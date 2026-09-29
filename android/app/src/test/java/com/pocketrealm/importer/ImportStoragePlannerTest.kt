@@ -1,5 +1,6 @@
 package com.pocketrealm.importer
 
+import com.pocketrealm.client.ClientFlavors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -7,6 +8,12 @@ import org.junit.Test
 import kotlin.math.ceil
 
 class ImportStoragePlannerTest {
+    @Test fun importTotalCapIsTheQualifiedFlavorStorageBudget() {
+        // ImportLimits.maxTotalBytes is flavor data, not a hard-coded cap:
+        // its default resolves the qualified flavor's storage.max_total_bytes.
+        assertEquals(ClientFlavors.VANILLA.maxTotalBytes, ImportLimits().maxTotalBytes)
+    }
+
     @Test fun reportFormulaIncludesEveryOwnerAndTwentyPercentMargin() {
         val gib = ImportLimits.GIB
         val plan = ImportStoragePlanner.calculate(

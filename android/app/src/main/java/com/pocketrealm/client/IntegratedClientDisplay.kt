@@ -72,7 +72,7 @@ class ClientDisplayService : Service() {
             autoLoginUiScale: Float,
         ): String = guarded {
             ownership.requireOwner(instanceToken)
-            require(clientId == ClientRuntimeContract.WOW_5875_ID) { "unauthorized display client" }
+            require(ClientFlavors.isManagedClientId(clientId)) { "unauthorized display client" }
             val root = File(runtimeRoot).canonicalFile
             val allowedRoots = listOf("wine", "arm-translated")
                 .map { File(noBackupFilesDir, it).canonicalFile.toPath() }

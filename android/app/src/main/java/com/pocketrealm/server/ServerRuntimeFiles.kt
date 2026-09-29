@@ -6,6 +6,8 @@ import android.system.OsConstants
 import com.pocketrealm.BuildConfig
 import com.pocketrealm.bots.BotLlmSpeech
 import com.pocketrealm.bots.BotProfile
+import com.pocketrealm.client.ClientFlavor
+import com.pocketrealm.client.ClientFlavors
 import com.pocketrealm.database.DatabaseDurableState
 import com.pocketrealm.database.DatabaseSqliteControlPlane
 import com.pocketrealm.llm.LlmModelCoordinator
@@ -49,8 +51,9 @@ internal class ServerRuntimeFiles(context: Context) {
 
     fun realmdConfig(bindAddress: String = RealmEndpoint.LOOPBACK_ADDRESS): File {
         val endpoint = RealmEndpoint.parseStored(bindAddress)
+        val databases = serverDatabases()
         return secureWrite(File(run, "realmd.conf"), """
-            LoginDatabaseInfo = "${databaseInfo("classicrealmd")}"
+            LoginDatabaseInfo = "${databaseInfo(databases.realmd)}"
             RealmServerPort = ${ServerRuntimeContract.REALM_PORT}
             BindIP = "${endpoint.address}"
             RealmsStateUpdateDelay = 20
@@ -128,12 +131,13 @@ internal class ServerRuntimeFiles(context: Context) {
             AiPlayerbot.LLMEnabled = 0
             AiPlayerbot.ShowProgressBars = 0
         """.trimIndent() + "\n")
+        val databases = serverDatabases()
         return secureWrite(File(run, "mangosd.conf"), """
             DataDir = "${data.absolutePath}"
-            LoginDatabaseInfo = "${databaseInfo("classicrealmd")}"
-            WorldDatabaseInfo = "${databaseInfo("classicmangos")}"
-            CharacterDatabaseInfo = "${databaseInfo("classiccharacters")}"
-            LogsDatabaseInfo = "${databaseInfo("classiclogs")}"
+            LoginDatabaseInfo = "${databaseInfo(databases.realmd)}"
+            WorldDatabaseInfo = "${databaseInfo(databases.world)}"
+            CharacterDatabaseInfo = "${databaseInfo(databases.characters)}"
+            LogsDatabaseInfo = "${databaseInfo(databases.logs)}"
             RealmID = 1
             WorldServerPort = ${ServerRuntimeContract.WORLD_PORT}
             BindIP = "${endpoint.address}"
@@ -388,6 +392,26 @@ internal class ServerRuntimeFiles(context: Context) {
             .put("clean", clean).put("operation", operation.take(64))
             .put("detail", detail.take(256)).put("at", System.currentTimeMillis()).toString()
         secureWrite(File(lifecycle, "$component.json"), value)
+    }
+
+    /**
+     * The per-flavor database-name set the conf templates seed, resolved
+     * from the flavor registry ([ClientFlavor.databases]) instead of
+     * hard-coded names. The server runtime runs the vanilla lane today,
+     * so exactly one flavor may be qualified: zero or multiple qualified
+     * flavors fail loud here, before the vanilla-lane guard below.
+     */
+    private fun serverDatabases(): ClientFlavor.DatabaseNames {
+        val qualified = ClientFlavors.qualified()
+        require(qualified.size == 1) {
+            "expected exactly one qualified flavor, found ${qualified.size} — " +
+                "the server runtime seeds the qualified lane's databases"
+        }
+        val flavor = qualified.single()
+        require(flavor.flavorId == ClientFlavors.VANILLA.flavorId) {
+            "server runtime resolves only the vanilla lane; pass its ClientFlavor explicitly"
+        }
+        return flavor.databases
     }
 
     /**

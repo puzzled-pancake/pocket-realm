@@ -477,12 +477,15 @@ internal class WineRuntimeStore(private val context: Context) {
         val selfTest = clientId == ClientRuntimeContract.SELF_TEST_ID
         val leased = if (selfTest) null else ManagedClientStore(context).acquireRuntime(clientId)
         val managed = leased?.client
+        val prefixSegment = if (selfTest) "selftest" else requireNotNull(
+            ClientFlavors.byClientId(clientId)?.winePrefixSegment,
+        ) { "client \"$clientId\" is not a registered flavor: no wine prefix segment" }
         val root = File(
             context.noBackupFilesDir,
             // AF_UNIX sun_path is only 108 bytes on Linux. Keep the physical
             // generation name compact; the full pinned build/client identity
             // remains in prefix-manifest.json and prefixId.
-            "wine/w11w64-v1/${if (selfTest) "selftest" else "wow5875"}/p${ClientRuntimeContract.PREFIX_SCHEMA}",
+            "wine/w11w64-v1/$prefixSegment/p${ClientRuntimeContract.PREFIX_SCHEMA}",
         )
         return try { Prepared(
             clientId = clientId,
@@ -652,8 +655,9 @@ internal class WineRuntimeStore(private val context: Context) {
         vulkanDriverId: String?,
         allowUserVulkanDrivers: Boolean = false,
     ): Prepared {
-        check(clientId == ClientRuntimeContract.WOW_5875_ID) {
-            "ARM translated runtime currently authorizes only the imported build-5875 client"
+        check(ClientFlavors.isManagedClientId(clientId)) {
+            "ARM translated runtime currently authorizes only the imported " +
+                "build-${ClientFlavors.qualified().single().build} client"
         }
         val leased = ManagedClientStore(context).acquireRuntime(clientId)
         val managed = leased.client
@@ -916,7 +920,9 @@ internal class WineRuntimeStore(private val context: Context) {
             Files.createSymbolicLink(runAlias.toPath(), p.tmp.toPath())
         }
         check(prefixReady(p.prefix, 1_000)) { "pinned ARM Wine prefix is incomplete" }
-        check(p.executable.isFile) { "authorized build-5875 client executable is absent" }
+        check(p.executable.isFile) {
+            "authorized ${buildTelltale(p.clientId)} client executable is absent"
+        }
         if (audioMode == "on") validateArmAudioRuntime(p)
         val effectivePrepared = applyTweaks(p, tweaks)
 
@@ -1565,11 +1571,18 @@ internal class WineRuntimeStore(private val context: Context) {
         com.pocketrealm.fs.FileDigests.sha256(text)
 
     /**
+     * "build-<build>" for a registered flavor; the raw clientId when the lookup
+     * misses, so a diagnostic can never render the meaningless "build-null".
+     */
+    private fun buildTelltale(clientId: String): String =
+        ClientFlavors.byClientId(clientId)?.let { "build-${it.build}" } ?: clientId
+
+    /**
      * vanilla-tweaks patch step. Produces a root-level
      * `WoW.exe.patched` sibling of the pristine managed exe only when its full
      * SHA-256 identifies the byte layout supported by the patch model. A valid
-     * imported 1.12.1 build-5875 executable does not need to match that one
-     * reference hash when no binary tweak is requested. The upstream patcher
+     * imported executable of the qualified flavor does not need to match that
+     * one reference hash when no binary tweak is requested. The upstream patcher
      * output is finalized with the Pocket Realm nearby-loot companion patch
      * and must then match the independent byte-for-byte patch model before
      * publication. Idempotent via the authenticated manifest sidecar;
@@ -1579,7 +1592,7 @@ internal class WineRuntimeStore(private val context: Context) {
         if (p.selfTest) return p
         val pristine = p.executable
         check(pristine.name.equals("WoW.exe", ignoreCase = true)) {
-            "managed build-5875 executable has an unexpected name"
+            "managed ${buildTelltale(p.clientId)} executable has an unexpected name"
         }
         val pristineSha = sha256(pristine)
         val pristineBytes = pristine.readBytes()
@@ -2134,7 +2147,7 @@ internal class WineRuntimeStore(private val context: Context) {
         audioMode: String,
         realmEndpoint: RealmEndpoint,
     ): Prepared {
-        check(p.clientId == ClientRuntimeContract.WOW_5875_ID) { "safe profile target mismatch" }
+        check(ClientFlavors.isManagedClientId(p.clientId)) { "safe profile target mismatch" }
         require(renderer == "dxvk" || renderer == "opengl" || renderer == "virgl" ||
             renderer == "wined3d") {
             "unsupported managed renderer: $renderer"

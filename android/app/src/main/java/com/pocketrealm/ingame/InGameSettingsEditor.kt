@@ -1,7 +1,7 @@
 package com.pocketrealm.ingame
 
 import android.content.Context
-import com.pocketrealm.client.ClientRuntimeContract
+import com.pocketrealm.client.ClientFlavors
 import com.pocketrealm.client.ManagedClientStore
 import com.pocketrealm.client.WowVanillaBindingCatalog
 import com.pocketrealm.client.X86DirectWineRuntime
@@ -87,7 +87,7 @@ internal class InGameSettingsEditor(private val context: Context) {
     private suspend fun <T> underLease(block: suspend (File) -> T): T? {
         val leased = withContext(Dispatchers.IO) {
             runCatching {
-                ManagedClientStore(context).acquireRuntime(ClientRuntimeContract.WOW_5875_ID)
+                ManagedClientStore(context).acquireRuntime(ClientFlavors.qualified().single().clientId)
             }.getOrNull()
         } ?: return null
         return leased.use { held ->
