@@ -250,9 +250,10 @@ class PackagingExperimentRunner(private val context: Context) {
      *
      * Enumeration reads the APK's own `lib/<abi>/` `.so` entries directly (not
      * nativeLibraryDir, which is empty under the production variant), so it works
-     * under BOTH packaging variants. The launcher (`libpocket_pkg_launcher.so`)
-     * is a PIE executable with no DT_SONAME and is LISTED but excluded from the
-     * load set (it is a launcher artifact, not a dlopen target).
+     * under BOTH packaging variants. Known .so-named PIE executables (the
+     * launcher and the renamed extractor/tweaks binaries) are LISTED but
+     * excluded from the load set — they have no DT_SONAME and are not dlopen
+     * targets, so probing them would false-fail PKG-06 on every device.
      *
      * The genuine 30-minute run is driven by the host driver with a large
      * durationSeconds; the deterministic instrumented test uses a short one.
@@ -278,10 +279,21 @@ class PackagingExperimentRunner(private val context: Context) {
         val distinct = entries.distinct().sorted()
         evidence["packagedLibCount"] = distinct.size.toString()
         evidence["packagedLibs"] = distinct.joinToString(",")
-        // The launcher is a .so-named PIE executable: no DT_SONAME, not a dlopen
-        // target. List it as excluded rather than falsely "loading" it.
-        val launcherSoname = "libpocket_pkg_launcher.so"
-        val (loadable, excluded) = distinct.partition { it != launcherSoname }
+        // These entries are .so-named PIE executables: no DT_SONAME, not dlopen
+        // targets. List them as excluded rather than falsely "loading" them.
+        // The extractors are the renamed MPQ/vmap tools staged by the o11 lane
+        // (build.gradle.kts "extractors"); vanilla tweaks is a renamed ELF
+        // binary whose BUILD_PROVENANCE records it as an executable, not a
+        // module. Probe everything else.
+        val excludedExecutables = setOf(
+            "libpocket_pkg_launcher.so",
+            "libpocket_ad.so",
+            "libpocket_vmap_extractor.so",
+            "libpocket_vmap_assembler.so",
+            "libpocket_movemapgen.so",
+            "libpocket_vanilla_tweaks.so",
+        )
+        val (loadable, excluded) = distinct.partition { it !in excludedExecutables }
         if (excluded.isNotEmpty()) {
             evidence["excludedLibs"] = excluded.joinToString(",") { "$it=EXCLUDED_EXECUTABLE" }
             evidence["excludedLibsNote"] = "${excluded.joinToString()} are PIE executables with no DT_SONAME; loadable libraries are probed, not these."
