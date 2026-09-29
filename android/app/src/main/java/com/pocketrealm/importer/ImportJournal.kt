@@ -284,6 +284,28 @@ class ImportJournal(context: Context) : AutoCloseable {
         try { failLocked(db, importId, detail); db.setTransactionSuccessful() } finally { db.endTransaction() }
     }
 
+    /**
+     * Persist a pre-journal rejection. The scanner/inventory/storage gates
+     * run BEFORE [beginOrResume], so [ManagedClientImporter.journalFailure]
+     * historically had no row to fail and a deterministic rejection (wrong
+     * folder, unsupported client, low storage) collapsed to "No import
+     * started" plus a detached "idle: 0/0 files" notification. The synthetic
+     * FAILED row carries the reason into the durable post-mortem; a later
+     * beginOrResume cancels it like any other stale row.
+     */
+    fun journalRejected(uri: Uri, detail: String) {
+        val now = System.currentTimeMillis()
+        helper.writableDatabase.insertWithOnConflict("imports", null, ContentValues().apply {
+            put("import_id", UUID.randomUUID().toString()); put("schema_version", SCHEMA)
+            put("source_uri", uri.toString()); put("source_fingerprint", "rejected")
+            put("phase", ImportPhase.FAILED.name)
+            put("files_total", 0); put("bytes_total", 0L)
+            put("files_processed", 0); put("bytes_copied", 0L)
+            put("warning_count", 0); put("last_error", detail.take(512))
+            put("created_at_ms", now); put("updated_at_ms", now)
+        }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
     fun complete(importId: String, generation: String) {
         helper.writableDatabase.update("imports", ContentValues().apply {
             put("phase", ImportPhase.COMPLETE.name); put("active_generation", generation)

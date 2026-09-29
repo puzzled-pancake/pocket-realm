@@ -611,11 +611,20 @@ class ManagedClientImporter(
      * Records a run-level failure the importer's own catches did not journal
      * (staging-level rejections historically left the row mid-flight with no
      * last_error, so a resumed session had no post-mortem at all). Safe to
-     * call for any throwable after the run coroutine has died.
+     * call for any throwable after the run coroutine has died. Pass
+     * [treeUri] so a rejection that fired before any journal row existed
+     * (scanner/inventory/storage gates) is still persisted as a synthetic
+     * FAILED row instead of vanishing behind "No import started".
      */
-    fun journalFailure(failure: Throwable) {
+    fun journalFailure(failure: Throwable, treeUri: Uri? = null) {
         val current = journal.latest()
-        val id = current.importId ?: return
+        val id = current.importId
+        if (id == null) {
+            if (treeUri != null) {
+                journal.journalRejected(treeUri, failure.message ?: failure.javaClass.simpleName)
+            }
+            return
+        }
         if (current.phase == ImportPhase.COMPLETE || current.phase == ImportPhase.CANCELLED) return
         journal.fail(id, failure.message ?: failure.javaClass.simpleName)
     }
