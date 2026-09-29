@@ -35,6 +35,7 @@ import com.pocketrealm.llm.ComputeMode
 import com.pocketrealm.llm.LlmModelRegistry
 import com.pocketrealm.server.LlmRuntimePolicy
 import com.pocketrealm.server.NearbyInteractPolicy
+import com.pocketrealm.server.XpRatePolicy
 import com.pocketrealm.supervisor.RuntimeMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -383,6 +384,16 @@ class Settings(private val context: Context) {
         val gameSettingsDirectEditRevisions: Map<String, Long> = emptyMap(),
         val audioMode: AudioMode = AudioMode.ON,
         val nearbyInteractTriggerGuardMs: Int = NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
+        /**
+         * Leveling-pace knobs staged into the generated mangosd.conf
+         * (Rate.XP.Kill/Quest/Explore, Rate.Pet.XP.Kill). 1x keeps authentic
+         * vanilla pacing. Like every world.conf value, changes apply on the
+         * next realm start — the conf is written at world start.
+         */
+        val xpRateKill: Double = XpRatePolicy.DEFAULT_RATE,
+        val xpRateQuest: Double = XpRatePolicy.DEFAULT_RATE,
+        val xpRateExplore: Double = XpRatePolicy.DEFAULT_RATE,
+        val xpRatePetKill: Double = XpRatePolicy.DEFAULT_RATE,
         /**
          * Verbose world-server logging (mangosd LogFileLevel = 3) staged
          * into world.conf. Default OFF keeps the world log at errors-only
@@ -802,6 +813,18 @@ class Settings(private val context: Context) {
             this[Keys.NEARBY_INTERACT_TRIGGER_GUARD_MS]
                 ?: NearbyInteractPolicy.DEFAULT_TRIGGER_GUARD_MS,
         ),
+        xpRateKill = XpRatePolicy.normalize(
+            (this[Keys.XP_RATE_KILL] ?: XpRatePolicy.DEFAULT_RATE.toFloat()).toDouble(),
+        ),
+        xpRateQuest = XpRatePolicy.normalize(
+            (this[Keys.XP_RATE_QUEST] ?: XpRatePolicy.DEFAULT_RATE.toFloat()).toDouble(),
+        ),
+        xpRateExplore = XpRatePolicy.normalize(
+            (this[Keys.XP_RATE_EXPLORE] ?: XpRatePolicy.DEFAULT_RATE.toFloat()).toDouble(),
+        ),
+        xpRatePetKill = XpRatePolicy.normalize(
+            (this[Keys.XP_RATE_PET_KILL] ?: XpRatePolicy.DEFAULT_RATE.toFloat()).toDouble(),
+        ),
         worldDebugLogs = (this[Keys.WORLD_DEBUG_LOGS] ?: 0) == 1,
         runtimeMode = runCatching { RuntimeMode.valueOf(this[Keys.RUNTIME_MODE] ?: "") }
             .getOrDefault(RuntimeMode.LOCAL),
@@ -899,6 +922,10 @@ private object Keys {
     val AUDIO_MODE = stringPreferencesKey("audio_mode")
     val NEARBY_INTERACT_TRIGGER_GUARD_MS =
         intPreferencesKey("nearby_interact_trigger_guard_ms")
+    val XP_RATE_KILL = floatPreferencesKey("xp_rate_kill")
+    val XP_RATE_QUEST = floatPreferencesKey("xp_rate_quest")
+    val XP_RATE_EXPLORE = floatPreferencesKey("xp_rate_explore")
+    val XP_RATE_PET_KILL = floatPreferencesKey("xp_rate_pet_kill")
     val WORLD_DEBUG_LOGS = intPreferencesKey("world_debug_logs")
     val RUNTIME_MODE = stringPreferencesKey("runtime_mode")
     val ALLOW_LAN_PLAYERS = intPreferencesKey("allow_lan_players")
@@ -1075,6 +1102,10 @@ internal fun MutablePreferences.writeSnapshotWrites(
     this[Keys.AUDIO_MODE] = next.audioMode.name
     this[Keys.NEARBY_INTERACT_TRIGGER_GUARD_MS] =
         NearbyInteractPolicy.normalizeTriggerGuardMs(next.nearbyInteractTriggerGuardMs)
+    this[Keys.XP_RATE_KILL] = XpRatePolicy.normalize(next.xpRateKill).toFloat()
+    this[Keys.XP_RATE_QUEST] = XpRatePolicy.normalize(next.xpRateQuest).toFloat()
+    this[Keys.XP_RATE_EXPLORE] = XpRatePolicy.normalize(next.xpRateExplore).toFloat()
+    this[Keys.XP_RATE_PET_KILL] = XpRatePolicy.normalize(next.xpRatePetKill).toFloat()
     this[Keys.WORLD_DEBUG_LOGS] = if (next.worldDebugLogs) 1 else 0
     this[Keys.RUNTIME_MODE] = next.runtimeMode.name
     this[Keys.ALLOW_LAN_PLAYERS] = if (next.allowLanPlayers) 1 else 0

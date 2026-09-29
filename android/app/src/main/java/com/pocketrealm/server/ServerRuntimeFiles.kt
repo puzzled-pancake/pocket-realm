@@ -170,6 +170,10 @@ internal class ServerRuntimeFiles(context: Context) {
             # bounded debounce can be raised for slower realm configurations.
             PocketRealm.NearbyInteract = 1
             PocketRealm.NearbyInteractCooldownMs = ${NearbyInteractPolicy.normalizeTriggerGuardMs(nearbyInteractTriggerGuardMs)}
+            # Leveling pace (realm settings). 1 keeps authentic vanilla pacing;
+            # higher values shorten the grind without touching character data.
+            # Applies on the next realm start, like every value in this conf.
+            ${xpRateConfLines(snapshot.xpRateKill, snapshot.xpRateQuest, snapshot.xpRateExplore, snapshot.xpRatePetKill)}
             PocketRealm.PlayerbotConfig = "${botConfig.absolutePath}"
             PocketRealm.BotTarget = ${botProfile?.initialTarget ?: 0}
         """.trimIndent() + "\n")
@@ -478,6 +482,26 @@ internal class ServerRuntimeFiles(context: Context) {
          */
         internal fun worldLogFileLevel(worldDebugLogs: Boolean): Int =
             if (worldDebugLogs) DEBUG_WORLD_LOG_FILE_LEVEL else DEFAULT_WORLD_LOG_FILE_LEVEL
+
+        /**
+         * The Rate.XP block staged into the generated mangosd.conf, pure in
+         * its inputs so the emission is unit-testable. Every rate passes
+         * through [XpRatePolicy.normalize] (band + one-decimal snap), so a
+         * stale or hand-edited preference store can never stage a malformed
+         * conf value. 1x emits `Rate.XP.Kill = 1` — identical to the CMaNGOS
+         * default, so the default stays byte-equivalent to the previous conf.
+         */
+        internal fun xpRateConfLines(
+            kill: Double,
+            quest: Double,
+            explore: Double,
+            petKill: Double,
+        ): String =
+            listOf("Rate.XP.Kill", "Rate.XP.Quest", "Rate.XP.Explore", "Rate.Pet.XP.Kill")
+                .zip(listOf(kill, quest, explore, petKill))
+                .joinToString("\n") { (name, rate) ->
+                    "$name = ${XpRatePolicy.format(rate)}"
+                }
 
         /**
          * The four-state playerbot LLM gate, pure in its inputs so the

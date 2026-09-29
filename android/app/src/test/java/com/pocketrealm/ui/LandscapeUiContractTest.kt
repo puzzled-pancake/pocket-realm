@@ -118,6 +118,7 @@ class LandscapeUiContractTest {
             "Frill distance raise", "Sound in background", "Sound channel count (64)",
             "Auto-loot opened corpses", "Nameplate distance (41 yd)",
             "Large address aware", "Camera skip glitch fix", "Max camera distance raise",
+            "Kill XP rate", "Quest XP rate", "Explore XP rate", "Pet kill XP rate",
         )
         assertEquals(required, advancedSettingExplanations.keys)
         advancedSettingExplanations.values.forEach { explanation ->
