@@ -1167,7 +1167,7 @@ fun SettingsScreen(
                     )
                 }
             }
-            var xpAdvanced by remember { mutableStateOf(false) }
+            var xpAdvanced by rememberSaveable { mutableStateOf(false) }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(
                     checked = xpAdvanced,

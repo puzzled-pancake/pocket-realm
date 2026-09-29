@@ -798,6 +798,8 @@ private fun CurrentSetupCard(
                 ClientTweaksConfig.AUTHORIZED_CLIENT_SHA256,
                 ignoreCase = true,
             ) -> " · Client tweaks unavailable: client executable not recognized"
+        settings.tweaks.hasAnyPatch() && managedExecutableSha == null ->
+            " · Client tweaks state unknown (no managed client attested)"
         settings.tweaks.hasAnyPatch() -> " · Client tweaks on"
         else -> " · Vanilla client"
     }
