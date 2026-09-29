@@ -29,7 +29,8 @@ class RealmDataArchiveTest {
         val root = Files.createTempDirectory("realm-archive").toFile()
         try {
             val snapshot = snapshotDir(root)
-            val account = root.resolve("account.json").apply { writeBytes("""{"account":"traveler-01"}""".toByteArray()) }
+            val accountPayload = """{"account":"traveler-01"}"""
+            val account = root.resolve("account.json").apply { writeBytes(accountPayload.toByteArray()) }
             val bytes = ByteArrayOutputStream().use { output ->
                 RealmDataArchive.writeArchive(
                     output, snapshot, account,
@@ -47,7 +48,7 @@ class RealmDataArchiveTest {
             val target = root.resolve("restored").apply { mkdirs() }
             val (parsed, accountBytes) = RealmDataArchive.extractSnapshot(ByteArrayInputStream(bytes), target)
             assertEquals("manual-export-1", parsed.snapshotId)
-            assertArrayEquals("""{"account":"traveler-01"}""".toByteArray(), accountBytes)
+            assertArrayEquals(accountPayload.toByteArray(), accountBytes)
             assertTrue(target.resolve("data/ib_logfile0").length() == 3L)
             assertTrue(target.resolve("manifest.json").isFile)
             assertEquals(
