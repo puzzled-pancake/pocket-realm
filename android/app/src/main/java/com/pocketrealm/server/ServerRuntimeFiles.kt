@@ -173,7 +173,7 @@ internal class ServerRuntimeFiles(context: Context) {
             # Leveling pace (realm settings). 1 keeps authentic vanilla pacing;
             # higher values shorten the grind without touching character data.
             # Applies on the next realm start, like every value in this conf.
-            ${xpRateConfLines(snapshot.xpRateKill, snapshot.xpRateQuest, snapshot.xpRateExplore, snapshot.xpRatePetKill)}
+            ${xpRateConfLines(snapshot.xpRateKill, snapshot.xpRateQuest, snapshot.xpRateExplore, snapshot.xpRatePetKill).replace("\n", "\n            ")}
             PocketRealm.PlayerbotConfig = "${botConfig.absolutePath}"
             PocketRealm.BotTarget = ${botProfile?.initialTarget ?: 0}
         """.trimIndent() + "\n")
@@ -488,8 +488,9 @@ internal class ServerRuntimeFiles(context: Context) {
          * its inputs so the emission is unit-testable. Every rate passes
          * through [XpRatePolicy.normalize] (band + one-decimal snap), so a
          * stale or hand-edited preference store can never stage a malformed
-         * conf value. 1x emits `Rate.XP.Kill = 1` — identical to the CMaNGOS
-         * default, so the default stays byte-equivalent to the previous conf.
+         * conf value. 1x emits `Rate.XP.Kill = 1` — value-equivalent to the
+         * CMaNGOS default, so the default realm behaves identically even
+         * though the conf gains these four lines.
          */
         internal fun xpRateConfLines(
             kill: Double,
