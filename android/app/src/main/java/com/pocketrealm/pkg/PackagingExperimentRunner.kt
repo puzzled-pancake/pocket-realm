@@ -284,7 +284,10 @@ class PackagingExperimentRunner(private val context: Context) {
         // The extractors are the renamed MPQ/vmap tools staged by the o11 lane
         // (build.gradle.kts "extractors"); vanilla tweaks is a renamed ELF
         // binary whose BUILD_PROVENANCE records it as an executable, not a
-        // module. Probe everything else.
+        // module; the trampoline/proot/mariadb/wine entries are the renamed
+        // executables the full-lane APK closure documents in
+        // build.gradle.kts and tools/stage_wine_runtime.py. Probe everything
+        // else.
         val excludedExecutables = setOf(
             "libpocket_pkg_launcher.so",
             "libpocket_ad.so",
@@ -292,6 +295,16 @@ class PackagingExperimentRunner(private val context: Context) {
             "libpocket_vmap_assembler.so",
             "libpocket_movemapgen.so",
             "libpocket_vanilla_tweaks.so",
+            "libwine_trampoline.so",
+            "libproot.so",
+            "libproot_loader.so",
+            "libproot_loader32.so",
+            "libpocket_mariadbd.so",
+            "libpocket_mariadb_client.so",
+            "libwine_preloader.so",
+            "libwineserver.so",
+            "libwine_loader.so",
+            "libwine_loader_preloader.so",
         )
         val (loadable, excluded) = distinct.partition { it !in excludedExecutables }
         if (excluded.isNotEmpty()) {
