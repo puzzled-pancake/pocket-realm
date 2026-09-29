@@ -60,9 +60,11 @@ import com.pocketrealm.client.ClientDisplayCapabilities
 import com.pocketrealm.client.ClientDisplayProfile
 import com.pocketrealm.client.ClientFrameCap
 import com.pocketrealm.client.ClientRuntimeSelector
+import com.pocketrealm.client.ClientRuntimeContract
 import com.pocketrealm.client.ClientTweaksConfig
 import com.pocketrealm.client.CommunityVulkanDriverDownload
 import com.pocketrealm.client.CommunityVulkanDrivers
+import com.pocketrealm.client.ManagedClientStore
 import com.pocketrealm.client.RendererPackageCatalog
 import com.pocketrealm.client.SystemVulkanCapabilities
 import com.pocketrealm.client.GladioCapability
@@ -117,6 +119,15 @@ fun SettingsScreen(
     val gladioProbe by produceState<Result<GladioCapability>?>(initialValue = null) {
         value = withContext(Dispatchers.IO) {
             runCatching { AndroidGladioCapabilityProbe.probe(context) }
+        }
+    }
+    // Attested managed-executable hash — the same identity the launch lane gates
+    // client tweaks on — so the tweaks card can warn before a silent pristine launch.
+    val managedExecutableSha by produceState<String?>(initialValue = null, context) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                ManagedClientStore(context).load(ClientRuntimeContract.WOW_5875_ID).executableSha256
+            }.getOrNull()
         }
     }
     val physicalDisplay = remember(context) {
@@ -1193,6 +1204,20 @@ fun SettingsScreen(
         SettingCard("Client tweaks") {
             Text("Optional quality-of-life patches applied on the next launch. Any genuine 1.12.1 build 5875 client can run; if its exact byte layout is not qualified for patches, that launch safely uses pristine Vanilla instead.",
                 style = MaterialTheme.typography.bodySmall)
+            if (snap.tweaks.hasAnyPatch() && managedExecutableSha != null &&
+                !managedExecutableSha.equals(
+                    ClientTweaksConfig.AUTHORIZED_CLIENT_SHA256,
+                    ignoreCase = true,
+                )
+            ) {
+                Text(
+                    "Client tweaks unavailable: this client executable is not the qualified patch image, " +
+                        "so launches will run pristine Vanilla (nearby loot, FoV, and quickloot stay off).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.testTag("tweaks-unavailable-warning"),
+                )
+            }
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxWidth(),

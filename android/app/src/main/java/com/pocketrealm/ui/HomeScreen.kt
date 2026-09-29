@@ -61,6 +61,9 @@ import com.pocketrealm.client.VulkanDriverCatalog
 import com.pocketrealm.client.UserVulkanDriver
 import com.pocketrealm.client.UserVulkanDriverRegistry
 import com.pocketrealm.client.UserVulkanDriverResolution
+import com.pocketrealm.client.ClientRuntimeContract
+import com.pocketrealm.client.ClientTweaksConfig
+import com.pocketrealm.client.ManagedClientStore
 import com.pocketrealm.realm.RealmState
 import com.pocketrealm.realm.ClientLaunchState
 import com.pocketrealm.service.RealmService
@@ -777,6 +780,27 @@ private fun CurrentSetupCard(
         storedAccount == null -> "Auto-login waiting for account"
         else -> "Auto-login: $storedAccount"
     }
+    // Same gate the launch lane applies (WineRuntimeStore.applyTweaks): when the
+    // managed executable's byte layout is not the qualified patch image, every
+    // requested patch is dropped for pristine Vanilla. Say so up front instead
+    // of letting "Client tweaks on" quietly misdescribe the launch (the nearby
+    // -loot patch silently missing reads as "loot window broken").
+    val managedExecutableSha by produceState<String?>(null, context) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                ManagedClientStore(context).load(ClientRuntimeContract.WOW_5875_ID).executableSha256
+            }.getOrNull()
+        }
+    }
+    val tweaksLabel = when {
+        settings.tweaks.hasAnyPatch() && managedExecutableSha != null &&
+            !managedExecutableSha.equals(
+                ClientTweaksConfig.AUTHORIZED_CLIENT_SHA256,
+                ignoreCase = true,
+            ) -> " · Client tweaks unavailable: client executable not recognized"
+        settings.tweaks.hasAnyPatch() -> " · Client tweaks on"
+        else -> " · Vanilla client"
+    }
 
     Card(modifier = modifier.testTag("active-setup-card")) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), Arrangement.spacedBy(6.dp)) {
@@ -818,8 +842,7 @@ private fun CurrentSetupCard(
                 AssistChip(onClick = onOpenSettings, label = { Text(graphics) })
             }
             Text(
-                login + " · $sound" +
-                    if (settings.tweaks.hasAnyPatch()) " · Client tweaks on" else " · Vanilla client",
+                login + " · $sound" + tweaksLabel,
                 style = MaterialTheme.typography.bodySmall,
             )
         }
