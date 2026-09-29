@@ -21,7 +21,7 @@ class ImportJournal(context: Context) : AutoCloseable {
         try {
             val prior = db.rawQuery(
                 "SELECT import_id, source_uri, source_fingerprint, phase FROM imports " +
-                    "WHERE phase NOT IN ('COMPLETE','CANCELLED') ORDER BY created_at_ms DESC LIMIT 1",
+                    "WHERE phase NOT IN ('COMPLETE','CANCELLED') ORDER BY created_at_ms DESC, rowid DESC LIMIT 1",
                 emptyArray(),
             ).use { cursor ->
                 if (!cursor.moveToFirst()) null else arrayOf(
@@ -47,7 +47,7 @@ class ImportJournal(context: Context) : AutoCloseable {
             db.insertOrThrow("imports", null, ContentValues().apply {
                 put("import_id", id); put("schema_version", SCHEMA)
                 put("source_uri", uri.toString()); put("source_fingerprint", inventory.fingerprint)
-                put("phase", ImportPhase.DISCOVERING.name)
+                put("phase", ImportPhase.DISCOVERING.name); put("source_kind", ImportSourceKind.TREE.name)
                 put("files_total", inventory.fileCount); put("bytes_total", inventory.totalBytes)
                 put("files_processed", 0); put("bytes_copied", 0)
                 put("warning_count", 0); put("created_at_ms", now); put("updated_at_ms", now)
@@ -77,7 +77,8 @@ class ImportJournal(context: Context) : AutoCloseable {
         try {
             val prior = db.rawQuery(
                 "SELECT import_id, source_uri, phase, source_kind, staged_bytes, staged_path, staged_sha256, bytes_total " +
-                    "FROM imports WHERE phase NOT IN ('COMPLETE','CANCELLED') ORDER BY created_at_ms DESC LIMIT 1",
+                    "FROM imports WHERE phase NOT IN ('COMPLETE','CANCELLED') " +
+                    "ORDER BY created_at_ms DESC, rowid DESC LIMIT 1",
                 emptyArray(),
             ).use { cursor ->
                 if (!cursor.moveToFirst()) null
@@ -87,32 +88,36 @@ class ImportJournal(context: Context) : AutoCloseable {
             if (prior != null) {
                 val (row, journaledTotal) = prior
                 val (columns, staged) = row
-                if (columns[3] != ImportSourceKind.ARCHIVE.name) {
-                    throw ImportRejected("SOURCE_CHANGED: a folder import is still active")
-                }
-                // Before staging finishes, the caller's expected size must
-                // match the journaled total: a mismatch would silently
-                // re-stage toward a truncated target (progress bytes passed
-                // as the size) and destroy the resumable partial. After
-                // finishStaging, bytes_total legitimately becomes the
-                // extraction payload total — the staged file (stagedPath)
-                // anchors identity instead — so the size check does not
-                // apply.
-                val sizeChanged = staged.second == null && journaledTotal != expectedBytes
-                if (columns[1] != uri.toString() || sizeChanged) {
-                    val reason = when {
-                        columns[1] != uri.toString() -> "resume requires the original archive"
-                        else -> "resume size $expectedBytes != journaled $journaledTotal bytes"
+                // A terminal prior row (a FAILED rejection or failed run of
+                // either lane) is stale history, not an active import: cancel
+                // it BEFORE the kind check so it can never wedge the other
+                // lane behind "a folder import is still active", then start a
+                // fresh staging row below.
+                if (columns[2] == ImportPhase.FAILED.name) {
+                    db.update("imports", ContentValues().apply {
+                        put("phase", ImportPhase.CANCELLED.name); put("updated_at_ms", System.currentTimeMillis())
+                    }, "import_id=?", arrayOf(columns[0]))
+                } else {
+                    if (columns[3] != ImportSourceKind.ARCHIVE.name) {
+                        throw ImportRejected("SOURCE_CHANGED: a folder import is still active")
                     }
-                    if (columns[2] == ImportPhase.FAILED.name) {
-                        db.update("imports", ContentValues().apply {
-                            put("phase", ImportPhase.CANCELLED.name); put("updated_at_ms", System.currentTimeMillis())
-                        }, "import_id=?", arrayOf(columns[0]))
-                    } else {
+                    // Before staging finishes, the caller's expected size must
+                    // match the journaled total: a mismatch would silently
+                    // re-stage toward a truncated target (progress bytes passed
+                    // as the size) and destroy the resumable partial. After
+                    // finishStaging, bytes_total legitimately becomes the
+                    // extraction payload total — the staged file (stagedPath)
+                    // anchors identity instead — so the size check does not
+                    // apply.
+                    val sizeChanged = staged.second == null && journaledTotal != expectedBytes
+                    if (columns[1] != uri.toString() || sizeChanged) {
+                        val reason = when {
+                            columns[1] != uri.toString() -> "resume requires the original archive"
+                            else -> "resume size $expectedBytes != journaled $journaledTotal bytes"
+                        }
                         failLocked(db, checkNotNull(columns[0]), "SOURCE_CHANGED: $reason")
                         throw ImportRejected("SOURCE_CHANGED: $reason")
                     }
-                } else {
                     db.setTransactionSuccessful()
                     return StagingResume(
                         importId = checkNotNull(columns[0]),
@@ -298,7 +303,7 @@ class ImportJournal(context: Context) : AutoCloseable {
         helper.writableDatabase.insertWithOnConflict("imports", null, ContentValues().apply {
             put("import_id", UUID.randomUUID().toString()); put("schema_version", SCHEMA)
             put("source_uri", uri.toString()); put("source_fingerprint", "rejected")
-            put("phase", ImportPhase.FAILED.name)
+            put("phase", ImportPhase.FAILED.name); put("source_kind", ImportSourceKind.TREE.name)
             put("files_total", 0); put("bytes_total", 0L)
             put("files_processed", 0); put("bytes_copied", 0L)
             put("warning_count", 0); put("last_error", detail.take(512))
@@ -448,11 +453,16 @@ class ImportJournal(context: Context) : AutoCloseable {
     fun latest(): ImportStatus = helper.readableDatabase.rawQuery(
         "SELECT import_id, phase, source_kind, source_fingerprint, source_uri, files_processed, files_total, bytes_copied, " +
             "bytes_total, last_relative_path, staged_bytes, staged_path, warning_count, last_error, active_generation, updated_at_ms " +
-            "FROM imports ORDER BY created_at_ms DESC LIMIT 1", emptyArray(),
+            // rowid breaks same-millisecond ties deterministically so the
+            // newest journal action (e.g. a fresh rejection row) wins.
+            "FROM imports ORDER BY created_at_ms DESC, rowid DESC LIMIT 1", emptyArray(),
     ).use { cursor ->
         if (!cursor.moveToFirst()) ImportStatus() else ImportStatus(
             importId = cursor.getString(0), phase = ImportPhase.valueOf(cursor.getString(1)),
-            sourceKind = ImportSourceKind.valueOf(cursor.getString(2)),
+            // The 'tree'-defaulted rows written before source_kind was stored
+            // explicitly do not match the enum's name; they are tree rows.
+            sourceKind = runCatching { ImportSourceKind.valueOf(cursor.getString(2)) }
+                .getOrDefault(ImportSourceKind.TREE),
             sourceFingerprint = cursor.getString(3), sourceUri = cursor.getString(4),
             // Clamped AT construction: a legacy build left rows whose
             // bytes_copied (payload) exceeded bytes_total (then the source

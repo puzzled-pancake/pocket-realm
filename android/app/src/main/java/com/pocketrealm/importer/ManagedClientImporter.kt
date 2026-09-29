@@ -612,21 +612,28 @@ class ManagedClientImporter(
      * (staging-level rejections historically left the row mid-flight with no
      * last_error, so a resumed session had no post-mortem at all). Safe to
      * call for any throwable after the run coroutine has died. Pass
-     * [treeUri] so a rejection that fired before any journal row existed
-     * (scanner/inventory/storage gates) is still persisted as a synthetic
-     * FAILED row instead of vanishing behind "No import started".
+     * [treeUri] so a pre-journal gate rejection (scanner/inventory/storage —
+     * it never had a row of its own) is persisted as a synthetic FAILED row
+     * when the newest row belongs to a finished import; otherwise the Client
+     * screen would keep showing stale history and the detached notification
+     * would collapse to "idle: 0/0 files". Mid-flight rows keep the
+     * re-stamp backstop.
      */
     fun journalFailure(failure: Throwable, treeUri: Uri? = null) {
         val current = journal.latest()
-        val id = current.importId
-        if (id == null) {
-            if (treeUri != null) {
-                journal.journalRejected(treeUri, failure.message ?: failure.javaClass.simpleName)
-            }
-            return
+        val detail = failure.message ?: failure.javaClass.simpleName
+        val rejectionWithoutRow = failure is ImportRejected && treeUri != null && (
+            current.importId == null ||
+                current.phase == ImportPhase.COMPLETE ||
+                current.phase == ImportPhase.CANCELLED ||
+                current.phase == ImportPhase.FAILED
+            )
+        when {
+            rejectionWithoutRow -> journal.journalRejected(treeUri, detail)
+            current.importId == null -> Unit
+            current.phase == ImportPhase.COMPLETE || current.phase == ImportPhase.CANCELLED -> Unit
+            else -> journal.fail(current.importId, detail)
         }
-        if (current.phase == ImportPhase.COMPLETE || current.phase == ImportPhase.CANCELLED) return
-        journal.fail(id, failure.message ?: failure.javaClass.simpleName)
     }
 
     fun dataCheckpoints(importId: String?): List<DataCheckpoint> =
