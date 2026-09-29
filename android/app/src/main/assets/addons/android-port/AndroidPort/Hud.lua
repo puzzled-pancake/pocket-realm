@@ -352,6 +352,11 @@ events:RegisterEvent("PLAYER_LEVEL_UP")
 -- Whisper traffic drives the tall conversation rect + burst chrome
 events:RegisterEvent("CHAT_MSG_WHISPER")
 events:RegisterEvent("CHAT_MSG_WHISPER_INFORM")
+-- Foldables change the client surface mid-session (inner/outer display
+-- transition). The engine signals that with a scale/layout event; re-assert
+-- on it so the enter-world rect is not left stale on the new geometry.
+-- pcall keeps engines without this event loadable.
+pcall(function() events:RegisterEvent("UI_SCALE_CHANGED") end)
 events:SetScript("OnEvent", function()
     -- Crash-bisection switch ("/ap off hud"): skip ALL world-entry work so
     -- a surviving crash genuinely exonerates this module.
@@ -360,17 +365,21 @@ events:SetScript("OnEvent", function()
         Hud:NoteWhisperActivity()
         return
     end
-    if event == "PLAYER_ENTERING_WORLD" or event == "UPDATE_CHAT_WINDOWS" then
+    if event == "PLAYER_ENTERING_WORLD" or event == "UPDATE_CHAT_WINDOWS" or event == "UI_SCALE_CHANGED" then
         -- The engine applies the saved chat rectangle after the load-time
         -- pass, silently dropping the window back onto the action cluster;
         -- schedule delayed re-asserts so our rect wins no matter the timing.
-        if event == "PLAYER_ENTERING_WORLD" then
+        -- A display transition (UI_SCALE_CHANGED after a fold/rotate)
+        -- re-schedules the same ladder so the rect re-wins on the new geometry.
+        if event ~= "UPDATE_CHAT_WINDOWS" then
             this.pendingReassert = { 1, 3, 7 }
             this.elapsed = 0
         end
         pcall(function() Hud:ApplyChatFrame() end)
     end
-    Hud:UpdateXPBar()
+    -- pcall guards Lua errors only; it is not crash protection. World entry
+    -- must never die halfway through the XP strip update.
+    pcall(function() Hud:UpdateXPBar() end)
 end)
 events:SetScript("OnUpdate", function()
     -- Decay: the resting rect returns once the conversation quiets and
