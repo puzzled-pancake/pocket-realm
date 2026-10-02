@@ -194,11 +194,22 @@ object ClientRuntimeContract {
         }
         return hasInfoLine("Game: $executableName") &&
             hasInfoLine("DXVK: v$dxvkVersion") &&
-            when (driverKind) {
-                VulkanDriverKind.SYSTEM -> text.contains("Vortek (")
-                VulkanDriverKind.TURNIP -> text.contains("Turnip Adreno")
-            }
+            hasArmDriverProof(text, driverKind)
     }
+
+    private fun hasArmDriverProof(text: String, driverKind: VulkanDriverKind): Boolean =
+        when (driverKind) {
+            VulkanDriverKind.SYSTEM -> text.contains("Vortek (")
+            // Older Turnip names the device "Turnip Adreno (TM) 740"; newer
+            // Mesa (e.g. 26.x on Adreno 8xx) reports "Adreno (TM) 840" and
+            // identifies itself only on DXVK's driver line.
+            VulkanDriverKind.TURNIP -> text.contains("Turnip Adreno") ||
+                text.lineSequence().any { line ->
+                    val normalized = line.trim()
+                    normalized.startsWith("info:") &&
+                        normalized.removePrefix("info:").trim().startsWith("Driver : turnip Mesa driver")
+                }
+        }
 
     /** DXVK strips a terminal .exe suffix when deriving its per-module log name. */
     fun armDxvkLogFileName(executableName: String): String {

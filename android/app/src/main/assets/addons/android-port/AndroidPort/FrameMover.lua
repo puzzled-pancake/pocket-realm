@@ -107,7 +107,16 @@ function Mover:CapturePoints(frame)
     local count = frame:GetNumPoints()
     for index = 1, count do
         local point, relativeTo, relativePoint, x, y = frame:GetPoint(index)
-        local relativeName = relativeTo and relativeTo.GetName and relativeTo:GetName() or nil
+        -- The anchor's relativeTo is engine-supplied and was never live-gated:
+        -- reading relativeTo.GetName on a freed frame faults the client
+        -- (ERROR #132 at 0x0070211C on first-run capture at world entry).
+        -- Only read through it once identity proves it is in the live walk;
+        -- anything else falls through to the absolute-centre journal below.
+        local host = AndroidPort
+        local relativeName = nil
+        if relativeTo and host and host.IsLiveFrameObject and host:IsLiveFrameObject(relativeTo) then
+            relativeName = relativeTo.GetName and relativeTo:GetName() or nil
+        end
         if point and relativeName and relativeWhitelist[relativeName] then
             tinsert(points, {
                 point = point,

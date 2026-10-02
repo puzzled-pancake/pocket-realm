@@ -230,8 +230,11 @@ def build_loader(cc: str, target: str, strip: str, objcopy: str, objdump: str,
     loader_cflags = ["-fPIC", "-ffreestanding"]
     if loader_arch_cflags:
         loader_cflags += loader_arch_cflags.split()
+    # max-page-size: the arm64 NDK default is already 16 KB, but the 32-bit ARM
+    # loader would otherwise get 4 KB PT_LOADs and fail Android's 16 KB ELF check.
     loader_ldflags = ["-static", "-nostdlib",
-                      f"-Wl,--build-id=none,-Ttext={loader_address},--rosegment,-z,noexecstack"]
+                      f"-Wl,--build-id=none,-Ttext={loader_address},--rosegment,-z,noexecstack",
+                      "-Wl,-z,max-page-size=0x4000"]
 
     suffix = "-m32" if m32 else ""
     loader_exe = build_dir / f"loader{suffix}.exe"

@@ -420,8 +420,14 @@ fun HomeScreen(
         // for the landscape home layout.
         val landscape = maxWidth > maxHeight
         if (landscape) {
+            // Scrolls like portrait: on short landscape displays (a 20:9
+            // phone is ~360dp tall) the cards would otherwise be clipped and
+            // squeezed, hiding the account card's Create button.
             Column(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 10.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 RealmControlCard(
