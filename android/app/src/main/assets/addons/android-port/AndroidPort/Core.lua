@@ -350,14 +350,21 @@ end
 -- their name is a member of this set.
 function AP:BuildLiveFrameSet()
     local live = {}
+    -- Identity set of every frame object the walk returned. Indexing this
+    -- table with a frame only hashes the key; it never reads through the
+    -- frame's __index, so it is safe to probe with a possibly-freed object
+    -- (e.g. the relativeTo a GetPoint returns).
+    local liveObjects = {}
     if type(EnumerateFrames) ~= "function" then
         self.liveFrameNames = live
+        self.liveFrameObjects = liveObjects
         return live
     end
     local frame = EnumerateFrames()
     local guard = 0
     while frame and guard < 6000 do
         guard = guard + 1
+        liveObjects[frame] = true
         if frame.GetName then
             local name = frame:GetName()
             if name and name ~= "" and getglobal(name) == frame then
@@ -367,7 +374,14 @@ function AP:BuildLiveFrameSet()
         frame = EnumerateFrames(frame)
     end
     self.liveFrameNames = live
+    self.liveFrameObjects = liveObjects
     return live
+end
+
+-- True only for a frame object seen in the most recent live walk; see
+-- BuildLiveFrameSet. Regions (textures, font strings) are never listed.
+function AP:IsLiveFrameObject(object)
+    return object ~= nil and self.liveFrameObjects ~= nil and self.liveFrameObjects[object] == true
 end
 
 -- Discover visible top-level windows by name. Anchors and drag never touch

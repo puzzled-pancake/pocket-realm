@@ -321,6 +321,12 @@ class AndroidPortAssetTest {
         // fall back to an absolute centre so a frame never becomes unrestorable.
         assertTrue(mover.contains("function Mover:CapturePoints(frame)"))
         assertTrue(mover.contains("local point, relativeTo, relativePoint, x, y = frame:GetPoint(index)"))
+        // The engine-supplied relativeTo is only read through after an identity
+        // check against the live frame walk (reading a freed frame faults the
+        // client at world entry, ERROR #132 at 0x0070211C).
+        assertTrue(mover.contains("host:IsLiveFrameObject(relativeTo)"))
+        assertTrue(core.contains("liveObjects[frame] = true"))
+        assertTrue(core.contains("function AP:IsLiveFrameObject(object)"))
         assertTrue(mover.contains("function Mover:IsValidSavedFrame(saved)"))
         assertTrue(mover.contains("function Mover:ApplySavedFrame(frame, saved)"))
         assertTrue(mover.contains("function Mover:RestoreFrames()"))
